@@ -335,6 +335,71 @@ fn equal_stakes_exceeding_reward_slots_are_not_all_zeroed() {
 }
 
 #[test]
+fn equivalent_inputs_are_permutation_invariant() {
+    let pox_constants = test_pox_constants(7);
+    let entries = vec![
+        RawPox5Entry {
+            signer_key: signer_key(0x03),
+            amount_ustx: 17_000_000,
+        },
+        RawPox5Entry {
+            signer_key: signer_key(0x01),
+            amount_ustx: 11_000_000,
+        },
+        RawPox5Entry {
+            signer_key: signer_key(0x02),
+            amount_ustx: 5_000_000,
+        },
+        RawPox5Entry {
+            signer_key: signer_key(0x01),
+            amount_ustx: 13_000_000,
+        },
+        RawPox5Entry {
+            signer_key: signer_key(0x04),
+            amount_ustx: 1,
+        },
+        RawPox5Entry {
+            signer_key: signer_key(0x02),
+            amount_ustx: 19_000_000,
+        },
+    ];
+
+    let mut original_iter = entries.clone().into_iter().map(Ok);
+    let original = NakamotoSigners::pox_5_make_signer_set(&mut original_iter, &pox_constants)
+        .expect("original order should build signer set");
+
+    let mut reversed = entries.clone();
+    reversed.reverse();
+    let mut reversed_iter = reversed.into_iter().map(Ok);
+    let reversed_output =
+        NakamotoSigners::pox_5_make_signer_set(&mut reversed_iter, &pox_constants)
+            .expect("reversed order should build signer set");
+
+    let mut rotated = entries;
+    rotated.rotate_left(2);
+    let mut rotated_iter = rotated.into_iter().map(Ok);
+    let rotated_output = NakamotoSigners::pox_5_make_signer_set(&mut rotated_iter, &pox_constants)
+        .expect("rotated order should build signer set");
+
+    assert_eq!(
+        original.pox_ustx_threshold, reversed_output.pox_ustx_threshold,
+        "threshold changed after reversing equivalent input"
+    );
+    assert_eq!(
+        original.signer_set, reversed_output.signer_set,
+        "signer set changed after reversing equivalent input"
+    );
+    assert_eq!(
+        original.pox_ustx_threshold, rotated_output.pox_ustx_threshold,
+        "threshold changed after rotating equivalent input"
+    );
+    assert_eq!(
+        original.signer_set, rotated_output.signer_set,
+        "signer set changed after rotating equivalent input"
+    );
+}
+
+#[test]
 fn skip_errors_drop_entry_but_continue() {
     let pox_constants = test_pox_constants(1_000);
     let key_a = signer_key(0x01);
