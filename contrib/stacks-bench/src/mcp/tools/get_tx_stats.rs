@@ -36,8 +36,8 @@ pub struct GetTxStatsParams {
     limit: Option<i64>,
 }
 
-#[derive(Serialize)]
-struct TxStatsJson {
+#[derive(Serialize, schemars::JsonSchema)]
+pub(crate) struct TxStatsJson {
     tx_hash: String,
     tx_type: String,
     block_height: i64,
@@ -48,9 +48,11 @@ struct TxStatsJson {
     clarity_write_length: i32,
     clarity_write_count: i32,
 }
+crate::wire::wire_payload!(Vec<TxStatsJson>, "tx_stats", 1);
 
 impl StacksBenchServer {
     pub async fn query_tx_stats(&self, params: &GetTxStatsParams) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let offset = params.offset.unwrap_or(0);
         let limit = params.limit.unwrap_or(50).min(200);
 
@@ -74,7 +76,6 @@ impl StacksBenchServer {
             })
             .collect();
 
-        serde_json::to_string_pretty(&results)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize tx stats: {e}"))
+        super::tool_envelope(&results, started.elapsed().as_secs_f64())
     }
 }

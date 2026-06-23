@@ -22,7 +22,8 @@
 
 mod resources;
 pub mod server;
-mod tools;
+// `pub(crate)` so the wire-schema generator can reach each tool's result DTO.
+pub(crate) mod tools;
 
 use rmcp::ServiceExt as _;
 use server::StacksBenchServer;

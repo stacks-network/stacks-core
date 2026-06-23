@@ -20,13 +20,41 @@ use anyhow::Result;
 use serde::Serialize;
 use stacks_bench::db::app::AppDb;
 
-/// A type-erased serializable command output.
+use crate::wire::WirePayload;
+
+/// A type-erased serializable command output that still carries its wire
+/// discriminator and version, captured from the concrete leaf type *before*
+/// erasure (via [`boxed`]). This lets [`Cli::exec`] tag the `--json`
+/// [`CommandResult`](crate::wire::CommandResult) envelope with the correct
+/// `result_type` / `result_version` even though the concrete type is gone.
 ///
-/// Intermediate dispatchers use this as their [`ExecCommand::Output`] type
-/// to hold heterogeneous leaf results without knowing their concrete types.
-/// Serialization is deferred until [`Cli::exec`] wraps the result in the
-/// [`CommandResult`] envelope.
-pub type BoxedOutput = Box<dyn erased_serde::Serialize + Send>;
+/// Intermediate dispatchers use this as their [`ExecCommand::Output`] type to
+/// hold heterogeneous leaf results without naming their concrete types.
+pub struct BoxedOutput {
+    payload: Box<dyn erased_serde::Serialize + Send>,
+    result_type: &'static str,
+    result_version: u32,
+}
+
+impl WirePayload for BoxedOutput {
+    fn result_type(&self) -> &'static str {
+        self.result_type
+    }
+    fn result_version(&self) -> u32 {
+        self.result_version
+    }
+}
+
+impl Serialize for BoxedOutput {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        // `Box<dyn erased_serde::Serialize + Send>` implements `serde::Serialize`
+        // via erased-serde's trait-object impl; delegate straight through.
+        self.payload.serialize(serializer)
+    }
+}
 
 /// Trait implemented by every command (leaf or intermediate) to provide a
 /// single execution entry point with a typed, serializable result.
@@ -36,59 +64,24 @@ pub type BoxedOutput = Box<dyn erased_serde::Serialize + Send>;
 /// their result. The result is always returned regardless of output mode.
 ///
 /// Leaf commands set `Output` to their own concrete type (e.g.
-/// `Vec<RunJson>`). Intermediate dispatchers set `Output` to
-/// [`BoxedOutput`] and wrap leaf results with [`boxed`].
+/// `Vec<RunJson>`), which must implement [`WirePayload`]. Intermediate
+/// dispatchers set `Output` to [`BoxedOutput`] and wrap leaf results with
+/// [`boxed`].
 pub trait ExecCommand: Sync {
-    type Output: erased_serde::Serialize + Send;
+    type Output: WirePayload + erased_serde::Serialize + Send;
     fn exec(&self, ctx: &CliContext) -> impl Future<Output = Result<Self::Output>> + Send;
 }
 
 /// Wrap a concrete [`ExecCommand::Output`] into a [`BoxedOutput`] for use by
-/// intermediate dispatchers.
-pub fn boxed<T: erased_serde::Serialize + Send + 'static>(value: T) -> BoxedOutput {
-    Box::new(value)
-}
-
-/// Envelope for structured JSON output in `--json` mode.
-///
-/// Every command's result is wrapped in this consistent structure so that
-/// agents can rely on a predictable top-level schema regardless of which
-/// subcommand was invoked.
-#[derive(Serialize)]
-pub struct CommandResult {
-    pub success: bool,
-    pub duration_secs: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<serde_json::Value>,
-}
-
-impl CommandResult {
-    /// Wrap a successful command output in the envelope.
-    pub fn ok(data: &dyn erased_serde::Serialize, duration_secs: f64) -> Result<Self> {
-        Ok(Self {
-            success: true,
-            duration_secs,
-            error: None,
-            data: Some(serialize_erased(data)?),
-        })
-    }
-
-    /// Wrap an error in the envelope.
-    pub fn err(error: &anyhow::Error, duration_secs: f64) -> Self {
-        Self {
-            success: false,
-            duration_secs,
-            error: Some(format!("{error:#}")),
-            data: None,
-        }
-    }
-
-    /// Serialize and print this envelope to stdout.
-    pub fn print(&self) -> Result<()> {
-        println!("{}", serde_json::to_string_pretty(self)?);
-        Ok(())
+/// intermediate dispatchers, capturing its [`WirePayload`] discriminator and
+/// version before erasing the concrete type.
+pub fn boxed<T: WirePayload + erased_serde::Serialize + Send + 'static>(value: T) -> BoxedOutput {
+    let result_type = value.result_type();
+    let result_version = value.result_version();
+    BoxedOutput {
+        payload: Box::new(value),
+        result_type,
+        result_version,
     }
 }
 

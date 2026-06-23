@@ -21,7 +21,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use stacks_bench::{Network, StacksBlockRef};
 
-use crate::cli::common::{CliContext, ExecCommand, run_indexer_progress_ui};
+use crate::cli::common::{
+    CliContext, ExecCommand, run_indexer_json_progress, run_indexer_progress_ui,
+};
 use crate::commands::chainstate::index::ChainstateIndexParams;
 // Re-export for use by other CLI consumers
 pub use crate::commands::chainstate::index::IndexResult;
@@ -102,6 +104,10 @@ impl ExecCommand for IndexArgs {
         let indexer_ui: IndexerUiSpawner = if ctx.interactive() {
             Box::new(|rx, start, end, tip| {
                 tokio::spawn(run_indexer_progress_ui(rx, start, end, tip))
+            })
+        } else if ctx.json() {
+            Box::new(|rx, start, end, tip| {
+                tokio::spawn(run_indexer_json_progress(rx, start, end, tip))
             })
         } else {
             crate::commands::common::silent_indexer_ui()

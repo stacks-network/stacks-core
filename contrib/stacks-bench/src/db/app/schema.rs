@@ -158,6 +158,7 @@ table! {
         id -> Integer,
         run_name -> Nullable<Text>,
         chainstate_id -> Integer,
+        baseline_calibration_id -> Nullable<Integer>,
         git_commit_hash -> Binary,
         start_time -> Timestamp,
         end_time -> Nullable<Timestamp>,
@@ -170,6 +171,29 @@ table! {
         build_rustc_version -> Text,
         git_branch -> Nullable<Text>,
         git_dirty -> Nullable<Bool>,
+    }
+}
+
+table! {
+    baseline_calibration (id) {
+        id -> Integer,
+        chainstate_id -> Integer,
+        created_at -> Timestamp,
+        git_commit_hash -> Binary,
+        args_json -> Text,
+        start_parent_index_hash -> Binary,
+        warmup_blocks -> Integer,
+        measured_blocks -> Integer,
+        avg_setup_us -> Integer,
+        avg_finalize_us -> Integer,
+        avg_clarity_commit_us -> Integer,
+        avg_advance_tip_us -> Integer,
+        avg_index_commit_us -> Integer,
+        converged -> Bool,
+        segments_used -> Integer,
+        measurement_window -> Integer,
+        total_blocks -> Integer,
+        duration_us -> BigInt,
     }
 }
 
@@ -339,6 +363,8 @@ table! {
 joinable!(chainstate -> network (network_id));
 joinable!(epoch -> chainstate (chainstate_id));
 joinable!(benchmark_run -> chainstate (chainstate_id));
+joinable!(benchmark_run -> baseline_calibration (baseline_calibration_id));
+joinable!(baseline_calibration -> chainstate (chainstate_id));
 joinable!(stacks_block -> burn_block (burn_block_id));
 joinable!(synthetic_block -> stacks_block (stacks_block_id));
 joinable!(stacks_tx -> stacks_block (stacks_block_id));
@@ -378,6 +404,7 @@ allow_tables_to_appear_in_same_query!(
     synthetic_block,
     stacks_tx,
     benchmark_run,
+    baseline_calibration,
     block_processing_baseline,
     stacks_block_stats,
     stacks_tx_stats,

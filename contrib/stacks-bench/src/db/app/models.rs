@@ -21,9 +21,9 @@ use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, Sta
 
 use super::schema::{
     _staged_profiler_record_clarity_costs, _staged_profiler_record_kv, _staged_stacks_block,
-    _staged_stacks_tx, benchmark_run, block_processing_baseline, burn_block, chainstate, epoch,
-    network, profiler_location, profiler_record, profiler_record_clarity_costs, profiler_span,
-    stacks_block, stacks_block_stats, stacks_tx, stacks_tx_stats,
+    _staged_stacks_tx, baseline_calibration, benchmark_run, block_processing_baseline, burn_block,
+    chainstate, epoch, network, profiler_location, profiler_record, profiler_record_clarity_costs,
+    profiler_span, stacks_block, stacks_block_stats, stacks_tx, stacks_tx_stats,
 };
 use crate::ResolveEpochFromHeight;
 use crate::db::app::schema::{
@@ -253,6 +253,7 @@ pub struct BenchmarkRun {
     pub id: i32,
     pub run_name: Option<String>,
     pub chainstate_id: i32,
+    pub baseline_calibration_id: Option<i32>,
     pub git_commit_hash: Vec<u8>,
     pub start_time: NaiveDateTime,
     pub end_time: Option<NaiveDateTime>,
@@ -265,6 +266,30 @@ pub struct BenchmarkRun {
     pub build_rustc_version: String,
     pub git_branch: Option<String>,
     pub git_dirty: Option<bool>,
+}
+
+#[derive(Insertable, Queryable, Selectable, Identifiable, Associations, Debug, Clone)]
+#[diesel(belongs_to(Chainstate))]
+#[diesel(table_name = baseline_calibration)]
+pub struct BaselineCalibration {
+    pub id: i32,
+    pub chainstate_id: i32,
+    pub created_at: NaiveDateTime,
+    pub git_commit_hash: Vec<u8>,
+    pub args_json: String,
+    pub start_parent_index_hash: Vec<u8>,
+    pub warmup_blocks: i32,
+    pub measured_blocks: i32,
+    pub avg_setup_us: i32,
+    pub avg_finalize_us: i32,
+    pub avg_clarity_commit_us: i32,
+    pub avg_advance_tip_us: i32,
+    pub avg_index_commit_us: i32,
+    pub converged: bool,
+    pub segments_used: i32,
+    pub measurement_window: i32,
+    pub total_blocks: i32,
+    pub duration_us: i64,
 }
 
 #[derive(Insertable, Queryable, Selectable, Identifiable, Associations, Debug, Clone)]

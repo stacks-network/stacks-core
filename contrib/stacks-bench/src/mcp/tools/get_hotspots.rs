@@ -30,8 +30,8 @@ pub struct GetHotspotsParams {
     limit: Option<usize>,
 }
 
-#[derive(Serialize)]
-struct HotSpanJson {
+#[derive(Serialize, schemars::JsonSchema)]
+pub(crate) struct HotSpanJson {
     rank: usize,
     span_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,9 +45,11 @@ struct HotSpanJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     line: Option<i32>,
 }
+crate::wire::wire_payload!(Vec<HotSpanJson>, "hotspots", 1);
 
 impl StacksBenchServer {
     pub async fn query_hotspots(&self, params: &GetHotspotsParams) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let limit = params.limit.unwrap_or(25);
         let spans = self
             .app_db
@@ -70,7 +72,6 @@ impl StacksBenchServer {
             })
             .collect();
 
-        serde_json::to_string_pretty(&results)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize hotspots: {e}"))
+        super::tool_envelope(&results, started.elapsed().as_secs_f64())
     }
 }

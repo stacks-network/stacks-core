@@ -28,15 +28,17 @@ pub struct DeleteRunParams {
     pub run_id: i32,
 }
 
-#[derive(Serialize)]
-struct DeleteRunResult {
+#[derive(Serialize, schemars::JsonSchema)]
+pub(crate) struct DeleteRunResult {
     deleted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     message: Option<String>,
 }
+crate::wire::wire_payload!(DeleteRunResult, "run_delete", 1);
 
 impl StacksBenchServer {
     pub async fn exec_delete_run(&self, params: &DeleteRunParams) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let mut db = self.app_db.clone();
         let result = match db.delete_benchmark_run(params.run_id).await {
             Ok(()) => {
@@ -60,6 +62,6 @@ impl StacksBenchServer {
                 }
             }
         };
-        Ok(serde_json::to_string(&result)?)
+        super::tool_envelope(&result, started.elapsed().as_secs_f64())
     }
 }

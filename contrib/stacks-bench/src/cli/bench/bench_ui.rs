@@ -29,7 +29,8 @@ use tokio::sync::mpsc;
 
 use crate::cli::common::{Align, Table, fmt_u64_thousands};
 
-const PROGRESS_BAR_TEMPLATE: &str = "{msg:20} {percent:>3}% |{bar:30.cyan/blue}| {pos:>8}/{len} • {per_sec:<6!} blk/s • ETA {eta_precise}";
+const BASELINE_PROGRESS_BAR_TEMPLATE: &str = "{msg:20} {percent:>3}% |{bar:30.cyan/blue}| {pos:>8}/{len} • {per_sec:<6!} blk/s • ETA {eta_precise}";
+const REPLAY_PROGRESS_BAR_TEMPLATE: &str = "{msg:20} {percent:>3}% |{bar:30.cyan/blue}| {pos:>8}/{len} • {per_sec:<6!} entry/s • ETA {eta_precise}";
 
 /// Drive the interactive cliclack UI by consuming [`BenchEvent`]s.
 ///
@@ -66,6 +67,7 @@ struct BenchRenderer {
     replay_multi: Option<cliclack::MultiProgress>,
     warmup_pb: Option<cliclack::ProgressBar>,
     replay_pb: Option<cliclack::ProgressBar>,
+    replay_measured_started: bool,
 
     // Cleanup phase
     cleanup_multi: Option<cliclack::MultiProgress>,
@@ -168,6 +170,38 @@ impl BenchRenderer {
                 }
                 cliclack::note("Environment Summary", lines)?;
             }
+            BenchEvent::ModeSummary(summary) => {
+                let mut table = Table::new()
+                    .col("Field", Align::Left)
+                    .col("Value", Align::Left);
+                table.row(vec!["Mode".into(), summary.mode]);
+                table.row(vec!["Target Mode".into(), summary.target_mode]);
+                table.row(vec![
+                    "Targets".into(),
+                    fmt_u64_thousands(summary.logical_targets as u64),
+                ]);
+                table.row(vec![
+                    "Warmup".into(),
+                    format!(
+                        "{} per target ({} total)",
+                        fmt_u64_thousands(summary.warmup_per_target as u64),
+                        fmt_u64_thousands(summary.warmup_entries as u64)
+                    ),
+                ]);
+                table.row(vec![
+                    "Measured".into(),
+                    format!(
+                        "{} per target ({} total)",
+                        fmt_u64_thousands(summary.measured_per_target as u64),
+                        fmt_u64_thousands(summary.measured_entries as u64)
+                    ),
+                ]);
+                table.row(vec!["Sample Unit".into(), summary.sample_unit]);
+                table.row(vec!["Baseline".into(), summary.baseline_mode]);
+                table.row(vec!["Ordering".into(), summary.ordering]);
+                table.row(vec!["Isolation".into(), summary.isolation]);
+                cliclack::note("Benchmark Plan", table.to_string())?;
+            }
 
             // --- Baseline ---
             BenchEvent::BaselineStarted {
@@ -179,8 +213,10 @@ impl BenchRenderer {
                     cliclack::multi_progress("Calculating block processing overhead baseline");
 
                 let max_blocks = u64::from(segment_size) * u64::from(max_segments);
-                let pb = multi
-                    .add(cliclack::progress_bar(max_blocks).with_template(PROGRESS_BAR_TEMPLATE));
+                let pb = multi.add(
+                    cliclack::progress_bar(max_blocks)
+                        .with_template(BASELINE_PROGRESS_BAR_TEMPLATE),
+                );
                 pb.start("Sampling empty blocks (auto-stops on convergence)");
                 self.baseline_pb = Some(pb);
                 self.baseline_last_convergence_pct = None;
@@ -255,32 +291,53 @@ impl BenchRenderer {
                     ),
                 )?;
             }
+            BenchEvent::BaselineReused {
+                calibration_id,
+                start_parent_index_hash,
+            } => {
+                cliclack::note(
+                    "Baseline",
+                    format!(
+                        "Reusing calibration #{calibration_id}\nAnchor: {start_parent_index_hash}"
+                    ),
+                )?;
+            }
+            BenchEvent::BaselineSkipped => {
+                cliclack::note(
+                    "Baseline",
+                    "Skipped empty-block overhead baseline calibration for this run.",
+                )?;
+            }
 
             // --- Replay ---
             BenchEvent::ReplayStarted {
-                total_blocks,
-                warmup_blocks,
+                total_entries,
+                warmup_entries,
                 mode,
             } => {
-                let measured = total_blocks - warmup_blocks;
+                let measured = total_entries - warmup_entries;
                 let multi = cliclack::multi_progress(format!(
-                    "Re-executing {measured} blocks in {mode} mode"
+                    "Re-executing {measured} measured entries in {mode} mode"
                 ));
 
-                if warmup_blocks > 0 {
+                if warmup_entries > 0 {
                     let pb = multi.add(
-                        cliclack::progress_bar(warmup_blocks as u64)
-                            .with_template(PROGRESS_BAR_TEMPLATE),
+                        cliclack::progress_bar(warmup_entries as u64)
+                            .with_template(REPLAY_PROGRESS_BAR_TEMPLATE),
                     );
                     pb.start("Warming up");
                     self.warmup_pb = Some(pb);
                 }
 
                 let pb = multi.add(
-                    cliclack::progress_bar(measured as u64).with_template(PROGRESS_BAR_TEMPLATE),
+                    cliclack::progress_bar(measured as u64)
+                        .with_template(REPLAY_PROGRESS_BAR_TEMPLATE),
                 );
-                if warmup_blocks == 0 {
-                    pb.start("Replaying measured blocks...");
+                if warmup_entries == 0 {
+                    pb.start("Replaying measured entries...");
+                    self.replay_measured_started = true;
+                } else {
+                    self.replay_measured_started = false;
                 }
                 self.replay_pb = Some(pb);
                 self.replay_multi = Some(multi);
@@ -291,22 +348,29 @@ impl BenchRenderer {
                 }
             }
             BenchEvent::ReplayWarmupComplete {
-                warmup_blocks,
+                warmup_entries,
                 duration,
             } => {
                 if let Some(pb) = self.warmup_pb.take() {
                     pb.stop(fmt_success!(
-                        "Warmup complete ({} blocks in {:.2}s)",
-                        warmup_blocks,
+                        "Warmup complete ({} entries in {:.2}s)",
+                        warmup_entries,
                         duration.as_secs_f32()
                     ));
                 }
-                if let Some(ref pb) = self.replay_pb {
-                    pb.start("Replaying measured blocks...");
+                if let Some(ref pb) = self.replay_pb
+                    && !self.replay_measured_started
+                {
+                    pb.start("Replaying measured entries...");
+                    self.replay_measured_started = true;
                 }
             }
             BenchEvent::ReplayProgress { completed, .. } => {
                 if let Some(ref pb) = self.replay_pb {
+                    if !self.replay_measured_started {
+                        pb.start("Replaying measured entries...");
+                        self.replay_measured_started = true;
+                    }
                     pb.set_position(completed as u64);
                 }
             }
@@ -319,13 +383,13 @@ impl BenchRenderer {
                 }
             }
             BenchEvent::ReplayComplete {
-                measured_blocks,
+                measured_entries,
                 duration,
             } => {
                 if let Some(pb) = self.replay_pb.take() {
                     pb.stop(fmt_success!(
-                        "Replayed {} blocks in {:.2}s",
-                        measured_blocks,
+                        "Replayed {} measured entries in {:.2}s",
+                        measured_entries,
                         duration.as_secs_f32()
                     ));
                 }
@@ -343,9 +407,9 @@ impl BenchRenderer {
 
             // --- Summary ---
             BenchEvent::ReplaySummary {
-                total_blocks,
-                warmup_blocks,
-                measured_blocks,
+                total_entries,
+                warmup_entries,
+                measured_entries,
                 total_duration,
                 warmup_duration,
                 replay_duration,
@@ -360,14 +424,16 @@ impl BenchRenderer {
                     .col("Metric", Align::Left)
                     .col("Value", Align::Right);
                 table.row(vec![
-                    "Blocks".into(),
-                    format!("{total_blocks} ({warmup_blocks} warmup + {measured_blocks} measured)"),
+                    "Entries".into(),
+                    format!(
+                        "{total_entries} ({warmup_entries} warmup + {measured_entries} measured)"
+                    ),
                 ]);
                 table.row(vec![
                     "Total Duration".into(),
                     format!("{total_duration:.2?}"),
                 ]);
-                if warmup_blocks > 0 {
+                if warmup_entries > 0 {
                     table.row(vec![
                         "Warmup Replay".into(),
                         format!("{warmup_duration:.2?}"),
@@ -407,10 +473,10 @@ impl BenchRenderer {
                 ]);
                 table.row(vec!["  Other".into(), format!("{other_overhead:.2?}")]);
                 if interrupted {
-                    let planned = total_blocks - warmup_blocks;
+                    let planned = total_entries - warmup_entries;
                     table.row(vec![
                         "Status".into(),
-                        format!("INTERRUPTED ({measured_blocks}/{planned} measured blocks)"),
+                        format!("INTERRUPTED ({measured_entries}/{planned} measured entries)"),
                     ]);
                 }
                 cliclack::note("Replay Summary", table.to_string())?;

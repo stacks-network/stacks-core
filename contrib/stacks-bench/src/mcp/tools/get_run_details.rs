@@ -30,8 +30,8 @@ pub struct GetRunDetailsParams {
     hotspot_limit: Option<usize>,
 }
 
-#[derive(Serialize)]
-struct RunDetailsJson {
+#[derive(Serialize, schemars::JsonSchema)]
+pub(crate) struct RunDetailsJson {
     id: i32,
     name: Option<String>,
     chainstate_id: i32,
@@ -43,8 +43,9 @@ struct RunDetailsJson {
     summary: Option<DetailedSummaryJson>,
     hotspots: Vec<HotSpanJson>,
 }
+crate::wire::wire_payload!(RunDetailsJson, "run_details", 1);
 
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 struct DetailedSummaryJson {
     block_count: u64,
     total_duration_us: u64,
@@ -60,7 +61,7 @@ struct DetailedSummaryJson {
     total_storage_delta: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 struct HotSpanJson {
     span_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,6 +78,7 @@ struct HotSpanJson {
 
 impl StacksBenchServer {
     pub async fn query_run_details(&self, params: &GetRunDetailsParams) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let run = self
             .app_db
             .get_benchmark_run(params.run_id)
@@ -137,7 +139,6 @@ impl StacksBenchServer {
             hotspots,
         };
 
-        serde_json::to_string_pretty(&result)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize run details: {e}"))
+        super::tool_envelope(&result, started.elapsed().as_secs_f64())
     }
 }

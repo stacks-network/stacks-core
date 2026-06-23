@@ -50,7 +50,7 @@ pub enum SortField {
 }
 
 /// JSON serialization shape for a benchmark run.
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub struct RunJson {
     pub id: i32,
     pub name: Option<String>,
@@ -63,9 +63,11 @@ pub struct RunJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<RunSummaryJson>,
 }
+// The `bench list` payload is the bare `Vec<RunJson>`; tag the collection.
+crate::wire::wire_payload!(Vec<RunJson>, "run_list", 1);
 
 /// Inline summary metrics for a benchmark run in list output.
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, schemars::JsonSchema)]
 pub struct RunSummaryJson {
     pub blocks: u64,
     pub total_duration_us: u64,

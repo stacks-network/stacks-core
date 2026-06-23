@@ -18,6 +18,8 @@ use clap::Parser as _;
 mod cli;
 mod commands;
 mod mcp;
+mod schema_gen;
+mod wire;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

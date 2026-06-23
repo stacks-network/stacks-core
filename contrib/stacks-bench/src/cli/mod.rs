@@ -25,8 +25,9 @@ use console::style;
 use stacks_bench::db::app::AppDb;
 use stacks_bench::paths::AppDataDir;
 
-use crate::cli::common::{CliContext, CommandResult, ExecCommand, serialize_erased};
+use crate::cli::common::{CliContext, ExecCommand, serialize_erased};
 use crate::mcp::McpArgs;
+use crate::wire::{CommandResult, WirePayload};
 
 #[macro_use]
 pub mod common;
@@ -62,13 +63,18 @@ pub struct Cli {
     pub command: Commands,
 }
 
-/// Execute a command and serialize its output.
+/// Execute a command and serialize its output, returning the payload's wire
+/// discriminator and version alongside its JSON value. This is the single
+/// point where typed command outputs are converted to JSON; [`Cli::exec`]
+/// wraps the tuple in the versioned [`CommandResult`] envelope.
 async fn run_command(
     cmd: &(impl ExecCommand + ?Sized),
     ctx: &CliContext,
-) -> Result<serde_json::Value> {
+) -> Result<(&'static str, u32, serde_json::Value)> {
     let output = cmd.exec(ctx).await?;
-    serialize_erased(&output)
+    let result_type = output.result_type();
+    let result_version = output.result_version();
+    Ok((result_type, result_version, serialize_erased(&output)?))
 }
 
 impl Cli {
@@ -115,9 +121,11 @@ impl Cli {
         let duration_secs = started_at.elapsed().as_secs_f64();
 
         if self.json {
-            let envelope = match result {
-                Ok(ref data) => CommandResult::ok(data, duration_secs)?,
-                Err(ref e) => CommandResult::err(e, duration_secs),
+            let envelope = match &result {
+                Ok((result_type, result_version, value)) => {
+                    CommandResult::ok(result_type, *result_version, value.clone(), duration_secs)
+                }
+                Err(e) => CommandResult::err(e, duration_secs),
             };
             envelope.print()?;
             return result.map(|_| ());

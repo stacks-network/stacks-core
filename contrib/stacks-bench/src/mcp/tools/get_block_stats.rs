@@ -33,8 +33,8 @@ pub struct GetBlockStatsParams {
     limit: Option<i64>,
 }
 
-#[derive(Serialize)]
-struct BlockStatsJson {
+#[derive(Serialize, schemars::JsonSchema)]
+pub(crate) struct BlockStatsJson {
     height: i64,
     block_id: String,
     total_duration_us: i32,
@@ -49,9 +49,11 @@ struct BlockStatsJson {
     clarity_write_count: i32,
     total_storage_delta: i64,
 }
+crate::wire::wire_payload!(Vec<BlockStatsJson>, "block_stats", 1);
 
 impl StacksBenchServer {
     pub async fn query_block_stats(&self, params: &GetBlockStatsParams) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let offset = params.offset.unwrap_or(0);
         let limit = params.limit.unwrap_or(50).min(200);
 
@@ -79,7 +81,6 @@ impl StacksBenchServer {
             })
             .collect();
 
-        serde_json::to_string_pretty(&results)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize block stats: {e}"))
+        super::tool_envelope(&results, started.elapsed().as_secs_f64())
     }
 }

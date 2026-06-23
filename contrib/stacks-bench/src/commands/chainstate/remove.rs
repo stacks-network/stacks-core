@@ -17,11 +17,12 @@ use anyhow::Result;
 use serde::Serialize;
 use stacks_bench::db::app::{AppDb, CheckpointMode};
 
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub struct RemoveResult {
     pub deleted_chainstate_ids: Vec<i32>,
     pub message: String,
 }
+crate::wire::wire_payload!(RemoveResult, "chainstate_remove", 1);
 
 /// Delete the given chainstates and optionally run checkpoint + vacuum.
 ///

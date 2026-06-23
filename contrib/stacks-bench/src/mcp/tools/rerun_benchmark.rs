@@ -43,6 +43,7 @@ impl StacksBenchServer {
         client: Peer<RoleServer>,
         context: rmcp::service::RequestContext<RoleServer>,
     ) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let app_db = &self.app_db;
 
         let run = app_db
@@ -99,6 +100,6 @@ impl StacksBenchServer {
         )
         .await?;
 
-        Ok(serde_json::to_string(&result)?)
+        super::tool_envelope(&result, started.elapsed().as_secs_f64())
     }
 }

@@ -15,19 +15,21 @@
 
 //! MCP tool registration.
 
-mod compare_runs;
-mod delete_chainstate;
-mod delete_run;
-mod get_block_stats;
-mod get_chainstate;
-mod get_hotspots;
-mod get_run_details;
-mod get_tx_stats;
-mod index_chainstate;
-mod list_chainstates;
-mod list_runs;
-mod rerun_benchmark;
-mod run_benchmark;
+// Tool submodules are `pub(crate)` so the wire-schema generator
+// (`crate::wire::schema`) can reach each tool's result DTO by path.
+pub(crate) mod compare_runs;
+pub(crate) mod delete_chainstate;
+pub(crate) mod delete_run;
+pub(crate) mod get_block_stats;
+pub(crate) mod get_chainstate;
+pub(crate) mod get_hotspots;
+pub(crate) mod get_run_details;
+pub(crate) mod get_tx_stats;
+pub(crate) mod index_chainstate;
+pub(crate) mod list_chainstates;
+pub(crate) mod list_runs;
+pub(crate) mod rerun_benchmark;
+pub(crate) mod run_benchmark;
 
 use compare_runs::CompareRunsParams;
 use delete_chainstate::DeleteChainstateParams;
@@ -49,6 +51,23 @@ use rmcp::{Peer, RoleServer, tool, tool_router};
 use run_benchmark::RunBenchmarkParams;
 
 use super::server::StacksBenchServer;
+
+/// Wrap a typed MCP tool payload in the same versioned
+/// [`CommandResult`](crate::wire::CommandResult) envelope used by `--json`,
+/// then serialize it to a pretty JSON string. This keeps the MCP and CLI
+/// wire contracts identical: a consumer parses the frozen header
+/// (`schema_version`, `result_type`, `result_version`, ...) the same way on
+/// both surfaces.
+///
+/// `duration_secs` is the tool call's wall time, which each tool measures from
+/// its own entry — mirroring how the CLI measures command wall time at the
+/// dispatch boundary.
+pub(super) fn tool_envelope<T>(data: &T, duration_secs: f64) -> anyhow::Result<String>
+where
+    T: crate::wire::WirePayload + serde::Serialize,
+{
+    crate::wire::CommandResult::from_payload(data, duration_secs)?.to_json_string()
+}
 
 impl StacksBenchServer {
     /// Build the MCP tool router.

@@ -985,6 +985,19 @@ impl AppDb {
             .context("Failed to create benchmark run")
     }
 
+    pub async fn link_benchmark_run_baseline(
+        &mut self,
+        run_id: i32,
+        calibration_id: Option<i32>,
+    ) -> Result<()> {
+        diesel::update(benchmark_run::table.find(run_id))
+            .set(benchmark_run::baseline_calibration_id.eq(calibration_id))
+            .execute(&mut self.get_conn().await?)
+            .await
+            .context("Failed to link benchmark run baseline calibration")?;
+        Ok(())
+    }
+
     pub async fn finish_benchmark_run(&mut self, run_id: i32, end_ts: NaiveDateTime) -> Result<()> {
         diesel::update(benchmark_run::table.find(run_id))
             .set(benchmark_run::end_time.eq(end_ts))
@@ -2200,28 +2213,109 @@ impl AppDb {
         measured_blocks: u32,
         baseline: &crate::metrics::BlockProcessingBaseline,
     ) -> Result<()> {
+        self.insert_block_processing_baseline_row(BlockProcessingBaselineRow {
+            benchmark_run_id: run_id,
+            start_parent_index_hash: start_parent.as_bytes().to_vec(),
+            warmup_blocks: warmup_blocks as i32,
+            measured_blocks: measured_blocks as i32,
+            avg_setup_us: baseline.avg_setup_duration.as_micros() as i32,
+            avg_finalize_us: baseline.avg_finalize_duration.as_micros() as i32,
+            avg_clarity_commit_us: baseline.avg_clarity_state_commit_duration.as_micros() as i32,
+            avg_advance_tip_us: baseline.avg_advance_tip_duration.as_micros() as i32,
+            avg_index_commit_us: baseline.avg_index_commit_duration.as_micros() as i32,
+        })
+        .await
+    }
+
+    pub async fn save_baseline_calibration(
+        &mut self,
+        chainstate_id: i32,
+        created_at: NaiveDateTime,
+        git_commit_hash: Vec<u8>,
+        args_json: String,
+        start_parent: &StacksBlockId,
+        outcome: &crate::baseline::BaselineOutcome,
+    ) -> Result<BaselineCalibration> {
+        diesel::insert_into(baseline_calibration::table)
+            .values((
+                baseline_calibration::chainstate_id.eq(chainstate_id),
+                baseline_calibration::created_at.eq(created_at),
+                baseline_calibration::git_commit_hash.eq(git_commit_hash),
+                baseline_calibration::args_json.eq(args_json),
+                baseline_calibration::start_parent_index_hash.eq(start_parent.as_bytes().to_vec()),
+                baseline_calibration::warmup_blocks.eq(outcome.discarded_blocks() as i32),
+                baseline_calibration::measured_blocks.eq(outcome.measured_blocks() as i32),
+                baseline_calibration::avg_setup_us
+                    .eq(outcome.baseline.avg_setup_duration.as_micros() as i32),
+                baseline_calibration::avg_finalize_us
+                    .eq(outcome.baseline.avg_finalize_duration.as_micros() as i32),
+                baseline_calibration::avg_clarity_commit_us.eq(outcome
+                    .baseline
+                    .avg_clarity_state_commit_duration
+                    .as_micros()
+                    as i32),
+                baseline_calibration::avg_advance_tip_us.eq(outcome
+                    .baseline
+                    .avg_advance_tip_duration
+                    .as_micros()
+                    as i32),
+                baseline_calibration::avg_index_commit_us.eq(outcome
+                    .baseline
+                    .avg_index_commit_duration
+                    .as_micros()
+                    as i32),
+                baseline_calibration::converged.eq(outcome.converged),
+                baseline_calibration::segments_used.eq(outcome.segments_used as i32),
+                baseline_calibration::measurement_window.eq(outcome.measurement_window as i32),
+                baseline_calibration::total_blocks.eq(outcome.total_blocks as i32),
+                baseline_calibration::duration_us.eq(outcome.duration.as_micros() as i64),
+            ))
+            .get_result(&mut self.get_conn().await?)
+            .await
+            .context("Failed to insert baseline calibration")
+    }
+
+    pub async fn get_baseline_calibration(
+        &self,
+        calibration_id: i32,
+    ) -> Result<Option<BaselineCalibration>> {
+        baseline_calibration::table
+            .find(calibration_id)
+            .first::<BaselineCalibration>(&mut self.get_conn().await?)
+            .await
+            .optional()
+            .context("Failed to look up baseline calibration")
+    }
+
+    pub async fn save_block_processing_baseline_from_calibration(
+        &mut self,
+        run_id: i32,
+        calibration: &BaselineCalibration,
+    ) -> Result<()> {
+        self.insert_block_processing_baseline_row(BlockProcessingBaselineRow {
+            benchmark_run_id: run_id,
+            start_parent_index_hash: calibration.start_parent_index_hash.clone(),
+            warmup_blocks: calibration.warmup_blocks,
+            measured_blocks: calibration.measured_blocks,
+            avg_setup_us: calibration.avg_setup_us,
+            avg_finalize_us: calibration.avg_finalize_us,
+            avg_clarity_commit_us: calibration.avg_clarity_commit_us,
+            avg_advance_tip_us: calibration.avg_advance_tip_us,
+            avg_index_commit_us: calibration.avg_index_commit_us,
+        })
+        .await
+    }
+
+    async fn insert_block_processing_baseline_row(
+        &mut self,
+        row: BlockProcessingBaselineRow,
+    ) -> Result<()> {
         use crate::db::app::schema::block_processing_baseline;
 
         let conn = &mut self.get_conn().await?;
 
         diesel::insert_into(block_processing_baseline::table)
-            .values((
-                block_processing_baseline::benchmark_run_id.eq(run_id),
-                block_processing_baseline::start_parent_index_hash
-                    .eq(start_parent.as_bytes().to_vec()),
-                block_processing_baseline::warmup_blocks.eq(warmup_blocks as i32),
-                block_processing_baseline::measured_blocks.eq(measured_blocks as i32),
-                block_processing_baseline::avg_setup_us
-                    .eq(baseline.avg_setup_duration.as_micros() as i32),
-                block_processing_baseline::avg_finalize_us
-                    .eq(baseline.avg_finalize_duration.as_micros() as i32),
-                block_processing_baseline::avg_clarity_commit_us
-                    .eq(baseline.avg_clarity_state_commit_duration.as_micros() as i32),
-                block_processing_baseline::avg_advance_tip_us
-                    .eq(baseline.avg_advance_tip_duration.as_micros() as i32),
-                block_processing_baseline::avg_index_commit_us
-                    .eq(baseline.avg_index_commit_duration.as_micros() as i32),
-            ))
+            .values(row)
             .execute(conn)
             .await
             .context("Failed to insert block processing baseline")?;

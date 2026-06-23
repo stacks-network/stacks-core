@@ -23,7 +23,7 @@ use blockstack_lib::burnchains::Txid;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use stacks_bench::baseline::run_convergent_baseline;
-use stacks_bench::bench_events::{self, BenchEvent, BenchEventSender};
+use stacks_bench::bench_events::{self, BenchEvent, BenchEventSender, ModeSummary};
 use stacks_bench::blocks::{BackwardsBlockStream, BlockRef};
 use stacks_bench::context::{BenchContext, BenchEnv};
 use stacks_bench::db::DbOpenForRead;
@@ -136,8 +136,34 @@ pub struct BenchRunParams {
     /// auto-named and auto-cleaned; only its parent location changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shadow_dir_root: Option<PathBuf>,
+    #[serde(default)]
+    pub baseline: BaselineMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+}
+
+/// Empty-block overhead baseline behavior for a benchmark run.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, Default)]
+#[serde(rename_all = "snake_case", tag = "mode")]
+pub enum BaselineMode {
+    /// Measure a new baseline inline before replay. This preserves the
+    /// historical default behavior.
+    #[default]
+    Inline,
+    /// Reuse a previously saved standalone or inline calibration.
+    External { calibration_id: i32 },
+    /// Do not measure or attach an empty-block baseline for this run.
+    Skipped,
+}
+
+impl BaselineMode {
+    fn summary_label(&self) -> String {
+        match self {
+            BaselineMode::Inline => "inline".to_string(),
+            BaselineMode::External { calibration_id } => format!("external #{calibration_id}"),
+            BaselineMode::Skipped => "skipped".to_string(),
+        }
+    }
 }
 
 /// Transaction filter kind (presentation-agnostic; no clap derives).
@@ -171,14 +197,17 @@ impl BenchRunParams {
 }
 
 /// Structured result returned by benchmark runs.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, schemars::JsonSchema)]
 pub struct RunResult {
     pub run_id: i32,
-    pub blocks: usize,
-    pub warmup_blocks: usize,
-    pub measured_blocks: usize,
+    pub entries: usize,
+    pub warmup_entries: usize,
+    pub measured_entries: usize,
+    pub sampled_metric_rows: u64,
     pub duration_secs: f64,
     pub interrupted: bool,
+    pub mode_summary: ModeSummary,
+    pub baseline: BaselineSummaryJson,
     pub summary: Option<RunSummaryJson>,
     /// Per-target summaries. `None` for range mode and for single-`--txid`
     /// runs (preserves the legacy flat output shape). `Some(...)` whenever
@@ -186,9 +215,28 @@ pub struct RunResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub targets: Option<Vec<TargetSummary>>,
 }
+crate::wire::wire_payload!(RunResult, "run", 1);
+
+/// Empty-block baseline attached to a benchmark run, if any.
+#[derive(serde::Serialize, Clone, schemars::JsonSchema)]
+pub struct BaselineSummaryJson {
+    pub mode: BaselineResultMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibration_id: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_parent_index_hash: Option<String>,
+}
+
+#[derive(serde::Serialize, Clone, Copy, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BaselineResultMode {
+    Inline,
+    External,
+    Skipped,
+}
 
 /// Aggregated benchmark metrics for JSON output.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, schemars::JsonSchema)]
 pub struct RunSummaryJson {
     pub total_duration_us: u64,
     pub setup_duration_us: u64,
@@ -201,7 +249,7 @@ pub struct RunSummaryJson {
 }
 
 /// Discriminator for what kind of target a [`TargetSummary`] describes.
-#[derive(serde::Serialize, Clone, Copy)]
+#[derive(serde::Serialize, Clone, Copy, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TargetKind {
     Txid,
@@ -211,7 +259,7 @@ pub enum TargetKind {
 /// Per-target measurement summary. Emitted in [`RunResult::targets`] for
 /// multi-target runs so downstream tooling can attribute metrics back to the
 /// specific txid or block being benchmarked.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, schemars::JsonSchema)]
 pub struct TargetSummary {
     pub kind: TargetKind,
     /// Hex txid (txid mode) or hex block id (block mode).
@@ -328,11 +376,45 @@ struct ReplayPlan {
     name_prefix: &'static str,
     /// Human-readable mode description for event emission.
     mode_label: String,
+    /// Broad target mode for summaries and output.
+    target_mode: &'static str,
+    /// What one measured entry primarily samples.
+    sample_unit: &'static str,
 }
 
 impl ReplayPlan {
     fn total_iterations(&self) -> usize {
         self.schedule.len()
+    }
+
+    fn logical_target_count(&self) -> usize {
+        self.targets.len().max(1)
+    }
+
+    fn mode_summary(&self, baseline: &BaselineMode) -> ModeSummary {
+        let logical_targets = self.logical_target_count();
+        ModeSummary {
+            mode: self.mode_label.clone(),
+            target_mode: self.target_mode.to_string(),
+            logical_targets,
+            total_entries: self.total_iterations(),
+            warmup_entries: self.total_warmup_entries,
+            measured_entries: self.total_measured_entries,
+            warmup_per_target: self.total_warmup_entries / logical_targets,
+            measured_per_target: self.total_measured_entries / logical_targets,
+            sample_unit: self.sample_unit.to_string(),
+            baseline_mode: baseline.summary_label(),
+            isolation: "shared, mutating shadow chainstate; logical fork from each entry's parent"
+                .to_string(),
+            ordering: if self.targets.len() > 1 {
+                "grouped by target: each target's warmup entries immediately precede its measured entries"
+                    .to_string()
+            } else if self.total_warmup_entries > 0 {
+                "warmup entries precede measured entries".to_string()
+            } else {
+                "measured entries only".to_string()
+            },
+        }
     }
 }
 
@@ -385,7 +467,7 @@ async fn scan_for_txid(
 /// `source_dir` — see [`ShadowDir::passthrough`] for the destructive
 /// semantics. Emits [`BenchEvent::ChainstatePassthroughEnabled`] instead of
 /// the normal `ShadowDir{Started,Complete}` pair in that case.
-fn create_shadow_dir_with_events(
+pub(super) fn create_shadow_dir_with_events(
     source_dir: &Path,
     include_pre_nakamoto: bool,
     shadow_dir_root: Option<&Path>,
@@ -418,7 +500,7 @@ fn create_shadow_dir_with_events(
 ///
 /// `indexer_ui` is borrowed so multi-target callers can drive one UI session
 /// per indexed window.
-async fn run_indexer_pipeline(
+pub(super) async fn run_indexer_pipeline(
     app_db: &mut AppDb,
     env: &BenchEnv,
     plan: ChainIndexPlan,
@@ -525,9 +607,11 @@ fn build_run_summary(summary: &MetricsSummary) -> Option<RunSummaryJson> {
 /// Accumulated state from a replay loop, consumed by [`finalize_run`].
 struct ReplayOutcome {
     run_id: i32,
-    total_blocks: usize,
-    warmup_blocks: usize,
+    total_entries: usize,
+    warmup_entries: usize,
     completed_measured: usize,
+    mode_summary: ModeSummary,
+    baseline_summary: BaselineSummaryJson,
     replay_start: Instant,
     accumulator: MetricsAccumulator,
     /// Per-target summaries when the run had more than one logical target;
@@ -558,7 +642,7 @@ async fn finalize_run(
         bench_events::emit(
             ev,
             BenchEvent::ReplayComplete {
-                measured_blocks: outcome.completed_measured,
+                measured_entries: outcome.completed_measured,
                 duration: outcome.replay_start.elapsed(),
             },
         );
@@ -580,9 +664,9 @@ async fn finalize_run(
     bench_events::emit(
         ev,
         BenchEvent::ReplaySummary {
-            total_blocks: outcome.total_blocks,
-            warmup_blocks: outcome.warmup_blocks,
-            measured_blocks: outcome.completed_measured,
+            total_entries: outcome.total_entries,
+            warmup_entries: outcome.warmup_entries,
+            measured_entries: outcome.completed_measured,
             total_duration: duration,
             warmup_duration: outcome.warmup_duration,
             replay_duration: summary.duration,
@@ -612,11 +696,14 @@ async fn finalize_run(
 
     Ok(RunResult {
         run_id: outcome.run_id,
-        blocks: outcome.total_blocks,
-        warmup_blocks: outcome.warmup_blocks,
-        measured_blocks: outcome.completed_measured,
+        entries: outcome.total_entries,
+        warmup_entries: outcome.warmup_entries,
+        measured_entries: outcome.completed_measured,
+        sampled_metric_rows: summary.count,
         duration_secs: duration.as_secs_f64(),
         interrupted: outcome.was_interrupted,
+        mode_summary: outcome.mode_summary,
+        baseline: outcome.baseline_summary,
         summary: build_run_summary(&summary),
         targets: outcome.target_summaries,
     })
@@ -681,6 +768,8 @@ fn build_replay_plan(params: &BenchRunParams, target: ResolvedTarget) -> Result<
                 needs_calibration: false,
                 name_prefix: "txid-",
                 mode_label,
+                target_mode: "txid",
+                sample_unit: "target transaction",
             })
         }
         ResolvedTarget::Blocks { refs } => {
@@ -733,6 +822,8 @@ fn build_replay_plan(params: &BenchRunParams, target: ResolvedTarget) -> Result<
                 needs_calibration: false,
                 name_prefix: "block-",
                 mode_label,
+                target_mode: "block",
+                sample_unit: "full block",
             })
         }
         ResolvedTarget::BlockRange { block_ids, filter } => {
@@ -797,6 +888,12 @@ fn build_replay_plan(params: &BenchRunParams, target: ResolvedTarget) -> Result<
                 needs_calibration: true,
                 name_prefix: "",
                 mode_label,
+                target_mode: "range",
+                sample_unit: if params.filter.is_some() || !params.contract.is_empty() {
+                    "matching segment"
+                } else {
+                    "block"
+                },
             })
         }
     }
@@ -812,6 +909,24 @@ struct ReplayPlanExecution<'a, 'ctx> {
     ev: &'a BenchEventSender,
 }
 
+pub(super) fn baseline_anchor_hex(anchor: &[u8]) -> String {
+    hex::encode(anchor)
+}
+
+fn baseline_summary(
+    mode: BaselineResultMode,
+    calibration_id: Option<i32>,
+    start_parent_index_hash: Option<String>,
+) -> BaselineSummaryJson {
+    BaselineSummaryJson {
+        mode,
+        calibration_id,
+        start_parent_index_hash,
+    }
+}
+
+/// Execute a resolved [`ReplayPlan`]. This function is mode-agnostic — all
+/// mode-dependent decisions are encoded in the plan.
 async fn execute_replay_plan(
     app_db: &mut AppDb,
     execution: ReplayPlanExecution<'_, '_>,
@@ -828,59 +943,139 @@ async fn execute_replay_plan(
 
     let run_model =
         create_bench_run_model(app_db, chainstate_model_id, params, plan.name_prefix).await?;
+    let mode_summary = plan.mode_summary(&params.baseline);
+    bench_events::emit(ev, BenchEvent::ModeSummary(mode_summary.clone()));
 
     let (mut chainstate, burnchain) = bench_context.open_stacks_chainstate()?;
+    let baseline_anchor = bench_context.chain_tip().id.clone();
 
-    let baseline_outcome = run_convergent_baseline(
-        &mut chainstate,
-        &burnchain,
-        &bench_context.end_block().id,
-        &interrupted,
-        ev,
-    )?;
+    // --- Overhead baseline ---
+    let baseline_summary = match &params.baseline {
+        BaselineMode::Inline => {
+            // Empty-block samples are collected in fixed-size segments and
+            // averaged once the rolling mean stabilizes. The result is
+            // per-machine overhead and is deliberately NOT scaled by target
+            // count in multi-target modes.
+            let baseline_outcome = run_convergent_baseline(
+                &mut chainstate,
+                &burnchain,
+                &baseline_anchor,
+                &interrupted,
+                ev,
+            )?;
 
-    if interrupted.load(Ordering::Relaxed) {
-        bench_events::emit(
-            ev,
-            BenchEvent::ReplayInterrupted {
-                completed: 0,
-                total: plan.total_measured_entries,
-            },
-        );
-        run_cleanup_with_events(app_db.clone(), shadow_dir, ev).await?;
-        return Ok(RunResult {
-            run_id: run_model.id,
-            blocks: plan.total_iterations(),
-            warmup_blocks: plan.total_warmup_entries,
-            measured_blocks: 0,
-            duration_secs: 0.0,
-            interrupted: true,
-            summary: None,
-            targets: None,
-        });
-    }
+            if interrupted.load(Ordering::Relaxed) {
+                bench_events::emit(
+                    ev,
+                    BenchEvent::ReplayInterrupted {
+                        completed: 0,
+                        total: plan.total_measured_entries,
+                    },
+                );
+                run_cleanup_with_events(app_db.clone(), shadow_dir, ev).await?;
+                return Ok(RunResult {
+                    run_id: run_model.id,
+                    entries: plan.total_iterations(),
+                    warmup_entries: plan.total_warmup_entries,
+                    measured_entries: 0,
+                    sampled_metric_rows: 0,
+                    duration_secs: 0.0,
+                    interrupted: true,
+                    mode_summary,
+                    baseline: baseline_summary(BaselineResultMode::Inline, None, None),
+                    summary: None,
+                    targets: None,
+                });
+            }
 
-    bench_events::emit(
-        ev,
-        BenchEvent::BaselineComplete {
-            baseline: baseline_outcome.baseline.clone(),
-            converged: baseline_outcome.converged,
-            segments_used: baseline_outcome.segments_used,
-            measurement_window: baseline_outcome.measurement_window,
-            total_blocks: baseline_outcome.total_blocks,
-            duration: baseline_outcome.duration,
-        },
-    );
+            bench_events::emit(
+                ev,
+                BenchEvent::BaselineComplete {
+                    baseline: baseline_outcome.baseline.clone(),
+                    converged: baseline_outcome.converged,
+                    segments_used: baseline_outcome.segments_used,
+                    measurement_window: baseline_outcome.measurement_window,
+                    total_blocks: baseline_outcome.total_blocks,
+                    duration: baseline_outcome.duration,
+                },
+            );
 
-    app_db
-        .save_block_processing_baseline(
-            run_model.id,
-            &bench_context.end_block().id,
-            baseline_outcome.discarded_blocks(),
-            baseline_outcome.measured_blocks(),
-            &baseline_outcome.baseline,
-        )
-        .await?;
+            let calibration = app_db
+                .save_baseline_calibration(
+                    chainstate_model_id,
+                    Utc::now().naive_utc(),
+                    run_model.git_commit_hash.clone(),
+                    params.to_json()?,
+                    &baseline_anchor,
+                    &baseline_outcome,
+                )
+                .await?;
+            app_db
+                .link_benchmark_run_baseline(run_model.id, Some(calibration.id))
+                .await?;
+            app_db
+                .save_block_processing_baseline_from_calibration(run_model.id, &calibration)
+                .await?;
+
+            baseline_summary(
+                BaselineResultMode::Inline,
+                Some(calibration.id),
+                Some(baseline_anchor_hex(&calibration.start_parent_index_hash)),
+            )
+        }
+        BaselineMode::External { calibration_id } => {
+            let calibration = app_db
+                .get_baseline_calibration(*calibration_id)
+                .await?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("baseline calibration #{calibration_id} not found")
+                })?;
+            if calibration.chainstate_id != chainstate_model_id {
+                bail!(
+                    "baseline calibration #{} belongs to chainstate {}, but this run resolved chainstate {}",
+                    calibration.id,
+                    calibration.chainstate_id,
+                    chainstate_model_id
+                );
+            }
+            let expected_anchor = baseline_anchor.as_bytes();
+            if calibration.start_parent_index_hash.as_slice() != expected_anchor {
+                bail!(
+                    "baseline calibration #{} anchor {} does not match this run's chain-tip baseline anchor {}",
+                    calibration.id,
+                    baseline_anchor_hex(&calibration.start_parent_index_hash),
+                    baseline_anchor_hex(expected_anchor)
+                );
+            }
+
+            app_db
+                .link_benchmark_run_baseline(run_model.id, Some(calibration.id))
+                .await?;
+            app_db
+                .save_block_processing_baseline_from_calibration(run_model.id, &calibration)
+                .await?;
+            let anchor = baseline_anchor_hex(&calibration.start_parent_index_hash);
+            bench_events::emit(
+                ev,
+                BenchEvent::BaselineReused {
+                    calibration_id: calibration.id,
+                    start_parent_index_hash: anchor.clone(),
+                },
+            );
+            baseline_summary(
+                BaselineResultMode::External,
+                Some(calibration.id),
+                Some(anchor),
+            )
+        }
+        BaselineMode::Skipped => {
+            app_db
+                .link_benchmark_run_baseline(run_model.id, None)
+                .await?;
+            bench_events::emit(ev, BenchEvent::BaselineSkipped);
+            baseline_summary(BaselineResultMode::Skipped, None, None)
+        }
+    };
 
     if params.storage_deltas {
         shadow_dir.calculate_storage_delta()?; // Reset storage delta baseline
@@ -922,14 +1117,15 @@ async fn execute_replay_plan(
     bench_events::emit(
         ev,
         BenchEvent::ReplayStarted {
-            total_blocks: plan.total_iterations(),
-            warmup_blocks: plan.total_warmup_entries,
+            total_entries: plan.total_iterations(),
+            warmup_entries: plan.total_warmup_entries,
             mode: plan.mode_label.clone(),
         },
     );
 
     // --- Replay loop ---
     let mut warmup_complete_emitted = false;
+    let mut warmup_phase_started_at: Option<Instant> = None;
     let mut warmup_duration = Duration::ZERO;
     let start = Instant::now();
     for entry in plan.schedule.iter() {
@@ -946,24 +1142,35 @@ async fn execute_replay_plan(
 
         let is_warmup = entry.is_warmup;
 
-        // Warmup ran without per-block checkpoints or storage-delta sampling.
-        // Flush once before measuring so dirty pages and delta baselines do not
-        // land on the first measured block.
-        if !is_warmup && plan.total_warmup_entries > 0 && !warmup_complete_emitted {
+        if is_warmup && warmup_phase_started_at.is_none() {
+            warmup_phase_started_at = Some(Instant::now());
+        }
+
+        // Warmup → measured boundary: warmup repetitions ran with
+        // `sample_metrics=false`, which skipped the per-block WAL checkpoint
+        // and the storage-delta callback. Flush WAL once at every target's
+        // warmup→measured edge so the first measured entry for later targets
+        // doesn't absorb its own warmup's accumulated dirty pages. The wall
+        // time of each warmup phase (including periodic and boundary
+        // checkpoints) is summed under `warmup_duration` so it doesn't get
+        // mis-attributed to "Benchmarking Overhead".
+        if !is_warmup && let Some(phase_started_at) = warmup_phase_started_at.take() {
             chainstate.checkpoint_sqlite_dbs()?;
             if params.storage_deltas {
                 let storage_report = shadow_dir.calculate_storage_delta()?;
                 last_storage_delta = storage_report.net_growth_bytes;
             }
-            warmup_duration = start.elapsed();
-            warmup_complete_emitted = true;
-            bench_events::emit(
-                ev,
-                BenchEvent::ReplayWarmupComplete {
-                    warmup_blocks: plan.total_warmup_entries,
-                    duration: warmup_duration,
-                },
-            );
+            warmup_duration += phase_started_at.elapsed();
+            if warmup_done == plan.total_warmup_entries && !warmup_complete_emitted {
+                warmup_complete_emitted = true;
+                bench_events::emit(
+                    ev,
+                    BenchEvent::ReplayWarmupComplete {
+                        warmup_entries: plan.total_warmup_entries,
+                        duration: warmup_duration,
+                    },
+                );
+            }
         }
 
         if !is_warmup {
@@ -1067,12 +1274,19 @@ async fn execute_replay_plan(
         }
     }
 
+    // If the loop ended without ever reaching a measured iteration (e.g.
+    // Ctrl-C during warmup, or a future config where every entry is warmup)
+    // the warmup→measured boundary detection never fired. Finalize the
+    // warmup timing and emit `ReplayWarmupComplete` here so the summary's
+    // "Warmup Replay" line still reflects the work that was done.
+    if let Some(phase_started_at) = warmup_phase_started_at.take() {
+        warmup_duration += phase_started_at.elapsed();
+    }
     if !warmup_complete_emitted && warmup_done > 0 {
-        warmup_duration = start.elapsed();
         bench_events::emit(
             ev,
             BenchEvent::ReplayWarmupComplete {
-                warmup_blocks: plan.total_warmup_entries,
+                warmup_entries: warmup_done,
                 duration: warmup_duration,
             },
         );
@@ -1128,9 +1342,11 @@ async fn execute_replay_plan(
         app_db,
         ReplayOutcome {
             run_id: run_model.id,
-            total_blocks: plan.total_iterations(),
-            warmup_blocks: plan.total_warmup_entries,
+            total_entries: plan.total_iterations(),
+            warmup_entries: plan.total_warmup_entries,
             completed_measured,
+            mode_summary,
+            baseline_summary,
             replay_start: start,
             accumulator,
             target_summaries,
@@ -1213,6 +1429,11 @@ fn validate_run_params(params: &BenchRunParams) -> Result<()> {
             "--dangerous-no-chainstate-copy and --shadow-dir-root are mutually exclusive: \
              passthrough mode does not create a shadow directory, so the parent override has no effect"
         );
+    }
+    if let BaselineMode::External { calibration_id } = &params.baseline
+        && *calibration_id <= 0
+    {
+        bail!("--baseline-id must be a positive calibration id");
     }
 
     // `--contract` is a stricter form of `--filter contract-call` and targets

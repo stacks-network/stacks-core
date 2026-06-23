@@ -6,6 +6,7 @@
 | Feature | Description | CLI Command | MCP Tool | MCP Resource |
 | ---- | ---- | ---- | ---- | ---- |
 | Run benchmark | Replay a block range recording per-block timing, clarity costs, and profiler data | `bench run` | `run_benchmark` | — |
+| Calibrate baseline | Measure and save a reusable empty-block overhead baseline | `bench baseline calibrate` | — | — |
 | Re-run benchmark | Re-run a previous benchmark using its stored parameters | `bench rerun` | `rerun_benchmark` | — |
 | List runs | List benchmark runs with optional filters and sorting | `bench list` | `list_runs` | — |
 | Show run details | Display detailed stats and profiler hotspots for a run | `bench show` | `get_run_details` | — |
@@ -64,6 +65,40 @@ cargo stacks-bench bench run \
   --contract SP000000000000000000002Q6VF78.pox-4.stack-stx \
   --contract SP000000000000000000002Q6VF78.pox-4.delegate-stack-stx
 ```
+
+### Baseline calibration
+
+Before replay, `bench run` normally measures an empty-block overhead baseline
+inline. This remains the default behavior and now also saves that measurement
+as a reusable baseline calibration.
+
+Dedicated benchmark harnesses can measure the baseline as a separate process:
+
+```bash
+cargo stacks-bench bench baseline calibrate \
+  --source /data/chainstates/mainnet \
+  --network mainnet
+```
+
+Then reuse it in any run against the same indexed chainstate and resolved tip:
+
+```bash
+cargo stacks-bench bench run \
+  --source /data/chainstates/mainnet \
+  --network mainnet \
+  --start-at 7920000 \
+  --end-at 7920100 \
+  --baseline-id 12
+```
+
+Use `--no-baseline` to skip empty-block baseline measurement and linking
+entirely. Reused calibrations must belong to the same indexed chainstate and
+anchor block as the run; this keeps the saved per-run baseline row semantically
+equivalent to the historical inline baseline. By default, the baseline anchor
+is the run's resolved chain tip (or the block supplied with `--tip`), so a
+single tip-anchored calibration can be reused across multiple ranges from the
+same chainstate snapshot. Use `bench baseline calibrate --at <BLOCK>` only when
+you intentionally need a non-tip calibration anchor.
 
 ### Profiler persistence controls
 
@@ -166,6 +201,22 @@ The override directory must satisfy two constraints:
 
 The generated shadow directory is still auto-named and removed when the run
 finishes.
+
+## Structured output
+
+Both `--json` on the CLI and successful MCP tool results wrap their payload in a
+single **versioned envelope** (`CommandResult`) with a frozen header
+(`schema_version`, `success`, `result_type`, `result_version`, `duration_secs`)
+and a version-specific `result` body. A consumer parses the header to learn
+status and how to interpret `result`, regardless of which `stacks-bench` build
+produced it. (CLI failures are enveloped too, with `success: false`; MCP
+failures use the protocol's native error channel rather than an envelope.)
+
+In `--json` mode, stdout is reserved for the final envelope. Long-running CLI
+commands may emit versioned progress events as JSONL on stderr.
+
+The machine-readable JSON Schema and the full evolution policy live in
+[`schema/`](schema/README.md).
 
 ## MCP Server
 

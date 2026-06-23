@@ -18,7 +18,7 @@ use serde::Serialize;
 use stacks_bench::db::app::AppDb;
 
 /// JSON serialization shape for a chainstate.
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 pub struct ChainstateJson {
     pub id: i32,
     pub network: String,
@@ -28,6 +28,8 @@ pub struct ChainstateJson {
     pub epochs_hash: String,
     pub runs: i64,
 }
+// The `chainstate list` payload is the bare `Vec<ChainstateJson>`.
+crate::wire::wire_payload!(Vec<ChainstateJson>, "chainstate_list", 1);
 
 /// Query chainstates from the database, resolving network names and run counts.
 pub async fn query_chainstates(app_db: &AppDb, limit: usize) -> Result<Vec<ChainstateJson>> {

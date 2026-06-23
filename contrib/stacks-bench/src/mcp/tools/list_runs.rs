@@ -37,8 +37,8 @@ pub struct ListRunsParams {
 
 /// JSON shape for a benchmark run returned by `list_runs`.
 /// Mirrors the CLI's `bench list --json` output.
-#[derive(Serialize)]
-struct RunJson {
+#[derive(Serialize, schemars::JsonSchema)]
+pub(crate) struct RunJson {
     id: i32,
     name: Option<String>,
     start_time: String,
@@ -48,9 +48,10 @@ struct RunJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     summary: Option<RunSummaryJson>,
 }
+crate::wire::wire_payload!(Vec<RunJson>, "run_list", 1);
 
 /// Inline summary metrics for a benchmark run.
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 struct RunSummaryJson {
     blocks: u64,
     total_duration_us: u64,
@@ -59,6 +60,7 @@ struct RunSummaryJson {
 
 impl StacksBenchServer {
     pub async fn query_runs(&self, params: &ListRunsParams) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let limit = params.limit.unwrap_or(50);
         let show_incomplete = params.incomplete.unwrap_or(false);
 
@@ -115,7 +117,6 @@ impl StacksBenchServer {
             });
         }
 
-        serde_json::to_string_pretty(&results)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize runs: {e}"))
+        super::tool_envelope(&results, started.elapsed().as_secs_f64())
     }
 }

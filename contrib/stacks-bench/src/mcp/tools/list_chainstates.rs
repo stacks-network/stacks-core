@@ -28,8 +28,8 @@ pub struct ListChainstatesParams {
     limit: Option<usize>,
 }
 
-#[derive(Serialize)]
-struct ChainstateJson {
+#[derive(Serialize, schemars::JsonSchema)]
+pub(crate) struct ChainstateJson {
     id: i32,
     network: String,
     chain_id: i64,
@@ -37,12 +37,14 @@ struct ChainstateJson {
     tip_height: i64,
     run_count: i64,
 }
+crate::wire::wire_payload!(Vec<ChainstateJson>, "chainstate_list", 1);
 
 impl StacksBenchServer {
     pub async fn query_chainstates(
         &self,
         params: &ListChainstatesParams,
     ) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let limit = params.limit.unwrap_or(50);
         let mut chainstates = self.app_db.list_chainstates().await?;
         chainstates.truncate(limit);
@@ -65,7 +67,6 @@ impl StacksBenchServer {
             });
         }
 
-        serde_json::to_string_pretty(&results)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize chainstates: {e}"))
+        super::tool_envelope(&results, started.elapsed().as_secs_f64())
     }
 }

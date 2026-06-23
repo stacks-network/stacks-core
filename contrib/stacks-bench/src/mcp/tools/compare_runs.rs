@@ -32,23 +32,24 @@ pub struct CompareRunsParams {
     limit: Option<i64>,
 }
 
-#[derive(Serialize)]
-struct ComparisonJson {
+#[derive(Serialize, schemars::JsonSchema)]
+pub(crate) struct ComparisonJson {
     baseline: RunBriefJson,
     candidate: RunBriefJson,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary_delta: Option<SummaryDeltaJson>,
     span_diffs: Vec<SpanDiffJson>,
 }
+crate::wire::wire_payload!(ComparisonJson, "compare", 1);
 
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 struct RunBriefJson {
     id: i32,
     name: Option<String>,
     git_hash: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 struct SummaryDeltaJson {
     baseline_total_us: u64,
     candidate_total_us: u64,
@@ -58,7 +59,7 @@ struct SummaryDeltaJson {
     candidate_blocks: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 struct SpanDiffJson {
     span_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -78,6 +79,7 @@ struct SpanDiffJson {
 
 impl StacksBenchServer {
     pub async fn query_compare_runs(&self, params: &CompareRunsParams) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let baseline = self
             .app_db
             .get_benchmark_run(params.baseline_id)
@@ -155,7 +157,6 @@ impl StacksBenchServer {
             span_diffs,
         };
 
-        serde_json::to_string_pretty(&result)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize comparison: {e}"))
+        super::tool_envelope(&result, started.elapsed().as_secs_f64())
     }
 }

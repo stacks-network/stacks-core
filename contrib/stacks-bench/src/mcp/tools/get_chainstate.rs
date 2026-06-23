@@ -27,8 +27,8 @@ pub struct GetChainstateParams {
     chainstate_id: i32,
 }
 
-#[derive(Serialize)]
-struct ChainstateDetailJson {
+#[derive(Serialize, schemars::JsonSchema)]
+pub(crate) struct ChainstateDetailJson {
     id: i32,
     network: String,
     chain_id: i64,
@@ -37,8 +37,9 @@ struct ChainstateDetailJson {
     run_count: i64,
     epochs: Vec<EpochJson>,
 }
+crate::wire::wire_payload!(ChainstateDetailJson, "chainstate_detail", 1);
 
-#[derive(Serialize)]
+#[derive(Serialize, schemars::JsonSchema)]
 struct EpochJson {
     stacks_epoch_id: i32,
     network_epoch_id: i32,
@@ -53,6 +54,7 @@ struct EpochJson {
 
 impl StacksBenchServer {
     pub async fn query_chainstate(&self, params: &GetChainstateParams) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let cs = self
             .app_db
             .get_chainstate(params.chainstate_id)
@@ -89,7 +91,6 @@ impl StacksBenchServer {
                 .collect(),
         };
 
-        serde_json::to_string_pretty(&result)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize chainstate: {e}"))
+        super::tool_envelope(&result, started.elapsed().as_secs_f64())
     }
 }

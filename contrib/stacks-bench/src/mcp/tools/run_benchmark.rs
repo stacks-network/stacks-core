@@ -28,7 +28,7 @@ use stacks_bench::bench_events::BenchEvent;
 use stacks_bench::db::app::ProfilerThreshold;
 use tokio::sync::mpsc;
 
-use crate::commands::bench::run::{BenchRunParams, FilterKind, RunResult};
+use crate::commands::bench::run::{BaselineMode, BenchRunParams, FilterKind};
 use crate::commands::common::{
     ContractArg, IndexerUiSpawner, TxIdArg, normalize_contract_args, silent_indexer_ui,
 };
@@ -319,6 +319,7 @@ impl RunBenchmarkParams {
             storage_deltas: self.storage_deltas,
             dangerous_no_chainstate_copy: self.dangerous_no_chainstate_copy,
             shadow_dir_root: self.shadow_dir_root.map(PathBuf::from),
+            baseline: BaselineMode::Inline,
             name: self.name,
         })
     }
@@ -332,6 +333,7 @@ impl StacksBenchServer {
         client: Peer<RoleServer>,
         context: rmcp::service::RequestContext<RoleServer>,
     ) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let bench_params = params
             .into_bench_params()
             .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -377,15 +379,8 @@ impl StacksBenchServer {
         )
         .await?;
 
-        Ok(serde_json::to_string(&result)?)
+        super::tool_envelope(&result, started.elapsed().as_secs_f64())
     }
-}
-
-/// Format a `RunResult` as a concise summary string suitable for MCP tool
-/// output (returned as the tool result text).
-#[allow(dead_code)]
-pub fn format_run_result(result: &RunResult) -> String {
-    serde_json::to_string(result).unwrap_or_else(|_| "Failed to serialize result".into())
 }
 
 // ---------------------------------------------------------------------------
@@ -431,6 +426,23 @@ pub(super) async fn forward_bench_events(
                 Some(&format!(
                     "DESTRUCTIVE: --dangerous-no-chainstate-copy enabled; \
                      running directly against {source}"
+                )),
+            )),
+            BenchEvent::ModeSummary(summary) => Some(progress(
+                &token,
+                0.0,
+                None,
+                Some(&format!(
+                    "Benchmark plan: mode={} targets={} warmup={} per target ({} total), \
+                     measured={} per target ({} total), baseline={}, isolation={}",
+                    summary.target_mode,
+                    summary.logical_targets,
+                    summary.warmup_per_target,
+                    summary.warmup_entries,
+                    summary.measured_per_target,
+                    summary.measured_entries,
+                    summary.baseline_mode,
+                    summary.isolation
                 )),
             )),
             BenchEvent::BaselineStarted {
@@ -510,19 +522,36 @@ pub(super) async fn forward_bench_events(
                     )),
                 ))
             }
+            BenchEvent::BaselineReused {
+                calibration_id,
+                start_parent_index_hash,
+            } => Some(progress(
+                &token,
+                1.0,
+                Some(1.0),
+                Some(&format!(
+                    "Reusing baseline calibration #{calibration_id} at {start_parent_index_hash}"
+                )),
+            )),
+            BenchEvent::BaselineSkipped => Some(progress(
+                &token,
+                1.0,
+                Some(1.0),
+                Some("Skipped baseline calibration"),
+            )),
             BenchEvent::ReplayStarted {
-                total_blocks,
-                warmup_blocks,
+                total_entries,
+                warmup_entries,
                 ..
             } => {
                 last_sent_pct = -1;
                 Some(progress(
                     &token,
                     0.0,
-                    Some(*total_blocks as f64),
+                    Some(*total_entries as f64),
                     Some(&format!(
-                        "Replaying blocks (warmup: {warmup_blocks}, measured: {})",
-                        total_blocks - warmup_blocks
+                        "Replaying entries (warmup: {warmup_entries}, measured: {})",
+                        total_entries - warmup_entries
                     )),
                 ))
             }
@@ -542,14 +571,14 @@ pub(super) async fn forward_bench_events(
                 })
             }
             BenchEvent::ReplayComplete {
-                measured_blocks,
+                measured_entries,
                 duration,
             } => {
                 last_sent_pct = -1;
                 Some(progress(
                     &token,
-                    *measured_blocks as f64,
-                    Some(*measured_blocks as f64),
+                    *measured_entries as f64,
+                    Some(*measured_entries as f64),
                     Some(&format!("Replay complete ({:.1}s)", duration.as_secs_f64())),
                 ))
             }

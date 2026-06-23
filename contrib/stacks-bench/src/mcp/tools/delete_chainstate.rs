@@ -28,18 +28,20 @@ pub struct DeleteChainstateParams {
     pub chainstate_id: i32,
 }
 
-#[derive(Serialize)]
-struct DeleteChainstateResult {
+#[derive(Serialize, schemars::JsonSchema)]
+pub(crate) struct DeleteChainstateResult {
     deleted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     message: Option<String>,
 }
+crate::wire::wire_payload!(DeleteChainstateResult, "chainstate_delete", 1);
 
 impl StacksBenchServer {
     pub async fn exec_delete_chainstate(
         &self,
         params: &DeleteChainstateParams,
     ) -> anyhow::Result<String> {
+        let started = std::time::Instant::now();
         let mut db = self.app_db.clone();
         let result = match db.delete_chainstate(params.chainstate_id).await {
             Ok(()) => {
@@ -63,6 +65,6 @@ impl StacksBenchServer {
                 }
             }
         };
-        Ok(serde_json::to_string(&result)?)
+        super::tool_envelope(&result, started.elapsed().as_secs_f64())
     }
 }
