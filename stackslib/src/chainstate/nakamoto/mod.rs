@@ -2061,13 +2061,12 @@ impl NakamotoBlock {
                 markers.len()
             ));
         }
-        let mut prev: Option<u32> = None;
-        for marker in markers.iter() {
+        for (prev, marker) in with_prev(markers.iter()) {
             if let Some(p) = prev {
-                if marker.tx_index <= p {
+                if marker.tx_index <= p.tx_index {
                     return Err(format!(
-                        "problematic_txs is not strictly increasing: {p} >= {}",
-                        marker.tx_index
+                        "problematic_txs is not strictly increasing: {} >= {}",
+                        p.tx_index, marker.tx_index
                     ));
                 }
             }
@@ -2092,10 +2091,24 @@ impl NakamotoBlock {
                 }
                 _ => {}
             }
-            prev = Some(marker.tx_index);
         }
         Ok(())
     }
+}
+
+/// Iterate over contiguous (prev, current) pairs in `iter`.
+/// `prev` is None for the first element, and Some afterwards
+fn with_prev<T>(iter: impl IntoIterator<Item = T>) -> impl Iterator<Item = (Option<T>, T)>
+where
+    T: Copy,
+{
+    iter.into_iter().scan(None, |prev, cur| {
+        let output = (*prev, cur);
+        // set new "prev" value for the next iteration
+        *prev = Some(cur);
+        // output of the iterator is (old-prev, current)
+        Some(output)
+    })
 }
 
 impl NakamotoChainState {
