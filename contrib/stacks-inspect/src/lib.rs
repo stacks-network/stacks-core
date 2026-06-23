@@ -567,7 +567,10 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
                 )
                 .unwrap_or_else(|e| panic!("Failed to instantiate burnchain: {e}")),
             )
-            .map(|(block, cost, size)| (block.block_hash(), block.txs, cost, size))
+            .map(|(block, cost, size)| {
+                let total_fees: u64 = block.txs.iter().map(|tx| tx.get_tx_fee()).sum();
+                (block.block_hash(), total_fees, cost, size)
+            })
         }
         StacksBlockHeaderTypes::Nakamoto(..) => {
             NakamotoBlockBuilder::build_nakamoto_block(
@@ -592,9 +595,15 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
                      tenure_size,
                      ..
                  }| {
+                    // Sum fees over every transaction in the block, including
+                    // any marked problematic.
+                    let total_fees: u64 = block
+                        .txs()
+                        .map(|tx| tx.tx_ignoring_problematic_state().get_tx_fee())
+                        .sum();
                     (
                         block.header.block_hash(),
-                        block.into_executed_and_skipped_txs(),
+                        total_fees,
                         tenure_consumed,
                         tenure_size,
                     )
@@ -614,9 +623,7 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
     );
 
     let code = match result {
-        Ok((block_hash, txs, cost, size)) => {
-            let total_fees: u64 = txs.iter().map(|tx| tx.get_tx_fee()).sum();
-
+        Ok((block_hash, total_fees, cost, size)) => {
             println!("Successfully mined {summary}");
             println!("Block {block_hash}: {total_fees} uSTX, {size} bytes, cost {cost:?}");
             0
