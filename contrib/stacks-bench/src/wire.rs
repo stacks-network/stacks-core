@@ -61,16 +61,36 @@ pub trait WirePayload {
     fn result_version(&self) -> u32;
 }
 
-/// Generate a one-line [`WirePayload`] implementation for a concrete payload
-/// type, pinning its stable discriminator and current schema version.
+/// Compile-time counterpart to [`WirePayload`] for payload types with a static
+/// identity, exposing the same discriminator/version as associated constants.
+///
+/// This lets codegen (the wire-schema generator) read a type's contract without
+/// an instance. Runtime-only carriers that have already erased their concrete
+/// type — [`BoxedOutput`](crate::cli::common::BoxedOutput) and the `opaque`
+/// [`serde_json::Value`] passthrough — implement only [`WirePayload`].
+pub trait WirePayloadMeta {
+    /// Stable discriminator; the type-level form of [`WirePayload::result_type`].
+    const RESULT_TYPE: &'static str;
+    /// Schema version; the type-level form of [`WirePayload::result_version`].
+    const RESULT_VERSION: u32;
+}
+
+/// Generate the [`WirePayload`] / [`WirePayloadMeta`] implementations for a
+/// concrete payload type, pinning its stable discriminator and current schema
+/// version once. The instance methods forward to the associated constants, so
+/// the runtime and compile-time views can never disagree.
 macro_rules! wire_payload {
     ($ty:ty, $result_type:literal, $result_version:literal) => {
+        impl $crate::wire::WirePayloadMeta for $ty {
+            const RESULT_TYPE: &'static str = $result_type;
+            const RESULT_VERSION: u32 = $result_version;
+        }
         impl $crate::wire::WirePayload for $ty {
             fn result_type(&self) -> &'static str {
-                $result_type
+                <$ty as $crate::wire::WirePayloadMeta>::RESULT_TYPE
             }
             fn result_version(&self) -> u32 {
-                $result_version
+                <$ty as $crate::wire::WirePayloadMeta>::RESULT_VERSION
             }
         }
     };
