@@ -7621,7 +7621,9 @@ pub mod test {
 
         // Asset map in which the origin staked 100 uSTX.
         let mut stacked = AssetMap::new();
-        stacked.add_stacking(&origin, 100);
+        stacked
+            .add_stacking(&origin, 100, StacksEpochId::Epoch40)
+            .unwrap();
 
         // (expected_pass, post_conditions, mode, epoch)
         let tests = vec![

@@ -776,6 +776,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Does this epoch sum stacking entries in the assetmap or just replace
+    ///  and error-on-replace?
+    pub fn sums_stacking_assetmap(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
