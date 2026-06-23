@@ -570,6 +570,10 @@ pub enum RuntimeCheckErrorKind {
     ///  miner block assembly)
     AbortedByExecutionHook(String),
 
+    /// Block rejection: a `pox-4` call would overwrite
+    /// an existing asset-map stacking entry for its sender.
+    PoxStxAssetMapOverwrite,
+
     // List typing errors
     /// List elements have mismatched types, violating type consistency.
     ListTypesMustMatch,
@@ -677,6 +681,7 @@ impl RuntimeCheckErrorKind {
             RuntimeCheckErrorKind::Unreachable(_)
                 | RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(_, _)
                 | RuntimeCheckErrorKind::AbortedByExecutionHook(_)
+                | RuntimeCheckErrorKind::PoxStxAssetMapOverwrite
         )
     }
 

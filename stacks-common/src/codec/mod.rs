@@ -284,9 +284,8 @@ pub mod testing {
     /// Verify that `obj` round-trips through `consensus_serialize` /
     /// `consensus_deserialize` and matches the supplied byte representation.
     /// Also checks that truncating the serialized bytes by one byte produces
-    /// an `UnexpectedEof` read error — silently accepting a shorter form is
-    /// logged via `test_debug!` but not treated as a hard failure (some codecs
-    /// admit shorter forms).
+    /// an `UnexpectedEof` read error — parsing a shorter form successfully is
+    /// treated as a hard failure.
     pub fn check_codec_and_corruption<T>(obj: &T, bytes: &[u8])
     where
         T: StacksMessageCodec + fmt::Debug + Clone + PartialEq,
@@ -311,9 +310,9 @@ pub mod testing {
 
             match T::consensus_deserialize(&mut &short_buf[..]) {
                 Ok(oops) => {
-                    test_debug!(
-                        "\nMissing Underflow: Parsed {oops:?}\nFrom {:?}\n",
-                        &write_buf[0..short_len].to_vec()
+                    panic!(
+                        "Parsed {oops:?} from a truncated buffer {:?}; expected an UnexpectedEof read error",
+                        &write_buf[0..short_len]
                     );
                 }
                 Err(codec_error::ReadError(io_error)) => match io_error.kind() {

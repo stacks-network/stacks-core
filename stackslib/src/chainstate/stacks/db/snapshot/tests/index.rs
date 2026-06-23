@@ -24,15 +24,16 @@ use stacks_common::types::chainstate::{
 };
 use tempfile::tempdir;
 
-use super::super::common::{unclassified_tables, MARF_INFRA_TABLES};
-use super::super::index::{copy_index_side_tables, index_copy_specs, COPIED_TABLES};
+use super::super::index::{
+    assert_source_tables_classified, copy_index_side_tables, index_copy_specs, COPIED_TABLES,
+};
 use super::{
     append_canonical_block, assert_corruption_containing, create_dest_db_with_canonical_blocks,
     create_source_db, hex_id, label_block_id, FIXTURE_LEAF,
 };
 use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::{StacksHeaderInfo, CHAINSTATE_VERSION};
-use crate::chainstate::stacks::index::MARFValue;
+use crate::chainstate::stacks::index::{Error, MARFValue};
 
 /// Insert an epoch-2 `block_headers` row at the given height.
 fn insert_epoch2_block_header(conn: &Connection, height: u32, suffix: &str) {
@@ -510,20 +511,39 @@ fn test_copy_specs_match_copied_tables() {
 
 /// Drift guard: every table the chainstate migrations create must be
 /// classified, so a future migration can't silently drop one from the copy.
+/// Runs the exact production guard against a freshly-migrated schema, so the
+/// test and the runtime check cannot drift apart.
 #[test]
 fn test_no_unclassified_source_tables() {
     let dir = tempdir().unwrap();
     let conn = create_source_db(&dir.path().join("src.sqlite"));
-    let known: Vec<&str> = super::super::index::COPIED_TABLES
-        .iter()
-        .chain(super::super::index::SCHEMA_ONLY_TABLES)
-        .chain(MARF_INFRA_TABLES.iter())
-        .copied()
-        .collect();
-    let extra = unclassified_tables(&conn, &known);
+    assert_source_tables_classified(&conn)
+        .expect("fresh production index schema must be fully classified");
+}
+
+/// A source table the copy lists don't classify is rejected before any
+/// destination is produced — the runtime complement to the drift test.
+#[test]
+fn test_unclassified_source_table_is_rejected() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src.sqlite");
+    let conn = create_source_db(&src_path);
+    conn.execute_batch("CREATE TABLE surprise_table (x INTEGER)")
+        .unwrap();
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_index.sqlite");
+    let err = copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+        .expect_err("unclassified source table must be rejected");
+    match err {
+        Error::CorruptionError(msg) => assert!(
+            msg.contains("surprise_table"),
+            "error should name the offending table, got: {msg}"
+        ),
+        other => panic!("expected CorruptionError, got {other:?}"),
+    }
     assert!(
-        extra.is_empty(),
-        "unclassified index table(s) {extra:?}: classify each in COPIED_TABLES or \
-         SCHEMA_ONLY_TABLES (snapshot/index.rs)"
+        !dst_path.exists(),
+        "no destination should be produced when the source is rejected"
     );
 }

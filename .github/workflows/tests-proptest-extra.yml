@@ -50,7 +50,7 @@ concurrency:
 # Set default env vars
 env:
   RUST_BACKTRACE: full
-  TEST_TIMEOUT: 30
+  TEST_TIMEOUT: 60
   # Minimum number of PR approvals required before running the tests
   REQUIRED_APPROVALS: 2
   # Number of generated cases to run per selected proptest.
@@ -283,7 +283,11 @@ jobs:
 
       # List every test present on the HEAD branch.
       - name: List HEAD branch tests
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
         run: |
+          echo "Head branch: $HEAD_REF"
+
           cargo nextest list \
             --archive-file ${{ needs.setup-env.outputs.test-archive-file }} \
             -Tjson 2>/dev/null \
@@ -296,56 +300,52 @@ jobs:
           | sort > /tmp/head-tests.txt
           echo "HEAD tests: $(wc -l < /tmp/head-tests.txt)"
 
-      # Check out the base branch into a temporary git worktree and compile
-      # it to list its tests.
+      # Check out the base branch into a temporary git worktree and compile it
+      # to list its tests, building in the worktree's own target/. The worktree
+      # (and its build output) is removed afterwards.
       #
-      # CARGO_TARGET_DIR is pointed at the HEAD workspace's target/ directory.
-      # Anything unchanged between HEAD and BASE (external deps and
-      # unmodified stacks-core crates) is reused, so only the crates
-      # that actually differ need recompiling.
-      #
-      # NOTE:
-      # Overwriting HEAD binaries in target/ is harmless — the test-run step
-      # uses --archive-file, which extracts HEAD binaries into a temp dir and
-      # never reads from target/.
-      #
-      # Reusing HEAD's target/ is only effective when testenv fell back to a local
-      # build (cache miss): that build uses no special RUSTFLAGS, so the artifacts
-      # are compatible and Rust only recompiles the crates that differ from BASE.
-      # When testenv succeeds (cache hit), target/ contains artifacts built with
-      # -Cinstrument-coverage (from manage-test-caches). The flag mismatch invalidates
-      # every fingerprint, forcing a full recompile regardless — no faster than
-      # using a fresh target directory (and it's not worth using same flag either).
+      # This is always a full compile: the ./target/debug/ restored by "Restore
+      # Test Archive Cache" was built with -C instrument-coverage by
+      # setup-test-caches, so its fingerprints never match this list-only build
+      # and there is nothing to reuse. RUSTFLAGS only allows warnings here — the
+      # job-wide `-D warnings` would otherwise turn a benign warning into a hard
+      # error and leave an empty list.
       - name: List BASE branch tests
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref || inputs.base_ref }}
+          RUSTFLAGS: "-A warnings"
+        shell: bash
         run: |
           echo "Base branch: $BASE_REF"
 
           git fetch --depth=1 origin "$BASE_REF"
           git worktree add --detach /tmp/base-worktree "origin/$BASE_REF"
 
-          # Capture HEAD workspace root before entering the worktree
-          head_target="$(pwd)/target"
-
+          # Build in the worktree's own target/ (no HEAD target/ reuse — see note).
           pushd /tmp/base-worktree
-          CARGO_TARGET_DIR="$head_target" \
-          cargo nextest list \
-            -Tjson 2>/dev/null \
-          | jq -r '
+          cargo nextest list -Tjson > /tmp/base-list.json
+          popd
+
+          # Remove the worktree along with its build output (--force because the
+          # compile above populated its target/).
+          git worktree remove --force /tmp/base-worktree
+          git worktree prune
+          
+          jq -r '
               .["rust-suites"]
               | to_entries[]
               | .value.testcases
               | keys[]
-            ' \
+            ' /tmp/base-list.json \
           | sort > /tmp/base-tests.txt
-          popd
+          
+          base_count=$(wc -l < /tmp/base-tests.txt)
+          echo "Base tests: $base_count"
 
-          # Worktree source files are clean (build output went to HEAD_TARGET)
-          git worktree remove /tmp/base-worktree
-          git worktree prune
-
-          echo "Base tests: $(wc -l < /tmp/base-tests.txt)"
+          if [ "$base_count" -eq 0 ]; then
+            echo "::error::BASE test listing is empty — aborting to avoid treating all HEAD tests as new."
+            exit 1
+          fi
 
       # Compare the HEAD and base test lists and keep only tests that are new in HEAD.
       # Then filter to only those tagged with :t::...:t_prop:, i.e. test names of the form:

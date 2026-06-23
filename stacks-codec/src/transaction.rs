@@ -623,6 +623,14 @@ pub enum AuthError {
     IncompatibleSpendingConditionError,
 }
 
+/// When validating transaction signatures, should low-S be enforced?
+/// (see https://docs.rs/secp256k1/latest/secp256k1/ecdsa/struct.Signature.html#method.normalize_s)
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum TransactionAuthVerificationMode {
+    EnforceLowS,
+    AllowHighS,
+}
+
 impl fmt::Display for AuthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -663,19 +671,6 @@ impl TransactionAuthField {
         match *self {
             TransactionAuthField::Signature(ref key_fmt, ref sig) => Some((*key_fmt, sig.clone())),
             _ => None,
-        }
-    }
-
-    // TODO: enforce u8; 32
-    pub fn get_public_key(&self, sighash_bytes: &[u8]) -> Result<StacksPublicKey, AuthError> {
-        match *self {
-            TransactionAuthField::PublicKey(ref pubk) => Ok(pubk.clone()),
-            TransactionAuthField::Signature(ref key_fmt, ref sig) => {
-                let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_bytes, sig)
-                    .map_err(|e| AuthError::VerifyingError(e.to_string()))?;
-                pubk.set_compressed(*key_fmt == TransactionPublicKeyEncoding::Compressed);
-                Ok(pubk)
-            }
         }
     }
 }
@@ -910,6 +905,7 @@ impl MultisigSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, AuthError> {
         let mut pubkeys = vec![];
         let mut cur_sighash = initial_sighash.clone();
@@ -935,6 +931,7 @@ impl MultisigSpendingCondition {
                         self.nonce,
                         pubkey_encoding,
                         sigbuf,
+                        mode,
                     )?;
                     cur_sighash = next_sighash;
                     num_sigs = num_sigs
@@ -1098,6 +1095,7 @@ impl OrderIndependentMultisigSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, AuthError> {
         let mut pubkeys = vec![];
         let mut num_sigs: u16 = 0;
@@ -1122,6 +1120,7 @@ impl OrderIndependentMultisigSpendingCondition {
                         self.nonce,
                         pubkey_encoding,
                         sigbuf,
+                        mode,
                     )?;
                     num_sigs = num_sigs
                         .checked_add(1)
@@ -1263,6 +1262,7 @@ impl SinglesigSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, AuthError> {
         let (pubkey, next_sighash) = TransactionSpendingCondition::next_verification(
             initial_sighash,
@@ -1271,6 +1271,7 @@ impl SinglesigSpendingCondition {
             self.nonce,
             &self.key_encoding,
             &self.signature,
+            mode,
         )?;
 
         let addr = StacksAddress::from_public_keys(
@@ -1735,6 +1736,7 @@ impl TransactionSpendingCondition {
         nonce: u64,
         key_encoding: &TransactionPublicKeyEncoding,
         sig: &MessageSignature,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<(StacksPublicKey, Txid), AuthError> {
         let sighash_presign = TransactionSpendingCondition::make_sighash_presign(
             cur_sighash,
@@ -1744,8 +1746,16 @@ impl TransactionSpendingCondition {
         );
 
         // verify the current signature
-        let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_presign.as_bytes(), sig)
-            .map_err(|ve| AuthError::VerifyingError(ve.to_string()))?;
+        let pubk = if mode == TransactionAuthVerificationMode::AllowHighS {
+            StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+                sighash_presign.as_bytes(),
+                sig,
+            )
+        } else {
+            StacksPublicKey::recover_to_pubkey(sighash_presign.as_bytes(), sig)
+        };
+
+        let mut pubk = pubk.map_err(|ve| AuthError::VerifyingError(ve.to_string()))?;
 
         match key_encoding {
             TransactionPublicKeyEncoding::Compressed => pubk.set_compressed(true),
@@ -1763,16 +1773,17 @@ impl TransactionSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, AuthError> {
         match *self {
             TransactionSpendingCondition::Singlesig(ref data) => {
-                data.verify(initial_sighash, cond_code)
+                data.verify(initial_sighash, cond_code, mode)
             }
             TransactionSpendingCondition::Multisig(ref data) => {
-                data.verify(initial_sighash, cond_code)
+                data.verify(initial_sighash, cond_code, mode)
             }
             TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                data.verify(initial_sighash, cond_code)
+                data.verify(initial_sighash, cond_code, mode)
             }
         }
     }
@@ -1992,23 +2003,31 @@ impl TransactionAuth {
         }
     }
 
-    pub fn verify_origin(&self, initial_sighash: &Txid) -> Result<Txid, AuthError> {
+    pub fn verify_origin(
+        &self,
+        initial_sighash: &Txid,
+        mode: TransactionAuthVerificationMode,
+    ) -> Result<Txid, AuthError> {
         match *self {
             TransactionAuth::Standard(ref origin_condition) => {
-                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard)
+                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard, mode)
             }
             TransactionAuth::Sponsored(ref origin_condition, _) => {
-                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard)
+                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard, mode)
             }
         }
     }
 
-    pub fn verify(&self, initial_sighash: &Txid) -> Result<(), AuthError> {
-        let origin_sighash = self.verify_origin(initial_sighash)?;
+    pub fn verify(
+        &self,
+        initial_sighash: &Txid,
+        mode: TransactionAuthVerificationMode,
+    ) -> Result<(), AuthError> {
+        let origin_sighash = self.verify_origin(initial_sighash, mode)?;
         match *self {
             TransactionAuth::Standard(_) => Ok(()),
             TransactionAuth::Sponsored(_, ref sponsor_condition) => sponsor_condition
-                .verify(&origin_sighash, &TransactionAuthFlags::AuthSponsored)
+                .verify(&origin_sighash, &TransactionAuthFlags::AuthSponsored, mode)
                 .map(|_sigh| ()),
         }
     }
@@ -2470,12 +2489,15 @@ impl StacksMicroblockHeader {
             .expect("BUG: failed to serialize to a vec");
         let digest = Sha512Trunc256Sum::from_data(&bytes[..]);
 
-        let mut pubk = StacksPublicKey::recover_to_pubkey(digest.as_bytes(), &self.signature)
-            .map_err(|_ve| {
-                AuthError::VerifyingError(
-                    "Failed to verify signature: failed to recover public key".to_string(),
-                )
-            })?;
+        let mut pubk = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+            digest.as_bytes(),
+            &self.signature,
+        )
+        .map_err(|_ve| {
+            AuthError::VerifyingError(
+                "Failed to verify signature: failed to recover public key".to_string(),
+            )
+        })?;
 
         pubk.set_compressed(true);
         Ok(Hash160::from_node_public_key(&pubk))
@@ -3254,14 +3276,14 @@ impl StacksTransaction {
     }
 
     /// Verify this transaction's signatures
-    pub fn verify(&self) -> Result<(), AuthError> {
-        self.auth.verify(&self.verify_begin())
+    pub fn verify(&self, mode: TransactionAuthVerificationMode) -> Result<(), AuthError> {
+        self.auth.verify(&self.verify_begin(), mode)
     }
 
     /// Verify the transaction's origin signatures only.
     /// Used by sponsors to get the next sig-hash to sign.
-    pub fn verify_origin(&self) -> Result<Txid, AuthError> {
-        self.auth.verify_origin(&self.verify_begin())
+    pub fn verify_origin(&self, mode: TransactionAuthVerificationMode) -> Result<Txid, AuthError> {
+        self.auth.verify_origin(&self.verify_begin(), mode)
     }
 
     /// Get the origin account's address
@@ -3326,6 +3348,97 @@ impl StacksTransaction {
         } else {
             false
         }
+    }
+
+    /// Returns the identical transaction, but with the last signature
+    /// in the `auth` having its S negated mod n. Mathematically, that
+    /// is an equivalent signature, but we don't generally want to accept
+    /// them because this ambiguity means txid malleability.
+    ///
+    /// This function exists purely for testing the correct behavior for
+    /// such transactions; we never want to generate them in production.
+    ///
+    /// rust-secp256k1 always generates low-S signatures, so if `self` is
+    /// a transaction that was properly signed by our code, then
+    /// `self.with_negated_s_in_signature()` has high-S.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn with_negated_s_in_signature(&self) -> StacksTransaction {
+        high_s::tx_with_negated_s_in_signature(self)
+    }
+}
+
+/// Helpers to convert a transaction signature to its non-normal high-S
+/// equivalent, for testing purposes. See [`StacksTransaction::with_negated_s_in_signature`]
+/// for more info.
+#[cfg(any(test, feature = "testing"))]
+mod high_s {
+    use crate::transaction::{
+        StacksTransaction, TransactionAuth, TransactionAuthField, TransactionSpendingCondition,
+    };
+
+    /// Returns a copy of `fields` where the last field of type `Signature`
+    /// has been changed to its equivalent signature with S negated mod n.
+    fn auth_fields_with_negated_s_signature(
+        fields: Vec<TransactionAuthField>,
+    ) -> Vec<TransactionAuthField> {
+        let mut handled_one = false;
+        let mut result: Vec<_> = fields
+            .iter()
+            .rev()
+            .map(|f| {
+                if handled_one {
+                    return f.clone();
+                }
+                match f {
+                    TransactionAuthField::PublicKey(_) => f.clone(),
+                    TransactionAuthField::Signature(pubkey, sig) => {
+                        handled_one = true;
+                        TransactionAuthField::Signature(*pubkey, sig.with_negated_s())
+                    }
+                }
+            })
+            .collect();
+        result.reverse();
+        result
+    }
+
+    fn spending_condition_with_negated_s_signature(
+        condition: &TransactionSpendingCondition,
+    ) -> TransactionSpendingCondition {
+        match condition {
+            TransactionSpendingCondition::Singlesig(c) => {
+                let mut c = c.clone();
+                c.signature = c.signature.with_negated_s();
+                TransactionSpendingCondition::Singlesig(c)
+            }
+            TransactionSpendingCondition::Multisig(c) => {
+                let mut c = c.clone();
+                c.fields = auth_fields_with_negated_s_signature(c.fields);
+                TransactionSpendingCondition::Multisig(c)
+            }
+            TransactionSpendingCondition::OrderIndependentMultisig(c) => {
+                let mut c = c.clone();
+                c.fields = auth_fields_with_negated_s_signature(c.fields);
+                TransactionSpendingCondition::OrderIndependentMultisig(c)
+            }
+        }
+    }
+
+    pub fn tx_with_negated_s_in_signature(tx: &StacksTransaction) -> StacksTransaction {
+        let new_auth = match tx.auth() {
+            TransactionAuth::Standard(condition) => {
+                TransactionAuth::Standard(spending_condition_with_negated_s_signature(condition))
+            }
+            // Only modify the sponsor signature, because changing the origin signature would
+            // invalidate the sponsor's.
+            TransactionAuth::Sponsored(condition1, condition2) => TransactionAuth::Sponsored(
+                condition1.clone(),
+                spending_condition_with_negated_s_signature(condition2),
+            ),
+        };
+        let mut result = tx.clone();
+        result.auth = new_auth;
+        result
     }
 }
 

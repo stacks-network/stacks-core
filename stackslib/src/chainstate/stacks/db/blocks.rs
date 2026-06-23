@@ -6578,7 +6578,9 @@ impl StacksChainState {
     }
 
     /// Given an outstanding clarity connection, can we append the tx to the chain state?
-    /// Used when determining whether a transaction can be added to the mempool.
+    /// Used when determining whether a transaction can be added to the mempool, NOT FOR
+    /// CONSENSUS LOGIC (which might technically allow things that we refuse to add to
+    /// the mempool).
     fn can_include_tx<T: ClarityConnection>(
         clarity_connection: &mut T,
         chainstate_config: &DBConfig,
@@ -6591,8 +6593,18 @@ impl StacksChainState {
         // 2: it must be validly signed.
         let epoch = clarity_connection.get_epoch();
 
-        StacksChainState::process_transaction_precheck(chainstate_config, tx, epoch)
-            .map_err(MemPoolRejection::FailedToValidate)?;
+        // Enforce low-S on the transaction signatures. While consensus allows high-S
+        // signatures at the time of writing, they are a concern because the ambiguity
+        // makes transaction ids malleable. That's why we don't admit them to the mempol,
+        // and signers reject blocks with them. In a future hard fork, they will also
+        // not be allowed by consensus anymore.
+        StacksChainState::process_transaction_precheck(
+            chainstate_config,
+            tx,
+            epoch,
+            Some(TransactionAuthVerificationMode::EnforceLowS),
+        )
+        .map_err(MemPoolRejection::FailedToValidate)?;
 
         // 3: it must pay a tx fee
         let fee = tx.get_tx_fee();
