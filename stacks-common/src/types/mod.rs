@@ -17,6 +17,8 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::io::{Read, Write};
+#[cfg(any(test, feature = "testing"))]
+use std::ops::{Bound, RangeBounds};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -596,6 +598,12 @@ impl StacksEpochId {
         }
     }
 
+    /// Whether or not this epoch supports the cost-voting contract (SIP-006), which is
+    /// disabled from Epoch 4.0 (SIP-044).
+    pub fn supports_cost_voting_contract(&self) -> bool {
+        self < &StacksEpochId::Epoch40
+    }
+
     /// Returns true for epochs which use Nakamoto blocks. These blocks use a
     /// different header format than the previous Stacks blocks, which among
     /// other changes includes a Stacks-specific timestamp.
@@ -820,33 +828,83 @@ impl StacksEpochId {
             StacksEpochId::Epoch40 => PEER_VERSION_EPOCH_4_0,
         }
     }
+}
 
-    #[cfg(any(test, feature = "testing"))]
-    pub fn since(epoch: StacksEpochId) -> &'static [StacksEpochId] {
-        let idx = Self::ALL
+/// Test-only helper functions for `StacksEpochId`.
+///
+/// These functions rely on the [`StacksEpochId::ALL`] array of all defined epochs and are only
+/// intended to be used in testing as they may return variants that are not yet active according to
+/// [`StacksEpochId::RELEASE_LATEST_EPOCH`].
+#[cfg(any(test, feature = "testing"))]
+impl StacksEpochId {
+    /// Gets the index of the provided `epoch` within the [`ALL`](StacksEpochId::ALL) array of
+    /// defined epochs.
+    fn index_of(epoch: Self) -> usize {
+        Self::ALL
             .iter()
             .position(|&e| e == epoch)
-            .expect("epoch not found in ALL");
-
-        &Self::ALL[idx..]
+            .expect("epoch not found in ALL")
     }
 
-    /// Returns all [`StacksEpochId`] from `start` to `end`, both inclusive.
-    #[cfg(any(test, feature = "testing"))]
-    pub fn between(start: StacksEpochId, end: StacksEpochId) -> &'static [StacksEpochId] {
-        let start_idx = Self::ALL
-            .iter()
-            .position(|&e| e == start)
-            .expect("start epoch not found in ALL");
-        let end_idx = Self::ALL
-            .iter()
-            .position(|&e| e == end)
-            .expect("end epoch not found in ALL");
-        assert!(start_idx <= end_idx, "start epoch must be <= end epoch");
+    /// Returns all [`StacksEpochId`] variants after the provided `epoch` (exclusive).
+    ///
+    /// Provided as a helper function since this can't be expressed as a range (there's no
+    /// "excluded" start-bound syntax).
+    ///
+    /// Useful for iterating over all epochs _after_ a specific epoch, when the next epoch may not
+    /// yet be known or defined (e.g. in tests that want to assert an invariant for all future
+    /// [`StacksEpochId`] variants).
+    pub fn all_after(epoch: Self) -> impl Iterator<Item = Self> {
+        (Bound::Excluded(epoch), Bound::Unbounded).iter().copied()
+    }
 
-        &Self::ALL[start_idx..=end_idx]
+    /// Returns the first (lowest) [`StacksEpochId`] variant.
+    pub const fn first() -> StacksEpochId {
+        Self::ALL[0]
+    }
+
+    /// Returns the last (highest) defined [`StacksEpochId`] variant.
+    pub const fn last() -> StacksEpochId {
+        Self::ALL[Self::ALL.len() - 1]
     }
 }
+
+/// Extension methods for iterating over standard Rust range bounds of [`StacksEpochId`].
+/// Note: When `Step` stabilizes, this can be refactored.
+#[cfg(any(test, feature = "testing"))]
+pub trait StacksEpochRangeTestExt: RangeBounds<StacksEpochId> + Sized {
+    /// Iterates by reference over all [`StacksEpochId`] variants in this range.
+    ///
+    /// Forgiving: behaves like standard `Range` iterators in that `start >= end` results in an
+    /// empty iterator.
+    fn iter(&self) -> std::slice::Iter<'static, StacksEpochId> {
+        let start = match self.start_bound() {
+            Bound::Included(epoch) => StacksEpochId::index_of(*epoch),
+            Bound::Excluded(epoch) => StacksEpochId::index_of(*epoch) + 1,
+            Bound::Unbounded => 0,
+        };
+
+        let end = match self.end_bound() {
+            Bound::Included(epoch) => StacksEpochId::index_of(*epoch) + 1,
+            Bound::Excluded(epoch) => StacksEpochId::index_of(*epoch),
+            Bound::Unbounded => StacksEpochId::ALL.len(),
+        };
+
+        // Yield an empty slice if end <= start, mirroring standard Rust behavior.
+        let end = end.max(start);
+        StacksEpochId::ALL[start..end].iter()
+    }
+
+    /// Returns a slice of all [`StacksEpochId`] variants in this range.
+    fn as_slice(&self) -> &'static [StacksEpochId] {
+        self.iter().as_slice()
+    }
+}
+
+/// Implement [`StacksEpochRangeTestExt`] for [`StacksEpochId`] ranges (e.g.
+/// `StacksEpochId::Epoch10..=StacksEpochId::Epoch23`).
+#[cfg(any(test, feature = "testing"))]
+impl<R> StacksEpochRangeTestExt for R where R: RangeBounds<StacksEpochId> {}
 
 impl PartialOrd for StacksAddress {
     fn partial_cmp(&self, other: &StacksAddress) -> Option<Ordering> {
