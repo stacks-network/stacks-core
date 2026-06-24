@@ -6,7 +6,6 @@ import {
   candidateSignerIds,
   logCommand,
   refreshModel,
-  trackCommandRun,
   usedGrantKey,
 } from './utils';
 import { rov, rovErr, txErr } from '@clarigen/test';
@@ -45,7 +44,6 @@ export const GrantSignerKeyErrInvalidSignaturePubkey = () =>
       },
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'grant-signer-key_err_invalid_sig_pubkey');
 
         // Arrange
 

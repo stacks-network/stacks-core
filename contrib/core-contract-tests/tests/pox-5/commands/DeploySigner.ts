@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
-import { logCommand, refreshModel, trackCommandRun } from './utils';
+import { logCommand, refreshModel } from './utils';
 import { MAX_SIGNERS, deployTestSignerContract } from '../pox-5-helpers';
 import { rov } from '@clarigen/test';
 import { expect } from 'vitest';
@@ -14,7 +14,6 @@ export const DeploySigner = () =>
         model.deployedSigners.size < MAX_SIGNERS,
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'deploy-signer');
 
         // Arrange
         const bitcoinHeightBefore = real.network.burnBlockHeight;

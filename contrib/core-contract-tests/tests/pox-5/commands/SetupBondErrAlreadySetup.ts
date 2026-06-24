@@ -1,11 +1,6 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
-import {
-  eligibleBondIndex,
-  logCommand,
-  refreshModel,
-  trackCommandRun,
-} from './utils';
+import { eligibleBondIndex, logCommand, refreshModel } from './utils';
 import { deployer, errorCodes } from '../pox-5-helpers';
 import { rov, txErr } from '@clarigen/test';
 import { expect } from 'vitest';
@@ -36,7 +31,6 @@ export const SetupBondErrAlreadySetup = (accounts: Real['accounts']) => {
         },
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'setup-bond_err_already_setup');
 
           // Arrange
 

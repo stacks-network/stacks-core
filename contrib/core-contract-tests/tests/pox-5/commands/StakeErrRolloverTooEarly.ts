@@ -11,7 +11,6 @@ import {
   isInPreparePhase,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes, sbtcBalance } from '../pox-5-helpers';
@@ -46,7 +45,6 @@ export const StakeErrRolloverTooEarly = (accounts: Real['accounts']) =>
       },
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'stake_err_rollover_too_early');
 
         // Arrange
 

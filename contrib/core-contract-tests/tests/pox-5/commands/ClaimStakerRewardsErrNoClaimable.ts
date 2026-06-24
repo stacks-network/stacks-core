@@ -7,7 +7,6 @@ import {
   logCommand,
   modelEarnedStaker,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import {
@@ -42,7 +41,6 @@ export const ClaimStakerRewardsErrNoClaimable = (accounts: Real['accounts']) =>
         ) === 0n,
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'claim-staker-rewards_err_no_claimable');
 
         // Arrange
 

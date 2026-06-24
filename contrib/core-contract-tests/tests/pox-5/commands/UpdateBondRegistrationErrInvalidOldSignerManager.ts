@@ -8,7 +8,6 @@ import {
   isInPreparePhase,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes, sbtcBalance } from '../pox-5-helpers';
@@ -41,10 +40,6 @@ export const UpdateBondRegistrationErrInvalidOldSignerManager = (
           r.wrongSigner !== model.bondMemberships.get(r.sender)!.signer,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(
-            model,
-            'update-bond-registration_err_invalid_old_signer',
-          );
 
           // Arrange
 

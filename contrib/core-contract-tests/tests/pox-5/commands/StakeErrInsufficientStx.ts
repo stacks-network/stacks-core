@@ -9,7 +9,6 @@ import {
   logCommand,
   refreshModel,
   stxAccount,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { TOTAL_LIQUID_SUPPLY_USTX, errorCodes } from '../pox-5-helpers';
@@ -34,7 +33,6 @@ export const StakeErrInsufficientStx = (accounts: Real['accounts']) =>
         !model.bondMemberships.has(r.sender),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'stake_err_insufficient_stx');
 
         // Arrange
 

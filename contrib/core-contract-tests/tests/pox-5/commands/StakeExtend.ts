@@ -16,7 +16,6 @@ import {
   refreshModel,
   rewardCycleToBurnHeight,
   signerHasActiveGrant,
-  trackCommandRun,
 } from './utils';
 import { rov, txOk } from '@clarigen/test';
 import { expect } from 'vitest';
@@ -55,7 +54,6 @@ export const StakeExtend = (accounts: Real['accounts']) =>
         },
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'stake-extend');
 
           // Arrange
           const bitcoinHeightBefore = real.network.burnBlockHeight;

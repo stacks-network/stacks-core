@@ -329,8 +329,24 @@ export function logCommand({
 }
 
 export function trackCommandRun(model: Model, commandName: string) {
-  const count = model.statistics.get(commandName) || 0;
+  const count = model.statistics.get(commandName);
+  if (count === undefined) {
+    throw new Error(`Command "${commandName}" is not registered in statistics`);
+  }
   model.statistics.set(commandName, count + 1);
+}
+
+export function initialCommandStatistics(
+  commandNames: readonly string[],
+): Map<string, number> {
+  const statistics = new Map<string, number>();
+  for (const commandName of commandNames) {
+    if (statistics.has(commandName)) {
+      throw new Error(`Duplicate command label "${commandName}"`);
+    }
+    statistics.set(commandName, 0);
+  }
+  return statistics;
 }
 
 export function reportCommandRuns(model: Model) {

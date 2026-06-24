@@ -5,7 +5,6 @@ import {
   getWalletNameByAddress,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { errorCodes } from '../pox-5-helpers';
 import { rov, txErr } from '@clarigen/test';
@@ -40,7 +39,6 @@ export const SetupBondErrUnauthorized = (accounts: Real['accounts']) => {
         },
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'setup-bond_err_unauthorized');
 
           // Arrange
 

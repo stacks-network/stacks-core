@@ -17,7 +17,6 @@ import {
   modelAddStakerToCycles,
   refreshModel,
   rewardCycleToBurnHeight,
-  trackCommandRun,
 } from './utils';
 import { rov, txOk } from '@clarigen/test';
 import { expect } from 'vitest';
@@ -51,7 +50,6 @@ export const StakeRolloverFromBond = (accounts: Real['accounts']) =>
       },
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'stake_rollover_from_bond');
 
         // Arrange
 

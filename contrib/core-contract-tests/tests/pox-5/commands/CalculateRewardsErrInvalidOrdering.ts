@@ -7,7 +7,6 @@ import {
   rewardsCalculationHeight,
   rewardsStxCycle,
   sortedActiveBonds,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes } from '../pox-5-helpers';
@@ -34,7 +33,6 @@ export const CalculateRewardsErrInvalidOrdering = (
         sortedActiveBonds(model, rewardsCalculationHeight(model)).length >= 2,
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'calculate-rewards_err_invalid_ordering');
 
         // Arrange
 

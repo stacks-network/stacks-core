@@ -16,7 +16,6 @@ import {
   modelAddStakerToCycles,
   refreshModel,
   rewardCycleToBurnHeight,
-  trackCommandRun,
 } from './utils';
 import { rov, txOk } from '@clarigen/test';
 import { expect } from 'vitest';
@@ -45,7 +44,6 @@ export const Stake = (accounts: Real['accounts']) =>
           !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'stake');
 
           // Arrange
           const signer = r.signer;

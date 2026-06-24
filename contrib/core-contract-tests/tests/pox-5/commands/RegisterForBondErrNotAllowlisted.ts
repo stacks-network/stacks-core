@@ -7,7 +7,6 @@ import {
   grantedSigners,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { err } from '@clarigen/core';
 import { rov, txErr } from '@clarigen/test';
@@ -54,7 +53,6 @@ export const RegisterForBondErrNotAllowlisted = (accounts: Real['accounts']) =>
           grantedSigners(model).includes(r.signer),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'register-for-bond_err_not_allowlisted');
 
           // Arrange
 

@@ -10,7 +10,6 @@ import {
   refreshModel,
   rewardsCalculationHeight,
   rptKey,
-  trackCommandRun,
 } from './utils';
 import { rov, txOk } from '@clarigen/test';
 import { expect } from 'vitest';
@@ -33,7 +32,6 @@ export const CalculateRewards = (accounts: Real['accounts']) =>
         rewardsCalculationHeight(model) > model.lastRewardComputeHeight,
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'calculate-rewards');
 
         // Arrange
 

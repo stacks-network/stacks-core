@@ -6,7 +6,6 @@ import {
   isInPreparePhase,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes } from '../pox-5-helpers';
@@ -34,7 +33,6 @@ export const AnnounceL1EarlyExitErrUnauthorized = (
         r.caller !== r.staker,
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'announce-l1-early-exit_err_unauthorized');
 
         // Arrange
 

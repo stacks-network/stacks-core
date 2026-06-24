@@ -8,7 +8,6 @@ import {
   isStakerActive,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { expect } from 'vitest';
 import { rov, txErr } from '@clarigen/test';
@@ -46,7 +45,6 @@ export const StakeErrInvalidNumCycles = (accounts: Real['accounts']) =>
           !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'stake_err_invalid_num_cycles');
 
           // Arrange
           const bitcoinHeightBefore = real.network.burnBlockHeight;

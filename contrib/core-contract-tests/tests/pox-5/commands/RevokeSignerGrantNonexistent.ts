@@ -1,11 +1,6 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
-import {
-  candidateSignerIds,
-  logCommand,
-  refreshModel,
-  trackCommandRun,
-} from './utils';
+import { candidateSignerIds, logCommand, refreshModel } from './utils';
 import { rovErr, txOk } from '@clarigen/test';
 import { expect } from 'vitest';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
@@ -32,7 +27,6 @@ export const RevokeSignerGrantNonexistent = () =>
         check: (model: Readonly<Model>) => model.deployedSigners.has(r.signer),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'revoke-signer-grant_nonexistent');
 
           // Arrange
           const signerSk = secp256k1.utils.randomSecretKey(r.seed);

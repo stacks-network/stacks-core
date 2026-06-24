@@ -5,7 +5,6 @@ import {
   grantKey,
   logCommand,
   refreshModel,
-  trackCommandRun,
   usedGrantKey,
 } from './utils';
 import { rov } from '@clarigen/test';
@@ -34,7 +33,6 @@ export const RotateSignerKey = () =>
         check: (model: Readonly<Model>) => model.signers.has(r.signer),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'rotate-signer-key');
 
           // Arrange
 

@@ -5,7 +5,6 @@ import {
   eligibleBondIndex,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { deployer, errorCodes } from '../pox-5-helpers';
 import { rov, txErr } from '@clarigen/test';
@@ -38,7 +37,6 @@ export const SetupBondErrStakerAlreadyAdded = (accounts: Real['accounts']) => {
         },
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'setup-bond_err_staker_already_added');
 
           // Arrange
 

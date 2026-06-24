@@ -8,7 +8,6 @@ import {
   refreshModel,
   signerRewardKey,
   stakerRewardKey,
-  trackCommandRun,
 } from './utils';
 import { rov, txOk } from '@clarigen/test';
 import { sbtcBalance, testSignerHandle } from '../pox-5-helpers';
@@ -35,7 +34,6 @@ export const ClaimStakerRewards = () =>
           claimableStakerNone(model).length > 0,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'claim-staker-rewards');
 
           // Arrange
 

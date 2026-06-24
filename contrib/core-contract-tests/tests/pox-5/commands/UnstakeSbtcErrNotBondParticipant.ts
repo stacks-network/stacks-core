@@ -1,11 +1,6 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
-import {
-  getWalletNameByAddress,
-  logCommand,
-  refreshModel,
-  trackCommandRun,
-} from './utils';
+import { getWalletNameByAddress, logCommand, refreshModel } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes, sbtcBalance, testSigner } from '../pox-5-helpers';
 import { expect } from 'vitest';
@@ -28,7 +23,6 @@ export const UnstakeSbtcErrNotBondParticipant = (accounts: Real['accounts']) =>
         check: (model: Readonly<Model>) => !model.bondMemberships.has(r.sender),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'unstake-sbtc_err_not_bond_participant');
 
           // Arrange
 

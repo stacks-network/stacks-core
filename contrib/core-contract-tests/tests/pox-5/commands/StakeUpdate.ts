@@ -17,7 +17,6 @@ import {
   modelRemoveStakerFromCycles,
   refreshModel,
   rewardCycleToBurnHeight,
-  trackCommandRun,
 } from './utils';
 import { rov, txOk } from '@clarigen/test';
 import { expect } from 'vitest';
@@ -51,7 +50,6 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
         },
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'stake-update');
 
           // Arrange
           const newSigner = r.signer;

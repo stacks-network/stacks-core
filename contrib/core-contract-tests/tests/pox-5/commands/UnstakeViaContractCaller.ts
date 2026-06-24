@@ -14,7 +14,6 @@ import {
   modelRemoveStakerFromCycles,
   refreshModel,
   rewardCycleToBurnHeight,
-  trackCommandRun,
 } from './utils';
 import { proxyUnstakeOk } from '../pox-5-helpers';
 import { rov } from '@clarigen/test';
@@ -31,7 +30,6 @@ export const UnstakeViaContractCaller = (accounts: Real['accounts']) =>
         isStakerActive(model, r.sender) && !isInPreparePhase(model),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'unstake_proxy');
 
         // Arrange
 

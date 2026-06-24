@@ -6,7 +6,6 @@ import {
   modelGetNewRewards,
   modelGetRewards,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov } from '@clarigen/test';
 import { POX5_BOOT_ID, sbtcBalance, sbtcTransfer } from '../pox-5-helpers';
@@ -31,7 +30,6 @@ export const FundRewards = (accounts: Real['accounts']) =>
         (model.sbtcBalances.get(r.funder) ?? 0n) >= r.amountSats,
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'fund-rewards');
 
         // Arrange
 

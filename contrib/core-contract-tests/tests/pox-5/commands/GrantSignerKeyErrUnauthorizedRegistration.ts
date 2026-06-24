@@ -6,7 +6,6 @@ import {
   grantKey,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, rovErr, txErr } from '@clarigen/test';
 import { deployer, errorCodes, pox5 } from '../pox-5-helpers';
@@ -35,7 +34,6 @@ export const GrantSignerKeyErrUnauthorizedRegistration = () =>
       },
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'grant-signer-key_err_unauthorized');
 
         // Arrange
 

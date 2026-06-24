@@ -1,11 +1,6 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
-import {
-  getWalletNameByAddress,
-  logCommand,
-  refreshModel,
-  trackCommandRun,
-} from './utils';
+import { getWalletNameByAddress, logCommand, refreshModel } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes, testSigner } from '../pox-5-helpers';
 import { expect } from 'vitest';
@@ -27,10 +22,6 @@ export const AnnounceL1EarlyExitErrNotBondParticipant = (
       check: (model: Readonly<Model>) => !model.bondMemberships.has(r.staker),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(
-          model,
-          'announce-l1-early-exit_err_not_bond_participant',
-        );
 
         // Arrange
 

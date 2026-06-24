@@ -6,7 +6,6 @@ import {
   isInPreparePhase,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes, sbtcBalance } from '../pox-5-helpers';
@@ -34,7 +33,6 @@ export const UpdateBondRegistrationErrUpdateBondSameSigner = (
           isActiveBondMember(model, r.sender) && !isInPreparePhase(model),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'update-bond-registration_err_same_signer');
 
           // Arrange
 

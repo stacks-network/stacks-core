@@ -7,7 +7,6 @@ import {
   isInPreparePhase,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { MAX_UINT128, errorCodes } from '../pox-5-helpers';
@@ -31,7 +30,6 @@ export const StakeErrInvalidStartBurnHeight = (accounts: Real['accounts']) =>
         !isInPreparePhase(model) && grantedSigners(model).includes(r.signer),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'stake_err_invalid_start_burn_height');
 
         // Arrange
 

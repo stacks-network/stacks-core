@@ -10,7 +10,6 @@ import {
   logCommand,
   refreshModel,
   stxAccount,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes } from '../pox-5-helpers';
@@ -50,7 +49,6 @@ export const StakeUpdateErrInvalidOldSignerManager = (
       },
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'stake-update_err_invalid_old_signer');
 
         // Arrange
 

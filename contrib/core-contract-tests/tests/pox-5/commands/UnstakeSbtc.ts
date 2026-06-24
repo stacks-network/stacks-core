@@ -19,7 +19,6 @@ import {
   modelStakerSignerForCycle,
   modelUnstakeSatsFromBondCycles,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { sbtcBalance } from '../pox-5-helpers';
 import { rov, txOk } from '@clarigen/test';
@@ -58,7 +57,6 @@ export const UnstakeSbtc = (accounts: Real['accounts']) =>
         },
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'unstake-sbtc');
 
           // Arrange
 

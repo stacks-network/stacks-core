@@ -6,7 +6,6 @@ import {
   grantKey,
   logCommand,
   refreshModel,
-  trackCommandRun,
   usedGrantKey,
 } from './utils';
 import { rov } from '@clarigen/test';
@@ -27,7 +26,6 @@ export const RegisterSigner = (accounts: Real['accounts']) =>
           model.deployedSigners.has(r.signer) && !model.signers.has(r.signer),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'register-signer');
 
           // Arrange
           const signerId = r.signer;

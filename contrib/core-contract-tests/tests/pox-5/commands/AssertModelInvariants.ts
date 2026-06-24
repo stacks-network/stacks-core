@@ -20,7 +20,6 @@ import {
   getWalletNameByAddress,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 
 /**
@@ -41,7 +40,6 @@ export const AssertModelInvariants = (accounts: Real['accounts']) => {
       check: (model: Readonly<Model>) => model.signers.has(r.signer),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'assert-model-invariants');
 
         const bitcoinHeightBefore = real.network.burnBlockHeight;
         const stacksHeightBefore = real.network.stacksBlockHeight;

@@ -92,7 +92,11 @@ import { UpdateBondRegistrationErrNotBondParticipant } from './commands/UpdateBo
 import { UpdateBondRegistrationErrSignerNotFound } from './commands/UpdateBondRegistrationErrSignerNotFound';
 import { UpdateBondRegistrationErrUpdateBondSameSigner } from './commands/UpdateBondRegistrationErrUpdateBondSameSigner';
 import { Model, Real } from './commands/types';
-import { reportCommandRuns } from './commands/utils';
+import {
+  initialCommandStatistics,
+  reportCommandRuns,
+  trackCommandRun,
+} from './commands/utils';
 import { initSimnet } from '@stacks/clarinet-sdk';
 import {
   POX5_BOOT_ID,
@@ -130,6 +134,29 @@ const REPLAY_PATH = process.env.FAST_CHECK_REPLAY_PATH;
 // divergence; noShrink shows what actually failed first.
 const NO_SHRINK = process.env.FAST_CHECK_NO_SHRINK === '1';
 
+type LabelledCommand = fc.Command<Model, Real> & { label: () => string };
+
+function labelledCommand(
+  label: string,
+  commandArbitrary: fc.Arbitrary<fc.Command<Model, Real>>,
+): { label: string; command: fc.Arbitrary<LabelledCommand> } {
+  return {
+    label,
+    command: commandArbitrary.map((command) => {
+      const labelled: LabelledCommand = {
+        label: () => label,
+        check: (model) => command.check(model),
+        run: (model: Model, real: Real) => {
+          trackCommandRun(model, labelled.label());
+          command.run(model, real);
+        },
+        toString: () => command.toString(),
+      };
+      return labelled;
+    }),
+  };
+}
+
 test(
   'pox-5 stateful property test',
   async () => {
@@ -148,6 +175,299 @@ test(
     const sbtcBalances = new Map(
       Object.values(accounts).map((a) => [a.address, sbtcBalance(a.address)]),
     );
+
+    const commandRegistry = [
+      labelledCommand('deploy-signer', DeploySigner()),
+      labelledCommand(
+        'grant-signer-key_err_unauthorized',
+        GrantSignerKeyErrUnauthorizedRegistration(),
+      ),
+      labelledCommand(
+        'grant-signer-key_err_invalid_sig_recover',
+        GrantSignerKeyErrInvalidSignatureRecover(),
+      ),
+      labelledCommand(
+        'grant-signer-key_err_invalid_sig_pubkey',
+        GrantSignerKeyErrInvalidSignaturePubkey(),
+      ),
+      labelledCommand('register-signer', RegisterSigner(accounts)),
+      labelledCommand(
+        'register-signer_err_grant_used',
+        RegisterSignerErrGrantUsed(accounts),
+      ),
+      labelledCommand(
+        'register-signer_err_unauthorized',
+        RegisterSignerErrUnauthorizedRegistration(),
+      ),
+      labelledCommand(
+        'register-signer_err_grant_not_found',
+        RegisterSignerErrGrantNotFound(),
+      ),
+      labelledCommand('rotate-signer-key', RotateSignerKey()),
+      labelledCommand('revoke-signer-grant', RevokeSignerGrant()),
+      labelledCommand(
+        'revoke-signer-grant_nonexistent',
+        RevokeSignerGrantNonexistent(),
+      ),
+      labelledCommand(
+        'revoke-signer-grant_err_unauthorized',
+        RevokeSignerGrantErrUnauthorized(accounts),
+      ),
+      labelledCommand('stake', Stake(accounts)),
+      labelledCommand(
+        'stake_rollover_from_bond',
+        StakeRolloverFromBond(accounts),
+      ),
+      labelledCommand('stake_proxy', StakeViaContractCaller(accounts)),
+      labelledCommand('stake-update', StakeUpdate(accounts)),
+      labelledCommand('stake-extend', StakeExtend(accounts)),
+      labelledCommand('unstake', Unstake(accounts)),
+      labelledCommand('unstake_proxy', UnstakeViaContractCaller(accounts)),
+      labelledCommand(
+        'update-bond-registration',
+        UpdateBondRegistration(accounts),
+      ),
+      labelledCommand(
+        'update-bond-registration_err_not_bond_participant',
+        UpdateBondRegistrationErrNotBondParticipant(accounts),
+      ),
+      labelledCommand(
+        'update-bond-registration_err_in_prepare_phase',
+        UpdateBondRegistrationErrInPreparePhase(accounts),
+      ),
+      labelledCommand(
+        'update-bond-registration_err_invalid_old_signer',
+        UpdateBondRegistrationErrInvalidOldSignerManager(accounts),
+      ),
+      labelledCommand(
+        'update-bond-registration_err_same_signer',
+        UpdateBondRegistrationErrUpdateBondSameSigner(accounts),
+      ),
+      labelledCommand(
+        'update-bond-registration_err_signer_not_found',
+        UpdateBondRegistrationErrSignerNotFound(accounts),
+      ),
+      labelledCommand(
+        'update-bond-registration_err_grant_revoked',
+        UpdateBondRegistrationErrGrantRevoked(accounts),
+      ),
+      labelledCommand('unstake-sbtc', UnstakeSbtc(accounts)),
+      labelledCommand(
+        'unstake-sbtc_err_not_bond_participant',
+        UnstakeSbtcErrNotBondParticipant(accounts),
+      ),
+      labelledCommand(
+        'unstake-sbtc_err_invalid_amount',
+        UnstakeSbtcErrInvalidAmount(accounts),
+      ),
+      labelledCommand(
+        'unstake-sbtc_err_in_prepare_phase',
+        UnstakeSbtcErrInPreparePhase(accounts),
+      ),
+      labelledCommand(
+        'unstake-sbtc_err_invalid_old_signer',
+        UnstakeSbtcErrInvalidOldSignerManager(accounts),
+      ),
+      labelledCommand(
+        'stake_err_already_staked',
+        StakeErrAlreadyStaked(accounts),
+      ),
+      labelledCommand(
+        'stake_err_signer_not_found',
+        StakeErrSignerNotFound(accounts),
+      ),
+      labelledCommand(
+        'stake_err_invalid_num_cycles',
+        StakeErrInvalidNumCycles(accounts),
+      ),
+      labelledCommand(
+        'stake_err_invalid_start_burn_height',
+        StakeErrInvalidStartBurnHeight(accounts),
+      ),
+      labelledCommand(
+        'stake_err_insufficient_stx',
+        StakeErrInsufficientStx(accounts),
+      ),
+      labelledCommand(
+        'stake_err_in_prepare_phase',
+        StakeErrInPreparePhase(accounts),
+      ),
+      labelledCommand(
+        'stake_err_grant_revoked',
+        StakeErrGrantRevoked(accounts),
+      ),
+      labelledCommand(
+        'stake_err_rollover_too_early',
+        StakeErrRolloverTooEarly(accounts),
+      ),
+      labelledCommand(
+        'stake-update_err_not_staking',
+        StakeUpdateErrNotStaking(accounts),
+      ),
+      labelledCommand(
+        'stake-update_err_in_prepare_phase',
+        StakeUpdateErrInPreparePhase(accounts),
+      ),
+      labelledCommand(
+        'stake-update_err_invalid_old_signer',
+        StakeUpdateErrInvalidOldSignerManager(accounts),
+      ),
+      labelledCommand(
+        'stake-update_err_signer_not_found',
+        StakeUpdateErrSignerNotFound(accounts),
+      ),
+      labelledCommand(
+        'stake-update_err_grant_revoked',
+        StakeUpdateErrGrantRevoked(accounts),
+      ),
+      labelledCommand(
+        'stake-update_err_invalid_num_cycles',
+        StakeUpdateErrInvalidNumCycles(accounts),
+      ),
+      labelledCommand(
+        'stake-update_err_insufficient_stx',
+        StakeUpdateErrInsufficientStx(accounts),
+      ),
+      labelledCommand(
+        'unstake_err_not_staking',
+        UnstakeErrNotStaking(accounts),
+      ),
+      labelledCommand(
+        'unstake_err_in_prepare_phase',
+        UnstakeErrInPreparePhase(accounts),
+      ),
+      labelledCommand(
+        'unstake_err_invalid_old_signer',
+        UnstakeErrInvalidOldSignerManager(accounts),
+      ),
+      labelledCommand('setup-bond', SetupBond(accounts)),
+      labelledCommand('register-for-bond', RegisterForBond(accounts)),
+      labelledCommand(
+        'register-for-bond_rollover_from_stake',
+        RegisterForBondRolloverFromStake(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_proxy',
+        RegisterForBondViaContractCaller(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_bond_not_found',
+        RegisterForBondErrBondNotFound(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_not_allowlisted',
+        RegisterForBondErrNotAllowlisted(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_in_prepare_phase',
+        RegisterForBondErrInPreparePhase(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_insufficient_stx',
+        RegisterForBondErrInsufficientStx(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_bond_already_started',
+        RegisterForBondErrBondAlreadyStarted(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_already_staked',
+        RegisterForBondErrAlreadyStaked(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_already_registered',
+        RegisterForBondErrAlreadyRegistered(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_rollover_too_early',
+        RegisterForBondErrRolloverTooEarly(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_signer_not_found',
+        RegisterForBondErrSignerNotFound(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_grant_revoked',
+        RegisterForBondErrGrantRevoked(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_too_much_sats',
+        RegisterForBondErrTooMuchSats(accounts),
+      ),
+      labelledCommand(
+        'register-for-bond_err_invalid_btc_header',
+        RegisterForBondErrInvalidBtcHeader(accounts),
+      ),
+      labelledCommand(
+        'announce-l1-early-exit_err_cannot_announce',
+        AnnounceL1EarlyExitErrCannotAnnounce(accounts),
+      ),
+      labelledCommand(
+        'announce-l1-early-exit_err_in_prepare_phase',
+        AnnounceL1EarlyExitErrInPreparePhase(accounts),
+      ),
+      labelledCommand(
+        'announce-l1-early-exit_err_not_bond_participant',
+        AnnounceL1EarlyExitErrNotBondParticipant(accounts),
+      ),
+      labelledCommand(
+        'announce-l1-early-exit_err_unauthorized',
+        AnnounceL1EarlyExitErrUnauthorized(accounts),
+      ),
+      labelledCommand(
+        'setup-bond_err_unauthorized',
+        SetupBondErrUnauthorized(accounts),
+      ),
+      labelledCommand(
+        'setup-bond_err_already_setup',
+        SetupBondErrAlreadySetup(accounts),
+      ),
+      labelledCommand(
+        'setup-bond_err_staker_already_added',
+        SetupBondErrStakerAlreadyAdded(accounts),
+      ),
+      labelledCommand('setup-bond_err_too_late', SetupBondErrTooLate(accounts)),
+      labelledCommand('setup-bond_err_too_soon', SetupBondErrTooSoon(accounts)),
+      labelledCommand('fund-rewards', FundRewards(accounts)),
+      labelledCommand('calculate-rewards', CalculateRewards(accounts)),
+      labelledCommand(
+        'calculate-rewards_err_already_computed',
+        CalculateRewardsErrAlreadyComputed(accounts),
+      ),
+      labelledCommand(
+        'calculate-rewards_err_active_bond_not_included',
+        CalculateRewardsErrActiveBondNotIncluded(accounts),
+      ),
+      labelledCommand(
+        'calculate-rewards_err_invalid_ordering',
+        CalculateRewardsErrInvalidOrdering(accounts),
+      ),
+      labelledCommand(
+        'calculate-rewards_err_bond_not_active',
+        CalculateRewardsErrBondNotActive(accounts),
+      ),
+      labelledCommand('claim-rewards', ClaimRewards(accounts)),
+      labelledCommand(
+        'claim-rewards_err_no_claimable',
+        ClaimRewardsErrNoClaimable(accounts),
+      ),
+      labelledCommand('claim-staker-rewards', ClaimStakerRewards()),
+      labelledCommand(
+        'claim-staker-rewards_err_no_claimable',
+        ClaimStakerRewardsErrNoClaimable(accounts),
+      ),
+      labelledCommand('mine-blocks', MineBitcoinBlocks()),
+      labelledCommand('assert-signer-invariants', AssertSignerInvariants()),
+      labelledCommand(
+        'assert-staker-invariants',
+        AssertStakerInvariants(accounts),
+      ),
+      labelledCommand(
+        'assert-model-invariants',
+        AssertModelInvariants(accounts),
+      ),
+    ];
+    const invariants = commandRegistry.map(({ command }) => command);
 
     const model: Model = {
       stakers: new Map(),
@@ -192,99 +512,10 @@ test(
       stakerUnclaimedRewards: new Map(),
       bondMemberships: new Map(),
       bondTotalStaked: new Map(),
-      statistics: new Map(),
+      statistics: initialCommandStatistics(
+        commandRegistry.map(({ label }) => label),
+      ),
     };
-
-    const invariants = [
-      DeploySigner(),
-      GrantSignerKeyErrUnauthorizedRegistration(),
-      GrantSignerKeyErrInvalidSignatureRecover(),
-      GrantSignerKeyErrInvalidSignaturePubkey(),
-      RegisterSigner(accounts),
-      RegisterSignerErrGrantUsed(accounts),
-      RegisterSignerErrUnauthorizedRegistration(),
-      RegisterSignerErrGrantNotFound(),
-      RotateSignerKey(),
-      RevokeSignerGrant(),
-      RevokeSignerGrantNonexistent(),
-      RevokeSignerGrantErrUnauthorized(accounts),
-      Stake(accounts),
-      StakeRolloverFromBond(accounts),
-      StakeViaContractCaller(accounts),
-      StakeUpdate(accounts),
-      StakeExtend(accounts),
-      Unstake(accounts),
-      UnstakeViaContractCaller(accounts),
-      UpdateBondRegistration(accounts),
-      UpdateBondRegistrationErrNotBondParticipant(accounts),
-      UpdateBondRegistrationErrInPreparePhase(accounts),
-      UpdateBondRegistrationErrInvalidOldSignerManager(accounts),
-      UpdateBondRegistrationErrUpdateBondSameSigner(accounts),
-      UpdateBondRegistrationErrSignerNotFound(accounts),
-      UpdateBondRegistrationErrGrantRevoked(accounts),
-      UnstakeSbtc(accounts),
-      UnstakeSbtcErrNotBondParticipant(accounts),
-      UnstakeSbtcErrInvalidAmount(accounts),
-      UnstakeSbtcErrInPreparePhase(accounts),
-      UnstakeSbtcErrInvalidOldSignerManager(accounts),
-      StakeErrAlreadyStaked(accounts),
-      StakeErrSignerNotFound(accounts),
-      StakeErrInvalidNumCycles(accounts),
-      StakeErrInvalidStartBurnHeight(accounts),
-      StakeErrInsufficientStx(accounts),
-      StakeErrInPreparePhase(accounts),
-      StakeErrGrantRevoked(accounts),
-      StakeErrRolloverTooEarly(accounts),
-      StakeUpdateErrNotStaking(accounts),
-      StakeUpdateErrInPreparePhase(accounts),
-      StakeUpdateErrInvalidOldSignerManager(accounts),
-      StakeUpdateErrSignerNotFound(accounts),
-      StakeUpdateErrGrantRevoked(accounts),
-      StakeUpdateErrInvalidNumCycles(accounts),
-      StakeUpdateErrInsufficientStx(accounts),
-      UnstakeErrNotStaking(accounts),
-      UnstakeErrInPreparePhase(accounts),
-      UnstakeErrInvalidOldSignerManager(accounts),
-      SetupBond(accounts),
-      RegisterForBond(accounts),
-      RegisterForBondRolloverFromStake(accounts),
-      RegisterForBondViaContractCaller(accounts),
-      RegisterForBondErrBondNotFound(accounts),
-      RegisterForBondErrNotAllowlisted(accounts),
-      RegisterForBondErrInPreparePhase(accounts),
-      RegisterForBondErrInsufficientStx(accounts),
-      RegisterForBondErrBondAlreadyStarted(accounts),
-      RegisterForBondErrAlreadyStaked(accounts),
-      RegisterForBondErrAlreadyRegistered(accounts),
-      RegisterForBondErrRolloverTooEarly(accounts),
-      RegisterForBondErrSignerNotFound(accounts),
-      RegisterForBondErrGrantRevoked(accounts),
-      RegisterForBondErrTooMuchSats(accounts),
-      RegisterForBondErrInvalidBtcHeader(accounts),
-      AnnounceL1EarlyExitErrCannotAnnounce(accounts),
-      AnnounceL1EarlyExitErrInPreparePhase(accounts),
-      AnnounceL1EarlyExitErrNotBondParticipant(accounts),
-      AnnounceL1EarlyExitErrUnauthorized(accounts),
-      SetupBondErrUnauthorized(accounts),
-      SetupBondErrAlreadySetup(accounts),
-      SetupBondErrStakerAlreadyAdded(accounts),
-      SetupBondErrTooLate(accounts),
-      SetupBondErrTooSoon(accounts),
-      FundRewards(accounts),
-      CalculateRewards(accounts),
-      CalculateRewardsErrAlreadyComputed(accounts),
-      CalculateRewardsErrActiveBondNotIncluded(accounts),
-      CalculateRewardsErrInvalidOrdering(accounts),
-      CalculateRewardsErrBondNotActive(accounts),
-      ClaimRewards(accounts),
-      ClaimRewardsErrNoClaimable(accounts),
-      ClaimStakerRewards(),
-      ClaimStakerRewardsErrNoClaimable(accounts),
-      MineBitcoinBlocks(),
-      AssertSignerInvariants(),
-      AssertStakerInvariants(accounts),
-      AssertModelInvariants(accounts),
-    ];
 
     fc.assert(
       fc.property(

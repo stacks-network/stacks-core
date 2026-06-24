@@ -29,7 +29,6 @@ import {
   modelSettleSignerRewards,
   modelSettleStakerRewards,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txOk } from '@clarigen/test';
 import { sbtcBalance } from '../pox-5-helpers';
@@ -62,7 +61,6 @@ export const UpdateBondRegistration = (accounts: Real['accounts']) =>
           r.signer !== model.bondMemberships.get(r.sender)!.signer,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'update-bond-registration');
 
           // Arrange
 

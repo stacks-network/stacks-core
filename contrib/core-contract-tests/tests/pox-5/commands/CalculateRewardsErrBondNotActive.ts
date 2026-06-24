@@ -8,7 +8,6 @@ import {
   rewardsCalculationHeight,
   rewardsStxCycle,
   sortBondsForRewards,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes } from '../pox-5-helpers';
@@ -47,7 +46,6 @@ export const CalculateRewardsErrBondNotActive = (accounts: Real['accounts']) =>
         },
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'calculate-rewards_err_bond_not_active');
 
           // Arrange
 

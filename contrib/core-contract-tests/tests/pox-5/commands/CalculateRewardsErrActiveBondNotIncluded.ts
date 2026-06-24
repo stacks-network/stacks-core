@@ -7,7 +7,6 @@ import {
   rewardsCalculationHeight,
   rewardsStxCycle,
   sortedActiveBonds,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes } from '../pox-5-helpers';
@@ -34,10 +33,6 @@ export const CalculateRewardsErrActiveBondNotIncluded = (
         sortedActiveBonds(model, rewardsCalculationHeight(model)).length > 0,
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(
-          model,
-          'calculate-rewards_err_active_bond_not_included',
-        );
 
         // Arrange
 

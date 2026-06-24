@@ -5,7 +5,6 @@ import {
   getWalletNameByAddress,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { ok } from '@clarigen/core';
 import { rov, txErr } from '@clarigen/test';
@@ -38,7 +37,6 @@ export const RegisterForBondErrInvalidBtcHeader = (
         check: (model: Readonly<Model>) => model.bonds.size > 0,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'register-for-bond_err_invalid_btc_header');
 
           // Arrange
 

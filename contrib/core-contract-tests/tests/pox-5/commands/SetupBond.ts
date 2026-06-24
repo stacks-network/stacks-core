@@ -5,7 +5,6 @@ import {
   eligibleBondIndex,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { deployer } from '../pox-5-helpers';
 import { rov, txOk } from '@clarigen/test';
@@ -45,7 +44,6 @@ export const SetupBond = (accounts: Real['accounts']) => {
         },
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'setup-bond');
 
           // Arrange
 

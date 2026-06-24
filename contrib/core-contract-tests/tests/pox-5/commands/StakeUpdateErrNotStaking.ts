@@ -6,7 +6,6 @@ import {
   isStakerActive,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes } from '../pox-5-helpers';
@@ -32,7 +31,6 @@ export const StakeUpdateErrNotStaking = (accounts: Real['accounts']) =>
         !isStakerActive(model, r.sender),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'stake-update_err_not_staking');
 
         // Arrange
 

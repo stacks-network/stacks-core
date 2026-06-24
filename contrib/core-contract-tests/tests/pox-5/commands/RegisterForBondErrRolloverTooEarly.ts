@@ -10,7 +10,6 @@ import {
   logCommand,
   minUstxForSats,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { err } from '@clarigen/core';
 import { rov, txErr } from '@clarigen/test';
@@ -48,7 +47,6 @@ export const RegisterForBondErrRolloverTooEarly = (
         },
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'register-for-bond_err_rollover_too_early');
 
           // Arrange
 

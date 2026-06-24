@@ -6,7 +6,6 @@ import {
   grantKey,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, rovErr, txErr } from '@clarigen/test';
 import { deployer, errorCodes, pox5 } from '../pox-5-helpers';
@@ -32,7 +31,6 @@ export const RegisterSignerErrGrantNotFound = () =>
       },
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'register-signer_err_grant_not_found');
 
         // Arrange
 

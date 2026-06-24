@@ -12,7 +12,6 @@ import {
   minUstxForSats,
   refreshModel,
   registrableBondsForStaker,
-  trackCommandRun,
 } from './utils';
 import { err } from '@clarigen/core';
 import { rov, txErr } from '@clarigen/test';
@@ -66,7 +65,6 @@ export const RegisterForBondErrAlreadyStaked = (accounts: Real['accounts']) =>
           overlappingRegistrableBonds(model, r.sender).length > 0,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'register-for-bond_err_already_staked');
 
           // Arrange
 

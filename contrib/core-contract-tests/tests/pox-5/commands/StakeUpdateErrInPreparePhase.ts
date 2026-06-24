@@ -7,7 +7,6 @@ import {
   logCommand,
   refreshModel,
   stxAccount,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes } from '../pox-5-helpers';
@@ -29,7 +28,6 @@ export const StakeUpdateErrInPreparePhase = (accounts: Real['accounts']) =>
         isStakerActive(model, r.sender) && isInPreparePhase(model),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'stake-update_err_in_prepare_phase');
 
         // Arrange
 

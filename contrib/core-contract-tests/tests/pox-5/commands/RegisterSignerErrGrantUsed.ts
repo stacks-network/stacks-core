@@ -5,7 +5,6 @@ import {
   logCommand,
   parseUsedGrantKey,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { expect } from 'vitest';
@@ -42,7 +41,6 @@ export const RegisterSignerErrGrantUsed = (accounts: Real['accounts']) =>
         check: (model: Readonly<Model>) => pickUsedGrant(model) !== undefined,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'register-signer_err_grant_used');
 
           // Arrange
 

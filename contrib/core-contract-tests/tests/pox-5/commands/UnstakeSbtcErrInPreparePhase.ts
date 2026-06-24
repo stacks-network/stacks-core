@@ -6,7 +6,6 @@ import {
   isInPreparePhase,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes, sbtcBalance } from '../pox-5-helpers';
@@ -39,7 +38,6 @@ export const UnstakeSbtcErrInPreparePhase = (accounts: Real['accounts']) =>
         },
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'unstake-sbtc_err_in_prepare_phase');
 
           // Arrange
 

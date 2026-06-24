@@ -1,11 +1,6 @@
 import fc from 'fast-check';
 import type { Model, Real } from './types';
-import {
-  logCommand,
-  parseGrantKey,
-  refreshModel,
-  trackCommandRun,
-} from './utils';
+import { logCommand, parseGrantKey, refreshModel } from './utils';
 import { rovErr, rovOk, txOk } from '@clarigen/test';
 import { expect } from 'vitest';
 import { errorCodes, signerAddress } from '../pox-5-helpers';
@@ -35,7 +30,6 @@ export const RevokeSignerGrant = () =>
         check: (model: Readonly<Model>) => pickActiveGrant(model) !== undefined,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'revoke-signer-grant');
 
           // Arrange
           const grant = pickActiveGrant(model)!;

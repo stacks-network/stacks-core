@@ -7,7 +7,6 @@ import {
   isActiveBondMember,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes, sbtcBalance } from '../pox-5-helpers';
@@ -38,10 +37,6 @@ export const UpdateBondRegistrationErrNotBondParticipant = (
           !isActiveBondMember(model, r.sender),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(
-            model,
-            'update-bond-registration_err_not_bond_participant',
-          );
 
           // Arrange
 

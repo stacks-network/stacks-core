@@ -12,7 +12,6 @@ import {
   logCommand,
   modelStakerSignerForCycle,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 
 /**
@@ -36,7 +35,6 @@ export const AssertStakerInvariants = (accounts: Real['accounts']) => {
         isStakerInCurrentCycle(model, r.staker),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'assert-staker-invariants');
 
         const bitcoinHeightBefore = real.network.burnBlockHeight;
         const stacksHeightBefore = real.network.stacksBlockHeight;

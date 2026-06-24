@@ -26,7 +26,6 @@ import {
   modelSettleBondRewards,
   refreshModel,
   registrableBondsForStaker,
-  trackCommandRun,
 } from './utils';
 import {
   BOND_LENGTH_CYCLES,
@@ -57,7 +56,6 @@ export const RegisterForBondViaContractCaller = (accounts: Real['accounts']) =>
           registrableBondsForStaker(model, r.sender).length > 0,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'register-for-bond_proxy');
 
           // Arrange
 

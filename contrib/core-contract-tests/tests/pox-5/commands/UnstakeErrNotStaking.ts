@@ -6,7 +6,6 @@ import {
   isStakerActive,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes } from '../pox-5-helpers';
@@ -27,7 +26,6 @@ export const UnstakeErrNotStaking = (accounts: Real['accounts']) =>
         model.deployedSigners.has(r.signer) && !isStakerActive(model, r.sender),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'unstake_err_not_staking');
 
         // Arrange
 

@@ -14,7 +14,6 @@ import {
   modelRemoveStakerFromCycles,
   refreshModel,
   rewardCycleToBurnHeight,
-  trackCommandRun,
 } from './utils';
 import { rov, txOk } from '@clarigen/test';
 import { expect } from 'vitest';
@@ -29,7 +28,6 @@ export const Unstake = (accounts: Real['accounts']) =>
         isStakerActive(model, r.sender) && !isInPreparePhase(model),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'unstake');
 
         // Arrange
         const bitcoinHeightBefore = real.network.burnBlockHeight;

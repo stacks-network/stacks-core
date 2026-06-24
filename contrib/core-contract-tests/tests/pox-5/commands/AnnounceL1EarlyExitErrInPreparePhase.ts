@@ -6,7 +6,6 @@ import {
   isInPreparePhase,
   logCommand,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes } from '../pox-5-helpers';
@@ -31,7 +30,6 @@ export const AnnounceL1EarlyExitErrInPreparePhase = (
         isInPreparePhase(model) && isActiveBondMember(model, r.staker),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'announce-l1-early-exit_err_in_prepare_phase');
 
         // Arrange
 

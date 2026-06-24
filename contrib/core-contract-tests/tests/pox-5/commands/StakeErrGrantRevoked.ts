@@ -8,7 +8,6 @@ import {
   logCommand,
   refreshModel,
   revokedSigners,
-  trackCommandRun,
 } from './utils';
 import { expect } from 'vitest';
 import { rov, txErr } from '@clarigen/test';
@@ -37,7 +36,6 @@ export const StakeErrGrantRevoked = (accounts: Real['accounts']) =>
           revokedSigners(model).includes(r.signer),
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'stake_err_grant_revoked');
 
           // Arrange
 

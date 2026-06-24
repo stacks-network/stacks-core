@@ -26,7 +26,6 @@ import {
   modelSettleBondRewards,
   refreshModel,
   stxRolloverBondTargetsForStaker,
-  trackCommandRun,
 } from './utils';
 import { BOND_LENGTH_CYCLES, sbtcBalance } from '../pox-5-helpers';
 import { err } from '@clarigen/core';
@@ -60,7 +59,6 @@ export const RegisterForBondRolloverFromStake = (accounts: Real['accounts']) =>
           stxRolloverBondTargetsForStaker(model, r.sender).length > 0,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'register-for-bond_rollover_from_stake');
 
           // Arrange
 

@@ -16,7 +16,6 @@ import {
   modelAddStakerToCycles,
   refreshModel,
   rewardCycleToBurnHeight,
-  trackCommandRun,
 } from './utils';
 import { proxyStakeOk } from '../pox-5-helpers';
 import { rov } from '@clarigen/test';
@@ -43,7 +42,6 @@ export const StakeViaContractCaller = (accounts: Real['accounts']) =>
         !isInPreparePhase(model),
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'stake_proxy');
 
         // Arrange
 

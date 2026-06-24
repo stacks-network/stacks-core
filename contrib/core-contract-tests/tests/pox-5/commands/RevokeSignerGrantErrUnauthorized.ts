@@ -5,7 +5,6 @@ import {
   logCommand,
   parseGrantKey,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rovOk, txErr } from '@clarigen/test';
 import { expect } from 'vitest';
@@ -39,7 +38,6 @@ export const RevokeSignerGrantErrUnauthorized = (accounts: Real['accounts']) =>
         check: (model: Readonly<Model>) => pickActiveGrant(model) !== undefined,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'revoke-signer-grant_err_unauthorized');
 
           // Arrange
           const grant = pickActiveGrant(model)!;

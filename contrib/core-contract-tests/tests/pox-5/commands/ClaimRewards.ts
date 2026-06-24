@@ -10,7 +10,6 @@ import {
   refreshModel,
   rptKey,
   signerRewardKey,
-  trackCommandRun,
 } from './utils';
 import { rov, txOk } from '@clarigen/test';
 import { sbtcBalance, testSignerHandle } from '../pox-5-helpers';
@@ -37,7 +36,6 @@ export const ClaimRewards = (accounts: Real['accounts']) =>
         check: (model: Readonly<Model>) => claimableNonePool(model).length > 0,
         run: (model: Model, real: Real) => {
           refreshModel(model, real);
-          trackCommandRun(model, 'claim-rewards');
 
           // Arrange
 

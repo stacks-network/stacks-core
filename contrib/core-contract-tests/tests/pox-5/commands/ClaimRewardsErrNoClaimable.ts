@@ -7,7 +7,6 @@ import {
   logCommand,
   modelEarnedSigner,
   refreshModel,
-  trackCommandRun,
 } from './utils';
 import { rov, txErr } from '@clarigen/test';
 import { errorCodes, sbtcBalance, testSignerHandle } from '../pox-5-helpers';
@@ -32,7 +31,6 @@ export const ClaimRewardsErrNoClaimable = (accounts: Real['accounts']) =>
           0n,
       run: (model: Model, real: Real) => {
         refreshModel(model, real);
-        trackCommandRun(model, 'claim-rewards_err_no_claimable');
 
         // Arrange
 
