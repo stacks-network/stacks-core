@@ -299,6 +299,16 @@ impl DefinedFunction {
                 // and traits can be implicitly cast to sub-traits
                 // e.g. `<foo-and-bar>` to `<foo>`
                 let cast_value = clarity2_implicit_cast(type_sig, value)?;
+                let cast_value = if exec_state.epoch().sanitize_in_function_invocation() {
+                    Value::sanitize_value(exec_state.epoch(), type_sig, cast_value)
+                        .ok_or(RuntimeCheckErrorKind::TypeValueError(
+                            Box::new(type_sig.clone()),
+                            value.to_error_string(),
+                        ))?
+                        .0
+                } else {
+                    cast_value
+                };
 
                 match (&type_sig, &cast_value) {
                     (
