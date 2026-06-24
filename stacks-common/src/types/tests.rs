@@ -19,6 +19,7 @@ use std::str::FromStr;
 use super::{
     set_test_coinbase_schedule, CoinbaseInterval, StacksEpochId,
     BITCOIN_MAINNET_GENESIS_BURN_HEIGHT, BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT,
+    BITCOIN_TESTNET_GENESIS_BURN_HEIGHT, BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT,
     COINBASE_INTERVALS_MAINNET, COINBASE_INTERVALS_TESTNET,
 };
 
@@ -60,6 +61,36 @@ fn test_mainnet_coinbase_emissions() {
     assert_eq!(
         COINBASE_INTERVALS_MAINNET[2].effective_start_height,
         BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT - BITCOIN_MAINNET_GENESIS_BURN_HEIGHT
+    );
+}
+
+#[test]
+fn test_testnet_coinbase_emissions() {
+    assert_eq!(COINBASE_INTERVALS_TESTNET.len(), 6);
+    assert_eq!(COINBASE_INTERVALS_TESTNET[0].coinbase, 1_000_000_000);
+    assert_eq!(COINBASE_INTERVALS_TESTNET[1].coinbase, 500_000_000);
+    assert_eq!(COINBASE_INTERVALS_TESTNET[2].coinbase, 250_000_000);
+    assert_eq!(COINBASE_INTERVALS_TESTNET[3].coinbase, 125_000_000);
+    assert_eq!(COINBASE_INTERVALS_TESTNET[4].coinbase, 62_500_000);
+    assert_eq!(COINBASE_INTERVALS_TESTNET[5].coinbase, 1_000_000_000);
+
+    assert_eq!(COINBASE_INTERVALS_TESTNET[0].effective_start_height, 0);
+    assert_eq!(COINBASE_INTERVALS_TESTNET[1].effective_start_height, 77_777);
+    assert_eq!(
+        COINBASE_INTERVALS_TESTNET[2].effective_start_height,
+        77_777 * 7
+    );
+    assert_eq!(
+        COINBASE_INTERVALS_TESTNET[3].effective_start_height,
+        77_777 * 14
+    );
+    assert_eq!(
+        COINBASE_INTERVALS_TESTNET[4].effective_start_height,
+        77_777 * 21
+    );
+    assert_eq!(
+        COINBASE_INTERVALS_TESTNET[5].effective_start_height,
+        BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT - BITCOIN_TESTNET_GENESIS_BURN_HEIGHT
     );
 }
 
