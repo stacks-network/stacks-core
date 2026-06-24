@@ -165,6 +165,18 @@ test('uint-to-buff-le panics on values >= 65536', () => {
   expect(() => rov(pox5.uintToBuffLe(2n ** 64n))).toThrow();
 });
 
+test('serialize-c-script-num includes bytes above 24 bits', () => {
+  expect(hex.encode(rovOk(pox5.serializeCScriptNum(16877216n)))).toBe(
+    'a0860101',
+  );
+});
+
+test('serialize-c-script-num rejects values above the 5-byte scriptnum range', () => {
+  expect(rovErr(pox5.serializeCScriptNum(549755813888n))).toBe(
+    errorCodes.ERR_INVALID_UNLOCK_HEIGHT,
+  );
+});
+
 /**
  * Helper-only test for printing the Clarity list literal used by cycle folds.
  */
@@ -1619,6 +1631,41 @@ test('l1 lockup accepts an unlock height above the bond minimum', () => {
   );
 
   expect(result.value).toBe(errorCodes.ERR_INVALID_BTC_HEADER);
+});
+
+test('l1 lockup rejects truncated cscriptnum unlock height collision', () => {
+  const signer = testSigner.identifier;
+  const aliceSats = 480000n;
+  const effectiveUnlockHeight = 100000n;
+  const claimedUnlockHeight = effectiveUnlockHeight + 16777216n;
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: aliceSats, staker: alice }]);
+
+  const result = txErr(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: ok({
+        outputs: [
+          {
+            ...buildL1Lockup({
+              staker: alice,
+              sats: aliceSats,
+              unlockBurnHeight: effectiveUnlockHeight,
+            }),
+            unlockBurnHeight: claimedUnlockHeight,
+          },
+        ],
+        stakerUnlockBytes: new Uint8Array(),
+      }),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(result.value).toBe(errorCodes.ERR_INVALID_LOCKUP_SCRIPT);
 });
 
 // Skipped: Simnet's burn header hashes aren't real, so most of the L1 paths
