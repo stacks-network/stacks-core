@@ -7,7 +7,6 @@ import {
 } from '@clarigen/core';
 import {
   Cl,
-  ClarityType,
   cvToValue,
   deserializeCV,
 } from '@stacks/transactions';
