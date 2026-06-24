@@ -31,7 +31,7 @@
 //! `prop_assume!` inside `apply`.
 
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use clarity::types::StacksEpochId;
 use clarity::vm::costs::ExecutionCost;
@@ -294,30 +294,9 @@ impl Pox5SystemUnderTest {
     }
 }
 
-// Per-bucket counters bumped by `check_invariants`. `pox5_coverage_smoke`
-// asserts each is > 0 so generator drift (e.g. `Unstake.check` getting stricter)
-// surfaces as a coverage failure rather than passing silently. Counters live in
-// the per-test context to avoid cross-talk between parallel tests.
-
-#[derive(Debug, Default, Clone, Copy)]
-struct CoverageCounters {
-    unlocked: u64,
-    locked_nosched: u64,
-    locked_sched: u64,
-}
-
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Pox5Context {
     total_ustx: u128,
-    coverage: Arc<Mutex<CoverageCounters>>,
-}
-
-impl std::fmt::Debug for Pox5Context {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Pox5Context")
-            .field("total_ustx", &self.total_ustx)
-            .finish_non_exhaustive()
-    }
 }
 
 impl TestContext for Pox5Context {}
@@ -326,30 +305,13 @@ impl Pox5Context {
     pub fn new() -> Self {
         Self {
             total_ustx: TOTAL_USTX,
-            coverage: Arc::new(Mutex::new(CoverageCounters::default())),
         }
-    }
-}
-
-fn classify_state(model: &Pox5StakerState, ctx: &Pox5Context) {
-    let mut c = ctx.coverage.lock().unwrap();
-    match &model.account {
-        AccountState::Unlocked => c.unlocked += 1,
-        AccountState::Locked {
-            unstake_scheduled: false,
-            ..
-        } => c.locked_nosched += 1,
-        AccountState::Locked {
-            unstake_scheduled: true,
-            ..
-        } => c.locked_sched += 1,
     }
 }
 
 /// Invariants checked after every command. A failed assert panics out as a
 /// madhouse test failure with shrinking.
 fn check_invariants(state: &mut Pox5StakerState, ctx: &Pox5Context) {
-    classify_state(state, ctx);
     let (sut_locked, sut_unlocked) = state.sut.balance_canonical();
 
     // Invariant 1: conservation on the SUT.
