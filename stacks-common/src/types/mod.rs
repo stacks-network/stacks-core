@@ -530,6 +530,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch24
     }
 
+    /// Returns whether or not this Epoch should perform
+    ///  Clarity value sanitization on function invocation
+    pub fn sanitize_in_function_invocation(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     pub fn supports_specific_budget_extends(&self) -> bool {
         self >= &StacksEpochId::Epoch33
     }
