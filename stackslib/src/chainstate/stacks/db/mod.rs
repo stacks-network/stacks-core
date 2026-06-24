@@ -2931,7 +2931,7 @@ pub mod test {
 
     use super::*;
     use crate::chainstate::stacks::boot::{
-        BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
+        BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
     };
     use crate::chainstate::stacks::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
@@ -3026,8 +3026,16 @@ pub mod test {
                 // (costs-3, costs-4) can be analyzed and deployed.
                 conn.set_epoch(StacksEpochId::Epoch33);
 
+                // Match `initialize_epoch_2_05`: on testnet, load the testnet
+                // variant of `costs-2`. Only `costs-2` has a testnet variant.
+                let costs_2_code = if mainnet {
+                    BOOT_CODE_COSTS_2
+                } else {
+                    BOOT_CODE_COSTS_2_TESTNET
+                };
+
                 let contracts: &[(&str, ClarityVersion, &str)] = &[
-                    (COSTS_2_NAME, ClarityVersion::Clarity1, BOOT_CODE_COSTS_2),
+                    (COSTS_2_NAME, ClarityVersion::Clarity1, costs_2_code),
                     (COSTS_3_NAME, ClarityVersion::Clarity2, BOOT_CODE_COSTS_3),
                     (COSTS_4_NAME, ClarityVersion::Clarity2, BOOT_CODE_COSTS_4),
                 ];
