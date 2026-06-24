@@ -4,6 +4,11 @@ import {
   assertBondSignerSharesForCycle,
   assertBondStakerSharesForCycle,
   assertBondTotalSharesForCycle,
+  assertSignerRewardsPerTokenForCycle,
+  assertSignerRewardsPerTokenSettledForCycle,
+  assertSignerUnclaimedRewardsForCycle,
+  assertStakerRewardsPerTokenSettledForCycle,
+  assertStakerUnclaimedRewardsForCycle,
   bondEndCycle,
   bondStartCycle,
   currentRewardCycle,
@@ -174,6 +179,43 @@ export const UnstakeSbtc = (accounts: Real['accounts']) =>
             firstChangedSigner,
             r.sender,
           );
+          assertSignerUnclaimedRewardsForCycle(
+            model,
+            real,
+            firstChanged,
+            bondIndex,
+            firstChangedSigner,
+          );
+          assertSignerRewardsPerTokenSettledForCycle(
+            model,
+            real,
+            firstChanged,
+            bondIndex,
+            firstChangedSigner,
+          );
+          assertSignerRewardsPerTokenForCycle(
+            model,
+            real,
+            firstChanged,
+            bondIndex,
+            firstChangedSigner,
+          );
+          assertStakerUnclaimedRewardsForCycle(
+            model,
+            real,
+            firstChanged,
+            bondIndex,
+            firstChangedSigner,
+            r.sender,
+          );
+          assertStakerRewardsPerTokenSettledForCycle(
+            model,
+            real,
+            firstChanged,
+            bondIndex,
+            firstChangedSigner,
+            r.sender,
+          );
           assertBondTotalSharesForCycle(model, real, lastCycle, bondIndex);
           assertBondSignerSharesForCycle(
             model,
@@ -183,6 +225,43 @@ export const UnstakeSbtc = (accounts: Real['accounts']) =>
             lastCycleSigner,
           );
           assertBondStakerSharesForCycle(
+            model,
+            real,
+            lastCycle,
+            bondIndex,
+            lastCycleSigner,
+            r.sender,
+          );
+          assertSignerUnclaimedRewardsForCycle(
+            model,
+            real,
+            lastCycle,
+            bondIndex,
+            lastCycleSigner,
+          );
+          assertSignerRewardsPerTokenSettledForCycle(
+            model,
+            real,
+            lastCycle,
+            bondIndex,
+            lastCycleSigner,
+          );
+          assertSignerRewardsPerTokenForCycle(
+            model,
+            real,
+            lastCycle,
+            bondIndex,
+            lastCycleSigner,
+          );
+          assertStakerUnclaimedRewardsForCycle(
+            model,
+            real,
+            lastCycle,
+            bondIndex,
+            lastCycleSigner,
+            r.sender,
+          );
+          assertStakerRewardsPerTokenSettledForCycle(
             model,
             real,
             lastCycle,

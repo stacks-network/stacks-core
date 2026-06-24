@@ -6,7 +6,12 @@ import {
   assertBondTotalSharesForCycle,
   assertSignerCycleMembership,
   assertSignerDelegationForCycle,
+  assertSignerRewardsPerTokenForCycle,
+  assertSignerRewardsPerTokenSettledForCycle,
+  assertSignerUnclaimedRewardsForCycle,
+  assertStakerRewardsPerTokenSettledForCycle,
   assertStakerSharesForCycle,
+  assertStakerUnclaimedRewardsForCycle,
   assertTotalDelegatedForCycle,
   bondAllowanceKey,
   bondStartCycle,
@@ -18,6 +23,7 @@ import {
   minUstxForSats,
   modelAddStakerToBondCycles,
   modelAddStakerToCycles,
+  modelSettleBondRewards,
   refreshModel,
   registrableBondsForStaker,
   trackCommandRun,
@@ -107,6 +113,13 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
 
           // Update model
 
+          modelSettleBondRewards(
+            model,
+            r.signer,
+            firstRewardCycle,
+            bondIndex,
+            r.sender,
+          );
           model.sbtcBalances.set(r.sender, balance - sats);
           model.totalSbtcStaked += sats;
           model.contractSbtcBalance += sats;
@@ -193,6 +206,43 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
             r.signer,
             r.sender,
           );
+          assertSignerUnclaimedRewardsForCycle(
+            model,
+            real,
+            firstRewardCycle,
+            bondIndex,
+            r.signer,
+          );
+          assertSignerRewardsPerTokenSettledForCycle(
+            model,
+            real,
+            firstRewardCycle,
+            bondIndex,
+            r.signer,
+          );
+          assertSignerRewardsPerTokenForCycle(
+            model,
+            real,
+            firstRewardCycle,
+            bondIndex,
+            r.signer,
+          );
+          assertStakerUnclaimedRewardsForCycle(
+            model,
+            real,
+            firstRewardCycle,
+            bondIndex,
+            r.signer,
+            r.sender,
+          );
+          assertStakerRewardsPerTokenSettledForCycle(
+            model,
+            real,
+            firstRewardCycle,
+            bondIndex,
+            r.signer,
+            r.sender,
+          );
           assertSignerDelegationForCycle(model, real, lastCycle, r.signer);
           assertSignerCycleMembership(model, real, lastCycle, r.sender);
           assertTotalDelegatedForCycle(model, real, lastCycle);
@@ -213,6 +263,14 @@ export const RegisterForBond = (accounts: Real['accounts']) =>
             r.signer,
           );
           assertBondStakerSharesForCycle(
+            model,
+            real,
+            lastCycle,
+            bondIndex,
+            r.signer,
+            r.sender,
+          );
+          assertStakerRewardsPerTokenSettledForCycle(
             model,
             real,
             lastCycle,

@@ -714,6 +714,7 @@ export function modelAddStakerToBondCycles(
       bondStakerCycleKey(cycle, bondIndex, signer, staker),
       amountSats,
     );
+    modelSnapshotStakerRewardsSettled(model, signer, cycle, bondIndex, staker);
   }
 }
 
@@ -774,6 +775,7 @@ export function modelUnstakeSatsFromBondCycles(
         `Missing signer-cycle membership for ${staker} at cycle ${cycle}`,
       );
     }
+    modelSettleBondRewards(model, signer, cycle, bondIndex, staker);
 
     const totalKey = bondTotalCycleKey(cycle, bondIndex);
     model.bondTotalSharesForCycle.set(
@@ -1396,6 +1398,185 @@ export function modelEarnedStaker(
   const settled = model.stakerRewardsPerTokenSettled.get(key) ?? 0n;
   const unclaimed = model.stakerUnclaimedRewards.get(key) ?? 0n;
   return unclaimed + (shares * (signerRpt - settled)) / PRECISION;
+}
+
+export function modelSettleSignerRewards(
+  model: Model,
+  signer: string,
+  cycle: bigint,
+  bondIndex: bigint | null,
+): void {
+  const key = signerRewardKey(cycle, bondIndex, signer);
+  const sharesBefore = modelSignerSharesForRewards(
+    model,
+    signer,
+    cycle,
+    bondIndex,
+  );
+  const earned = modelEarnedSigner(model, signer, cycle, bondIndex);
+  const rpt = model.rewardsPerTokenForCycle.get(rptKey(cycle, bondIndex)) ?? 0n;
+  model.signerUnclaimedRewards.set(key, earned);
+  model.signerRewardsPerTokenSettled.set(key, rpt);
+  if (sharesBefore > 0n) {
+    model.signerRewardsPerTokenForCycle.set(key, rpt);
+  }
+}
+
+export function modelSettleStakerRewards(
+  model: Model,
+  signer: string,
+  cycle: bigint,
+  bondIndex: bigint | null,
+  staker: string,
+): void {
+  const key = stakerRewardKey(cycle, bondIndex, signer, staker);
+  const earned = modelEarnedStaker(model, signer, cycle, bondIndex, staker);
+  const signerRpt =
+    model.signerRewardsPerTokenForCycle.get(
+      signerRewardKey(cycle, bondIndex, signer),
+    ) ?? 0n;
+  model.stakerUnclaimedRewards.set(key, earned);
+  model.stakerRewardsPerTokenSettled.set(key, signerRpt);
+}
+
+export function modelSettleBondRewards(
+  model: Model,
+  signer: string,
+  cycle: bigint,
+  bondIndex: bigint,
+  staker: string,
+): void {
+  modelSettleSignerRewards(model, signer, cycle, bondIndex);
+  modelSettleStakerRewards(model, signer, cycle, bondIndex, staker);
+}
+
+function modelSnapshotStakerRewardsSettled(
+  model: Model,
+  signer: string,
+  cycle: bigint,
+  bondIndex: bigint,
+  staker: string,
+): void {
+  model.stakerRewardsPerTokenSettled.set(
+    stakerRewardKey(cycle, bondIndex, signer, staker),
+    model.signerRewardsPerTokenForCycle.get(
+      signerRewardKey(cycle, bondIndex, signer),
+    ) ?? 0n,
+  );
+}
+
+export function assertSignerUnclaimedRewardsForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  bondIndex: bigint | null,
+  signer: string,
+): void {
+  expect(
+    rov(
+      real.contracts.pox5.getSignerUnclaimedRewardsForCycle(
+        signer,
+        cycle,
+        bondIndex,
+      ),
+    ),
+  ).toBe(
+    model.signerUnclaimedRewards.get(
+      signerRewardKey(cycle, bondIndex, signer),
+    ) ?? 0n,
+  );
+}
+
+export function assertSignerRewardsPerTokenSettledForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  bondIndex: bigint | null,
+  signer: string,
+): void {
+  expect(
+    rov(
+      real.contracts.pox5.getSignerRewardsPerTokenSettledForCycle(
+        signer,
+        cycle,
+        bondIndex,
+      ),
+    ),
+  ).toBe(
+    model.signerRewardsPerTokenSettled.get(
+      signerRewardKey(cycle, bondIndex, signer),
+    ) ?? 0n,
+  );
+}
+
+export function assertSignerRewardsPerTokenForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  bondIndex: bigint | null,
+  signer: string,
+): void {
+  expect(
+    rov(
+      real.contracts.pox5.getSignerRewardsPerTokenForCycle(
+        signer,
+        cycle,
+        bondIndex,
+      ),
+    ),
+  ).toBe(
+    model.signerRewardsPerTokenForCycle.get(
+      signerRewardKey(cycle, bondIndex, signer),
+    ) ?? 0n,
+  );
+}
+
+export function assertStakerUnclaimedRewardsForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  bondIndex: bigint | null,
+  signer: string,
+  staker: string,
+): void {
+  expect(
+    rov(
+      real.contracts.pox5.getStakerUnclaimedRewardsForCycle(
+        signer,
+        cycle,
+        bondIndex,
+        staker,
+      ),
+    ),
+  ).toBe(
+    model.stakerUnclaimedRewards.get(
+      stakerRewardKey(cycle, bondIndex, signer, staker),
+    ) ?? 0n,
+  );
+}
+
+export function assertStakerRewardsPerTokenSettledForCycle(
+  model: Readonly<Model>,
+  real: Real,
+  cycle: bigint,
+  bondIndex: bigint | null,
+  signer: string,
+  staker: string,
+): void {
+  expect(
+    rov(
+      real.contracts.pox5.getStakerRewardsPerTokenSettledForCycle(
+        signer,
+        cycle,
+        bondIndex,
+        staker,
+      ),
+    ),
+  ).toBe(
+    model.stakerRewardsPerTokenSettled.get(
+      stakerRewardKey(cycle, bondIndex, signer, staker),
+    ) ?? 0n,
+  );
 }
 
 /**

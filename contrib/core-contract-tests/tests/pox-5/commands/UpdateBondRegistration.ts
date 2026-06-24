@@ -6,7 +6,12 @@ import {
   assertBondTotalSharesForCycle,
   assertSignerCycleMembership,
   assertSignerDelegationForCycle,
+  assertSignerRewardsPerTokenForCycle,
+  assertSignerRewardsPerTokenSettledForCycle,
+  assertSignerUnclaimedRewardsForCycle,
+  assertStakerRewardsPerTokenSettledForCycle,
   assertStakerSharesForCycle,
+  assertStakerUnclaimedRewardsForCycle,
   assertTotalDelegatedForCycle,
   bondEndCycle,
   bondStartCycle,
@@ -21,6 +26,8 @@ import {
   modelAddStakerToCycles,
   modelRemoveStakerFromBondCycles,
   modelRemoveStakerFromCycles,
+  modelSettleSignerRewards,
+  modelSettleStakerRewards,
   refreshModel,
   trackCommandRun,
 } from './utils';
@@ -99,6 +106,22 @@ export const UpdateBondRegistration = (accounts: Real['accounts']) =>
 
           // Update model
 
+          modelSettleSignerRewards(model, oldSigner, currentCycle, bondIndex);
+          modelSettleSignerRewards(model, newSigner, currentCycle, bondIndex);
+          modelSettleStakerRewards(
+            model,
+            oldSigner,
+            currentCycle,
+            bondIndex,
+            r.sender,
+          );
+          modelSettleStakerRewards(
+            model,
+            newSigner,
+            currentCycle,
+            bondIndex,
+            r.sender,
+          );
           // Replay the contract's remove-then-re-add over the touched cycles.
           // remove reads the stored membership, so it subtracts from the OLD
           // signer; re-add joins the NEW signer (bond => isStxStaking false).
@@ -164,6 +187,81 @@ export const UpdateBondRegistration = (accounts: Real['accounts']) =>
             totalSbtcBefore,
           );
           expect(sbtcBalance(r.sender)).toBe(balanceBefore);
+
+          assertSignerUnclaimedRewardsForCycle(
+            model,
+            real,
+            currentCycle,
+            bondIndex,
+            oldSigner,
+          );
+          assertSignerRewardsPerTokenSettledForCycle(
+            model,
+            real,
+            currentCycle,
+            bondIndex,
+            oldSigner,
+          );
+          assertSignerRewardsPerTokenForCycle(
+            model,
+            real,
+            currentCycle,
+            bondIndex,
+            oldSigner,
+          );
+          assertStakerUnclaimedRewardsForCycle(
+            model,
+            real,
+            currentCycle,
+            bondIndex,
+            oldSigner,
+            r.sender,
+          );
+          assertStakerRewardsPerTokenSettledForCycle(
+            model,
+            real,
+            currentCycle,
+            bondIndex,
+            oldSigner,
+            r.sender,
+          );
+          assertSignerUnclaimedRewardsForCycle(
+            model,
+            real,
+            currentCycle,
+            bondIndex,
+            newSigner,
+          );
+          assertSignerRewardsPerTokenSettledForCycle(
+            model,
+            real,
+            currentCycle,
+            bondIndex,
+            newSigner,
+          );
+          assertSignerRewardsPerTokenForCycle(
+            model,
+            real,
+            currentCycle,
+            bondIndex,
+            newSigner,
+          );
+          assertStakerUnclaimedRewardsForCycle(
+            model,
+            real,
+            currentCycle,
+            bondIndex,
+            newSigner,
+            r.sender,
+          );
+          assertStakerRewardsPerTokenSettledForCycle(
+            model,
+            real,
+            currentCycle,
+            bondIndex,
+            newSigner,
+            r.sender,
+          );
 
           // Per-cycle reads at the first touched cycle. The new signer gains
           // the delegation, the old signer's cell drops to its mirrored value,
@@ -235,6 +333,14 @@ export const UpdateBondRegistration = (accounts: Real['accounts']) =>
             oldSigner,
             r.sender,
           );
+          assertStakerRewardsPerTokenSettledForCycle(
+            model,
+            real,
+            firstRewardCycle,
+            bondIndex,
+            newSigner,
+            r.sender,
+          );
 
           // Per-cycle reads at the last touched cycle.
           assertSignerDelegationForCycle(model, real, lastCycle, newSigner);
@@ -285,6 +391,14 @@ export const UpdateBondRegistration = (accounts: Real['accounts']) =>
             lastCycle,
             bondIndex,
             oldSigner,
+            r.sender,
+          );
+          assertStakerRewardsPerTokenSettledForCycle(
+            model,
+            real,
+            lastCycle,
+            bondIndex,
+            newSigner,
             r.sender,
           );
 
