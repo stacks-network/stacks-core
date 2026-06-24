@@ -1,0 +1,1 @@
+The `/v2/pox` RPC response now includes `pox_5_sbtc_contract` and `pox_5_sbtc_registry_contract`, the sBTC token and registry contract identifiers that this node's PoX-5 references. On mainnet these are the canonical sBTC contracts; on non-mainnet they reflect the node's configuration.

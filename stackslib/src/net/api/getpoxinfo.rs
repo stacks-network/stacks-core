@@ -28,6 +28,7 @@ use stacks_common::types::StacksEpochId;
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::coordinator::OnChainRewardSetProvider;
+use crate::chainstate::nakamoto::signer_set::{pox_5_sbtc_contract, pox_5_sbtc_registry_contract};
 use crate::chainstate::stacks::boot::{
     POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME, POX_5_SIGNER_SET_MIN_USTX,
 };
@@ -130,6 +131,19 @@ pub struct RPCPoxInfoData {
 
     // Information specific to each PoX contract version
     pub contract_versions: Vec<RPCPoxContractVersion>,
+
+    // Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract used for PoX
+    // payments in epoch 4+. On mainnet this is the canonical sBTC token; on
+    // non-mainnet it reflects this node's configuration (operators configuring
+    // different contracts will fork the chain), so it is exposed here for
+    // diagnostics.
+    pub pox_5_sbtc_contract: String,
+
+    // Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract from which the
+    // node derives the per-cycle sBTC waterfall recipient (epoch 4+) via a
+    // call to `get-current-aggregate-pubkey`. Same mainnet-fixed /
+    // non-mainnet-configurable semantics as `pox_5_sbtc_contract`.
+    pub pox_5_sbtc_registry_contract: String,
 }
 
 impl RPCPoxInfoData {
@@ -504,6 +518,8 @@ impl RPCPoxInfoData {
                     first_reward_cycle_id: pox_5_first_cycle,
                 },
             ],
+            pox_5_sbtc_contract: pox_5_sbtc_contract(mainnet).to_string(),
+            pox_5_sbtc_registry_contract: pox_5_sbtc_registry_contract(mainnet).to_string(),
         })
     }
 
