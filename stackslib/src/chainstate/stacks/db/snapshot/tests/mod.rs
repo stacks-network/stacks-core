@@ -15,15 +15,21 @@
 
 use std::collections::HashSet;
 
+// `::clarity` disambiguates the crate from a sibling `clarity` test module.
+use ::clarity::vm::costs::ExecutionCost;
 use rstest::rstest;
 use rusqlite::{params, Connection};
-use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
+use stacks_common::types::chainstate::{
+    BurnchainHeaderHash, ConsensusHash, StacksBlockId, TrieHash,
+};
 use tempfile::tempdir;
 
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
+use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
 
+mod blocks;
 mod clarity;
 mod index;
 mod sortition;
@@ -33,6 +39,81 @@ fn create_source_db(path: &std::path::Path) -> Connection {
     let _ = StacksChainState::instantiate_db(false, 1, path.to_str().unwrap(), true, None)
         .expect("chainstate DB init failed");
     Connection::open(path).unwrap()
+}
+
+/// Insert an epoch-2 `block_headers` row at the given height with an
+/// explicit `index_block_hash`; the other identity columns derive from
+/// `suffix`.
+fn insert_epoch2_block_header_with_ibh(
+    conn: &Connection,
+    height: u32,
+    index_block_hash: &str,
+    suffix: &str,
+) {
+    conn.execute(
+        "INSERT INTO block_headers (version, total_burn, total_work, proof, parent_block, \
+         parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, \
+         microblock_pubkey_hash, block_hash, index_block_hash, block_height, index_root, \
+         consensus_hash, burn_header_hash, burn_header_height, burn_header_timestamp, \
+         parent_block_id, cost, block_size) \
+         VALUES (1,'0','0','p','par','mb',0,'mr','sr','mph',?1,?2,?3,'ir',?4,'bhh',?3,0,'pid','0','0')",
+        params![
+            format!("bh{suffix}"),
+            index_block_hash,
+            height,
+            format!("ch{suffix}"),
+        ],
+    )
+    .unwrap();
+}
+
+/// Insert an epoch-2 `block_headers` row at the given height, with the
+/// `index_block_hash` derived from the suffix label.
+fn insert_epoch2_block_header(conn: &Connection, height: u32, suffix: &str) {
+    insert_epoch2_block_header_with_ibh(conn, height, &hex_id(&format!("ibh{suffix}")), suffix);
+}
+
+/// Insert a `nakamoto_block_headers` row at the given burn height via the
+/// production writer, so the fixture tracks the real schema. The header's
+/// consensus hash is seeded from `label`; returns the computed
+/// `index_block_hash`.
+fn insert_nakamoto_header(conn: &Connection, label: &str, burn_height: u32) -> StacksBlockId {
+    let mut ch = [0u8; 20];
+    let len = label.len().min(20);
+    ch[..len].copy_from_slice(&label.as_bytes()[..len]);
+
+    let mut header = NakamotoBlockHeader::empty();
+    header.consensus_hash = ConsensusHash(ch);
+    // chain_length is irrelevant to the copy logic; reuse burn_height
+    // for fixture simplicity.
+    header.chain_length = burn_height.into();
+
+    let tip_info = StacksHeaderInfo {
+        anchored_header: header.clone().into(),
+        microblock_tail: None,
+        stacks_block_height: header.chain_length,
+        index_root: TrieHash([0u8; 32]),
+        consensus_hash: header.consensus_hash.clone(),
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+        burn_header_height: burn_height,
+        burn_header_timestamp: 0,
+        anchored_block_size: 0,
+        burn_view: Some(header.consensus_hash.clone()),
+        total_tenure_size: 0,
+    };
+    NakamotoChainState::insert_stacks_block_header(
+        conn,
+        &tip_info,
+        &header,
+        None,
+        &ExecutionCost::ZERO,
+        &ExecutionCost::ZERO,
+        true,
+        1,
+        0,
+    )
+    .unwrap();
+    tip_info.index_block_hash()
 }
 
 /// A deterministic 32-byte [`StacksBlockId`] for a short test label: the

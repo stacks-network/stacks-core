@@ -667,16 +667,18 @@ fn main() {
 
         Command::CheckDeserData { check_file } => {
             let file = File::open(&check_file).unwrap();
-            let mut i = 1;
-            for line in io::BufReader::new(file).lines() {
-                if i % 100000 == 0 {
-                    println!("{i}...");
-                }
-                i += 1;
+            for (line_no, line) in io::BufReader::new(file).lines().enumerate() {
+                let line_no = line_no + 1;
                 let line = line.unwrap().trim().to_string();
+
+                if line_no % 100000 == 0 {
+                    println!("{line_no}...");
+                }
+
                 if line.is_empty() {
                     continue;
                 }
+
                 let vals: Vec<_> = line.split(" => ").map(|x| x.trim()).collect();
                 let hex_string = &vals[0];
                 let expected_value_display = &vals[1];

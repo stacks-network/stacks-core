@@ -350,7 +350,7 @@ impl StacksClient {
                         .into(),
                 ));
             }
-            tenures.extend(next_results.into_iter());
+            tenures.extend(next_results);
         }
 
         Ok(tenures.into_iter().collect())

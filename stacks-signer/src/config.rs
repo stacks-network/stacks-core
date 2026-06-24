@@ -44,8 +44,8 @@ const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_DRY_RUN: bool = false;
 /// Default number of idle seconds before the signer will accept a
 ///  tenure extend from the miner
-const TENURE_IDLE_TIMEOUT_SECS: u64 = 60;
-const READ_COUNT_IDLE_TIMEOUT_SECS: u64 = 20;
+const TENURE_IDLE_TIMEOUT_SECS: u64 = 30;
+const READ_COUNT_IDLE_TIMEOUT_SECS: u64 = 15;
 const DEFAULT_REORG_ATTEMPTS_ACTIVITY_TIMEOUT_MS: u64 = 200_000;
 /// Default number of seconds to add to the tenure extend time, after computing the idle timeout,
 /// to allow for clock skew between the signer and the miner
@@ -393,7 +393,7 @@ struct RawConfigFile {
     /// This is one of two gates for tenure extends (the other is
     /// `block_proposal_timeout` for new-winner invalidation).
     /// ---
-    /// @default: `60`
+    /// @default: `30`
     /// @units: seconds
     /// @notes:
     ///   - WARNING: Must coordinate with miner's `tenure_timeout` (default 180s,
@@ -404,7 +404,7 @@ struct RawConfigFile {
     /// A read-count tenure extend is triggered when the read count budget is nearly
     /// exhausted.
     /// ---
-    /// @default: `20`
+    /// @default: `15`
     /// @units: seconds
     pub read_count_idle_timeout_secs: Option<u64>,
     /// Buffer time added to the tenure extend time sent to miners to account for
