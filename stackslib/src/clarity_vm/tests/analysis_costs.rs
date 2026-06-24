@@ -70,9 +70,9 @@ fn setup_tracked_cost_test(
     };
     let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
 
-    // The opening to GENESIS_EPOCH (Epoch20) so that the cost
+    // Open the genesis block at GENESIS_EPOCH (Epoch20) so the cost
     // tracker can load `costs` v1 from the MARF; the later cost contracts are
-    // deployed within this block by `initialize_epoch_2_05/2_1`.
+    // deployed in the next block by `initialize_epoch_2_05/2_1`.
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
