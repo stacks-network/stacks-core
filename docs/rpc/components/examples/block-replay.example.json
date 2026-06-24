@@ -96,14 +96,16 @@
                 "post_condition_aborted": false,
                 "stx_burned": 0,
                 "tx_index": 0,
-                "txid": "f14dd7dec56405fd7dac69c3080fb569fae4c49c591f9ad0e5cf5c797add9005"
+                "txid": "f14dd7dec56405fd7dac69c3080fb569fae4c49c591f9ad0e5cf5c797add9005",
+                "vm_error": null,
+                "profiler": null,
+                "execution_stats": {
+                    "secs": 0.0,
+                    "nanos": 123456
+                }
             }
         ],
         "tx_merkle_root": "a68e3c76471d9e66b71a14165c4c9a2b980c51efb5b313425cffcef7172d6080",
-        "valid_merkle_root": true,
-        "vm_error": null,
-        "cpu_instructions": null,
-        "cpu_cycles": null,
-        "cpu_ref_cycles": null
+        "valid_merkle_root": true
     }
 }

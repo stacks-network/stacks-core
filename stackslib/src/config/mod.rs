@@ -4877,8 +4877,8 @@ mod tests {
 
     #[test]
     fn test_example_confs() {
-        // For each config file in the ../conf/ directory, we should be able to parse it
-        let conf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("conf");
+        // For each config file in the sample/conf/ directory, we should be able to parse it
+        let conf_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../sample/conf");
         println!("Reading config files from: {conf_dir:?}");
         let conf_files = fs::read_dir(conf_dir).unwrap();
 

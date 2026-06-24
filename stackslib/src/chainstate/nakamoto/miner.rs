@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -488,11 +488,13 @@ impl NakamotoBlockBuilder {
         };
 
         let parent_block_id = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
-        let parent_coinbase_height =
-            NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &parent_block_id)
-                .ok()
-                .flatten()
-                .unwrap_or(0);
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height_at(
+            &mut chainstate.index_conn(),
+            &parent_block_id,
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(0);
 
         let is_new_tenure = cause.is_new_tenure();
         let coinbase_height = if is_new_tenure {

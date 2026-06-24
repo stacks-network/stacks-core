@@ -666,7 +666,7 @@ fn bad_define_maps() {
         .into(),
     ];
 
-    for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
+    for (test, expected_err) in tests.iter().zip(expected) {
         let outcome = execute(test).unwrap_err();
         assert_eq!(outcome, expected_err);
     }
@@ -691,7 +691,7 @@ fn bad_tuples() {
         RuntimeCheckErrorKind::Unreachable("Expected name".to_string()),
     ];
 
-    for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
+    for (test, expected_err) in tests.iter().zip(expected) {
         let outcome = execute(test).unwrap_err();
         assert_eq!(outcome, expected_err.into());
     }

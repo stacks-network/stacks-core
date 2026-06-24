@@ -3063,6 +3063,7 @@ mod test {
         fn get_vrf_seed_for_block(
             &self,
             _bhh: &StacksBlockId,
+            _tip: &StacksBlockId,
             epoch: &StacksEpochId,
         ) -> Option<VRFSeed> {
             Some(
@@ -3100,6 +3101,7 @@ mod test {
         fn get_miner_address(
             &self,
             _id_bhh: &StacksBlockId,
+            _tip: &StacksBlockId,
             _epoch: &StacksEpochId,
         ) -> Option<StacksAddress> {
             None
@@ -3107,6 +3109,7 @@ mod test {
         fn get_burnchain_tokens_spent_for_block(
             &self,
             id_bhh: &StacksBlockId,
+            _tip: &StacksBlockId,
             _epoch: &StacksEpochId,
         ) -> Option<u128> {
             Some(12345)
@@ -3115,6 +3118,7 @@ mod test {
         fn get_burnchain_tokens_spent_for_winning_block(
             &self,
             id_bhh: &StacksBlockId,
+            _tip: &StacksBlockId,
             _epoch: &StacksEpochId,
         ) -> Option<u128> {
             Some(2345)
@@ -3123,6 +3127,7 @@ mod test {
         fn get_tokens_earned_for_block(
             &self,
             id_bhh: &StacksBlockId,
+            _tip: &StacksBlockId,
             _epoch: &StacksEpochId,
         ) -> Option<u128> {
             Some(12000)

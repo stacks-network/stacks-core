@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -798,8 +798,11 @@ impl NakamotoBlockHeader {
 
     pub fn recover_miner_pk(&self) -> Option<StacksPublicKey> {
         let signed_hash = self.miner_signature_hash();
-        let recovered_pk =
-            StacksPublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature).ok()?;
+        let recovered_pk = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+            signed_hash.bits(),
+            &self.miner_signature,
+        )
+        .ok()?;
 
         Some(recovered_pk)
     }
@@ -873,13 +876,16 @@ impl NakamotoBlockHeader {
             .collect();
 
         for signature in self.signer_signature.iter() {
-            let public_key = Secp256k1PublicKey::recover_to_pubkey(message.bits(), signature)
-                .map_err(|_| {
-                    ChainstateError::InvalidStacksBlock(format!(
-                        "Unable to recover public key from signature {}",
-                        signature.to_hex()
-                    ))
-                })?;
+            let public_key = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+                message.bits(),
+                signature,
+            )
+            .map_err(|_| {
+                ChainstateError::InvalidStacksBlock(format!(
+                    "Unable to recover public key from signature {}",
+                    signature.to_hex()
+                ))
+            })?;
 
             let mut public_key_bytes = [0u8; 33];
             public_key_bytes.copy_from_slice(&public_key.to_bytes_compressed()[..]);
@@ -3194,13 +3200,19 @@ impl NakamotoChainState {
     /// in the single Bitcoin-anchored Stacks block they produce, as
     /// well as the microblock stream they append to it.  But in Nakamoto,
     /// the coinbase height and block height are decoupled.
-    pub fn get_coinbase_height<SDBI: StacksDBIndexed>(
+    ///
+    /// `tip` is the block at which the MARF lookup will be done; it must be `block` itself or a
+    /// descendant of it on the same fork. The coinbase-height mapping is written once per tenure
+    /// and never changes, so any such tip yields the same value. Pass the canonical tip to keep
+    /// the read off blocks a squashed snapshot may have pruned.
+    pub fn get_coinbase_height_at_tip<SDBI: StacksDBIndexed>(
         chainstate_conn: &mut SDBI,
         block: &StacksBlockId,
+        tip: &StacksBlockId,
     ) -> Result<Option<u64>, ChainstateError> {
         // nakamoto header?
         if let Some(hdr) = Self::get_block_header_nakamoto(chainstate_conn.sqlite(), block)? {
-            return Ok(chainstate_conn.get_coinbase_height(block, &hdr.consensus_hash)?);
+            return Ok(chainstate_conn.get_coinbase_height(tip, &hdr.consensus_hash)?);
         }
 
         // epoch2 header
@@ -3213,6 +3225,17 @@ impl NakamotoChainState {
             .map(u64::try_from)
             .transpose()
             .map_err(|_| ChainstateError::DBError(DBError::ParseError))
+    }
+
+    /// Shorthand for [`Self::get_coinbase_height_at_tip`] anchoring the MARF lookup at `block`
+    /// itself, so `block` must still be usable as a MARF read tip. For historical blocks a
+    /// squashed snapshot may have pruned, use [`Self::get_coinbase_height_at_tip`] with a
+    /// descendant canonical tip instead.
+    pub fn get_coinbase_height_at<SDBI: StacksDBIndexed>(
+        chainstate_conn: &mut SDBI,
+        block: &StacksBlockId,
+    ) -> Result<Option<u64>, ChainstateError> {
+        Self::get_coinbase_height_at_tip(chainstate_conn, block, block)
     }
 
     /// Verify that a nakamoto block's block-commit's VRF seed is consistent with the VRF proof.
@@ -3691,9 +3714,11 @@ impl NakamotoChainState {
     ) -> Result<(), ChainstateError> {
         let signer_sighash = block.header.signer_signature_hash();
         for signer_signature in &block.header.signer_signature {
-            let signer_pubkey =
-                StacksPublicKey::recover_to_pubkey(signer_sighash.bits(), signer_signature)
-                    .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
+            let signer_pubkey = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+                signer_sighash.bits(),
+                signer_signature,
+            )
+            .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
             let sql = "INSERT INTO signer_stats(public_key,reward_cycle) VALUES(?1,?2) ON CONFLICT(public_key,reward_cycle) DO UPDATE SET blocks_signed=blocks_signed+1";
             let params = params![signer_pubkey.to_hex(), reward_cycle];
             tx.execute(sql, params)?;
@@ -4673,7 +4698,7 @@ impl NakamotoChainState {
         let parent_coinbase_height = if block.is_first_mined() {
             0
         } else {
-            Self::get_coinbase_height(chainstate_tx.as_tx(), &parent_block_id)?.ok_or_else(
+            Self::get_coinbase_height_at(chainstate_tx.as_tx(), &parent_block_id)?.ok_or_else(
                 || {
                     warn!(
                         "Parent of Nakamoto block is not in block headers DB yet";

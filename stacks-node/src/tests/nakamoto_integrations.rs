@@ -93,7 +93,7 @@ use stacks::net::api::postblock_proposal::{
 };
 use stacks::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks::types::{MinerDiagnosticData, MiningReason};
-use stacks::util::hash::hex_bytes;
+use stacks::util::hash::{hex_bytes, MerkleTree};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
@@ -583,7 +583,7 @@ pub fn get_latest_block_proposal(
         return Err("No block proposals found".into());
     };
 
-    let pubkey = StacksPublicKey::recover_to_pubkey(
+    let pubkey = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
         proposed_block.header.miner_signature_hash().as_bytes(),
         &proposed_block.header.miner_signature,
     )
@@ -3428,6 +3428,31 @@ fn block_proposal_api_endpoint() {
             HTTP_UNPROCESSABLE,
             None,
         ),
+        (
+            "High-S signature",
+            {
+                let mut p = proposal.clone();
+                p.block.txs[0] = p.block.txs[0].with_negated_s_in_signature();
+                // tweaking the signature changes the transaction id (which is
+                // the main problem with high-S signatures), so we need to update
+                // the transaction merkle root
+                let txid_vecs: Vec<_> = p
+                    .block
+                    .txs
+                    .iter()
+                    .map(|tx| tx.txid().as_bytes().to_vec())
+                    .collect();
+
+                let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+                let tx_merkle_root = merkle_tree.root();
+
+                p.block.header.tx_merkle_root = tx_merkle_root;
+
+                sign(&p)
+            },
+            HTTP_ACCEPTED,
+            Some(Err(ValidateRejectCode::BadTransaction)),
+        ),
     ];
 
     // Build HTTP client
@@ -3502,7 +3527,9 @@ fn block_proposal_api_endpoint() {
 
     let expected_proposal_responses: Vec<_> = test_cases
         .iter()
-        .filter_map(|(_, _, _, expected_response)| expected_response.as_ref())
+        .filter_map(|(name, _, _, expected_response)| {
+            expected_response.as_ref().map(|resp| (name, resp))
+        })
         .collect();
 
     let mut proposal_responses = test_observer::get_proposal_responses();
@@ -3517,11 +3544,11 @@ fn block_proposal_api_endpoint() {
         proposal_responses = test_observer::get_proposal_responses();
     }
 
-    for (expected_response, response) in expected_proposal_responses
+    for ((test_case_name, expected_response), response) in expected_proposal_responses
         .iter()
         .zip(proposal_responses.iter())
     {
-        info!("Received response {response:?}, expecting {expected_response:?}");
+        info!("Received response {response:?} for test case \"{test_case_name}\", expecting {expected_response:?}");
         match expected_response {
             Ok(_) => {
                 assert!(matches!(response, BlockValidateResponse::Ok(_)));
@@ -8492,7 +8519,7 @@ fn check_block_info() {
     let last_stacks_block_height = info.stacks_tip_height as u128;
     let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let last_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &last_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
@@ -8515,7 +8542,7 @@ fn check_block_info() {
     let cur_stacks_block_height = info.stacks_tip_height as u128;
     let cur_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let cur_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &cur_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &cur_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
@@ -8623,11 +8650,13 @@ fn check_block_info() {
     let info = get_chain_info(&naka_conf);
     let interim_stacks_block_height = info.stacks_tip_height as u128;
     let interim_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
-    let interim_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &interim_stacks_tip)
-            .unwrap()
-            .unwrap()
-            .into();
+    let interim_tenure_height: u128 = NakamotoChainState::get_coinbase_height_at(
+        &mut chainstate.index_conn(),
+        &interim_stacks_tip,
+    )
+    .unwrap()
+    .unwrap()
+    .into();
     let interim_tenure_start_block_id = NakamotoChainState::get_tenure_start_block_header(
         &mut chainstate.index_conn(),
         &interim_stacks_tip,
@@ -9138,7 +9167,7 @@ fn check_block_info_rewards() {
     let last_nakamoto_block = last_stacks_block_height;
     let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let last_nakamoto_block_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &last_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
@@ -9158,7 +9187,7 @@ fn check_block_info_rewards() {
 
     let last_stacks_tip = StacksBlockId::new(&info.stacks_tip_consensus_hash, &info.stacks_tip);
     let last_tenure_height: u128 =
-        NakamotoChainState::get_coinbase_height(&mut chainstate.index_conn(), &last_stacks_tip)
+        NakamotoChainState::get_coinbase_height_at(&mut chainstate.index_conn(), &last_stacks_tip)
             .unwrap()
             .unwrap()
             .into();
@@ -12125,19 +12154,21 @@ fn rbf_on_config_change() {
     })
     .expect("Failed to wait for last commit");
 
-    let commits_before = counters.naka_submitted_commits.get();
-
     let commit_amount_before = counters.naka_submitted_commit_last_commit_amount.get();
 
     info!("---- Updating config ----");
 
     update_config(155000, 57);
 
+    // Wait until a commit reflecting the *new* config is observed. We can't
+    // simply wait for the commit count to increase: the miner submits RBF
+    // commits every initiative, so an old-config commit submitted between the
+    // snapshot above and the config reload would satisfy a count-based wait
+    // while still carrying the old commit amount, flaking the assertions below.
     wait_for(30, || {
-        let commit_count = &counters.naka_submitted_commits.get();
-        Ok(*commit_count > commits_before)
+        Ok(counters.naka_submitted_commit_last_commit_amount.get() == 155000)
     })
-    .expect("Expected new commit after config change");
+    .expect("Expected a commit with the updated burn fee cap after config change");
 
     let commit_amount_after = counters.naka_submitted_commit_last_commit_amount.get();
     assert_eq!(commit_amount_after, 155000);
