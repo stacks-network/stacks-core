@@ -2945,9 +2945,11 @@ pub mod test {
     /// chain advances; use [`with_all_costs`](Self::with_all_costs) to deploy
     /// them at genesis instead.
     ///
-    /// Required (via [`new`](Self::new)): `mainnet`, `chain_id`, `test_name`.
-    /// Optional knobs: [`with_balances`](Self::with_balances),
-    /// [`with_all_costs`](Self::with_all_costs).
+    /// Required (via [`new`](Self::new)): `mainnet`, `test_name`.
+    /// Optional knobs:
+    /// - [`with_chain_id`](Self::with_chain_id),
+    /// - [`with_balances`](Self::with_balances),
+    /// - [`with_all_costs`](Self::with_all_costs).
     pub struct TestChainstateBuilder {
         mainnet: bool,
         chain_id: u32,
