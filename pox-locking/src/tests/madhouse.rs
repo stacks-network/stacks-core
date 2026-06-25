@@ -707,9 +707,8 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalStakeWhileLocked {
             sut.run(|db| pox_lock_v5(db, &staker, self.amount, self.unlock_height))
         };
         let err = result.expect_err("staking while already locked must be rejected");
-        assert_eq!(
-            err.as_error_code(),
-            LockingError::PoxAlreadyLocked.as_error_code(),
+        assert!(
+            matches!(&err, LockingError::PoxAlreadyLocked),
             "IllegalStakeWhileLocked expected PoxAlreadyLocked, got {err:?}",
         );
         // Failed call must not mutate the SUT; model is unchanged.
@@ -759,9 +758,8 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalStakeUpdateOnUnlocked {
             sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, self.new_total))
         };
         let err = result.expect_err("stake-update while unlocked must be rejected");
-        assert_eq!(
-            err.as_error_code(),
-            LockingError::PoxExtendNotLocked.as_error_code(),
+        assert!(
+            matches!(&err, LockingError::PoxExtendNotLocked),
             "IllegalStakeUpdateOnUnlocked expected PoxExtendNotLocked, got {err:?}",
         );
         check_invariants(state, &self.ctx);
@@ -807,9 +805,8 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalUnstakeOnUnlocked {
             sut.run(|db| pox_unstake_v5(db, &staker, self.new_unlock_height))
         };
         let err = result.expect_err("unstake while unlocked must be rejected");
-        assert_eq!(
-            err.as_error_code(),
-            LockingError::PoxUnstakeNotLocked.as_error_code(),
+        assert!(
+            matches!(&err, LockingError::PoxUnstakeNotLocked),
             "IllegalUnstakeOnUnlocked expected PoxUnstakeNotLocked, got {err:?}",
         );
         check_invariants(state, &self.ctx);
@@ -872,9 +869,8 @@ impl Command<Pox5StakerState, Pox5Context> for IllegalDecreaseInUpdate {
             sut.run(|db| pox_lock_update_v5(db, &staker, self.new_unlock_height, new_total))
         };
         let err = result.expect_err("decreasing the lock via stake-update must be rejected");
-        assert_eq!(
-            err.as_error_code(),
-            LockingError::PoxInvalidIncrease.as_error_code(),
+        assert!(
+            matches!(&err, LockingError::PoxInvalidIncrease),
             "IllegalDecreaseInUpdate expected PoxInvalidIncrease (locked={locked}, new_total={new_total}), got {err:?}",
         );
         check_invariants(state, &self.ctx);
