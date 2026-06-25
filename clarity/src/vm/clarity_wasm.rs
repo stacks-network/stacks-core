@@ -3547,8 +3547,12 @@ fn link_cleanup_as_contract_safe_fn(
             "clarity",
             "cleanup_as_contract_safe",
             |mut caller: Caller<'_, ClarityWasmContext>| {
-                caller.data_mut().pop_sender()?;
-                caller.data_mut().pop_caller()?;
+                // we need to restore the current caller and sender. We pop both and check if we did set
+                // them correctly before.
+                let sender = caller.data_mut().pop_sender();
+                let _ = caller.data_mut().pop_caller()?;
+                let _ = sender?;
+
                 caller.data_mut().global_context.roll_back()?;
 
                 Ok(())
