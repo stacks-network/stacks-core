@@ -23,13 +23,15 @@
 //!   intermediate-as-leaf forgery, then check both gap directions: accepted at
 //!   `tx_count = 2`, rejected at the real `tx_count = 3`.
 //! - `VerifyTamperedLeaf` / `VerifyWrongDepth` / `VerifyOutOfRangeIndex` /
-//!   `VerifyWrongCount`: an honest proof with one component corrupted (leaf,
-//!   sibling count, index, or claimed `tx_count`) must be rejected.
+//!   `VerifyInflatedPaddingRelocation`: an honest proof with one component
+//!   corrupted (leaf, sibling count, index, or padded-slot relocation) must be
+//!   rejected.
 //! - `VerifyCrossTree`: an honest proof checked against a different tree's
 //!   root must be rejected.
 //!
 //! `check_invariants` re-checks every pool tree after each command: a
-//! `tx_count` of 0 and an inflated cross-count are always rejected.
+//! `tx_count` of 0 is always rejected, and same-depth padded-slot relocation
+//! is rejected for every odd tree.
 //!
 //! No SUT: the SUT is the pure `verify_merkle`. `State` is the tree pool;
 //! `Context` is empty (only for the `TestContext` trait shape).
@@ -122,6 +124,10 @@ fn honest_proof(
     (leaf, root, leaf_idx as u128, tx_count, siblings)
 }
 
+fn has_padding_slot(len: usize) -> bool {
+    len >= 3 && len % 2 == 1
+}
+
 /// Each tree stores its leaves so `VerifyHonestProof` can build a proof on demand.
 #[derive(Debug, Clone)]
 struct MerkleTree {
@@ -142,22 +148,60 @@ pub struct AdversaryContext;
 
 impl TestContext for AdversaryContext {}
 
+/// Reuse the last real leaf of an odd tree at its duplicated-padding slot
+/// under a larger same-depth `tx_count`. The sibling count remains valid, so a
+/// reject here comes from the per-level tree-shape checks, not the path-length
+/// guard.
+fn assert_inflated_padding_relocation_rejects(tree: &MerkleTree, tree_idx: usize) {
+    let tree_len = tree.leaves.len();
+    assert!(
+        has_padding_slot(tree_len),
+        "padded-slot relocation requires an odd tree with at least 3 leaves: tree_idx={tree_idx} len={tree_len}"
+    );
+
+    let last_real_leaf_idx = tree_len - 1;
+    let (leaf, root, tx_index, real_count, siblings) =
+        honest_proof(&tree.leaves, last_real_leaf_idx);
+    let inflated_count = real_count.next_power_of_two();
+    let forged_index = inflated_count - 1;
+
+    assert_eq!(
+        root, tree.root,
+        "honest_proof root mismatches canonical_root for tree_idx={tree_idx} leaf_idx={last_real_leaf_idx}"
+    );
+    assert_eq!(
+        tx_index,
+        real_count - 1,
+        "relocation source must be the last real leaf"
+    );
+    assert!(
+        inflated_count > real_count,
+        "relocation requires a larger claimed tree"
+    );
+    assert_eq!(
+        siblings.len(),
+        naive_depth(inflated_count) as usize,
+        "same-depth relocation must not fail via path-length check: tree_idx={tree_idx} real_count={real_count} inflated_count={inflated_count}",
+    );
+    assert!(
+        !verify_merkle(leaf, root, forged_index, inflated_count, &siblings),
+        "same-depth padded-slot relocation accepted: tree_idx={tree_idx} real_count={real_count} forged_index={forged_index} inflated_count={inflated_count}"
+    );
+}
+
 /// Security invariants re-checked after every command (CVE-2012-2459 family),
-/// for every tree in the pool. A `tx_count` of zero is never a valid tree, and
-/// an honest proof is bound to its `tx_count`'s depth; claiming a larger tree
-/// than the proof supports (the cross-count attack) must reject.
+/// for every tree in the pool. A `tx_count` of zero is never a valid tree; for
+/// odd trees, relocating the last real leaf into the duplicated-padding region
+/// under a larger same-depth `tx_count` must also reject.
 fn check_invariants(state: &MerkleAdversaryState) {
     for (i, tree) in state.trees.iter().enumerate() {
         assert!(
             !verify_merkle(tree.leaves[0], tree.root, 0, 0, &[]),
             "tx_count=0 accepted for tree {i}"
         );
-        let (leaf, root, tx_index, _real_count, siblings) = honest_proof(&tree.leaves, 0);
-        let inflated_count = (1u128 << siblings.len()) + 1;
-        assert!(
-            !verify_merkle(leaf, root, tx_index, inflated_count, &siblings),
-            "inflated cross-count accepted for tree {i}"
-        );
+        if has_padding_slot(tree.leaves.len()) {
+            assert_inflated_padding_relocation_rejects(tree, i);
+        }
     }
 }
 
@@ -518,48 +562,43 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyCrossTree {
     }
 }
 
-/// An honest proof presented with an inflated `tx_count` (claiming a larger tree
-/// than the proof supports) must be rejected: the honest siblings are too few
-/// for the claimed depth. Deflation can collide (the accepted CVE-2012-2459
-/// case), so only inflation is asserted here.
-struct VerifyWrongCount {
+/// Reuse the honest proof for the last real leaf of an odd tree at the
+/// duplicated-padding slot of a larger tree with the same Merkle depth. This
+/// is the CVE-2012-2459 inflation/relocation shape: rejection must come from
+/// the tree-shape checks, not from a sibling-count mismatch.
+struct VerifyInflatedPaddingRelocation {
     tree_seed: usize,
-    leaf_seed: usize,
-    /// Pushes the inflated count further past the depth boundary.
-    delta: u32,
 }
 
-impl Command<MerkleAdversaryState, AdversaryContext> for VerifyWrongCount {
+impl Command<MerkleAdversaryState, AdversaryContext> for VerifyInflatedPaddingRelocation {
     fn check(&self, state: &MerkleAdversaryState) -> bool {
-        !state.trees.is_empty()
+        state
+            .trees
+            .iter()
+            .any(|tree| has_padding_slot(tree.leaves.len()))
     }
 
     fn apply(&self, state: &mut MerkleAdversaryState) {
-        let tree_idx = self.tree_seed % state.trees.len();
-        let tree = &state.trees[tree_idx];
-        let leaf_idx = self.leaf_seed % tree.leaves.len();
-        let (leaf, root, tx_index, real_count, siblings) = honest_proof(&tree.leaves, leaf_idx);
-        let inflated_count = (1u128 << siblings.len()) + 1 + self.delta as u128;
-        assert!(
-            !verify_merkle(leaf, root, tx_index, inflated_count, &siblings),
-            "inflated tx_count {inflated_count} accepted (real={real_count})"
-        );
+        let eligible: Vec<_> = state
+            .trees
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, tree)| has_padding_slot(tree.leaves.len()).then_some(idx))
+            .collect();
+        let tree_idx = eligible[self.tree_seed % eligible.len()];
+        assert_inflated_padding_relocation_rejects(&state.trees[tree_idx], tree_idx);
         check_invariants(state);
     }
 
     fn label(&self) -> String {
-        format!("VERIFY_WRONG_COUNT(delta={})", self.delta)
+        format!("VERIFY_INFLATED_PADDING_RELOCATION({})", self.tree_seed)
     }
 
     fn build(
         _ctx: Arc<AdversaryContext>,
     ) -> impl Strategy<Value = CommandWrapper<MerkleAdversaryState, AdversaryContext>> {
-        (any::<usize>(), any::<usize>(), 0u32..=64).prop_map(|(tree_seed, leaf_seed, delta)| {
-            CommandWrapper::new(VerifyWrongCount {
-                tree_seed,
-                leaf_seed,
-                delta,
-            })
+        any::<usize>().prop_map(|tree_seed| {
+            CommandWrapper::new(VerifyInflatedPaddingRelocation { tree_seed })
         })
     }
 }
@@ -578,6 +617,6 @@ fn madhouse_merkle_cve_adversarial() {
         VerifyWrongDepth,
         VerifyOutOfRangeIndex,
         VerifyCrossTree,
-        VerifyWrongCount
+        VerifyInflatedPaddingRelocation
     ]
 }
