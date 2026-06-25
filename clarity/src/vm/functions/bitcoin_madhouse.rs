@@ -148,10 +148,9 @@ pub struct AdversaryContext;
 
 impl TestContext for AdversaryContext {}
 
-/// Reuse the last real leaf of an odd tree at its duplicated-padding slot
-/// under a larger same-depth `tx_count`. The sibling count remains valid, so a
-/// reject here comes from the per-level tree-shape checks, not the path-length
-/// guard.
+/// Reuse the last real leaf of an odd tree at its immediate duplicated-padding
+/// slot under `tx_count + 1`. The sibling count remains valid, so a reject
+/// here comes from the per-level tree-shape checks, not the path-length guard.
 fn assert_inflated_padding_relocation_rejects(tree: &MerkleTree, tree_idx: usize) {
     let tree_len = tree.leaves.len();
     assert!(
@@ -162,8 +161,8 @@ fn assert_inflated_padding_relocation_rejects(tree: &MerkleTree, tree_idx: usize
     let last_real_leaf_idx = tree_len - 1;
     let (leaf, root, tx_index, real_count, siblings) =
         honest_proof(&tree.leaves, last_real_leaf_idx);
-    let inflated_count = real_count.next_power_of_two();
-    let forged_index = inflated_count - 1;
+    let inflated_count = real_count + 1;
+    let forged_index = real_count;
 
     assert_eq!(
         root, tree.root,
@@ -563,9 +562,9 @@ impl Command<MerkleAdversaryState, AdversaryContext> for VerifyCrossTree {
 }
 
 /// Reuse the honest proof for the last real leaf of an odd tree at the
-/// duplicated-padding slot of a larger tree with the same Merkle depth. This
-/// is the CVE-2012-2459 inflation/relocation shape: rejection must come from
-/// the tree-shape checks, not from a sibling-count mismatch.
+/// immediate duplicated-padding slot under a larger same-depth `tx_count`.
+/// This is the CVE-2012-2459 inflation/relocation shape: rejection must come
+/// from the tree-shape checks, not from a sibling-count mismatch.
 struct VerifyInflatedPaddingRelocation {
     tree_seed: usize,
 }
