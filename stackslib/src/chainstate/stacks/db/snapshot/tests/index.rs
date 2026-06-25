@@ -28,8 +28,7 @@ use super::{
     create_source_db, hex_id, insert_epoch2_block_header, insert_nakamoto_header, label_block_id,
     FIXTURE_LEAF,
 };
-use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
-use crate::chainstate::stacks::db::{StacksHeaderInfo, CHAINSTATE_VERSION};
+use crate::chainstate::stacks::db::CHAINSTATE_VERSION;
 use crate::chainstate::stacks::index::{Error, MARFValue};
 
 /// Insert a payment row at the given height.
