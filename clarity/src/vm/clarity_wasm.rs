@@ -3454,7 +3454,7 @@ fn link_exit_as_contract_fn(
 }
 
 /// Link host interface function, `enter_as_contract_safe`, into the Wasm module.
-/// This function is called before processing the allowances and inner-expression of
+/// This function is called before processing the allowances and inner-expressions of
 /// `as-contract?`.
 fn link_enter_as_contract_safe_fn(
     linker: &mut Linker<ClarityWasmContext>,
@@ -3487,7 +3487,7 @@ fn link_enter_as_contract_safe_fn(
 }
 
 /// Link host interface function, `exit_as_contract_safe`, into the Wasm module.
-/// This function is after before processing the inner-expression of
+/// This function is called after processing the inner-expressions of
 /// `as-contract?`, and is used to restore the caller, sender and check allowances.
 fn link_exit_as_contract_safe_fn(
     linker: &mut Linker<ClarityWasmContext>,
@@ -3536,7 +3536,7 @@ fn link_exit_as_contract_safe_fn(
 }
 
 /// Link host interface function, `cleanup_as_contract_safe`, into the Wasm module.
-/// This function is after before processing the inner-expression of
+/// This function is called after processing the inner-expressions of
 /// `as-contract?`, and is used to restore the caller and sender in the case where
 /// an inner-expresion failed.
 fn link_cleanup_as_contract_safe_fn(
@@ -3561,7 +3561,7 @@ fn link_cleanup_as_contract_safe_fn(
         .map(|_| ())
         .map_err(|e| {
             VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
-                "cleanup_as_contract".to_string(),
+                "cleanup_as_contract_safe".to_string(),
                 e,
             ))
         })
