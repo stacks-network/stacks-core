@@ -17,17 +17,16 @@ use std::io::{self, Read};
 use std::path::PathBuf;
 
 use blockstack_lib::chainstate::stacks::address::PoxAddress;
-use blockstack_lib::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 use blockstack_lib::util_lib::signed_structured_data::{
     make_structured_data_domain, structured_data_message_hash,
 };
-use clap::{ArgAction, Parser, ValueEnum};
+use clap::{ArgAction, Parser};
 use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::chainstate::StacksPublicKey;
 use clarity::types::{PrivateKey, PublicKey};
 use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
-use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
 use clarity::vm::{ClarityName, Value};
 use libsigner::VERSION_ONLY_STRING;
 use serde::{Deserialize, Serialize};
@@ -260,76 +259,15 @@ pub struct MonitorSignersArgs {
     pub stackerdb_timeout_secs: u64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-/// Wrapper around `Pox4SignatureTopic` to implement `ValueEnum`
-pub struct StackingSignatureMethod(Pox4SignatureTopic);
-
-impl StackingSignatureMethod {
-    /// Get the inner `Pox4SignatureTopic`
-    pub const fn topic(&self) -> &Pox4SignatureTopic {
-        &self.0
-    }
-}
-
-impl From<Pox4SignatureTopic> for StackingSignatureMethod {
-    fn from(topic: Pox4SignatureTopic) -> Self {
-        Self(topic)
-    }
-}
-
-impl ValueEnum for StackingSignatureMethod {
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        Some(clap::builder::PossibleValue::new(self.0.get_name_str()))
-    }
-
-    fn value_variants<'a>() -> &'a [Self] {
-        &[
-            Self(Pox4SignatureTopic::StackStx),
-            Self(Pox4SignatureTopic::StackExtend),
-            Self(Pox4SignatureTopic::AggregationCommit),
-            Self(Pox4SignatureTopic::AggregationIncrease),
-            Self(Pox4SignatureTopic::StackIncrease),
-        ]
-    }
-
-    fn from_str(input: &str, _ignore_case: bool) -> Result<Self, String> {
-        let topic = match input {
-            "aggregation-commit" => Pox4SignatureTopic::AggregationCommit,
-            "aggregation-increase" => Pox4SignatureTopic::AggregationIncrease,
-            method => match Pox4SignatureTopic::lookup_by_name(method) {
-                Some(topic) => topic,
-                None => {
-                    return Err(format!("Invalid topic: {input}"));
-                }
-            },
-        };
-        Ok(topic.into())
-    }
-}
-
 #[derive(Parser, Debug, Clone, PartialEq)]
 /// Arguments for the generate-stacking-signature command
 pub struct GenerateStackingSignatureArgs {
-    /// BTC address used to receive rewards
-    #[arg(short, long, value_parser = parse_pox_addr)]
-    pub pox_address: PoxAddress,
-    /// The reward cycle during which this signature
-    /// can be used
-    #[arg(short, long)]
-    pub reward_cycle: u64,
     /// Path to signer config file
     #[arg(long, short, value_name = "FILE")]
     pub config: PathBuf,
-    /// Stacking method that can be used
-    #[arg(long)]
-    pub method: StackingSignatureMethod,
-    /// Number of cycles used as a lock period.
-    /// Use `1` for stack-aggregation-commit
-    #[arg(long)]
-    pub period: u64,
-    /// The max amount of uSTX that can be used in this unique transaction
-    #[arg(long)]
-    pub max_amount: u128,
+    /// Signer-manager principal authorized to register this signer key
+    #[arg(long, value_parser = parse_principal)]
+    pub signer_manager: PrincipalData,
     /// A unique identifier to prevent re-using this authorization
     #[arg(long)]
     pub auth_id: u128,
@@ -341,6 +279,10 @@ pub struct GenerateStackingSignatureArgs {
 /// Parse the contract ID
 fn parse_contract(contract: &str) -> Result<QualifiedContractIdentifier, String> {
     QualifiedContractIdentifier::parse(contract).map_err(|e| format!("Invalid contract: {e}"))
+}
+
+fn parse_principal(principal: &str) -> Result<PrincipalData, String> {
+    PrincipalData::parse(principal).map_err(|e| format!("Invalid principal: {e}"))
 }
 
 /// Parse a BTC address argument and return a `PoxAddress`.
@@ -403,7 +345,9 @@ fn parse_data(data: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::stacks::address::{PoxAddressType20, PoxAddressType32};
-    use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_message_hash;
+    use blockstack_lib::util_lib::signed_structured_data::pox4::{
+        make_pox_4_signer_key_message_hash, Pox4SignatureTopic,
+    };
     use clarity::consts::CHAIN_ID_TESTNET;
     use clarity::util::hash::Sha256Sum;
 
@@ -560,41 +504,5 @@ mod tests {
             }
             _ => panic!("Invalid parsed address"),
         }
-    }
-
-    #[test]
-    fn test_parse_stacking_method() {
-        assert_eq!(
-            StackingSignatureMethod::from_str("agg-increase", true).unwrap(),
-            Pox4SignatureTopic::AggregationIncrease.into()
-        );
-        assert_eq!(
-            StackingSignatureMethod::from_str("agg-commit", true).unwrap(),
-            Pox4SignatureTopic::AggregationCommit.into()
-        );
-        assert_eq!(
-            StackingSignatureMethod::from_str("stack-increase", true).unwrap(),
-            Pox4SignatureTopic::StackIncrease.into()
-        );
-        assert_eq!(
-            StackingSignatureMethod::from_str("stack-extend", true).unwrap(),
-            Pox4SignatureTopic::StackExtend.into()
-        );
-        assert_eq!(
-            StackingSignatureMethod::from_str("stack-stx", true).unwrap(),
-            Pox4SignatureTopic::StackStx.into()
-        );
-
-        // These don't exactly match the enum, but are accepted if passed as
-        // CLI args
-
-        assert_eq!(
-            StackingSignatureMethod::from_str("aggregation-increase", true).unwrap(),
-            Pox4SignatureTopic::AggregationIncrease.into()
-        );
-        assert_eq!(
-            StackingSignatureMethod::from_str("aggregation-commit", true).unwrap(),
-            Pox4SignatureTopic::AggregationCommit.into()
-        );
     }
 }
