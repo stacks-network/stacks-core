@@ -793,6 +793,20 @@ impl Config {
             ..
         } = default;
 
+        // `burnchain.mode` must be set explicitly in the config file; there is
+        // no implicit default (aligns with the signer, where `network` is required).
+        if config_file
+            .burnchain
+            .as_ref()
+            .and_then(|b| b.mode.as_ref())
+            .is_none()
+        {
+            return Err(format!(
+                "Setting burnchain.mode is required (one of: {})",
+                SUPPORTED_MODES.join(", ")
+            ));
+        }
+
         // First parse the burnchain config
         let burnchain = match config_file.burnchain {
             Some(burnchain) => burnchain.into_config_default(default_burnchain_config)?,
@@ -1186,6 +1200,19 @@ impl std::default::Default for Config {
         }
     }
 }
+
+/// Burnchain modes accepted in the config file. Shared by the required-mode
+/// check and the unsupported-mode check; `get_bitcoin_network()` panics on any
+/// mode outside this list.
+const SUPPORTED_MODES: &[&str] = &[
+    "helium",
+    "neon",
+    "argon",
+    "krypton",
+    "xenon",
+    "mainnet",
+    "nakamoto-neon",
+];
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 pub struct BurnchainConfig {
@@ -1708,15 +1735,6 @@ impl BurnchainConfigFile {
         // further down) panics on an unknown mode, so an unsupported or removed
         // mode (e.g. the old "mocknet") must be rejected here with a clean error
         // rather than aborting the process.
-        const SUPPORTED_MODES: [&str; 7] = [
-            "helium",
-            "neon",
-            "argon",
-            "krypton",
-            "xenon",
-            "mainnet",
-            "nakamoto-neon",
-        ];
         if !SUPPORTED_MODES.contains(&mode.as_str()) {
             return Err(format!(
                 "Setting burnchain.mode not supported (should be: {})",
@@ -4653,6 +4671,8 @@ mod tests {
             Config::from_config_file(
                 ConfigFile::from_str(
                     r#"
+                    [burnchain]
+                    mode = "krypton"
                     [node]
                     seed = "invalid-hex-value"
                     "#,
@@ -4668,6 +4688,8 @@ mod tests {
             Config::from_config_file(
                 ConfigFile::from_str(
                     r#"
+                    [burnchain]
+                    mode = "krypton"
                     [node]
                     local_peer_seed = "invalid-hex-value"
                     "#,
@@ -4684,6 +4706,7 @@ mod tests {
             ConfigFile::from_str(
                 r#"
                 [burnchain]
+                mode = "krypton"
                 peer_host = "bitcoin2.blockstack.com"
                 "#,
             )
@@ -4696,7 +4719,12 @@ mod tests {
             &actual_err_msg[..expected_err_prefix.len()]
         );
 
-        assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
+        // An empty config has no `[burnchain] mode`, which is now required.
+        let err = Config::from_config_file(ConfigFile::from_str("").unwrap(), false).unwrap_err();
+        assert!(
+            err.contains("Setting burnchain.mode is required"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
@@ -4888,6 +4916,8 @@ mod tests {
         let config = Config::from_config_file(
             ConfigFile::from_str(
                 r#"
+                [burnchain]
+                mode = "krypton"
                 [connection_options]
                 auth_token = "password"
                 "#,
@@ -4975,6 +5005,8 @@ mod tests {
         // Check MARF defaults
         let config = utils::config_from_valid_string(
             r#"
+                [burnchain]
+                mode = "krypton"
                 [node]
                 "#,
         );
@@ -5006,6 +5038,8 @@ mod tests {
         // Check MARF full config
         let config = utils::config_from_valid_string(
             r#"
+                [burnchain]
+                mode = "krypton"
                 [node]
                 marf_cache_strategy = "everything"
                 marf_defer_hashing = false
@@ -5043,5 +5077,55 @@ mod tests {
             false, cfg_opts.force_db_migrate,
             "internal default migrate setting"
         );
+    }
+
+    #[test]
+    fn test_burnchain_mode_required() {
+        // No `[burnchain]` section at all is rejected.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("Setting burnchain.mode is required"),
+            "unexpected error: {err}"
+        );
+
+        // `[burnchain]` present but without `mode` is also rejected.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                peer_host = "localhost"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("Setting burnchain.mode is required"),
+            "unexpected error: {err}"
+        );
+
+        // With an explicit `mode`, the config parses.
+        let config = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "krypton"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("config with explicit burnchain.mode should parse");
+        assert_eq!(config.burnchain.mode, "krypton");
     }
 }
