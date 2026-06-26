@@ -59,7 +59,7 @@ use crate::node::{
 use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
-    run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
+    run_loop, BitcoinRegtestController, Config, EventDispatcher, Keychain,
 };
 
 pub const STDERR: i32 = 2;

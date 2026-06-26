@@ -109,7 +109,7 @@ use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::tests::gen_random_port;
 use crate::tests::nakamoto_integrations::{get_key_for_cycle, wait_for};
-use crate::{neon, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
+use crate::{neon, BitcoinRegtestController, Config, ConfigFile, Keychain};
 
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();

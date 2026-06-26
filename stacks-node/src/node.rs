@@ -60,7 +60,7 @@ use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFPublicKey;
 
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
+use super::{BitcoinRegtestController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use crate::burnchains::make_bitcoin_indexer;
 use crate::genesis_data::USE_TEST_GENESIS_CHAINSTATE;
 use crate::run_loop;
@@ -549,7 +549,7 @@ impl Node {
         info!("Start P2P server on: {}", &self.config.node.p2p_bind);
     }
 
-    pub fn setup(&mut self, burnchain_controller: &mut Box<dyn BurnchainController>) {
+    pub fn setup(&mut self, burnchain_controller: &mut BitcoinRegtestController) {
         // Register a new key
         let burnchain_tip = burnchain_controller.get_chain_tip();
         let (vrf_pk, _) = self
@@ -750,7 +750,7 @@ impl Node {
         &mut self,
         anchored_block_from_ongoing_tenure: &StacksBlock,
         burnchain_tip: &BurnchainTip,
-        burnchain_controller: &mut Box<dyn BurnchainController>,
+        burnchain_controller: &mut BitcoinRegtestController,
         burn_fee: u64,
     ) {
         if self.active_registered_key.is_some() {

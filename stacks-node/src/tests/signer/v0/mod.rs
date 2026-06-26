@@ -115,7 +115,7 @@ use crate::tests::neon_integrations::{
 use crate::tests::signer::commands::*;
 use crate::tests::signer::SpawnedSignerTrait;
 use crate::tests::{self, gen_random_port};
-use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
+use crate::{nakamoto_node, BitcoinRegtestController, Config, Keychain};
 
 pub mod capitulate_parent_tenure_view;
 pub mod failed_txs;

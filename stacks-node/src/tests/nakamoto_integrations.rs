@@ -137,7 +137,7 @@ use crate::tests::neon_integrations::{
 };
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
-use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
+use crate::{tests, BitcoinRegtestController, Config, ConfigFile, Keychain};
 
 pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 pub static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;

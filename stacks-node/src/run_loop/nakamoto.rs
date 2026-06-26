@@ -50,7 +50,7 @@ use crate::run_loop::neon;
 use crate::run_loop::neon::Counters;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
-    run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
+    run_loop, BitcoinRegtestController, Config, EventDispatcher, Keychain,
 };
 
 pub const STDERR: i32 = 2;
