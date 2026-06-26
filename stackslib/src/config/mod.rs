@@ -4870,6 +4870,61 @@ mod tests {
     }
 
     #[test]
+    fn test_mainnet_rejects_pox_5_admin_overrides() {
+        // A mainnet node may not override the pox-5 bond admin.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "mainnet"
+                [node]
+                pox_5_bond_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("`pox_5_bond_admin` set"),
+            "unexpected error: {err}"
+        );
+
+        // Likewise for the pause admin.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "mainnet"
+                [node]
+                pox_5_pause_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("`pox_5_pause_admin` set"),
+            "unexpected error: {err}"
+        );
+
+        // The same overrides are accepted on a non-mainnet node.
+        assert!(Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                pox_5_bond_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                pox_5_pause_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .is_ok());
+    }
+
+    #[test]
     fn test_deny_unknown_fields() {
         {
             let err = ConfigFile::from_str(

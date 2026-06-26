@@ -163,12 +163,16 @@ pub fn set_pox_5_bond_admin(principal: Option<PrincipalData>) {
 /// Resolve the PoX-5 bond admin principal: the configured override if any,
 /// otherwise the network-specific default.
 pub fn pox_5_bond_admin(is_mainnet: bool) -> PrincipalData {
+    let mainnet_principal = PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET)
+        .expect("Invalid default mainnet bond admin principal");
     let principal = POX_5_BOND_ADMIN.read().unwrap().clone();
     if let Some(principal) = principal {
+        if is_mainnet && principal != mainnet_principal {
+            panic!("FATAL: attempted to override PoX-5 bond admin in mainnet, which is disallowed")
+        }
         principal
     } else if is_mainnet {
-        PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET)
-            .expect("Invalid default mainnet bond admin principal")
+        mainnet_principal
     } else {
         PrincipalData::parse(POX_5_BOND_ADMIN_TESTNET)
             .expect("Invalid default testnet bond admin principal")
@@ -185,12 +189,16 @@ pub fn set_pox_5_pause_admin(principal: Option<PrincipalData>) {
 }
 
 pub fn pox_5_pause_admin(is_mainnet: bool) -> PrincipalData {
+    let mainnet_principal = PrincipalData::parse(POX_5_PAUSE_ADMIN_MAINNET)
+        .expect("Invalid default mainnet pause admin principal");
     let principal = POX_5_PAUSE_ADMIN.read().unwrap().clone();
     if let Some(principal) = principal {
+        if is_mainnet && principal != mainnet_principal {
+            panic!("FATAL: attempted to override PoX-5 pause admin in mainnet, which is disallowed")
+        }
         principal
     } else if is_mainnet {
-        PrincipalData::parse(POX_5_PAUSE_ADMIN_MAINNET)
-            .expect("Invalid default mainnet pause admin principal")
+        mainnet_principal
     } else {
         PrincipalData::parse(POX_5_PAUSE_ADMIN_TESTNET)
             .expect("Invalid default testnet pause admin principal")
@@ -1197,5 +1205,74 @@ impl NakamotoSigners {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod pox_5_admin_tests {
+    use super::*;
+
+    /// The non-mainnet resolvers return the configured override when set, and
+    /// fall back to the network default when unset.
+    #[test]
+    fn non_mainnet_resolution() {
+        let override_principal =
+            PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+        let testnet_bond = PrincipalData::parse(POX_5_BOND_ADMIN_TESTNET).unwrap();
+        let testnet_pause = PrincipalData::parse(POX_5_PAUSE_ADMIN_TESTNET).unwrap();
+
+        set_pox_5_bond_admin(Some(override_principal.clone()));
+        set_pox_5_pause_admin(Some(override_principal.clone()));
+        assert_eq!(pox_5_bond_admin(false), override_principal);
+        assert_eq!(pox_5_pause_admin(false), override_principal);
+
+        set_pox_5_bond_admin(None);
+        set_pox_5_pause_admin(None);
+        assert_eq!(pox_5_bond_admin(false), testnet_bond);
+        assert_eq!(pox_5_pause_admin(false), testnet_pause);
+    }
+
+    /// On mainnet, with no override set, the resolvers return the baked-in
+    /// mainnet default without panicking.
+    #[test]
+    fn mainnet_default_no_panic() {
+        set_pox_5_bond_admin(None);
+        set_pox_5_pause_admin(None);
+        let mainnet_bond = PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET).unwrap();
+        let mainnet_pause = PrincipalData::parse(POX_5_PAUSE_ADMIN_MAINNET).unwrap();
+        assert_eq!(pox_5_bond_admin(true), mainnet_bond);
+        assert_eq!(pox_5_pause_admin(true), mainnet_pause);
+    }
+
+    /// On mainnet, an override that matches the mainnet default is harmless and
+    /// must not panic (it resolves to the same principal).
+    #[test]
+    fn mainnet_override_equal_to_default_ok() {
+        let mainnet_bond = PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET).unwrap();
+        set_pox_5_bond_admin(Some(mainnet_bond.clone()));
+        assert_eq!(pox_5_bond_admin(true), mainnet_bond);
+        set_pox_5_bond_admin(None);
+    }
+
+    /// On mainnet, a bond-admin override that differs from the default is a
+    /// misconfiguration the config layer already rejects; the resolver panics
+    /// as a defense-in-depth backstop.
+    #[test]
+    #[should_panic(expected = "attempted to override PoX-5 bond admin in mainnet")]
+    fn mainnet_bond_admin_override_panics() {
+        let override_principal =
+            PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+        set_pox_5_bond_admin(Some(override_principal));
+        let _ = pox_5_bond_admin(true);
+    }
+
+    /// As above, for the pause-admin resolver.
+    #[test]
+    #[should_panic(expected = "attempted to override PoX-5 pause admin in mainnet")]
+    fn mainnet_pause_admin_override_panics() {
+        let override_principal =
+            PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
+        set_pox_5_pause_admin(Some(override_principal));
+        let _ = pox_5_pause_admin(true);
     }
 }
