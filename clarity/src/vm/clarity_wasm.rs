@@ -10757,74 +10757,76 @@ pub enum OverheadCosts {
     InnerTypeCheckCost,
 }
 
-fn overhead_costs(epoch: &StacksEpochId, costKind: OverheadCosts, n: i64) -> CostMeter {
-    match costKind {
-        OverheadCosts::UserFunctionApplication => match epoch {
-            StacksEpochId::Epoch10 => panic!("clarity did not exist in epoch 1"),
-            StacksEpochId::Epoch20 => CostMeter {
-                runtime: linear(n as u64, 1000, 1000) as i64,
-                read_count: 0,
-                read_length: 0,
-                write_count: 0,
-                write_length: 0,
+impl OverheadCosts {
+    fn overhead_costs(self, epoch: &StacksEpochId, n: i64) -> CostMeter {
+        match self {
+            OverheadCosts::UserFunctionApplication => match epoch {
+                StacksEpochId::Epoch10 => panic!("clarity did not exist in epoch 1"),
+                StacksEpochId::Epoch20 => CostMeter {
+                    runtime: linear(n as u64, 1000, 1000) as i64,
+                    read_count: 0,
+                    read_length: 0,
+                    write_count: 0,
+                    write_length: 0,
+                },
+                StacksEpochId::Epoch2_05 => CostMeter {
+                    runtime: linear(n as u64, 26, 140) as i64,
+                    read_count: 0,
+                    read_length: 0,
+                    write_count: 0,
+                    write_length: 0,
+                },
+                StacksEpochId::Epoch21
+                | StacksEpochId::Epoch22
+                | StacksEpochId::Epoch23
+                | StacksEpochId::Epoch24
+                | StacksEpochId::Epoch25
+                | StacksEpochId::Epoch30
+                | StacksEpochId::Epoch31
+                | StacksEpochId::Epoch32
+                | StacksEpochId::Epoch33
+                | StacksEpochId::Epoch34 => CostMeter {
+                    runtime: linear(n as u64, 26, 5) as i64,
+                    read_count: 0,
+                    read_length: 0,
+                    write_count: 0,
+                    write_length: 0,
+                },
             },
-            StacksEpochId::Epoch2_05 => CostMeter {
-                runtime: linear(n as u64, 26, 140) as i64,
-                read_count: 0,
-                read_length: 0,
-                write_count: 0,
-                write_length: 0,
+            OverheadCosts::InnerTypeCheckCost => match epoch {
+                StacksEpochId::Epoch10 => panic!("clarity did not exist in epoch 1"),
+                StacksEpochId::Epoch20 => CostMeter {
+                    runtime: linear(n as u64, 1000, 1000) as i64,
+                    read_count: 0,
+                    read_length: 0,
+                    write_count: 0,
+                    write_length: 0,
+                },
+                StacksEpochId::Epoch2_05 => CostMeter {
+                    runtime: linear(n as u64, 2, 9) as i64,
+                    read_count: 0,
+                    read_length: 0,
+                    write_count: 0,
+                    write_length: 0,
+                },
+                StacksEpochId::Epoch21
+                | StacksEpochId::Epoch22
+                | StacksEpochId::Epoch23
+                | StacksEpochId::Epoch24
+                | StacksEpochId::Epoch25
+                | StacksEpochId::Epoch30
+                | StacksEpochId::Epoch31
+                | StacksEpochId::Epoch32
+                | StacksEpochId::Epoch33
+                | StacksEpochId::Epoch34 => CostMeter {
+                    runtime: linear(n as u64, 2, 5) as i64,
+                    read_count: 0,
+                    read_length: 0,
+                    write_count: 0,
+                    write_length: 0,
+                },
             },
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => CostMeter {
-                runtime: linear(n as u64, 26, 5) as i64,
-                read_count: 0,
-                read_length: 0,
-                write_count: 0,
-                write_length: 0,
-            },
-        },
-        OverheadCosts::InnerTypeCheckCost => match epoch {
-            StacksEpochId::Epoch10 => panic!("clarity did not exist in epoch 1"),
-            StacksEpochId::Epoch20 => CostMeter {
-                runtime: linear(n as u64, 1000, 1000) as i64,
-                read_count: 0,
-                read_length: 0,
-                write_count: 0,
-                write_length: 0,
-            },
-            StacksEpochId::Epoch2_05 => CostMeter {
-                runtime: linear(n as u64, 2, 9) as i64,
-                read_count: 0,
-                read_length: 0,
-                write_count: 0,
-                write_length: 0,
-            },
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => CostMeter {
-                runtime: linear(n as u64, 2, 5) as i64,
-                read_count: 0,
-                read_length: 0,
-                write_count: 0,
-                write_length: 0,
-            },
-        },
+        }
     }
 }
 
@@ -10839,14 +10841,6 @@ fn charge_contract_call_cost_overhead(
     total_size_parameters: i64,
     function_arity: i64,
 ) {
-    *cost_meter -= overhead_costs(
-        epoch,
-        OverheadCosts::UserFunctionApplication,
-        function_arity,
-    );
-    *cost_meter -= overhead_costs(
-        epoch,
-        OverheadCosts::InnerTypeCheckCost,
-        total_size_parameters,
-    );
+    *cost_meter -= OverheadCosts::UserFunctionApplication.overhead_costs(epoch, function_arity);
+    *cost_meter -= OverheadCosts::InnerTypeCheckCost.overhead_costs(epoch, total_size_parameters);
 }
