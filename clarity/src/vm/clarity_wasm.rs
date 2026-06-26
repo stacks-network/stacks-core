@@ -612,12 +612,6 @@ pub fn call_function<'a>(
         total_required_bytes += get_required_bytes(ty, arg)?;
     }
 
-    // Space needed for the arguments to call the overhead cost for contract call
-    //4 byte for an i32
-    let total_required_bytes_contract_call = 8;
-
-    total_required_bytes = total_required_bytes.max(total_required_bytes_contract_call);
-
     ensure_memory(&memory, &mut store, total_required_bytes + offset as usize)?;
 
     // We call the specified function
