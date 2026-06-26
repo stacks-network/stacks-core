@@ -61,12 +61,12 @@ Periodically query the current reward cycle's signers' StackerDB slots to verify
 - `--interval`: The polling interval in seconds for querying stackerDB.
 - `--max-age`: The max age in seconds before a signer message is considered stale. 
 
-### `generate-stacking-signature`
+### `generate-staking-signature`
 
 Generate a signature for stacking.
 
 ```bash
-./stacks-signer generate-stacking-signature --config <config_file> --pox-address <address> --reward-cycle <cycle> --period <period> --max-amount <max_amount> --auth-id <auth_id>
+./stacks-signer generate-staking-signature --config <config_file> --signer-manager <signer_manager_principal> --auth-id <auth_id>
 
 ```
 - `--config`: The path to the signer configuration file.

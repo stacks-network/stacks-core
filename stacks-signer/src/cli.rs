@@ -63,7 +63,7 @@ pub enum Command {
     /// Run the signer, waiting for events from the stacker-db instance
     Run(RunSignerArgs),
     /// Generate a signature for Stacking transactions
-    GenerateStackingSignature(GenerateStackingSignatureArgs),
+    GenerateStakingSignature(GenerateStakingSignatureArgs),
     /// Check a configuration file and output config information
     CheckConfig(RunSignerArgs),
     /// Vote for a specified SIP with a yes or no vote
@@ -260,8 +260,8 @@ pub struct MonitorSignersArgs {
 }
 
 #[derive(Parser, Debug, Clone, PartialEq)]
-/// Arguments for the generate-stacking-signature command
-pub struct GenerateStackingSignatureArgs {
+/// Arguments for the generate-staking-signature command
+pub struct GenerateStakingSignatureArgs {
     /// Path to signer config file
     #[arg(long, short, value_name = "FILE")]
     pub config: PathBuf,

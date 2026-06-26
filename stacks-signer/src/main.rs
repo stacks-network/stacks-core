@@ -39,9 +39,8 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error};
 use stacks_signer::cli::{
-    Cli, Command, GenerateStackingSignatureArgs, GenerateVoteArgs, GetChunkArgs,
-    GetLatestChunkArgs, MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs,
-    VerifyVoteArgs,
+    Cli, Command, GenerateStakingSignatureArgs, GenerateVoteArgs, GetChunkArgs, GetLatestChunkArgs,
+    MonitorSignersArgs, PutChunkArgs, RunSignerArgs, StackerDBArgs, VerifyVoteArgs,
 };
 use stacks_signer::config::GlobalConfig;
 use stacks_signer::monitor_signers::SignerMonitor;
@@ -122,8 +121,8 @@ fn handle_run(args: RunSignerArgs) {
     let _ = spawned_signer.join();
 }
 
-fn handle_generate_stacking_signature(
-    args: GenerateStackingSignatureArgs,
+fn handle_generate_staking_signature(
+    args: GenerateStakingSignatureArgs,
     do_print: bool,
 ) -> MessageSignature {
     let config = GlobalConfig::try_from(&args.config).unwrap();
@@ -239,8 +238,8 @@ fn main() {
         Command::Run(args) => {
             handle_run(args);
         }
-        Command::GenerateStackingSignature(args) => {
-            handle_generate_stacking_signature(args, true);
+        Command::GenerateStakingSignature(args) => {
+            handle_generate_staking_signature(args, true);
         }
         Command::CheckConfig(args) => {
             handle_check_config(args);
@@ -269,22 +268,22 @@ pub mod tests {
     use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
     use stacks_signer::cli::{VerifyVoteArgs, Vote, VoteInfo};
 
-    use super::{handle_generate_stacking_signature, *};
-    use crate::{GenerateStackingSignatureArgs, GlobalConfig};
+    use super::{handle_generate_staking_signature, *};
+    use crate::{GenerateStakingSignatureArgs, GlobalConfig};
 
     #[test]
     fn test_generate_stacking_signature() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let signer_manager =
             PrincipalData::parse("ST000000000000000000002AMW42H.test-signer").unwrap();
-        let args = GenerateStackingSignatureArgs {
+        let args = GenerateStakingSignatureArgs {
             config: "./src/tests/conf/signer-0.toml".into(),
             signer_manager: signer_manager.clone(),
             auth_id: 1,
             json: false,
         };
 
-        let signature = handle_generate_stacking_signature(args.clone(), false);
+        let signature = handle_generate_staking_signature(args.clone(), false);
 
         let public_key = Secp256k1PublicKey::from_private(&config.stacks_private_key);
 
@@ -305,8 +304,8 @@ pub mod tests {
             PrincipalData::parse("ST000000000000000000002AMW42H.test-signer").unwrap();
         let message_hash =
             make_pox_5_signer_grant_message_hash(&signer_manager, 1, CHAIN_ID_TESTNET);
-        let signature = handle_generate_stacking_signature(
-            GenerateStackingSignatureArgs {
+        let signature = handle_generate_staking_signature(
+            GenerateStakingSignatureArgs {
                 config: "./src/tests/conf/signer-0.toml".into(),
                 signer_manager,
                 auth_id: 1,
