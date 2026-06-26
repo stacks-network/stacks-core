@@ -185,21 +185,29 @@ pub struct CoinbaseInterval {
     pub effective_start_height: u64,
 }
 
-// From SIP-029:
+/// Burnchain height of the Stacks genesis block (mainnet).
+pub const BITCOIN_MAINNET_GENESIS_BURN_HEIGHT: u64 = 666_050;
+
+/// Burnchain height at which the Stacks 4.0 epoch activates (mainnet).
+pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 1_012_860;
+
+/// Burnchain height of the Stacks genesis block (testnet).
+pub const BITCOIN_TESTNET_GENESIS_BURN_HEIGHT: u64 = 2_000_000;
+
+/// Burnchain height at which the Stacks 4.0 epoch activates (testnet).
+pub const BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT: u64 = 40_000_000;
+
+// Mainnet coinbase intervals, as defined in SIP-029 + SIP-045
 //
-// | Coinbase Interval  | Bitcoin Height | Offset Height       | Approx. Supply   | STX Reward | Annual Inflation |
-// |--------------------|----------------|---------------------|------------------|------------|------------------|
-// | Current            | -              | -                   | 1,552,452,847    | 1000       | -                |
-// | 1st                |   945,000      |   278,950           | 1,627,352,847    | 500 (50%)  | 3.23%            |
-// | 2nd                | 1,050,000      |   383,950           | 1,679,852,847    | 250 (50%)  | 1.57%            |
-// | 3rd                | 1,260,000      |   593,950           | 1,732,352,847    | 125 (50%)  | 0.76%            |
-// | 4th                | 1,470,000      |   803,950           | 1,758,602,847    | 62.5 (50%) | 0.37%            |
-// | -                  | 2,197,560      | 1,531,510           | 1,804,075,347    | 62.5 (0%)  | 0.18%            |
+// | Coinbase Interval  | Bitcoin Height                        | Offset Height       | Approx. Supply   | STX Reward | Annual Inflation |
+// |--------------------|---------------------------------------|---------------------|------------------|------------|------------------|
+// | Current            | -                                     | -                   | 1,552,452,847    | 1000       | -                |
+// | 1st (SIP-029)      | 945,000                               | 278,950             | 1,627,352,847    | 500 (50%)  | 3.23%            |
+// | 2nd (SIP-045)      | BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT | -                   | TBD              | 1000       | Variable         |
 //
 // The above is for mainnet, which has a burnchain year of 52596 blocks and starts at burnchain height 666050.
 
-/// Mainnet coinbase intervals, as of SIP-029
-pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 5]> = LazyLock::new(|| {
+pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 3]> = LazyLock::new(|| {
     let emissions_schedule = [
         CoinbaseInterval {
             coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
@@ -210,24 +218,16 @@ pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 5]> = LazyLoc
             effective_start_height: 278_950,
         },
         CoinbaseInterval {
-            coinbase: 250 * u128::from(MICROSTACKS_PER_STACKS),
-            effective_start_height: 383_950,
-        },
-        CoinbaseInterval {
-            coinbase: 125 * u128::from(MICROSTACKS_PER_STACKS),
-            effective_start_height: 593_950,
-        },
-        CoinbaseInterval {
-            coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
-            effective_start_height: 803_950,
+            coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT
+                - BITCOIN_MAINNET_GENESIS_BURN_HEIGHT,
         },
     ];
     assert!(CoinbaseInterval::check_order(&emissions_schedule));
     emissions_schedule
 });
 
-/// Testnet coinbase intervals, as of SIP-029
-pub static COINBASE_INTERVALS_TESTNET: LazyLock<[CoinbaseInterval; 5]> = LazyLock::new(|| {
+pub static COINBASE_INTERVALS_TESTNET: LazyLock<[CoinbaseInterval; 6]> = LazyLock::new(|| {
     let emissions_schedule = [
         CoinbaseInterval {
             coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
@@ -248,6 +248,11 @@ pub static COINBASE_INTERVALS_TESTNET: LazyLock<[CoinbaseInterval; 5]> = LazyLoc
         CoinbaseInterval {
             coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
             effective_start_height: 77_777 * 21,
+        },
+        CoinbaseInterval {
+            coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT
+                - BITCOIN_TESTNET_GENESIS_BURN_HEIGHT,
         },
     ];
     assert!(CoinbaseInterval::check_order(&emissions_schedule));
