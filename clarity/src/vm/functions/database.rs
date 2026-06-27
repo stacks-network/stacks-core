@@ -81,10 +81,8 @@ pub fn special_contract_call(
     let rest_args_slice = &args[2..];
     let rest_args_len = rest_args_slice.len();
     let mut rest_args = Vec::with_capacity(rest_args_len);
-    let mut rest_args_sizes = Vec::with_capacity(rest_args_len);
     for arg in rest_args_slice.iter() {
         let evaluated_arg = eval(arg, exec_state, invoke_ctx, context)?;
-        rest_args_sizes.push(evaluated_arg.as_ref().size()?.into());
         rest_args.push(SymbolicExpression::atom_value(
             evaluated_arg.clone_with_cost(exec_state)?,
         ));
@@ -238,29 +236,13 @@ pub fn special_contract_call(
         .into();
 
     let nested_ctx = invoke_ctx.with_caller(contract_principal);
-    let result = if exec_state.short_circuit_contract_call(
+    let result = exec_state.execute_contract(
+        &nested_ctx,
         &contract_identifier,
         function_name,
-        &rest_args_sizes,
-    )? {
-        exec_state.run_free(&nested_ctx, |free_exec_state, nested_ctx| {
-            free_exec_state.execute_contract(
-                nested_ctx,
-                &contract_identifier,
-                function_name,
-                &rest_args,
-                false,
-            )
-        })
-    } else {
-        exec_state.execute_contract(
-            &nested_ctx,
-            &contract_identifier,
-            function_name,
-            &rest_args,
-            false,
-        )
-    }?;
+        &rest_args,
+        false,
+    )?;
 
     // sanitize contract-call outputs in epochs >= 2.4
     let result_type = TypeSignature::type_of(&result)?;
