@@ -221,6 +221,8 @@ pub enum WasmError {
     Runtime(wasmtime::Error),
     /// Type description is invalid or malformed, preventing proper type-checking.
     InvalidTypeDescription,
+    AllowanceViolation(u128),
+    AllowanceIndexOverflow,
     Expect(String),
 }
 
@@ -263,6 +265,8 @@ impl fmt::Display for WasmError {
             }
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
             WasmError::InvalidTypeDescription => write!(f, "Invalid type description"),
+            WasmError::AllowanceIndexOverflow => write!(f, "Index couldn't fit into u128"),
+            WasmError::AllowanceViolation(idx) => write!(f, "Index {idx} couldn't fit into u128"),
             WasmError::Expect(s) => write!(f, "{s}"),
         }
     }
