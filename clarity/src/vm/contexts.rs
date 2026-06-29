@@ -31,7 +31,7 @@ use wasmtime::Engine;
 use super::EvalHook;
 use super::analysis::{self, ContractAnalysis};
 #[cfg(feature = "clarity-wasm")]
-use super::clarity_wasm::call_function;
+use super::clarity_wasm::{CostMeter, call_function};
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
@@ -359,6 +359,7 @@ pub struct GlobalContext<'a> {
     /// `VmExecutionError::RuntimeCheck(AbortedByExecutionHook)`. The
     /// default `AbortCallback::None` is a no-op.
     pub abort_callback: AbortCallback,
+    pub cost_meter: CostMeter,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -1448,7 +1449,14 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
             .global_context
             .database
             .get_contract_size(contract_identifier)?;
-        runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
+
+        let cost = self
+            .global_context
+            .cost_track
+            .compute_cost(ClarityCostFunction::LoadContract, &[contract_size])?;
+        self.global_context
+            .cost_meter
+            .charge(&CostMeter::from(cost))?;
 
         self.global_context.add_memory(contract_size)?;
 
@@ -1644,7 +1652,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
             clarity_version,
             self.global_context.epoch_id,
         )
-        .map_err(|e|   VmExecutionError::Wasm(WasmError::Expect(format!("Build Ast Error: {e}")) ))?;
+        .map_err(|e| VmExecutionError::Wasm(WasmError::Expect(format!("Build Ast Error: {e}"))))?;
 
         let contract_analysis = analysis::run_analysis(
             &contract_identifier,
@@ -2023,6 +2031,7 @@ impl<'a> GlobalContext<'a> {
             #[cfg(feature = "clarity-wasm")]
             engine,
             abort_callback: AbortCallback::None,
+            cost_meter: CostMeter::MIN,
         }
     }
 

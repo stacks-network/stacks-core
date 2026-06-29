@@ -1,11 +1,17 @@
+use std::fmt::{self, Display};
 use std::io::{Cursor, Write as _};
+use std::ops::{AddAssign, SubAssign};
 
 use clarity_types::types::MAX_VALUE_SIZE;
+use crate::vm::ExecutionCost;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PublicKey, secp256k1_recover, secp256k1_verify};
-use wasmtime::{AsContextMut, Caller, ExternRef, Linker, Memory, Module, Store, Val, ValType};
+use wasmtime::{
+    AsContextMut, Caller, Extern, ExternRef, Global, GlobalType, Instance, Linker, Memory, Module,
+    Store, Val, ValType,
+};
 
 use super::callables::{DefineType, DefinedFunction};
 use super::costs::{CostTracker, constants as cost_constants};
@@ -32,7 +38,7 @@ use crate::vm::functions::post_conditions::{
 use crate::vm::types::{
     BufferLength, SequenceSubtype, SequencedValue, StringSubtype, TypeSignature, TypeSignatureExt,
 };
-use crate::vm::{ClarityName, ContractContext, Value};
+use crate::vm::{ClarityName, ContractContext, CostErrors, Value};
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,
@@ -85,6 +91,7 @@ pub struct ClarityWasmContext<'a, 'b> {
     /// when initializing a contract. Should always be `Some` when initializing
     /// a contract, and `None` otherwise.
     pub contract_analysis: Option<&'a ContractAnalysis>,
+    pub cost_globals: Option<CostGlobals>,
 }
 
 impl<'a, 'b> ClarityWasmContext<'a, 'b> {
@@ -109,6 +116,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
             caller_stack: vec![],
             bhh_stack: vec![],
             contract_analysis,
+            cost_globals: None,
         }
     }
 
@@ -133,6 +141,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
             caller_stack: vec![],
             bhh_stack: vec![],
             contract_analysis,
+            cost_globals: None,
         }
     }
 
@@ -415,6 +424,7 @@ pub fn initialize_contract(
     let mut linker = Linker::new(&engine);
 
     // Link in the host interface functions.
+    link_cost_globals(&mut linker, &mut store)?;
     link_host_functions(&mut linker)?;
 
     let instance = linker
@@ -468,7 +478,77 @@ pub fn initialize_contract(
     }
 }
 
+// Charge the cost of contract call analog to the UserFunctionApplication and InnerTypeCheckCost in the interpreter.
+// UserFunctionApplication charge proportionally to the number of arguments passed to the contract call.
+// InnerTypeCheckCost charge proportionally to the cumulative size of each argument's type.
+fn apply_contract_call_cost(
+    instance: &Instance,
+    store: &mut impl AsContextMut,
+    contract_context: &ContractContext,
+    epoch_id: &StacksEpochId,
+    number_of_arguments: u32,
+    total_size_of_parameters: u32,
+) -> Result<(), VmExecutionError> {
+    let function_name = ".contract-call-cost-overhead";
+    let func = instance
+        .get_func(&mut store.as_context_mut(), function_name)
+        .ok_or(RuntimeCheckErrorKind::UndefinedFunction(
+            function_name.into(),
+        ))?;
+
+    // Access the global stack pointer from the instance
+    let stack_pointer = instance
+        .get_global(&mut store.as_context_mut(), "stack-pointer")
+        .ok_or(VmExecutionError::Wasm(WasmError::GlobalNotFound(
+            "stack-pointer".to_string(),
+        )))?;
+
+    let offset = stack_pointer
+        .get(&mut store.as_context_mut())
+        .i32()
+        .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
+
+    let memory = instance
+        .get_memory(&mut store.as_context_mut(), "memory")
+        .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
+
+    // Determine how much space is needed for arguments
+    //4 byte for an i32
+    let arg_size = 2 * 4;
+
+    let in_mem_offset = offset + arg_size;
+
+    ensure_memory(&memory, &mut store.as_context_mut(), in_mem_offset as usize)?;
+
+    // Convert the args into wasmtime values
+    let wasm_args = vec![
+        Val::I32(number_of_arguments as i32),
+        Val::I32(total_size_of_parameters as i32),
+    ];
+
+    // Update the stack pointer after space is reserved for the arguments and
+    // return values.
+    stack_pointer
+        .set(&mut store.as_context_mut(), Val::I32(offset))
+        .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e)))?;
+
+    // Call the function
+    func.call(&mut store.as_context_mut(), &wasm_args, &mut [])
+        .map_err(|e| {
+            error_mapping::resolve_error(
+                e,
+                *instance,
+                &mut store.as_context_mut(),
+                epoch_id,
+                contract_context.get_clarity_version(),
+            )
+        })?;
+
+    Ok(())
+}
+
 /// Call a function in the contract.
+#[allow(clippy::too_many_arguments)]
 pub fn call_function<'a>(
     function_name: &str,
     args: &[Value],
@@ -510,9 +590,34 @@ pub fn call_function<'a>(
     // Link in the host interface functions.
     link_host_functions(&mut linker)?;
 
+    let mut cost_globals = link_host_globals(&mut linker, &mut store.as_context_mut())?;
+    store.data_mut().cost_globals = Some(cost_globals);
+    // The cost meter holds the cost from the caller before doing the contract call.
+    // This is the value we instantiate the current cost globals with
+    let cost_meter = store.data().global_context.cost_meter;
+    cost_globals
+        .from_cost_meter(&mut store, &cost_meter)
+        .map_err(|_| {
+            VmExecutionError::Wasm(WasmError::GlobalNotFound("cost globals not found".into()))
+        })?;
+
     let instance = linker
         .instantiate(&mut store, &module)
         .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
+
+    let mut total_size = 0;
+    for arg in func_types.get_arg_types() {
+        total_size += arg.size()?;
+    }
+
+    apply_contract_call_cost(
+        &instance,
+        &mut store.as_context_mut(),
+        contract_context,
+        &epoch,
+        args.len() as u32,
+        total_size,
+    )?;
 
     // Call the specified function
     let func = instance.get_func(&mut store, function_name).ok_or(
@@ -603,6 +708,10 @@ pub fn call_function<'a>(
             error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
         })?;
 
+    let updated_cost = cost_globals
+        .to_cost_meter(&mut store.as_context_mut())
+        .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e)))?;
+    store.as_context_mut().data_mut().global_context.cost_meter = updated_cost;
     // If the function returns a value, translate it into a Clarity `Value`
     wasm_to_clarity_value(&return_type, 0, &results, memory, &mut &mut store, epoch)
         .map(|(val, _offset)| val)
@@ -2166,6 +2275,53 @@ fn wasm_to_clarity_value(
             WasmError::InvalidListUnionTypeInValue,
         )),
     }
+}
+pub fn link_host_globals<T>(
+    linker: &mut Linker<T>,
+    store: &mut impl AsContextMut<Data = T>,
+) -> Result<CostGlobals, VmExecutionError> {
+    link_cost_globals(linker, store)
+}
+fn link_cost_globals<T>(
+    linker: &mut Linker<T>,
+    store: &mut impl AsContextMut<Data = T>,
+) -> Result<CostGlobals, VmExecutionError> {
+    let runtime = link_global(linker, store, Cost::Runtime.as_str(), Val::I64(i64::MAX))?;
+    let read_count = link_global(linker, store, Cost::ReadCount.as_str(), Val::I64(i64::MAX))?;
+    let read_length = link_global(linker, store, Cost::ReadLength.as_str(), Val::I64(i64::MAX))?;
+    let write_count = link_global(linker, store, Cost::WriteCount.as_str(), Val::I64(i64::MAX))?;
+    let write_length = link_global(
+        linker,
+        store,
+        Cost::WriteLength.as_str(),
+        Val::I64(i64::MAX),
+    )?;
+    Ok(CostGlobals {
+        runtime,
+        read_count,
+        read_length,
+        write_count,
+        write_length,
+    })
+}
+
+fn link_global<T>(
+    linker: &mut Linker<T>,
+    store: &mut impl AsContextMut<Data = T>,
+    name: &str,
+    value: Val,
+) -> Result<Global, VmExecutionError> {
+    let the_global = Global::new(
+        store.as_context_mut(),
+        GlobalType::new(wasmtime::ValType::I64, wasmtime::Mutability::Var),
+        value,
+    )
+    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
+
+    linker
+        .define(&mut store.as_context_mut(), "clarity", name, the_global)
+        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
+    Ok(the_global)
 }
 
 /// Link the host interface functions for into the Wasm module.
@@ -10308,3 +10464,350 @@ mod error_mapping {
         extract_expected_and_got(&arg_lengths)
     }
 }
+
+// COST
+#[derive(Debug)]
+pub enum Cost {
+    Runtime,
+    ReadCount,
+    ReadLength,
+    WriteCount,
+    WriteLength,
+}
+
+impl Cost {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Cost::Runtime => "cost-runtime",
+            Cost::ReadCount => "cost-read-count",
+            Cost::ReadLength => "cost-read-length",
+            Cost::WriteCount => "cost-write-count",
+            Cost::WriteLength => "cost-write-length",
+        }
+    }
+}
+
+impl Display for Cost {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CostMeter {
+    pub runtime: i64,
+    pub read_count: i64,
+    pub read_length: i64,
+    pub write_count: i64,
+    pub write_length: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CostGlobals {
+    pub runtime: Global,
+    pub read_count: Global,
+    pub read_length: Global,
+    pub write_count: Global,
+    pub write_length: Global,
+}
+
+impl CostGlobals {
+    pub fn to_cost_meter<T>(
+        &self,
+        store: &mut impl AsContextMut<Data = T>,
+    ) -> wasmtime::Result<CostMeter> {
+        let runtime = self
+            .runtime
+            .get(store.as_context_mut())
+            .i64()
+            .ok_or(GetCostGlobalsError::Runtime)?;
+        let write_count = self
+            .write_count
+            .get(store.as_context_mut())
+            .i64()
+            .ok_or(GetCostGlobalsError::WriteCount)?;
+        let write_length = self
+            .write_length
+            .get(store.as_context_mut())
+            .i64()
+            .ok_or(GetCostGlobalsError::WriteLength)?;
+        let read_count = self
+            .read_count
+            .get(store.as_context_mut())
+            .i64()
+            .ok_or(GetCostGlobalsError::ReadCount)?;
+        let read_length = self
+            .read_length
+            .get(store.as_context_mut())
+            .i64()
+            .ok_or(GetCostGlobalsError::ReadLength)?;
+
+        Ok(CostMeter {
+            runtime,
+            read_count,
+            read_length,
+            write_count,
+            write_length,
+        })
+    }
+
+    pub fn from_cost_meter<T>(
+        &mut self,
+        store: &mut impl AsContextMut<Data = T>,
+        cost_meter: &CostMeter,
+    ) -> wasmtime::Result<()> {
+        self.runtime
+            .set(store.as_context_mut(), Val::I64(cost_meter.runtime))?;
+        self.read_count
+            .set(store.as_context_mut(), Val::I64(cost_meter.read_count))?;
+        self.read_length
+            .set(store.as_context_mut(), Val::I64(cost_meter.read_length))?;
+        self.write_count
+            .set(store.as_context_mut(), Val::I64(cost_meter.write_count))?;
+        self.write_length
+            .set(store.as_context_mut(), Val::I64(cost_meter.write_length))?;
+        Ok(())
+    }
+}
+
+impl CostMeter {
+    pub const INIT: Self = Self::MAX;
+    pub const ZERO: Self = Self::MIN;
+
+    pub const MAX: Self = Self {
+        runtime: i64::MAX,
+        read_count: i64::MAX,
+        read_length: i64::MAX,
+        write_count: i64::MAX,
+        write_length: i64::MAX,
+    };
+
+    pub const MIN: Self = Self {
+        runtime: 0,
+        read_count: 0,
+        read_length: 0,
+        write_count: 0,
+        write_length: 0,
+    };
+
+    pub fn charge(&mut self, cost: &CostMeter) -> Result<(), CostErrors> {
+        self.runtime = self
+            .runtime
+            .checked_sub(cost.runtime)
+            .ok_or(CostErrors::CostOverflow)?;
+        self.read_count = self
+            .read_count
+            .checked_sub(cost.read_count)
+            .ok_or(CostErrors::CostOverflow)?;
+        self.read_length = self
+            .read_length
+            .checked_sub(cost.read_length)
+            .ok_or(CostErrors::CostOverflow)?;
+        self.write_count = self
+            .write_count
+            .checked_sub(cost.write_count)
+            .ok_or(CostErrors::CostOverflow)?;
+        self.write_length = self
+            .write_length
+            .checked_sub(cost.write_length)
+            .ok_or(CostErrors::CostOverflow)?;
+        Ok(())
+    }
+}
+
+/// Trait for a `Linker` that can be used to retrieve the cost globals.
+pub trait CostLinker<T> {
+    /// Get the cost globals.
+    fn get_cost_globals(&self, store: impl AsContextMut<Data = T>)
+    -> wasmtime::Result<CostGlobals>;
+}
+
+/// Convenience to use the same error string in multiple places
+#[derive(Debug)]
+enum GetCostGlobalsError {
+    Runtime,
+    ReadCount,
+    ReadLength,
+    WriteCount,
+    WriteLength,
+}
+
+impl fmt::Display for GetCostGlobalsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use GetCostGlobalsError::*;
+
+        match self {
+            Runtime => write!(f, "missing `cost-runtime` global"),
+            ReadCount => write!(f, "missing `cost-read-count` global"),
+            ReadLength => write!(f, "missing `cost-read-length` global"),
+            WriteCount => write!(f, "missing `cost-write-count` global"),
+            WriteLength => write!(f, "missing `cost-write-length` global"),
+        }
+    }
+}
+
+impl AddAssign<&CostMeter> for CostMeter {
+    fn add_assign(&mut self, rhs: &CostMeter) {
+        self.runtime.add_assign(rhs.runtime);
+        self.read_count.add_assign(rhs.read_count);
+        self.read_length.add_assign(rhs.read_length);
+        self.write_count.add_assign(rhs.write_count);
+        self.write_length.add_assign(rhs.write_length);
+    }
+}
+
+impl AddAssign<CostMeter> for CostMeter {
+    fn add_assign(&mut self, rhs: CostMeter) {
+        self.add_assign(&rhs);
+    }
+}
+
+impl SubAssign<&CostMeter> for CostMeter {
+    fn sub_assign(&mut self, rhs: &CostMeter) {
+        self.runtime.sub_assign(rhs.runtime);
+        self.read_count.sub_assign(rhs.read_count);
+        self.read_length.sub_assign(rhs.read_length);
+        self.write_count.sub_assign(rhs.write_count);
+        self.write_length.sub_assign(rhs.write_length);
+    }
+}
+
+impl SubAssign<CostMeter> for CostMeter {
+    fn sub_assign(&mut self, rhs: CostMeter) {
+        self.sub_assign(&rhs);
+    }
+}
+
+impl std::error::Error for GetCostGlobalsError {}
+
+impl<T> CostLinker<T> for wasmtime::Linker<T> {
+    fn get_cost_globals(
+        &self,
+        mut store: impl AsContextMut<Data = T>,
+    ) -> wasmtime::Result<CostGlobals> {
+        let mut store = store.as_context_mut();
+
+        let runtime = self.get(&mut store, "clarity", "cost-runtime");
+        let read_count = self.get(&mut store, "clarity", "cost-read-count");
+        let read_length = self.get(&mut store, "clarity", "cost-read-length");
+        let write_count = self.get(&mut store, "clarity", "cost-write-count");
+        let write_length = self.get(&mut store, "clarity", "cost-write-length");
+
+        use GetCostGlobalsError::*;
+
+        fn unwrap_global_or(
+            ext: Option<Extern>,
+            err: GetCostGlobalsError,
+        ) -> Result<Global, GetCostGlobalsError> {
+            match ext {
+                Some(Extern::Global(global)) => Ok(global),
+                _ => Err(err),
+            }
+        }
+
+        Ok(CostGlobals {
+            runtime: unwrap_global_or(runtime, Runtime)?,
+            read_count: unwrap_global_or(read_count, ReadCount)?,
+            read_length: unwrap_global_or(read_length, ReadLength)?,
+            write_count: unwrap_global_or(write_count, WriteCount)?,
+            write_length: unwrap_global_or(write_length, WriteLength)?,
+        })
+    }
+}
+
+/// Trait to manipulate the values of a cost meter.
+pub trait AccessCostMeter<T>: CostLinker<T> {
+    /// Get the current value of the cost meter.
+    fn get_cost_meter(
+        &self,
+        mut store: impl AsContextMut<Data = T>,
+    ) -> wasmtime::Result<CostMeter> {
+        let mut store = store.as_context_mut();
+
+        let globals = self.get_cost_globals(&mut store)?;
+
+        use GetCostGlobalsError::*;
+
+        Ok(CostMeter {
+            runtime: globals.runtime.get(&mut store).i64().ok_or(Runtime)? as _,
+            read_count: globals.read_count.get(&mut store).i64().ok_or(ReadCount)? as _,
+            read_length: globals
+                .read_length
+                .get(&mut store)
+                .i64()
+                .ok_or(ReadLength)? as _,
+            write_count: globals
+                .write_count
+                .get(&mut store)
+                .i64()
+                .ok_or(WriteCount)? as _,
+            write_length: globals
+                .write_length
+                .get(&mut store)
+                .i64()
+                .ok_or(WriteLength)? as _,
+        })
+    }
+
+    /// Returns the amount used in the cost meter - i.e. [`CostMeter::INIT`].sub(get_cost_meter())
+    fn get_used_cost(&self, mut store: impl AsContextMut<Data = T>) -> wasmtime::Result<CostMeter> {
+        let curr = self.get_cost_meter(&mut store)?;
+
+        let mut used = CostMeter::INIT;
+        used.sub_assign(&curr);
+
+        Ok(used)
+    }
+
+    /// Set the value of the cost meter.
+    fn set_cost_meter(
+        &self,
+        mut store: impl AsContextMut<Data = T>,
+        meter: CostMeter,
+    ) -> wasmtime::Result<()> {
+        let mut store = store.as_context_mut();
+
+        let globals = self.get_cost_globals(&mut store)?;
+
+        globals.runtime.set(&mut store, Val::I64(meter.runtime))?;
+        globals
+            .read_count
+            .set(&mut store, Val::I64(meter.read_count))?;
+        globals
+            .read_length
+            .set(&mut store, Val::I64(meter.read_length))?;
+        globals
+            .write_count
+            .set(&mut store, Val::I64(meter.write_count))?;
+        globals
+            .write_length
+            .set(&mut store, Val::I64(meter.write_length))?;
+
+        Ok(())
+    }
+}
+
+impl From<CostMeter> for ExecutionCost {
+    fn from(meter: CostMeter) -> Self {
+        Self {
+            write_length: meter.write_length as _,
+            write_count: meter.write_count as _,
+            read_length: meter.read_length as _,
+            read_count: meter.read_count as _,
+            runtime: meter.runtime as _,
+        }
+    }
+}
+
+impl From<ExecutionCost> for CostMeter {
+    fn from(meter: ExecutionCost) -> Self {
+        Self {
+            write_length: meter.write_length as _,
+            write_count: meter.write_count as _,
+            read_length: meter.read_length as _,
+            read_count: meter.read_count as _,
+            runtime: meter.runtime as _,
+        }
+    }
+}
+
+impl<D, T: CostLinker<D>> AccessCostMeter<D> for T {}
