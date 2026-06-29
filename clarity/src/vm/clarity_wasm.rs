@@ -38,7 +38,7 @@ use crate::vm::functions::post_conditions::{
 use crate::vm::types::{
     BufferLength, SequenceSubtype, SequencedValue, StringSubtype, TypeSignature, TypeSignatureExt,
 };
-use crate::vm::{ClarityName, ContractContext, CostErrors, Value};
+use crate::vm::{ClarityName, ContractContext, CostErrors, ExecutionCost, Value};
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,
@@ -478,75 +478,6 @@ pub fn initialize_contract(
     }
 }
 
-// Charge the cost of contract call analog to the UserFunctionApplication and InnerTypeCheckCost in the interpreter.
-// UserFunctionApplication charge proportionally to the number of arguments passed to the contract call.
-// InnerTypeCheckCost charge proportionally to the cumulative size of each argument's type.
-fn apply_contract_call_cost(
-    instance: &Instance,
-    store: &mut impl AsContextMut,
-    contract_context: &ContractContext,
-    epoch_id: &StacksEpochId,
-    number_of_arguments: u32,
-    total_size_of_parameters: u32,
-) -> Result<(), VmExecutionError> {
-    let function_name = ".contract-call-cost-overhead";
-    let func = instance
-        .get_func(&mut store.as_context_mut(), function_name)
-        .ok_or(RuntimeCheckErrorKind::UndefinedFunction(
-            function_name.into(),
-        ))?;
-
-    // Access the global stack pointer from the instance
-    let stack_pointer = instance
-        .get_global(&mut store.as_context_mut(), "stack-pointer")
-        .ok_or(VmExecutionError::Wasm(WasmError::GlobalNotFound(
-            "stack-pointer".to_string(),
-        )))?;
-
-    let offset = stack_pointer
-        .get(&mut store.as_context_mut())
-        .i32()
-        .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
-
-    let memory = instance
-        .get_memory(&mut store.as_context_mut(), "memory")
-        .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
-
-    // Determine how much space is needed for arguments
-    //4 byte for an i32
-    let arg_size = 2 * 4;
-
-    let in_mem_offset = offset + arg_size;
-
-    ensure_memory(&memory, &mut store.as_context_mut(), in_mem_offset as usize)?;
-
-    // Convert the args into wasmtime values
-    let wasm_args = vec![
-        Val::I32(number_of_arguments as i32),
-        Val::I32(total_size_of_parameters as i32),
-    ];
-
-    // Update the stack pointer after space is reserved for the arguments and
-    // return values.
-    stack_pointer
-        .set(&mut store.as_context_mut(), Val::I32(offset))
-        .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e)))?;
-
-    // Call the function
-    func.call(&mut store.as_context_mut(), &wasm_args, &mut [])
-        .map_err(|e| {
-            error_mapping::resolve_error(
-                e,
-                *instance,
-                &mut store.as_context_mut(),
-                epoch_id,
-                contract_context.get_clarity_version(),
-            )
-        })?;
-
-    Ok(())
-}
-
 /// Call a function in the contract.
 #[allow(clippy::too_many_arguments)]
 pub fn call_function<'a>(
@@ -605,25 +536,6 @@ pub fn call_function<'a>(
         .instantiate(&mut store, &module)
         .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
 
-    let mut total_size = 0;
-    for arg in func_types.get_arg_types() {
-        total_size += arg.size()?;
-    }
-
-    apply_contract_call_cost(
-        &instance,
-        &mut store.as_context_mut(),
-        contract_context,
-        &epoch,
-        args.len() as u32,
-        total_size,
-    )?;
-
-    // Call the specified function
-    let func = instance.get_func(&mut store, function_name).ok_or(
-        RuntimeCheckErrorKind::UndefinedFunction(function_name.to_string()),
-    )?;
-
     // Access the global stack pointer from the instance
     let stack_pointer =
         instance
@@ -645,12 +557,6 @@ pub fn call_function<'a>(
     let memory = instance
         .get_memory(&mut store, "memory")
         .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
-
-    let return_type = func_types
-        .get_return_type()
-        .as_ref()
-        .ok_or(VmExecutionError::Wasm(WasmError::ExpectedReturnValue))?
-        .clone();
 
     // Validate argument count
     let expected_args = func_types.get_arg_types();
@@ -682,7 +588,50 @@ pub fn call_function<'a>(
         total_required_bytes += get_required_bytes(ty, arg)?;
     }
 
+    // Space needed for the arguments to call the overhead cost for contract call
+    //4 byte for an i32
+    let total_required_bytes_contract_call = 8;
+
+    total_required_bytes = total_required_bytes.max(total_required_bytes_contract_call);
+
     ensure_memory(&memory, &mut store, total_required_bytes + offset as usize)?;
+
+    // Before calling the function, we need to check if we have enough fuel to do so
+    // Apply contract call cost
+    let mut total_size_of_parameters = 0;
+    for arg in func_types.get_arg_types() {
+        total_size_of_parameters += arg.size()?;
+    }
+    // Convert the args into wasmtime values
+    let wasm_args = vec![
+        Val::I32(args.len() as i32),
+        Val::I32(total_size_of_parameters as i32),
+    ];
+
+    let contract_call_cost_func = instance
+        .get_func(&mut store.as_context_mut(), ".contract-call-cost-overhead")
+        .ok_or(RuntimeCheckErrorKind::UndefinedFunction(
+            ".contract-call-cost-overhead".into(),
+        ))?;
+
+    // Compute and spend contract call cost
+    contract_call_cost_func
+        .call(&mut store.as_context_mut(), &wasm_args, &mut [])
+        .map_err(|e| {
+            error_mapping::resolve_error(
+                e,
+                instance,
+                &mut store.as_context_mut(),
+                &epoch,
+                contract_context.get_clarity_version(),
+            )
+        })?;
+
+    // Now that we checked if we had enough fuel to make the contract call
+    // We call the specified function
+    let func = instance.get_func(&mut store, function_name).ok_or(
+        RuntimeCheckErrorKind::UndefinedFunction(function_name.to_string()),
+    )?;
 
     // Convert the args into wasmtime values
     let mut wasm_args = vec![];
@@ -697,6 +646,12 @@ pub fn call_function<'a>(
     stack_pointer
         .set(&mut store, Val::I32(offset))
         .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e)))?;
+
+    let return_type = func_types
+        .get_return_type()
+        .as_ref()
+        .ok_or(VmExecutionError::Wasm(WasmError::ExpectedReturnValue))?
+        .clone();
 
     // Call the function
     let mut results: Vec<_> = clar2wasm_ty(&return_type)
@@ -2311,7 +2266,7 @@ fn link_global<T>(
     name: &str,
     value: Val,
 ) -> Result<Global, VmExecutionError> {
-    let the_global = Global::new(
+    let global_to_link = Global::new(
         store.as_context_mut(),
         GlobalType::new(wasmtime::ValType::I64, wasmtime::Mutability::Var),
         value,
@@ -2319,9 +2274,9 @@ fn link_global<T>(
     .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
 
     linker
-        .define(&mut store.as_context_mut(), "clarity", name, the_global)
+        .define(&mut store.as_context_mut(), "clarity", name, global_to_link)
         .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
-    Ok(the_global)
+    Ok(global_to_link)
 }
 
 /// Link the host interface functions for into the Wasm module.
