@@ -10752,15 +10752,15 @@ impl<D, T: CostLinker<D>> AccessCostMeter<D> for T {}
 // But these should not be conflated with a word cost.
 // We do not want to pollute the namespace with new reserved keywords that are only used for internal management.
 #[derive(Debug, Clone, Copy)]
-pub enum OverheadCosts {
+pub enum ContractCallOverhead {
     UserFunctionApplication,
     InnerTypeCheckCost,
 }
 
-impl OverheadCosts {
+impl ContractCallOverhead {
     fn cost(self, epoch: &StacksEpochId, n: i64) -> CostMeter {
         match self {
-            OverheadCosts::UserFunctionApplication => match epoch {
+            ContractCallOverhead::UserFunctionApplication => match epoch {
                 StacksEpochId::Epoch10 => panic!("clarity did not exist in epoch 1"),
                 StacksEpochId::Epoch20 => CostMeter {
                     runtime: linear(n as u64, 1000, 1000) as i64,
@@ -10793,7 +10793,7 @@ impl OverheadCosts {
                     write_length: 0,
                 },
             },
-            OverheadCosts::InnerTypeCheckCost => match epoch {
+            ContractCallOverhead::InnerTypeCheckCost => match epoch {
                 StacksEpochId::Epoch10 => panic!("clarity did not exist in epoch 1"),
                 StacksEpochId::Epoch20 => CostMeter {
                     runtime: linear(n as u64, 1000, 1000) as i64,
@@ -10841,6 +10841,6 @@ fn charge_contract_call_cost_overhead(
     total_size_parameters: i64,
     function_arity: i64,
 ) {
-    *cost_meter -= OverheadCosts::UserFunctionApplication.cost(epoch, function_arity);
-    *cost_meter -= OverheadCosts::InnerTypeCheckCost.cost(epoch, total_size_parameters);
+    *cost_meter -= ContractCallOverhead::UserFunctionApplication.cost(epoch, function_arity);
+    *cost_meter -= ContractCallOverhead::InnerTypeCheckCost.cost(epoch, total_size_parameters);
 }
