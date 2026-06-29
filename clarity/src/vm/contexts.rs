@@ -26,7 +26,9 @@ use stacks_common::alloc_tracker::{AllocationCounter, thread_allocated};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 
-use super::EvalHook;
+use super::hooks::{
+    CallArguments, CallHook, CallTraceFrame, EvalHook, EvalHookNotifier, ExecutionOutcome,
+};
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
@@ -109,6 +111,59 @@ impl InvocationContext<'_> {
             caller: Some(caller),
             sponsor: self.sponsor.clone(),
         }
+    }
+
+    /// Returns a derived invocation context bound to another contract context.
+    ///
+    /// Models entering a different contract while preserving the same authority
+    /// (sender, caller, and sponsor are carried over unchanged).
+    pub fn with_contract_context<'c>(
+        &self,
+        contract_context: &'c ContractContext,
+    ) -> InvocationContext<'c> {
+        InvocationContext {
+            contract_context,
+            sender: self.sender.clone(),
+            caller: self.caller.clone(),
+            sponsor: self.sponsor.clone(),
+        }
+    }
+}
+
+/// Options for executing a defined function through a transaction boundary.
+#[derive(Clone, Copy)]
+pub struct FunctionExecutionOptions<'a> {
+    next_contract_context: Option<&'a ContractContext>,
+    allow_private: bool,
+}
+
+impl Default for FunctionExecutionOptions<'_> {
+    /// Initializes execution options with the default settings:
+    ///
+    /// * `next_contract_context`: `None` (execute in the current contract context)
+    /// * `allow_private`: `false` (enforce public-call visibility)
+    fn default() -> Self {
+        Self {
+            next_contract_context: None,
+            allow_private: false,
+        }
+    }
+}
+
+impl<'a> FunctionExecutionOptions<'a> {
+    /// Controls whether private functions are accepted when handling the transaction result.
+    pub fn allow_private(mut self, allow_private: bool) -> Self {
+        self.allow_private = allow_private;
+        self
+    }
+
+    /// Executes the function against another contract context.
+    pub fn with_next_contract(
+        mut self,
+        next_contract_context: impl Into<Option<&'a ContractContext>>,
+    ) -> Self {
+        self.next_contract_context = next_contract_context.into();
+        self
     }
 }
 
@@ -807,6 +862,16 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         }
     }
 
+    /// Registers an evaluation hook for this environment.
+    pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
+        if let Some(mut hooks) = self.context.eval_hooks.take() {
+            hooks.push(hook);
+            self.context.eval_hooks = Some(hooks);
+        } else {
+            self.context.eval_hooks = Some(vec![hook]);
+        }
+    }
+
     /// Set an abort callback that will be checked at every `eval` call.
     pub fn set_abort_callback(&mut self, callback: AbortCallback) {
         self.context.abort_callback = callback;
@@ -853,7 +918,17 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             ));
             let (mut exec_state, invoke_ctx) =
                 self.get_exec_environment(Some(sender), sponsor, &initial_context);
-            f(&mut exec_state, &invoke_ctx)
+            exec_state.global_context.notify_will_begin_execution();
+            let result = f(&mut exec_state, &invoke_ctx);
+            let outcome = if result.is_ok() {
+                ExecutionOutcome::Success
+            } else {
+                ExecutionOutcome::Failure
+            };
+            exec_state
+                .global_context
+                .notify_did_finish_execution(outcome);
+            result
         };
 
         match result {
@@ -1044,15 +1119,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ///   because the database is not guaranteed to be in a sane state.
     pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
         self.context.destruct()
-    }
-
-    pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
-        if let Some(mut hooks) = self.context.eval_hooks.take() {
-            hooks.push(hook);
-            self.context.eval_hooks = Some(hooks);
-        } else {
-            self.context.eval_hooks = Some(vec![hook]);
-        }
     }
 }
 
@@ -1327,7 +1393,23 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                 return Err(RuntimeCheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, Some(&*contract), allow_private);
+            let options = FunctionExecutionOptions::default()
+                .with_next_contract(&*contract)
+                .allow_private(allow_private);
+
+            // This entry/contract-call route is not wrapped by `apply`, so it owns the
+            // user-function call frame itself. (The `apply` path emits its own frame.)
+            let callee_view = invoke_ctx.with_contract_context(&contract);
+            let call = CallTraceFrame::when(self.has_eval_hooks(), || CallHook::UserDefined {
+                contract_identifier: &callee_view.contract_context.contract_identifier,
+                function: &func,
+            });
+            call.begin(self, &callee_view, CallArguments::Values(&args));
+            call.did_evaluate_arguments(self, &callee_view, &args);
+
+            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, options);
+
+            call.finish(self, &callee_view, &res);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1350,13 +1432,18 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         })
     }
 
+    /// Runs `function` against a transaction boundary: begin (read-only or
+    /// writable), execute, then roll back or handle the result.
+    ///
+    /// Call-trace emission is **owned by callers** (e.g., `apply` and
+    /// `inner_execute_contract`); this method intentionally emits no eval hooks,
+    /// so a direct caller that wants tracing must open its own `CallTraceFrame`.
     pub fn execute_function_as_transaction(
         &mut self,
         invoke_ctx: &InvocationContext,
         function: &DefinedFunction,
         args: &[Value],
-        next_contract_context: Option<&ContractContext>,
-        allow_private: bool,
+        options: FunctionExecutionOptions<'_>,
     ) -> Result<Value, VmExecutionError> {
         let make_read_only = function.is_read_only();
 
@@ -1366,23 +1453,23 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             self.global_context.begin();
         }
 
-        let next_contract_context = next_contract_context.unwrap_or(invoke_ctx.contract_context);
+        let next_contract_context = options
+            .next_contract_context
+            .unwrap_or(invoke_ctx.contract_context);
 
-        let result = {
-            let nested_view = InvocationContext {
-                contract_context: next_contract_context,
-                sender: invoke_ctx.sender.clone(),
-                caller: invoke_ctx.caller.clone(),
-                sponsor: invoke_ctx.sponsor.clone(),
-            };
-            function.execute_apply(args, self, &nested_view)
-        };
+        let callee_view = invoke_ctx.with_contract_context(next_contract_context);
+
+        let result = function.execute_apply(args, self, &callee_view);
 
         if make_read_only {
-            self.global_context.roll_back()?;
-            result
+            if let Err(e) = self.global_context.roll_back() {
+                Err(e)
+            } else {
+                result
+            }
         } else {
-            self.global_context.handle_tx_result(result, allow_private)
+            self.global_context
+                .handle_tx_result(result, options.allow_private)
         }
     }
 
@@ -1759,6 +1846,80 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
     }
 }
 
+impl ExecutionState<'_, '_, '_> {
+    /// Invokes `f` for each registered eval hook.
+    fn for_each_eval_hook(&mut self, mut f: impl FnMut(&mut dyn EvalHook, &mut Self)) {
+        let Some(mut eval_hooks) = self.global_context.eval_hooks.take() else {
+            return;
+        };
+
+        for hook in eval_hooks.iter_mut() {
+            f(&mut **hook, self);
+        }
+        self.global_context.eval_hooks = Some(eval_hooks);
+    }
+}
+
+impl EvalHookNotifier for ExecutionState<'_, '_, '_> {
+    fn has_eval_hooks(&self) -> bool {
+        self.global_context
+            .eval_hooks
+            .as_ref()
+            .is_some_and(|hooks| !hooks.is_empty())
+    }
+
+    fn notify_will_begin_eval(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        context: &LocalContext,
+        expr: &SymbolicExpression,
+    ) {
+        self.for_each_eval_hook(|hook, env| hook.will_begin_eval(env, invoke_ctx, context, expr));
+    }
+
+    fn notify_did_finish_eval<'a>(
+        &mut self,
+        invoke_ctx: &'a InvocationContext,
+        context: &'a LocalContext,
+        expr: &SymbolicExpression,
+        res: &core::result::Result<ValueRef<'a>, VmExecutionError>,
+    ) {
+        self.for_each_eval_hook(|hook, env| {
+            hook.did_finish_eval(env, invoke_ctx, context, expr, res)
+        });
+    }
+
+    fn notify_will_begin_call(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        call: &CallHook,
+        args: CallArguments,
+    ) {
+        self.for_each_eval_hook(|hook, env| hook.will_begin_call(env, invoke_ctx, call, args));
+    }
+
+    fn notify_did_evaluate_call_argument(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        call: &CallHook,
+        arg_index: usize,
+        value: &Value,
+    ) {
+        self.for_each_eval_hook(|hook, env| {
+            hook.did_evaluate_call_argument(env, invoke_ctx, call, arg_index, value)
+        });
+    }
+
+    fn notify_did_finish_call(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        call: &CallHook,
+        res: &core::result::Result<Value, VmExecutionError>,
+    ) {
+        self.for_each_eval_hook(|hook, env| hook.did_finish_call(env, invoke_ctx, call, res));
+    }
+}
+
 impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     // Instantiate a new Global Context
     pub fn new(
@@ -1860,6 +2021,26 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     ) -> Result<(), VmExecutionError> {
         self.get_asset_map()?.add_stacking(sender, amount);
         Ok(())
+    }
+
+    /// Invokes `f` for each registered eval hook.
+    fn for_each_eval_hook(&mut self, mut f: impl FnMut(&mut dyn EvalHook)) {
+        let Some(mut eval_hooks) = self.eval_hooks.take() else {
+            return;
+        };
+
+        for hook in eval_hooks.iter_mut() {
+            f(&mut **hook);
+        }
+        self.eval_hooks = Some(eval_hooks);
+    }
+
+    fn notify_will_begin_execution(&mut self) {
+        self.for_each_eval_hook(|hook| hook.will_begin_execution());
+    }
+
+    fn notify_did_finish_execution(&mut self, outcome: ExecutionOutcome) {
+        self.for_each_eval_hook(|hook| hook.did_finish_execution(outcome));
     }
 
     pub fn execute<F, T>(&mut self, f: F) -> Result<T, VmExecutionError>

@@ -36,6 +36,8 @@ mod defines;
 #[cfg(test)]
 mod epoch_gating;
 #[cfg(test)]
+mod hooks;
+#[cfg(test)]
 mod post_conditions;
 mod principals;
 #[cfg(test)]

@@ -2108,14 +2108,16 @@ impl Drop for ClarityTransactionConnection<'_, '_> {
 }
 
 impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
-    fn with_abort_callback<F, A, R, E>(
-        &mut self,
+    fn with_abort_callback<'hooks, F, A, R, E>(
+        &'hooks mut self,
         to_do: F,
         abort_call_back: A,
     ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
-        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
+        F: FnOnce(
+            &mut OwnedEnvironment<'_, 'hooks>,
+        ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<VmExecutionError>,
     {
         using!(self.log, "log", |log| {
