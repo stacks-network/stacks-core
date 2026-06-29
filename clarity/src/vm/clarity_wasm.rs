@@ -3,14 +3,13 @@ use std::io::{Cursor, Write as _};
 use std::ops::{AddAssign, SubAssign};
 
 use clarity_types::types::MAX_VALUE_SIZE;
-use crate::vm::ExecutionCost;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PublicKey, secp256k1_recover, secp256k1_verify};
 use wasmtime::{
-    AsContextMut, Caller, Extern, ExternRef, Global, GlobalType, Instance, Linker, Memory, Module,
-    Store, Val, ValType,
+    AsContextMut, Caller, Extern, ExternRef, Global, GlobalType, Linker, Memory, Module, Store,
+    Val, ValType,
 };
 
 use super::callables::{DefineType, DefinedFunction};
@@ -29,6 +28,7 @@ use super::{CallStack, ClarityVersion, ContractName, ExecutionState, SymbolicExp
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::contexts::{GlobalContext, InvocationContext};
+use crate::vm::costs::cost_functions::linear;
 use crate::vm::errors::{
     RuntimeCheckErrorKind, RuntimeError, StaticCheckErrorKind, VmExecutionError, WasmError,
 };
@@ -521,17 +521,42 @@ pub fn call_function<'a>(
     // Link in the host interface functions.
     link_host_functions(&mut linker)?;
 
-    let mut cost_globals = link_host_globals(&mut linker, &mut store.as_context_mut())?;
-    store.data_mut().cost_globals = Some(cost_globals);
+    let expected_args = func_types.get_arg_types();
+    let mut cost_globals = link_cost_globals(&mut linker, &mut store.as_context_mut())?;
+
+    // Before calling the function, we need to check if we have enough fuel to do so
+    // Apply contract call cost
+    let mut total_size_of_parameters = 0;
+
+    if epoch.uses_arg_size_for_cost() {
+        //Post 3.3
+        for arg in args {
+            total_size_of_parameters += arg.size()?;
+        }
+    } else {
+        // In the interpreter the cost is computed along the type of the parameters passed to contract. Not the ones expected
+        for arg in expected_args {
+            total_size_of_parameters += arg.size()?;
+        }
+    }
+
     // The cost meter holds the cost from the caller before doing the contract call.
     // This is the value we instantiate the current cost globals with
-    let cost_meter = store.data().global_context.cost_meter;
+    let mut cost_meter = store.data().global_context.cost_meter;
+    charge_contract_call_cost_overhead(
+        &mut cost_meter,
+        &epoch,
+        total_size_of_parameters as i64,
+        expected_args.len() as i64,
+    );
+
     cost_globals
         .from_cost_meter(&mut store, &cost_meter)
         .map_err(|_| {
             VmExecutionError::Wasm(WasmError::GlobalNotFound("cost globals not found".into()))
         })?;
 
+    store.data_mut().cost_globals = Some(cost_globals);
     let instance = linker
         .instantiate(&mut store, &module)
         .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
@@ -559,7 +584,6 @@ pub fn call_function<'a>(
         .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
     // Validate argument count
-    let expected_args = func_types.get_arg_types();
     if args.len() != expected_args.len() {
         return Err(VmExecutionError::RuntimeCheck(
             RuntimeCheckErrorKind::IncorrectArgumentCount(expected_args.len(), args.len()),
@@ -596,38 +620,6 @@ pub fn call_function<'a>(
 
     ensure_memory(&memory, &mut store, total_required_bytes + offset as usize)?;
 
-    // Before calling the function, we need to check if we have enough fuel to do so
-    // Apply contract call cost
-    let mut total_size_of_parameters = 0;
-    for arg in func_types.get_arg_types() {
-        total_size_of_parameters += arg.size()?;
-    }
-    // Convert the args into wasmtime values
-    let wasm_args = vec![
-        Val::I32(args.len() as i32),
-        Val::I32(total_size_of_parameters as i32),
-    ];
-
-    let contract_call_cost_func = instance
-        .get_func(&mut store.as_context_mut(), ".contract-call-cost-overhead")
-        .ok_or(RuntimeCheckErrorKind::UndefinedFunction(
-            ".contract-call-cost-overhead".into(),
-        ))?;
-
-    // Compute and spend contract call cost
-    contract_call_cost_func
-        .call(&mut store.as_context_mut(), &wasm_args, &mut [])
-        .map_err(|e| {
-            error_mapping::resolve_error(
-                e,
-                instance,
-                &mut store.as_context_mut(),
-                &epoch,
-                contract_context.get_clarity_version(),
-            )
-        })?;
-
-    // Now that we checked if we had enough fuel to make the contract call
     // We call the specified function
     let func = instance.get_func(&mut store, function_name).ok_or(
         RuntimeCheckErrorKind::UndefinedFunction(function_name.to_string()),
@@ -2231,13 +2223,8 @@ fn wasm_to_clarity_value(
         )),
     }
 }
-pub fn link_host_globals<T>(
-    linker: &mut Linker<T>,
-    store: &mut impl AsContextMut<Data = T>,
-) -> Result<CostGlobals, VmExecutionError> {
-    link_cost_globals(linker, store)
-}
-fn link_cost_globals<T>(
+
+pub fn link_cost_globals<T>(
     linker: &mut Linker<T>,
     store: &mut impl AsContextMut<Data = T>,
 ) -> Result<CostGlobals, VmExecutionError> {
@@ -10766,3 +10753,106 @@ impl From<ExecutionCost> for CostMeter {
 }
 
 impl<D, T: CostLinker<D>> AccessCostMeter<D> for T {}
+
+// Doing a contract call involves costs charges.
+// But these should not be conflated with a word cost.
+// We do not want to pollute the namespace with new reserved keywords that are only used for internal management.
+#[derive(Debug, Clone, Copy)]
+pub enum OverheadCosts {
+    UserFunctionApplication,
+    InnerTypeCheckCost,
+}
+
+fn overhead_costs(epoch: &StacksEpochId, costKind: OverheadCosts, n: i64) -> CostMeter {
+    match costKind {
+        OverheadCosts::UserFunctionApplication => match epoch {
+            StacksEpochId::Epoch10 => panic!("clarity did not exist in epoch 1"),
+            StacksEpochId::Epoch20 => CostMeter {
+                runtime: linear(n as u64, 1000, 1000) as i64,
+                read_count: 0,
+                read_length: 0,
+                write_count: 0,
+                write_length: 0,
+            },
+            StacksEpochId::Epoch2_05 => CostMeter {
+                runtime: linear(n as u64, 26, 140) as i64,
+                read_count: 0,
+                read_length: 0,
+                write_count: 0,
+                write_length: 0,
+            },
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => CostMeter {
+                runtime: linear(n as u64, 26, 5) as i64,
+                read_count: 0,
+                read_length: 0,
+                write_count: 0,
+                write_length: 0,
+            },
+        },
+        OverheadCosts::InnerTypeCheckCost => match epoch {
+            StacksEpochId::Epoch10 => panic!("clarity did not exist in epoch 1"),
+            StacksEpochId::Epoch20 => CostMeter {
+                runtime: linear(n as u64, 1000, 1000) as i64,
+                read_count: 0,
+                read_length: 0,
+                write_count: 0,
+                write_length: 0,
+            },
+            StacksEpochId::Epoch2_05 => CostMeter {
+                runtime: linear(n as u64, 2, 9) as i64,
+                read_count: 0,
+                read_length: 0,
+                write_count: 0,
+                write_length: 0,
+            },
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => CostMeter {
+                runtime: linear(n as u64, 2, 5) as i64,
+                read_count: 0,
+                read_length: 0,
+                write_count: 0,
+                write_length: 0,
+            },
+        },
+    }
+}
+
+/// Charge the two costs UserFunctionApplication and InnerTypeCheckCost
+/// It is done in rust because in wasm would be actually heavier due to context switching
+/// It follows the cost charging from DefinedFunction::execute_apply call
+/// UserFunctionApplication takes in the expected number of parameters
+/// InnerTypeCheckCost takes in the size of each arguments
+fn charge_contract_call_cost_overhead(
+    cost_meter: &mut CostMeter,
+    epoch: &StacksEpochId,
+    total_size_parameters: i64,
+    function_arity: i64,
+) {
+    *cost_meter -= overhead_costs(
+        epoch,
+        OverheadCosts::UserFunctionApplication,
+        function_arity,
+    );
+    *cost_meter -= overhead_costs(
+        epoch,
+        OverheadCosts::InnerTypeCheckCost,
+        total_size_parameters,
+    );
+}
