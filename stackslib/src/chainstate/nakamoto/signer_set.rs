@@ -160,13 +160,17 @@ pub fn set_pox_5_bond_admin(principal: Option<PrincipalData>) {
     *POX_5_BOND_ADMIN.write().unwrap() = principal;
 }
 
-/// Resolve the PoX-5 bond admin principal: the configured override if any,
-/// otherwise the network-specific default.
-pub fn pox_5_bond_admin(is_mainnet: bool) -> PrincipalData {
+/// Resolve the PoX-5 bond admin principal from an explicit override,
+/// if any, otherwise the network-specific default.
+///
+/// Panics on a mainnet override that differs from the baked-in default.
+fn resolve_pox_5_bond_admin(
+    is_mainnet: bool,
+    override_admin: Option<PrincipalData>,
+) -> PrincipalData {
     let mainnet_principal = PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET)
         .expect("Invalid default mainnet bond admin principal");
-    let principal = POX_5_BOND_ADMIN.read().unwrap().clone();
-    if let Some(principal) = principal {
+    if let Some(principal) = override_admin {
         if is_mainnet && principal != mainnet_principal {
             panic!("FATAL: attempted to override PoX-5 bond admin in mainnet, which is disallowed")
         }
@@ -179,6 +183,12 @@ pub fn pox_5_bond_admin(is_mainnet: bool) -> PrincipalData {
     }
 }
 
+/// Resolve the PoX-5 bond admin principal: the configured override if any,
+/// otherwise the network-specific default.
+pub fn pox_5_bond_admin(is_mainnet: bool) -> PrincipalData {
+    resolve_pox_5_bond_admin(is_mainnet, POX_5_BOND_ADMIN.read().unwrap().clone())
+}
+
 pub const POX_5_PAUSE_ADMIN_MAINNET: &str = "SP000000000000000000002Q6VF78";
 pub const POX_5_PAUSE_ADMIN_TESTNET: &str = "ST000000000000000000002AMW42H";
 
@@ -188,11 +198,17 @@ pub fn set_pox_5_pause_admin(principal: Option<PrincipalData>) {
     *POX_5_PAUSE_ADMIN.write().unwrap() = principal;
 }
 
-pub fn pox_5_pause_admin(is_mainnet: bool) -> PrincipalData {
+/// Resolve the PoX-5 pause admin principal from an explicit override,
+/// if any, otherwise the network-specific default.
+///
+/// Panics on a mainnet override that differs from the baked-in default.
+fn resolve_pox_5_pause_admin(
+    is_mainnet: bool,
+    override_admin: Option<PrincipalData>,
+) -> PrincipalData {
     let mainnet_principal = PrincipalData::parse(POX_5_PAUSE_ADMIN_MAINNET)
         .expect("Invalid default mainnet pause admin principal");
-    let principal = POX_5_PAUSE_ADMIN.read().unwrap().clone();
-    if let Some(principal) = principal {
+    if let Some(principal) = override_admin {
         if is_mainnet && principal != mainnet_principal {
             panic!("FATAL: attempted to override PoX-5 pause admin in mainnet, which is disallowed")
         }
@@ -203,6 +219,10 @@ pub fn pox_5_pause_admin(is_mainnet: bool) -> PrincipalData {
         PrincipalData::parse(POX_5_PAUSE_ADMIN_TESTNET)
             .expect("Invalid default testnet pause admin principal")
     }
+}
+
+pub fn pox_5_pause_admin(is_mainnet: bool) -> PrincipalData {
+    resolve_pox_5_pause_admin(is_mainnet, POX_5_PAUSE_ADMIN.read().unwrap().clone())
 }
 
 pub struct NakamotoSigners();
@@ -1221,27 +1241,27 @@ mod pox_5_admin_tests {
         let testnet_bond = PrincipalData::parse(POX_5_BOND_ADMIN_TESTNET).unwrap();
         let testnet_pause = PrincipalData::parse(POX_5_PAUSE_ADMIN_TESTNET).unwrap();
 
-        set_pox_5_bond_admin(Some(override_principal.clone()));
-        set_pox_5_pause_admin(Some(override_principal.clone()));
-        assert_eq!(pox_5_bond_admin(false), override_principal);
-        assert_eq!(pox_5_pause_admin(false), override_principal);
+        assert_eq!(
+            resolve_pox_5_bond_admin(false, Some(override_principal.clone())),
+            override_principal
+        );
+        assert_eq!(
+            resolve_pox_5_pause_admin(false, Some(override_principal.clone())),
+            override_principal
+        );
 
-        set_pox_5_bond_admin(None);
-        set_pox_5_pause_admin(None);
-        assert_eq!(pox_5_bond_admin(false), testnet_bond);
-        assert_eq!(pox_5_pause_admin(false), testnet_pause);
+        assert_eq!(resolve_pox_5_bond_admin(false, None), testnet_bond);
+        assert_eq!(resolve_pox_5_pause_admin(false, None), testnet_pause);
     }
 
     /// On mainnet, with no override set, the resolvers return the baked-in
     /// mainnet default without panicking.
     #[test]
     fn mainnet_default_no_panic() {
-        set_pox_5_bond_admin(None);
-        set_pox_5_pause_admin(None);
         let mainnet_bond = PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET).unwrap();
         let mainnet_pause = PrincipalData::parse(POX_5_PAUSE_ADMIN_MAINNET).unwrap();
-        assert_eq!(pox_5_bond_admin(true), mainnet_bond);
-        assert_eq!(pox_5_pause_admin(true), mainnet_pause);
+        assert_eq!(resolve_pox_5_bond_admin(true, None), mainnet_bond);
+        assert_eq!(resolve_pox_5_pause_admin(true, None), mainnet_pause);
     }
 
     /// On mainnet, an override that matches the mainnet default is harmless and
@@ -1249,9 +1269,10 @@ mod pox_5_admin_tests {
     #[test]
     fn mainnet_override_equal_to_default_ok() {
         let mainnet_bond = PrincipalData::parse(POX_5_BOND_ADMIN_MAINNET).unwrap();
-        set_pox_5_bond_admin(Some(mainnet_bond.clone()));
-        assert_eq!(pox_5_bond_admin(true), mainnet_bond);
-        set_pox_5_bond_admin(None);
+        assert_eq!(
+            resolve_pox_5_bond_admin(true, Some(mainnet_bond.clone())),
+            mainnet_bond
+        );
     }
 
     /// On mainnet, a bond-admin override that differs from the default is a
@@ -1262,8 +1283,7 @@ mod pox_5_admin_tests {
     fn mainnet_bond_admin_override_panics() {
         let override_principal =
             PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
-        set_pox_5_bond_admin(Some(override_principal));
-        let _ = pox_5_bond_admin(true);
+        let _ = resolve_pox_5_bond_admin(true, Some(override_principal));
     }
 
     /// As above, for the pause-admin resolver.
@@ -1272,7 +1292,6 @@ mod pox_5_admin_tests {
     fn mainnet_pause_admin_override_panics() {
         let override_principal =
             PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap();
-        set_pox_5_pause_admin(Some(override_principal));
-        let _ = pox_5_pause_admin(true);
+        let _ = resolve_pox_5_pause_admin(true, Some(override_principal));
     }
 }
