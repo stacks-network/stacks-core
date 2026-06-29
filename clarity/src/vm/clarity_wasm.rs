@@ -10758,7 +10758,7 @@ pub enum OverheadCosts {
 }
 
 impl OverheadCosts {
-    fn overhead_costs(self, epoch: &StacksEpochId, n: i64) -> CostMeter {
+    fn cost(self, epoch: &StacksEpochId, n: i64) -> CostMeter {
         match self {
             OverheadCosts::UserFunctionApplication => match epoch {
                 StacksEpochId::Epoch10 => panic!("clarity did not exist in epoch 1"),
@@ -10841,6 +10841,6 @@ fn charge_contract_call_cost_overhead(
     total_size_parameters: i64,
     function_arity: i64,
 ) {
-    *cost_meter -= OverheadCosts::UserFunctionApplication.overhead_costs(epoch, function_arity);
-    *cost_meter -= OverheadCosts::InnerTypeCheckCost.overhead_costs(epoch, total_size_parameters);
+    *cost_meter -= OverheadCosts::UserFunctionApplication.cost(epoch, function_arity);
+    *cost_meter -= OverheadCosts::InnerTypeCheckCost.cost(epoch, total_size_parameters);
 }
