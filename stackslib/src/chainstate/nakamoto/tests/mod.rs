@@ -58,6 +58,7 @@ use crate::chainstate::nakamoto::tenure::NakamotoTenureEvent;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
     query_row, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NAKAMOTO_BLOCK_VERSION,
+    NAKAMOTO_BLOCK_VERSION_EPOCH_4,
 };
 use crate::chainstate::stacks::boot::{
     NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
@@ -215,7 +216,7 @@ fn codec_nakamoto_header_with_problematic_txs() {
     use crate::chainstate::nakamoto::ProblematicTxMarker;
 
     let header = NakamotoBlockHeader {
-        version: NAKAMOTO_BLOCK_VERSION,
+        version: NAKAMOTO_BLOCK_VERSION_EPOCH_4,
         chain_length: 2,
         burn_spent: 3,
         consensus_hash: ConsensusHash([0x04; 20]),
@@ -250,7 +251,7 @@ fn signer_signature_hash_includes_problematic_txs() {
     use crate::chainstate::nakamoto::ProblematicTxMarker;
 
     let mut header = NakamotoBlockHeader {
-        version: 1,
+        version: NAKAMOTO_BLOCK_VERSION_EPOCH_4,
         chain_length: 2,
         burn_spent: 3,
         consensus_hash: ConsensusHash([0x04; 20]),
