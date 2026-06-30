@@ -684,7 +684,7 @@ pub const MAX_PROBLEMATIC_TX_MARKERS: usize = (MAX_BLOCK_LEN / MIN_TRANSACTION_L
 ///
 /// Block replay consumes a list of these rather than a bare
 /// `&[StacksTransaction]` plus a separate `problematic_txs` marker list. Fusing
-/// the two up front (see [`NakamotoBlock::txs_to_process`]) means the replay
+/// the two up front (see [`NakamotoBlock::txs`]) means the replay
 /// loop cannot execute a problematic transaction by forgetting to cross-
 /// reference the markers: the disposition travels with the transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -851,7 +851,7 @@ impl NakamotoBlock {
 
     /// The block's transactions, including all transactions in the problematic
     /// list (that should not be executed). Use
-    /// [`NakamotoBlock::txs_to_process`] instead when replaying, so the
+    /// [`NakamotoBlock::txs`] instead when replaying, so the
     /// `problematic_txs` markers are considered.
     #[cfg(any(test, feature = "testing"))]
     pub fn executed_and_skipped_txs(&self) -> &[StacksTransaction] {

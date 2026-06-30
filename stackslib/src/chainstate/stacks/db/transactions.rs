@@ -2737,6 +2737,212 @@ pub mod test {
     }
 
     #[test]
+    fn process_skipped_transaction_charges_fee_and_skips_payload() {
+        // A transaction marked problematic must still pay its fee and bump the
+        // origin nonce, but its payload must NOT execute. Here a token-transfer
+        // of 123 uSTX is skipped: the recipient receives nothing, yet the
+        // origin is debited the fee and its nonce advances.
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::TokenTransfer(
+                recv_addr.clone().into(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer.set_tx_fee(100);
+
+        let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        signer.sign_origin(&privk).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        // problematic_txs markers are only serialized/honored in Epoch 4.0+
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_40,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        // fund the origin enough to cover the fee and the (skipped) transfer
+        conn.connection().as_transaction(|tx| {
+            StacksChainState::account_credit(tx, &addr.to_account_principal(), 223)
+        });
+
+        let category = 7u8;
+        let (fee, receipt) =
+            StacksChainState::process_skipped_transaction(&mut conn, &signed_tx, category, false)
+                .unwrap();
+
+        // the fee was charged and the origin nonce bumped, but the 123 uSTX
+        // transfer did not happen: balance dropped by exactly the fee.
+        let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+        assert_eq!(account_after.nonce, 1);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 123);
+
+        let recv_account_after =
+            StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
+        assert_eq!(recv_account_after.nonce, 0);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked(), 0);
+
+        // the receipt reflects the skip: fee returned, tagged with the category
+        // byte, zero execution cost, and no events.
+        assert_eq!(fee, 100);
+        assert_eq!(receipt.problematic_skipped, Some(category));
+        assert_eq!(receipt.execution_cost, ExecutionCost::ZERO);
+        assert!(receipt.events.is_empty());
+        assert!(!receipt.post_condition_aborted);
+
+        conn.commit_block();
+    }
+
+    #[test]
+    fn process_skipped_transaction_bumps_origin_and_sponsor_nonces() {
+        // For a sponsored problematic transaction, both the origin and sponsor
+        // nonces advance and the sponsor pays the fee, but the payload is still
+        // skipped (so the origin's balance is untouched).
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+
+        let privk_origin = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let privk_sponsor = StacksPrivateKey::from_hex(
+            "7e3af4db6af6b3c67e2c6c6d7d5983b519f4d9b3a6e00580ae96dcace3bde8bc01",
+        )
+        .unwrap();
+
+        let auth_origin = TransactionAuth::from_p2pkh(&privk_origin).unwrap();
+        let auth_sponsor = TransactionAuth::from_p2pkh(&privk_sponsor).unwrap();
+        let auth = auth_origin.into_sponsored(auth_sponsor).unwrap();
+
+        let addr = auth.origin().address_testnet();
+        let addr_sponsor = auth.sponsor().unwrap().address_testnet();
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::TokenTransfer(
+                recv_addr.clone().into(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer.set_tx_fee(100);
+
+        let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        signer.sign_origin(&privk_origin).unwrap();
+        signer.sign_sponsor(&privk_sponsor).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_40,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        // the sponsor pays the fee...
+        conn.connection().as_transaction(|tx| {
+            StacksChainState::account_credit(tx, &addr_sponsor.to_account_principal(), 100)
+        });
+        // ...and give the origin the transfer amount, to prove it is NOT spent.
+        conn.connection().as_transaction(|tx| {
+            StacksChainState::account_credit(tx, &addr.to_account_principal(), 123)
+        });
+
+        let (fee, receipt) =
+            StacksChainState::process_skipped_transaction(&mut conn, &signed_tx, 0, false).unwrap();
+
+        // both nonces advance; the origin's balance is untouched (no payload).
+        let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+        assert_eq!(account_after.nonce, 1);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 123);
+
+        // the sponsor's nonce advances and it paid the fee.
+        let sponsor_after =
+            StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
+        assert_eq!(sponsor_after.nonce, 1);
+        assert_eq!(sponsor_after.stx_balance.amount_unlocked(), 0);
+
+        // the recipient received nothing.
+        let recv_after =
+            StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
+        assert_eq!(recv_after.nonce, 0);
+        assert_eq!(recv_after.stx_balance.amount_unlocked(), 0);
+
+        assert_eq!(fee, 100);
+        assert_eq!(receipt.problematic_skipped, Some(0));
+
+        conn.commit_block();
+    }
+
+    #[test]
+    fn process_skipped_transaction_rejected_before_epoch_40() {
+        // problematic_txs markers are only valid in Epoch 4.0+. Reaching the
+        // skip path in an earlier epoch is a consensus bug, so it must error
+        // rather than silently charge a fee.
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::TokenTransfer(recv_addr.into(), 123, TokenTransferMemo([0u8; 34])),
+        );
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer.set_tx_fee(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        signer.sign_origin(&privk).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        // Epoch 3.4 (any pre-4.0 epoch) must reject the skip path outright.
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_34,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+        conn.connection().as_transaction(|tx| {
+            StacksChainState::account_credit(tx, &addr.to_account_principal(), 223)
+        });
+
+        let err = StacksChainState::process_skipped_transaction(&mut conn, &signed_tx, 0, false)
+            .unwrap_err();
+        assert!(matches!(err, Error::InvalidStacksTransaction(..)));
+
+        conn.commit_block();
+    }
+
+    #[test]
     fn process_smart_contract_transaction() {
         let contract = "
         (define-data-var bar int 0)

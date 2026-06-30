@@ -4509,7 +4509,7 @@ impl StacksChainState {
     ///
     /// `block_txs` pairs each transaction with its replay disposition (execute
     /// vs. skip-as-problematic). Build it from a Nakamoto block with
-    /// [`NakamotoBlock::txs_to_process`]; for pre-Nakamoto blocks, wrap the
+    /// [`NakamotoBlock::txs`]; for pre-Nakamoto blocks, wrap the
     /// transaction list with [`TxToProcess::all_execute`]. Carrying the
     /// disposition alongside each transaction makes it impossible for this loop
     /// to execute a problematic transaction by overlooking a separate marker
