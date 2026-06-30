@@ -1,0 +1,1 @@
+Add snapshot copy of canonical burnchain.sqlite tables into squashed output, using the squashed sortition DB as the canonical set.

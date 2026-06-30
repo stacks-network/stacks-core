@@ -1,6 +1,6 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
-expression: result
+expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
@@ -34,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "055eead6f04b35b11963b383056f7ee259539cfd63c55b8076ea847ab2b9eb01",
+    marf_hash: "509d05a8fa4035cf314a29c4c35553ea4a4fac596ec96075f0f71615e2a99dea",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

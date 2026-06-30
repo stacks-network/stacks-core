@@ -124,9 +124,15 @@ jobs:
 
   ############################################################################
   ### Release Check
-  ### 
+  ###
   ### Checks if this is a release build
   ### If true, will execute release jobs
+  ###
+  ### Release detection only matters on the public repo. This job is depended
+  ### on only by the release-specific jobs (tests-epoch, create-release); the
+  ### regular CI/test jobs are intentionally decoupled from it, so it is safe
+  ### for this job to be skipped (and cascade-skip those release jobs) on
+  ### private forks.
   ############################################################################
   check-release:
     name: "Check: Release"
@@ -167,7 +173,6 @@ jobs:
     name: "Check: Cargo Hack"
     needs:
       - check-changelog
-      - check-release
       - check-rustfmt
       - setup-env
     if: >-
@@ -181,7 +186,6 @@ jobs:
     name: "Check: Constants"
     needs:
       - check-changelog
-      - check-release
       - check-rustfmt
       - setup-env
     if: >-
@@ -195,11 +199,9 @@ jobs:
     name: "Setup: Test Caches"
     needs:
       - check-changelog
-      - check-release
       - check-rustfmt
       - setup-env
     if: >-
-      needs.check-release.outputs.is_release == 'true' ||
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/setup-test-caches.yml
     with:
@@ -213,12 +215,10 @@ jobs:
     name: "Tests: Stacks Core"
     needs:
       - check-changelog
-      - check-release
       - check-rustfmt
       - setup-test-caches
       - setup-env
     if: >-
-      needs.check-release.outputs.is_release == 'true' ||
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-stacks-core.yml
     with:
@@ -231,12 +231,10 @@ jobs:
     name: "Tests: Bitcoin"
     needs:
       - check-changelog
-      - check-release
       - check-rustfmt
       - setup-test-caches
       - setup-env
     if: >-
-      needs.check-release.outputs.is_release == 'true' ||
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin.yml
     with:
@@ -250,11 +248,9 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-      - check-release
       - setup-test-caches
       - setup-env
     if: >-
-      needs.check-release.outputs.is_release == 'true' ||
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin-rpc.yml
     with:
@@ -269,11 +265,9 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-      - check-release
       - setup-test-caches
       - setup-env
     if: >-
-      needs.check-release.outputs.is_release == 'true' ||
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-p2p.yml
     with:

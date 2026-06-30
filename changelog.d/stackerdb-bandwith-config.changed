@@ -1,0 +1,4 @@
+* Exposed connection options `max_stackerdb_push_bandwidth`, `max_nakamoto_block_push_bandwidth`, `max_transaction_push_bandwidth` as TOML configuration to set bandwidth cap on message reception.
+* Set connection option `max_stackerdb_push_bandwidth` default to 4 MB/seconds
+* Enforced StackerDB message chunk-size check against replica configuration instead of statically against `STACKERDB_MAX_CHUNK_SIZE`
+* Improved StackerDB configuration creation for miner to set chunk-size to `STACKERDB_MAX_CHUNK_SIZE` instead of `MAX_PAYLOAD_LEN`

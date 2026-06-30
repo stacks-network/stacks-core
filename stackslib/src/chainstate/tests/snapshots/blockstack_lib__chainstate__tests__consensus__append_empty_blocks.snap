@@ -5,6 +5,6 @@ expression: result
 [
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch34,
-    error: "Invalid Nakamoto block: failed static transaction checks",
+    error: "Invalid Nakamoto block: failed static checks",
   )),
 ]
