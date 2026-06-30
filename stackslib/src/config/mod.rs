@@ -5163,7 +5163,12 @@ mod tests {
     #[test]
     fn test_load_push_bandwidth_fields_config() {
         // check defaults for omitted fields
-        let config = utils::config_from_valid_string("");
+        let config = utils::config_from_valid_string(
+            r#"
+            [burnchain]
+            mode = "krypton"
+            "#,
+        );
         assert_eq!(0, config.connection_options.max_transaction_push_bandwidth,);
         assert_eq!(
             MB!(4),
@@ -5177,6 +5182,8 @@ mod tests {
         // Check values for configured fields
         let config = utils::config_from_valid_string(
             r#"
+            [burnchain]
+            mode = "krypton"
             [connection_options]
             max_transaction_push_bandwidth = 10
             max_stackerdb_push_bandwidth = 20
