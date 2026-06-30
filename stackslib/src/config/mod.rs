@@ -1235,7 +1235,8 @@ pub struct BurnchainConfig {
     /// - `"krypton"`: regtest
     /// - `"nakamoto-neon"`: regtest
     /// ---
-    /// @default: `"neon"`
+    /// @default: No default.
+    /// @required: true
     pub mode: String,
     /// The network-specific identifier used in P2P communication and database initialization.
     /// ---
