@@ -841,12 +841,16 @@ impl NakamotoBlockHeader {
     /// - Any duplicate signatures
     /// - At least the minimum number of signatures (based on total signer weight
     /// and a 70% threshold)
-    /// - Order of signatures is maintained vs signer set
+    /// - Order of signatures vs the signer set.
     ///
     /// Returns the signing weight on success.
     /// Returns ChainstateError::InvalidStacksBlock on error
     #[cfg_attr(test, mutants::skip)]
-    pub fn verify_signer_signatures(&self, reward_set: &RewardSet) -> Result<u32, ChainstateError> {
+    pub fn verify_signer_signatures(
+        &self,
+        reward_set: &RewardSet,
+        epoch_id: StacksEpochId,
+    ) -> Result<u32, ChainstateError> {
         let message = self.signer_signature_hash();
         let Some(signers) = reward_set.signers() else {
             return Err(ChainstateError::InvalidStacksBlock(
@@ -863,6 +867,9 @@ impl NakamotoBlockHeader {
         let mut total_weight_signed: u32 = 0;
         // `last_index` is used to prevent out-of-order signatures
         let mut last_index = None;
+        // Before Epoch 4.0, signature order check contained a bug, so gate the
+        // strict ordering behavior on the epoch.
+        let strict_order = epoch_id.enforces_strict_signature_order();
 
         let total_weight = reward_set
             .total_signing_weight()
@@ -909,6 +916,9 @@ impl NakamotoBlockHeader {
                     return Err(ChainstateError::InvalidStacksBlock(
                         "Signatures are out of order".to_string(),
                     ));
+                }
+                if strict_order {
+                    last_index = Some(signer_index);
                 }
             } else {
                 last_index = Some(signer_index);
@@ -2507,9 +2517,28 @@ impl NakamotoChainState {
             );
         })?;
 
+        let block_sn = SortitionDB::get_block_snapshot_consensus(
+            db_handle.conn(),
+            &block.header.consensus_hash,
+        )?
+        .ok_or_else(|| {
+            ChainstateError::InvalidStacksBlock(format!(
+                "No sortition for block consensus hash {}",
+                &block.header.consensus_hash
+            ))
+        })?;
+        let epoch_id = SortitionDB::get_stacks_epoch(db_handle.conn(), block_sn.block_height)?
+            .ok_or_else(|| {
+                ChainstateError::InvalidStacksBlock(format!(
+                    "No epoch defined at burn height {}",
+                    block_sn.block_height
+                ))
+            })?
+            .epoch_id;
+
         let signing_weight = block
             .header
-            .verify_signer_signatures(reward_set)
+            .verify_signer_signatures(reward_set, epoch_id)
             .inspect_err(|e| {
                 warn!("Received block, but the signer signatures are invalid";
                     "block_id" => %block_id,
@@ -2593,7 +2622,7 @@ impl NakamotoChainState {
             return Self::get_block_header_nakamoto(conn.sqlite(), &block_id);
         }
 
-        // epcoh2 block?
+        // epoch2 block?
         let Some(ancestor_at_height) = conn
             .get_ancestor_block_id(coinbase_height, tip_index_hash)?
             .map(|ancestor| Self::get_block_header(conn.sqlite(), &ancestor))

@@ -545,6 +545,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch33
     }
 
+    /// Whether or not signer signatures on a Nakamoto block must be strictly
+    /// ordered by the signer's index in the reward set.
+    pub fn enforces_strict_signature_order(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     /// Whether or not this epoch supports the punishment of PoX reward
     /// recipients using the bitvec scheme
     pub fn allows_pox_punishment(&self) -> bool {

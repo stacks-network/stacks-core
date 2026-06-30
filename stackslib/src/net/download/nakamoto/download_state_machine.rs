@@ -25,6 +25,7 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::core::EpochList;
 use crate::net::chat::ConversationP2P;
 use crate::net::connection::ConnectionOptions;
 use crate::net::download::nakamoto::{
@@ -856,6 +857,7 @@ impl NakamotoDownloadStateMachine {
         &mut self,
         count: usize,
         current_reward_sets: &BTreeMap<u64, CurrentRewardSet>,
+        epochs: &EpochList,
     ) {
         self.tenure_downloads.make_tenure_downloaders(
             &mut self.tenure_download_schedule,
@@ -863,6 +865,7 @@ impl NakamotoDownloadStateMachine {
             &self.tenure_block_ids,
             count,
             current_reward_sets,
+            epochs,
         )
     }
 
@@ -1315,7 +1318,7 @@ impl NakamotoDownloadStateMachine {
         max_count: usize,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         // queue up more downloaders
-        self.update_tenure_downloaders(max_count, &network.current_reward_sets);
+        self.update_tenure_downloaders(max_count, &network.current_reward_sets, &network.epochs);
 
         // run all downloaders
         let new_blocks = self

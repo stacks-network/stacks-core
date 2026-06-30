@@ -3219,7 +3219,7 @@ pub mod nakamoto_block_signatures {
         header.signer_signature = signer_signature;
 
         header
-            .verify_signer_signatures(&reward_set)
+            .verify_signer_signatures(&reward_set, StacksEpochId::latest())
             .expect("Failed to verify signatures");
     }
 
@@ -3245,7 +3245,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected insufficient signatures to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 assert!(msg.contains("Not enough signatures"));
@@ -3279,9 +3279,8 @@ pub mod nakamoto_block_signatures {
         header.signer_signature = signer_signature;
 
         header
-            .verify_signer_signatures(&reward_set)
+            .verify_signer_signatures(&reward_set, StacksEpochId::latest())
             .expect("Failed to verify signatures");
-        // assert!(&header.verify_signer_signatures(&reward_set).is_ok());
     }
 
     #[test]
@@ -3306,12 +3305,18 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
-            Ok(_) => panic!("Expected out of order signatures to fail"),
-            Err(ChainstateError::InvalidStacksBlock(msg)) => {
-                assert!(msg.contains("out of order"));
+        // A fully-reversed vector is rejected in every epoch: the second
+        // signature's index is already less than the first's, which both the
+        // legacy (pre-4.0) partial-ordering rule and the strict (4.0+) rule
+        // catch.
+        for epoch_id in [StacksEpochId::Epoch34, StacksEpochId::latest()] {
+            match header.verify_signer_signatures(&reward_set, epoch_id) {
+                Ok(_) => panic!("Expected out of order signatures to fail in {epoch_id}"),
+                Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                    assert!(msg.contains("out of order"));
+                }
+                _ => panic!("Expected InvalidStacksBlock error"),
             }
-            _ => panic!("Expected InvalidStacksBlock error"),
         }
     }
 
@@ -3337,7 +3342,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected insufficient signatures to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 assert!(msg.contains("Not enough signatures"));
@@ -3371,7 +3376,7 @@ pub mod nakamoto_block_signatures {
         header.signer_signature = signer_signature;
 
         header
-            .verify_signer_signatures(&reward_set)
+            .verify_signer_signatures(&reward_set, StacksEpochId::latest())
             .expect("Failed to verify signatures");
     }
 
@@ -3400,7 +3405,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected invalid signature to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 assert!(msg.contains("not found in the reward set"));
@@ -3439,7 +3444,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected duplicate signature to fail"),
             Err(ChainstateError::InvalidStacksBlock(_)) => {}
             _ => panic!("Expected InvalidStacksBlock error"),
@@ -3480,7 +3485,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected invalid message to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {}
             _ => panic!("Expected InvalidStacksBlock error"),
@@ -3514,7 +3519,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected invalid message to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 if !msg.contains("Unable to recover public key") {
@@ -3540,8 +3545,60 @@ pub mod nakamoto_block_signatures {
         header.signer_signature = vec![signers[0].0.sign(&message).unwrap().with_negated_s()];
 
         header
-            .verify_signer_signatures(&reward_set)
+            .verify_signer_signatures(&reward_set, StacksEpochId::latest())
             .expect("Failed to verify signature");
+    }
+
+    #[test]
+    /// Test that out-of-order signatures *after the first signature* are handled
+    /// according to the epoch.
+    ///
+    /// Before Epoch 4.0 a bug only set `last_index` on the first iteration
+    /// (inside an `else` branch), so subsequent signatures were compared against
+    /// the first signer's index instead of the previous one. With the sequence
+    /// of indices `[0, 2, 1]`, the buggy partial-ordering rule accepts the block
+    /// because index 1 > index 0 (the stale `last_index`), even though index
+    /// 1 < index 2 (the actual previous signer). From Epoch 4.0 onward the
+    /// strict total-ordering rule rejects it.
+    fn test_out_of_order_signer_signatures_after_first() {
+        // Three signers, signed in index order [0, 2, 1]: the first pair (0, 2)
+        // is in order, but the last pair (2, 1) is not.
+        let signers = [
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+        ];
+        let reward_set = make_reward_set(&signers);
+
+        let mut header = NakamotoBlockHeader::empty();
+        let message = header.signer_signature_hash().0;
+
+        let signer_signature = [0, 2, 1]
+            .iter()
+            .map(|&i| {
+                signers[i]
+                    .0
+                    .sign(&message)
+                    .expect("Failed to sign block sighash")
+            })
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        // Pre-4.0: the buggy partial-ordering rule accepts this sequence. The
+        // weight (3 * 100, all signers) easily clears the threshold.
+        header
+            .verify_signer_signatures(&reward_set, StacksEpochId::Epoch30)
+            .expect("Pre-4.0 must preserve the legacy (lenient) ordering behavior");
+
+        // Epoch 4.0+: the strict total-ordering rule rejects it.
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
+            Ok(_) => panic!("Expected out of order signatures to fail in Epoch 4.0"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("out of order"));
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
     }
 
     #[test]

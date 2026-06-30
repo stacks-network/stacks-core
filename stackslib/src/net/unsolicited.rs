@@ -16,6 +16,8 @@
 
 use std::collections::HashMap;
 
+use stacks_common::types::StacksEpochId;
+
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -221,10 +223,12 @@ impl PeerNetwork {
 
     #[cfg_attr(test, mutants::skip)]
     /// Check the signature of a NakamotoBlock against its sortition's reward cycle.
-    /// The reward cycle must be recent.
+    /// The reward cycle must be recent. `epoch_id` is the epoch of the block's
+    /// sortition.
     pub(crate) fn check_nakamoto_block_signer_signature(
         &mut self,
         reward_cycle: u64,
+        epoch_id: StacksEpochId,
         nakamoto_block: &NakamotoBlock,
     ) -> bool {
         let Some(rc_data) = self.current_reward_sets.get(&reward_cycle) else {
@@ -245,7 +249,10 @@ impl PeerNetwork {
             return false;
         };
 
-        if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
+        if let Err(e) = nakamoto_block
+            .header
+            .verify_signer_signatures(reward_set, epoch_id)
+        {
             info!(
                 "{:?}: signature verification failure for Nakamoto block {}/{} in reward cycle {}: {:?}", self.get_local_peer(), &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), reward_cycle, &e
             );
@@ -336,7 +343,23 @@ impl PeerNetwork {
             return false;
         };
 
-        if !self.check_nakamoto_block_signer_signature(sn_rc, nakamoto_block) {
+        let Ok(Some(block_sn)) = SortitionDB::get_block_snapshot_consensus(
+            sortdb.conn(),
+            &nakamoto_block.header.consensus_hash,
+        ) else {
+            debug!(
+                "{:?}: no sortition for block {} consensus hash {}",
+                self.get_local_peer(),
+                &nakamoto_block.header.block_hash(),
+                &nakamoto_block.header.consensus_hash,
+            );
+            return false;
+        };
+        let epoch_id = self
+            .get_epoch_at_burn_height(block_sn.block_height)
+            .epoch_id;
+
+        if !self.check_nakamoto_block_signer_signature(sn_rc, epoch_id, nakamoto_block) {
             return false;
         }
 
