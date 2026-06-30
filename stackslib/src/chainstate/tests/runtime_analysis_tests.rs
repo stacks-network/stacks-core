@@ -143,6 +143,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         InvalidUTF8Encoding => {
             Ignored("Only reachable via legacy v1 parsing paths")
         },
+        PoxStxAssetMapOverwrite => todo!(),
     };
 }
 

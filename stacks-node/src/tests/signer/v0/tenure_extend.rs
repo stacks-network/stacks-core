@@ -845,11 +845,25 @@ fn idle_tenure_extend_active_mining() {
                 &get_last_block_hash(),
                 "Expected the latest block response to be for the latest block"
             );
-            assert_ne!(
-                last_response.get_tenure_extend_timestamp(),
-                latest_response.get_tenure_extend_timestamp(),
-                "Tenure extend timestamp should change with each block"
-            );
+            // Tenure-change blocks (BlockFound/Extended) roll the timestamp over to
+            // `now + idle_timeout`, while regular blocks derive it from tenure start plus
+            // accumulated processing time (see `SignerDb::calculate_full_extend_timestamp`).
+            // With second-level granularity these two formulas can produce equal timestamps,
+            // so only assert strict advancement between consecutive regular blocks (where the
+            // injected validation delay guarantees it advances). Skip the first block of each
+            // tenure and any tenure-change block. In this scenario tenures advance via idle
+            // timeout, so only `Extended` blocks are expected here; the `BlockFound` check is
+            // defensive against unexpected tenure-change blocks (e.g. from CI timing).
+            let latest_block_is_tenure_change =
+                last_block_contains_tenure_change_tx(TenureChangeCause::Extended)
+                    || last_block_contains_tenure_change_tx(TenureChangeCause::BlockFound);
+            if i != 1 && !latest_block_is_tenure_change {
+                assert_ne!(
+                    last_response.get_tenure_extend_timestamp(),
+                    latest_response.get_tenure_extend_timestamp(),
+                    "Tenure extend timestamp should change with each block"
+                );
+            }
             last_response = latest_response;
         }
 
@@ -3550,26 +3564,55 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         "------------------------- Wait for Signers to Mark Incoming Miner as Invalid -------------------------"
     );
 
+    // Drop stale stackerdb chunks BEFORE sleeping so the wait below can only be
+    // satisfied by state machine updates broadcast at or after the switch-back.
+    // The short-timeout signers switch back to miner 1 and broadcast DURING the
+    // sleep (their proposal timeout is shorter than the sleep by design), so
+    // clearing after the sleep would erase those broadcasts; with no new burn
+    // block or proposal to trigger re-broadcasts, the wait could then never
+    // reach the 70% threshold. Clearing here still drops the stale pre-switch
+    // chunks that would otherwise satisfy the wait immediately.
+    test_observer::clear();
+
     // Sleep to let the short-timeout signers mark the incoming miner as invalid
     std::thread::sleep(tenure_extend_wait_timeout.add(Duration::from_secs(1)));
 
-    // Verify the short-timeout signers have updated their state machine.
-    // In the latest protocol, the minority reports miner 1 as the active miner (extending).
-    // In v1 / FavourIncoming, signers still report miner 2 as the winning miner.
-    let (expected_pkh, stacks_tip_height) =
-        if matches!(variant, NonBlockingMinorityVariant::FavourPrevMiner) {
-            (miner_pkh_1.clone(), stacks_height_before - 1)
-        } else {
-            (miner_pkh_2.clone(), stacks_height_before)
-        };
+    // What we expect the short-timeout signers to broadcast after switching back
+    // to miner 1, and which signer set must reach 70% agreement for the wait to
+    // succeed. For FavourIncomingMiner the short-timeout signers are the
+    // majority, and we need their switched-back broadcasts to flip the *global*
+    // state to miner 1 BEFORE we unstall miner 2 - otherwise miner 2's
+    // BlockFound is evaluated against stale global state and gets accepted
+    // instead of rejected. The long-timeout minority signer never switches back
+    // within this window, so waiting against the full signer set (5) with the
+    // 70% threshold (>= 4) is exactly the threshold the GlobalStateEvaluator
+    // uses to flip the global state.
+    let all_signers_versions = miners.signer_test.signer_addresses_versions();
+    let (expected_pkh, stacks_tip_height, expected_signers) = match variant {
+        NonBlockingMinorityVariant::FavourPrevMiner => (
+            miner_pkh_1.clone(),
+            stacks_height_before - 1,
+            short_timeout_signers.as_slice(),
+        ),
+        NonBlockingMinorityVariant::FavourPrevMinerV1 => (
+            miner_pkh_2.clone(),
+            stacks_height_before,
+            short_timeout_signers.as_slice(),
+        ),
+        NonBlockingMinorityVariant::FavourIncomingMiner => (
+            miner_pkh_1.clone(),
+            stacks_height_before - 1,
+            all_signers_versions.as_slice(),
+        ),
+    };
     wait_for_state_machine_update(
         30,
         &get_chain_info(&conf_1).pox_consensus,
         burn_height_before + 1,
         Some((expected_pkh, stacks_tip_height)),
-        &short_timeout_signers,
+        expected_signers,
     )
-    .expect("Short-timeout signers failed to update state machine");
+    .expect("Signers failed to reach expected state machine update after timeout");
 
     if minority_favours_incoming {
         // FavourIncomingMiner: miner 2 proposes first and gets rejected,

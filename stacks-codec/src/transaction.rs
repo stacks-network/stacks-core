@@ -2965,20 +2965,20 @@ impl StacksTransaction {
         // Otherwise, if the offending leader is the next leader, they can just orphan their proof
         // of malfeasance.
         match payload {
-            TransactionPayload::PoisonMicroblock(_, _) => {
-                if anchor_mode != TransactionAnchorMode::OnChainOnly {
-                    return Err(codec_error::DeserializeError(
-                        "Failed to parse transaction: invalid anchor mode for PoisonMicroblock"
-                            .to_string(),
-                    ));
-                }
+            TransactionPayload::PoisonMicroblock(_, _)
+                if anchor_mode != TransactionAnchorMode::OnChainOnly =>
+            {
+                return Err(codec_error::DeserializeError(
+                    "Failed to parse transaction: invalid anchor mode for PoisonMicroblock"
+                        .to_string(),
+                ));
             }
-            TransactionPayload::Coinbase(..) => {
-                if anchor_mode != TransactionAnchorMode::OnChainOnly {
-                    return Err(codec_error::DeserializeError(
-                        "Failed to parse transaction: invalid anchor mode for Coinbase".to_string(),
-                    ));
-                }
+            TransactionPayload::Coinbase(..)
+                if anchor_mode != TransactionAnchorMode::OnChainOnly =>
+            {
+                return Err(codec_error::DeserializeError(
+                    "Failed to parse transaction: invalid anchor mode for Coinbase".to_string(),
+                ));
             }
             _ => {}
         }

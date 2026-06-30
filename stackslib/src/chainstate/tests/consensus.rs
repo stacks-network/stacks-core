@@ -768,16 +768,26 @@ impl ConsensusChain<'_> {
         .unwrap()
         .unwrap();
         let cycle = self.test_chainstate.get_reward_cycle();
-        let burn_spent = SortitionDB::get_block_snapshot_consensus(
+        let tip_sortition = SortitionDB::get_block_snapshot_consensus(
             self.test_chainstate.sortdb_ref().conn(),
             &chain_tip.consensus_hash,
         )
         .unwrap()
-        .map(|sn| sn.total_burn)
         .unwrap();
+        let burn_spent = tip_sortition.total_burn;
+        // The header version is fixed per epoch and enforced as a consensus rule
+        // on append, so use the version for the epoch this block is built in
+        // rather than hard-coding it.
+        let epoch_id = SortitionDB::get_stacks_epoch(
+            self.test_chainstate.sortdb_ref().conn(),
+            tip_sortition.block_height,
+        )
+        .unwrap()
+        .expect("FATAL: no epoch defined for the chain tip's burn height")
+        .epoch_id;
         let mut block = NakamotoBlock {
             header: NakamotoBlockHeader {
-                version: 1,
+                version: NakamotoBlockHeader::expected_version_for_epoch(epoch_id),
                 chain_length: chain_tip.stacks_block_height + 1,
                 burn_spent,
                 consensus_hash: chain_tip.consensus_hash.clone(),

@@ -1145,12 +1145,11 @@ impl StacksAddress {
 
         // address hash mode must be consistent with the number of keys
         match *hash_mode {
-            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
+            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH
                 // must be a single public key, and must require one signature
-                if num_sigs != 1 || pubkeys.len() != 1 {
+                if (num_sigs != 1 || pubkeys.len() != 1) => {
                     return None;
                 }
-            }
             _ => {}
         }
 

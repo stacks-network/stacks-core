@@ -17,11 +17,11 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::convert::TryFrom;
 use std::fmt;
 
-use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::types::chainstate::{ConsensusHash, SortitionId, StacksBlockId};
 use stacks_common::util::get_epoch_time_ms;
 
 use crate::burnchains::{BurnchainView, PoxConstants};
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
@@ -145,10 +145,18 @@ impl NakamotoDownloadStateMachine {
     /// Returns Err(..) on DB error, or if one or both of these heights do not correspond to a
     /// sortition.
     pub(crate) fn load_wanted_tenures(
-        ih: &SortitionHandleConn,
+        sortdb: &SortitionDB,
+        tip: &SortitionId,
         first_block_height: u64,
         last_block_height: u64,
     ) -> Result<Vec<WantedTenure>, NetError> {
+        // "less than or equal" is correct because `last_block_height` is exclusive
+        if last_block_height <= first_block_height {
+            return Ok(vec![]);
+        }
+
+        let ih = sortdb.index_handle(tip);
+
         let mut wanted_tenures = Vec::with_capacity(
             usize::try_from(last_block_height.saturating_sub(first_block_height))
                 .expect("FATAL: infallible: usize can't old a reward cycle"),
@@ -166,7 +174,7 @@ impl NakamotoDownloadStateMachine {
                 StacksBlockId(cursor.winning_stacks_block_hash.0),
                 cursor.block_height,
             ));
-            cursor = SortitionDB::get_block_snapshot(ih, &cursor.parent_sortition_id)?
+            cursor = SortitionDB::get_block_snapshot(&ih, &cursor.parent_sortition_id)?
                 .ok_or(DBError::NotFoundError)?;
         }
         wanted_tenures.reverse();
@@ -213,9 +221,12 @@ impl NakamotoDownloadStateMachine {
         );
 
         // find all sortitions in this reward cycle
-        let ih = sortdb.index_handle(&tip.sortition_id);
-        let mut new_tenures =
-            Self::load_wanted_tenures(&ih, first_block_height, last_block_height)?;
+        let mut new_tenures = Self::load_wanted_tenures(
+            sortdb,
+            &tip.sortition_id,
+            first_block_height,
+            last_block_height,
+        )?;
         wanted_tenures.append(&mut new_tenures);
         Ok(())
     }
@@ -273,12 +284,13 @@ impl NakamotoDownloadStateMachine {
             last_block_height,
             loaded_so_far.len()
         );
-        if last_block_height < first_block_height {
-            return Ok(vec![]);
-        }
 
-        let ih = sortdb.index_handle(&tip.sortition_id);
-        let wanted_tenures = Self::load_wanted_tenures(&ih, first_block_height, last_block_height)?;
+        let wanted_tenures = Self::load_wanted_tenures(
+            sortdb,
+            &tip.sortition_id,
+            first_block_height,
+            last_block_height,
+        )?;
 
         debug!(
             "Loaded tip sortitions between {} and {} (loaded_so_far = {}): {:?}",

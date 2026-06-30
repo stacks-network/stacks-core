@@ -559,6 +559,16 @@ impl AssetMap {
             stx_burn_to_add.push((principal.clone(), next_amount));
         }
 
+        // Reject any transaction that would overwrite an
+        // existing asset-map stacking entry for `sender`.
+        for principal in other.stacking_map.keys() {
+            if self.stacking_map.contains_key(principal) {
+                return Err(VmExecutionError::from(
+                    RuntimeCheckErrorKind::PoxStxAssetMapOverwrite,
+                ));
+            }
+        }
+
         // After this point, this function will not fail.
         for (principal, mut principal_map) in other.asset_map.drain() {
             for (asset, mut transfers) in principal_map.drain() {

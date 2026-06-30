@@ -961,12 +961,14 @@ impl TestStacksNode {
 
                 let num_sigs = block_to_store.header.signer_signature.len();
 
-                // force this block to have a different sighash, in addition to different
-                // signatures, so that both blocks are valid at a consensus level
-                block_to_store.header.version += 1;
+                // Force this block to have a different sighash, in addition to
+                // different signatures, so that both blocks are valid at a
+                // consensus level.
+                block_to_store.header.miner_signature =
+                    block_to_store.header.miner_signature.with_negated_s();
                 block_to_store.header.signer_signature.clear();
 
-                miner.sign_nakamoto_block(&mut block_to_store);
+                // Re-sign with the signer set only (over the new sighash).
                 signers.sign_block_with_reward_set(&mut block_to_store, &reward_set);
 
                 while block_to_store.header.signer_signature.len() >= num_sigs {
