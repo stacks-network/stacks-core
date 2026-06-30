@@ -53,6 +53,10 @@ use crate::net::{Error as NetError, Hash160, NeighborAddress, SortitionDB};
 use crate::stacks_common::types::Address;
 use crate::util_lib::db::Error as DBError;
 
+// These tests step all peers in-process, so keep idle polls short while
+// preserving TestPeer's default timeout for other callers.
+const NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS: u64 = 10;
+
 impl NakamotoTenureDownloadState {
     pub fn request_time(&self) -> Option<u128> {
         match self {
@@ -2178,7 +2182,11 @@ fn test_nakamoto_download_run_2_peers() {
                     .unwrap();
             loop {
                 boot_peer
-                    .run_with_ibd(true, Some(&mut boot_dns_client))
+                    .run_with_ibd_timeout(
+                        true,
+                        Some(&mut boot_dns_client),
+                        NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS,
+                    )
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
@@ -2206,7 +2214,8 @@ fn test_nakamoto_download_run_2_peers() {
             if term_rx.try_recv().is_ok() {
                 break;
             }
-            peer.step_with_ibd(false).unwrap();
+            peer.step_with_ibd_timeout(false, NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS)
+                .unwrap();
         }
     });
 
@@ -2290,7 +2299,11 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
                     .unwrap();
             loop {
                 boot_peer
-                    .run_with_ibd(true, Some(&mut boot_dns_client))
+                    .run_with_ibd_timeout(
+                        true,
+                        Some(&mut boot_dns_client),
+                        NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS,
+                    )
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
@@ -2318,7 +2331,8 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
             if term_rx.try_recv().is_ok() {
                 break;
             }
-            peer.step_with_ibd(false).unwrap();
+            peer.step_with_ibd_timeout(false, NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS)
+                .unwrap();
         }
     });
 
@@ -2475,7 +2489,11 @@ fn test_nakamoto_microfork_download_run_2_peers() {
                     .unwrap();
             loop {
                 boot_peer
-                    .run_with_ibd(true, Some(&mut boot_dns_client))
+                    .run_with_ibd_timeout(
+                        true,
+                        Some(&mut boot_dns_client),
+                        NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS,
+                    )
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
@@ -2503,7 +2521,8 @@ fn test_nakamoto_microfork_download_run_2_peers() {
             if term_rx.try_recv().is_ok() {
                 break;
             }
-            peer.step_with_ibd(false).unwrap();
+            peer.step_with_ibd_timeout(false, NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS)
+                .unwrap();
         }
     });
 
@@ -2663,7 +2682,11 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
                     .unwrap();
             loop {
                 boot_peer
-                    .run_with_ibd(true, Some(&mut boot_dns_client))
+                    .run_with_ibd_timeout(
+                        true,
+                        Some(&mut boot_dns_client),
+                        NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS,
+                    )
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
@@ -2689,7 +2712,8 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
             if term_rx.try_recv().is_ok() {
                 break;
             }
-            peer.step_with_ibd(false).unwrap();
+            peer.step_with_ibd_timeout(false, NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS)
+                .unwrap();
         }
     });
 
@@ -2871,7 +2895,11 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
                     .unwrap();
             loop {
                 boot_peer
-                    .run_with_ibd(true, Some(&mut boot_dns_client))
+                    .run_with_ibd_timeout(
+                        true,
+                        Some(&mut boot_dns_client),
+                        NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS,
+                    )
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
@@ -2897,7 +2925,8 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
             if term_rx.try_recv().is_ok() {
                 break;
             }
-            peer.step_with_ibd(false).unwrap();
+            peer.step_with_ibd_timeout(false, NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS)
+                .unwrap();
         }
     });
 
@@ -3081,7 +3110,11 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
                     .unwrap();
             loop {
                 boot_peer
-                    .run_with_ibd(true, Some(&mut boot_dns_client))
+                    .run_with_ibd_timeout(
+                        true,
+                        Some(&mut boot_dns_client),
+                        NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS,
+                    )
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
@@ -3107,7 +3140,8 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
             if term_rx.try_recv().is_ok() {
                 break;
             }
-            peer.step_with_ibd(false).unwrap();
+            peer.step_with_ibd_timeout(false, NAKAMOTO_DOWNLOAD_TEST_POLL_TIMEOUT_MS)
+                .unwrap();
         }
     });
 

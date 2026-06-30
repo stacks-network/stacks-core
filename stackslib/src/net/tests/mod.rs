@@ -68,8 +68,9 @@ use crate::core::{StacksEpoch, StacksEpochExtension};
 use crate::net::relay::Relayer;
 use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::{
-    BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborKey, NetworkResult,
-    PingData, StackerDBPushChunkData, StacksMessage, StacksMessageType, StacksNodeState,
+    update_highest_stacks_neighbor_value, BlocksData, BlocksDatum, MicroblocksData,
+    NakamotoBlocksData, NeighborKey, NetworkResult, PingData, StackerDBPushChunkData,
+    StacksMessage, StacksMessageType, StacksNodeState,
 };
 use crate::util_lib::boot::boot_code_id;
 
@@ -1708,17 +1709,33 @@ fn test_network_result_update() {
 #[case(Some(10), None, false)]
 #[case(Some(10), Some(20), true)]
 #[case(Some(20), Some(10), false)]
-fn test_update_highest_stacks_height_of_neighbors(
+fn test_update_highest_stacks_neighbor_value(
     #[case] old_height: Option<u64>,
     #[case] new_height: Option<u64>,
     #[case] is_update_accepted: bool,
 ) {
+    let mut highest_stacks_neighbor =
+        old_height.map(|h| (SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080), h));
+
+    let new_peer_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
+    update_highest_stacks_neighbor_value(&mut highest_stacks_neighbor, &new_peer_addr, new_height);
+
+    let expected_highest_peer = if is_update_accepted {
+        Some((new_peer_addr, new_height.unwrap()))
+    } else {
+        old_height.map(|h| (SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080), h))
+    };
+
+    assert_eq!(highest_stacks_neighbor, expected_highest_peer);
+}
+
+#[test]
+fn test_update_highest_stacks_height_of_neighbors_updates_node_state() {
     let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
     let mut peer = TestPeer::new(peer_config);
 
-    let prev_highest_neighbor =
-        old_height.map(|h| (SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080), h));
-    peer.network.highest_stacks_neighbor = prev_highest_neighbor;
+    let prev_peer_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080);
+    peer.network.highest_stacks_neighbor = Some((prev_peer_addr, 10));
 
     let peer_sortdb = peer.chain.sortdb.take().unwrap();
     let mut peer_stacks_node = peer.chain.stacks_node.take().unwrap();
@@ -1735,13 +1752,11 @@ fn test_update_highest_stacks_height_of_neighbors(
     );
 
     let new_peer_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
-    node_state.update_highest_stacks_neighbor(&new_peer_addr, new_height);
+    node_state.update_highest_stacks_neighbor(&new_peer_addr, Some(20));
+    drop(node_state);
 
-    let expected_highest_peer = if is_update_accepted {
-        Some((new_peer_addr, new_height.unwrap()))
-    } else {
-        prev_highest_neighbor
-    };
-
-    assert_eq!(peer.network.highest_stacks_neighbor, expected_highest_peer);
+    assert_eq!(
+        peer.network.highest_stacks_neighbor,
+        Some((new_peer_addr, 20))
+    );
 }

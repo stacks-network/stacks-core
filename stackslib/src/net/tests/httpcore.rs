@@ -16,7 +16,6 @@
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::sync::mpsc::{channel, Receiver};
 use std::time::Duration;
 use std::{str, thread};
 
@@ -1147,7 +1146,7 @@ fn test_send_request_timeout() {
     }
 }
 
-fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> String {
+fn start_mock_server(response: String) -> String {
     // Bind to an available port on localhost
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind server");
     let addr = listener.local_addr().unwrap();
@@ -1172,14 +1171,7 @@ fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> Stri
             stream.flush().expect("Failed to flush stream");
             debug!("Mock server sent response");
 
-            // Wait for the client to signal that it's done reading
-            client_done_signal
-                .recv()
-                .expect("Failed to receive client done signal");
-
-            // Explicitly drop the stream after signaling to ensure the client finishes
-            // NOTE: this will cause the test to slow down, since `send_http_request` expects
-            // `Connection: close`
+            // Close after the response so send_http_request observes EOF promptly.
             drop(stream);
 
             debug!("Mock server closing connection");
@@ -1273,9 +1265,7 @@ fn test_send_request_success() {
     // Prepare the mock server to return a successful HTTP response
     let mock_response = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, world!";
 
-    // Create a channel to signal when the client is done reading
-    let (tx_client_done, rx_client_done) = channel();
-    let server_addr = start_mock_server(mock_response.to_string(), rx_client_done);
+    let server_addr = start_mock_server(mock_response.to_string());
     let timeout_duration = Duration::from_secs(5);
 
     let parts = server_addr.split(':').collect::<Vec<&str>>();
@@ -1291,15 +1281,11 @@ fn test_send_request_success() {
     );
     debug!("Got result: {result:?}");
 
-    // Ensure the server only closes after the client has finished processing
+    // Check the decoded response body before asserting success.
     if let Ok(response) = &result {
         let body = parse_http_response(response.clone());
         assert_eq!(body, "Hello, world!", "Unexpected response body: {body}");
     }
-
-    tx_client_done
-        .send(())
-        .expect("Failed to send close signal");
 
     // Assert that the connection was successful
     assert!(

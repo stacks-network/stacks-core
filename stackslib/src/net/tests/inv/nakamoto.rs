@@ -50,6 +50,10 @@ use crate::net::{
 };
 use crate::stacks_common::types::Address;
 
+// These tests step all peers in-process, so keep idle polls short while
+// preserving TestPeer's default timeout for other callers.
+const NAKAMOTO_INV_TEST_POLL_TIMEOUT_MS: u64 = 10;
+
 /// Handshake with and get the reward cycle inventories for a range of reward cycles
 pub fn peer_get_nakamoto_invs<'a>(
     mut peer: TestPeer<'a>,
@@ -136,7 +140,8 @@ pub fn peer_get_nakamoto_invs<'a>(
     });
 
     loop {
-        peer.step_with_ibd(false).unwrap();
+        peer.step_with_ibd_timeout(false, NAKAMOTO_INV_TEST_POLL_TIMEOUT_MS)
+            .unwrap();
         if shutdown_recv.try_recv().is_ok() {
             break;
         }
@@ -918,8 +923,8 @@ fn test_nakamoto_inv_sync_state_machine() {
 
     // run peer and other_peer until they connect
     loop {
-        let _ = peer.step_with_ibd(false);
-        let _ = other_peer.step_with_ibd(false);
+        let _ = peer.step_with_ibd_timeout(false, NAKAMOTO_INV_TEST_POLL_TIMEOUT_MS);
+        let _ = other_peer.step_with_ibd_timeout(false, NAKAMOTO_INV_TEST_POLL_TIMEOUT_MS);
 
         let event_ids = peer.network.iter_peer_event_ids();
         let other_event_ids = other_peer.network.iter_peer_event_ids();
@@ -948,7 +953,7 @@ fn test_nakamoto_inv_sync_state_machine() {
 
             let mut last_learned_rc = 0;
             loop {
-                let _ = other_peer.step_with_ibd(false);
+                let _ = other_peer.step_with_ibd_timeout(false, NAKAMOTO_INV_TEST_POLL_TIMEOUT_MS);
                 let ev_ids = other_peer.network.iter_peer_event_ids();
                 if ev_ids.count() == 0 {
                     // disconnected
@@ -984,7 +989,7 @@ fn test_nakamoto_inv_sync_state_machine() {
         });
 
         loop {
-            let _ = peer.step_with_ibd(false);
+            let _ = peer.step_with_ibd_timeout(false, NAKAMOTO_INV_TEST_POLL_TIMEOUT_MS);
             if rx.try_recv().is_ok() {
                 break;
             }
@@ -1045,8 +1050,8 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
     let start = std::time::Instant::now();
     // run peer and other_peer until they connect
     loop {
-        let _ = peer.step_with_ibd(false);
-        let _ = other_peer.step_with_ibd(false);
+        let _ = peer.step_with_ibd_timeout(false, NAKAMOTO_INV_TEST_POLL_TIMEOUT_MS);
+        let _ = other_peer.step_with_ibd_timeout(false, NAKAMOTO_INV_TEST_POLL_TIMEOUT_MS);
 
         let event_ids = peer.network.iter_peer_event_ids();
         let other_event_ids = other_peer.network.iter_peer_event_ids();
@@ -1088,8 +1093,8 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
             .connection_opts
             .force_nakamoto_epoch_transition = true;
 
-        let _ = peer.step_with_ibd(false);
-        let _ = other_peer.step_with_ibd(false);
+        let _ = peer.step_with_ibd_timeout(false, NAKAMOTO_INV_TEST_POLL_TIMEOUT_MS);
+        let _ = other_peer.step_with_ibd_timeout(false, NAKAMOTO_INV_TEST_POLL_TIMEOUT_MS);
 
         inv_1_count = peer
             .network

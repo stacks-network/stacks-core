@@ -837,18 +837,29 @@ impl<'a> StacksNodeState<'a> {
         new_height: Option<u64>,
     ) {
         self.with_node_state(|network, _, _, _, _| {
-            if let Some(new_height) = new_height {
-                let current_height = network
-                    .highest_stacks_neighbor
-                    .as_ref()
-                    .map(|(_addr, height)| *height)
-                    .unwrap_or(0);
-
-                if new_height > current_height {
-                    network.highest_stacks_neighbor = Some((*new_address, new_height));
-                }
-            }
+            update_highest_stacks_neighbor_value(
+                &mut network.highest_stacks_neighbor,
+                new_address,
+                new_height,
+            );
         });
+    }
+}
+
+pub fn update_highest_stacks_neighbor_value(
+    highest_stacks_neighbor: &mut Option<(SocketAddr, u64)>,
+    new_address: &SocketAddr,
+    new_height: Option<u64>,
+) {
+    if let Some(new_height) = new_height {
+        let current_height = highest_stacks_neighbor
+            .as_ref()
+            .map(|(_addr, height)| *height)
+            .unwrap_or(0);
+
+        if new_height > current_height {
+            *highest_stacks_neighbor = Some((*new_address, new_height));
+        }
     }
 }
 
@@ -3124,6 +3135,13 @@ pub mod test {
         }
 
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
+            self.step_with_poll_timeout(100)
+        }
+
+        pub fn step_with_poll_timeout(
+            &mut self,
+            poll_timeout: u64,
+        ) -> Result<NetworkResult, net_error> {
             let sortdb = self.chain.sortdb.take().unwrap();
             let stacks_node = self.chain.stacks_node.take().unwrap();
             let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
@@ -3144,17 +3162,34 @@ pub mod test {
             self.chain.sortdb = Some(sortdb);
             self.chain.stacks_node = Some(stacks_node);
 
-            self.step_with_ibd(ibd)
+            self.step_with_ibd_and_dns_timeout(ibd, None, poll_timeout)
         }
 
         pub fn step_with_ibd(&mut self, ibd: bool) -> Result<NetworkResult, net_error> {
-            self.step_with_ibd_and_dns(ibd, None)
+            self.step_with_ibd_timeout(ibd, 100)
+        }
+
+        pub fn step_with_ibd_timeout(
+            &mut self,
+            ibd: bool,
+            poll_timeout: u64,
+        ) -> Result<NetworkResult, net_error> {
+            self.step_with_ibd_and_dns_timeout(ibd, None, poll_timeout)
         }
 
         pub fn step_with_ibd_and_dns(
             &mut self,
             ibd: bool,
             dns_client: Option<&mut DNSClient>,
+        ) -> Result<NetworkResult, net_error> {
+            self.step_with_ibd_and_dns_timeout(ibd, dns_client, 100)
+        }
+
+        pub fn step_with_ibd_and_dns_timeout(
+            &mut self,
+            ibd: bool,
+            dns_client: Option<&mut DNSClient>,
+            poll_timeout: u64,
         ) -> Result<NetworkResult, net_error> {
             let sortdb = self.chain.sortdb.take().unwrap();
             let mut stacks_node = self.chain.stacks_node.take().unwrap();
@@ -3180,7 +3215,7 @@ pub mod test {
                 dns_client,
                 false,
                 ibd,
-                100,
+                poll_timeout,
                 &rpc_handler_args,
                 self.config.chain_config.txindex,
             );
@@ -3221,7 +3256,16 @@ pub mod test {
             ibd: bool,
             dns_client: Option<&mut DNSClient>,
         ) -> Result<(NetworkResult, ProcessedNetReceipts), net_error> {
-            let net_result = self.step_with_ibd_and_dns(ibd, dns_client)?;
+            self.run_with_ibd_timeout(ibd, dns_client, 100)
+        }
+
+        pub fn run_with_ibd_timeout(
+            &mut self,
+            ibd: bool,
+            dns_client: Option<&mut DNSClient>,
+            poll_timeout: u64,
+        ) -> Result<(NetworkResult, ProcessedNetReceipts), net_error> {
+            let net_result = self.step_with_ibd_and_dns_timeout(ibd, dns_client, poll_timeout)?;
             let mut sortdb = self.chain.sortdb.take().unwrap();
             let mut stacks_node = self.chain.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();

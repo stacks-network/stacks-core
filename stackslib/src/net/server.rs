@@ -660,6 +660,8 @@ mod test {
     use crate::chainstate::stacks::{StacksBlockHeader, *};
     use crate::net::test::*;
 
+    const HTTP_SERVER_TEST_POLL_TIMEOUT_MS: u64 = 10;
+
     fn test_http_server<F, C>(
         test_name: &str,
         peer_p2p: u16,
@@ -690,7 +692,8 @@ mod test {
             loop {
                 test_debug!("http wakeup");
 
-                peer.step().unwrap();
+                peer.step_with_poll_timeout(HTTP_SERVER_TEST_POLL_TIMEOUT_MS)
+                    .unwrap();
 
                 // asked to yield?
                 if http_rx.try_recv().is_ok() {
@@ -1195,7 +1198,7 @@ mod test {
     fn test_http_no_connecting_event_id_leak() {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.timeout = 10;
-        conn_opts.connect_timeout = 10;
+        conn_opts.connect_timeout = 1;
 
         let num_events = test_http_server(
             function_name!(),
@@ -1209,7 +1212,8 @@ mod test {
                 use std::net::TcpStream;
                 let sock = TcpStream::connect("127.0.0.1:51083");
 
-                sleep_ms(15_000);
+                // Wait just long enough for disconnect_unresponsive's seconds-granularity timeout.
+                sleep_ms(2_500);
 
                 // send a different request
                 let mut request = StacksHttpRequest::new_for_peer(

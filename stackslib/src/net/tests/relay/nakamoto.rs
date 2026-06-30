@@ -39,6 +39,10 @@ use crate::net::test::*;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
 use crate::net::{Error as NetError, *};
 
+// These tests step all peers in-process, so keep idle polls short while
+// preserving TestPeer's default timeout for other callers.
+const NAKAMOTO_RELAY_TEST_POLL_TIMEOUT_MS: u64 = 10;
+
 /// Everything in a TestPeer, except the coordinator (which is encumbered by the lifetime of its
 /// chains coordinator's event observer)
 struct ExitedPeer {
@@ -88,7 +92,7 @@ impl ExitedPeer {
             dns_client,
             false,
             ibd,
-            100,
+            NAKAMOTO_RELAY_TEST_POLL_TIMEOUT_MS,
             &RPCHandlerArgs::default(),
             self.config.chain_config.txindex,
         )?;
@@ -254,7 +258,8 @@ impl SeedNode {
 
             // run network state machine until we have a connection
             loop {
-                let network_result_res = peer.run_with_ibd(false, None);
+                let network_result_res =
+                    peer.run_with_ibd_timeout(false, None, NAKAMOTO_RELAY_TEST_POLL_TIMEOUT_MS);
                 if let Ok((network_result, _)) = network_result_res {
                     if network_result.num_connected_peers > 0 {
                         break;
@@ -344,13 +349,15 @@ impl SeedNode {
 /// Test buffering limits
 #[test]
 fn test_buffer_data_message() {
-    let observer = TestEventObserver::new();
-    let bitvecs = vec![vec![
-        true, true, true, true, true, true, true, true, true, true,
-    ]];
+    // This test only exercises PeerNetwork's pending-message buffer limits.
+    // It does not need a booted Nakamoto chain or inventory fixture.
+    let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer = TestPeer::new(peer_config);
 
-    let (mut peer, _followers) =
-        make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 5, bitvecs, 1);
+    // Keep the limits small; the loops below still assert the accept-at-limit
+    // and reject-past-limit behavior for each message class.
+    peer.network.connection_opts.max_buffered_nakamoto_blocks = 2;
+    peer.network.connection_opts.max_buffered_stackerdb_chunks = 2;
 
     let peer_nk = peer.to_neighbor().addr;
     let nakamoto_block = NakamotoBlock {
@@ -459,7 +466,11 @@ fn test_no_buffer_ready_nakamoto_blocks() {
 
         while !seed_exited {
             let mut network_result = follower
-                .step_with_ibd_and_dns(true, Some(&mut follower_dns_client))
+                .step_with_ibd_and_dns_timeout(
+                    true,
+                    Some(&mut follower_dns_client),
+                    NAKAMOTO_RELAY_TEST_POLL_TIMEOUT_MS,
+                )
                 .ok();
 
             match follower_comms.try_recv() {
@@ -730,7 +741,11 @@ fn test_buffer_nonready_nakamoto_blocks() {
 
         while !seed_exited {
             let mut network_result = follower
-                .step_with_ibd_and_dns(true, Some(&mut follower_dns_client))
+                .step_with_ibd_and_dns_timeout(
+                    true,
+                    Some(&mut follower_dns_client),
+                    NAKAMOTO_RELAY_TEST_POLL_TIMEOUT_MS,
+                )
                 .ok();
 
             match follower_comms.try_recv() {
@@ -853,7 +868,11 @@ fn test_buffer_nonready_nakamoto_blocks() {
                     follower.chain.sortdb = Some(sortdb);
 
                     network_result = follower
-                        .step_with_ibd_and_dns(true, Some(&mut follower_dns_client))
+                        .step_with_ibd_and_dns_timeout(
+                            true,
+                            Some(&mut follower_dns_client),
+                            NAKAMOTO_RELAY_TEST_POLL_TIMEOUT_MS,
+                        )
                         .ok();
 
                     seed_exited = true;
@@ -956,8 +975,11 @@ fn test_nakamoto_boot_node_from_block_push() {
         while !seed_exited {
             // follower will forward pushed data to its relayer
             loop {
-                let network_result_res =
-                    follower.run_with_ibd(true, Some(&mut follower_dns_client));
+                let network_result_res = follower.run_with_ibd_timeout(
+                    true,
+                    Some(&mut follower_dns_client),
+                    NAKAMOTO_RELAY_TEST_POLL_TIMEOUT_MS,
+                );
                 if let Ok((network_result, _)) = network_result_res {
                     if network_result.num_connected_peers > 0 {
                         break;
@@ -1010,7 +1032,11 @@ fn test_nakamoto_boot_node_from_block_push() {
             // let the follower catch up to and keep talking to the exited peer
             exited_peer.run_with_ibd(false, None).unwrap();
             follower
-                .run_with_ibd(true, Some(&mut follower_dns_client))
+                .run_with_ibd_timeout(
+                    true,
+                    Some(&mut follower_dns_client),
+                    NAKAMOTO_RELAY_TEST_POLL_TIMEOUT_MS,
+                )
                 .unwrap();
 
             // compare chain tips
@@ -1047,13 +1073,10 @@ fn test_nakamoto_boot_node_from_block_push() {
 /// validates chunks before buffering them.
 #[test]
 fn test_handle_unsolicited_stackerdb_push_chunk_future_view_validation() {
-    let observer = TestEventObserver::new();
-    let bitvecs = vec![vec![
-        true, true, true, true, true, true, true, true, true, true,
-    ]];
-
-    let (mut peer, _followers) =
-        make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 5, bitvecs, 1);
+    // This direct-handler test builds its StackerDB state by hand; a minimal
+    // TestPeer still reaches the FutureView path with the bogus consensus hash.
+    let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer = TestPeer::new(peer_config);
 
     // Register a conversation for event_id 1 so get_p2p_convo() succeeds
     let convo = peer.make_client_convo();
