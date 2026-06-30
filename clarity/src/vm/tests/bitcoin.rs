@@ -27,7 +27,9 @@ use stacks_common::deps_common::bitcoin::blockdata::script::Script;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
-use stacks_common::deps_common::bitcoin::network::serialize::serialize as btc_serialize;
+use stacks_common::deps_common::bitcoin::network::serialize::{
+    deserialize as btc_deserialize, serialize as btc_serialize,
+};
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
@@ -35,6 +37,7 @@ use stacks_common::util::hash::to_hex;
 use crate::vm::functions::bitcoin::{
     GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN, VERIFY_MERKLE_PROOF_MAX_DEPTH,
 };
+use crate::vm::tests::proptest_strategies::{arb_simple_tx, synth_canonical_proof};
 use crate::vm::types::{TupleData, Value};
 use crate::vm::{ClarityVersion, execute_with_parameters};
 
@@ -64,43 +67,8 @@ fn execute(snippet: &str) -> Value {
         .expect("should return a value")
 }
 
-/// Walk a Bitcoin-style merkle proof bottom-up using the canonical tree
-/// shape implied by `tx_count`, forcing the duplicated-padding sibling at
-/// every odd-row edge to equal the running hash. Returns the synthesized
-/// `(siblings, root)` pair. Lets us synthesize valid proofs at the full
-/// 0..=24 depth range without materializing 2^24-leaf trees in memory.
-/// The canonical tree-construction direction is covered independently by
-/// the real-mainnet unit tests in `vm::functions::bitcoin::tests`.
-fn synth_canonical_proof(
-    leaf: [u8; 32],
-    tx_index: u128,
-    tx_count: u128,
-    raw_siblings: &[[u8; 32]],
-) -> (Vec<[u8; 32]>, [u8; 32]) {
-    let mut siblings = Vec::with_capacity(raw_siblings.len());
-    let mut cur = leaf;
-    let mut idx = tx_index;
-    let mut row_count = tx_count;
-    let mut buf = [0u8; 64];
-    for raw in raw_siblings {
-        let sibling = if (idx | 1) >= row_count { cur } else { *raw };
-        siblings.push(sibling);
-        if idx & 1 == 1 {
-            buf[..32].copy_from_slice(&sibling);
-            buf[32..].copy_from_slice(&cur);
-        } else {
-            buf[..32].copy_from_slice(&cur);
-            buf[32..].copy_from_slice(&sibling);
-        }
-        cur = Sha256dHash::from_data(&buf).0;
-        idx >>= 1;
-        row_count = (row_count + 1) >> 1;
-    }
-    (siblings, cur)
-}
-
-/// `ceil(log2(n))` for `n >= 2`, or 0 for `n <= 1` — local copy of the
-/// helper in `vm::functions::bitcoin`.
+/// `ceil(log2(n))` for `n >= 2`, 0 for `n <= 1`. Local copy of the helper in
+/// `vm::functions::bitcoin`.
 fn canonical_merkle_depth(tx_count: u128) -> u32 {
     if tx_count <= 1 {
         0
@@ -131,57 +99,6 @@ prop_compose! {
         let (siblings, root) = synth_canonical_proof(leaf, tx_index, tx_count, &raw_siblings);
         (leaf, root, tx_index, tx_count, siblings)
     }
-}
-
-/// Either an empty witness (forces non-segwit serialization) or 1..=4
-/// witness items of 0..=128 bytes (forces segwit marker/flag/witness
-/// encoding). With a single input, this toggles the whole tx between the
-/// two encodings.
-fn arb_witness() -> impl Strategy<Value = Vec<Vec<u8>>> {
-    prop_oneof![
-        Just(Vec::new()),
-        prop::collection::vec(prop::collection::vec(any::<u8>(), 0..=128), 1..=4),
-    ]
-}
-
-/// Tx with 1..=16 outputs and scripts spanning the full 0..=1024-byte
-/// allowed range. Randomized witness exercises both segwit and non-segwit
-/// encodings; `get-bitcoin-tx-output?` is expected to return the canonical
-/// (witness-stripped) txid in both cases.
-fn arb_simple_tx() -> impl Strategy<Value = (Transaction, Vec<(u64, Vec<u8>)>)> {
-    (
-        arb_witness(),
-        prop::collection::vec(
-            (
-                any::<u64>(),
-                prop::collection::vec(any::<u8>(), 0..=GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN),
-            ),
-            1..=16,
-        ),
-    )
-        .prop_map(|(witness, outputs)| {
-            let tx = Transaction {
-                version: 1,
-                lock_time: 0,
-                input: vec![TxIn {
-                    previous_output: OutPoint {
-                        txid: Sha256dHash([0u8; 32]),
-                        vout: 0,
-                    },
-                    script_sig: Script::from(Vec::<u8>::new()),
-                    sequence: 0xffffffff,
-                    witness,
-                }],
-                output: outputs
-                    .iter()
-                    .map(|(amount, script)| TxOut {
-                        value: *amount,
-                        script_pubkey: Script::from(script.clone()),
-                    })
-                    .collect(),
-            };
-            (tx, outputs)
-        })
 }
 
 fn merkle_proof_snippet(
@@ -227,7 +144,8 @@ proptest! {
     ) {
         let mut tampered = root;
         tampered[byte_idx] ^= 1u8 << bit;
-        prop_assume!(tampered != root);
+        // XOR by a non-zero single-bit mask always flips one bit, so
+        // `tampered != root` holds by construction — no `prop_assume!` needed.
         let snippet = merkle_proof_snippet(
             &leaf, &tampered, tx_index, tx_count, &siblings,
         );
@@ -291,5 +209,143 @@ proptest! {
         );
         let expected = Value::err_uint(2);
         prop_assert_eq!(expected, execute(&snippet));
+    }
+
+    /// `vout > u64::MAX` must surface as `(err u2)` (the VoutOutOfRange
+    /// code) — the `u64::try_from` overflow guard, a path distinct from the
+    /// in-range `vout >= n_outputs` rejection above.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_vout_exceeds_u64_returns_err_u2(
+        (tx, _outputs) in arb_simple_tx(),
+        vout in (u64::MAX as u128 + 1)..=u128::MAX,
+    ) {
+        let bytes = btc_serialize(&tx).expect("serialize tx");
+        let snippet = format!(
+            "(get-bitcoin-tx-output? {tx_bytes} u{vout})",
+            tx_bytes = buff_literal(&bytes),
+            vout = vout,
+        );
+        let expected = Value::err_uint(2);
+        prop_assert_eq!(expected, execute(&snippet));
+    }
+
+    /// Tx-bytes that do not deserialize as a Bitcoin transaction must surface
+    /// as `(err u1)` (`InvalidTx`) — never a panic, never a spurious `(ok …)`.
+    /// The `prop_filter` discards the vanishingly rare random byte string that
+    /// happens to parse (negligible rejection); it uses the same
+    /// `btc_deserialize::<Transaction>` the builtin's parse path does, so the
+    /// kept inputs are exactly those the builtin rejects as `InvalidTx`. `vout`
+    /// is left arbitrary (any in-range `u64`) to show the parse failure
+    /// short-circuits before any vout handling; the happy "valid parse" path is
+    /// covered by `_roundtrip`.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_garbage_bytes(
+        tx_bytes in prop::collection::vec(any::<u8>(), 0..=2048)
+            .prop_filter("must not parse as a tx", |b| {
+                btc_deserialize::<Transaction>(b).is_err()
+            }),
+        vout in any::<u64>(),
+    ) {
+        let snippet = format!(
+            "(get-bitcoin-tx-output? {tx_bytes} u{vout})",
+            tx_bytes = buff_literal(&tx_bytes),
+            vout = vout,
+        );
+        prop_assert_eq!(Value::err_uint(1), execute(&snippet));
+    }
+
+    /// At the `GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN` (1024-byte) cap, the
+    /// output must be returned as an exact `(ok {script, amount, txid})`. The
+    /// randomized script body and amount catch any content-dependent
+    /// regression in the boundary check.
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_script_at_cap(
+        script in prop::collection::vec(
+            any::<u8>(),
+            GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN..=GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN,
+        ),
+        amount in any::<u64>(),
+    ) {
+        let tx = Transaction {
+            version: 1,
+            lock_time: 0,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Sha256dHash([0u8; 32]),
+                    vout: 0,
+                },
+                script_sig: Script::from(Vec::<u8>::new()),
+                sequence: 0xffffffff,
+                witness: vec![],
+            }],
+            output: vec![TxOut {
+                value: amount,
+                script_pubkey: Script::from(script.clone()),
+            }],
+        };
+        let expected_txid = tx.txid().0;
+        let bytes = btc_serialize(&tx).expect("serialize tx");
+        let snippet = format!(
+            "(get-bitcoin-tx-output? {tx_bytes} u0)",
+            tx_bytes = buff_literal(&bytes),
+        );
+        let expected_inner = TupleData::from_data(vec![
+            (
+                ClarityName::from_literal("script"),
+                Value::buff_from(script.clone()).expect("1024-byte script fits in (buff 1024)"),
+            ),
+            (
+                ClarityName::from_literal("amount"),
+                Value::UInt(u128::from(amount)),
+            ),
+            (
+                ClarityName::from_literal("txid"),
+                Value::buff_from(expected_txid.to_vec())
+                    .expect("32-byte txid is a valid (buff 32)"),
+            ),
+        ])
+        .expect("ok-tuple should construct");
+        let expected = Value::okay(Value::Tuple(expected_inner))
+            .expect("response wrapping should succeed");
+        prop_assert_eq!(expected, execute(&snippet));
+    }
+
+    /// One byte over the `GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN` cap (1025
+    /// bytes) must always be rejected as `(err u3)` (`ScriptTooLarge`).
+    #[tag(t_prop)]
+    #[test]
+    fn prop_clarity_get_bitcoin_tx_output_script_over_cap(
+        script in prop::collection::vec(
+            any::<u8>(),
+            GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN + 1,
+        ),
+        amount in any::<u64>(),
+    ) {
+        let tx = Transaction {
+            version: 1,
+            lock_time: 0,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Sha256dHash([0u8; 32]),
+                    vout: 0,
+                },
+                script_sig: Script::from(Vec::<u8>::new()),
+                sequence: 0xffffffff,
+                witness: vec![],
+            }],
+            output: vec![TxOut {
+                value: amount,
+                script_pubkey: Script::from(script.clone()),
+            }],
+        };
+        let bytes = btc_serialize(&tx).expect("serialize tx");
+        let snippet = format!(
+            "(get-bitcoin-tx-output? {tx_bytes} u0)",
+            tx_bytes = buff_literal(&bytes),
+        );
+        prop_assert_eq!(Value::err_uint(3), execute(&snippet));
     }
 }

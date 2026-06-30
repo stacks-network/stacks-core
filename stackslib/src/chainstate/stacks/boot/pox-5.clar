@@ -2046,10 +2046,10 @@
             (accumulator (try! accumulator-res))
             (block (try! (parse-block-header (get header lockup))))
             (unlock-burn-height (get unlock-burn-height lockup))
-            (expected-script-hash (construct-lockup-output-script (get staker accumulator)
+            (expected-script-hash (try! (construct-lockup-output-script (get staker accumulator)
                 unlock-burn-height (get staker-unlock-bytes accumulator)
                 (get early-unlock-bytes accumulator)
-            ))
+            )))
             (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
@@ -3699,16 +3699,18 @@
         (early-unlock-bytes (buff 683))
     )
     ;; @format-ignore
-    (concat
-        0x63           ;; OP_IF
-        (push-c-script-num unlock-burn-height)
-        0xb167         ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
-        0x82012088a820 ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
-        (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))
-        0x88           ;; OP_EQUALVERIFY
-        early-unlock-bytes
-        0x6869         ;; OP_ENDIF, OP_VERIFY
-        staker-unlock-bytes
+    (ok
+        (concat
+            0x63           ;; OP_IF
+            (try! (push-c-script-num unlock-burn-height))
+            0xb167         ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
+            0x82012088a820 ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
+            (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))
+            0x88           ;; OP_EQUALVERIFY
+            early-unlock-bytes
+            0x6869         ;; OP_ENDIF, OP_VERIFY
+            staker-unlock-bytes
+        )
     )
 )
 
@@ -3719,11 +3721,11 @@
         (staker-unlock-bytes (buff 683))
         (early-unlock-bytes (buff 683))
     )
-    (concat 0x0020
-        (sha256 (construct-lockup-script staker unlock-burn-height staker-unlock-bytes
+    (ok (concat 0x0020
+        (sha256 (try! (construct-lockup-script staker unlock-burn-height staker-unlock-bytes
             early-unlock-bytes
-        ))
-    )
+        )))
+    ))
 )
 
 ;; Convert a u8 or u16 to a little-endian byte buffer,
@@ -3768,43 +3770,60 @@
 )
 
 (define-read-only (serialize-c-script-num (n uint))
-    (unwrap-panic (as-max-len?
-        (if (is-eq n u0)
-            0x
-            (let (
-                    (bytes (unwrap-panic (to-consensus-buff? n)))
-                    (b0 (unwrap-panic (slice? bytes u16 u17)))
-                    (b1 (unwrap-panic (slice? bytes u15 u16)))
-                    (b2 (unwrap-panic (slice? bytes u14 u15)))
-                )
+    (if (>= n u549755813888)
+        ERR_INVALID_UNLOCK_HEIGHT
+        (let (
+                (bytes (unwrap-panic (to-consensus-buff? n)))
+                (b0 (unwrap-panic (slice? bytes u16 u17)))
+                (b1 (unwrap-panic (slice? bytes u15 u16)))
+                (b2 (unwrap-panic (slice? bytes u14 u15)))
+                (b3 (unwrap-panic (slice? bytes u13 u14)))
+                (b4 (unwrap-panic (slice? bytes u12 u13)))
+            )
+            (ok (unwrap-panic (as-max-len?
                 (if (< n u128)
-                    b0
+                    (if (is-eq n u0)
+                        0x
+                        b0
+                    )
                     (if (< n u256)
                         (concat b0 0x00)
                         (if (< n u32768)
                             (concat b0 b1)
                             (if (< n u65536)
                                 (concat b0 b1 0x00)
-                                (concat b0 b1 b2)
+                                (if (< n u8388608)
+                                    (concat b0 b1 b2)
+                                    (if (< n u16777216)
+                                        (concat b0 b1 b2 0x00)
+                                        (if (< n u2147483648)
+                                            (concat b0 b1 b2 b3)
+                                            (if (< n u4294967296)
+                                                (concat b0 b1 b2 b3 0x00)
+                                                (concat b0 b1 b2 b3 b4)
+                                            )
+                                        )
+                                    )
+                                )
                             )
                         )
                     )
                 )
-            )
+                u5
+            )))
         )
-        u5
-    ))
+    )
 )
 
 (define-read-only (push-c-script-num (n uint))
     (if (is-eq n u0)
-        0x00
+        (ok 0x00)
         (if (<= n u16)
-            (unwrap-panic (as-max-len?
+            (ok (unwrap-panic (as-max-len?
                 (unwrap-panic (slice? (unwrap-panic (to-consensus-buff? (+ u80 n))) u16 u17))
                 u1
-            ))
-            (push-script-bytes (serialize-c-script-num n))
+            )))
+            (ok (push-script-bytes (try! (serialize-c-script-num n))))
         )
     )
 )

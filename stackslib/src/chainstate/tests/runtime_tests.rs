@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use clarity::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-use clarity::types::StacksEpochId;
+use clarity::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 use clarity::vm::errors::RuntimeError;
 use clarity::vm::types::{PrincipalData, ResponseData};
 use clarity::vm::{max_call_stack_depth_for_epoch, ClarityVersion, Value as ClarityValue};
@@ -682,7 +682,7 @@ fn unknown_block_header_hash_fork() {
 )",
         function_name: "trigger",
         function_args: &[],
-        deploy_epochs: StacksEpochId::between(StacksEpochId::Epoch20, StacksEpochId::Epoch33),
+        deploy_epochs: (StacksEpochId::Epoch20..=StacksEpochId::Epoch33).as_slice(),
         call_epochs: &[StacksEpochId::Epoch33],
     );
 }
@@ -708,7 +708,7 @@ fn bad_block_hash() {
 )",
         function_name: "trigger",
         function_args: &[],
-        deploy_epochs: StacksEpochId::between(StacksEpochId::Epoch20, StacksEpochId::Epoch33),
+        deploy_epochs: (StacksEpochId::Epoch20..=StacksEpochId::Epoch33).as_slice(),
         call_epochs: &[StacksEpochId::Epoch33],
     );
 }

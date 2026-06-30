@@ -993,7 +993,7 @@ impl TestStacksNode {
                 // different signatures, so that both blocks are valid at a
                 // consensus level.
                 block_to_store.header.miner_signature =
-                    malleablize_signature(&block_to_store.header.miner_signature);
+                    block_to_store.header.miner_signature.with_negated_s();
                 block_to_store.header.signer_signature.clear();
 
                 // Re-sign with the signer set only (over the new sighash).

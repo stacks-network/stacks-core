@@ -1697,10 +1697,10 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     lockup_unlock_bytes.push(0xac); // OP_CHECKSIG
 
     // (a) Compute the expected P2WSH script-pubkey by calling pox-5's own
-    //     read-only `construct-lockup-output-script` — this returns the
-    //     34-byte `0x0020 || sha256(timelock_script)` that the burn-chain
-    //     output must pay to. We hand the same arguments the contract will
-    //     reconstruct internally during `verify-l1-lockups`.
+    //     read-only `construct-lockup-output-script` — this returns `(ok ...)`
+    //     with the 34-byte `0x0020 || sha256(timelock_script)` that the
+    //     burn-chain output must pay to. We hand the same arguments the
+    //     contract will reconstruct internally during `verify-l1-lockups`.
     let bond_index = 0u128;
     let minimum_unlock_burn_height = call_read_only(
         &naka_conf,
@@ -1728,6 +1728,8 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     )
     .result()
     .expect("construct-lockup-output-script failed")
+    .expect_result_ok()
+    .expect("construct-lockup-output-script should return (ok ...)")
     .expect_buff(34)
     .expect("construct-lockup-output-script should return (buff 34)");
     assert_eq!(
@@ -2181,6 +2183,8 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     )
     .result()
     .expect("construct-lockup-script failed")
+    .expect_result_ok()
+    .expect("construct-lockup-script should return (ok ...)")
     .expect_buff(usize::MAX)
     .expect("construct-lockup-script should return a buff");
 
@@ -2737,6 +2741,8 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     )
     .result()
     .expect("construct-lockup-output-script failed")
+    .expect_result_ok()
+    .expect("construct-lockup-output-script should return (ok ...)")
     .expect_buff(34)
     .expect("construct-lockup-output-script should return (buff 34)");
     assert_eq!(
@@ -3039,6 +3045,8 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     )
     .result()
     .expect("construct-lockup-script failed")
+    .expect_result_ok()
+    .expect("construct-lockup-script should return (ok ...)")
     .expect_buff(usize::MAX)
     .expect("construct-lockup-script should return a buff");
 

@@ -19,7 +19,7 @@ use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
 use clarity::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey, TrieHash};
-use clarity::types::{EpochList, StacksEpoch, StacksEpochId};
+use clarity::types::{EpochList, StacksEpoch, StacksEpochId, StacksEpochRangeTestExt as _};
 use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
@@ -74,14 +74,14 @@ pub fn max_tested_epoch() -> StacksEpochId {
         .expect("EPOCHS_TO_TEST must contain at least one epoch")
 }
 
-/// Like [`StacksEpochId::since`], but clamped to [`max_tested_epoch`]. Tests use
-/// this to build deploy/call epoch ranges so that excluded epochs are never
-/// deployed in or called in. Deploying or calling in an excluded epoch would
-/// otherwise keep that epoch's results (marf hashes, costs) in the snapshots and
-/// reintroduce the churn that excluding it is meant to avoid.
+/// Like a `(start..)` range, but clamped to [`max_tested_epoch`].
+///
+/// Tests use this to build deploy/call epoch ranges so that excluded epochs are never used, which
+/// otherwise would keep that epoch's results (marf hashes, costs) in the snapshots and reintroduce
+/// the churn that excluding it is meant to avoid.
 pub fn tested_epochs_since(start: StacksEpochId) -> Vec<StacksEpochId> {
     let max = max_tested_epoch();
-    StacksEpochId::since(start)
+    (start..)
         .iter()
         .copied()
         .filter(|epoch| *epoch <= max)
@@ -836,9 +836,9 @@ impl ConsensusChain<'_> {
         .unwrap()
         .unwrap();
         let burn_spent = tip_sortition.total_burn;
-        // The header version is fixed per epoch (it gates the `problematic_txs`
-        // field and is enforced as a consensus rule on append), so use the
-        // version for the epoch this block is built in rather than hard-coding.
+        // The header version is fixed per epoch and enforced as a consensus rule
+        // on append, so use the version for the epoch this block is built in
+        // rather than hard-coding it.
         let epoch_id = SortitionDB::get_stacks_epoch(
             self.test_chainstate.sortdb_ref().conn(),
             tip_sortition.block_height,

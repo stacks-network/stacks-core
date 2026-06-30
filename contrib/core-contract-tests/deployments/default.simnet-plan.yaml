@@ -148,6 +148,11 @@ plan:
       path: contracts/pox-5.clar
       clarity-version: 6
     - transaction-type: emulated-contract-publish
+      contract-name: pox-5-auth-proxy
+      emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+      path: contracts/pox-5-auth-proxy.clar
+      clarity-version: 6
+    - transaction-type: emulated-contract-publish
       contract-name: signer-manager
       emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
       path: contracts/signer-manager.clar

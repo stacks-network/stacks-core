@@ -36,6 +36,7 @@ mutants = "0.0.3"
 criterion = "0.8.2"
 pinny = { workspace = true }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+madhouse = { workspace = true }
 rstest = { version = "0.17.0" }
 rstest_reuse = { version = "0.5.0" }
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false, features = ["testing"] }

@@ -23,6 +23,7 @@ use clarity::vm::events::{STXEventType, STXMintEventData, StacksTransactionEvent
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, Value};
 use lazy_static::lazy_static;
+use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest as Sha2Digest, Sha512_256};
@@ -30,7 +31,7 @@ use stacks_codec::transaction::{MAX_BLOCK_LEN, MIN_TRANSACTION_LEN};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
-    MAX_MESSAGE_LEN, MAX_PAYLOAD_LEN,
+    MAX_MESSAGE_LEN,
 };
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
@@ -5633,7 +5634,7 @@ impl NakamotoChainState {
 
         Ok((
             StackerDBConfig {
-                chunk_size: MAX_PAYLOAD_LEN.into(),
+                chunk_size: STACKERDB_MAX_CHUNK_SIZE.into(),
                 signers,
                 write_freq: 0,
                 max_writes: u32::MAX,  // no limit on number of writes
