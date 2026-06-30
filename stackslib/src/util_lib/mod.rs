@@ -23,17 +23,21 @@ pub mod test {
             let result = panic::catch_unwind(|| {
                 test_func();
             });
-            let _ = sx.send(result.is_ok());
+            let _ = sx.send(result);
         });
 
         // Return as soon as the worker reports completion, while preserving the
         // caller's timeout bound.
         match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
-            Ok(success) => assert!(success),
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => panic::resume_unwind(err),
             Err(RecvTimeoutError::Timeout) => {
                 panic!("Test timed out after {} seconds", timeout_secs)
             }
             Err(RecvTimeoutError::Disconnected) => {
+                if let Err(err) = t.join() {
+                    panic::resume_unwind(err);
+                }
                 panic!("Test thread disconnected before reporting result")
             }
         }
