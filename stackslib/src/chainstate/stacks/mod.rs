@@ -1052,6 +1052,7 @@ pub mod test {
             miner_signature: MessageSignature::empty(),
             signer_signature: Vec::new(),
             pox_treatment: BitVec::ones(8).unwrap(),
+            problematic_txs: vec![],
         };
 
         NakamotoBlock {

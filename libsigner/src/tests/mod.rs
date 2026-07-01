@@ -104,8 +104,8 @@ fn test_simple_signer() {
     let endpoint: SocketAddr = "127.0.0.1:30000".parse().unwrap();
     let mut chunks = vec![];
     let block_proposal = BlockProposal {
-        block: NakamotoBlock {
-            header: NakamotoBlockHeader {
+        block: NakamotoBlock::new(
+            NakamotoBlockHeader {
                 version: 1,
                 chain_length: 10,
                 burn_spent: 10,
@@ -117,9 +117,10 @@ fn test_simple_signer() {
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
-            txs: vec![],
-        },
+            vec![],
+        ),
         burn_height: 2,
         reward_cycle: 1,
         block_proposal_data: BlockProposalData::empty(),

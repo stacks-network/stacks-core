@@ -352,21 +352,24 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectStacksTenureChan
             ));
 
         // Verify this is a tenure change block
-        let is_tenure_change_block_found = block.txs.len() == 2
+        let is_tenure_change_block_found = block.tx_count() == 2
             && matches!(
-                block.txs[0].payload,
+                block.executed_and_skipped_txs()[0].payload,
                 TransactionPayload::TenureChange(TenureChangePayload {
                     cause: TenureChangeCause::BlockFound,
                     ..
                 })
             )
-            && matches!(block.txs[1].payload, TransactionPayload::Coinbase(..));
+            && matches!(
+                block.executed_and_skipped_txs()[1].payload,
+                TransactionPayload::Coinbase(..)
+            );
 
         assert!(
             is_tenure_change_block_found,
             "Block at height {expected_height} from miner {} is not a proper tenure change block. Transactions: {:?}",
             self.miner_index,
-            block.txs.iter().map(|tx| &tx.payload).collect::<Vec<_>>()
+            block.executed_and_skipped_txs().iter().map(|tx| &tx.payload).collect::<Vec<_>>()
         );
 
         info!(

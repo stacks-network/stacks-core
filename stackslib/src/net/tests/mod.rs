@@ -1187,6 +1187,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let naka_header_2 = NakamotoBlockHeader {
@@ -1201,6 +1202,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let naka_pushed_header_1 = NakamotoBlockHeader {
@@ -1215,6 +1217,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let naka_pushed_header_2 = NakamotoBlockHeader {
@@ -1229,6 +1232,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let naka_uploaded_header_1 = NakamotoBlockHeader {
@@ -1243,6 +1247,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let naka_uploaded_header_2 = NakamotoBlockHeader {
@@ -1257,6 +1262,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let nblk1 = NakamotoBlock {

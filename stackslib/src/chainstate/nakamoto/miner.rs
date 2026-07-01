@@ -623,6 +623,11 @@ impl NakamotoBlockBuilder {
 
         self.header.tx_merkle_root = tx_merkle_root;
         self.header.state_index_root = state_root_hash;
+        // Keep the shadow bit, but set the version to the expected version for
+        // this epoch.
+        let shadow_flag = self.header.version & 0x80;
+        self.header.version =
+            NakamotoBlockHeader::expected_version_for_epoch(clarity_tx.get_epoch()) | shadow_flag;
 
         let block = NakamotoBlock {
             header: self.header.clone(),

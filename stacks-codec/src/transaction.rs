@@ -54,6 +54,7 @@ use crate::strings::StacksString;
 /// Max size of a serialized Stacks transaction (consensus-encoded).
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
+pub const MIN_TRANSACTION_LEN: u32 = 180;
 use stacks_common::{
     define_u8_enum, impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
     impl_byte_array_newtype, impl_byte_array_serde, impl_index_newtype,

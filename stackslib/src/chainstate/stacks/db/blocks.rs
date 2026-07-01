@@ -46,7 +46,7 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation};
-use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::nakamoto::{NakamotoChainState, TxToProcess};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
@@ -4158,6 +4158,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            problematic_skipped: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4254,6 +4255,7 @@ impl StacksChainState {
                                     microblock_header: None,
                                     tx_index: 0,
                                     vm_error: None,
+                                    problematic_skipped: None,
                                 })
                             }
                             Err(e) => {
@@ -4371,6 +4373,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            problematic_skipped: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4480,6 +4483,7 @@ impl StacksChainState {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            problematic_skipped: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4502,18 +4506,32 @@ impl StacksChainState {
 
     /// Process a single anchored block.
     /// Return the fees and burns.
-    pub fn process_block_transactions(
+    ///
+    /// `block_txs` pairs each transaction with its replay disposition (execute
+    /// vs. skip-as-problematic). Build it from a Nakamoto block with
+    /// [`NakamotoBlock::txs`]; for pre-Nakamoto blocks, wrap the
+    /// transaction list with [`TxToProcess::all_execute`]. Carrying the
+    /// disposition alongside each transaction makes it impossible for this loop
+    /// to execute a problematic transaction by overlooking a separate marker
+    /// list.
+    pub fn process_block_transactions<'a>(
         clarity_tx: &mut ClarityTx,
-        block_txs: &[StacksTransaction],
+        block_txs: impl IntoIterator<Item = TxToProcess<'a>>,
         mut tx_index: u32,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         let mut total_size = 0u64;
-        for tx in block_txs.iter() {
-            let (tx_fee, mut tx_receipt) =
-                StacksChainState::process_transaction(clarity_tx, tx, false, None)?;
+        for tx_to_process in block_txs {
+            let (tx_fee, mut tx_receipt) = match tx_to_process {
+                TxToProcess::Skip { tx, category } => {
+                    StacksChainState::process_skipped_transaction(clarity_tx, tx, category, false)?
+                }
+                TxToProcess::Execute(tx) => {
+                    StacksChainState::process_transaction(clarity_tx, tx, false, None)?
+                }
+            };
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             total_size = total_size.saturating_add(tx_receipt.size().ok_or_else(|| {
@@ -5565,7 +5583,7 @@ impl StacksChainState {
             let (block_fees, block_burns, txs_receipts) =
                 match StacksChainState::process_block_transactions(
                     &mut clarity_tx,
-                    &block.txs,
+                    TxToProcess::all_execute(&block.txs),
                     u32::try_from(microblock_txs_receipts.len())
                         .expect("more than 2^32 tx receipts"),
                 ) {
