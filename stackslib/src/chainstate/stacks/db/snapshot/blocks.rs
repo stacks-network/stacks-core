@@ -348,9 +348,9 @@ pub(super) fn nakamoto_copy_specs() -> Vec<TableCopySpec> {
 ///
 /// Returns an error if `dst_nakamoto_path` already exists.
 pub fn copy_nakamoto_staging_blocks(
+    squashed_index_path: &str,
     src_nakamoto_path: &str,
     dst_nakamoto_path: &str,
-    squashed_index_path: &str,
 ) -> Result<NakamotoBlockCopyStats, Error> {
     // Reject an unrecognized source schema before any destination work.
     let src_conn = sqlite_open(src_nakamoto_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;

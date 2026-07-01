@@ -356,6 +356,7 @@ impl NakamotoBlockProposal {
     ) -> Result<JoinHandle<()>, std::io::Error> {
         let timeout_secs = connection_opts.block_proposal_validation_timeout_secs;
         let max_tx_execution_time_secs = connection_opts.block_proposal_max_tx_execution_time_secs;
+        let max_tx_analysis_time_secs = connection_opts.block_proposal_max_tx_analysis_time_secs;
         let max_tx_mem_bytes = connection_opts.block_proposal_max_tx_mem_bytes;
         let auth_token = connection_opts.auth_token.clone();
         thread::Builder::new()
@@ -367,6 +368,7 @@ impl NakamotoBlockProposal {
                         &mut chainstate,
                         timeout_secs,
                         max_tx_execution_time_secs,
+                        max_tx_analysis_time_secs,
                         max_tx_mem_bytes,
                         auth_token,
                     )
@@ -544,6 +546,7 @@ impl NakamotoBlockProposal {
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
         timeout_secs: u64,
         max_tx_execution_time_secs: u64,
+        max_tx_analysis_time_secs: u64,
         max_tx_mem_bytes: u64,
         auth_token: Option<String>,
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
@@ -744,6 +747,9 @@ impl NakamotoBlockProposal {
 
         let block_deadline = Instant::now() + Duration::from_secs(timeout_secs);
         let per_tx_max_execution_time = Duration::from_secs(max_tx_execution_time_secs);
+        // Bound the analysis phase during proposal validation by the
+        // dedicated per-tx analysis budget, independently of the eval budget above.
+        builder.max_analysis_time = Some(Duration::from_secs(max_tx_analysis_time_secs));
         let mut receipts_total = 0u64;
         for (i, tx) in self.block.txs.iter().enumerate() {
             // Enforce the overall block validation budget between txs. A tx
