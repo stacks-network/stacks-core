@@ -296,6 +296,7 @@ impl<'a> TestChainstate<'a> {
                         &boot_code_smart_contract,
                         &boot_code_account,
                         None,
+                        None,
                     )
                     .unwrap()
                 });

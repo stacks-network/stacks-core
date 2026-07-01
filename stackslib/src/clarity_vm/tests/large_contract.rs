@@ -157,6 +157,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                         &boot_code_id("costs-2", false),
                         ClarityVersion::Clarity1,
                         BOOT_CODE_COSTS_2,
+                        None,
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -183,6 +184,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                         &boot_code_id("costs-3", false),
                         ClarityVersion::Clarity2,
                         BOOT_CODE_COSTS_3,
+                        None,
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -202,6 +204,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                         &boot_code_id("costs-4", false),
                         ClarityVersion::Clarity2,
                         BOOT_CODE_COSTS_4,
+                        None,
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -793,7 +796,7 @@ pub fn rollback_log_memory_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract, None)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -865,7 +868,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract, None)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -940,7 +943,7 @@ pub fn argument_memory_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract, None)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -1031,7 +1034,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_ok)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_ok, None)
                 .unwrap();
             assert!(match conn
                 .initialize_smart_contract(
@@ -1053,7 +1056,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
-                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_err)
+                .analyze_smart_contract(&contract_identifier, clarity_version, &contract_err, None)
                 .unwrap();
             assert!(format!(
                 "{:?}",
@@ -1137,7 +1140,12 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             if i < (CONTRACTS - 1) {
                 conn.as_transaction(|conn| {
                     let (ct_ast, ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
+                        .analyze_smart_contract(
+                            &contract_identifier,
+                            clarity_version,
+                            &contract,
+                            None,
+                        )
                         .unwrap();
                     conn.initialize_smart_contract(
                         &contract_identifier,
@@ -1155,7 +1163,12 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             } else {
                 conn.as_transaction(|conn| {
                     let (ct_ast, _ct_analysis) = conn
-                        .analyze_smart_contract(&contract_identifier, clarity_version, &contract)
+                        .analyze_smart_contract(
+                            &contract_identifier,
+                            clarity_version,
+                            &contract,
+                            None,
+                        )
                         .unwrap();
                     assert!(format!(
                         "{:?}",
@@ -1212,8 +1225,12 @@ fn test_deep_tuples() {
         let _res = block.as_transaction(|tx| {
             //  basically, without the new stack depth checks in the lexer/parser,
             //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
-            let analysis_resp =
-                tx.analyze_smart_contract(&contract_identifier, *version, &meets_stack_depth_tuple);
+            let analysis_resp = tx.analyze_smart_contract(
+                &contract_identifier,
+                *version,
+                &meets_stack_depth_tuple,
+                None,
+            );
             eprintln!(
                 "analyze_smart_contract() with meets_stack_depth_tuple: {}",
                 analysis_resp.is_ok()
@@ -1234,6 +1251,7 @@ fn test_deep_tuples() {
                 &contract_identifier,
                 *version,
                 &exceeds_stack_depth_tuple,
+                None,
             );
             analysis_resp.unwrap_err()
         });
@@ -1302,6 +1320,7 @@ fn test_deep_tuples_ast_precheck() {
                 &contract_identifier,
                 *version,
                 &exceeds_stack_depth_tuple,
+                None,
             );
             analysis_resp.unwrap_err()
         });
@@ -1375,8 +1394,12 @@ fn test_deep_type_nesting() {
             }
             //  basically, without the new stack depth checks in the lexer/parser,
             //    and without the VaryStackDepthChecker, this next call will return a StaticCheckError
-            let analysis_resp =
-                tx.analyze_smart_contract(&contract_identifier, *version, &exceeds_type_depth);
+            let analysis_resp = tx.analyze_smart_contract(
+                &contract_identifier,
+                *version,
+                &exceeds_type_depth,
+                None,
+            );
             analysis_resp.unwrap_err()
         });
 
