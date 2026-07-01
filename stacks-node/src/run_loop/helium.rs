@@ -2,7 +2,7 @@ use stacks::chainstate::stacks::db::ClarityTx;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use super::RunLoopCallbacks;
-use crate::burnchains::Error as BurnchainControllerError;
+use crate::burnchains::Error as BurnchainsError;
 use crate::{BitcoinRegtestController, ChainTip, Config, Node};
 
 /// RunLoop is coordinating a simulated burnchain and some simulated nodes
@@ -36,7 +36,15 @@ impl RunLoop {
     /// It will start the burnchain (separate thread), set-up a channel in
     /// charge of coordinating the new blocks coming from the burnchain and
     /// the nodes, taking turns on tenures.  
-    pub fn start(&mut self, expected_num_rounds: u64) -> Result<(), BurnchainControllerError> {
+    pub fn start(&mut self, expected_num_rounds: u64) -> Result<(), BurnchainsError> {
+        // Mode is already constrained upstream (config validation + the dispatch in main.rs);
+        // this run loop only handles helium. Debug-assert it so a future dispatch mistake trips
+        // in tests instead of silently running helium under the wrong mode.
+        debug_assert_eq!(
+            self.config.burnchain.mode, "helium",
+            "helium run loop requires burnchain.mode = \"helium\""
+        );
+
         // Initialize and start the burnchain.
         let mut burnchain = BitcoinRegtestController::new(self.config.clone(), None);
 
