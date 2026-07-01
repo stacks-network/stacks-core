@@ -20,7 +20,6 @@ use libsigner::v0::messages::{
     BlockRejection, BlockResponse, MessageSlotID, RejectReason, SignerMessage,
 };
 use libsigner::{SignerSession, StackerDBSession};
-use pinny::tag;
 use stacks::burnchains::Txid;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::test_util::{make_stacks_transfer_serialized, to_addr};
@@ -34,8 +33,11 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::nakamoto_node::miner::TEST_MINE_SKIP;
+use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::submit_tx_fallible;
-use crate::tests::signer::v0::{wait_for_block_proposal, wait_for_block_pushed_by_miner_key};
+use crate::tests::signer::v0::{
+    get_stackerdb_signer_messages, wait_for_block_proposal, wait_for_block_pushed_by_miner_key,
+};
 use crate::tests::signer::{test_observer, SignerTest};
 
 /// Holds context from the shared test setup so individual tests can
@@ -267,7 +269,6 @@ fn setup_failed_tx_test(reject_code: ValidateRejectCode) -> FailedTxTestContext 
     }
 }
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that when a signer rejects a block with a `failed_txid`, the miner
@@ -311,7 +312,6 @@ fn miner_excludes_failed_txid_and_nonce_dependent_txs() {
     ctx.signer_test.shutdown();
 }
 
-#[tag(bitcoind)]
 #[test]
 #[ignore]
 /// Test that when signers reject a block with a `failed_txid` and reject code
@@ -384,4 +384,152 @@ fn miner_permanently_bans_problematic_txid() {
     );
     info!("------------------------- Shutdown -------------------------");
     ctx.signer_test.shutdown();
+}
+
+/// Certifies that a contract-publish whose **analysis phase** exceeds the
+/// miner's `max_analysis_time_secs` is classified `Problematic` during block assembly and
+/// dropped from the block (and blacklisted from the mempool), so it is never mined and the
+/// sender's nonce never advances — the on-chain inverse of the pre-fix analysis stall.
+#[test]
+#[ignore]
+fn miner_drops_contract_publish_on_analysis_time_expired() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk = StacksPrivateKey::from_seed(&[120; 32]);
+    let sender_addr = to_addr(&sender_sk);
+    let deploy_fee = 1_000_000;
+
+    info!("------------------------- Test Setup -------------------------");
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), deploy_fee * 10)],
+        |_| {},
+        |node_config| {
+            // 0s analysis budget: any contract-publish is over budget right away,
+            // so the miner drops + blacklists it during assembly.
+            node_config.miner.max_analysis_time_secs = 0;
+        },
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+
+    info!("------------------------- Mine a normal Nakamoto block -------------------------");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    info!("------------------------- Submit the analysis-gated contract-publish -------------------------");
+    let (txid, deploy_nonce) = signer_test
+        .submit_contract_deploy(
+            &sender_sk,
+            deploy_fee,
+            "(define-constant my-const u1)",
+            "dummy-analysis",
+        )
+        .expect("Failed to submit contract deploy");
+
+    info!("------------------------- Give the miner several tenures to (not) mine it -------------------------");
+    for _ in 0..3 {
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    }
+
+    // The publish must never be mined: it is dropped + blacklisted at the analysis stage.
+    let publish_mined = test_observer::get_mined_nakamoto_blocks()
+        .iter()
+        .any(|block| block.tx_events.iter().any(|e| e.txid().to_hex() == txid));
+    assert!(
+        !publish_mined,
+        "contract-publish must never be mined (analysis time expired => Problematic => dropped)"
+    );
+
+    // And the sender's nonce must not advance past the never-processed publish.
+    let nonce_now = signer_test.get_account(&sender_addr).nonce;
+    assert_eq!(
+        nonce_now, deploy_nonce,
+        "publish nonce must not advance (tx never confirmed)"
+    );
+
+    info!("------------------------- Shutdown -------------------------");
+    signer_test.shutdown();
+}
+
+/// Certifies that when a miner proposes a block containing a contract-publish whose
+/// **analysis phase** exceeds the node's `block_proposal_max_tx_analysis_time_secs`,
+/// the signers **reject** the proposal during validation with `ProblematicTransaction`.
+#[test]
+#[ignore]
+fn signer_rejects_contract_publish_on_analysis_time_expired() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk = StacksPrivateKey::from_seed(&[121; 32]);
+    let sender_addr = to_addr(&sender_sk);
+    let deploy_fee = 1_000_000;
+
+    info!("------------------------- Test Setup -------------------------");
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr.clone(), deploy_fee * 10)],
+        |_| {},
+        |node_config| {
+            // Miner builds blocks with no analysis limit, so it WILL include and propose
+            // the contract-publish...
+            node_config.miner.max_analysis_time_secs = u64::MAX;
+            // ...but the node's block-proposal validation (which the signers invoke) bounds
+            // per-tx analysis to 0s, so the contract's type-checking phase is already over
+            // budget => the tx is Problematic => the proposal is rejected.
+            node_config
+                .connection_options
+                .block_proposal_max_tx_analysis_time_secs = 0;
+        },
+        None,
+        None,
+    );
+
+    signer_test.boot_to_epoch_3();
+
+    info!("------------------------- Mine a normal Nakamoto block -------------------------");
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    info!("------------------------- Submit the analysis-gated contract-publish -------------------------");
+    let (txid_hex, _deploy_nonce) = signer_test
+        .submit_contract_deploy(
+            &sender_sk,
+            deploy_fee,
+            "(define-constant my-const u1)",
+            "dummy-analysis",
+        )
+        .expect("Failed to submit contract deploy");
+    let publish_txid = Txid::from_hex(&txid_hex).expect("Failed to parse publish txid");
+
+    info!("------------------------- Ensure signers reject the proposal containing it -------------------------");
+    // The miner proposes a block containing the publish; the signers' node
+    // validates it with a 0s per-tx analysis budget and rejects the tx as Problematic.
+    wait_for(60, || {
+        Ok(get_stackerdb_signer_messages()
+            .into_iter()
+            .any(|(_chunk, message)| {
+                let SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) = message
+                else {
+                    return false;
+                };
+                rejection.response_data.failed_txid.as_ref() == Some(&publish_txid)
+                    && rejection.response_data.reject_reason
+                        == RejectReason::ValidationFailed(
+                            ValidateRejectCode::ProblematicTransaction,
+                        )
+            }))
+    })
+    .expect(
+        "Timed out waiting for signers to reject the contract-publish with ProblematicTransaction \
+         (analysis time expired)",
+    );
+
+    info!("------------------------- Shutdown -------------------------");
+    signer_test.shutdown();
 }

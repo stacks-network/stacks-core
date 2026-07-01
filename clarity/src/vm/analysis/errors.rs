@@ -238,6 +238,9 @@ pub enum StaticCheckErrorKind {
     // Time checker errors
     /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
     ExecutionTimeExpired,
+    /// Contract-analysis time exceeds the allowed budget, halting analysis to ensure responsiveness.
+    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable end-to-end.
+    AnalysisTimeExpired,
 
     /// Value exceeds the maximum allowed size for type-checking or serialization.
     ValueTooLarge,
@@ -1158,6 +1161,7 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
             StaticCheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
+            StaticCheckErrorKind::AnalysisTimeExpired => "analysis time expired".into(),
             StaticCheckErrorKind::InvalidTypeDescription => "supplied type description is invalid".into(),
             StaticCheckErrorKind::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             StaticCheckErrorKind::UnknownTypeName(name) => format!("failed to parse type: '{name}'"),

@@ -129,6 +129,9 @@ pub struct NakamotoBlockBuilder {
     contract_limit_percentage: Option<u8>,
     /// Maximum size of the whole tenure
     pub max_tenure_bytes: u64,
+    /// Wall-clock deadline for the contract-analysis phase of each
+    /// transaction mined by this builder. `None` means no analysis deadline.
+    pub max_analysis_time: Option<std::time::Duration>,
 }
 
 /// NB: No PartialEq implementation is deliberate in order to ensure that we use the appropriate
@@ -269,6 +272,7 @@ impl NakamotoBlockBuilder {
             soft_limit: None,
             contract_limit_percentage: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_analysis_time: None,
         }
     }
 
@@ -344,6 +348,7 @@ impl NakamotoBlockBuilder {
             soft_limit,
             contract_limit_percentage,
             max_tenure_bytes,
+            max_analysis_time: None,
         })
     }
 
@@ -751,6 +756,9 @@ impl NakamotoBlockBuilder {
         }
 
         builder.soft_limit = soft_limit;
+        // Bound the analysis phase of each mined tx by the miner's
+        // configured analysis deadline (constant for this builder's lifetime).
+        builder.max_analysis_time = settings.max_analysis_time;
 
         let initial_txs: Vec<_> = [
             tenure_info.tenure_change_tx.clone(),
@@ -905,6 +913,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 tx,
                 quiet,
                 max_execution_time,
+                self.max_analysis_time,
                 |receipt| {
                     if !receipt.post_condition_aborted {
                         let all_events_valid = receipt.events.iter().all(|event| {
