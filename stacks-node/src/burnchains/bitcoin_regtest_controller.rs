@@ -2750,6 +2750,7 @@ mod tests {
 
         let mut file = File::create(&file_path).unwrap();
         writeln!(file, "[burnchain]").unwrap();
+        writeln!(file, "mode = \"krypton\"").unwrap();
         writeln!(file, "satoshis_per_byte = 51").unwrap();
         config.config_path = Some(file_path.to_str().unwrap().to_string());
 

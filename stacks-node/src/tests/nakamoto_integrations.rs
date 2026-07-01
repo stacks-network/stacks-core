@@ -11946,6 +11946,7 @@ fn reload_miner_config() {
         let new_config = format!(
             r#"
             [burnchain]
+            mode = "nakamoto-neon"
             burn_fee_cap = {}
             satoshis_per_byte = {}
             "#,
@@ -12092,6 +12093,7 @@ fn rbf_on_config_change() {
         let new_config = format!(
             r#"
             [burnchain]
+            mode = "nakamoto-neon"
             burn_fee_cap = {}
             satoshis_per_byte = {}
             "#,
