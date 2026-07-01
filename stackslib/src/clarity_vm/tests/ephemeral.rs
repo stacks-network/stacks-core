@@ -67,11 +67,7 @@ fn test_ephemeral_marf_store() {
     let mut marfed_kv = MarfedKV::open(
         &path,
         None,
-        Some(MARFOpenOpts::new(
-            TrieHashCalculationMode::Deferred,
-            "noop",
-            false,
-        )),
+        Some(MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false)),
     )
     .unwrap();
 
@@ -779,11 +775,7 @@ fn prop_ephemeral_tip_height_matches_current() {
         let mut marfed_kv = MarfedKV::open(
             &path,
             None,
-            Some(MARFOpenOpts::new(
-                TrieHashCalculationMode::Deferred,
-                "noop",
-                false,
-            )),
+            Some(MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false)),
         )
         .unwrap();
 
