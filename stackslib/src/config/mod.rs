@@ -1744,7 +1744,7 @@ impl BurnchainConfigFile {
         // rather than aborting the process.
         if !SUPPORTED_MODES.contains(&mode.as_str()) {
             return Err(format!(
-                "Setting burnchain.mode not supported (should be: {})",
+                "Setting burnchain.mode = \"{mode}\" not supported (should be: {})",
                 SUPPORTED_MODES.join(", ")
             ));
         }
