@@ -40,7 +40,7 @@ fn make_flat_tuple(n: usize) -> Value {
 fn make_nested_tuple(depth: usize) -> Value {
     let mut val = Value::Int(1);
     for _ in 0..depth {
-        val = TupleData::from_data(vec![("inner".into(), val)])
+        val = TupleData::from_data(vec![(ClarityName::from_literal("inner"), val)])
             .unwrap()
             .into();
     }
@@ -91,64 +91,29 @@ fn bench_scalar_types(c: &mut Criterion) {
 fn bench_tuple_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("value_size/tuple");
 
+    // The tuple's size is computed eagerly at construction (in the setup closure,
+    // which is not measured), so `size()` here just reads the cached value.
+
     // Flat tuples with increasing field count
     for n_fields in [1, 5, 10, 20] {
-        group.bench_with_input(
-            BenchmarkId::new("flat/first_call", n_fields),
-            &n_fields,
-            |b, &n| {
-                b.iter_batched_ref(
-                    || make_flat_tuple(n),
-                    |v| black_box(v.size().unwrap()),
-                    criterion::BatchSize::SmallInput,
-                );
-            },
-        );
-        group.bench_with_input(
-            BenchmarkId::new("flat/cached_call", n_fields),
-            &n_fields,
-            |b, &n| {
-                b.iter_batched_ref(
-                    || {
-                        let v = make_flat_tuple(n);
-                        v.size().unwrap(); // prime the cache
-                        v
-                    },
-                    |v| black_box(v.size().unwrap()),
-                    criterion::BatchSize::SmallInput,
-                );
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("flat", n_fields), &n_fields, |b, &n| {
+            b.iter_batched_ref(
+                || make_flat_tuple(n),
+                |v| black_box(v.size().unwrap()),
+                criterion::BatchSize::SmallInput,
+            );
+        });
     }
 
-    // Nested tuples — stress the recursive size computation
+    // Nested tuples of increasing depth
     for depth in [1, 5, 10, 15] {
-        group.bench_with_input(
-            BenchmarkId::new("nested/first_call", depth),
-            &depth,
-            |b, &d| {
-                b.iter_batched_ref(
-                    || make_nested_tuple(d),
-                    |v| black_box(v.size().unwrap()),
-                    criterion::BatchSize::SmallInput,
-                );
-            },
-        );
-        group.bench_with_input(
-            BenchmarkId::new("nested/cached_call", depth),
-            &depth,
-            |b, &d| {
-                b.iter_batched_ref(
-                    || {
-                        let v = make_nested_tuple(d);
-                        v.size().unwrap();
-                        v
-                    },
-                    |v| black_box(v.size().unwrap()),
-                    criterion::BatchSize::SmallInput,
-                );
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("nested", depth), &depth, |b, &d| {
+            b.iter_batched_ref(
+                || make_nested_tuple(d),
+                |v| black_box(v.size().unwrap()),
+                criterion::BatchSize::SmallInput,
+            );
+        });
     }
 
     group.finish();
@@ -157,46 +122,27 @@ fn bench_tuple_size(c: &mut Criterion) {
 fn bench_list_size(c: &mut Criterion) {
     let mut group = c.benchmark_group("value_size/list");
 
-    // List of ints — exercises ListTypeData cache
+    // As with tuples, the list's size is computed eagerly at construction, so
+    // `size()` here just reads the cached value.
+
+    // List of ints
     for len in [100, 1_000] {
         let v = Value::list_from((0..len).map(|i| Value::Int(i as i128)).collect()).unwrap();
-        group.bench_with_input(BenchmarkId::new("int_list/first_call", len), &v, |b, v| {
+        group.bench_with_input(BenchmarkId::new("int_list", len), &v, |b, v| {
             b.iter_batched_ref(
                 || v.clone(),
                 |v| black_box(v.size().unwrap()),
                 criterion::BatchSize::SmallInput,
             );
         });
-        group.bench_with_input(BenchmarkId::new("int_list/cached_call", len), &v, |b, v| {
-            b.iter_batched_ref(
-                || {
-                    let v = v.clone();
-                    v.size().unwrap();
-                    v
-                },
-                |v| black_box(v.size().unwrap()),
-                criterion::BatchSize::SmallInput,
-            );
-        });
     }
 
-    // List of tuples — both ListTypeData and TupleTypeSignature caches
+    // List of tuples
     for (len, fields) in [(100, 5), (50, 10)] {
         let label = format!("{len}x{fields}fields");
-        group.bench_function(BenchmarkId::new("tuple_list/first_call", &label), |b| {
+        group.bench_function(BenchmarkId::new("tuple_list", &label), |b| {
             b.iter_batched_ref(
                 || make_list_of_tuples(len, fields),
-                |v| black_box(v.size().unwrap()),
-                criterion::BatchSize::SmallInput,
-            );
-        });
-        group.bench_function(BenchmarkId::new("tuple_list/cached_call", &label), |b| {
-            b.iter_batched_ref(
-                || {
-                    let v = make_list_of_tuples(len, fields);
-                    v.size().unwrap();
-                    v
-                },
                 |v| black_box(v.size().unwrap()),
                 criterion::BatchSize::SmallInput,
             );
@@ -254,10 +200,12 @@ fn old_value_size(v: &Value) -> u32 {
     TypeSignature::type_of(v).unwrap().size().unwrap()
 }
 
-/// Compare three paths:
-/// - "old": always recomputes via TypeSignature::type_of(v)?.size()
-/// - "new_first": fresh value each iteration (cold cache)
-/// - "new_cached": cache already primed (hot path)
+/// Compare the old size computation against the new (cached) one.
+///
+/// Both paths clone the value each iteration so they pay identical allocation
+/// and CPU-cache costs; the only difference is the size() implementation:
+/// - "old": recomputes via TypeSignature::type_of(v)?.size()
+/// - "new": reads the size cached on the value at construction
 fn bench_old_vs_new(c: &mut Criterion) {
     let mut group = c.benchmark_group("value_size/old_vs_new");
 
@@ -276,9 +224,6 @@ fn bench_old_vs_new(c: &mut Criterion) {
     ];
 
     for (label, make) in &cases {
-        // Both "old" and "new_first" use iter_batched with clone so they pay
-        // identical allocation and CPU-cache costs. The only difference is the
-        // size() implementation path.
         group.bench_function(BenchmarkId::new("old", *label), |b| {
             let template = make();
             b.iter_batched_ref(
@@ -288,20 +233,13 @@ fn bench_old_vs_new(c: &mut Criterion) {
             );
         });
 
-        group.bench_function(BenchmarkId::new("new_first", *label), |b| {
-            let template = make(); // never call .size() on this
+        group.bench_function(BenchmarkId::new("new", *label), |b| {
+            let template = make();
             b.iter_batched_ref(
                 || template.clone(),
                 |v| black_box(v.size().unwrap()),
                 criterion::BatchSize::SmallInput,
             );
-        });
-
-        // New path, hot cache: call size() once to prime, then measure repeat calls
-        group.bench_function(BenchmarkId::new("new_cached", *label), |b| {
-            let v = make();
-            v.size().unwrap(); // prime cache
-            b.iter(|| black_box(black_box(&v).size().unwrap()));
         });
     }
 
