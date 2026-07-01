@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -524,7 +524,7 @@ impl std::default::Default for ConnectionOptions {
             inbox_maxlen: 1024,
             outbox_maxlen: 1024,
             connect_timeout: 10, // how long a socket can be in a connecting state
-            handshake_timeout: 30, // how long before a peer must send a handshake, after connecting
+            handshake_timeout: 5, // how long before a peer must send a handshake, after connecting
             timeout: 30,         // how long to wait for a reply to a request
             idle_timeout: 15, // how long a non-request HTTP connection can be idle before it's closed
             heartbeat: 3600,  // send a heartbeat once an hour by default
@@ -590,7 +590,7 @@ impl std::default::Default for ConnectionOptions {
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
             socket_recv_buffer_size: 131072, // Linux default
             socket_send_buffer_size: 16384, // Linux default
-            private_neighbors: true,
+            private_neighbors: false,
             max_nakamoto_block_relay_age: 6,
             nakamoto_push_interval_ms: 30_000, // re-send a block no more than once every 30 seconds
             nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
@@ -631,6 +631,14 @@ impl std::default::Default for ConnectionOptions {
                 DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS,
             block_proposal_max_tx_mem_bytes: DEFAULT_PROPOSAL_MEMORY_BYTES,
         }
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl ConnectionOptions {
+    pub fn with_private_neighbors(mut self) -> Self {
+        self.private_neighbors = true;
+        self
     }
 }
 

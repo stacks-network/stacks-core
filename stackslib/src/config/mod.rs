@@ -301,8 +301,8 @@ impl ConfigFile {
             rpc_port: Some(8332),
             peer_port: Some(8333),
             peer_host: Some("0.0.0.0".to_string()),
-            username: Some("bitcoin".to_string()),
-            password: Some("bitcoin".to_string()),
+            username: None,
+            password: None,
             magic_bytes: Some("X2".to_string()),
             ..BurnchainConfigFile::default()
         };
@@ -411,7 +411,7 @@ impl ConfigFile {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub config_path: Option<String>,
     pub burnchain: BurnchainConfig,
@@ -1949,7 +1949,7 @@ impl BurnchainConfigFile {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NodeConfig {
     /// Human-readable name for the node. Primarily used for identification in testing
     /// environments (e.g., deriving log file names, temporary directory names).
@@ -2229,20 +2229,20 @@ pub struct NodeConfig {
     pub txindex: bool,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum CostEstimatorName {
     #[default]
     NaivePessimistic,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum FeeEstimatorName {
     #[default]
     ScalarFeeRate,
     FuzzedWeightedMedianFeeRate,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum CostMetricName {
     #[default]
     ProportionDotProduct,
@@ -2280,7 +2280,7 @@ impl CostMetricName {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeeEstimationConfig {
     pub cost_estimator: Option<CostEstimatorName>,
     pub fee_estimator: Option<FeeEstimatorName>,
@@ -3915,10 +3915,10 @@ impl ConnectionOptionsFile {
                 .max_http_clients
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients),
             connect_timeout: self.connect_timeout.unwrap_or(10),
-            handshake_timeout: self.handshake_timeout.unwrap_or(5),
+            handshake_timeout: self.handshake_timeout.unwrap_or(default.handshake_timeout),
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
-            private_neighbors: self.private_neighbors.unwrap_or(false),
+            private_neighbors: self.private_neighbors.unwrap_or(default.private_neighbors),
             auth_token: self.auth_token,
             antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
             reject_blocks_pushed: self
@@ -4715,7 +4715,7 @@ impl EventKeyType {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct InitialBalance {
     pub address: PrincipalData,
     pub amount: u64,
@@ -5195,5 +5195,98 @@ mod tests {
             30,
             config.connection_options.max_nakamoto_block_push_bandwidth,
         );
+    }
+
+    /// There are three different ways to start a node with a default config:
+    ///
+    /// - via `stacks-node mainnet`
+    /// - via `stacks-node start --config for/bar/baz.toml`, where the config
+    ///   file is largely empty
+    /// - same as the previous, but the config file also contains empty [sections]
+    ///
+    /// This tests asserts that they all yield the same configuration (with the
+    /// exception of one documented consequence of having a [miner] section).
+    ///
+    /// This is necessary because the situations take different codepaths. In fact
+    /// this test is a regression test for a bug where the default
+    /// `private_neighbours` setting was `false` if there was a [connection_options]
+    /// section, even if empty, and `true` if not.
+    #[test]
+    fn test_mainnet_config_equivalences() {
+        // These three settings get random values if unspecified. Fix them
+        // to make sure they're always the same.
+        let working_dir = "/path/to/chainstate";
+        let seed = "d6f382770fde6b5563afadab79d1a7aa548e15dd2a171152131765df605ab035";
+        let local_peer_seed = "9daf9eb08d7fff77ef22a9155fa2a9695ba33f1c9aacdc45e28f54138179e7d5";
+
+        // Create the default mainnet config, as happens when you run `stacks-node mainnet`
+        let mut default_file = ConfigFile::mainnet();
+        let Some(node) = default_file.node.as_mut() else {
+            panic!("node section must exist");
+        };
+        node.working_dir = Some(working_dir.to_string());
+        node.seed = Some(seed.to_string());
+        node.local_peer_seed = Some(local_peer_seed.to_string());
+        let default_config =
+            Config::from_config_file(default_file, true).expect("config should be valid");
+
+        // Create a Config from a barebones config toml
+        let base_toml = format!(
+            r#"
+                [node]
+                working_dir = "{working_dir}"
+                seed = "{seed}"
+                local_peer_seed = "{local_peer_seed}"
+
+                [burnchain]
+                mode = "mainnet"
+            "#
+        );
+
+        let base_config = build_config_from_toml(&base_toml);
+
+        assert_eq!(
+            base_config, default_config,
+            "barebones config toml should yield the default config"
+        );
+
+        // This closure adds an empty section of the given name. This should not
+        // change anything, because it should use the same default values, with
+        // the exception of the documented difference for the [miner] section.
+        let assert_empty_section_makes_no_difference = |section: &str| {
+            let modified_toml = format!(
+                r#"{base_toml}
+                [{section}]
+            "#
+            );
+            let mut modified_config = build_config_from_toml(&modified_toml);
+
+            if section == "miner" {
+                // These two are expected to be different based on the presence of the
+                // miner section, even if empty (see documentation of `mining_key`).
+                // Therefore we assert the expected values, and then set them back
+                // to the default values for the comparison.
+                assert!(modified_config.miner.mining_key.is_some());
+                modified_config.miner.mining_key = None;
+
+                assert!(modified_config.miner.pre_nakamoto_mock_signing);
+                modified_config.miner.pre_nakamoto_mock_signing = false;
+            }
+
+            assert_eq!(
+                base_config, modified_config,
+                "adding an empty [{section}] section should not change the generated config"
+            );
+        };
+
+        assert_empty_section_makes_no_difference("connection_options");
+        assert_empty_section_makes_no_difference("fee_estimation");
+        assert_empty_section_makes_no_difference("miner");
+        assert_empty_section_makes_no_difference("atlas");
+    }
+
+    fn build_config_from_toml(s: &str) -> super::Config {
+        let config_file = super::ConfigFile::from_str(s).expect("config toml should be valid");
+        Config::from_config_file(config_file, true).expect("config should be valid")
     }
 }
