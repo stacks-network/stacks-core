@@ -51,6 +51,10 @@ pub const DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS: u64 = 60;
 /// transaction during block proposal validation.
 pub const DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS: u64 = 30;
 
+/// The default maximum time, in seconds, to spend on the contract-analysis
+/// phase of a single transaction during block proposal validation.
+pub const DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS: u64 = 30;
+
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
 /// in another thread) via the given `receiver_input` channel.
@@ -501,6 +505,12 @@ pub struct ConnectionOptions {
     /// exceeded is not.
     pub block_proposal_max_tx_execution_time_secs: u64,
 
+    /// Maximum time, in seconds, to spend on the contract-analysis
+    /// phase of a single transaction during block proposal validation.
+    /// A transaction whose analysis exceeds this on its own is
+    /// classified as problematic.
+    pub block_proposal_max_tx_analysis_time_secs: u64,
+
     /// Maximum bytes a single transaction may allocate on the heap during
     /// block-proposal validation before it is rejected. Tracked via
     /// per-thread allocation counters in `TrackingAllocator`.
@@ -617,6 +627,8 @@ impl std::default::Default for ConnectionOptions {
             block_proposal_validation_timeout_secs: DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
             block_proposal_max_tx_execution_time_secs:
                 DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
+            block_proposal_max_tx_analysis_time_secs:
+                DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS,
             block_proposal_max_tx_mem_bytes: DEFAULT_PROPOSAL_MEMORY_BYTES,
         }
     }
