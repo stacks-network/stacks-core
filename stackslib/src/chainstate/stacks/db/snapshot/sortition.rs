@@ -15,64 +15,206 @@
 
 use std::collections::HashSet;
 
-use rusqlite::{params, Connection, OpenFlags};
-use stacks_common::types::chainstate::SortitionId;
+use rusqlite::types::Value;
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, SortitionId};
+use stacks_common::types::sqlite::NO_PARAMS;
 
 use super::common::{
-    assert_source_schema, clone_schemas_from_source, copied_rows, execute_copy_specs,
-    with_offline_write_session, TableCopySpec, MARF_INFRA_TABLES,
+    clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec,
+    TableCopyBind, TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
 pub use crate::chainstate::burn::db::sortdb::SortitionTipCopyBoundary;
 use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue};
-use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::{sqlite_open, u64_to_sql, Error as db_error};
 
-/// Required sortition tables always present in production.
-pub(super) const REQUIRED_TABLES: &[&str] = &[
-    "db_config",
-    "snapshots",
-    "leader_keys",
-    "block_commits",
-    "block_commit_parents",
-    "snapshot_transition_ops",
-    "stacks_chain_tips",
-    "stacks_chain_tips_by_burn_view",
-    "missed_commits",
-    "stack_stx",
-    "transfer_stx",
-    "delegate_stx",
-    "vote_for_aggregate_key",
-    "preprocessed_reward_sets",
-    "epochs",
-];
+/// Snapshot-only reads over a sortition DB connection.
+pub(crate) trait SortitionSnapshotExt {
+    /// Distinct burn header hashes of all snapshots, forks included. Only on a
+    /// squashed sortition DB is this exactly the canonical burnchain.
+    fn get_all_snapshot_burn_header_hashes(&self) -> Result<Vec<BurnchainHeaderHash>, db_error>;
+    /// Burn header hash of the snapshot with the given sortition ID (raw stored
+    /// TEXT, byte-for-byte), or `None` if no such snapshot exists.
+    fn get_snapshot_burn_header_hash(
+        &self,
+        sortition_id: &SortitionId,
+    ) -> Result<Option<String>, db_error>;
+    /// Whether every Stacks-tip memo row (both memo tables) sits at or below the
+    /// boundary's Stacks height. A `None` boundary trivially passes. The copy
+    /// counterpart of [`stacks_tip_memo_copy_sql`]'s height rewrite.
+    fn stacks_tip_memos_within_boundary(
+        &self,
+        boundary: Option<&SortitionTipCopyBoundary>,
+    ) -> Result<bool, db_error>;
+}
+
+impl SortitionSnapshotExt for Connection {
+    fn get_all_snapshot_burn_header_hashes(&self) -> Result<Vec<BurnchainHeaderHash>, db_error> {
+        let mut stmt = self.prepare("SELECT DISTINCT burn_header_hash FROM snapshots")?;
+        let rows = stmt.query_map(NO_PARAMS, |row| row.get(0))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(db_error::from)
+    }
+
+    fn get_snapshot_burn_header_hash(
+        &self,
+        sortition_id: &SortitionId,
+    ) -> Result<Option<String>, db_error> {
+        self.prepare_cached("SELECT burn_header_hash FROM snapshots WHERE sortition_id = ?1")?
+            .query_row(params![sortition_id], |row| row.get(0))
+            .optional()
+            .map_err(db_error::from)
+    }
+
+    fn stacks_tip_memos_within_boundary(
+        &self,
+        boundary: Option<&SortitionTipCopyBoundary>,
+    ) -> Result<bool, db_error> {
+        let Some(boundary) = boundary else {
+            return Ok(true);
+        };
+        let max_height = u64_to_sql(boundary.max_stacks_height)?;
+        // Check if ANY above-boundary memo row exists.
+        self.query_row(
+            "SELECT NOT EXISTS( \
+                 SELECT 1 FROM stacks_chain_tips WHERE block_height > ?1 \
+                 UNION ALL \
+                 SELECT 1 FROM stacks_chain_tips_by_burn_view WHERE block_height > ?1 \
+             )",
+            params![max_height],
+            |row| row.get(0),
+        )
+        .map_err(db_error::from)
+    }
+}
+
+/// Static source-projection SQL template for copying a Stacks-tip memo table
+/// (`stacks_chain_tips`, or `stacks_chain_tips_by_burn_view` when
+/// `include_burn_view`) from `src`, keeping rows whose `sortition_id` is in the
+/// `canonical_sortitions` temp table. With a boundary (`has_boundary`), memo rows
+/// above the boundary's Stacks height are rewritten down to the anchor (see
+/// [`SortitionTipCopyBoundary`]); the anchor values are the `?1..?5` placeholders
+/// supplied by [`stacks_tip_memo_copy_binds`].
+const fn stacks_tip_memo_copy_sql(include_burn_view: bool, has_boundary: bool) -> &'static str {
+    match (include_burn_view, has_boundary) {
+        (false, false) => {
+            "SELECT * FROM src.stacks_chain_tips \
+             WHERE sortition_id IN (SELECT sortition_id FROM canonical_sortitions)"
+        }
+        (true, false) => {
+            "SELECT * FROM src.stacks_chain_tips_by_burn_view \
+             WHERE sortition_id IN (SELECT sortition_id FROM canonical_sortitions)"
+        }
+        (false, true) => {
+            "SELECT sortition_id, \
+                    CASE WHEN block_height > ?1 THEN ?2 ELSE consensus_hash END, \
+                    CASE WHEN block_height > ?1 THEN ?3 ELSE block_hash END, \
+                    CASE WHEN block_height > ?1 THEN ?4 ELSE block_height END \
+             FROM src.stacks_chain_tips \
+             WHERE sortition_id IN (SELECT sortition_id FROM canonical_sortitions) \
+               AND (block_height <= ?1 OR consensus_hash = ?2)"
+        }
+        (true, true) => {
+            "SELECT sortition_id, \
+                    CASE WHEN block_height > ?1 THEN ?2 ELSE consensus_hash END, \
+                    CASE WHEN block_height > ?1 THEN ?5 ELSE burn_view_consensus_hash END, \
+                    CASE WHEN block_height > ?1 THEN ?3 ELSE block_hash END, \
+                    CASE WHEN block_height > ?1 THEN ?4 ELSE block_height END \
+             FROM src.stacks_chain_tips_by_burn_view \
+             WHERE sortition_id IN (SELECT sortition_id FROM canonical_sortitions) \
+               AND (block_height <= ?1 OR (consensus_hash = ?2 AND burn_view_consensus_hash = ?5))"
+        }
+    }
+}
+
+/// Positional `?N` bind values for [`stacks_tip_memo_copy_sql`]'s boundary-rewrite
+/// template; empty when `boundary` is `None` (the plain template has no
+/// placeholders). Order: `?1` max Stacks height, `?2` anchor consensus hash, `?3`
+/// anchor block hash, `?4` anchor block height, and (for `include_burn_view`)
+/// `?5` anchor burn-view consensus hash.
+fn stacks_tip_memo_copy_binds(
+    boundary: Option<&SortitionTipCopyBoundary>,
+    include_burn_view: bool,
+) -> Result<Vec<Value>, Error> {
+    let Some(boundary) = boundary else {
+        return Ok(Vec::new());
+    };
+    let mut params = vec![
+        Value::Integer(u64_to_sql(boundary.max_stacks_height)?),
+        Value::Text(boundary.anchor_consensus_hash.to_string()),
+        Value::Text(boundary.anchor_block_hash.to_string()),
+        Value::Integer(u64_to_sql(boundary.anchor_block_height)?),
+    ];
+    if include_burn_view {
+        params.push(Value::Text(
+            boundary.anchor_burn_view_consensus_hash.to_string(),
+        ));
+    }
+    Ok(params)
+}
 
 /// Tables that may appear in a source sortition DB but are deliberately not
 /// copied. `snapshot_burn_distributions` is written only under the `testing`
 /// feature (`SortitionDBTx::store_burn_distribution`), never in production.
 pub(super) const IGNORED_TABLES: &[&str] = &["snapshot_burn_distributions"];
 
-/// Every table the sortition snapshot accounts for: content-copied
-/// ([`REQUIRED_TABLES`]), owned by the MARF squash itself
-/// ([`MARF_INFRA_TABLES`]), or deliberately skipped ([`IGNORED_TABLES`]).
-fn known_sortition_tables() -> Vec<&'static str> {
-    REQUIRED_TABLES
-        .iter()
-        .chain(MARF_INFRA_TABLES)
-        .chain(IGNORED_TABLES)
-        .copied()
-        .collect()
+/// The sortition (`marf.sqlite` side-tables) snapshot spec. The `boundary`
+/// selects the `stacks_chain_tips*` memo template (plain vs rewrite) and feeds
+/// the rewrite anchors as `?N` binds; the table-name set is independent of it.
+/// MARF infra ([`MARF_INFRA_TABLES`], created by the squash engine) and
+/// deliberately-skipped ([`IGNORED_TABLES`]) tables are recognized by the guard
+/// but not row-copied.
+pub(super) struct SortitionDbSnapshotSpec {
+    pub boundary: Option<SortitionTipCopyBoundary>,
 }
 
-/// The sortition snapshot's source-schema guard (see [`assert_source_schema`]);
-/// `test_no_unclassified_sortition_tables` runs it against a fresh schema.
+impl SortitionDbSnapshotSpec {
+    /// For source-schema classification only: the recognized table-name set is
+    /// independent of the boundary, so the guard uses a `None` boundary.
+    fn for_classification() -> Self {
+        Self { boundary: None }
+    }
+}
+
+impl DbSnapshotSpec for SortitionDbSnapshotSpec {
+    fn copy_specs(&self) -> TableCopySpecs<'static> {
+        TableCopySpecs::new(sortition_copy_specs(self.boundary.is_some()))
+    }
+
+    fn bind_params(&self, bind: TableCopyBind) -> Result<Vec<Value>, Error> {
+        match bind {
+            TableCopyBind::None => Ok(Vec::new()),
+            TableCopyBind::SortitionTipMemo { include_burn_view } => {
+                stacks_tip_memo_copy_binds(self.boundary.as_ref(), include_burn_view)
+            }
+            other => Err(Error::CorruptionError(format!(
+                "BUG: sortition snapshot does not handle table-copy bind {other:?}"
+            ))),
+        }
+    }
+
+    fn extra_recognized_tables(&self) -> Vec<&'static str> {
+        MARF_INFRA_TABLES
+            .iter()
+            .copied()
+            .chain(IGNORED_TABLES.iter().copied())
+            .collect()
+    }
+
+    fn db_label(&self) -> &'static str {
+        "sortition DB"
+    }
+
+    fn classify_hint(&self) -> &'static str {
+        "sortition_copy_specs() (to copy) or IGNORED_TABLES (to skip) in snapshot/sortition.rs"
+    }
+}
+
+/// The sortition snapshot's source-schema guard (see
+/// [`DbSnapshotSpec::assert_source_classified`]); `test_no_unclassified_sortition_tables`
+/// runs it against a fresh schema. The recognized set is independent of the boundary.
 pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
-    assert_source_schema(
-        src_conn,
-        &known_sortition_tables(),
-        "sortition DB",
-        "REQUIRED_TABLES (to copy) or IGNORED_TABLES (to skip) in snapshot/sortition.rs",
-    )
+    SortitionDbSnapshotSpec::for_classification().assert_source_classified(src_conn)
 }
 
 /// Row-count statistics returned by [`copy_sortition_side_tables`].
@@ -117,7 +259,7 @@ fn populate_canonical_sortitions(
     let mut burn_hashes: HashSet<String> = HashSet::new();
     let mut orphans: u64 = 0;
     for (_, sortition_id, _) in &canonical {
-        match SortitionDB::get_snapshot_burn_header_hash(src_conn, sortition_id)? {
+        match src_conn.get_snapshot_burn_header_hash(sortition_id)? {
             Some(burn_header_hash) => {
                 burn_hashes.insert(burn_header_hash);
             }
@@ -171,99 +313,99 @@ fn validate_tip_boundary(boundary: Option<&SortitionTipCopyBoundary>) -> Result<
 ///
 /// The set of tables is independent of `boundary`; the boundary only rewrites
 /// the `stacks_chain_tips*` source SQL.
-pub(super) fn sortition_copy_specs(
-    boundary: Option<&SortitionTipCopyBoundary>,
-) -> Vec<TableCopySpec> {
-    let sid = "SELECT sortition_id FROM canonical_sortitions";
-    let bhh = "SELECT burn_header_hash FROM canonical_burn_hashes";
-
-    vec![
-        TableCopySpec {
-            table: "db_config",
-            source_sql: "SELECT * FROM src.db_config".into(),
-        },
-        // sortition_id-filtered tables
-        TableCopySpec {
-            table: "snapshots",
-            source_sql: format!("SELECT * FROM src.snapshots WHERE sortition_id IN ({sid})"),
-        },
-        TableCopySpec {
-            table: "leader_keys",
-            source_sql: format!("SELECT * FROM src.leader_keys WHERE sortition_id IN ({sid})"),
-        },
-        TableCopySpec {
-            table: "block_commits",
-            source_sql: format!("SELECT * FROM src.block_commits WHERE sortition_id IN ({sid})"),
-        },
-        TableCopySpec {
-            table: "block_commit_parents",
-            source_sql: format!(
-                "SELECT * FROM src.block_commit_parents WHERE block_commit_sortition_id IN ({sid})"
-            ),
-        },
-        TableCopySpec {
-            table: "snapshot_transition_ops",
-            source_sql: format!(
-                "SELECT * FROM src.snapshot_transition_ops WHERE sortition_id IN ({sid})"
-            ),
-        },
-        TableCopySpec {
-            table: "stacks_chain_tips",
-            source_sql: SortitionDB::stacks_tip_memo_copy_sql(
-                "stacks_chain_tips",
-                "src",
-                sid,
-                false,
-                boundary,
-            ),
-        },
-        TableCopySpec {
-            table: "stacks_chain_tips_by_burn_view",
-            source_sql: SortitionDB::stacks_tip_memo_copy_sql(
-                "stacks_chain_tips_by_burn_view",
-                "src",
-                sid,
-                true,
-                boundary,
-            ),
-        },
-        TableCopySpec {
-            table: "preprocessed_reward_sets",
-            source_sql: format!(
-                "SELECT * FROM src.preprocessed_reward_sets WHERE sortition_id IN ({sid})"
-            ),
-        },
-        TableCopySpec {
-            table: "missed_commits",
-            source_sql: format!(
-                "SELECT * FROM src.missed_commits WHERE intended_sortition_id IN ({sid})"
-            ),
-        },
-        // burn_header_hash-filtered tables
-        TableCopySpec {
-            table: "stack_stx",
-            source_sql: format!("SELECT * FROM src.stack_stx WHERE burn_header_hash IN ({bhh})"),
-        },
-        TableCopySpec {
-            table: "transfer_stx",
-            source_sql: format!("SELECT * FROM src.transfer_stx WHERE burn_header_hash IN ({bhh})"),
-        },
-        TableCopySpec {
-            table: "delegate_stx",
-            source_sql: format!("SELECT * FROM src.delegate_stx WHERE burn_header_hash IN ({bhh})"),
-        },
-        TableCopySpec {
-            table: "vote_for_aggregate_key",
-            source_sql: format!(
-                "SELECT * FROM src.vote_for_aggregate_key WHERE burn_header_hash IN ({bhh})"
-            ),
-        },
-        // Full-copy tables
-        TableCopySpec {
-            table: "epochs",
-            source_sql: "SELECT * FROM src.epochs".to_string(),
-        },
-    ]
+pub(super) fn sortition_copy_specs(has_boundary: bool) -> &'static [TableCopySpec] {
+    // The only runtime values are the `stacks_chain_tips*` boundary-rewrite
+    // anchors, supplied as `?N` binds; `has_boundary` selects the rewrite vs
+    // plain memo template (see `stacks_tip_memo_copy_sql`). The plain and rewrite
+    // lists differ only in those two memo specs, so a local macro builds both
+    // from one definition.
+    macro_rules! sortition_specs {
+        ($has_boundary:expr) => {
+            &[
+                TableCopySpec::sql("db_config", "SELECT * FROM src.db_config"),
+                // sortition_id-filtered tables
+                TableCopySpec::sql(
+                    "snapshots",
+                        "SELECT * FROM src.snapshots \
+                         WHERE sortition_id IN (SELECT sortition_id FROM canonical_sortitions)",
+                ),
+                TableCopySpec::sql(
+                    "leader_keys",
+                        "SELECT * FROM src.leader_keys \
+                         WHERE sortition_id IN (SELECT sortition_id FROM canonical_sortitions)",
+                ),
+                TableCopySpec::sql(
+                    "block_commits",
+                        "SELECT * FROM src.block_commits \
+                         WHERE sortition_id IN (SELECT sortition_id FROM canonical_sortitions)",
+                ),
+                TableCopySpec::sql(
+                    "block_commit_parents",
+                        "SELECT * FROM src.block_commit_parents \
+                         WHERE block_commit_sortition_id IN (SELECT sortition_id FROM canonical_sortitions)",
+                ),
+                TableCopySpec::sql(
+                    "snapshot_transition_ops",
+                        "SELECT * FROM src.snapshot_transition_ops \
+                         WHERE sortition_id IN (SELECT sortition_id FROM canonical_sortitions)",
+                ),
+                TableCopySpec::sql_with_bind(
+                    "stacks_chain_tips",
+                    stacks_tip_memo_copy_sql(false, $has_boundary),
+                    TableCopyBind::SortitionTipMemo {
+                        include_burn_view: false,
+                    },
+                ),
+                TableCopySpec::sql_with_bind(
+                    "stacks_chain_tips_by_burn_view",
+                    stacks_tip_memo_copy_sql(true, $has_boundary),
+                    TableCopyBind::SortitionTipMemo {
+                        include_burn_view: true,
+                    },
+                ),
+                TableCopySpec::sql(
+                    "preprocessed_reward_sets",
+                        "SELECT * FROM src.preprocessed_reward_sets \
+                         WHERE sortition_id IN (SELECT sortition_id FROM canonical_sortitions)",
+                ),
+                TableCopySpec::sql(
+                    "missed_commits",
+                        "SELECT * FROM src.missed_commits \
+                         WHERE intended_sortition_id IN (SELECT sortition_id FROM canonical_sortitions)",
+                ),
+                // burn_header_hash-filtered tables
+                TableCopySpec::sql(
+                    "stack_stx",
+                        "SELECT * FROM src.stack_stx \
+                         WHERE burn_header_hash IN (SELECT burn_header_hash FROM canonical_burn_hashes)",
+                ),
+                TableCopySpec::sql(
+                    "transfer_stx",
+                        "SELECT * FROM src.transfer_stx \
+                         WHERE burn_header_hash IN (SELECT burn_header_hash FROM canonical_burn_hashes)",
+                ),
+                TableCopySpec::sql(
+                    "delegate_stx",
+                        "SELECT * FROM src.delegate_stx \
+                         WHERE burn_header_hash IN (SELECT burn_header_hash FROM canonical_burn_hashes)",
+                ),
+                TableCopySpec::sql(
+                    "vote_for_aggregate_key",
+                        "SELECT * FROM src.vote_for_aggregate_key \
+                         WHERE burn_header_hash IN (SELECT burn_header_hash FROM canonical_burn_hashes)",
+                ),
+                // Full-copy tables
+                TableCopySpec::sql("epochs", "SELECT * FROM src.epochs"),
+            ]
+        };
+    }
+    static PLAIN: &[TableCopySpec] = sortition_specs!(false);
+    static REWRITE: &[TableCopySpec] = sortition_specs!(true);
+    if has_boundary {
+        REWRITE
+    } else {
+        PLAIN
+    }
 }
 
 /// Copy required non-MARF tables from the source sortition DB into the
@@ -297,7 +439,14 @@ pub fn copy_sortition_side_tables_with_boundary(
     let leaf_hashes = collect_canonical_leaf_hashes::<SortitionId>(dst_path)?;
 
     with_offline_write_session(dst_path, &[("src", src_path)], "", |conn| {
-        clone_schemas_from_source(conn, REQUIRED_TABLES)?;
+        // Clone only the spec tables' schemas; MARF infra is created by the
+        // squash engine and ignored tables are intentionally absent from the dst.
+        clone_schemas_from_source(
+            conn,
+            &SortitionDbSnapshotSpec::for_classification()
+                .copy_specs()
+                .table_names(),
+        )?;
         copy_sortition_tables_inner(&src_conn, conn, &leaf_hashes, stacks_boundary)
     })
 }
@@ -317,9 +466,11 @@ fn copy_sortition_tables_inner(
     populate_canonical_sortitions(src_conn, session_conn)?;
 
     // Execute descriptor-driven copies.
-    let specs = sortition_copy_specs(stacks_boundary);
-    let results = execute_copy_specs(session_conn, &specs)?;
-    if !SortitionDB::stacks_tip_memos_within_boundary(session_conn, stacks_boundary)? {
+    let spec = SortitionDbSnapshotSpec {
+        boundary: stacks_boundary.cloned(),
+    };
+    let results = spec.run_copy(session_conn)?;
+    if !session_conn.stacks_tip_memos_within_boundary(stacks_boundary)? {
         return Err(Error::CorruptionError(
             "copied sortition tip row points past the Stacks MARF boundary".into(),
         ));

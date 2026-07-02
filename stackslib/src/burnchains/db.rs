@@ -944,27 +944,6 @@ impl BurnchainDB {
             Ok(None)
         }
     }
-
-    /// Count the burn header hashes yielded by `canonical_sql` (a SELECT
-    /// producing one TEXT column) that have no `burnchain_db_block_headers`
-    /// row in `headers_schema`. Both arguments are interpolated into SQL;
-    /// pass only trusted fixed fragments.
-    pub(crate) fn count_canonical_burn_hashes_missing_from(
-        conn: &Connection,
-        headers_schema: &str,
-        canonical_sql: &str,
-    ) -> Result<u64, DBError> {
-        conn.query_row(
-            &format!(
-                "SELECT COUNT(*) FROM ({canonical_sql}) \
-                 WHERE burn_header_hash NOT IN \
-                     (SELECT block_hash FROM {headers_schema}.burnchain_db_block_headers)"
-            ),
-            NO_PARAMS,
-            |row| row.get(0),
-        )
-        .map_err(DBError::from)
-    }
 }
 
 // Raw-row test fixture writers. Each helper owns its table's column

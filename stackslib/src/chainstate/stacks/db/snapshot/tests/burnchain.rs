@@ -23,8 +23,9 @@ use stacks_common::types::chainstate::BurnchainHeaderHash;
 use tempfile::tempdir;
 
 use super::super::burnchain::{
-    assert_source_tables_classified, burnchain_copy_specs, copy_burnchain_db, COPIED_TABLES,
+    assert_source_tables_classified, burnchain_copy_specs, copy_burnchain_db,
 };
+use super::super::common::TableCopySpecs;
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
@@ -77,16 +78,16 @@ fn test_unclassified_source_table_is_rejected() {
     );
 }
 
-/// Every cloned table (`COPIED_TABLES`) must have a row-copy spec and vice versa,
-/// else it would be cloned but never populated (present-but-empty).
+/// Copy-spec coverage guard: no table appears twice. Set completeness is covered
+/// by `test_no_unclassified_burnchain_tables`, which derives the recognized set
+/// from these specs and runs the guard against a fresh schema, so re-listing the
+/// table names here would just duplicate the spec list.
 #[test]
-fn test_copy_specs_match_copied_tables() {
-    let copied: HashSet<&str> = COPIED_TABLES.iter().copied().collect();
-
-    let specs: Vec<&str> = burnchain_copy_specs().iter().map(|s| s.table).collect();
-    let spec_set: HashSet<&str> = specs.iter().copied().collect();
-    assert_eq!(specs.len(), spec_set.len(), "duplicate spec tables");
-    assert_eq!(spec_set, copied);
+fn test_burnchain_copy_specs_well_formed() {
+    let specs = burnchain_copy_specs();
+    let tables = TableCopySpecs::new(specs).table_names();
+    let unique: HashSet<&str> = tables.iter().copied().collect();
+    assert_eq!(tables.len(), unique.len(), "duplicate spec tables");
 }
 
 /// Create a burnchain.sqlite source via the production initializer
@@ -359,8 +360,8 @@ fn test_burnchain_db_block_ops_follow_canonical_headers() {
     assert_eq!(op, "op_c");
 }
 
-/// `anchor_blocks` and `overrides` are restricted to reward cycles
-/// referenced by the copied commit metadata.
+/// `anchor_blocks` are restricted to reward cycles referenced by the copied
+/// commit metadata; `overrides` is schema-only.
 #[test]
 fn test_burnchain_db_anchor_blocks_filtered() {
     let dir = tempdir().unwrap();

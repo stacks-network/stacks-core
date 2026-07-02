@@ -16,35 +16,66 @@
 use std::fs;
 use std::path::Path;
 
+use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
 
 use super::common::{
-    assert_source_schema, clone_schemas_from_source, copied_rows, execute_copy_specs,
-    with_offline_write_session, TableCopySpec,
+    clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec,
+    TableCopyBind, TableCopySpec, TableCopySpecs,
 };
 use crate::burnchains::bitcoin::spv::num_complete_chain_work_intervals;
 use crate::chainstate::stacks::index::Error;
-use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::{sqlite_open, u64_to_sql};
 
-/// Tables required for the current headers.sqlite schema.
-pub(super) const REQUIRED_TABLES: &[&str] = &["headers", "db_config", "chain_work"];
-
-/// Every table the SPV headers snapshot accounts for. headers.sqlite is not
-/// MARF-backed, so unlike the other slices there are no MARF infra tables to
-/// exempt — the content-copied [`REQUIRED_TABLES`] are the whole schema.
-fn known_spv_tables() -> Vec<&'static str> {
-    REQUIRED_TABLES.to_vec()
+/// The SPV headers (`headers.sqlite`) snapshot spec. The row-copied specs
+/// are the whole schema. `burn_height` only feeds the `?N` binds, not the
+/// table-name set.
+pub(super) struct SpvDbSnapshotSpec {
+    pub burn_height: u64,
 }
 
-/// The spv snapshot's source-schema guard (see [`assert_source_schema`]);
-/// `test_no_unclassified_spv_tables` runs it against a fresh schema.
+impl SpvDbSnapshotSpec {
+    /// For source-schema classification only: the recognized table-name set is
+    /// independent of `burn_height`, so the guard uses a zero sentinel.
+    fn for_classification() -> Self {
+        Self { burn_height: 0 }
+    }
+}
+
+impl DbSnapshotSpec for SpvDbSnapshotSpec {
+    fn copy_specs(&self) -> TableCopySpecs<'static> {
+        TableCopySpecs::new(spv_copy_specs())
+    }
+
+    fn bind_params(&self, bind: TableCopyBind) -> Result<Vec<Value>, Error> {
+        match bind {
+            TableCopyBind::None => Ok(Vec::new()),
+            // `headers` filters `height <= ?1`; `chain_work` filters `interval < ?1`.
+            TableCopyBind::SpvBurnHeight => Ok(vec![Value::Integer(u64_to_sql(self.burn_height)?)]),
+            TableCopyBind::SpvCompleteChainWorkIntervals => Ok(vec![Value::Integer(u64_to_sql(
+                num_complete_chain_work_intervals(self.burn_height),
+            )?)]),
+            other => Err(Error::CorruptionError(format!(
+                "BUG: SPV snapshot does not handle table-copy bind {other:?}"
+            ))),
+        }
+    }
+
+    fn db_label(&self) -> &'static str {
+        "headers.sqlite"
+    }
+
+    fn classify_hint(&self) -> &'static str {
+        "spv_copy_specs() in snapshot/spv.rs"
+    }
+}
+
+/// The spv snapshot's source-schema guard (see
+/// [`DbSnapshotSpec::assert_source_classified`]); `test_no_unclassified_spv_tables`
+/// runs it against a fresh schema. The recognized set is independent of
+/// `burn_height`.
 pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
-    assert_source_schema(
-        src_conn,
-        &known_spv_tables(),
-        "headers.sqlite",
-        "REQUIRED_TABLES in snapshot/spv.rs",
-    )
+    SpvDbSnapshotSpec::for_classification().assert_source_classified(src_conn)
 }
 
 /// Row-count statistics returned by [`copy_spv_headers`].
@@ -81,36 +112,35 @@ pub fn copy_spv_headers(
     })
 }
 
-/// Build the copy specs for the SPV headers DB: `db_config` verbatim,
-/// `headers` up to `burn_height`, `chain_work` for complete difficulty
-/// intervals only.
-pub(super) fn spv_copy_specs(burn_height: u64) -> Vec<TableCopySpec> {
-    let complete_intervals = num_complete_chain_work_intervals(burn_height);
-    vec![
-        TableCopySpec {
-            table: "db_config",
-            source_sql: "SELECT * FROM src.db_config".into(),
-        },
-        TableCopySpec {
-            table: "headers",
-            source_sql: format!("SELECT * FROM src.headers WHERE height <= {burn_height}"),
-        },
-        TableCopySpec {
-            table: "chain_work",
-            source_sql: format!(
-                "SELECT * FROM src.chain_work WHERE interval < {complete_intervals}"
-            ),
-        },
-    ]
+/// The copy specs for the SPV headers DB: `db_config` verbatim, `headers` up to
+/// `?1` (burn height), `chain_work` for complete difficulty intervals
+/// (`interval < ?1`). The runtime values are bound via
+/// [`SpvDbSnapshotSpec::bind_params`].
+pub(super) fn spv_copy_specs() -> &'static [TableCopySpec] {
+    static SPECS: &[TableCopySpec] = &[
+        TableCopySpec::sql("db_config", "SELECT * FROM src.db_config"),
+        TableCopySpec::sql_with_bind(
+            "headers",
+            "SELECT * FROM src.headers WHERE height <= ?1",
+            TableCopyBind::SpvBurnHeight,
+        ),
+        TableCopySpec::sql_with_bind(
+            "chain_work",
+            "SELECT * FROM src.chain_work WHERE interval < ?1",
+            TableCopyBind::SpvCompleteChainWorkIntervals,
+        ),
+    ];
+    SPECS
 }
 
 fn copy_spv_headers_inner(
     conn: &Connection,
     burn_height: u64,
 ) -> Result<SpvHeadersCopyStats, Error> {
-    clone_schemas_from_source(conn, REQUIRED_TABLES)?;
+    let spec = SpvDbSnapshotSpec { burn_height };
+    clone_schemas_from_source(conn, &spec.copy_specs().table_names())?;
 
-    let results = execute_copy_specs(conn, &spv_copy_specs(burn_height))?;
+    let results = spec.run_copy(conn)?;
 
     let stats = SpvHeadersCopyStats {
         headers_rows: copied_rows(&results, "headers"),

@@ -21,8 +21,8 @@ use rusqlite::{params, Connection, OpenFlags};
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
 
 use super::common::{
-    assert_source_schema, clone_schemas_from_source, copied_rows, execute_copy_specs,
-    with_offline_write_session, TableCopySpec,
+    clone_schemas_from_source, copied_rows, execute_copy_specs, with_offline_write_session,
+    DbSnapshotSpec, TableCopyBind, TableCopySpec, TableCopySpecs,
 };
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::Error;
@@ -53,26 +53,30 @@ pub struct NakamotoBlockCopyStats {
     pub total_blob_bytes: u64,
 }
 
-/// Tables copied from the source Nakamoto staging-blocks DB. The index-side
+/// The Nakamoto staging (`nakamoto.sqlite`) snapshot spec. The index-side
 /// staging tables (`staging_microblocks*`) come from the index DB and are
 /// classified in `index.rs`.
-pub(super) const NAKAMOTO_STAGING_TABLES: &[&str] = &["nakamoto_staging_blocks", "db_version"];
+pub(super) struct NakamotoStagingDbSnapshotSpec;
 
-/// Every table the Nakamoto staging snapshot accounts for. nakamoto.sqlite is not
-/// MARF-backed, so unlike the other slices no MARF infra tables are exempted.
-fn known_nakamoto_staging_tables() -> Vec<&'static str> {
-    NAKAMOTO_STAGING_TABLES.to_vec()
+impl DbSnapshotSpec for NakamotoStagingDbSnapshotSpec {
+    fn copy_specs(&self) -> TableCopySpecs<'static> {
+        TableCopySpecs::new(nakamoto_copy_specs())
+    }
+
+    fn db_label(&self) -> &'static str {
+        "Nakamoto staging DB"
+    }
+
+    fn classify_hint(&self) -> &'static str {
+        "nakamoto_copy_specs() in snapshot/blocks.rs"
+    }
 }
 
-/// The blocks snapshot's source-schema guard (see [`assert_source_schema`]);
+/// The blocks snapshot's source-schema guard (see
+/// [`DbSnapshotSpec::assert_source_classified`]);
 /// `test_no_unclassified_nakamoto_staging_tables` runs it against a fresh schema.
 pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
-    assert_source_schema(
-        src_conn,
-        &known_nakamoto_staging_tables(),
-        "Nakamoto staging DB",
-        "NAKAMOTO_STAGING_TABLES in snapshot/blocks.rs",
-    )
+    NakamotoStagingDbSnapshotSpec.assert_source_classified(src_conn)
 }
 
 /// Return the `(sequence, microblock_hash)` rows of processed,
@@ -207,23 +211,22 @@ fn populate_microblock_temp_tables(
 
 /// Copy specs for the confirmed-microblock tables, filtered by the temp
 /// tables [`populate_microblock_temp_tables`] builds.
-fn microblock_copy_specs() -> Vec<TableCopySpec> {
-    vec![
-        TableCopySpec {
-            table: "staging_microblocks",
-            source_sql: "SELECT s.* FROM src.staging_microblocks s \
+fn microblock_copy_specs() -> &'static [TableCopySpec] {
+    static SPECS: &[TableCopySpec] = &[
+        TableCopySpec::sql(
+            "staging_microblocks",
+            "SELECT s.* FROM src.staging_microblocks s \
                  WHERE s.microblock_hash IN (SELECT hash FROM temp.selected_microblocks) \
                    AND s.index_block_hash IN (SELECT ibh FROM temp.selected_parents) \
-                   AND s.orphaned = 0"
-                .into(),
-        },
-        TableCopySpec {
-            table: "staging_microblocks_data",
-            source_sql: "SELECT s.* FROM src.staging_microblocks_data s \
-                 WHERE s.block_hash IN (SELECT hash FROM temp.selected_microblocks)"
-                .into(),
-        },
-    ]
+                   AND s.orphaned = 0",
+        ),
+        TableCopySpec::sql(
+            "staging_microblocks_data",
+            "SELECT s.* FROM src.staging_microblocks_data s \
+                 WHERE s.block_hash IN (SELECT hash FROM temp.selected_microblocks)",
+        ),
+    ];
+    SPECS
 }
 
 /// Copy confirmed canonical epoch-2 microblock streams into the squashed index.
@@ -243,7 +246,12 @@ pub fn copy_confirmed_epoch2_microblocks(
         if !selected_hashes.is_empty() {
             populate_microblock_temp_tables(conn, &selected_hashes, &selected_parents)?;
 
-            let results = execute_copy_specs(conn, &microblock_copy_specs())?;
+            let results = execute_copy_specs(conn, microblock_copy_specs(), |bind| match bind {
+                TableCopyBind::None => Ok(Vec::new()),
+                other => Err(Error::CorruptionError(format!(
+                    "BUG: microblock copy does not handle table-copy bind {other:?}"
+                ))),
+            })?;
             stats.microblock_rows_copied = copied_rows(&results, "staging_microblocks");
 
             stats.microblock_bytes_copied = conn.query_row(
@@ -322,21 +330,18 @@ pub fn copy_epoch2_block_files(
 }
 
 /// Copy specs for the Nakamoto staging DB.
-pub(super) fn nakamoto_copy_specs() -> Vec<TableCopySpec> {
-    vec![
-        TableCopySpec {
-            table: "db_version",
-            source_sql: "SELECT * FROM src.db_version".into(),
-        },
-        TableCopySpec {
-            table: "nakamoto_staging_blocks",
-            source_sql: "SELECT s.* FROM src.nakamoto_staging_blocks s \
+pub(super) fn nakamoto_copy_specs() -> &'static [TableCopySpec] {
+    static SPECS: &[TableCopySpec] = &[
+        TableCopySpec::sql("db_version", "SELECT * FROM src.db_version"),
+        TableCopySpec::sql(
+            "nakamoto_staging_blocks",
+            "SELECT s.* FROM src.nakamoto_staging_blocks s \
                  WHERE s.orphaned = 0 \
                  AND s.index_block_hash IN \
-                 (SELECT index_block_hash FROM idx.nakamoto_block_headers)"
-                .into(),
-        },
-    ]
+                 (SELECT index_block_hash FROM idx.nakamoto_block_headers)",
+        ),
+    ];
+    SPECS
 }
 
 /// Create and populate `nakamoto.sqlite` with canonical `nakamoto_staging_blocks` rows.
@@ -369,9 +374,10 @@ pub fn copy_nakamoto_staging_blocks(
         &[("src", src_nakamoto_path), ("idx", squashed_index_path)],
         "",
         |conn| {
-            clone_schemas_from_source(conn, NAKAMOTO_STAGING_TABLES)?;
+            let spec = NakamotoStagingDbSnapshotSpec;
+            clone_schemas_from_source(conn, &spec.copy_specs().table_names())?;
 
-            let results = execute_copy_specs(conn, &nakamoto_copy_specs())?;
+            let results = spec.run_copy(conn)?;
 
             let total_blob_bytes: i64 = conn.query_row(
                 "SELECT COALESCE(SUM(LENGTH(data)), 0) FROM nakamoto_staging_blocks",

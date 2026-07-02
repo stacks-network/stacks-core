@@ -24,9 +24,8 @@ use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use tempfile::tempdir;
 
-use super::super::spv::{
-    assert_source_tables_classified, copy_spv_headers, spv_copy_specs, REQUIRED_TABLES,
-};
+use super::super::common::TableCopySpecs;
+use super::super::spv::{assert_source_tables_classified, copy_spv_headers, spv_copy_specs};
 use crate::burnchains::bitcoin::spv::{SpvClient, BLOCK_DIFFICULTY_CHUNK_SIZE, SPV_DB_VERSION};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::chainstate::stacks::index::Error;
@@ -45,22 +44,23 @@ fn test_no_unclassified_spv_tables() {
         .expect("fresh production SPV schema must be fully classified");
 }
 
-/// Every cloned table ([`REQUIRED_TABLES`]) must have a row-copy spec and vice versa,
-/// else it would be cloned but never populated (present-but-empty).
+/// Copy-spec coverage guard: no duplicate spec tables, and every SPV spec
+/// row-copies (none accidentally schema-only). The `known_*` set derives from
+/// the specs, so a dropped spec is caught by the unclassified-table guard.
 #[test]
-fn test_spv_copy_specs_match_required_tables() {
-    let spec_tables: Vec<&str> = spv_copy_specs(100).iter().map(|s| s.table).collect();
-    let spec_set: HashSet<&str> = spec_tables.iter().copied().collect();
+fn test_spv_copy_specs_well_formed() {
+    let tables: Vec<&str> = spv_copy_specs().iter().map(|s| s.table).collect();
+    let spec_set: HashSet<&str> = tables.iter().copied().collect();
     assert_eq!(
-        spec_tables.len(),
+        tables.len(),
         spec_set.len(),
         "duplicate table in spv_copy_specs"
     );
-    let required_set: HashSet<&str> = REQUIRED_TABLES.iter().copied().collect();
-    assert_eq!(
-        spec_set, required_set,
-        "every REQUIRED_TABLES entry must have exactly one copy spec (and vice versa); \
-         a cloned-but-uncopied table would be present-but-empty in the squash"
+    assert!(
+        TableCopySpecs::new(spv_copy_specs())
+            .schema_only()
+            .is_empty(),
+        "spv has no schema-only tables; every spec must row-copy"
     );
 }
 
