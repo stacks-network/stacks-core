@@ -526,8 +526,8 @@ fn test_variadic_map_list() {
 /// where the fixed Epoch 4.0 behavior would return an empty list. Cases without
 /// an empty input sequence are unaffected and match the fixed behavior.
 ///
-/// Runs at Clarity 5 / Epoch 3.4, the last version/epoch pairing
-/// before the fix activates (see [`test_variadic_map_list`]).
+/// Runs at Epoch 3.4, the last epoch before the fix activates
+/// (see [`test_variadic_map_list`]).
 #[test]
 fn test_variadic_map_list_pre_epoch40() {
     let exec = |program: &str| {

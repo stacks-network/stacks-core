@@ -188,38 +188,23 @@ pub fn special_fold(
 ///
 /// `args[0]` is the function name (atom) and `args[1..]` are the sequence expressions.
 ///
-/// # Epoch-based dispatch
+/// # Epoch-gated dispatch
 ///
-/// - [`special_map_v200`]: Epoch 2.0 .. 3.4 (legacy re-arrange logic with an
+/// Dispatch keys on [`StacksEpochId::fixes_map_off_by_one`]:
+/// - [`special_map_v200`]: before the fix (legacy re-arrange logic with an
 ///   off-by-one in the shortest-sequence bound)
-/// - [`special_map_v400`]: Epoch 4.0+ (fixed: iterates exactly the length of
+/// - [`special_map_v400`]: from the fix onward (iterates exactly the length of
 ///   the shortest input sequence)
-///
-/// The fix in [`special_map_v400`] is consensus-breaking, so it is gated to
-/// Epoch 4.0 onwards; earlier epochs must preserve the historical behavior.
 pub fn special_map(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
     invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    match exec_state.epoch() {
-        StacksEpochId::Epoch10 => {
-            panic!("Executing Clarity method during Epoch 1.0, before Clarity")
-        }
-        StacksEpochId::Epoch20
-        | StacksEpochId::Epoch2_05
-        | StacksEpochId::Epoch21
-        | StacksEpochId::Epoch22
-        | StacksEpochId::Epoch23
-        | StacksEpochId::Epoch24
-        | StacksEpochId::Epoch25
-        | StacksEpochId::Epoch30
-        | StacksEpochId::Epoch31
-        | StacksEpochId::Epoch32
-        | StacksEpochId::Epoch33
-        | StacksEpochId::Epoch34 => special_map_v200(args, exec_state, invoke_ctx, context),
-        StacksEpochId::Epoch40 => special_map_v400(args, exec_state, invoke_ctx, context),
+    if exec_state.epoch().fixes_map_off_by_one() {
+        special_map_v400(args, exec_state, invoke_ctx, context)
+    } else {
+        special_map_v200(args, exec_state, invoke_ctx, context)
     }
 }
 

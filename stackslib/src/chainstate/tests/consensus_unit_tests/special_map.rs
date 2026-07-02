@@ -20,8 +20,8 @@
 //! when an empty sequence was mixed with a non-empty one, iterated one step too
 //! far — emitting a spurious element or applying the mapped function with too
 //! few arguments. The fix (`special_map_v400`) is consensus-breaking, so it
-//! is gated to Clarity 6 / Epoch 4.0 ([`MAP_FIX_EPOCH`]); earlier epochs must
-//! preserve the buggy behavior.
+//! is gated to Epoch 4.0 ([`MAP_FIX_EPOCH`]); earlier epochs must preserve the
+//! buggy behavior.
 
 use clarity::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 use clarity::vm::{ClarityVersion, Value};
@@ -30,7 +30,7 @@ use crate::chainstate::tests::consensus::{
     contract_call_consensus_unit_test, contract_deploy_consensus_unit_test,
 };
 
-/// Epoch in which the `map` off-by-one fix activates (Clarity 6).
+/// Epoch in which the `map` off-by-one fix activates (Epoch 4.0).
 /// Executions strictly before this epoch use the buggy `special_map_v200`;
 /// from this epoch on they use the fixed `special_map_v400`.
 const MAP_FIX_EPOCH: StacksEpochId = StacksEpochId::Epoch40;
@@ -41,7 +41,7 @@ const MAP_FIX_EPOCH: StacksEpochId = StacksEpochId::Epoch40;
 /// mapped function's argument type (`int`) does not admit.
 ///
 /// This is the consensus-consistent counterpart to
-/// [`map_runtime_empty_native_fn_diverges_at_clarity6`]: the off-by-one is only
+/// [`map_runtime_empty_native_fn_diverges_at_epoch40`]: the off-by-one is only
 /// reachable when the empty sequence is empty *at runtime* while carrying a
 /// concrete static type (see that test).
 #[test]
@@ -83,7 +83,7 @@ fn map_empty_literal_sequence_is_rejected_by_analysis_in_all_epochs() {
 /// Deploy and call happen in every epoch/version to prove the divergence is
 /// gated purely on the *execution* epoch.
 #[test]
-fn map_runtime_empty_native_fn_diverges_at_clarity6() {
+fn map_runtime_empty_native_fn_diverges_at_epoch40() {
     let report = contract_call_consensus_unit_test!(
         contract_name: "map_empty_plus",
         contract_code: "
@@ -138,7 +138,7 @@ fn map_runtime_empty_native_fn_diverges_at_clarity6() {
 /// - From [`MAP_FIX_EPOCH`] on: iteration stops at the empty sequence, so no
 ///   error occurs and the call succeeds with `(ok (list))`.
 #[test]
-fn map_runtime_empty_strict_arity_fn_diverges_at_clarity6() {
+fn map_runtime_empty_strict_arity_fn_diverges_at_epoch40() {
     let report = contract_call_consensus_unit_test!(
         contract_name: "map_empty_area",
         contract_code: "
