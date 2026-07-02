@@ -481,6 +481,7 @@ fn main() {
     {
         if conf.miner.max_assembly_mem_bytes > 0
             || conf.connection_options.block_proposal_max_tx_mem_bytes > 0
+            || conf.connection_options.read_only_call_max_mem_bytes > 0
         {
             if !tracking_allocator_installed() {
                 panic!("Tracking allocator must be installed to set a memory limit");
