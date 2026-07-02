@@ -820,6 +820,19 @@ impl StacksEpochId {
         self < &StacksEpochId::Epoch40
     }
 
+    /// Whether the Clarity `map` built-in stops iteration at the shortest input
+    /// sequence.
+    ///
+    /// The original implementation had an off-by-one when mapping over sequences
+    /// of unequal length that included an empty sequence: it iterated one step
+    /// past the shortest sequence, producing a spurious element (or a runtime
+    /// arity error for a strict-arity function) instead of stopping. This is
+    /// corrected from Epoch 4.0 onwards. The fix is consensus-breaking, so
+    /// earlier epochs must preserve the misbehavior.
+    pub fn fixes_map_off_by_one(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {
