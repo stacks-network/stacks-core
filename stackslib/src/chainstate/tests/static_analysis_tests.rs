@@ -64,13 +64,20 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         MemoryBalanceExceeded(_, _) => Tested(vec![static_check_error_memory_balance_exceeded]),
         CostComputationFailed(_) => Unreachable_ExpectLike,
         ExecutionTimeExpired => Unreachable_Functionally("Can only be triggered at runtime."),
-        ValueTooLarge => Tested(vec![static_check_error_value_too_large]),
+        // `tuple_merge_exceeds_max_value_size_cdeploy` produces `ValueTooLarge` at 4.0+ (an
+        // oversized tuple `merge` rejected at the merge site); pre-4.0 the same test surfaces
+        // as `Unreachable` (see that arm below).
+        ValueTooLarge => Tested(vec![
+            static_check_error_value_too_large,
+            tuple_merge_exceeds_max_value_size_cdeploy,
+        ]),
         ValueOutOfBounds => Tested(vec![static_check_error_value_out_of_bounds]),
         TypeSignatureTooDeep => Tested(vec![static_check_error_type_signature_too_deep]),
         ExpectedName => Tested(vec![static_check_error_expected_name]),
         SupertypeTooLarge => Tested(vec![static_check_error_supertype_too_large]),
-        // Normally a "Unreachable_ExpectLike", but an oversized tuple `merge` reaches it
-        // via an `InvariantViolation` from `.size()` in `new_response`.
+        // Normally a "Unreachable_ExpectLike", but pre-4.0 an oversized tuple `merge` reaches
+        // it via an `InvariantViolation` from `.size()` in `new_response`. (At 4.0+ the same
+        // test is rejected earlier as `ValueTooLarge` — see that arm above.)
         Unreachable(_) => Tested(vec![tuple_merge_exceeds_max_value_size_cdeploy]),
         BadMatchOptionSyntax(static_check_error_kind) => {
             Tested(vec![static_check_error_bad_match_option_syntax])
@@ -1422,12 +1429,17 @@ fn error_invalid_stacks_transaction_duplicate_contract() {
     insta::assert_ron_snapshot!(result);
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::Unreachable`]
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::Unreachable`] pre-4.0 /
+///   [`StaticCheckErrorKind::ValueTooLarge`] 4.0+.
 /// Caused by: `(ok (merge ta tb))` of two individually-valid ~512 KiB tuples whose combined
-/// size exceeds `MAX_VALUE_SIZE`; `new_response` calls `.size()` on the merged tuple type,
-/// which raises `InvariantViolation` and is surfaced as `Unreachable`. Demonstrates that the
-/// `Unreachable` catch-all is in fact reachable via an oversized tuple `merge`.
-/// Outcome: block rejected.
+/// size exceeds `MAX_VALUE_SIZE`.
+///   - pre-4.0: `check_special_merge` does not size the merge, so the oversized type
+///     propagates until `new_response` calls `.size()` on it, raising `InvariantViolation`
+///     surfaced as `Unreachable` (demonstrating the `Unreachable` catch-all is in fact
+///     reachable via an oversized tuple `merge`).
+///   - 4.0+: `check_special_merge` rejects the oversized merge at the merge site with the
+///     checked `ValueTooLarge`.
+/// Outcome: block rejected pre-4.0, accepted 4.0+ (deploy tx mined with `committed:false`).
 #[test]
 fn tuple_merge_exceeds_max_value_size_cdeploy() {
     contract_deploy_consensus_snap_test!(
@@ -1474,11 +1486,25 @@ fn tuple_merge_exceeds_max_value_size_cdeploy() {
     );
 }
 
-/// Runtime reachability check (ORIGINAL code): oversized `(merge ta tb)` bound in a `let`
-/// but NEVER sized (function returns `(ok true)`). No `new_response`/`.size()` is triggered
-/// at analysis, so the oversized type slips past the static checker, the contract DEPLOYS,
-/// and the runtime `merge` actually executes. This pins the true pre-PR runtime behavior so
-/// we know what an epoch gate must preserve for epochs < 4.0.
+/// Runtime reachability of an oversized tuple `merge`: `(merge ta tb)` bound in a `let` but
+/// NEVER sized (the function returns `(ok true)`). Because nothing sizes the merged type at
+/// analysis, this is the case that slips past the static checker pre-4.0. The test deploys in
+/// both Epoch34 and Epoch40 and calls `run` in both, exercising the static gate (deploy) and
+/// the runtime gate (call) across the boundary.
+///
+/// Error family: `VmInternalError::Expect` (block-invalidating) pre-4.0 at runtime;
+///   [`StaticCheckErrorKind::ValueTooLarge`] 4.0+ at analysis time.
+///
+/// Behavior:
+///   - pre-4.0: the contract DEPLOYS (analysis never sizes the merge); calling `run` then
+///     executes the runtime `merge`, and computing the oversized value size during cost
+///     calculation raises a block-invalidating `InvariantViolation`/`Expect`.
+///   - 4.0+: the deploy is rejected at analysis (`ValueTooLarge`, tx `committed:false`); and a
+///     contract deployed pre-4.0 but called at 4.0+ reaches the runtime gate, which rejects
+///     the oversized `merge` cleanly with `ValueTooLarge` (tx `committed:false`) instead of
+///     invalidating the block.
+/// Outcome: the `run` call invalidates the block pre-4.0, but is accepted at 4.0+ (both the
+/// deploy and the call are mined with `committed:false`).
 #[test]
 fn tuple_merge_overflow_unused_runtime_ccall() {
     contract_call_consensus_snap_test!(
@@ -1520,6 +1546,5 @@ fn tuple_merge_overflow_unused_runtime_ccall() {
         function_args: &[],
         deploy_epochs: &[StacksEpochId::Epoch34, StacksEpochId::Epoch40],
         call_epochs: &[StacksEpochId::Epoch34, StacksEpochId::Epoch40],
-        clarity_versions: &[ClarityVersion::Clarity3],
     );
 }
