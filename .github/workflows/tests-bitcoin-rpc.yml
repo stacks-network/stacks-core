@@ -9,8 +9,8 @@ on:
         description: "The test archive file"
         required: true
         type: string
-      btc-version:
-        description: "Bitcoin version"
+      debug-binary-path:
+        description: "Debug binary path"
         required: true
         type: string
 
@@ -93,9 +93,8 @@ jobs:
         uses: ./.github/actions/cache/bitcoin
         with:
           action: restore
-          btc-version: ${{ inputs.btc-version }}
      
-      # Symlink bitoind to $PATH
+      # Symlink bitcoind to $PATH
       - name: Link Bitcoin Binary
         shell: bash
         run: |
@@ -107,13 +106,13 @@ jobs:
         run: |
           sudo prlimit --nofile=4096:4096
         
-      # Restore nextest test archive cache data
-      - name: Restore Test Archive Cache
-        id: restore_test_cache
-        uses: ./.github/actions/cache/test-archive
+      # Restore Nextest archive artifact
+      - name: Restore Nextest Archive Artifact
+        uses: ./.github/actions/artifacts/nextest-archive
         with:
           action: restore
           archive-file: ${{ inputs.archive-file }}
+          debug-binary-path: ${{ inputs.debug-binary-path }}
 
       # Pull bitcoin docker image
       - name: Pull bitcoind image (${{ matrix.bitcoin_version }})
@@ -148,7 +147,10 @@ jobs:
     name: Check Tests
     needs:
       - test-rpc
-    if: always() && !cancelled()
+    if: |
+      always() && 
+      !cancelled() &&
+      github.event_name != 'merge_group'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code

@@ -149,6 +149,8 @@ const DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
 /// Default maximum memory allocation during block proposal evaluation. Defaults higher than miner default
 ///  to avoid miner/signer environment skews.
 pub const DEFAULT_PROPOSAL_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
+/// Default maximum heap allocation for a single read-only RPC call before it is aborted.
+pub const DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES: u64 = 1024 * 1024 * 1024; // 1 GB
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -3730,6 +3732,14 @@ pub struct ConnectionOptionsFile {
     /// @units: seconds
     pub read_only_max_execution_time_secs: Option<u64>,
 
+    /// Maximum bytes a single read-only RPC call may allocate on the heap before
+    /// it is aborted.
+    /// `0` disables the limit.
+    /// ---
+    /// @default: [`DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES`]
+    /// @units: bytes
+    pub read_only_call_max_mem_bytes: Option<u64>,
+
     /// Maximum time (in seconds) to spend validating a block when processing
     /// a block proposal received via the `/v3/block_proposal` RPC endpoint.
     ///
@@ -3943,6 +3953,9 @@ impl ConnectionOptionsFile {
             read_only_max_execution_time_secs: self
                 .read_only_max_execution_time_secs
                 .unwrap_or(default.read_only_max_execution_time_secs),
+            read_only_call_max_mem_bytes: self
+                .read_only_call_max_mem_bytes
+                .unwrap_or(default.read_only_call_max_mem_bytes),
             block_proposal_validation_timeout_secs: self
                 .block_proposal_validation_timeout_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS),
