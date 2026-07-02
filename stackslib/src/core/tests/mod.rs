@@ -1235,6 +1235,132 @@ fn test_iterate_candidates_concurrent_write_lock() {
 }
 
 #[test]
+/// Transactions with future nonces are held (never considered) while the account's
+/// next nonce is missing from the mempool, and filling the gap releases the whole
+/// chain in nonce order within a single walk. Ports the mempool behavior of the
+/// removed mocknet integration test `mine_transactions_out_of_order`.
+fn test_iterate_candidates_nonce_gap_hold_and_release() {
+    let mut chainstate =
+        instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
+    let chainstate_path = chainstate_path(function_name!());
+    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+    let b_1 = make_block(
+        &mut chainstate,
+        ConsensusHash([0x1; 20]),
+        &(
+            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            FIRST_STACKS_BLOCK_HASH.clone(),
+        ),
+        1,
+        1,
+    );
+    let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
+
+    let mempool_settings = MemPoolWalkSettings::default();
+    let mut tx_events = Vec::new();
+
+    // one standard-auth token-transfer template; all four txs share its origin,
+    // so they form a single nonce chain
+    let template = codec_all_transactions(
+        &TransactionVersion::Testnet,
+        0x80000000,
+        &TransactionAnchorMode::Any,
+        &TransactionPostConditionMode::Allow,
+        StacksEpochId::latest(),
+    )
+    .into_iter()
+    .find(|tx| {
+        matches!(tx.payload, TransactionPayload::TokenTransfer(..))
+            && matches!(tx.auth, TransactionAuth::Standard(..))
+    })
+    .unwrap();
+
+    let submit = |chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, nonce: u64| {
+        let mut tx = template.clone();
+        tx.set_origin_nonce(nonce);
+        tx.set_tx_fee(100);
+        let origin_address = tx.origin_address();
+        let sponsor_address = tx.sponsor_address().unwrap_or(origin_address.clone());
+        let txid = tx.txid();
+        let tx_bytes = tx.serialize_to_vec();
+        let tx_fee = tx.get_tx_fee();
+        let mut mempool_tx = mempool.tx_begin().unwrap();
+        MemPoolDB::try_add_tx(
+            &mut mempool_tx,
+            chainstate,
+            &b_1.0,
+            &b_1.1,
+            true,
+            &txid,
+            tx_bytes,
+            tx_fee,
+            100,
+            &origin_address,
+            nonce,
+            &sponsor_address,
+            nonce,
+            None,
+        )
+        .unwrap();
+        mempool_tx.commit().unwrap();
+    };
+
+    let walk = |chainstate: &mut StacksChainState,
+                mempool: &mut MemPoolDB,
+                tx_events: &mut Vec<_>| {
+        let mut considered = Vec::new();
+        chainstate.with_read_only_clarity_tx(
+            &TEST_BURN_STATE_DB,
+            &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
+            |clarity_conn| {
+                mempool
+                    .iterate_candidates::<_, ChainstateError, _>(
+                        clarity_conn,
+                        tx_events,
+                        mempool_settings.clone(),
+                        |_, available_tx, _| {
+                            considered.push(available_tx.tx.metadata.origin_nonce);
+                            Ok(Some(
+                                TransactionResult::success(
+                                    &available_tx.tx.tx,
+                                    StacksTransactionReceipt::from_stx_transfer(
+                                        available_tx.tx.tx.clone(),
+                                        vec![],
+                                        Value::okay(Value::Bool(true)).unwrap(),
+                                        ExecutionCost::ZERO,
+                                    ),
+                                )
+                                .convert_to_event(),
+                            ))
+                        },
+                    )
+                    .unwrap();
+            },
+        );
+        considered
+    };
+
+    // submit nonces 1, 2, 3: the account's next nonce (0) is missing
+    for nonce in 1..=3 {
+        submit(&mut chainstate, &mut mempool, nonce);
+    }
+    let considered = walk(&mut chainstate, &mut mempool, &mut tx_events);
+    assert!(
+        considered.is_empty(),
+        "txs with nonces 1..=3 must be held while nonce 0 is missing, considered: {considered:?}"
+    );
+
+    // filling the gap releases the whole chain in nonce order
+    submit(&mut chainstate, &mut mempool, 0);
+    let considered = walk(&mut chainstate, &mut mempool, &mut tx_events);
+    assert_eq!(
+        considered,
+        vec![0, 1, 2, 3],
+        "filling the gap must release all held txs in nonce order"
+    );
+}
+
+#[test]
 fn mempool_do_not_replace_tx() {
     let mut chainstate =
         instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
