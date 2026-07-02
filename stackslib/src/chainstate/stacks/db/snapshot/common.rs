@@ -172,7 +172,8 @@ pub fn clone_schemas_from_source(conn: &Connection, tables: &[&str]) -> Result<(
 /// them once at the end (one rebuild vs N per-row B-tree updates).
 /// `sqlite_autoindex_*` have `sql IS NULL` and are skipped.
 ///
-/// Returns a vec of (table_name, rows_copied).
+/// Returns a vec of (table_name, rows_copied), including `(table, 0)` for
+/// schema-only specs.
 ///
 /// `binds` supplies the positional bind values for a spec's
 /// [`TableCopyBind`] placeholders (empty for specs with none). It returns
@@ -187,6 +188,7 @@ pub fn execute_copy_specs(
         // SchemaOnly tables are schema-cloned by `clone_schemas_from_source`;
         // there are no rows to copy here.
         let TableCopySource::Sql(source_sql) = &spec.source else {
+            results.push((spec.table, 0));
             continue;
         };
         let params = binds(spec.bind)?;
@@ -209,7 +211,7 @@ pub fn execute_copy_specs(
 
 /// Look up the rows-copied count for `table` in [`execute_copy_specs`]
 /// results. Panics if `table` had no spec: that is a bug in the caller's
-/// spec list, not a data error.
+/// spec list, not a data error. Schema-only specs are reported as 0 rows.
 pub fn copied_rows(results: &[(&'static str, u64)], table: &str) -> u64 {
     results
         .iter()
@@ -479,8 +481,9 @@ pub trait DbSnapshotSpec {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use rusqlite::Connection;
 
-    use super::percent_encode_path;
+    use super::{copied_rows, execute_copy_specs, percent_encode_path, TableCopySpec};
 
     /// Representative paths survive the `file:` URI percent-encoding used
     /// by [`super::with_offline_write_session`]'s read-only ATTACH.
@@ -494,5 +497,19 @@ mod tests {
     #[case::non_ascii_as_utf8_bytes("/tmp/café", "/tmp/caf%C3%A9")]
     fn percent_encode_path_cases(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(percent_encode_path(input), expected);
+    }
+
+    #[test]
+    fn execute_copy_specs_reports_schema_only_zero_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        let specs = [TableCopySpec::schema_only("schema_only_table")];
+
+        let results = execute_copy_specs(&conn, &specs, |_| {
+            panic!("schema-only specs must not request bind params")
+        })
+        .unwrap();
+
+        assert_eq!(results, vec![("schema_only_table", 0)]);
+        assert_eq!(copied_rows(&results, "schema_only_table"), 0);
     }
 }
