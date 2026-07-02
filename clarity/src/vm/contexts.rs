@@ -1781,6 +1781,10 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         self.execution_time_tracker = TimeTracker::from_max_duration(max_execution_time);
     }
 
+    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
+        self.abort_callback = callback;
+    }
+
     fn get_asset_map(&mut self) -> Result<&mut AssetMap, VmExecutionError> {
         self.asset_maps
             .last_mut()
