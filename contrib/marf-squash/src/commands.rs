@@ -16,24 +16,24 @@
 use std::path::{Path, PathBuf};
 
 use stackslib::chainstate::stacks::db::snapshot::{
+    copy_confirmed_epoch2_microblocks, copy_epoch2_block_files, copy_nakamoto_staging_blocks,
     Epoch2BlockFileCopyStats, Epoch2MicroblockCopyStats, NakamotoBlockCopyStats,
-    SortitionTipCopyBoundary, copy_confirmed_epoch2_microblocks, copy_epoch2_block_files,
-    copy_nakamoto_staging_blocks,
+    SortitionTipCopyBoundary,
 };
 
 use crate::cli::SquashArgs;
 use crate::config::{build_pox_constants, enforce_minimum_tenure_height};
-use crate::db::{DbConfig, read_db_config, read_marf_open_opts};
+use crate::db::{read_db_config, read_marf_open_opts, DbConfig};
 use crate::layout::{
-    BLOCKS_DIR_REL, BURNCHAIN_DB_REL, CLARITY_MARF_REL, ChainstatePaths, HEADERS_DB_REL,
-    INDEX_DB_REL, NAKAMOTO_DB_REL, SORTITION_MARF_REL, TargetPaths, chainstate_paths,
-    target_out_paths,
+    chainstate_paths, target_out_paths, ChainstatePaths, TargetPaths, BLOCKS_DIR_REL,
+    BURNCHAIN_DB_REL, CLARITY_MARF_REL, HEADERS_DB_REL, INDEX_DB_REL, NAKAMOTO_DB_REL,
+    SORTITION_MARF_REL,
 };
-use crate::manifest::{BlocksSection, ManifestInputs, generate_manifest};
+use crate::manifest::{generate_manifest, BlocksSection, ManifestInputs};
 use crate::ops::{
-    BitcoinAuxFiles, SideTableMode, SquashJob, copy_bitcoin_aux_files, squash_and_copy_one,
+    copy_bitcoin_aux_files, squash_and_copy_one, BitcoinAuxFiles, SideTableMode, SquashJob,
 };
-use crate::targets::{CanonicalSquashTargets, SquashTargetQuery, resolve_canonical_squash_targets};
+use crate::targets::{resolve_canonical_squash_targets, CanonicalSquashTargets, SquashTargetQuery};
 
 /// The resolved set of squash targets for one `squash` invocation. `--all`
 /// selects all five; `from_args` validates that at least one target is selected
@@ -527,7 +527,7 @@ mod tests {
 
     use rstest::rstest;
 
-    use super::{SquashPlan, is_known_network, network_subdir};
+    use super::{is_known_network, network_subdir, SquashPlan};
     use crate::cli::SquashArgs;
 
     /// Build a `SquashArgs` from the target-flag tuple
@@ -625,7 +625,7 @@ mod tests {
 
     #[test]
     fn output_lands_under_network_subdir() {
-        use crate::layout::{CLARITY_MARF_REL, INDEX_DB_REL, target_out_paths};
+        use crate::layout::{target_out_paths, CLARITY_MARF_REL, INDEX_DB_REL};
 
         // The layout contract: `--out-dir` is the working_dir, and the squash
         // targets land at `<out-dir>/<network>/...`.

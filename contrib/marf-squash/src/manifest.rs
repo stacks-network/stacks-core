@@ -30,17 +30,17 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use stacks_common::types::chainstate::{SortitionId, StacksBlockId};
-use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnection};
-use stackslib::chainstate::stacks::index::{MarfTrieId, trie_sql};
+use stackslib::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
+use stackslib::chainstate::stacks::index::{trie_sql, MarfTrieId};
 use stackslib::util_lib::db::sqlite_open;
 
 use crate::checksums::{compute_aggregate_checksum, compute_checksums};
 use crate::db::{
-    DbConfig, derive_expected_epoch2_block_rel_paths, read_db_config_from_conn, read_marf_open_opts,
+    derive_expected_epoch2_block_rel_paths, read_db_config_from_conn, read_marf_open_opts, DbConfig,
 };
 use crate::layout::{
-    BURNCHAIN_DB_REL, HEADERS_DB_REL, NAKAMOTO_DB_REL, PCS_MANIFEST, TargetPaths,
-    canonical_rel_path,
+    canonical_rel_path, TargetPaths, BURNCHAIN_DB_REL, HEADERS_DB_REL, NAKAMOTO_DB_REL,
+    PCS_MANIFEST,
 };
 
 #[derive(Serialize, Deserialize)]
