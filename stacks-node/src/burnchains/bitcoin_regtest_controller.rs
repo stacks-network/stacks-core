@@ -3667,10 +3667,7 @@ mod tests {
             );
 
             assert!(resubmit.is_err());
-            assert_eq!(
-                BurnchainsError::IdenticalOperation,
-                resubmit.unwrap_err()
-            );
+            assert_eq!(BurnchainsError::IdenticalOperation, resubmit.unwrap_err());
         }
 
         #[test]
@@ -3719,10 +3716,7 @@ mod tests {
             );
 
             assert!(resubmit.is_err());
-            assert_eq!(
-                BurnchainsError::IdenticalOperation,
-                resubmit.unwrap_err()
-            );
+            assert_eq!(BurnchainsError::IdenticalOperation, resubmit.unwrap_err());
         }
 
         #[test]
@@ -4043,10 +4037,7 @@ mod tests {
                 .unwrap_err();
 
             assert!(
-                matches!(
-                    err,
-                    BurnchainsError::TransactionSubmissionFailed(_)
-                ),
+                matches!(err, BurnchainsError::TransactionSubmissionFailed(_)),
                 "Error should be TransactionSubmissionFailed, but was {err}"
             );
             assert!(

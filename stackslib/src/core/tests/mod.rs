@@ -1305,40 +1305,39 @@ fn test_iterate_candidates_nonce_gap_hold_and_release() {
         mempool_tx.commit().unwrap();
     };
 
-    let walk = |chainstate: &mut StacksChainState,
-                mempool: &mut MemPoolDB,
-                tx_events: &mut Vec<_>| {
-        let mut considered = Vec::new();
-        chainstate.with_read_only_clarity_tx(
-            &TEST_BURN_STATE_DB,
-            &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
-            |clarity_conn| {
-                mempool
-                    .iterate_candidates::<_, ChainstateError, _>(
-                        clarity_conn,
-                        tx_events,
-                        mempool_settings.clone(),
-                        |_, available_tx, _| {
-                            considered.push(available_tx.tx.metadata.origin_nonce);
-                            Ok(Some(
-                                TransactionResult::success(
-                                    &available_tx.tx.tx,
-                                    StacksTransactionReceipt::from_stx_transfer(
-                                        available_tx.tx.tx.clone(),
-                                        vec![],
-                                        Value::okay(Value::Bool(true)).unwrap(),
-                                        ExecutionCost::ZERO,
-                                    ),
-                                )
-                                .convert_to_event(),
-                            ))
-                        },
-                    )
-                    .unwrap();
-            },
-        );
-        considered
-    };
+    let walk =
+        |chainstate: &mut StacksChainState, mempool: &mut MemPoolDB, tx_events: &mut Vec<_>| {
+            let mut considered = Vec::new();
+            chainstate.with_read_only_clarity_tx(
+                &TEST_BURN_STATE_DB,
+                &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
+                |clarity_conn| {
+                    mempool
+                        .iterate_candidates::<_, ChainstateError, _>(
+                            clarity_conn,
+                            tx_events,
+                            mempool_settings.clone(),
+                            |_, available_tx, _| {
+                                considered.push(available_tx.tx.metadata.origin_nonce);
+                                Ok(Some(
+                                    TransactionResult::success(
+                                        &available_tx.tx.tx,
+                                        StacksTransactionReceipt::from_stx_transfer(
+                                            available_tx.tx.tx.clone(),
+                                            vec![],
+                                            Value::okay(Value::Bool(true)).unwrap(),
+                                            ExecutionCost::ZERO,
+                                        ),
+                                    )
+                                    .convert_to_event(),
+                                ))
+                            },
+                        )
+                        .unwrap();
+                },
+            );
+            considered
+        };
 
     // submit nonces 1, 2, 3: the account's next nonce (0) is missing
     for nonce in 1..=3 {
