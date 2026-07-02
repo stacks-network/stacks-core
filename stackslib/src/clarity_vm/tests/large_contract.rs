@@ -244,6 +244,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &contract_identifier,
                     ClarityVersion::Clarity2,
                     tokens_contract,
+                    None,
                 )
                 .unwrap();
             tx.initialize_smart_contract(

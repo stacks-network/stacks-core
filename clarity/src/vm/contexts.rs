@@ -1663,6 +1663,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
             self.global_context.epoch_id,
             clarity_version,
             true,
+            TimeTracker::unlimited(),
         )
         .map_err(|boxed_err| {
             let (boxed_check_error, _cost_tracker) = *boxed_err;
@@ -2945,6 +2946,7 @@ mod test {
             exec_state.global_context.epoch_id,
             clarity_version,
             true,
+            TimeTracker::unlimited(),
         )
         .map_err(|boxed_err| {
             let (boxed_check_error, _cost_tracker) = *boxed_err;
@@ -2976,6 +2978,7 @@ mod test {
             exec_state.global_context.epoch_id,
             clarity_version,
             true,
+            TimeTracker::unlimited(),
         )
         .map_err(|boxed_err| {
             let (boxed_check_error, _cost_tracker) = *boxed_err;
