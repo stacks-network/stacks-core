@@ -44,8 +44,8 @@ pub enum CostErrors {
     /// Invalidates Block: false.
     CostComputationFailed(String),
     // Time checker errors
-    /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    /// Invalidates Block: true.
+    /// Runtime (eval) execution time exceeds the allowed budget, halting execution to ensure responsiveness.
+    /// Invalidates Block: false (soft, node-local limit applied only on the mining / block-proposal paths).
     ExecutionTimeExpired,
     /// Unexpected condition or failure, indicating a bug or invalid state.
     /// Invalidates Block: true.

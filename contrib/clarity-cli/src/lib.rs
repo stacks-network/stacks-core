@@ -29,6 +29,7 @@ use clarity::vm::database::{
 };
 use clarity::vm::errors::{ClarityEvalError, StaticCheckError, VmExecutionError};
 use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::time_tracker::TimeTracker;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{
     ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
@@ -245,6 +246,8 @@ fn run_analysis_free<C: ClarityStorage>(
         clarity_version,
         // no type map data is used in the clarity_cli
         false,
+        // CLI tool: no analysis deadline
+        TimeTracker::unlimited(),
     )
 }
 
@@ -280,6 +283,8 @@ fn run_analysis<C: ClarityStorage>(
         clarity_version,
         // no type map data is used in the clarity_cli
         false,
+        // CLI tool: no analysis deadline
+        TimeTracker::unlimited(),
     )
 }
 

@@ -64,6 +64,7 @@ fn test_try_parse_request() {
     let mut handler = fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(
         4096,
         Duration::from_secs(30),
+        ConnectionOptions::default().read_only_call_max_mem_bytes,
         Some("password".into()),
     );
     let mut parsed_request = http

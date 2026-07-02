@@ -25,7 +25,9 @@ use crate::chainstate::stacks::index::node::{
     TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::TrieStorageConnection;
-use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieLeaf};
+use crate::chainstate::stacks::index::{
+    BlockMap, Error, MarfTrieId, TrieLeaf, MARF_VALUE_ENCODED_SIZE,
+};
 use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use crate::util::hash::to_hex;
@@ -785,6 +787,37 @@ pub fn get_node_byte_len(node: &TrieNodeType) -> usize {
     let hash_len = TRIEHASH_ENCODED_SIZE;
     let node_byte_len = node.byte_len();
     hash_len + node_byte_len
+}
+
+/// Upper bound on a node's on-disk size (hash + body) for node type `id`,
+/// used to size best-effort prefetch reads without first reading the node.
+///
+/// `u64_ptr_offsets` selects the child-pointer offset width: callers pass
+/// `true` for a squashed source (a single trie can exceed 4 GiB) and
+/// `false` for archival. Computes the uncompressed size.
+/// Errors on `Empty`/`Patch`, which the squash DFS never prefetches.
+pub fn get_node_max_byte_len(id: u8, u64_ptr_offsets: bool) -> Result<usize, Error> {
+    // A width-correct template pointer lets `get_ptrs_byte_len` compute the
+    // body without re-deriving the per-pointer size here.
+    let ptr = if u64_ptr_offsets {
+        TriePtr::widest_encoded()
+    } else {
+        TriePtr::default()
+    };
+    let path_max = get_path_byte_len(&[0u8; TRIEHASH_ENCODED_SIZE]);
+    let body = match TrieNodeID::from_u8(clear_ctrl_bits(id)) {
+        Some(TrieNodeID::Leaf) => 1 + path_max + MARF_VALUE_ENCODED_SIZE as usize,
+        Some(TrieNodeID::Node4) => get_ptrs_byte_len(&[ptr; 4]) + path_max,
+        Some(TrieNodeID::Node16) => get_ptrs_byte_len(&[ptr; 16]) + path_max,
+        Some(TrieNodeID::Node48) => get_ptrs_byte_len(&[ptr; 48]) + 256 + path_max,
+        Some(TrieNodeID::Node256) => get_ptrs_byte_len(&[ptr; 256]) + path_max,
+        _ => {
+            return Err(Error::CorruptionError(format!(
+                "get_node_max_byte_len: no node body for id {id:x}"
+            )))
+        }
+    };
+    Ok(TRIEHASH_ENCODED_SIZE + body)
 }
 
 /// calculate how many bytes a node will be when serialized, including its hash, using a compressed

@@ -17,8 +17,9 @@ use std::fmt;
 use std::str::FromStr;
 
 use stacks_common::types::StacksEpochId;
+use variant_count::VariantCount;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, PartialOrd, VariantCount)]
 pub enum ClarityVersion {
     Clarity1,
     Clarity2,
@@ -26,6 +27,17 @@ pub enum ClarityVersion {
     Clarity4,
     Clarity5,
 }
+
+// Compile-time guard: if a new variant is added to the enum above without
+// being appended to `ALL` (or vice-versa), this assertion will fail at
+// `cargo build`, not just at test time. `VARIANT_COUNT` is provided by the
+// `variant_count` derive.
+//
+// TODO: once `core::mem::variant_count` is stabilized (tracking issue:
+// rust-lang/rust#73662), replace the `variant_count` crate dependency and
+// the `#[derive(VariantCount)]` above with:
+//   const _: () = assert!(ClarityVersion::ALL.len() == core::mem::variant_count::<ClarityVersion>());
+const _: () = assert!(ClarityVersion::ALL.len() == ClarityVersion::VARIANT_COUNT);
 
 impl fmt::Display for ClarityVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

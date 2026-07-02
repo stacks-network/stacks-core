@@ -1,0 +1,1 @@
+Add snapshot copy of Clarity side-storage tables (data_table, metadata_table) into a squashed Clarity MARF.

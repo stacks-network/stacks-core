@@ -95,8 +95,12 @@ impl NakamotoDownloadStateMachine {
         );
 
         // find all sortitions in this reward cycle
-        let ih = sortdb.index_handle(&tip.sortition_id);
-        Self::load_wanted_tenures(&ih, first_block_height, last_block_height)
+        Self::load_wanted_tenures(
+            sortdb,
+            &tip.sortition_id,
+            first_block_height,
+            last_block_height,
+        )
     }
 }
 
@@ -1337,9 +1341,10 @@ fn test_make_tenure_downloaders() {
 
     // test load_wanted_tenures()
     {
-        let ih = peer.sortdb().index_handle(&tip.sortition_id);
+        let sortdb = peer.sortdb();
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             tip.block_height - rc_len,
             tip.block_height,
         )
@@ -1361,7 +1366,8 @@ fn test_make_tenure_downloaders() {
         }
 
         let err = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             tip.block_height + 1,
             tip.block_height + 2,
         )
@@ -1369,7 +1375,8 @@ fn test_make_tenure_downloaders() {
         assert!(matches!(err, NetError::DBError(DBError::NotFoundError)));
 
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             tip.block_height + 3,
             tip.block_height,
         )
@@ -1472,9 +1479,9 @@ fn test_make_tenure_downloaders() {
     // test inner_update_processed_wanted_tenures
     {
         let sortdb = peer.sortdb();
-        let ih = peer.sortdb().index_handle(&tip.sortition_id);
         let mut wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             nakamoto_start,
             tip.block_height,
         )

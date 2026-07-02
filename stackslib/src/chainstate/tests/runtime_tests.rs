@@ -31,8 +31,9 @@ use crate::chainstate::stacks::boot::test::{
     make_signer_key_signature,
 };
 use crate::chainstate::tests::consensus::{
-    clarity_versions_for_epoch, contract_call_consensus_test, contract_deploy_consensus_test,
-    ConsensusTest, ConsensusUtils, ContractConsensusTest, TestBlock, EPOCHS_TO_TEST, SK_1,
+    clarity_versions_for_epoch, contract_call_consensus_snap_test,
+    contract_deploy_consensus_snap_test, ConsensusTest, ConsensusUtils, ContractConsensusTest,
+    TestBlock, EPOCHS_TO_TEST, SK_1,
 };
 use crate::core::test_util::to_addr;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
@@ -160,7 +161,7 @@ fn variant_coverage_report(variant: RuntimeError) {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_overflow_pow_at_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "overflow-pow",
         contract_code: "(define-constant overflow (pow 2 128))",
     );
@@ -171,7 +172,7 @@ fn arithmetic_overflow_pow_at_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_overflow_pow_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "overflow-pow",
         contract_code: "
 (define-public (trigger-overflow-pow)
@@ -187,7 +188,7 @@ fn arithmetic_overflow_pow_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_overflow_mul_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "overflow-mul",
         contract_code: &format!("(define-constant overflow (* u{} u2))", u128::MAX),
     );
@@ -198,7 +199,7 @@ fn arithmetic_overflow_mul_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_overflow_mul_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "overflow-mul",
         contract_code: &format!("
 (define-public (trigger-overflow-mul)
@@ -214,7 +215,7 @@ fn arithmetic_overflow_mul_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_overflow_add_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "overflow-add",
         contract_code: &format!("(define-constant overflow (+ u{} u1))", u128::MAX),
     );
@@ -225,7 +226,7 @@ fn arithmetic_overflow_add_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_overflow_add_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "overflow-add",
         contract_code: &format!("
 (define-public (trigger-overflow-add)
@@ -241,7 +242,7 @@ fn arithmetic_overflow_add_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_overflow_to_int_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "overflow-to-int",
         contract_code: &format!("(define-constant overflow (to-int u{}))", u128::MAX),
     );
@@ -252,7 +253,7 @@ fn arithmetic_overflow_to_int_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_overflow_to_int_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "overflow-to-int",
         contract_code: &format!("
 (define-public (overflow-to-int-large)
@@ -269,7 +270,7 @@ fn arithmetic_overflow_to_int_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn ft_mint_overflow() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "ft-mint-overflow",
         contract_code: &format!("
 (define-fungible-token token)
@@ -291,7 +292,7 @@ fn ft_mint_overflow() {
 /// Outcome: block accepted.
 #[test]
 fn ft_mint_supply_overflow() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "ft-supply-overflow",
         contract_code: "
 (define-fungible-token token u1000000)
@@ -312,7 +313,7 @@ fn ft_mint_supply_overflow() {
 /// Outcome: block accepted.
 #[test]
 fn to_uint_underflow_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "to-uint-negative",
         contract_code: "(define-constant overflow (to-uint -10))",
     );
@@ -323,7 +324,7 @@ fn to_uint_underflow_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn to_uint_underflow_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "to-uint-negative",
         contract_code: "
 (define-read-only (trigger-underflow)
@@ -339,7 +340,7 @@ fn to_uint_underflow_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn sub_underflow_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "sub-underflow-deploy",
         contract_code: "(define-constant overflow (- u10 u11))",
     );
@@ -350,7 +351,7 @@ fn sub_underflow_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn sub_underflow_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "sub-underflow",
         contract_code: "
 (define-read-only (trigger-underflow)
@@ -366,7 +367,7 @@ fn sub_underflow_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn sub_arg_len_underflow_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "arg-len-underflow",
         contract_code: "(define-constant overflow (- u5))",
     );
@@ -377,7 +378,7 @@ fn sub_arg_len_underflow_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn sub_arg_len_underflow_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "arg-len-underflow",
         contract_code: "
 (define-read-only (trigger)
@@ -393,7 +394,7 @@ fn sub_arg_len_underflow_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn division_by_zero_mod_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "division-by-zero-mod",
         contract_code: "(define-constant overflow (mod 10 0))",
     );
@@ -404,7 +405,7 @@ fn division_by_zero_mod_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn division_by_zero_mod_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "division-by-zero-mod",
         contract_code: "
 (define-read-only (trigger)
@@ -420,7 +421,7 @@ fn division_by_zero_mod_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn division_by_zero_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "division-by-zero",
         contract_code: "(define-constant overflow (/ 10 0))",
     );
@@ -431,7 +432,7 @@ fn division_by_zero_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn division_by_zero_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "division-by-zero",
         contract_code: "
 (define-read-only (trigger)
@@ -447,7 +448,7 @@ fn division_by_zero_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_sqrti_neg_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "sqrti-neg-deploy",
         contract_code: "(define-constant overflow (sqrti -1))",
     );
@@ -458,7 +459,7 @@ fn arithmetic_sqrti_neg_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_sqrti_neg_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "sqrti-neg",
         contract_code: "
 (define-read-only (trigger)
@@ -474,7 +475,7 @@ fn arithmetic_sqrti_neg_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_log2_neg_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "log2-neg-deploy",
         contract_code: "(define-constant overflow (log2 -8))",
     );
@@ -485,7 +486,7 @@ fn arithmetic_log2_neg_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_log2_neg_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "log2-neg",
         contract_code: "
 (define-read-only (trigger)
@@ -501,7 +502,7 @@ fn arithmetic_log2_neg_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_pow_large_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "pow-large-deploy",
         contract_code: &format!(
             "(define-constant overflow (pow 2 {}))",
@@ -515,7 +516,7 @@ fn arithmetic_pow_large_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_pow_large_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "pow-large",
         contract_code: &format!("
 (define-read-only (trigger)
@@ -531,7 +532,7 @@ fn arithmetic_pow_large_ccall() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_pow_neg_cdeploy() {
-    contract_deploy_consensus_test!(
+    contract_deploy_consensus_snap_test!(
         contract_name: "pow-neg-deploy",
         contract_code: "(define-constant overflow (pow 2 (- 1)))",
     );
@@ -542,7 +543,7 @@ fn arithmetic_pow_neg_cdeploy() {
 /// Outcome: block accepted.
 #[test]
 fn arithmetic_pow_neg_ccall() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "pow-neg",
         contract_code: "
 (define-read-only (trigger)
@@ -669,7 +670,7 @@ fn stack_depth_too_deep_call_chain_ccall() {
 /// [`StaticCheckErrorKind::AtBlockUnavailable`].
 #[test]
 fn unknown_block_header_hash_fork() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "unknown-hash",
         contract_code: "
 (define-public (trigger)
@@ -695,7 +696,7 @@ fn unknown_block_header_hash_fork() {
 /// [`StaticCheckErrorKind::AtBlockUnavailable`] during deployment.
 #[test]
 fn bad_block_hash() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "bad-block-hash",
         contract_code: "
 (define-public (trigger)
@@ -718,7 +719,7 @@ fn bad_block_hash() {
 /// Outcome: block accepted
 #[test]
 fn unwrap_err_panic_on_ok_runtime() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "unwrap-ok",
         contract_code: "
 (define-public (trigger (input (response uint uint)))
@@ -740,7 +741,7 @@ fn unwrap_err_panic_on_ok_runtime() {
 /// Outcome: block accepted
 #[test]
 fn unwrap_panic_on_err_runtime() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "unwrap-err",
         contract_code: "
 (define-public (trigger (input (response uint uint)))
@@ -854,7 +855,7 @@ fn defunct_pox_contracts() {
 /// [`StaticCheckErrorKind::AtBlockUnavailable`] during deployment.
 #[test]
 fn block_time_not_available() {
-    contract_call_consensus_test!(
+    contract_call_consensus_snap_test!(
         contract_name: "no-block-time",
         contract_code: "
         (define-read-only (trigger (height uint))
