@@ -713,11 +713,11 @@ fn check_function_arg_signature<T: CostTracker>(
 ///
 /// - Every other error (e.g. a genuine type mismatch) masks to `Ok(false)` in
 ///   all epochs.
-fn propagate_or_incompatible(
+fn mask_incompatible_or_propagate_error(
     e: StaticCheckError,
     epoch: StacksEpochId,
 ) -> Result<bool, StaticCheckError> {
-    let propagate = matches!(*e.err, StaticCheckErrorKind::AnalysisTimeExpired)
+    let propagate_error = matches!(*e.err, StaticCheckErrorKind::AnalysisTimeExpired)
         || (epoch.surfaces_trait_compliance_cost_errors()
             && matches!(
                 *e.err,
@@ -726,7 +726,7 @@ fn propagate_or_incompatible(
                     | StaticCheckErrorKind::MemoryBalanceExceeded(..)
                     | StaticCheckErrorKind::CostComputationFailed(_)
             ));
-    if propagate { Err(e) } else { Ok(false) }
+    if propagate_error { Err(e) } else { Ok(false) }
 }
 
 /// Used to check if a function signature is compatible with the function
@@ -759,7 +759,7 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
             tracker,
             time_tracker,
         ) {
-            return propagate_or_incompatible(e, epoch);
+            return mask_incompatible_or_propagate_error(e, epoch);
         }
     }
     if let Err(e) = clarity2_inner_type_check_type(
@@ -772,7 +772,7 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
         tracker,
         time_tracker,
     ) {
-        return propagate_or_incompatible(e, epoch);
+        return mask_incompatible_or_propagate_error(e, epoch);
     }
     Ok(true)
 }
