@@ -9,6 +9,10 @@ on:
         description: "The test archive file"
         required: true
         type: string
+      debug-binary-path:
+        description: "Debug binary path"
+        required: true
+        type: string
 
 # Set default permissions
 permissions:
@@ -71,8 +75,9 @@ jobs:
         uses: ./.github/actions/run-tests
         with:
           test-names: ${{ matrix.test-name }}
-          codecov-test-name: ${{ matrix.test-name }}
           archive-file: ${{ inputs.archive-file }}
+          debug-binary-path: ${{ inputs.debug-binary-path }}
+          codecov-test-name: ${{ matrix.test-name }}
 
   # Check that all jobs in this workflow have succeeded.
   #   - will not run if the job is cancelled
@@ -80,7 +85,10 @@ jobs:
     name: Check Tests
     needs:
       - integration-tests
-    if: always() && !cancelled()
+    if: |
+      always() && 
+      !cancelled() &&
+      github.event_name != 'merge_group'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code

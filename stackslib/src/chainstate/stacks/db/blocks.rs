@@ -412,7 +412,7 @@ impl StagingMicroblock {
 impl StacksChainState {
     /// Relative path, under a blocks dir, at which the block with this index
     /// hash is stored: two 2-byte hex directory segments, then the full hash.
-    pub(crate) fn index_block_hash_to_rel_path(index_block_hash: &StacksBlockId) -> PathBuf {
+    pub fn index_block_hash_to_rel_path(index_block_hash: &StacksBlockId) -> PathBuf {
         let block_hash_bytes = index_block_hash.as_bytes();
 
         PathBuf::from(to_hex(&block_hash_bytes[0..2]))

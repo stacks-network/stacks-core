@@ -21,6 +21,7 @@ use crate::vm::analysis::{StaticCheckError, run_analysis};
 use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::time_tracker::TimeTracker;
 use crate::vm::types::QualifiedContractIdentifier;
 
 /// Used by CLI tools like the docs generator. Not used in production
@@ -46,6 +47,7 @@ pub fn mem_type_check(
         epoch,
         version,
         true,
+        TimeTracker::unlimited(),
     ) {
         Ok(x) => {
             // return the first type result of the type checker

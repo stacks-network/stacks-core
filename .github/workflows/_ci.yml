@@ -33,8 +33,8 @@ concurrency:
 
 # Env vars
 env:
-  TEST_ARCHIVE_FILE: "~/test_archive.tar.zst"
-  BTC_VERSION: "25.0"
+  TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
+  DEBUG_BINARY_PATH: "./target/debug/"
 
 jobs:
   ############################################################################
@@ -49,7 +49,7 @@ jobs:
     runs-on: &shared_config ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
-      btc-version: ${{ steps.set-env.outputs.btc_version }}
+      debug-binary-path: ${{ steps.set-env.outputs.debug_binary_path }}
       job-should-run: ${{ steps.set-env.outputs.job_should_run }}
     steps:
       - name: Export Env Variables
@@ -60,7 +60,8 @@ jobs:
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
         
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
-          echo "btc_version=${{ env.BTC_VERSION }}" >> $GITHUB_OUTPUT
+          
+          echo "debug_binary_path=${{ env.DEBUG_BINARY_PATH }}" >> $GITHUB_OUTPUT
           
           # Check that evaluates if various jobs should run. Generally we care if it's a workflow dispatch, PR, or merge group.
           echo "job_should_run=${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group' }}" >> $GITHUB_OUTPUT
@@ -167,6 +168,22 @@ jobs:
         run: bash ./.github/scripts/check_release.sh
 
   ############################################################################
+  ### Check Reusable Test Caches
+  ###
+  ### Caches can only be created from `master`. The workflow will fail 
+  ### if caches are missing, with instructions on how to manually seed them.
+  ############################################################################
+  check-test-caches:
+    name: "Check: Test Caches"
+    needs:
+      - check-changelog
+      - check-rustfmt
+      - setup-env
+    if: >-
+      needs.setup-env.outputs.job-should-run == 'true'
+    uses: ./.github/workflows/setup-test-caches.yml
+      
+  ############################################################################
   ### Cargo Hack Check
   ############################################################################
   check-cargo-hack:
@@ -175,6 +192,7 @@ jobs:
       - check-changelog
       - check-rustfmt
       - setup-env
+      - check-test-caches
     if: >-
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/check-cargo-hack.yml
@@ -188,25 +206,41 @@ jobs:
       - check-changelog
       - check-rustfmt
       - setup-env
+      - check-test-caches
     if: >-
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/check-constants.yml
-
+      
   ############################################################################
-  ### Setup Reusable Caches for Tests
+  ### Create Nextest Archive Artifact for Tests
   ############################################################################
-  setup-test-caches:
-    name: "Setup: Test Caches"
+  create-nextest-archive:
+    name: "Create: Nextest Archive Artifact"
+    runs-on: *shared_config
     needs:
       - check-changelog
       - check-rustfmt
       - setup-env
+      - check-test-caches
     if: >-
       needs.setup-env.outputs.job-should-run == 'true'
-    uses: ./.github/workflows/setup-test-caches.yml
-    with:
-      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+    
+      # Create Nextest archive artifact
+      - name: Create Nextest Archive Artifact
+        uses: ./.github/actions/artifacts/nextest-archive
+        with:
+          action: create
+          archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+          debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
   ############################################################################
   ### Run Stacks Core Tests
@@ -216,13 +250,15 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-      - setup-test-caches
+      - check-test-caches
+      - create-nextest-archive
       - setup-env
     if: >-
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-stacks-core.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
   ############################################################################
   ### Run Bitcoin Tests
@@ -232,13 +268,15 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-      - setup-test-caches
+      - check-test-caches
+      - create-nextest-archive
       - setup-env
     if: >-
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
   ############################################################################
   ### Run Bitcoin RPC Tests
@@ -248,14 +286,15 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-      - setup-test-caches
+      - check-test-caches
+      - create-nextest-archive
       - setup-env
     if: >-
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin-rpc.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      btc-version: ${{ needs.setup-env.outputs.btc-version }}
+      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
   ############################################################################
   ### Run P2P Tests
@@ -265,13 +304,15 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-      - setup-test-caches
+      - check-test-caches
+      - create-nextest-archive
       - setup-env
     if: >-
       needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-p2p.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
       
   ############################################################################
   ### Run Epoch Tests (Release Only)
@@ -282,13 +323,15 @@ jobs:
       - check-changelog
       - check-rustfmt
       - check-release
-      - setup-test-caches
+      - check-test-caches
+      - create-nextest-archive
       - setup-env
     if: >-
       needs.check-release.outputs.is_release == 'true'
     uses: ./.github/workflows/tests-epoch.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
   ############################################################################
   ### Create Release
@@ -322,13 +365,15 @@ jobs:
   ############################################################################
   create-slow-failed-tests-summary:
     if: >-
-      always()
+      always() &&
+      github.event_name != 'merge_group'
     name: "Create: Slow & Failed Tests Report"
     runs-on: *shared_config
     needs:
       - check-changelog
       - check-rustfmt
       - check-release
+      - check-test-caches
       - tests-bitcoin
       - tests-epoch
       - tests-p2p
@@ -476,13 +521,15 @@ jobs:
   create-code-coverage-report:
     if: >-
       always() &&
-      github.event.repository.visibility == 'public'
+      github.event.repository.visibility == 'public' &&
+      github.event_name != 'merge_group'
     name: "Create: Code Coverage Report"
     runs-on: *shared_config
     needs:
       - check-changelog
       - check-rustfmt
       - check-release
+      - check-test-caches
       - tests-bitcoin
       - tests-epoch
       - tests-p2p

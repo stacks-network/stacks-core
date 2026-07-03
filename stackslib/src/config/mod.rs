@@ -62,6 +62,7 @@ use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, U
 use crate::net::atlas::AtlasConfig;
 use crate::net::connection::{
     ConnectionOptions, DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS,
+    DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS,
     DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
     DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
 };
@@ -139,6 +140,9 @@ const DEFAULT_EMPTY_MEMPOOL_SLEEP_MS: u64 = 2_500;
 /// Default maximum execution time in seconds for a miner to process a transaction
 /// before timing out.
 const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
+/// Default maximum wall-clock time in seconds for a miner to run contract-analysis
+/// phase of a transaction before timing out.
+const DEFAULT_MAX_ANALYSIS_TIME_SECS: u64 = 30;
 /// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
 const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
@@ -148,6 +152,8 @@ const DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
 /// Default maximum memory allocation during block proposal evaluation. Defaults higher than miner default
 ///  to avoid miner/signer environment skews.
 pub const DEFAULT_PROPOSAL_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
+/// Default maximum heap allocation for a single read-only RPC call before it is aborted.
+pub const DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES: u64 = 1024 * 1024 * 1024; // 1 GB
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -300,8 +306,8 @@ impl ConfigFile {
             rpc_port: Some(8332),
             peer_port: Some(8333),
             peer_host: Some("0.0.0.0".to_string()),
-            username: Some("bitcoin".to_string()),
-            password: Some("bitcoin".to_string()),
+            username: None,
+            password: None,
             magic_bytes: Some("X2".to_string()),
             ..BurnchainConfigFile::default()
         };
@@ -410,7 +416,7 @@ impl ConfigFile {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     pub config_path: Option<String>,
     pub burnchain: BurnchainConfig,
@@ -1203,6 +1209,7 @@ impl Config {
             miner_status,
             confirm_microblocks: false,
             max_execution_time: Some(Duration::from_secs(miner_config.max_execution_time_secs)),
+            max_analysis_time: Some(Duration::from_secs(miner_config.max_analysis_time_secs)),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
@@ -1252,6 +1259,7 @@ impl Config {
             miner_status,
             confirm_microblocks: true,
             max_execution_time: Some(Duration::from_secs(miner_config.max_execution_time_secs)),
+            max_analysis_time: Some(Duration::from_secs(miner_config.max_analysis_time_secs)),
             max_tenure_bytes: miner_config.max_tenure_bytes,
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: miner_config.max_assembly_mem_bytes,
@@ -1986,7 +1994,7 @@ impl BurnchainConfigFile {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct NodeConfig {
     /// Human-readable name for the node. Primarily used for identification in testing
     /// environments (e.g., deriving log file names, temporary directory names).
@@ -2292,20 +2300,20 @@ pub struct NodeConfig {
     pub pox_5_pause_admin: Option<PrincipalData>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum CostEstimatorName {
     #[default]
     NaivePessimistic,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum FeeEstimatorName {
     #[default]
     ScalarFeeRate,
     FuzzedWeightedMedianFeeRate,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum CostMetricName {
     #[default]
     ProportionDotProduct,
@@ -2343,7 +2351,7 @@ impl CostMetricName {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeeEstimationConfig {
     pub cost_estimator: Option<CostEstimatorName>,
     pub fee_estimator: Option<FeeEstimatorName>,
@@ -3199,10 +3207,20 @@ pub struct MinerConfig {
     ///
     /// Mining always enforces a limit; there is no way to disable it. To effectively
     /// "turn it off," set this to a value larger than any tx is expected to take.
+    ///
+    /// If execution exceeds this limit, the transaction is classified as problematic.
     /// ---
     /// @default: [`DEFAULT_MAX_EXECUTION_TIME_SECS`]
     /// @units: seconds
     pub max_execution_time_secs: u64,
+    /// Maximum wall-clock time (in seconds) that the contract-analysis
+    /// phase of a single transaction may take during mining before timing out.
+    ///
+    /// If analysis exceeds this limit, the transaction is classified as problematic.
+    /// ---
+    /// @default: [`DEFAULT_MAX_ANALYSIS_TIME_SECS`]
+    /// @units: seconds
+    pub max_analysis_time_secs: u64,
     /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
     /// The miner will attempt to replay transactions that a threshold number of signers are expecting in the next block
     pub replay_transactions: bool,
@@ -3285,6 +3303,7 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map
             },
             max_execution_time_secs: DEFAULT_MAX_EXECUTION_TIME_SECS,
+            max_analysis_time_secs: DEFAULT_MAX_ANALYSIS_TIME_SECS,
             replay_transactions: false,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
             max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
@@ -3786,6 +3805,14 @@ pub struct ConnectionOptionsFile {
     /// @units: seconds
     pub read_only_max_execution_time_secs: Option<u64>,
 
+    /// Maximum bytes a single read-only RPC call may allocate on the heap before
+    /// it is aborted.
+    /// `0` disables the limit.
+    /// ---
+    /// @default: [`DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES`]
+    /// @units: bytes
+    pub read_only_call_max_mem_bytes: Option<u64>,
+
     /// Maximum time (in seconds) to spend validating a block when processing
     /// a block proposal received via the `/v3/block_proposal` RPC endpoint.
     ///
@@ -3807,6 +3834,15 @@ pub struct ConnectionOptionsFile {
     /// @default: [`DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS`]
     /// @units: seconds
     pub block_proposal_max_tx_execution_time_secs: Option<u64>,
+
+    /// Maximum time (in seconds) to spend on the contract-analysis
+    /// phase of a single transaction during block proposal validation.
+    /// A transaction whose analysis exceeds this on its own is
+    /// classified as problematic.
+    /// ---
+    /// @default: [`DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS`]
+    /// @units: seconds
+    pub block_proposal_max_tx_analysis_time_secs: Option<u64>,
 
     /// Maximum bytes a single transaction may allocate on the heap during
     /// block-proposal validation before it is rejected.
@@ -3962,10 +3998,10 @@ impl ConnectionOptionsFile {
                 .max_http_clients
                 .unwrap_or_else(|| HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients),
             connect_timeout: self.connect_timeout.unwrap_or(10),
-            handshake_timeout: self.handshake_timeout.unwrap_or(5),
+            handshake_timeout: self.handshake_timeout.unwrap_or(default.handshake_timeout),
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
-            private_neighbors: self.private_neighbors.unwrap_or(false),
+            private_neighbors: self.private_neighbors.unwrap_or(default.private_neighbors),
             auth_token: self.auth_token,
             antientropy_retry: self.antientropy_retry.unwrap_or(default.antientropy_retry),
             reject_blocks_pushed: self
@@ -3990,12 +4026,18 @@ impl ConnectionOptionsFile {
             read_only_max_execution_time_secs: self
                 .read_only_max_execution_time_secs
                 .unwrap_or(default.read_only_max_execution_time_secs),
+            read_only_call_max_mem_bytes: self
+                .read_only_call_max_mem_bytes
+                .unwrap_or(default.read_only_call_max_mem_bytes),
             block_proposal_validation_timeout_secs: self
                 .block_proposal_validation_timeout_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS),
             block_proposal_max_tx_execution_time_secs: self
                 .block_proposal_max_tx_execution_time_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS),
+            block_proposal_max_tx_analysis_time_secs: self
+                .block_proposal_max_tx_analysis_time_secs
+                .unwrap_or(DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS),
             block_proposal_max_tx_mem_bytes: self
                 .block_proposal_max_tx_mem_bytes
                 .unwrap_or(default.block_proposal_max_tx_mem_bytes),
@@ -4339,6 +4381,7 @@ pub struct MinerConfigFile {
     pub tenure_extend_cost_threshold: Option<u64>,
     pub block_rejection_timeout_steps: Option<HashMap<String, u64>>,
     pub max_execution_time_secs: Option<u64>,
+    pub max_analysis_time_secs: Option<u64>,
     /// TODO: remove this config option once its no longer a testing feature
     pub replay_transactions: Option<bool>,
     pub stackerdb_timeout_secs: Option<u64>,
@@ -4537,6 +4580,9 @@ impl MinerConfigFile {
             max_execution_time_secs: self
                 .max_execution_time_secs
                 .unwrap_or(miner_default_config.max_execution_time_secs),
+            max_analysis_time_secs: self
+                .max_analysis_time_secs
+                .unwrap_or(miner_default_config.max_analysis_time_secs),
             replay_transactions: self.replay_transactions.unwrap_or_default(),
             stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
             max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
@@ -4794,7 +4840,7 @@ impl EventKeyType {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct InitialBalance {
     pub address: PrincipalData,
     pub amount: u64,
@@ -5329,5 +5375,98 @@ mod tests {
             30,
             config.connection_options.max_nakamoto_block_push_bandwidth,
         );
+    }
+
+    /// There are three different ways to start a node with a default config:
+    ///
+    /// - via `stacks-node mainnet`
+    /// - via `stacks-node start --config for/bar/baz.toml`, where the config
+    ///   file is largely empty
+    /// - same as the previous, but the config file also contains empty [sections]
+    ///
+    /// This tests asserts that they all yield the same configuration (with the
+    /// exception of one documented consequence of having a [miner] section).
+    ///
+    /// This is necessary because the situations take different codepaths. In fact
+    /// this test is a regression test for a bug where the default
+    /// `private_neighbours` setting was `false` if there was a [connection_options]
+    /// section, even if empty, and `true` if not.
+    #[test]
+    fn test_mainnet_config_equivalences() {
+        // These three settings get random values if unspecified. Fix them
+        // to make sure they're always the same.
+        let working_dir = "/path/to/chainstate";
+        let seed = "d6f382770fde6b5563afadab79d1a7aa548e15dd2a171152131765df605ab035";
+        let local_peer_seed = "9daf9eb08d7fff77ef22a9155fa2a9695ba33f1c9aacdc45e28f54138179e7d5";
+
+        // Create the default mainnet config, as happens when you run `stacks-node mainnet`
+        let mut default_file = ConfigFile::mainnet();
+        let Some(node) = default_file.node.as_mut() else {
+            panic!("node section must exist");
+        };
+        node.working_dir = Some(working_dir.to_string());
+        node.seed = Some(seed.to_string());
+        node.local_peer_seed = Some(local_peer_seed.to_string());
+        let default_config =
+            Config::from_config_file(default_file, true).expect("config should be valid");
+
+        // Create a Config from a barebones config toml
+        let base_toml = format!(
+            r#"
+                [node]
+                working_dir = "{working_dir}"
+                seed = "{seed}"
+                local_peer_seed = "{local_peer_seed}"
+
+                [burnchain]
+                mode = "mainnet"
+            "#
+        );
+
+        let base_config = build_config_from_toml(&base_toml);
+
+        assert_eq!(
+            base_config, default_config,
+            "barebones config toml should yield the default config"
+        );
+
+        // This closure adds an empty section of the given name. This should not
+        // change anything, because it should use the same default values, with
+        // the exception of the documented difference for the [miner] section.
+        let assert_empty_section_makes_no_difference = |section: &str| {
+            let modified_toml = format!(
+                r#"{base_toml}
+                [{section}]
+            "#
+            );
+            let mut modified_config = build_config_from_toml(&modified_toml);
+
+            if section == "miner" {
+                // These two are expected to be different based on the presence of the
+                // miner section, even if empty (see documentation of `mining_key`).
+                // Therefore we assert the expected values, and then set them back
+                // to the default values for the comparison.
+                assert!(modified_config.miner.mining_key.is_some());
+                modified_config.miner.mining_key = None;
+
+                assert!(modified_config.miner.pre_nakamoto_mock_signing);
+                modified_config.miner.pre_nakamoto_mock_signing = false;
+            }
+
+            assert_eq!(
+                base_config, modified_config,
+                "adding an empty [{section}] section should not change the generated config"
+            );
+        };
+
+        assert_empty_section_makes_no_difference("connection_options");
+        assert_empty_section_makes_no_difference("fee_estimation");
+        assert_empty_section_makes_no_difference("miner");
+        assert_empty_section_makes_no_difference("atlas");
+    }
+
+    fn build_config_from_toml(s: &str) -> super::Config {
+        let config_file = super::ConfigFile::from_str(s).expect("config toml should be valid");
+        Config::from_config_file(config_file, true).expect("config should be valid")
     }
 }
