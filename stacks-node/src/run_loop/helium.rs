@@ -38,9 +38,9 @@ impl RunLoop {
     /// the nodes, taking turns on tenures.  
     pub fn start(&mut self, expected_num_rounds: u64) -> Result<(), BurnchainsError> {
         // Mode is already constrained upstream (config validation + the dispatch in main.rs);
-        // this run loop only handles helium. Debug-assert it so a future dispatch mistake trips
-        // in tests instead of silently running helium under the wrong mode.
-        debug_assert_eq!(
+        // this run loop only handles helium. Assert it so a future dispatch mistake fails fast
+        // instead of silently running helium under the wrong mode.
+        assert_eq!(
             self.config.burnchain.mode, "helium",
             "helium run loop requires burnchain.mode = \"helium\""
         );
