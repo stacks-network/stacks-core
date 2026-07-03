@@ -692,26 +692,27 @@ fn check_function_arg_signature<T: CostTracker>(
 
 /// Map an error from the trait-compliance recursion to a compatibility verdict.
 ///
-/// An analysis-deadline expiry *propagates* (`Err`); every other error collapses
-/// to "not compatible" (`Ok(false)`).
+/// `Err` *propagates* the error; `Ok(false)` masks it as "not compatible" (the
+/// caller turns that into `IncompatibleTrait`). Which errors propagate depends on
+/// the epoch:
 ///
-/// Propagating **only** `AnalysisTimeExpired` is deliberate and consensus-critical.
-/// The deadline is configured only on the non-consensus voting paths (mining
-/// assembly / block-proposal validation) and is `NoTracking` on replay/commit, so
-/// it can never arise during consensus — re-surfacing it changes no deterministic
-/// outcome.
+/// - `AnalysisTimeExpired` **always** propagates, in every epoch. The analysis
+///   deadline is configured only on the non-consensus voting paths (mining
+///   assembly / block-proposal validation) and is `NoTracking` on replay/commit,
+///   so it can never arise during consensus — propagating it changes no
+///   deterministic outcome, which is why it needs no epoch gate.
 ///
-/// Cost-tracking errors (`CostOverflow` / `CostBalanceExceeded` /
-/// `MemoryBalanceExceeded` / `CostComputationFailed`, charged in
-/// `clarity2_lookup_trait` and the Principal->Trait arm) were historically
-/// *masked* as `IncompatibleTrait` here. That masking is consensus-critical on
-/// the replay path, so it is corrected only from the epoch gated by
-/// [`StacksEpochId::surfaces_trait_compliance_cost_errors`]: earlier epochs keep
-/// masking (collapse to `Ok(false)`); from that epoch on the real cost error
-/// propagates.
+/// - Cost-tracking errors (`CostOverflow` / `CostBalanceExceeded` /
+///   `MemoryBalanceExceeded` / `CostComputationFailed`, charged in
+///   `clarity2_lookup_trait` and the Principal->Trait arm) propagate only from
+///   the epoch gated by [`StacksEpochId::surfaces_trait_compliance_cost_errors`].
+///   These *can* arise during consensus, so earlier epochs
+///   keep masking them as `IncompatibleTrait` to preserve the historical
+///   replay-path outcome — changing that without a gate would be a consensus
+///   break.
 ///
-/// `ExecutionTimeExpired` is intentionally absent: it is a runtime interpreter
-/// timeout that cannot arise on the static type-checking path.
+/// - Every other error (e.g. a genuine type mismatch) masks to `Ok(false)` in
+///   all epochs.
 fn propagate_or_incompatible(
     e: StaticCheckError,
     epoch: StacksEpochId,
