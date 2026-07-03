@@ -12238,6 +12238,28 @@ pub mod test {
             let e = admit(chainstate, &tx).unwrap_err();
             assert!(matches!(e, MemPoolRejection::BadTransactionVersion));
 
+            // tx chain id must match the chain's. Signed WITH the wrong chain id so the
+            // signature stays internally consistent and rejection comes from the chain-id
+            // check in process_transaction_precheck, not from signature verification.
+            // Recipient must differ from sender: the recipient-is-sender semantic check
+            // runs before the precheck.
+            let payload = TransactionPayload::TokenTransfer(
+                PrincipalData::from(other_addr.clone()),
+                1000,
+                TokenTransferMemo([0; 34]),
+            );
+            let tx = sign_standard_single_sig_tx_anchor_mode_version(
+                payload,
+                &contract_sk,
+                5,
+                300,
+                chain_id + 1,
+                TransactionAnchorMode::OnChainOnly,
+                TransactionVersion::Testnet,
+            );
+            let e = admit(chainstate, &tx).unwrap_err();
+            assert!(matches!(e, MemPoolRejection::FailedToValidate(_)));
+
             // send amount must be positive
             let tx = make_user_stacks_transfer(&contract_sk, 5, 300, &other_addr, 0);
             let e = admit(chainstate, &tx).unwrap_err();
