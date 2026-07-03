@@ -419,7 +419,12 @@ fn deploy_cost_voting_test_cost_definer(
         clarity_instance.begin_block(tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
     block_conn.as_transaction(|tx| {
         let (ast, analysis) = tx
-            .analyze_smart_contract(&cost_definer, ClarityVersion::Clarity1, cost_definer_src, None)
+            .analyze_smart_contract(
+                &cost_definer,
+                ClarityVersion::Clarity1,
+                cost_definer_src,
+                None,
+            )
             .unwrap();
         tx.initialize_smart_contract(
             &cost_definer,

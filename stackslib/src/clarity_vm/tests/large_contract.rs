@@ -154,7 +154,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &boot_code_id("costs-2", false),
                     ClarityVersion::Clarity1,
                     BOOT_CODE_COSTS_2,
-                        None,
+                    None,
                 )
                 .unwrap();
             tx.initialize_smart_contract(
@@ -181,7 +181,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &boot_code_id("costs-3", false),
                     ClarityVersion::Clarity2,
                     BOOT_CODE_COSTS_3,
-                        None,
+                    None,
                 )
                 .unwrap();
             tx.initialize_smart_contract(
@@ -201,7 +201,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &boot_code_id("costs-4", false),
                     ClarityVersion::Clarity2,
                     BOOT_CODE_COSTS_4,
-                        None,
+                    None,
                 )
                 .unwrap();
             tx.initialize_smart_contract(
