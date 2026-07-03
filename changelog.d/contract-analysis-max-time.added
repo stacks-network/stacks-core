@@ -1,0 +1,3 @@
+Added a wall-clock deadline to the Clarity contract-analysis phase, bounding the time a single transaction can spend being analyzed on the block-assembly (mining) and block-proposal (signer) validation paths. A transaction whose analysis exceeds the deadline is treated as problematic (deterministic replay and block commit remain unbounded).
+Added `max_analysis_time_secs` to the `[miner]` configuration section to bound the per-transaction contract-analysis time (in seconds) during block assembly. Defaults to 30 seconds.
+Added `block_proposal_max_tx_analysis_time_secs` to the `[connection_options]` configuration section to bound the per-transaction contract-analysis time (in seconds) during block-proposal validation. Defaults to 30 seconds.

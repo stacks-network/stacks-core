@@ -1,0 +1,1 @@
+Fixed a bug where under certain conditions, a few unspecified configuration options (notably: `connection_options.private_neighbors`) did not correctly use the documented default value.

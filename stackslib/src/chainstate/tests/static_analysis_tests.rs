@@ -64,6 +64,14 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         MemoryBalanceExceeded(_, _) => Tested(vec![static_check_error_memory_balance_exceeded]),
         CostComputationFailed(_) => Unreachable_ExpectLike,
         ExecutionTimeExpired => Unreachable_Functionally("Can only be triggered at runtime."),
+        AnalysisTimeExpired => Unreachable_Functionally(
+            "All consensus-critical code paths (block validation and transaction processing) pass
+             `None` for max_execution_time, so the analysis-phase time tracking stays
+             unlimited and check_analysis_abort_condition always returns Ok(()). The analysis
+             deadline is only enforced on the miner-local block-assembly and block-proposal
+             validation paths; it is exercised by the analysis-deadline integration tests, not
+             by this consensus harness.",
+        ),
         // `tuple_merge_exceeds_max_value_size_cdeploy` produces `ValueTooLarge` at 4.0+ (an
         // oversized tuple `merge` rejected at the merge site); pre-4.0 the same test surfaces
         // as `Unreachable` (see that arm below).

@@ -341,6 +341,7 @@ impl<'a> TestChainstate<'a> {
                         &smart_contract_tx,
                         &boot_code_account,
                         None,
+                        None,
                     )
                     .expect("FATAL: failed to deploy sbtc stub")
                 })
@@ -405,6 +406,7 @@ impl<'a> TestChainstate<'a> {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
+                        None,
                         None,
                     )
                     .unwrap()

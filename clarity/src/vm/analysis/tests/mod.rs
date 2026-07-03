@@ -14,11 +14,56 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
-use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
+use crate::vm::analysis::{
+    ContractAnalysis, StaticCheckError, StaticCheckErrorKind, mem_type_check as mem_run_analysis,
+    run_analysis,
+};
+use crate::vm::ast::build_ast;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::time_tracker::TimeTracker;
+use crate::vm::types::QualifiedContractIdentifier;
+
+mod utils {
+    use super::*;
+
+    /// Run the full analysis pipeline on `snippet` at the latest epoch / Clarity
+    /// version with the given `time_tracker`, returning the analysis error (if any).
+    pub fn run_analysis_with_time_tracker(
+        snippet: &str,
+        time_tracker: TimeTracker,
+    ) -> Result<ContractAnalysis, StaticCheckError> {
+        let contract_id = QualifiedContractIdentifier::transient();
+        let version = ClarityVersion::latest();
+        let epoch = StacksEpochId::latest();
+
+        let exprs = build_ast(&contract_id, snippet, &mut (), version, epoch)
+            .expect("test contract should parse")
+            .expressions;
+
+        let mut marf = MemoryBackingStore::new();
+        let mut analysis_db = marf.as_analysis_db();
+
+        run_analysis(
+            &contract_id,
+            &exprs,
+            &mut analysis_db,
+            false, // save_contract
+            LimitedCostTracker::new_free(),
+            epoch,
+            version,
+            false, // build_type_map
+            time_tracker,
+        )
+        .map_err(|e| e.0)
+    }
+}
 
 #[test]
 fn test_list_types_must_match() {
@@ -402,5 +447,53 @@ fn test_write_attempt_in_readonly() {
     assert!(
         format!("{}", err.diagnostic)
             .contains("expecting read-only statements, detected a writing operation")
+    );
+}
+
+/// An already-elapsed deadline trips the per-node analysis check on the
+/// very first `type_check` node, so even a trivial contract is rejected with
+/// [`StaticCheckErrorKind::AnalysisTimeExpired`].
+#[test]
+fn test_run_analysis_aborts_when_deadline_already_elapsed() {
+    let err = utils::run_analysis_with_time_tracker(
+        "(define-read-only (foo) (+ 1 1))",
+        TimeTracker::from_max_duration(Duration::ZERO),
+    )
+    .expect_err("a zero-duration analysis deadline must abort");
+
+    assert!(
+        matches!(*err.err, StaticCheckErrorKind::AnalysisTimeExpired),
+        "expected AnalysisTimeExpired, got {:?}",
+        err.err
+    );
+}
+
+/// An unlimited [`TimeTracker`] (the deterministic replay/commit path) imposes no
+/// analysis deadline, so a valid contract type-checks successfully.
+#[test]
+fn test_run_analysis_no_tracking_is_not_time_limited() {
+    let result = utils::run_analysis_with_time_tracker(
+        "(define-read-only (foo) (+ 1 1))",
+        TimeTracker::unlimited(),
+    );
+    assert!(
+        result.is_ok(),
+        "NoTracking analysis should succeed, got {:?}",
+        result.map(|_| ())
+    );
+}
+
+/// A generous deadline is not hit by a trivial contract, so analysis succeeds. This
+/// guards against the per-node check firing spuriously when a deadline is configured.
+#[test]
+fn test_run_analysis_generous_deadline_succeeds() {
+    let result = utils::run_analysis_with_time_tracker(
+        "(define-read-only (foo) (+ 1 1))",
+        TimeTracker::from_max_duration(Duration::from_secs(300)),
+    );
+    assert!(
+        result.is_ok(),
+        "analysis deadline should not trip on a trivial contract, got {:?}",
+        result.map(|_| ())
     );
 }
