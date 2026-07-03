@@ -801,6 +801,19 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether this epoch eagerly rejects a tuple `merge` whose combined size
+    /// exceeds `MAX_VALUE_SIZE`, at the merge site, with `ValueTooLarge` — both at
+    /// static-analysis time and at runtime.
+    ///
+    /// Before this epoch, an oversized merge was not checked at the merge site: the
+    /// oversized tuple type/value propagated and only failed later (block-invalidating
+    /// `InvariantViolation` when its size was eventually computed — or, if never
+    /// sized, the contract deployed and became uncallable). Gated here so the
+    /// behavior changes atomically at the epoch boundary. See PR #6946.
+    pub fn fixes_tuple_merge_size_check(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }

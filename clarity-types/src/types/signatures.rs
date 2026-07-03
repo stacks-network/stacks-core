@@ -1520,6 +1520,18 @@ impl TupleTypeSignature {
         })
     }
 
+    /// Serialized value size of the tuple, or [`ClarityTypeError::ValueTooLarge`] if it
+    /// exceeds [`MAX_VALUE_SIZE`].
+    ///
+    /// This differs from [`Self::size`] only in the error variant: `size` reports an oversized
+    /// tuple as an `InvariantViolation` (a "should never happen" signal that block-invalidates),
+    /// whereas this reports it as the checked `ValueTooLarge` rejection. Used at the tuple
+    /// `merge` site (static analysis and runtime) to reject an oversized merged tuple cleanly.
+    pub fn checked_value_size(&self) -> Result<u32, ClarityTypeError> {
+        // inner_size() returns Ok(None) exactly when the tuple is oversized.
+        self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)
+    }
+
     fn max_depth(&self) -> u8 {
         let mut max = 0;
         for (_name, type_signature) in self.type_map.iter() {
