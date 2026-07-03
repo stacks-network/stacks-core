@@ -187,7 +187,13 @@ pub fn run_analysis(
     let result = analysis_db.execute(|db| {
         ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, time_tracker)?;
         if epoch >= StacksEpochId::Epoch21 {
-            TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db, build_type_map, time_tracker)?;
+            TypeChecker2_1::run_pass(
+                &epoch,
+                &mut contract_analysis,
+                db,
+                build_type_map,
+                time_tracker,
+            )?;
         } else {
             TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, build_type_map)?;
         }
