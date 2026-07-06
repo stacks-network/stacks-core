@@ -84,6 +84,9 @@
 ;; SIP18 message prefix
 (define-constant SIP018_MSG_PREFIX 0x534950303138)
 
+;; Bitcoin treats locktimes >= 500,000,000 as Unix timestamps, not block heights.
+(define-constant BITCOIN_LOCKTIME_THRESHOLD u500000000)
+
 ;; SIP018 domain
 (define-constant POX_5_SIGNER_DOMAIN {
     name: "pox-5-signer",
@@ -2069,6 +2072,9 @@
             (seen-outpoints (get seen-outpoints accumulator))
         )
         (asserts! (>= unlock-burn-height (get minimum-unlock-height accumulator))
+            ERR_INVALID_UNLOCK_HEIGHT
+        )
+        (asserts! (< unlock-burn-height BITCOIN_LOCKTIME_THRESHOLD)
             ERR_INVALID_UNLOCK_HEIGHT
         )
         (asserts! (is-eq (get script output) expected-script-hash)

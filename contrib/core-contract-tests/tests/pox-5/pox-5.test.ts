@@ -49,6 +49,7 @@ const emily = accounts.wallet_5.address;
 const REWARD_CYCLE_LENGTH = 100n;
 const HALF_CYCLE_LENGTH = REWARD_CYCLE_LENGTH / 2n;
 const BASIS_POINTS = 10000n;
+const BITCOIN_LOCKTIME_THRESHOLD = 500000000n;
 
 function reserveRewards(rewards: bigint) {
   return (rewards * pox5.constants.RESERVE_RATIO) / BASIS_POINTS;
@@ -2551,6 +2552,36 @@ test('l1 lockup rejects an unlock height below the bond minimum', () => {
             staker: alice,
             sats: aliceSats,
             unlockBurnHeight: minimumUnlockHeight - 1n,
+          }),
+        ],
+        stakerUnlockBytes: new Uint8Array(),
+      }),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(result.value).toBe(errorCodes.ERR_INVALID_UNLOCK_HEIGHT);
+});
+
+test('l1 lockup rejects timestamp-style CLTV unlock heights', () => {
+  const signer = testSigner.identifier;
+  const aliceSats = 480000n;
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: aliceSats, staker: alice }]);
+
+  const result = txErr(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: ok({
+        outputs: [
+          buildL1Lockup({
+            staker: alice,
+            sats: aliceSats,
+            unlockBurnHeight: BITCOIN_LOCKTIME_THRESHOLD,
           }),
         ],
         stakerUnlockBytes: new Uint8Array(),
