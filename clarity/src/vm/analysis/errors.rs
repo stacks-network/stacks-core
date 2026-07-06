@@ -236,7 +236,6 @@ pub enum StaticCheckErrorKind {
     /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
     /// Contract-analysis time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable end-to-end.
     AnalysisTimeExpired,
 
     /// Value exceeds the maximum allowed size for type-checking or serialization.

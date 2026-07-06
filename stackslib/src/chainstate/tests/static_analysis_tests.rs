@@ -62,7 +62,6 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         CostBalanceExceeded(execution_cost, execution_cost1) => Tested(vec![static_check_error_cost_balance_exceeded]),
         MemoryBalanceExceeded(_, _) => Tested(vec![static_check_error_memory_balance_exceeded]),
         CostComputationFailed(_) => Unreachable_ExpectLike,
-        ExecutionTimeExpired => Unreachable_Functionally("Can only be triggered at runtime."),
         AnalysisTimeExpired => Unreachable_Functionally(
             "All consensus-critical code paths (block validation and transaction processing) pass
              `None` for max_execution_time, so the analysis-phase time tracking stays
