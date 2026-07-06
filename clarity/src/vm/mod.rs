@@ -494,7 +494,6 @@ fn check_interpreter_abort_condition(
     if global_context.execution_time_tracker.is_expired() {
         return Err(RuntimeCheckErrorKind::ExecutionTimeExpired.into());
     }
-    
     if let Err(reason) = global_context.abort_callback.check() {
         return Err(RuntimeCheckErrorKind::AbortedByExecutionHook(reason).into());
     }
