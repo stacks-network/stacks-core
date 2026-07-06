@@ -538,6 +538,7 @@ impl NakamotoBlockBuilder {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
+                None,
                 &mut receipts_total,
             ) {
                 TransactionResult::Success(..) => {

@@ -654,7 +654,7 @@ fn make_genesis_block_with_recipients(
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, None, &mut 0)
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, None, None, &mut 0)
         .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -924,12 +924,12 @@ fn make_stacks_block_with_input(
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, None, &mut 0)
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, None, None, &mut 0)
         .unwrap();
 
     for tx in txs {
         builder
-            .try_mine_tx(&mut epoch_tx, tx, None, &mut 0)
+            .try_mine_tx(&mut epoch_tx, tx, None, None, &mut 0)
             .unwrap();
     }
 
