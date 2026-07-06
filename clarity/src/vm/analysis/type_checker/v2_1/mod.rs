@@ -717,16 +717,21 @@ fn mask_incompatible_or_propagate_error(
     e: StaticCheckError,
     epoch: StacksEpochId,
 ) -> Result<bool, StaticCheckError> {
-    let propagate_error = matches!(*e.err, StaticCheckErrorKind::AnalysisTimeExpired)
-        || (epoch.surfaces_trait_compliance_cost_errors()
-            && matches!(
-                *e.err,
-                StaticCheckErrorKind::CostOverflow
-                    | StaticCheckErrorKind::CostBalanceExceeded(..)
-                    | StaticCheckErrorKind::MemoryBalanceExceeded(..)
-                    | StaticCheckErrorKind::CostComputationFailed(_)
-            ));
-    if propagate_error { Err(e) } else { Ok(false) }
+    match &*e.err {
+        // Always propagates: never arises during consensus.
+        StaticCheckErrorKind::AnalysisTimeExpired => Err(e),
+        // Cost-tracking errors: propagate only from the gated epoch.
+        StaticCheckErrorKind::CostOverflow
+        | StaticCheckErrorKind::CostBalanceExceeded(..)
+        | StaticCheckErrorKind::MemoryBalanceExceeded(..)
+        | StaticCheckErrorKind::CostComputationFailed(_)
+            if epoch.surfaces_trait_compliance_cost_errors() =>
+        {
+            Err(e)
+        }
+        // Everything else masks as "not compatible".
+        _ => Ok(false),
+    }
 }
 
 /// Used to check if a function signature is compatible with the function
