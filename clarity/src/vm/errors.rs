@@ -275,6 +275,49 @@ impl fmt::Display for WasmError {
 #[cfg(feature = "clarity-wasm")]
 impl std::error::Error for WasmError {}
 
+#[cfg(feature = "clarity-wasm")]
+impl PartialEq for WasmError {
+    fn eq(&self, other: &Self) -> bool {
+        use WasmError::*;
+        match (self, other) {
+            (WasmGeneratorError(x), WasmGeneratorError(y)) => x == y,
+            (ModuleNotFound, ModuleNotFound) => true,
+            (DefinesNotFound, DefinesNotFound) => true,
+            (TopLevelNotFound, TopLevelNotFound) => true,
+            (MemoryNotFound, MemoryNotFound) => true,
+            (GlobalNotFound(x), GlobalNotFound(y)) => x == y,
+            (NotInDatabase(x), NotInDatabase(y)) => x == y,
+            // `wasmtime::Error` (anyhow) is not `PartialEq`, so compare its display representation.
+            (WasmCompileFailed(x), WasmCompileFailed(y)) => x.to_string() == y.to_string(),
+            (UnableToLoadModule(x), UnableToLoadModule(y)) => x.to_string() == y.to_string(),
+            (UnableToLinkHostFunction(xn, xe), UnableToLinkHostFunction(yn, ye)) => {
+                xn == yn && xe.to_string() == ye.to_string()
+            }
+            (UnableToReadIdentifier(x), UnableToReadIdentifier(y)) => x == y,
+            (UnableToRetrieveIdentifier(x), UnableToRetrieveIdentifier(y)) => x == y,
+            (InvalidClarityName(x), InvalidClarityName(y)) => x == y,
+            (UnableToWriteStackPointer(x), UnableToWriteStackPointer(y)) => {
+                x.to_string() == y.to_string()
+            }
+            (UnableToReadMemory(x), UnableToReadMemory(y)) => x.to_string() == y.to_string(),
+            (UnableToWriteMemory(x), UnableToWriteMemory(y)) => x.to_string() == y.to_string(),
+            (ValueTypeMismatch, ValueTypeMismatch) => true,
+            (InvalidNoTypeInValue, InvalidNoTypeInValue) => true,
+            (InvalidListUnionTypeInValue, InvalidListUnionTypeInValue) => true,
+            (InvalidFunctionKind(x), InvalidFunctionKind(y)) => x == y,
+            (DefineFunctionCalledInRunMode, DefineFunctionCalledInRunMode) => true,
+            (ExpectedReturnValue, ExpectedReturnValue) => true,
+            (InvalidIndicator(x), InvalidIndicator(y)) => x == y,
+            (Runtime(x), Runtime(y)) => x.to_string() == y.to_string(),
+            (InvalidTypeDescription, InvalidTypeDescription) => true,
+            (AllowanceViolation(x), AllowanceViolation(y)) => x == y,
+            (AllowanceIndexOverflow, AllowanceIndexOverflow) => true,
+            (Expect(x), Expect(y)) => x == y,
+            _ => false,
+        }
+    }
+}
+
 impl PartialEq<VmExecutionError> for VmExecutionError {
     fn eq(&self, other: &VmExecutionError) -> bool {
         match (self, other) {
@@ -282,6 +325,8 @@ impl PartialEq<VmExecutionError> for VmExecutionError {
             (VmExecutionError::RuntimeCheck(x), VmExecutionError::RuntimeCheck(y)) => x == y,
             (VmExecutionError::EarlyReturn(x), VmExecutionError::EarlyReturn(y)) => x == y,
             (VmExecutionError::Internal(x), VmExecutionError::Internal(y)) => x == y,
+            #[cfg(feature = "clarity-wasm")]
+            (VmExecutionError::Wasm(x), VmExecutionError::Wasm(y)) => x == y,
             _ => false,
         }
     }
