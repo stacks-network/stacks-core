@@ -235,9 +235,6 @@ pub enum StaticCheckErrorKind {
     /// Failure in cost-tracking due to an unexpected condition or invalid state.
     /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
-    // Time checker errors
-    /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    ExecutionTimeExpired,
     /// Contract-analysis time exceeds the allowed budget, halting analysis to ensure responsiveness.
     /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable end-to-end.
     AnalysisTimeExpired,
@@ -555,7 +552,7 @@ pub enum RuntimeCheckErrorKind {
     /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
     // Time checker errors
-    /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
+    /// Runtime (eval) execution time exceeds the allowed budget, halting execution to ensure responsiveness.
     ExecutionTimeExpired,
 
     /// Value exceeds the maximum allowed size for type-checking or serialization.
@@ -925,7 +922,6 @@ impl From<CostErrors> for StaticCheckErrorKind {
                 "Unexpected interpreter failure in cost computation".into(),
             ),
             CostErrors::Expect(s) => StaticCheckErrorKind::Unreachable(s),
-            CostErrors::ExecutionTimeExpired => StaticCheckErrorKind::ExecutionTimeExpired,
         }
     }
 }
@@ -948,7 +944,6 @@ impl From<CostErrors> for RuntimeCheckErrorKind {
                 "Unexpected interpreter failure in cost computation".into(),
             ),
             CostErrors::Expect(s) => RuntimeCheckErrorKind::Unreachable(s),
-            CostErrors::ExecutionTimeExpired => RuntimeCheckErrorKind::ExecutionTimeExpired,
         }
     }
 }
@@ -1160,7 +1155,6 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
-            StaticCheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
             StaticCheckErrorKind::AnalysisTimeExpired => "analysis time expired".into(),
             StaticCheckErrorKind::InvalidTypeDescription => "supplied type description is invalid".into(),
             StaticCheckErrorKind::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),

@@ -42,8 +42,8 @@ use crate::vm::types::{
     TypeSignature,
 };
 use crate::vm::{
-    CallStack, ClarityVersion, ContractContext, CostErrors, GlobalContext, LocalContext, Value,
-    ValueRef, eval, execute as vm_execute, execute_v2 as vm_execute_v2,
+    CallStack, ClarityVersion, ContractContext, GlobalContext, LocalContext, Value, ValueRef, eval,
+    execute as vm_execute, execute_v2 as vm_execute_v2,
     execute_with_limited_execution_time as vm_execute_with_limited_execution_time,
     execute_with_parameters,
 };
@@ -1866,7 +1866,7 @@ fn test_execution_time_expiration() {
         vm_execute_with_limited_execution_time("(+ 1 1)", Duration::from_secs(0))
             .err()
             .unwrap(),
-        ClarityEvalError::Vm(CostErrors::ExecutionTimeExpired.into())
+        ClarityEvalError::Vm(RuntimeCheckErrorKind::ExecutionTimeExpired.into())
     );
 }
 
