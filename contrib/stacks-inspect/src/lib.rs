@@ -38,7 +38,7 @@ use stackslib::chainstate::burn::ConsensusHash;
 use stackslib::chainstate::burn::db::sortdb::{
     SortitionDB, SortitionHandleContext, get_ancestor_sort_id,
 };
-use stackslib::chainstate::coordinator::{Error as CoordinatorError, OnChainRewardSetProvider};
+use stackslib::chainstate::coordinator::OnChainRewardSetProvider;
 use stackslib::chainstate::nakamoto::miner::{
     BlockMetadata, NakamotoBlockBuilder, NakamotoTenureInfo,
 };
@@ -1004,39 +1004,45 @@ fn load_reward_set_cached<'a>(
     stacks_chain_state: &mut StacksChainState,
     sort_db: &SortitionDB,
     parent_block_id: &StacksBlockId,
-) -> Result<&'a RewardSet, CoordinatorError> {
+) -> Result<&'a RewardSet, String> {
     let cached_ok = match reward_set_cache.get(&cycle) {
         Some(entry) => NakamotoChainState::get_header_by_coinbase_height(
             &mut stacks_chain_state.index_conn(),
             parent_block_id,
             entry.calc_coinbase_height,
-        )?
+        )
+        .map_err(|e| format!("Failed to resolve cached calculation block: {e:?}"))?
         .is_some_and(|hdr| hdr.index_block_hash() == entry.calc_block_id),
         None => false,
     };
 
     if !cached_ok {
         let provider = OnChainRewardSetProvider::<DummyEventDispatcher>(None);
-        let sort_handle = sort_db.index_handle_at_tip();
-        let calc_coinbase_height = provider.get_height_of_pox_calculation(
-            cycle,
-            stacks_chain_state,
-            &sort_handle,
-            parent_block_id,
-        )?;
+        // anchor the burn view at the block itself
+        let sort_handle = sort_db
+            .index_handle_at_block(stacks_chain_state, parent_block_id)
+            .map_err(|e| format!("Failed to open sortition handle at {parent_block_id}: {e:?}"))?;
+        let calc_coinbase_height = provider
+            .get_height_of_pox_calculation(cycle, stacks_chain_state, &sort_handle, parent_block_id)
+            .map_err(|e| {
+                format!("Failed to find reward-set calculation height of cycle {cycle}: {e:?}")
+            })?;
         let calc_block_id = NakamotoChainState::get_header_by_coinbase_height(
             &mut stacks_chain_state.index_conn(),
             parent_block_id,
             calc_coinbase_height,
-        )?
-        .ok_or(ChainstateError::NoSuchBlockError)?
+        )
+        .map_err(|e| format!("Failed to load calculation block header: {e:?}"))?
+        .ok_or_else(|| format!("No block at coinbase height {calc_coinbase_height}"))?
         .index_block_hash();
-        let reward_set = provider.read_reward_set_at_calculated_block(
-            calc_coinbase_height,
-            stacks_chain_state,
-            parent_block_id,
-            true,
-        )?;
+        let reward_set = provider
+            .read_reward_set_at_calculated_block(
+                calc_coinbase_height,
+                stacks_chain_state,
+                parent_block_id,
+                true,
+            )
+            .map_err(|e| format!("Failed to read reward set of cycle {cycle}: {e:?}"))?;
         reward_set_cache.insert(
             cycle,
             CachedRewardSet {
@@ -1153,7 +1159,7 @@ fn replay_block_nakamoto(
     .map_err(|e| {
         warn!(
             "Cannot process Nakamoto block: could not load reward set that elected the block";
-            "err" => ?e,
+            "err" => %e,
             "consensus_hash" => %block.header.consensus_hash,
             "stacks_block_hash" => %block.header.block_hash(),
             "stacks_block_id" => %block.header.block_id(),
