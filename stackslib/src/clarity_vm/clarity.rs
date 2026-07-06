@@ -924,6 +924,15 @@ impl PreCommitClarityBlock<'_> {
             .commit_to_processed_block(&self.commit_to)
             .expect("FATAL: failed to commit block");
     }
+
+    /// Discard the block's uncommitted trie instead of committing it.
+    /// For replay/validation tooling that processes blocks against a
+    /// long-lived `ClarityInstance` and throws the resulting state away:
+    /// the instance cannot `begin` the next block while a trie is open.
+    pub fn rollback(self) {
+        debug!("Rolling back pre-commit Clarity block connection"; "index_block" => %self.commit_to);
+        self.datastore.drop_current_trie();
+    }
 }
 
 impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
