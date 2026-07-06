@@ -7365,6 +7365,11 @@ export const contracts = {
       } as TypedAbiMap<number | bigint, bigint>,
     },
     variables: {
+      BITCOIN_LOCKTIME_THRESHOLD: {
+        name: 'BITCOIN_LOCKTIME_THRESHOLD',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
       BOND_GAP_CYCLES: {
         name: 'BOND_GAP_CYCLES',
         type: 'uint128',
@@ -7986,6 +7991,7 @@ export const contracts = {
       } as TypedAbiVariable<bigint>,
     },
     constants: {
+      BITCOIN_LOCKTIME_THRESHOLD: 500_000_000n,
       BOND_GAP_CYCLES: 2n,
       BOND_LENGTH_CYCLES: 12n,
       ERR_ACTIVE_BOND_NOT_INCLUDED: {
