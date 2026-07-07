@@ -512,11 +512,11 @@ fn test_try_make_response() {
     }
 }
 
-/// Test that when block validation exceeds the deadline, the rejection
-/// includes the txid of the transaction at which the deadline was exceeded
-/// so the miner can exclude it from the next block proposal.
+/// Test that when block validation exceeds the overall block-level deadline
+/// (`block_proposal_validation_timeout_secs`), the block is rejected as an
+/// `InvalidBlock` without blaming any specific transaction.
 #[test]
-fn test_block_proposal_validation_timeout_blames_tx() {
+fn test_block_proposal_validation_timeout() {
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
@@ -691,14 +691,14 @@ fn test_block_proposal_validation_timeout_blames_tx() {
             failed_txid,
             ..
         }) => {
-            assert_eq!(reason_code, ValidateRejectCode::BadTransaction);
+            assert_eq!(reason_code, ValidateRejectCode::InvalidBlock);
             assert!(
-                failed_txid.is_some(),
-                "Timeout rejection should blame the tx at which the deadline was exceeded"
+                failed_txid.is_none(),
+                "Block-level timeout is the block's fault and must not blame any tx"
             );
             assert!(
-                reason.contains("exceeded deadline"),
-                "Expected rejection reason to mention deadline, got: {reason}"
+                reason.contains("timed out"),
+                "Expected rejection reason to mention the timeout, got: {reason}"
             );
         }
     }
