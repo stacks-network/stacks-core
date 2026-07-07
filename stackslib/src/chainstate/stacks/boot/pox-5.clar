@@ -1688,10 +1688,19 @@
             (prev-staked (get-signer-pending-staked-ustx-per-cycle signer cycle))
             (prev-total-shares-staked (get-total-shares-staked-for-cycle cycle none))
             (new-delegated (+ cur-delegated-for-signer amount))
+            (prev-staker-shares (get-staker-shares-staked-for-cycle staker cycle none signer))
         )
         ;; Crystallize STX-only rewards before mutating anything
         (settle-rewards signer cycle none)
-        (settle-staker-rewards signer cycle none staker)
+        ;; When zero, this is a no-op (`earned = shares * (rpt - rpt-paid) = 0`). In this case,
+        ;; we skip calling `settle-staker-rewards` to reduce cost.
+        (if (> prev-staker-shares u0)
+            (settle-staker-rewards signer cycle none staker)
+            {
+                earned: u0,
+                rewards-per-token: u0,
+            }
+        )
 
         (if (>= new-delegated SIGNER_SET_MIN_USTX)
             (begin
@@ -2524,8 +2533,14 @@
         (bond-index (optional uint))
     )
     (let (
-            (earned (get-earned signer reward-cycle bond-index))
+            (shares (get-signer-shares-staked-for-cycle signer reward-cycle bond-index))
             (rewards-per-token (get-rewards-per-token-for-cycle reward-cycle bond-index))
+            (earned (compute-earned-rewards
+                shares
+                rewards-per-token
+                (get-signer-rewards-per-token-settled-for-cycle signer reward-cycle bond-index)
+                (get-signer-unclaimed-rewards-for-cycle signer reward-cycle bond-index)
+            ))
         )
         (map-set signer-unclaimed-rewards-for-cycle {
             reward-cycle: reward-cycle,
@@ -2541,12 +2556,7 @@
         }
             rewards-per-token
         )
-        (if (>
-                (get-signer-shares-staked-for-cycle signer reward-cycle
-                    bond-index
-                )
-                u0
-            )
+        (if (> shares u0)
             (map-set signer-rewards-per-token-for-cycle {
                 signer: signer,
                 reward-cycle: reward-cycle,
