@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -57,7 +57,6 @@ use crate::net::relay::Relayer;
 use crate::net::test::{TestEventObserver, TestPeer};
 use crate::net::ProtocolFamily;
 
-#[warn(unused)]
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
@@ -230,7 +229,6 @@ impl MemPoolEventDispatcher for ProposalTestObserver {
 }
 
 #[test]
-#[ignore]
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let test_observer = TestEventObserver::new();
@@ -518,7 +516,6 @@ fn test_try_make_response() {
 /// includes the txid of the transaction at which the deadline was exceeded
 /// so the miner can exclude it from the next block proposal.
 #[test]
-#[ignore]
 fn test_block_proposal_validation_timeout_blames_tx() {
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
@@ -1029,7 +1026,6 @@ fn replay_validation_test(
 }
 
 #[test]
-#[ignore]
 /// Tx replay test with mismatching mineable transactions.
 fn replay_validation_test_transaction_mismatch() {
     let result = replay_validation_test(|rpc_test| {
@@ -1069,7 +1065,6 @@ fn replay_validation_test_transaction_mismatch() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has one unmineable tx, and one mineable tx.
 /// The block has the one mineable tx.
 fn replay_validation_test_transaction_unmineable_match() {
@@ -1109,7 +1104,6 @@ fn replay_validation_test_transaction_unmineable_match() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has [mineable, unmineable, mineable]
 /// The block has [mineable, mineable]
 fn replay_validation_test_transaction_unmineable_match_2() {
@@ -1165,7 +1159,6 @@ fn replay_validation_test_transaction_unmineable_match_2() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has [mineable, mineable, tx_a, mineable]
 /// The block has [mineable, mineable, tx_b, mineable]
 fn replay_validation_test_transaction_mineable_mismatch_series() {
@@ -1243,7 +1236,6 @@ fn replay_validation_test_transaction_mineable_mismatch_series() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has [mineable, tx_b, tx_a]
 /// The block has [mineable, tx_a, tx_b]
 fn replay_validation_test_transaction_mineable_mismatch_series_2() {
@@ -1301,7 +1293,6 @@ fn replay_validation_test_transaction_mineable_mismatch_series_2() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has [deploy, big_a, big_b, c]
 /// The block has [deploy, big_a, c]
 ///
@@ -1379,7 +1370,6 @@ fn replay_validation_test_budget_exceeded() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has [deploy, big_a, big_b]
 /// The block has [deploy, big_a]
 ///
