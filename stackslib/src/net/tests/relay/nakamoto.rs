@@ -366,6 +366,7 @@ fn test_buffer_data_message() {
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::zeros(1).unwrap(),
+            problematic_txs: vec![],
         },
         txs: vec![],
     };

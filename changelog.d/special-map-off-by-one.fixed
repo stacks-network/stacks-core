@@ -1,0 +1,1 @@
+Fix an off-by-one in the Clarity `map` built-in over unequal-length sequences. The fix is consensus-breaking and epoch-gated, activating in Epoch 4.0.

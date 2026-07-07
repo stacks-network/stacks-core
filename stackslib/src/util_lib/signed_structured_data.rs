@@ -245,7 +245,7 @@ pub mod pox4 {
                 conn.as_transaction(|clarity_db| {
                     let clarity_version = ClarityVersion::Clarity2;
                     let (ast, analysis) = clarity_db
-                        .analyze_smart_contract(&pox_contract_id, clarity_version, body)
+                        .analyze_smart_contract(&pox_contract_id, clarity_version, body, None)
                         .unwrap();
                     clarity_db
                         .initialize_smart_contract(

@@ -807,6 +807,19 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether this epoch eagerly rejects a tuple `merge` whose combined size
+    /// exceeds `MAX_VALUE_SIZE`, at the merge site, with `ValueTooLarge` — both at
+    /// static-analysis time and at runtime.
+    ///
+    /// Before this epoch, an oversized merge was not checked at the merge site: the
+    /// oversized tuple type/value propagated and only failed later (block-invalidating
+    /// `InvariantViolation` when its size was eventually computed — or, if never
+    /// sized, the contract deployed and became uncallable). Gated here so the
+    /// behavior changes atomically at the epoch boundary. See PR #6946.
+    pub fn fixes_tuple_merge_size_check(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
@@ -824,6 +837,19 @@ impl StacksEpochId {
     /// breaking checks in signers and miners).
     pub fn allows_tx_signatures_with_high_s(&self) -> bool {
         self < &StacksEpochId::Epoch40
+    }
+
+    /// Whether the Clarity `map` built-in stops iteration at the shortest input
+    /// sequence.
+    ///
+    /// The original implementation had an off-by-one when mapping over sequences
+    /// of unequal length that included an empty sequence: it iterated one step
+    /// past the shortest sequence, producing a spurious element (or a runtime
+    /// arity error for a strict-arity function) instead of stopping. This is
+    /// corrected from Epoch 4.0 onwards. The fix is consensus-breaking, so
+    /// earlier epochs must preserve the misbehavior.
+    pub fn fixes_map_off_by_one(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
     }
 
     /// Return the network epoch associated with the StacksEpochId
@@ -976,12 +1002,11 @@ impl StacksAddress {
 
         // address hash mode must be consistent with the number of keys
         match *hash_mode {
-            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
+            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH
                 // must be a single public key, and must require one signature
-                if num_sigs != 1 || pubkeys.len() != 1 {
+                if (num_sigs != 1 || pubkeys.len() != 1) => {
                     return None;
                 }
-            }
             _ => {}
         }
 

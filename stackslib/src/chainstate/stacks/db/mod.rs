@@ -52,7 +52,7 @@ use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConn,
     NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2, NAKAMOTO_CHAINSTATE_SCHEMA_3,
     NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5, NAKAMOTO_CHAINSTATE_SCHEMA_6,
-    NAKAMOTO_CHAINSTATE_SCHEMA_7, NAKAMOTO_CHAINSTATE_SCHEMA_8,
+    NAKAMOTO_CHAINSTATE_SCHEMA_7, NAKAMOTO_CHAINSTATE_SCHEMA_8, NAKAMOTO_CHAINSTATE_SCHEMA_9,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -670,8 +670,8 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "13";
-pub const CHAINSTATE_VERSION_NUMBER: u32 = 13;
+pub const CHAINSTATE_VERSION: &str = "14";
+pub const CHAINSTATE_VERSION_NUMBER: u32 = 14;
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1181,6 +1181,14 @@ impl StacksChainState {
                         tx.execute_batch(cmd)?;
                     }
                 }
+                "13" => {
+                    info!(
+                        "Migrating chainstate schema from version 13 to 14: add problematic_txs column to nakamoto_block_headers"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_9.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
                 _ => {
                     error!(
                         "Invalid chain state database: expected version = {}, got {}",
@@ -1391,6 +1399,7 @@ impl StacksChainState {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
+                        None,
                         None,
                     )
                 })?;

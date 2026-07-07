@@ -2666,7 +2666,7 @@ pub mod test {
 
     impl Default for TestPeerConfig {
         fn default() -> Self {
-            let conn_opts = ConnectionOptions::default();
+            let conn_opts = ConnectionOptions::default().with_private_neighbors();
             Self {
                 chain_config: TestChainstateConfig::default(),
                 peer_version: 0x01020304,

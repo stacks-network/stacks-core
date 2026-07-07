@@ -527,6 +527,7 @@ impl ClarityInstance {
                     &boot_code_id("costs", use_mainnet),
                     ClarityVersion::Clarity1,
                     BOOT_CODE_COSTS,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -548,6 +549,7 @@ impl ClarityInstance {
                     &boot_code_id("cost-voting", use_mainnet),
                     ClarityVersion::Clarity1,
                     &*BOOT_CODE_COST_VOTING,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -573,6 +575,7 @@ impl ClarityInstance {
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
                     &*BOOT_CODE_POX_TESTNET,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -625,6 +628,7 @@ impl ClarityInstance {
                     &boot_code_id("costs-2", use_mainnet),
                     ClarityVersion::Clarity1,
                     BOOT_CODE_COSTS_2,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -646,6 +650,7 @@ impl ClarityInstance {
                     &boot_code_id("costs-3", use_mainnet),
                     ClarityVersion::Clarity2,
                     BOOT_CODE_COSTS_3,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -667,6 +672,7 @@ impl ClarityInstance {
                     &boot_code_id("pox-2", use_mainnet),
                     ClarityVersion::Clarity2,
                     &*POX_2_TESTNET_CODE,
+                    None,
                 )
                 .unwrap();
             clarity_db
@@ -1097,6 +1103,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 &contract_tx,
                 &boot_code_account,
                 None,
+                None,
             )
             .expect("FATAL: Failed to process boot contract initialization")
         });
@@ -1170,6 +1177,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     tx_conn,
                     &costs_2_contract_tx,
                     &boot_code_account,
+                    None,
                     None,
                 )
                 .expect("FATAL: Failed to process PoX 2 contract initialization")
@@ -1281,6 +1289,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     &pox_2_contract_tx,
                     &boot_code_account,
                     None,
+                    None,
                 )
                 .expect("FATAL: Failed to process PoX 2 contract initialization");
 
@@ -1351,6 +1360,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     tx_conn,
                     &costs_3_contract_tx,
                     &boot_code_account,
+                    None,
                     None,
                 )
                 .expect("FATAL: Failed to process costs-3 contract initialization");
@@ -1520,6 +1530,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     &pox_3_contract_tx,
                     &boot_code_account,
                     None,
+                    None,
                 )
                 .expect("FATAL: Failed to process PoX 3 contract initialization");
 
@@ -1638,6 +1649,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     &pox_4_contract_tx,
                     &boot_code_account,
                     None,
+                    None,
                 )
                 .expect("FATAL: Failed to process PoX 4 contract initialization");
 
@@ -1697,6 +1709,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     &signers_contract_tx,
                     &boot_code_account,
                     None,
+                    None,
                 )
                 .expect("FATAL: Failed to process .signers contract initialization");
                 receipt
@@ -1743,6 +1756,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                             &signers_contract_tx,
                             &boot_code_account,
                             None,
+                            None,
                         )
                         .expect("FATAL: Failed to process .signers DB contract initialization");
                         receipt
@@ -1781,6 +1795,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     tx_conn,
                     &signers_contract_tx,
                     &boot_code_account,
+                    None,
                     None,
                 )
                 .expect("FATAL: Failed to process .signers-voting contract initialization");
@@ -1913,6 +1928,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     &sip_031_contract_tx,
                     &boot_code_account,
                     None,
+                    None,
                 )
                 .expect("FATAL: Failed to process .sip-031 contract initialization");
                 receipt
@@ -2026,6 +2042,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     tx_conn,
                     &costs_4_contract_tx,
                     &boot_code_account,
+                    None,
                     None,
                 )
                 .expect("FATAL: Failed to process costs-4 contract initialization");
@@ -2150,6 +2167,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     tx_conn,
                     &pox_5_contract_tx,
                     &boot_code_account,
+                    None,
                     None,
                 )
                 .expect("FATAL: Failed to process .pox-5 contract initialization");
@@ -2657,6 +2675,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
+                        None,
                     )
                 })
                 .unwrap_err();
@@ -2669,6 +2688,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
+                        None,
                     )
                 })
                 .unwrap_err();
@@ -2716,6 +2736,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
+                        None,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2769,6 +2790,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
+                        None,
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -2797,6 +2819,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
+                        None,
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -2827,6 +2850,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
+                        None,
                     )
                     .unwrap();
                 assert!(format!(
@@ -2881,6 +2905,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
+                        None,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2942,6 +2967,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
+                        None,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -3034,6 +3060,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
+                        None,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -3165,6 +3192,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
+                        None,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -3378,20 +3406,24 @@ mod tests {
             );
 
             conn.as_transaction(|clarity_tx| {
-                let receipt =
-                    StacksChainState::process_transaction_payload(clarity_tx, &tx1, &account, None)
-                        .unwrap();
+                let receipt = StacksChainState::process_transaction_payload(
+                    clarity_tx, &tx1, &account, None, None,
+                )
+                .unwrap();
                 assert!(receipt.post_condition_aborted);
             });
             conn.as_transaction(|clarity_tx| {
-                StacksChainState::process_transaction_payload(clarity_tx, &tx2, &account, None)
-                    .unwrap();
+                StacksChainState::process_transaction_payload(
+                    clarity_tx, &tx2, &account, None, None,
+                )
+                .unwrap();
             });
 
             conn.as_transaction(|clarity_tx| {
-                let receipt =
-                    StacksChainState::process_transaction_payload(clarity_tx, &tx3, &account, None)
-                        .unwrap();
+                let receipt = StacksChainState::process_transaction_payload(
+                    clarity_tx, &tx3, &account, None, None,
+                )
+                .unwrap();
 
                 assert!(receipt.post_condition_aborted);
             });
@@ -3541,6 +3573,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
+                        None,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -3629,6 +3662,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     contract_src,
+                    None,
                 )
                 .unwrap();
             tx.initialize_smart_contract(

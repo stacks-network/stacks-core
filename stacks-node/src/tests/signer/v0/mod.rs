@@ -124,6 +124,7 @@ pub mod epoch_4_0_waterfall;
 pub mod failed_txs;
 pub mod late_block_proposal;
 pub mod missing_burn_block_proposal;
+pub mod problematic_txs;
 pub mod reorg;
 pub mod signers_consider_consensus_blocks;
 pub mod signers_consider_late_proposals;
@@ -2724,10 +2725,7 @@ fn block_proposal_rejection() {
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     block.header.timestamp = get_epoch_time_secs();
     let block_1_consensus_hash = block.header.consensus_hash.clone();
 
@@ -5600,10 +5598,7 @@ fn block_validation_response_timeout() {
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     block.header.timestamp = get_epoch_time_secs();
 
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
@@ -5892,10 +5887,7 @@ fn block_validation_pending_table() {
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     block.header.timestamp = get_epoch_time_secs();
 
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
@@ -6016,10 +6008,7 @@ fn block_proposal_max_age_rejections() {
 
     info!("------------------------- Send Block Proposal To Signers -------------------------");
     let _ = get_chain_info(&signer_test.running_nodes.conf);
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     // First propose a stale block that is older than the block_proposal_max_age_secs
     block.header.timestamp = get_epoch_time_secs().saturating_sub(
         signer_test.signer_configs[0]
@@ -6220,10 +6209,7 @@ fn incoming_signers_ignore_block_proposals() {
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     block.header.timestamp = get_epoch_time_secs();
     block
         .header
@@ -6399,10 +6385,7 @@ fn outgoing_signers_ignore_block_proposals() {
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     block.header.timestamp = get_epoch_time_secs();
 
     let short_timeout = Duration::from_secs(30);

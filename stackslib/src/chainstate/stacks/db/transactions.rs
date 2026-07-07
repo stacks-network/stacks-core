@@ -83,6 +83,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -105,6 +106,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error,
+            problematic_skipped: None,
         }
     }
 
@@ -127,6 +129,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(reason),
+            problematic_skipped: None,
         }
     }
 
@@ -148,6 +151,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -170,6 +174,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(reason),
+            problematic_skipped: None,
         }
     }
 
@@ -185,6 +190,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -227,6 +233,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error_string),
+            problematic_skipped: None,
         }
     }
 
@@ -246,6 +253,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -266,6 +274,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error.to_string()),
+            problematic_skipped: None,
         }
     }
 
@@ -285,6 +294,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error.to_string()),
+            problematic_skipped: None,
         }
     }
 
@@ -300,6 +310,32 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
+        }
+    }
+
+    /// Receipt for a transaction that was marked problematic by the block's
+    /// `NakamotoBlockHeader::problematic_txs` list. The transaction's payload
+    /// was NOT executed: only the precheck cost is reflected in the block
+    /// budget, and the fee was debited / origin (and sponsor) nonces bumped by
+    /// `process_skipped_transaction`. `execution_cost` is zero and `events`
+    /// is empty.
+    pub fn from_problematic_skipped(
+        tx: StacksTransaction,
+        category: u8,
+    ) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx.into(),
+            events: vec![],
+            post_condition_aborted: false,
+            result: Value::err_none(),
+            stx_burned: 0,
+            contract_analysis: None,
+            execution_cost: ExecutionCost::ZERO,
+            microblock_header: None,
+            tx_index: 0,
+            vm_error: None,
+            problematic_skipped: Some(category),
         }
     }
 
@@ -713,6 +749,23 @@ impl StacksChainState {
                     info!("{}", &msg; "txid" => %tx.txid());
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
+            }
+        }
+
+        // check that the requested Clarity version is supported in this epoch.
+        // Only a versioned smart-contract deploy can pin a specific version;
+        // every other transaction implicitly uses the epoch default. A version
+        // newer than the epoch allows is statically invalid, so reject it
+        // here.
+        if let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload {
+            let max_version = ClarityVersion::default_for_epoch(epoch_id);
+            if *clarity_version > max_version {
+                let msg = format!(
+                    "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch_id} only supports up to {max_version}",
+                    tx.txid()
+                );
+                info!("{msg}");
+                return Err(Error::InvalidStacksTransaction(msg, false));
             }
         }
 
@@ -1233,6 +1286,7 @@ impl StacksChainState {
         tx: &StacksTransaction,
         origin_account: &StacksAccount,
         max_execution_time: Option<std::time::Duration>,
+        max_analysis_time: Option<std::time::Duration>,
     ) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
@@ -1476,10 +1530,15 @@ impl StacksChainState {
                 // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
                 // The reason for this is that analyzing the transaction is itself an expensive
                 // operation, and the paying account will need to be debited the fee regardless.
+                //
+                // `max_analysis_time` bounds the analysis phase on the
+                // non-consensus voting paths (mining / block-proposal validation); it is
+                // `None` on deterministic replay/commit (consensus stays deterministic).
                 let analysis_resp = clarity_tx.analyze_smart_contract(
                     &contract_id,
                     clarity_version,
                     &contract_code_str,
+                    max_analysis_time,
                 );
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
@@ -1499,6 +1558,14 @@ impl StacksChainState {
                                     cost_after.clone(),
                                     budget.clone(),
                                 ));
+                            }
+                            ClarityError::AnalysisTimeExpired => {
+                                // The analysis phase exceeded its wall-clock deadline (on a voting path only).
+                                warn!("Contract analysis exceeded the analysis time limit; tx will be dropped from the mempool";
+                                      "txid" => %tx.txid(),
+                                      "contract_name" => %contract_id,
+                                );
+                                return Err(Error::AnalysisTimeExpired);
                             }
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {
@@ -1606,6 +1673,7 @@ impl StacksChainState {
                                     microblock_header: None,
                                     tx_index: 0,
                                     vm_error: Some(error.to_string()),
+                                    problematic_skipped: None,
                                 };
                                 return Ok(receipt);
                             }
@@ -1785,9 +1853,88 @@ impl StacksChainState {
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        Self::process_transaction_with_check(clarity_block, tx, quiet, max_execution_time, |_| {
-            Ok(())
-        })
+        // The generic/replay entry point imposes no analysis deadline (`None`): only the
+        // miner assembly and block-proposal validation paths (which call
+        // `process_transaction_with_check` directly) bound the analysis phase.
+        Self::process_transaction_with_check(
+            clarity_block,
+            tx,
+            quiet,
+            max_execution_time,
+            None,
+            |_| Ok(()),
+        )
+    }
+
+    /// Process a transaction that has been marked problematic by the
+    /// block's `NakamotoBlockHeader::problematic_txs` list. Runs the usual
+    /// static precheck, debits the fee, and bumps the origin (and payer, if
+    /// distinct) nonces — but **does not** execute the transaction's payload.
+    ///
+    /// The returned receipt has `problematic_skipped == Some(category)`,
+    /// `execution_cost == ExecutionCost::ZERO`, and empty `events`.
+    ///
+    /// This must only be called for Epoch 4.0+ blocks: the validation rules
+    /// in [`NakamotoBlock::validate_problematic_txs`] guarantee the marker
+    /// list is empty before then, so reaching this path in an earlier epoch
+    /// is a consensus bug.
+    pub fn process_skipped_transaction(
+        clarity_block: &mut ClarityTx,
+        tx: &StacksTransaction,
+        category: u8,
+        quiet: bool,
+    ) -> Result<(u64, StacksTransactionReceipt), Error> {
+        debug!(
+            "Skip-execute problematic transaction {} ({}) category={}",
+            tx.txid(),
+            tx.payload.name(),
+            category,
+        );
+        let epoch = clarity_block.get_epoch();
+        if epoch < StacksEpochId::Epoch40 {
+            return Err(Error::InvalidStacksTransaction(
+                format!(
+                    "problematic_txs markers are not allowed before Epoch 4.0 (got epoch {epoch})"
+                ),
+                false,
+            ));
+        }
+
+        // Static precheck (size, version, anchor mode, multisig encoding,
+        // Clarity version...). A problematic marker only skips payload
+        // execution; the transaction must still be otherwise valid.
+        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch, None)?;
+
+        let mut transaction = clarity_block.connection().start_transaction_processing();
+
+        let fee = tx.get_tx_fee();
+        let (_origin_account, payer_account) =
+            StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
+
+        let payer_address = payer_account.principal.clone();
+        let payer_nonce = payer_account.nonce;
+        StacksChainState::pay_transaction_fee(&mut transaction, fee, payer_account)?;
+
+        // re-load origin to pick up the new balance/nonce after the fee debit
+        let origin_account =
+            StacksChainState::get_account(&mut transaction, &tx.origin_address().into());
+
+        StacksChainState::update_account_nonce(
+            &mut transaction,
+            &origin_account.principal,
+            origin_account.nonce,
+        );
+        if origin_account.principal != payer_address {
+            StacksChainState::update_account_nonce(&mut transaction, &payer_address, payer_nonce);
+        }
+
+        let tx_receipt = StacksTransactionReceipt::from_problematic_skipped(tx.clone(), category);
+
+        transaction
+            .commit()
+            .map_err(|e| Error::InvalidStacksTransaction(e.to_string(), false))?;
+
+        Ok((fee, tx_receipt))
     }
 
     pub fn process_transaction_with_check<
@@ -1797,24 +1944,13 @@ impl StacksChainState {
         tx: &StacksTransaction,
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
+        max_analysis_time: Option<std::time::Duration>,
         mut check: F,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let epoch = clarity_block.get_epoch();
 
         StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch, None)?;
-
-        // what version of Clarity did the transaction caller want? And, is it valid now?
-        let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
-        if clarity_version > ClarityVersion::default_for_epoch(epoch) {
-            let msg = format!(
-                "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch} only supports up to {}",
-                tx.txid(),
-                ClarityVersion::default_for_epoch(epoch)
-            );
-            info!("{msg}");
-            return Err(Error::InvalidStacksTransaction(msg, false));
-        }
 
         let mut transaction = clarity_block.connection().start_transaction_processing();
 
@@ -1837,6 +1973,7 @@ impl StacksChainState {
                 tx,
                 &origin_account,
                 max_execution_time,
+                max_analysis_time,
             )?;
 
             // update the account nonces
@@ -1864,6 +2001,7 @@ impl StacksChainState {
                 &mut transaction,
                 tx,
                 &origin_account,
+                None,
                 None,
             )?;
 
@@ -2049,6 +2187,7 @@ pub mod test {
                 nonce: 0,
                 stx_balance: STXBalance::Unlocked { amount: 100 },
             },
+            None,
             None,
         )
         .unwrap();
@@ -2621,6 +2760,212 @@ pub mod test {
 
             assert_eq!(fee, 0);
         }
+    }
+
+    #[test]
+    fn process_skipped_transaction_charges_fee_and_skips_payload() {
+        // A transaction marked problematic must still pay its fee and bump the
+        // origin nonce, but its payload must NOT execute. Here a token-transfer
+        // of 123 uSTX is skipped: the recipient receives nothing, yet the
+        // origin is debited the fee and its nonce advances.
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::TokenTransfer(
+                recv_addr.clone().into(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer.set_tx_fee(100);
+
+        let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        signer.sign_origin(&privk).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        // problematic_txs markers are only serialized/honored in Epoch 4.0+
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_40,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        // fund the origin enough to cover the fee and the (skipped) transfer
+        conn.connection().as_transaction(|tx| {
+            StacksChainState::account_credit(tx, &addr.to_account_principal(), 223)
+        });
+
+        let category = 7u8;
+        let (fee, receipt) =
+            StacksChainState::process_skipped_transaction(&mut conn, &signed_tx, category, false)
+                .unwrap();
+
+        // the fee was charged and the origin nonce bumped, but the 123 uSTX
+        // transfer did not happen: balance dropped by exactly the fee.
+        let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+        assert_eq!(account_after.nonce, 1);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 123);
+
+        let recv_account_after =
+            StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
+        assert_eq!(recv_account_after.nonce, 0);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked(), 0);
+
+        // the receipt reflects the skip: fee returned, tagged with the category
+        // byte, zero execution cost, and no events.
+        assert_eq!(fee, 100);
+        assert_eq!(receipt.problematic_skipped, Some(category));
+        assert_eq!(receipt.execution_cost, ExecutionCost::ZERO);
+        assert!(receipt.events.is_empty());
+        assert!(!receipt.post_condition_aborted);
+
+        conn.commit_block();
+    }
+
+    #[test]
+    fn process_skipped_transaction_bumps_origin_and_sponsor_nonces() {
+        // For a sponsored problematic transaction, both the origin and sponsor
+        // nonces advance and the sponsor pays the fee, but the payload is still
+        // skipped (so the origin's balance is untouched).
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+
+        let privk_origin = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let privk_sponsor = StacksPrivateKey::from_hex(
+            "7e3af4db6af6b3c67e2c6c6d7d5983b519f4d9b3a6e00580ae96dcace3bde8bc01",
+        )
+        .unwrap();
+
+        let auth_origin = TransactionAuth::from_p2pkh(&privk_origin).unwrap();
+        let auth_sponsor = TransactionAuth::from_p2pkh(&privk_sponsor).unwrap();
+        let auth = auth_origin.into_sponsored(auth_sponsor).unwrap();
+
+        let addr = auth.origin().address_testnet();
+        let addr_sponsor = auth.sponsor().unwrap().address_testnet();
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::TokenTransfer(
+                recv_addr.clone().into(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer.set_tx_fee(100);
+
+        let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        signer.sign_origin(&privk_origin).unwrap();
+        signer.sign_sponsor(&privk_sponsor).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_40,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        // the sponsor pays the fee...
+        conn.connection().as_transaction(|tx| {
+            StacksChainState::account_credit(tx, &addr_sponsor.to_account_principal(), 100)
+        });
+        // ...and give the origin the transfer amount, to prove it is NOT spent.
+        conn.connection().as_transaction(|tx| {
+            StacksChainState::account_credit(tx, &addr.to_account_principal(), 123)
+        });
+
+        let (fee, receipt) =
+            StacksChainState::process_skipped_transaction(&mut conn, &signed_tx, 0, false).unwrap();
+
+        // both nonces advance; the origin's balance is untouched (no payload).
+        let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
+        assert_eq!(account_after.nonce, 1);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 123);
+
+        // the sponsor's nonce advances and it paid the fee.
+        let sponsor_after =
+            StacksChainState::get_account(&mut conn, &addr_sponsor.to_account_principal());
+        assert_eq!(sponsor_after.nonce, 1);
+        assert_eq!(sponsor_after.stx_balance.amount_unlocked(), 0);
+
+        // the recipient received nothing.
+        let recv_after =
+            StacksChainState::get_account(&mut conn, &recv_addr.to_account_principal());
+        assert_eq!(recv_after.nonce, 0);
+        assert_eq!(recv_after.stx_balance.amount_unlocked(), 0);
+
+        assert_eq!(fee, 100);
+        assert_eq!(receipt.problematic_skipped, Some(0));
+
+        conn.commit_block();
+    }
+
+    #[test]
+    fn process_skipped_transaction_rejected_before_epoch_40() {
+        // problematic_txs markers are only valid in Epoch 4.0+. Reaching the
+        // skip path in an earlier epoch is a consensus bug, so it must error
+        // rather than silently charge a fee.
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::TokenTransfer(recv_addr.into(), 123, TokenTransferMemo([0u8; 34])),
+        );
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer.set_tx_fee(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        signer.sign_origin(&privk).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        // Epoch 3.4 (any pre-4.0 epoch) must reject the skip path outright.
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_34,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+        conn.connection().as_transaction(|tx| {
+            StacksChainState::account_credit(tx, &addr.to_account_principal(), 223)
+        });
+
+        let err = StacksChainState::process_skipped_transaction(&mut conn, &signed_tx, 0, false)
+            .unwrap_err();
+        assert!(matches!(err, Error::InvalidStacksTransaction(..)));
+
+        conn.commit_block();
     }
 
     #[test]

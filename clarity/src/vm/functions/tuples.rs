@@ -100,7 +100,20 @@ pub fn tuple_get(
     }
 }
 
-pub fn tuple_merge(base: Value, update: Value) -> Result<Value, VmExecutionError> {
+pub fn tuple_merge(
+    mut args: Vec<Value>,
+    exec_state: &mut ExecutionState,
+    _invoke_ctx: &InvocationContext,
+) -> Result<Value, VmExecutionError> {
+    check_argument_count(2, &args)?;
+    // `merge` is dispatched with two evaluated arguments; extract them in order.
+    let update = args
+        .pop()
+        .ok_or_else(|| VmInternalError::Expect("Unexpected list length".into()))?;
+    let base = args
+        .pop()
+        .ok_or_else(|| VmInternalError::Expect("Unexpected list length".into()))?;
+
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
         _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
@@ -118,5 +131,12 @@ pub fn tuple_merge(base: Value, update: Value) -> Result<Value, VmExecutionError
     }?;
 
     let combined = TupleData::shallow_merge(initial_values, new_values);
+    if exec_state.epoch().fixes_tuple_merge_size_check() {
+        // 4.0+: reject an oversized merged tuple cleanly with `ValueTooLarge` instead of
+        // block-invalidating later (the pre-4.0 behavior: the oversized value propagates and
+        // fails during cost calculation with an `InvariantViolation`). This mirrors the
+        // static-analysis gate in `check_special_merge` so no oversized tuple can exist at 4.0+.
+        combined.type_signature.checked_value_size()?;
+    }
     Ok(Value::Tuple(combined))
 }
