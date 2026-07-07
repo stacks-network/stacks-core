@@ -1189,8 +1189,6 @@ fn replay_block_nakamoto(
         &parent_header_info.anchored_header.block_hash(),
     );
     if parent_block_id != block.header.parent_block_id {
-        drop(chainstate_tx);
-
         let msg = "Discontinuous Nakamoto Stacks block";
         warn!("{}", &msg;
               "child parent_block_id" => %block.header.parent_block_id,
@@ -1361,9 +1359,6 @@ fn replay_block_nakamoto(
     }
 
     if let Some(e) = err_opt {
-        // force rollback
-        drop(chainstate_tx);
-
         warn!(
             "Failed to append {}/{}: {:?}",
             &block.header.consensus_hash,
