@@ -343,21 +343,26 @@ impl PeerNetwork {
             return false;
         };
 
-        let Ok(Some(block_sn)) = SortitionDB::get_block_snapshot_consensus(
+        // Determine the epoch in which to apply the signer-signature ordering
+        // rule. If the block's sortition hasn't been processed yet, fall back
+        // to the burnchain tip, otherwise we'd refuse to buffer the very
+        // blocks this method exists to buffer.
+        let epoch_burn_height = match SortitionDB::get_block_snapshot_consensus(
             sortdb.conn(),
             &nakamoto_block.header.consensus_hash,
-        ) else {
-            debug!(
-                "{:?}: no sortition for block {} consensus hash {}",
-                self.get_local_peer(),
-                &nakamoto_block.header.block_hash(),
-                &nakamoto_block.header.consensus_hash,
-            );
-            return false;
+        ) {
+            Ok(Some(block_sn)) => block_sn.block_height,
+            _ => {
+                debug!(
+                    "{:?}: no sortition yet for block {} consensus hash {}; use burnchain tip epoch",
+                    self.get_local_peer(),
+                    &nakamoto_block.header.block_hash(),
+                    &nakamoto_block.header.consensus_hash,
+                );
+                self.burnchain_tip.block_height
+            }
         };
-        let epoch_id = self
-            .get_epoch_at_burn_height(block_sn.block_height)
-            .epoch_id;
+        let epoch_id = self.get_epoch_at_burn_height(epoch_burn_height).epoch_id;
 
         if !self.check_nakamoto_block_signer_signature(sn_rc, epoch_id, nakamoto_block) {
             return false;
