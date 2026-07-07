@@ -481,7 +481,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         // The unconfirmed tenure's epoch selects the signer-signature ordering
         // rule (strict ordering is enforced from Epoch 4.0). Fall back to the
         // lenient pre-4.0 rule if unset (which can never drop a valid block).
-        let epoch_id = self.unconfirmed_epoch_id.unwrap_or(StacksEpochId::Epoch30);
+        let epoch_id = self.unconfirmed_epoch_id.unwrap_or(StacksEpochId::Epoch34);
 
         if tenure_blocks.is_empty() {
             // nothing to do
