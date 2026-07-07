@@ -938,6 +938,24 @@ fn test_ord_for_stacks_epoch_id() {
     );
 }
 
+// The doubled Epoch 4.0 read budget is exercised end-to-end via a real contract
+// call in `chainstate::tests::consensus_unit_tests::epoch_40_read_budget`. This
+// test only pins the wiring: that the production epoch tables actually reference
+// `BLOCK_LIMIT_MAINNET_40` for Epoch 4.0, rather than e.g. `BLOCK_LIMIT_MAINNET_21`.
+#[test]
+fn test_epoch_40_uses_the_doubled_read_budget_block_limit() {
+    for epochs in [
+        &*STACKS_EPOCHS_MAINNET,
+        &*STACKS_EPOCHS_TESTNET,
+        &*STACKS_EPOCHS_REGTEST,
+    ] {
+        assert_eq!(
+            epochs[StacksEpochId::Epoch40].block_limit,
+            BLOCK_LIMIT_MAINNET_40
+        );
+    }
+}
+
 #[cfg(test)]
 fn release_epoch_from_stacks_node_version() -> StacksEpochId {
     let mut parts = STACKS_NODE_VERSION.split('.');
