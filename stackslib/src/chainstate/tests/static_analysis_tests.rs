@@ -71,6 +71,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
              validation paths; it is exercised by the analysis-deadline integration tests, not
              by this consensus harness.",
         ),
+        ReadOnlyCheckerRecursionLimitExceeded => todo!(),
         ValueTooLarge => Tested(vec![static_check_error_value_too_large]),
         ValueOutOfBounds => Tested(vec![static_check_error_value_out_of_bounds]),
         TypeSignatureTooDeep => Tested(vec![static_check_error_type_signature_too_deep]),
@@ -185,6 +186,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         WithNftExpectedListOfIdentifiers => Tested(vec![static_check_error_with_nft_expected_list_of_identifiers]),
         MaxIdentifierLengthExceeded(_, _) => Tested(vec![static_check_error_max_identifier_length_exceeded]),
         TooManyAllowances(_, _) => Tested(vec![static_check_error_too_many_allowances]),
+        TraitReferenceChainTooDeep => todo!(),
     }
 }
 
