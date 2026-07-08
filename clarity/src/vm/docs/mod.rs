@@ -32,6 +32,19 @@ struct ReferenceAPIs {
     keywords: Vec<KeywordAPI>,
 }
 
+/// A structured caveat/warning/info note about a function or keyword that
+/// downstream documentation generators can render however they like (e.g. as a
+/// GitBook hint block). Hand-written equivalents previously lived in the
+/// documentation repos; surfacing them here keeps the source-of-truth in the
+/// same place as the API definitions.
+#[derive(Serialize, Clone)]
+pub struct DocNotice {
+    /// Severity hint for renderers, e.g. `"danger"`, `"warning"`, `"info"`.
+    pub level: &'static str,
+    /// Notice body, in markdown.
+    pub body: &'static str,
+}
+
 #[derive(Serialize, Clone)]
 pub struct KeywordAPI {
     pub name: &'static str,
@@ -43,6 +56,9 @@ pub struct KeywordAPI {
     pub min_version: ClarityVersion,
     /// The version where this keyword was disabled.
     pub max_version: Option<ClarityVersion>,
+    /// Structured caveats/warnings rendered ahead of the description.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notices: Vec<DocNotice>,
 }
 
 #[derive(Serialize, Clone)]
@@ -52,6 +68,7 @@ struct SimpleKeywordAPI {
     output_type: &'static str,
     description: &'static str,
     example: &'static str,
+    notices: &'static [DocNotice],
 }
 
 #[derive(Serialize)]
@@ -67,6 +84,9 @@ pub struct FunctionAPI {
     pub min_version: ClarityVersion,
     /// The version where this keyword was disabled.
     pub max_version: Option<ClarityVersion>,
+    /// Structured caveats/warnings rendered ahead of the description.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notices: Vec<DocNotice>,
 }
 
 pub struct SimpleFunctionAPI {
@@ -75,6 +95,7 @@ pub struct SimpleFunctionAPI {
     signature: &'static str,
     description: &'static str,
     example: &'static str,
+    notices: &'static [DocNotice],
 }
 
 struct SpecialAPI {
@@ -84,6 +105,7 @@ struct SpecialAPI {
     signature: &'static str,
     description: &'static str,
     example: &'static str,
+    notices: &'static [DocNotice],
 }
 
 pub struct DefineAPI {
@@ -93,6 +115,7 @@ pub struct DefineAPI {
     signature: &'static str,
     description: &'static str,
     example: &'static str,
+    notices: &'static [DocNotice],
 }
 
 const BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -103,6 +126,7 @@ const BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
 Upon activation of epoch 3.0, `block-height` will return the same value as `tenure-height`.
 In Clarity 3, `block-height` is removed and has been replaced with `stacks-block-height`.",
     example: "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
+    notices: &[],
 };
 
 const BURN_BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -111,6 +135,7 @@ const BURN_BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     output_type: "uint",
     description: "Returns the current block height of the underlying burn blockchain.",
     example: "(> burn-block-height u832000) ;; returns true if the current height of the underlying burn blockchain has passed 832,000 blocks.",
+    notices: &[],
 };
 
 const CONTRACT_CALLER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -122,6 +147,7 @@ the caller will be equal to the signing principal. If `contract-call?` was used 
 changes to the _calling_ contract's principal. If `as-contract` is used to change the `tx-sender` context, `contract-caller` _also_ changes
 to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
+    notices: &[],
 };
 
 const CURRENT_CONTRACT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -130,6 +156,7 @@ const CURRENT_CONTRACT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     output_type: "principal",
     description: "Returns the principal of the current contract.",
     example: "(print current-contract) ;; Will print out the Stacks address of the current contract",
+    notices: &[],
 };
 
 const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -138,6 +165,7 @@ const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     output_type: "uint",
     description: "Returns the current block height of the Stacks blockchain.",
     example: "(<= stacks-block-height u500000) ;; returns true if the current block-height has not passed 500,000 blocks.",
+    notices: &[],
 };
 
 const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -148,6 +176,7 @@ const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
 At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
     example:
         "(< tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 blocks.",
+    notices: &[],
 };
 
 const BLOCK_TIME_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -158,6 +187,10 @@ const BLOCK_TIME_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
 in Clarity 4. Provides access to the timestamp of the current block, which is
 not available with `get-stacks-block-info?`.",
     example: "(>= stacks-block-time u1755820800) ;; returns true if current block timestamp is at or after 2025-07-22.",
+    notices: &[DocNotice {
+        level: "info",
+        body: "This same timestamp can also be retrieved for previous blocks using `(get-stacks-block-info? time height)`, which exists since Clarity 3, but cannot be used for the current block.",
+    }],
 };
 
 const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -167,6 +200,10 @@ const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     description: "Returns the original sender of the current transaction, or if `as-contract` was called to modify the sending context, it returns that
 contract principal.",
     example: "(print tx-sender) ;; Will print out a Stacks address of the transaction sender",
+    notices: &[DocNotice {
+        level: "warning",
+        body: "Use caution when leveraging tx-sender, as based on the design, you can unintentionally introduce attack surface area. [Read more](https://www.setzeus.com/community-blog-posts/clarity-carefully-tx-sender).",
+    }],
 };
 
 const TX_SPONSOR_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -175,6 +212,7 @@ const TX_SPONSOR_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     output_type: "optional principal",
     description: "Returns the sponsor of the current transaction if there is a sponsor, otherwise returns None.",
     example: "(print tx-sponsor?) ;; Will print out an optional value containing the Stacks address of the transaction sponsor",
+    notices: &[],
 };
 
 const TOTAL_LIQUID_USTX_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -183,6 +221,7 @@ const TOTAL_LIQUID_USTX_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     output_type: "uint",
     description: "Returns the total number of micro-STX (uSTX) that are liquid in the system as of this block.",
     example: "(print stx-liquid-supply) ;; Will print out the total number of liquid uSTX",
+    notices: &[],
 };
 
 const REGTEST_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -191,6 +230,7 @@ const REGTEST_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     output_type: "bool",
     description: "Returns whether or not the code is running in a regression test",
     example: "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
+    notices: &[],
 };
 
 const MAINNET_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -199,6 +239,7 @@ const MAINNET_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     output_type: "bool",
     description: "Returns a boolean indicating whether or not the code is running on the mainnet",
     example: "(print is-in-mainnet) ;; Will print 'true' if the code is running on the mainnet",
+    notices: &[],
 };
 
 const CHAINID_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -207,6 +248,7 @@ const CHAINID_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     output_type: "uint",
     description: "Returns the 32-bit chain ID of the blockchain running this transaction",
     example: "(print chain-id) ;; Will print 'u1' if the code is running on mainnet, and 'u2147483648' on testnet, and other values on different chains.",
+    notices: &[],
 };
 
 const NONE_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -222,6 +264,7 @@ const NONE_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
 (only-if-positive 4) ;; Returns (some 4)
 (only-if-positive (- 3)) ;; Returns none
 ",
+    notices: &[],
 };
 
 const TRUE_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -233,6 +276,7 @@ const TRUE_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
 (and true false) ;; Evaluates to false
 (or false true)  ;; Evaluates to true
 ",
+    notices: &[],
 };
 
 const FALSE_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -244,6 +288,7 @@ const FALSE_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
 (and true false) ;; Evaluates to false
 (or false true)  ;; Evaluates to true
 ",
+    notices: &[],
 };
 
 const TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -252,6 +297,7 @@ const TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(to-uint i)",
     description: "Tries to convert the `int` argument to a `uint`. Will cause a runtime error and abort if the supplied argument is negative.",
     example: "(to-uint 238) ;; Returns u238",
+    notices: &[],
 };
 
 const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -260,6 +306,7 @@ const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(to-int u)",
     description: "Tries to convert the `uint` argument to an `int`. Will cause a runtime error and abort if the supplied argument is >= `pow(2, 127)`",
     example: "(to-int u238) ;; Returns 238",
+    notices: &[],
 };
 
 const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -278,6 +325,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (buff-to-int-le 0xffffffffffffffffffffffffffffffff) ;; Returns -1
 (buff-to-int-le 0x) ;; Returns 0
 "#,
+    notices: &[],
 };
 
 const BUFF_TO_UINT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -296,6 +344,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (buff-to-uint-le 0xffffffffffffffffffffffffffffffff) ;; Returns u340282366920938463463374607431768211455
 (buff-to-uint-le 0x) ;; Returns u0
 "#,
+    notices: &[],
 };
 
 const BUFF_TO_INT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -314,6 +363,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (buff-to-int-be 0xffffffffffffffffffffffffffffffff) ;; Returns -1
 (buff-to-int-be 0x) ;; Returns 0
 "#,
+    notices: &[],
 };
 
 const BUFF_TO_UINT_BE_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -332,6 +382,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (buff-to-uint-be 0xffffffffffffffffffffffffffffffff) ;; Returns u340282366920938463463374607431768211455
 (buff-to-uint-be 0x) ;; Returns u0
 "#,
+    notices: &[],
 };
 
 const IS_STANDARD_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -356,6 +407,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (is-standard 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; returns true on mainnet and false on testnet
 (is-standard 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; returns false on both mainnet and testnet
 "#,
+    notices: &[],
 };
 
 const PRINCPIPAL_DESTRUCT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -392,6 +444,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name none) (version 0x16)))
 (principal-destruct? 'SP3X6QWWETNBZWGBK6DRGTR1KX50S74D3433WDGJY.foo) ;; Returns (err (tuple (hash-bytes 0xfa6bf38ed557fe417333710d6033e9419391a320) (name (some "foo")) (version 0x16)))
 "#,
+    notices: &[],
 };
 
 const STRING_TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -408,6 +461,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (string-to-int? u"-1") ;; Returns (some -1)
 (string-to-int? "a") ;; Returns none
 "#,
+    notices: &[],
 };
 
 const STRING_TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -425,6 +479,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (string-to-uint? u"1") ;; Returns (some u1)
 (string-to-uint? "a") ;; Returns none
 "#,
+    notices: &[],
 };
 
 const INT_TO_ASCII_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -439,6 +494,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (int-to-ascii u1) ;; Returns "1"
 (int-to-ascii -1) ;; Returns "-1"
 "#,
+    notices: &[],
 };
 
 const INT_TO_UTF8_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -453,6 +509,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (int-to-utf8 u1) ;; Returns u"1"
 (int-to-utf8 -1) ;; Returns u"-1"
 "#,
+    notices: &[],
 };
 
 const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -461,6 +518,7 @@ const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     signature: "(+ i1 i2...)",
     description: "Adds a variable number of integer inputs and returns the result. In the event of an _overflow_, throws a runtime error.",
     example: "(+ 1 2 3) ;; Returns 6",
+    notices: &[],
 };
 
 const SUB_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -471,6 +529,7 @@ const SUB_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(- 2 1 1) ;; Returns 0
 (- 0 3) ;; Returns -3
 ",
+    notices: &[],
 };
 
 const DIV_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -482,6 +541,7 @@ const DIV_API: SimpleFunctionAPI = SimpleFunctionAPI {
 (/ 5 2) ;; Returns 2
 (/ 4 2 2) ;; Returns 1
 ",
+    notices: &[],
 };
 
 const MUL_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -493,6 +553,7 @@ const MUL_API: SimpleFunctionAPI = SimpleFunctionAPI {
 (* 5 2) ;; Returns 10
 (* 2 2 2) ;; Returns 8
 ",
+    notices: &[],
 };
 
 const MOD_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -504,6 +565,7 @@ const MOD_API: SimpleFunctionAPI = SimpleFunctionAPI {
 (mod 5 2) ;; Returns 1
 (mod 7 1) ;; Returns 0
 ",
+    notices: &[],
 };
 
 const POW_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -519,7 +581,8 @@ Note: Corner cases are handled with the following rules:
     example: "(pow 2 3) ;; Returns 8
 (pow 2 2) ;; Returns 4
 (pow 7 1) ;; Returns 7
-"
+",
+    notices: &[],
 };
 
 const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -534,6 +597,7 @@ Fails on a negative numbers.
 (sqrti u1) ;; Returns u1
 (sqrti 0) ;; Returns 0
 ",
+    notices: &[],
 };
 
 const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -549,6 +613,7 @@ down to the nearest integer. Fails on a negative numbers.
 (log2 u1) ;; Returns u0
 (log2 1000) ;; Returns 9
 ",
+    notices: &[],
 };
 
 const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -559,6 +624,7 @@ const XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(xor 1 2) ;; Returns 3
 (xor 120 280) ;; Returns 352
 ",
+    notices: &[],
 };
 
 const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -572,6 +638,7 @@ const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 (bit-xor u24 u4) ;; Returns u28
 (bit-xor 1 2 4 -1) ;; Returns -8
 ",
+    notices: &[],
 };
 
 const BITWISE_AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -585,6 +652,7 @@ const BITWISE_AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
 (bit-and -128 -64) ;; Returns -128
 (bit-and 28 24 -1) ;; Returns 24
 ",
+    notices: &[],
 };
 
 const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -597,6 +665,7 @@ const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
 (bit-or 64 -32 -16) ;; Returns -16
 (bit-or u2 u4 u32) ;; Returns u38
 ",
+    notices: &[],
 };
 
 const BITWISE_NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -610,7 +679,8 @@ In other words, every bit that is `1` in `ì1` will be `0` in the result.  Conve
 (bit-not u128) ;; Returns u340282366920938463463374607431768211327
 (bit-not 128) ;; Returns -129
 (bit-not -128) ;; Returns 127
-"
+",
+    notices: &[],
 };
 
 const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -630,7 +700,8 @@ should use `*`, `/`, and `pow` instead of the shift operators.
 (bit-shift-left u123 u9999999999) ;; Returns u170141183460469231731687303715884105728
 (bit-shift-left -1 u7) ;; Returns -128
 (bit-shift-left -1 u128) ;; Returns -1
-"
+",
+    notices: &[],
 };
 
 const BITWISE_RIGHT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -652,7 +723,8 @@ Note that there is a deliberate choice made to ignore arithmetic overflow for th
 (bit-shift-right -256 u1) ;; Returns -128
 (bit-shift-right 5 u2) ;; Returns 1
 (bit-shift-right -5 u2) ;; Returns -2
-"
+",
+    notices: &[],
 };
 
 const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -666,7 +738,8 @@ short-circuits, and no subsequent arguments are evaluated.
     example: "(and true false) ;; Returns false
 (and (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns false
 (and (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns true
-"
+",
+    notices: &[],
 };
 
 const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -680,7 +753,8 @@ short-circuits, and no subsequent arguments are evaluated.",
 (or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 3 4)) ;; Returns false
 (or (is-eq (+ 1 2) 3) (is-eq 4 4)) ;; Returns true
-"
+",
+    notices: &[],
 };
 
 const NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -691,6 +765,7 @@ const NOT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(not true) ;; Returns false
 (not (is-eq 1 2)) ;; Returns true
 ",
+    notices: &[],
 };
 
 const GEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -707,7 +782,8 @@ the `>=`-comparable types are expanded to include `string-ascii`, `string-utf8` 
 (>= "aaa" "aa") ;; Returns true
 (>= 0x02 0x01) ;; Returns true
 (>= 5 u2) ;; Throws type error
-"#
+"#,
+    notices: &[],
 };
 
 const LEQ_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -723,7 +799,8 @@ the `<=`-comparable types are expanded to include `string-ascii`, `string-utf8` 
 (<= "aa" "aaa") ;; Returns true
 (<= 0x01 0x02) ;; Returns true
 (<= 5 u2) ;; Throws type error
-"#
+"#,
+    notices: &[],
 };
 
 const GREATER_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -741,6 +818,7 @@ the `>`-comparable types are expanded to include `string-ascii`, `string-utf8` a
 (> 0x02 0x01) ;; Returns true
 (> 5 u2) ;; Throws type error
 "#,
+    notices: &[],
 };
 
 const LESS_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -758,6 +836,7 @@ the `<`-comparable types are expanded to include `string-ascii`, `string-utf8` a
 (< 0x01 0x02) ;; Returns true
 (< 5 u2) ;; Throws type error
 "#,
+    notices: &[],
 };
 
 pub fn get_input_type_string(function_type: &FunctionType) -> String {
@@ -888,6 +967,7 @@ fn make_for_simple_native(
         example: api.example.to_string(),
         min_version: function.get_min_version(),
         max_version: function.get_max_version(),
+        notices: api.notices.to_vec(),
     }
 }
 
@@ -905,6 +985,7 @@ is-eq _must_ be the same type.",
 (is-eq \"abc\" \"abc\") ;; Returns true
 (is-eq 0x0102 0x0102) ;; Returns true
 ",
+    notices: &[],
 };
 
 const IF_API: SpecialAPI = SpecialAPI {
@@ -918,6 +999,7 @@ which must return the same type. In the case that the boolean input is `true`, t
 `if` function evaluates and returns `expr2`.",
     example: "(if true 1 2) ;; Returns 1
 (if (> 1 2) 1 2) ;; Returns 2",
+    notices: &[],
 };
 
 const LET_API: SpecialAPI = SpecialAPI {
@@ -934,6 +1016,7 @@ The let expression returns the value of the last such body expression.
 Note: intermediary statements returning a response type must be checked",
     example: "(let ((a 2) (b (+ 5 6 7))) (print a) (print b) (+ a b)) ;; Returns 20
 (let ((a 5) (c (+ a 1)) (d (+ c 1)) (b (+ a c d))) (print a) (print b) (+ a b)) ;; Returns 23",
+    notices: &[],
 };
 
 const FETCH_VAR_API: SpecialAPI = SpecialAPI {
@@ -945,6 +1028,7 @@ const FETCH_VAR_API: SpecialAPI = SpecialAPI {
 The value is looked up using `var-name`.",
     example: "(define-data-var cursor int 6)
 (var-get cursor) ;; Returns 6",
+    notices: &[],
 };
 
 const SET_VAR_API: SpecialAPI = SpecialAPI {
@@ -959,6 +1043,7 @@ inputted value. The function always returns `true`.",
 (var-get cursor) ;; Returns 6
 (var-set cursor (+ (var-get cursor) 1)) ;; Returns true
 (var-get cursor) ;; Returns 7",
+    notices: &[],
 };
 
 const MAP_API: SpecialAPI = SpecialAPI {
@@ -981,6 +1066,7 @@ Note: no matter what kind of sequences the inputs are, the output is always a li
 (define-private (zero-or-one (char (buff 1))) (if (is-eq char 0x00) 0x00 0x01))
 (map zero-or-one 0x000102) ;; Returns (0x00 0x01 0x01)
 "#,
+    notices: &[],
 };
 
 const FILTER_API: SpecialAPI = SpecialAPI {
@@ -1001,6 +1087,7 @@ The `func` argument must be a literal function name.
 (define-private (is-zero (char (buff 1))) (is-eq char 0x00))
 (filter is-zero 0x00010002) ;; Returns 0x0000
 "#,
+    notices: &[],
 };
 
 const FOLD_API: SpecialAPI = SpecialAPI {
@@ -1033,6 +1120,7 @@ The `func` argument must be a literal function name.
 (define-private (concat-buff (a (buff 20)) (b (buff 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
 (fold concat-buff 0x03040506 0x0102)   ;; Returns 0x060504030102
 "#,
+    notices: &[],
 };
 
 const CONCAT_API: SpecialAPI = SpecialAPI {
@@ -1050,6 +1138,7 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 (concat "hello " "world") ;; Returns "hello world"
 (concat 0x0102 0x0304) ;; Returns 0x01020304
 "#,
+    notices: &[],
 };
 
 const APPEND_API: SpecialAPI = SpecialAPI {
@@ -1060,6 +1149,7 @@ const APPEND_API: SpecialAPI = SpecialAPI {
     description: "The `append` function takes a list and another value with the same entry type,
 and outputs a list of the same type with max_len += 1.",
     example: "(append (list 1 2 3 4) 5) ;; Returns (1 2 3 4 5)",
+    notices: &[],
 };
 
 const ASSERTS_MAX_LEN_API: SpecialAPI = SpecialAPI {
@@ -1079,6 +1169,7 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 (as-max-len? "hello" u10) ;; Returns (some "hello")
 (as-max-len? 0x010203 u10) ;; Returns (some 0x010203)
 "#,
+    notices: &[],
 };
 
 const LEN_API: SpecialAPI = SpecialAPI {
@@ -1094,6 +1185,7 @@ Applicable sequence types are `(list A)`, `buff`, `string-ascii` and `string-utf
 (len (list 1 2 3 4 5)) ;; Returns u5
 (len 0x010203) ;; Returns u3
 "#,
+    notices: &[],
 };
 
 const ELEMENT_AT_API: SpecialAPI = SpecialAPI {
@@ -1114,6 +1206,7 @@ In Clarity1, `element-at` must be used (without the `?`). The `?` is added in Cl
 (element-at? "abcd" u1) ;; Returns (some "b")
 (element-at? 0xfb01 u1) ;; Returns (some 0x01)
 "#,
+    notices: &[],
 };
 
 const INDEX_OF_API: SpecialAPI = SpecialAPI {
@@ -1137,6 +1230,7 @@ In Clarity1, `index-of` must be used (without the `?`). The `?` is added in Clar
 (index-of? (list 1 2 3 4 5) 6) ;; Returns none
 (index-of? 0xfb01 0x01) ;; Returns (some u1)
 "#,
+    notices: &[],
 };
 
 const SLICE_API: SpecialAPI = SpecialAPI {
@@ -1157,6 +1251,7 @@ If either `left_position` or `right_position` are out of bounds OR if `right_pos
 (slice? \"abcd\" u2 u2) ;; Returns (some \"\")
 (slice? \"abcd\" u3 u1) ;; Returns none
 ",
+    notices: &[],
 };
 
 const LIST_API: SpecialAPI = SpecialAPI {
@@ -1167,6 +1262,7 @@ const LIST_API: SpecialAPI = SpecialAPI {
     description: "The `list` function constructs a list composed of the inputted values. Each
 supplied value must be of the same type.",
     example: "(list (+ 1 2) 4 5) ;; Returns (3 4 5)",
+    notices: &[],
 };
 
 const BEGIN_API: SpecialAPI = SpecialAPI {
@@ -1179,6 +1275,7 @@ return value of the last such expression.
 
 Note: intermediary statements returning a response type must be checked.",
     example: "(begin (+ 1 2) 4 5) ;; Returns 5",
+    notices: &[],
 };
 
 const PRINT_API: SpecialAPI = SpecialAPI {
@@ -1189,6 +1286,7 @@ const PRINT_API: SpecialAPI = SpecialAPI {
     description: "The `print` function evaluates and returns its input expression. On Stacks Core
 nodes configured for development (as opposed to production mining nodes), this function prints the resulting value to `STDOUT` (standard output).",
     example: "(print (+ 1 2 3)) ;; Returns 6",
+    notices: &[],
 };
 
 const FETCH_ENTRY_API: SpecialAPI = SpecialAPI {
@@ -1205,6 +1303,7 @@ it returns `(some value)`.",
 (map-get? names-map (tuple (name \"blockstack\"))) ;; Returns (some (tuple (id 1337)))
 (map-get? names-map { name: \"blockstack\" }) ;; Same command, using a shorthand for constructing the tuple
 ",
+    notices: &[],
 };
 
 const SET_ENTRY_API: SpecialAPI = SpecialAPI {
@@ -1222,6 +1321,7 @@ and therefore the maximum size of a value that may be inserted into a map is MAX
 (map-set names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns true
 (map-set names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
+    notices: &[],
 };
 
 const INSERT_ENTRY_API: SpecialAPI = SpecialAPI {
@@ -1241,6 +1341,7 @@ and therefore the maximum size of a value that may be inserted into a map is MAX
 (map-insert names-map { name: \"blockstack\" } { id: 1337 }) ;; Returns false
 (map-insert names-map (tuple (name \"blockstack\")) (tuple (id 1337))) ;; Same command, using a shorthand for constructing the tuple
 ",
+    notices: &[],
 };
 
 const DELETE_ENTRY_API: SpecialAPI = SpecialAPI {
@@ -1257,6 +1358,7 @@ If a value did not exist for this key in the data map, the function returns `fal
 (map-delete names-map { name: \"blockstack\" }) ;; Returns false
 (map-delete names-map (tuple (name \"blockstack\"))) ;; Same command, using a shorthand for constructing the tuple
 ",
+    notices: &[],
 };
 
 const TUPLE_CONS_API: SpecialAPI = SpecialAPI {
@@ -1272,6 +1374,7 @@ associated with the expressions' paired key name.
 There is a shorthand using curly brackets of the form {key0: expr0, key1: expr, ...}",
     example: "(tuple (name \"blockstack\") (id 1337)) ;; using tuple
     {name: \"blockstack\", id: 1337} ;; using curly brackets",
+    notices: &[],
 };
 
 const TUPLE_GET_API: SpecialAPI = SpecialAPI {
@@ -1287,7 +1390,8 @@ the tuple. If the supplied option is a `none` option, get returns `none`.",
 (get id (tuple (name \"blockstack\") (id 1337))) ;; Returns 1337
 (get id (map-get? names-map (tuple (name \"blockstack\")))) ;; Returns (some 1337)
 (get id (map-get? names-map (tuple (name \"non-existent\")))) ;; Returns none
-"
+",
+    notices: &[],
 };
 
 const TUPLE_MERGE_API: SpecialAPI = SpecialAPI {
@@ -1299,7 +1403,8 @@ const TUPLE_MERGE_API: SpecialAPI = SpecialAPI {
     example: "(define-map users { id: int } { name: (string-ascii 12), address: (optional principal) })
 (map-insert users { id: 1337 } { name: \"john\", address: none }) ;; Returns true
 (let ((user (unwrap-panic (map-get? users { id: 1337 }))))
-    (merge user { address: (some 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) })) ;; Returns (tuple (address (some SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)) (name \"john\"))"
+    (merge user { address: (some 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) })) ;; Returns (tuple (address (some SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)) (name \"john\"))",
+    notices: &[],
 };
 
 const HASH160_API: SpecialAPI = SpecialAPI {
@@ -1310,7 +1415,8 @@ const HASH160_API: SpecialAPI = SpecialAPI {
     description: "The `hash160` function computes `RIPEMD160(SHA256(x))` of the inputted value.
 If an integer (128 bit) is supplied the hash is computed over the little-endian representation of the
 integer.",
-    example: "(hash160 0) ;; Returns 0xe4352f72356db555721651aa612e00379167b30f"
+    example: "(hash160 0) ;; Returns 0xe4352f72356db555721651aa612e00379167b30f",
+    notices: &[],
 };
 
 const SHA256_API: SpecialAPI = SpecialAPI {
@@ -1321,7 +1427,8 @@ const SHA256_API: SpecialAPI = SpecialAPI {
     description: "The `sha256` function computes `SHA256(x)` of the inputted value.
 If an integer (128 bit) is supplied the hash is computed over the little-endian representation of the
 integer.",
-    example: "(sha256 0) ;; Returns 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb"
+    example: "(sha256 0) ;; Returns 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb",
+    notices: &[],
 };
 
 const SHA512_API: SpecialAPI = SpecialAPI {
@@ -1333,6 +1440,7 @@ const SHA512_API: SpecialAPI = SpecialAPI {
 If an integer (128 bit) is supplied the hash is computed over the little-endian representation of the
 integer.",
     example: "(sha512 1) ;; Returns 0x6fcee9a7b7a7b821d241c03c82377928bc6882e7a08c78a4221199bfa220cdc55212273018ee613317c8293bb8d1ce08d1e017508e94e06ab85a734c99c7cc34",
+    notices: &[],
 };
 
 const SHA512T256_API: SpecialAPI = SpecialAPI {
@@ -1345,6 +1453,7 @@ to 256 bits) of the inputted value.
 If an integer (128 bit) is supplied the hash is computed over the little-endian representation of the
 integer.",
     example: "(sha512/256 1) ;; Returns 0x515a7e92e7c60522db968d81ff70b80818fc17aeabbec36baf0dda2812e94a86",
+    notices: &[],
 };
 
 const KECCAK256_API: SpecialAPI = SpecialAPI {
@@ -1357,6 +1466,7 @@ const KECCAK256_API: SpecialAPI = SpecialAPI {
 Note: this differs from the `NIST SHA-3` (that is, FIPS 202) standard. If an integer (128 bit)
 is supplied the hash is computed over the little-endian representation of the integer.",
     example: "(keccak256 0) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4",
+    notices: &[],
 };
 
 const SECP256K1RECOVER_API: SpecialAPI = SpecialAPI {
@@ -1373,7 +1483,8 @@ On success, it returns the public key as a 33-byte buffer. This function may fai
 ",
     example: "(secp256k1-recover? 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
  0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301)
- ;; Returns (ok 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)"
+ ;; Returns (ok 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
+    notices: &[],
 };
 
 const SECP256K1VERIFY_API: SpecialAPI = SpecialAPI {
@@ -1394,7 +1505,8 @@ High-S signatures are rejected to enforce the canonical low-S form and prevent m
  0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns true
 (secp256k1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
  0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
- 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns false"
+ 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns false",
+    notices: &[],
 };
 
 const SECP256R1VERIFY_API: SpecialAPI = SpecialAPI {
@@ -1415,7 +1527,8 @@ NIST P-256 curve (also known as secp256r1).",
     0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns true
 (secp256r1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
     0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-    0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns false"
+    0x031ccbe91c075fc7f4f033bfa248db8fccd3565de94bbfb12f3c59ff46c271bf83) ;; Returns false",
+    notices: &[],
 };
 
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
@@ -1429,7 +1542,8 @@ function returns _err_, any database changes resulting from calling `contract-ca
 If the function returns _ok_, database changes occurred.",
     example: "
 ;; instantiate the sample/contracts/tokens.clar contract first!
-(as-contract? () (try! (contract-call? .tokens mint! u19))) ;; Returns (ok u19)"
+(as-contract? () (try! (contract-call? .tokens mint! u19))) ;; Returns (ok u19)",
+    notices: &[],
 };
 
 const CONTRACT_OF_API: SpecialAPI = SpecialAPI {
@@ -1443,7 +1557,8 @@ const CONTRACT_OF_API: SpecialAPI = SpecialAPI {
 (define-public (forward-get-balance (user principal) (contract <token-a-trait>))
   (begin
     (ok (contract-of contract)))) ;; returns the principal of the contract implementing <token-a-trait>
-"
+",
+    notices: &[],
 };
 
 const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
@@ -1464,6 +1579,7 @@ the network it is called on. In particular, if this is called on the mainnet, it
 return a single-signature mainnet principal.
     ",
     example: "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns (ok ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)",
+    notices: &[],
 };
 
 const AT_BLOCK: SpecialAPI = SpecialAPI {
@@ -1485,7 +1601,11 @@ The function returns the result of evaluating `expr`.
     example: "
 (define-data-var data int 1)
 (at-block 0x0000000000000000000000000000000000000000000000000000000000000000 block-height) ;; Returns u0
-(at-block (unwrap-panic (get-stacks-block-info? id-header-hash u0)) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
+(at-block (unwrap-panic (get-stacks-block-info? id-header-hash u0)) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0",
+    notices: &[DocNotice {
+        level: "danger",
+        body: "As of Epoch 3.4, existing contracts using `at-block` will throw an error if called.",
+    }],
 };
 
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
@@ -1495,7 +1615,8 @@ const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
     signature: "(as-contract expr)",
     description: "The `as-contract` function switches the current context's `tx-sender` value to the _contract's_
 principal and executes `expr` with that context. It returns the resulting value of `expr`.",
-    example: "(as-contract tx-sender) ;; Returns S1G2081040G2081040G2081040G208105NK8PE5.docs-test"
+    example: "(as-contract tx-sender) ;; Returns S1G2081040G2081040G2081040G208105NK8PE5.docs-test",
+    notices: &[],
 };
 
 const ASSERTS_API: SpecialAPI = SpecialAPI {
@@ -1508,6 +1629,7 @@ if bool-expr is `true`, `asserts!` returns `true` and proceeds in the program ex
 If the supplied argument is returning a false value, `asserts!` _returns_ `thrown-value` and exits the current
 control-flow.",
     example: "(asserts! (is-eq 1 1) (err 1)) ;; Returns true",
+    notices: &[],
 };
 
 const EXPECTS_API: SpecialAPI = SpecialAPI {
@@ -1529,6 +1651,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
 
 (get-name-or-err \"blockstack\") ;; Returns (ok (tuple (id 1337)))
 (get-name-or-err \"non-existant\") ;; Returns (err 1)",
+    notices: &[],
 };
 
 const TRY_API: SpecialAPI = SpecialAPI {
@@ -1554,6 +1677,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
 (double-if-even 10) ;; Returns (ok 20)
 (double-if-even 3) ;; Returns (err false)
 ",
+    notices: &[],
 };
 
 const UNWRAP_API: SpecialAPI = SpecialAPI {
@@ -1572,6 +1696,7 @@ option. If the argument is a response type, and the argument is an `(ok ...)` re
 (unwrap-panic (map-get? names-map { name: \"blockstack\" })) ;; Returns (tuple (id 1337))
 (unwrap-panic (map-get? names-map { name: \"non-existant\" })) ;; Throws a runtime exception
 ",
+    notices: &[],
 };
 
 const UNWRAP_ERR_API: SpecialAPI = SpecialAPI {
@@ -1586,6 +1711,7 @@ If the supplied argument is an `(ok ...)` value,
 `unwrap-err` throws a runtime error, aborting any further processing of the current transaction.",
     example: "(unwrap-err-panic (err 1)) ;; Returns 1
 (unwrap-err-panic (ok 1)) ;; Throws a runtime exception",
+    notices: &[],
 };
 
 const EXPECTS_ERR_API: SpecialAPI = SpecialAPI {
@@ -1598,6 +1724,7 @@ is an `(err ...)` response, `unwrap-err!` returns the inner value of the `err`.
 If the supplied argument is an `(ok ...)` value,
 `unwrap-err!` _returns_ `thrown-value` from the current function and exits the current control-flow.",
     example: "(unwrap-err! (err 1) false) ;; Returns 1",
+    notices: &[],
 };
 
 const MATCH_API: SpecialAPI = SpecialAPI {
@@ -1647,6 +1774,7 @@ is untyped, you should use `unwrap-panic` or `unwrap-err-panic` instead of `matc
 (add-or-pass-err (ok 5) 20) ;; Returns (ok 25)
 (add-or-pass-err (err \"ERROR\") 20) ;; Returns (err \"ERROR\")
 ",
+    notices: &[],
 };
 
 const DEFAULT_TO_API: SpecialAPI = SpecialAPI {
@@ -1663,6 +1791,7 @@ a `(some ...)` option, it returns the inner value of the option. If the second a
 (default-to 0 (get id (map-get? names-map (tuple (name \"blockstack\"))))) ;; Returns 1337
 (default-to 0 (get id (map-get? names-map (tuple (name \"non-existant\"))))) ;; Returns 0
 ",
+    notices: &[],
 };
 
 const CONS_OK_API: SpecialAPI = SpecialAPI {
@@ -1674,6 +1803,7 @@ const CONS_OK_API: SpecialAPI = SpecialAPI {
 creating return values in public functions. An _ok_ value indicates that any database changes during
 the processing of the function should materialize.",
     example: "(ok 1) ;; Returns (ok 1)",
+    notices: &[],
 };
 
 const CONS_ERR_API: SpecialAPI = SpecialAPI {
@@ -1685,6 +1815,7 @@ const CONS_ERR_API: SpecialAPI = SpecialAPI {
 creating return values in public functions. An _err_ value indicates that any database changes during
 the processing of the function should be rolled back.",
     example: "(err true) ;; Returns (err true)",
+    notices: &[],
 };
 
 const CONS_SOME_API: SpecialAPI = SpecialAPI {
@@ -1695,6 +1826,7 @@ const CONS_SOME_API: SpecialAPI = SpecialAPI {
     description: "The `some` function constructs a `optional` type from the input value.",
     example: "(some 1) ;; Returns (some 1)
 (is-none (some 2)) ;; Returns false",
+    notices: &[],
 };
 
 const IS_OK_API: SpecialAPI = SpecialAPI {
@@ -1707,6 +1839,7 @@ const IS_OK_API: SpecialAPI = SpecialAPI {
 and `false` if it was an `err`.",
     example: "(is-ok (ok 1)) ;; Returns true
 (is-ok (err 1)) ;; Returns false",
+    notices: &[],
 };
 
 const IS_NONE_API: SpecialAPI = SpecialAPI {
@@ -1722,6 +1855,7 @@ and `false` if it is a `(some ...)`.",
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-none (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns false
 (is-none (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns true",
+    notices: &[],
 };
 
 const IS_ERR_API: SpecialAPI = SpecialAPI {
@@ -1734,6 +1868,7 @@ const IS_ERR_API: SpecialAPI = SpecialAPI {
 and `false` if it was an `ok`.",
     example: "(is-err (ok 1)) ;; Returns false
 (is-err (err 1)) ;; Returns true",
+    notices: &[],
 };
 
 const IS_SOME_API: SpecialAPI = SpecialAPI {
@@ -1747,7 +1882,8 @@ and `false` if it is a `none`.",
 (define-map names-map { name: (string-ascii 12) } { id: int })
 (map-set names-map { name: \"blockstack\" } { id: 1337 })
 (is-some (get id (map-get? names-map { name: \"blockstack\" }))) ;; Returns true
-(is-some (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns false"
+(is-some (get id (map-get? names-map { name: \"non-existant\" }))) ;; Returns false",
+    notices: &[],
 };
 
 const GET_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
@@ -1797,7 +1933,8 @@ this value is less than or equal to the value for `miner-spend-total` at the sam
     example: "(get-block-info? time u0) ;; Returns (some u1557860301)
 (get-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
 (get-block-info? vrf-seed u0) ;; Returns (some 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4)
-"
+",
+    notices: &[],
 };
 
 const GET_BURN_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
@@ -1834,7 +1971,8 @@ The `addrs` list contains the same PoX address values passed into the PoX smart 
     example: "
 (get-burn-block-info? header-hash u677050) ;; Returns (some 0xe67141016c88a7f1203eca0b4312f2ed141531f59303a1c267d7d83ab6b977d8)
 (get-burn-block-info? pox-addrs u677050) ;; Returns (some (tuple (addrs ((tuple (hashbytes 0x395f3643cea07ec4eec73b4d9a973dcce56b9bf1) (version 0x00)) (tuple (hashbytes 0x7c6775e20e3e938d2d7e9d79ac310108ba501ddb) (version 0x01)))) (payout u123)))
-"
+",
+    notices: &[],
 };
 
 const GET_STACKS_BLOCK_INFO_API: SpecialAPI = SpecialAPI {
@@ -1863,7 +2001,8 @@ the mining of this block started, but is not guaranteed to be accurate. This tim
 ",
     example: "(get-stacks-block-info? time u0) ;; Returns (some u1557860301)
 (get-stacks-block-info? header-hash u0) ;; Returns (some 0x374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb)
-"
+",
+    notices: &[],
 };
 
 const GET_TENURE_INFO_API: SpecialAPI = SpecialAPI {
@@ -1902,7 +2041,8 @@ this value is less than or equal to the value for `miner-spend-total` at the sam
 ",
     example: "(get-tenure-info? time u0) ;; Returns (some u1557860301)
 (get-tenure-info? vrf-seed u0) ;; Returns (some 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4)
-"
+",
+    notices: &[],
 };
 
 const PRINCIPAL_CONSTRUCT_API: SpecialAPI = SpecialAPI {
@@ -1956,6 +2096,7 @@ Note: This function is only available starting with Stacks 2.1.",
 (principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "") ;; Returns (err (tuple (error_code u2) (value none)))
 (principal-construct? 0x1a 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo[") ;; Returns (err (tuple (error_code u2) (value none)))
 "#,
+    notices: &[],
 };
 
 const DEFINE_TOKEN_API: DefineAPI = DefineAPI {
@@ -1976,7 +2117,8 @@ Tokens defined using `define-fungible-token` may be used in `ft-transfer?`, `ft-
     example: "
 (define-fungible-token stacks)
 (define-fungible-token limited-supply-stacks u100)
-"
+",
+    notices: &[],
 };
 
 const DEFINE_ASSET_API: DefineAPI = DefineAPI {
@@ -1994,7 +2136,8 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 Assets defined using `define-non-fungible-token` may be used in `nft-transfer?`, `nft-mint?`, and `nft-get-owner?` functions",
     example: "
 (define-non-fungible-token names (buff 50))
-"
+",
+    notices: &[],
 };
 
 const DEFINE_PUBLIC_API: DefineAPI = DefineAPI {
@@ -2016,7 +2159,8 @@ contracts via `contract-call?`.",
 (define-public (hello-world (input int))
   (begin (print (+ 2 input))
          (ok input)))
-"
+",
+    notices: &[],
 };
 
 const DEFINE_CONSTANT_API: DefineAPI = DefineAPI {
@@ -2035,7 +2179,8 @@ definition (i.e., you cannot put a define statement in the middle of a function 
     example: "
 (define-constant four (+ 2 2))
 (+ 4 four) ;; Returns 8
-"
+",
+    notices: &[],
 };
 
 const DEFINE_PRIVATE_API: DefineAPI = DefineAPI {
@@ -2057,7 +2202,8 @@ Private functions may return any type.",
       i1
       i2))
 (max-of 4 6) ;; Returns 6
-"
+",
+    notices: &[],
 };
 
 const DEFINE_READ_ONLY_API: DefineAPI = DefineAPI {
@@ -2078,7 +2224,8 @@ the execution of the function. Public read-only functions may
 be invoked by other contracts via `contract-call?`.",
     example: "
 (define-read-only (just-return-one-hundred)
-  (* 10 10))"
+  (* 10 10))",
+    notices: &[],
 };
 
 const DEFINE_MAP_API: DefineAPI = DefineAPI {
@@ -2102,7 +2249,8 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 (add-entry 3)
 (add-entry 4)
 (add-entry 5)
-"
+",
+    notices: &[],
 };
 
 const DEFINE_DATA_VAR_API: DefineAPI = DefineAPI {
@@ -2123,7 +2271,8 @@ definition (i.e., you cannot put a define statement in the middle of a function 
   (var-set size value))
 (set-size 1)
 (set-size 2)
-"
+",
+    notices: &[],
 };
 
 const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
@@ -2157,7 +2306,8 @@ definition (i.e., you cannot put a define statement in the middle of a function 
 (define-trait token-trait
     ((transfer? (principal principal uint) (response uint uint))
      (get-balance (principal) (response uint uint))))
-"
+",
+    notices: &[],
 };
 
 const USE_TRAIT_API: DefineAPI = DefineAPI {
@@ -2179,7 +2329,8 @@ definition (i.e., you cannot put such a statement in the middle of a function bo
 (define-public (forward-get-balance (user principal) (contract <token-a-trait>))
   (begin
     (ok 1)))
-"
+",
+    notices: &[],
 };
 
 const IMPL_TRAIT_API: DefineAPI = DefineAPI {
@@ -2203,7 +2354,8 @@ definition (i.e., you cannot put such a statement in the middle of a function bo
   (ok u0))
 (define-public (transfer? (from principal) (to principal) (amount uint))
   (ok u0))
-"
+",
+    notices: &[],
 };
 
 const MINT_TOKEN: SpecialAPI = SpecialAPI {
@@ -2222,7 +2374,8 @@ returns `(ok true)`. If this call would result in more supplied tokens than defi
     example: "
 (define-fungible-token stackaroo)
 (ft-mint? stackaroo u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
-"
+",
+    notices: &[],
 };
 
 const MINT_ASSET: SpecialAPI = SpecialAPI {
@@ -2241,7 +2394,8 @@ The function returns `(ok true)` if the mint is successful. This function may fa
     example: "
 (define-non-fungible-token stackaroo (string-ascii 40))
 (nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
-"
+",
+    notices: &[],
 };
 
 const GET_OWNER: SpecialAPI = SpecialAPI {
@@ -2257,7 +2411,8 @@ that definition.",
 (nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)
 (nft-get-owner? stackaroo \"Roo\") ;; Returns (some SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)
 (nft-get-owner? stackaroo \"Too\") ;; Returns none
-"
+",
+    notices: &[],
 };
 
 const GET_BALANCE: SpecialAPI = SpecialAPI {
@@ -2272,6 +2427,7 @@ The token type must have been defined using `define-fungible-token`.",
 (ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
 (ft-get-balance stackaroo 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns u100
 ",
+    notices: &[],
 };
 
 const TOKEN_TRANSFER: SpecialAPI = SpecialAPI {
@@ -2295,7 +2451,8 @@ one of the following error codes:
 (ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
 (ft-transfer? stackaroo u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
 (ft-transfer? stackaroo u60 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (err u1)
-"
+",
+    notices: &[],
 };
 
 const ASSET_TRANSFER: SpecialAPI = SpecialAPI {
@@ -2321,7 +2478,8 @@ one of the following error codes:
 (nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
 (nft-transfer? stackaroo \"Roo\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (err u1)
 (nft-transfer? stackaroo \"Stacka\" 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (err u3)
-"
+",
+    notices: &[],
 };
 
 const GET_TOKEN_SUPPLY: SpecialAPI = SpecialAPI {
@@ -2336,6 +2494,7 @@ The token type must have been defined using `define-fungible-token`.",
 (ft-mint? stackaroo u100 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
 (ft-get-supply stackaroo) ;; Returns u100
 ",
+    notices: &[],
 };
 
 const BURN_TOKEN: SpecialAPI = SpecialAPI {
@@ -2355,7 +2514,8 @@ On a successful burn, it returns `(ok true)`. The burn may fail with error code:
 (define-fungible-token stackaroo)
 (ft-mint? stackaroo u100 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
 (ft-burn? stackaroo u50 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
-"
+",
+    notices: &[],
 };
 
 const BURN_ASSET: SpecialAPI = SpecialAPI {
@@ -2378,6 +2538,7 @@ returns one of the following error codes:
 (nft-mint? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
 (nft-burn? stackaroo \"Roo\" 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF) ;; Returns (ok true)
 ",
+    notices: &[],
 };
 
 const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -2394,6 +2555,7 @@ In the event that the `owner` principal isn't materialized, it returns 0.
 (stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns u0
 (stx-get-balance tx-sender) ;; Returns u1000
 ",
+    notices: &[],
 };
 
 const STX_GET_ACCOUNT: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -2410,6 +2572,7 @@ unlock height for any locked STX, all denominated in microstacks.
 (stx-account 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (tuple (locked u0) (unlock-height u0) (unlocked u0))
 (stx-account tx-sender) ;; Returns (tuple (locked u0) (unlock-height u0) (unlocked u1000))
 "#,
+    notices: &[],
 };
 
 const STX_TRANSFER: SpecialAPI = SpecialAPI {
@@ -2433,7 +2596,8 @@ one of the following error codes:
 (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (ok true)
 (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (ok true)
 (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; Returns (err u4)
-"#
+"#,
+    notices: &[],
 };
 
 const STX_TRANSFER_MEMO: SpecialAPI = SpecialAPI {
@@ -2447,7 +2611,8 @@ This function returns (ok true) if the transfer is successful, or, on an error, 
 ",
     example: r#"
 (stx-transfer-memo? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x010203) ;; Returns (ok true)
-"#
+"#,
+    notices: &[],
 };
 
 const STX_BURN: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -2468,7 +2633,8 @@ one of the following error codes:
     example: "
 (stx-burn? u60 tx-sender) ;; Returns (ok true)
 (stx-burn? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (err u4)
-"
+",
+    notices: &[],
 };
 
 const TO_CONSENSUS_BUFF: SpecialAPI = SpecialAPI {
@@ -2497,6 +2663,7 @@ consensus buffer length based on the inferred type of the supplied value.
 (to-consensus-buff? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (some 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d)
 (to-consensus-buff? { abc: 3, def: 4 }) ;; Returns (some 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004)
 "#,
+    notices: &[],
 };
 
 const FROM_CONSENSUS_BUFF: SpecialAPI = SpecialAPI {
@@ -2520,6 +2687,7 @@ to deserialize the type, the method returns `none`.
 (from-consensus-buff? principal 0x051fa46ff88886c2ef9762d970b4d2c63678835bd39d) ;; Returns (some SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
 (from-consensus-buff? { abc: int, def: int } 0x0c00000002036162630000000000000000000000000000000003036465660000000000000000000000000000000004) ;; Returns (some (tuple (abc 3) (def 4)))
 "#,
+    notices: &[],
 };
 
 const REPLACE_AT: SpecialAPI = SpecialAPI {
@@ -2542,6 +2710,7 @@ If the provided index is out of bounds, this functions returns `none`.
 (replace-at? (list (list 1) (list 2)) u0 (list 33)) ;; Returns (some ((33) (2)))
 (replace-at? (list 1 2) u3 4) ;; Returns none
 "#,
+    notices: &[],
 };
 
 const CONTRACT_HASH: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -2559,6 +2728,7 @@ is not a contract or the specified contract does not exist. Returns:
 (contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM) ;; Returns (err u1)
 (contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.does-not-exist) ;; Returns (err u2)
 "#,
+    notices: &[],
 };
 
 const TO_ASCII: SpecialAPI = SpecialAPI {
@@ -2578,6 +2748,7 @@ characters.",
 (to-ascii? u"An ASCII smiley face: :)") ;; Returns (ok "An ASCII smiley face: :)")
 (to-ascii? u"A smiley face emoji: \u{1F600}") ;; Returns (err u1)
 "#,
+    notices: &[],
 };
 
 const RESTRICT_ASSETS: SpecialAPI = SpecialAPI {
@@ -2607,6 +2778,7 @@ error-prone). Returns:
   (try! (stx-transfer? u50 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
 ) ;; Returns (err u128)
 "#,
+    notices: &[],
 };
 
 const AS_CONTRACT_SAFE: SpecialAPI = SpecialAPI {
@@ -2641,6 +2813,10 @@ value from `as-contract?` (nested responses are error-prone). Returns:
   )
 ) ;; Returns (err u128)
 "#,
+    notices: &[DocNotice {
+        level: "info",
+        body: "The previous version of `as-contract`, introduced in Clarity 1, has changed to `as-contract?` in Clarity 4, with several new security enhancements.",
+    }],
 };
 
 const ALLOWANCE_WITH_STX: SpecialAPI = SpecialAPI {
@@ -2662,6 +2838,7 @@ expression. `with-stx` is not allowed outside of `restrict-assets?` or
   (try! (stx-transfer? u100 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
 ) ;; Returns (err u0)
 "#,
+    notices: &[],
 };
 
 const ALLOWANCE_WITH_FT: SpecialAPI = SpecialAPI {
@@ -2688,6 +2865,7 @@ the contract. When `"*"` is used for the token name, the allowance applies to
   (try! (ft-transfer? stackaroo u100 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
 ) ;; Returns (err u0)
 "#,
+    notices: &[],
 };
 
 const ALLOWANCE_WITH_NFT: SpecialAPI = SpecialAPI {
@@ -2720,6 +2898,7 @@ simply never match any asset."#,
   (try! (nft-transfer? stackaroo u124 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
 ) ;; Returns (err u0)
 "#,
+    notices: &[],
 };
 
 const ALLOWANCE_WITH_STACKING: SpecialAPI = SpecialAPI {
@@ -2751,6 +2930,7 @@ increase amount.
   ))
 ) ;; Returns (ok true)
 "#,
+    notices: &[],
 };
 
 const ALLOWANCE_WITH_ALL: SpecialAPI = SpecialAPI {
@@ -2759,10 +2939,10 @@ const ALLOWANCE_WITH_ALL: SpecialAPI = SpecialAPI {
     output_type: "Allowance",
     signature: "(with-all-assets-unsafe)",
     description: "Grants unrestricted access to all assets of the contract to
-the enclosing `as-contract?` expression. `with-stacking` is not allowed outside
-of `as-contract?` contexts. Note that this is not allowed in `restrict-assets?`
-and will trigger an analysis error, since usage there does not make sense (i.e.
-just remove the `restrict-assets?` instead).
+the enclosing `as-contract?` expression. `with-all-assets-unsafe` is not
+allowed outside of `as-contract?` contexts. Note that this is not allowed in
+`restrict-assets?` and will trigger an analysis error, since usage there does
+not make sense (i.e. just remove the `restrict-assets?` instead).
 **_⚠️ Security Warning: This should be used with extreme caution, as it
 effectively disables all asset protection for the contract. ⚠️_** This
 dangerous allowance should only be used when the code executing within the
@@ -2776,6 +2956,7 @@ even then the more restrictive allowances should be preferred when possible.",
   )
 ) ;; Returns (ok true)
 "#,
+    notices: &[],
 };
 
 pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
@@ -2930,6 +3111,7 @@ pub fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> 
         example: keyword.example,
         min_version: variable.get_min_version(),
         max_version: variable.get_max_version(),
+        notices: keyword.notices.to_vec(),
     })
 }
 
@@ -2944,6 +3126,7 @@ fn make_for_special(api: &SpecialAPI, function: &NativeFunctions) -> FunctionAPI
         example: api.example.to_string(),
         min_version: function.get_min_version(),
         max_version: function.get_max_version(),
+        notices: api.notices.to_vec(),
     }
 }
 
@@ -2958,6 +3141,7 @@ fn make_for_define(api: &DefineAPI, name: String) -> FunctionAPI {
         example: api.example.to_string(),
         min_version: ClarityVersion::Clarity1,
         max_version: None,
+        notices: api.notices.to_vec(),
     }
 }
 

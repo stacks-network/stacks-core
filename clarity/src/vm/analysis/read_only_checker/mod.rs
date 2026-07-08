@@ -26,13 +26,16 @@ pub use super::errors::{
     check_argument_count, check_arguments_at_least,
 };
 use crate::vm::ClarityVersion;
+use crate::vm::analysis::check_analysis_timeout;
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
+use crate::vm::errors::StaticCheckErrorKind::ReadOnlyCheckerRecursionLimitExceeded;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
+use crate::vm::time_tracker::TimeTracker;
 
 #[cfg(test)]
 mod tests;
@@ -48,6 +51,7 @@ pub struct ReadOnlyChecker<'a, 'b> {
     defined_functions: HashMap<ClarityName, bool>,
     epoch: StacksEpochId,
     clarity_version: ClarityVersion,
+    time_tracker: TimeTracker,
 }
 
 impl AnalysisPass for ReadOnlyChecker<'_, '_> {
@@ -55,25 +59,34 @@ impl AnalysisPass for ReadOnlyChecker<'_, '_> {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
+        time_tracker: TimeTracker,
     ) -> Result<(), StaticCheckError> {
-        let mut command =
-            ReadOnlyChecker::new(analysis_db, epoch, &contract_analysis.clarity_version);
+        let mut command = ReadOnlyChecker::new(
+            analysis_db,
+            epoch,
+            &contract_analysis.clarity_version,
+            time_tracker,
+        );
         command.run(contract_analysis)?;
         Ok(())
     }
 }
 
 impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
+    const NATIVE_FUNCTION_CHECK_RECURSION_LIMIT: u64 = 160;
+
     fn new(
         db: &'a mut AnalysisDatabase<'b>,
         epoch: &StacksEpochId,
         version: &ClarityVersion,
+        time_tracker: TimeTracker,
     ) -> ReadOnlyChecker<'a, 'b> {
         Self {
             db,
             defined_functions: HashMap::new(),
             epoch: *epoch,
             clarity_version: *version,
+            time_tracker,
         }
     }
 
@@ -225,15 +238,26 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok(())
     }
 
+    fn check_read_only_inner(
+        &mut self,
+        expr: &SymbolicExpression,
+        recursion_depth: u64,
+    ) -> Result<bool, StaticCheckError> {
+        check_analysis_timeout(&self.time_tracker)?;
+
+        match expr.expr {
+            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),
+            List(ref expression) => {
+                self.check_expression_application_is_read_only(expression, recursion_depth)
+            }
+        }
+    }
     /// Checks the supplied symbolic expressions
     ///   (1) for whether or not they are valid with respect to read-only requirements.
     ///   (2) if valid, returns whether or not they are read only.
     /// Note that because of (1), this function _cannot_ short-circuit on read-only.
     fn check_read_only(&mut self, expr: &SymbolicExpression) -> Result<bool, StaticCheckError> {
-        match expr.expr {
-            AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),
-            List(ref expression) => self.check_expression_application_is_read_only(expression),
-        }
+        self.check_read_only_inner(expr, 0)
     }
 
     /// Checks each expression in `expressions` to determine whether each uses only
@@ -246,10 +270,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     fn check_each_expression_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
+        recursion_depth: u64,
     ) -> Result<bool, StaticCheckError> {
         let mut result = true;
         for expression in expressions.iter() {
-            let expr_read_only = self.check_read_only(expression)?;
+            let expr_read_only = self.check_read_only_inner(expression, recursion_depth)?;
             // Note: Don't return early on false, because a subsequent error should be returned.
             result = result && expr_read_only;
         }
@@ -269,9 +294,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         &mut self,
         function: &str,
         args: &[SymbolicExpression],
+        recursion_depth: u64,
     ) -> Option<Result<bool, StaticCheckError>> {
-        NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
-            .map(|function| self.check_native_function_is_read_only(&function, args))
+        NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version).map(
+            |function| self.check_native_function_is_read_only(&function, args, recursion_depth),
+        )
     }
 
     /// Returns `true` iff this function application is read-only.
@@ -282,8 +309,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         &mut self,
         function: &NativeFunctions,
         args: &[SymbolicExpression],
+        recursion_depth: u64,
     ) -> Result<bool, StaticCheckError> {
         use crate::vm::functions::NativeFunctions::*;
+
+        let recursion_depth = Self::check_and_increase_recursion_depth(recursion_depth)?;
 
         match function {
             Add
@@ -383,18 +413,19 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | AllowanceWithStacking
             | AllowanceAll => {
                 // Check all arguments.
-                self.check_each_expression_is_read_only(args)
+                self.check_each_expression_is_read_only(args, recursion_depth)
             }
             FromConsensusBuff => {
                 // Check only the second+ arguments: the first argument is a type parameter
                 check_argument_count(2, args)?;
-                self.check_each_expression_is_read_only(&args[1..])
+                self.check_each_expression_is_read_only(&args[1..], recursion_depth)
             }
             AtBlock => {
                 check_argument_count(2, args)?;
 
-                let is_block_arg_read_only = self.check_read_only(&args[0])?;
-                let closure_read_only = self.check_read_only(&args[1])?;
+                let is_block_arg_read_only =
+                    self.check_read_only_inner(&args[0], recursion_depth)?;
+                let closure_read_only = self.check_read_only_inner(&args[1], recursion_depth)?;
                 if !closure_read_only {
                     return Err(StaticCheckErrorKind::AtBlockClosureMustBeReadOnly.into());
                 }
@@ -402,12 +433,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             }
             FetchEntry => {
                 check_argument_count(2, args)?;
-                self.check_each_expression_is_read_only(args)
+                self.check_each_expression_is_read_only(args, recursion_depth)
             }
             StxTransfer | StxTransferMemo | StxBurn | SetEntry | DeleteEntry | InsertEntry
             | SetVar | MintAsset | MintToken | TransferAsset | TransferToken | BurnAsset
             | BurnToken => {
-                self.check_each_expression_is_read_only(args)?;
+                self.check_each_expression_is_read_only(args, recursion_depth)?;
                 Ok(false)
             }
             Let => {
@@ -431,12 +462,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         ));
                     }
 
-                    if !self.check_read_only(&pair_expression[1])? {
+                    if !self.check_read_only_inner(&pair_expression[1], recursion_depth)? {
                         return Ok(false);
                     }
                 }
 
-                self.check_each_expression_is_read_only(&args[1..args.len()])
+                self.check_each_expression_is_read_only(&args[1..args.len()], recursion_depth)
             }
             Map => {
                 check_arguments_at_least(2, args)?;
@@ -447,11 +478,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 //   we're asking the read only checker to check whether a function application
                 //     of the _mapping function_ onto the rest of the supplied arguments would be
                 //     read-only or not.
-                self.check_expression_application_is_read_only(args)
+                self.check_expression_application_is_read_only(args, recursion_depth)
             }
             Filter => {
                 check_argument_count(2, args)?;
-                self.check_expression_application_is_read_only(args)
+                self.check_expression_application_is_read_only(args, recursion_depth)
             }
             Fold => {
                 check_argument_count(3, args)?;
@@ -462,7 +493,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 //   we're asking the read only checker to check whether a function application
                 //     of the _folding function_ onto the rest of the supplied arguments would be
                 //     read-only or not.
-                self.check_expression_application_is_read_only(args)
+                self.check_expression_application_is_read_only(args, recursion_depth)
             }
             TupleCons => {
                 for (i, pair) in args.iter().enumerate() {
@@ -479,7 +510,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         ));
                     }
 
-                    if !self.check_read_only(&pair_expression[1])? {
+                    if !self.check_read_only_inner(&pair_expression[1], recursion_depth)? {
                         return Ok(false);
                     }
                 }
@@ -516,14 +547,15 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     }
                 };
 
-                self.check_each_expression_is_read_only(&args[2..])
+                self.check_each_expression_is_read_only(&args[2..], recursion_depth)
                     .map(|args_read_only| args_read_only && is_function_read_only)
             }
             RestrictAssets => {
                 check_arguments_at_least(3, args)?;
 
                 // Check the asset owner argument.
-                let asset_owner_read_only = self.check_read_only(&args[0])?;
+                let asset_owner_read_only =
+                    self.check_read_only_inner(&args[0], recursion_depth)?;
 
                 // Check the allowances argument.
                 let allowances =
@@ -533,10 +565,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                             "restrict-assets?".into(),
                             2,
                         ))?;
-                let allowances_read_only = self.check_each_expression_is_read_only(allowances)?;
+                let allowances_read_only =
+                    self.check_each_expression_is_read_only(allowances, recursion_depth)?;
 
                 // Check the body expressions.
-                let body_read_only = self.check_each_expression_is_read_only(&args[2..])?;
+                let body_read_only =
+                    self.check_each_expression_is_read_only(&args[2..], recursion_depth)?;
 
                 Ok(asset_owner_read_only && allowances_read_only && body_read_only)
             }
@@ -551,10 +585,12 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                             "as-contract?".into(),
                             1,
                         ))?;
-                let allowances_read_only = self.check_each_expression_is_read_only(allowances)?;
+                let allowances_read_only =
+                    self.check_each_expression_is_read_only(allowances, recursion_depth)?;
 
                 // Check the body expressions.
-                let body_read_only = self.check_each_expression_is_read_only(&args[1..])?;
+                let body_read_only =
+                    self.check_each_expression_is_read_only(&args[1..], recursion_depth)?;
 
                 Ok(allowances_read_only && body_read_only)
             }
@@ -574,6 +610,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     fn check_expression_application_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
+        recursion_depth: u64,
     ) -> Result<bool, StaticCheckError> {
         let (function_name, args) = expressions
             .split_first()
@@ -583,7 +620,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             .match_atom()
             .ok_or(StaticCheckErrorKind::NonFunctionApplication)?;
 
-        if let Some(mut result) = self.try_check_native_function_is_read_only(function_name, args) {
+        if let Some(mut result) =
+            self.try_check_native_function_is_read_only(function_name, args, recursion_depth)
+        {
             if let Err(ref mut static_check_error) = result {
                 static_check_error.set_expressions(expressions);
             }
@@ -592,8 +631,20 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             let is_function_read_only = *self.defined_functions.get(function_name).ok_or(
                 StaticCheckErrorKind::UnknownFunction(function_name.to_string()),
             )?;
-            self.check_each_expression_is_read_only(args)
+            self.check_each_expression_is_read_only(args, recursion_depth)
                 .map(|args_read_only| args_read_only && is_function_read_only)
         }
+    }
+
+    /// Specifically meant for checking recursion of
+    /// `check_native_function_is_read_only`.
+    ///
+    /// We don't have to do an exhaustive depth check because the AST
+    /// depth limit prevents too deeply nested expressions.
+    fn check_and_increase_recursion_depth(current_depth: u64) -> Result<u64, StaticCheckError> {
+        if current_depth > Self::NATIVE_FUNCTION_CHECK_RECURSION_LIMIT {
+            return Err(StaticCheckError::new(ReadOnlyCheckerRecursionLimitExceeded));
+        }
+        Ok(current_depth + 1)
     }
 }

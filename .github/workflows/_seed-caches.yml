@@ -1,0 +1,46 @@
+name: Seed Caches
+
+################################################################################################################################
+# GitHub caches are scoped to branches, with a fallback mechanism:
+#   1. A branch can only see caches created on that branch
+#   2. Failing that, a branch can opt-in to looking at the base branch cache
+#   3. Failing that, a branch can always access the default branch caches (`main` or `master`)
+# So we build caches on `master` nightly, since our branches typically target `develop` as base (and can fallback to `master`)
+# That allows PR branches to re-use these caches, via `restore-keys` fallback in the actions/cache GitHub action
+# The cache cache is intentionally broad: it will restore what `master` currently has.
+# If the branch has updated dependencies, cargo will notice the mismatched versions (or new deps) and build them on-the-fly.
+################################################################################################################################
+
+on:
+  schedule:
+    # Run at 00:00 UTC daily
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allows manual triggering / seeding
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+# Configure concurrency
+#   - cache will exist longer than workflow execution so other runners have access.
+#   - this must be atomic and never run in parallel
+concurrency:
+  group: seed-caches
+  cancel-in-progress: false
+
+jobs:
+  ############################################################################
+  ### Create Reusable Caches for Tests
+  ###
+  ### Caches can only be created from `master`. This workflow runs only 
+  ### from `master` and thus will create re-usable caches successfully.
+  ############################################################################
+  setup-test-caches:
+    name: "Create: Test Caches"
+    # Only execute if running in our core repo. The CRON schedule will run against `master` which is intended
+    if: |
+      github.repository == 'stacks-network/stacks-core' &&
+      github.ref_name == 'master'
+    uses: ./.github/workflows/setup-test-caches.yml

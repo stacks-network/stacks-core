@@ -63,7 +63,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "488e7c00b52602e1f0d95dee5c98c15f2326540afc2a1327bb682922d809e520",
+    marf_hash: "b6a777e893d9551eea727c7e9571e8f14678f2b0923b82a49f6550ca9612acc4",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

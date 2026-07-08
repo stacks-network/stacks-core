@@ -133,6 +133,9 @@ pub enum Error {
     Expects(String),
     /// This error indicates that a transaction execution was aborted because it exceeded the maximum allowed execution time.
     ExecutionTimeExpired,
+    /// This error indicates that contract analysis was aborted because it exceeded the maximum allowed analysis time.
+    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable in logs/metrics and in `is_problematic`.
+    AnalysisTimeExpired,
 }
 
 impl From<marf_error> for Error {
@@ -249,6 +252,7 @@ impl fmt::Display for Error {
             Error::TenureTooBigError => write!(f, "Too much data in tenure"),
             Error::TxWouldNotFitError => write!(f, "Transaction would not fit in this block"),
             Error::ExecutionTimeExpired => write!(f, "Transaction execution time expired"),
+            Error::AnalysisTimeExpired => write!(f, "Transaction analysis time expired"),
             Error::Expects(ref msg) => write!(f, "Unexpected state: {msg}"),
         }
     }
@@ -299,6 +303,7 @@ impl error::Error for Error {
             Error::TenureTooBigError => None,
             Error::TxWouldNotFitError => None,
             Error::ExecutionTimeExpired => None,
+            Error::AnalysisTimeExpired => None,
             Error::Expects(ref _msg) => None,
         }
     }
@@ -349,6 +354,7 @@ impl Error {
             Error::TenureTooBigError => "TenureTooBigError",
             Error::TxWouldNotFitError => "TxWouldNotFitError",
             Error::ExecutionTimeExpired => "ExecutionTimeExpired",
+            Error::AnalysisTimeExpired => "AnalysisTimeExpired",
             Error::Expects(_) => "Expects",
         }
     }

@@ -300,7 +300,7 @@ impl NakamotoChainState {
 
             return Err(e);
         }
-        Self::validate_nakamoto_block_transactions_static(
+        Self::validate_nakamoto_block_static(
             mainnet,
             chain_id,
             db_handle.conn(),
@@ -537,6 +537,7 @@ impl NakamotoBlockBuilder {
                 &tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
+                None,
                 None,
                 &mut receipts_total,
             ) {
