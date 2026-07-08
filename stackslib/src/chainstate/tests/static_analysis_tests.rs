@@ -63,6 +63,15 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         MemoryBalanceExceeded(_, _) => Tested(vec![static_check_error_memory_balance_exceeded]),
         CostComputationFailed(_) => Unreachable_ExpectLike,
         ExecutionTimeExpired => Unreachable_Functionally("Can only be triggered at runtime."),
+        AnalysisTimeExpired => Unreachable_Functionally(
+            "All consensus-critical code paths (block validation and transaction processing) pass
+             `None` for max_execution_time, so the analysis-phase time tracking stays
+             unlimited and check_analysis_abort_condition always returns Ok(()). The analysis
+             deadline is only enforced on the miner-local block-assembly and block-proposal
+             validation paths; it is exercised by the analysis-deadline integration tests, not
+             by this consensus harness.",
+        ),
+        ReadOnlyCheckerRecursionLimitExceeded => todo!(),
         ValueTooLarge => Tested(vec![static_check_error_value_too_large]),
         ValueOutOfBounds => Tested(vec![static_check_error_value_out_of_bounds]),
         TypeSignatureTooDeep => Tested(vec![static_check_error_type_signature_too_deep]),
@@ -177,6 +186,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         WithNftExpectedListOfIdentifiers => Tested(vec![static_check_error_with_nft_expected_list_of_identifiers]),
         MaxIdentifierLengthExceeded(_, _) => Tested(vec![static_check_error_max_identifier_length_exceeded]),
         TooManyAllowances(_, _) => Tested(vec![static_check_error_too_many_allowances]),
+        TraitReferenceChainTooDeep => todo!(),
     }
 }
 

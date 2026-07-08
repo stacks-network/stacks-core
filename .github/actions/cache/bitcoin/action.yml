@@ -1,58 +1,70 @@
 name: Bitcoin Cache
 description: |
-    Bitcoin binary cache
+    Bitcoin binary cache management.
 
 inputs:
   action:
-    description: "Type of operation (check,restore,save)"
+    description: "Type of operation (check,restore,create)"
     required: false
     default: "check"
   btc-version:
-    description: "Bitcoin version"
-    required: true
+    description: "The Bitcoin binary version"
+    required: false
+    default: "25.0"
 
 outputs:
-  cache-hit:
-    description: "Cache Hit"
-    value: ${{ steps.check_cache.outputs.cache-hit }}
+  cache-key:
+    description: "Cache Key"
+    value: ${{ steps.generate-keys.outputs.bitcoin-cache-key }}
+  cache-matched-key:
+    description: "Key of the cache that was checked or restored, it could either be the primary key on cache-hit or a partial/complete match of one of the restore keys."
+    value: ${{ steps.check-cache.outputs.cache-matched-key || steps.restore-cache.outputs.cache-matched-key }}
 
 runs:
   using: "composite"
   steps:
-    - name: Generate Cache Key
-      shell: bash
-      run: |
-        echo "BITCOIN_CACHE_KEY=cache-bitcoin-binary--${{ inputs.btc-version }}" >> $GITHUB_ENV
+    # Generate cache keys
+    - name: Generate Cache Keys
+      id: generate-keys
+      uses: ./.github/actions/cache/generate-keys
+      with:
+        btc-version: ${{ inputs.btc-version }}
   
     # Check if cache data exists
     - name: Check Cache
-      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-      id: check_cache
+      if: |
+        inputs.action == 'check'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      id: check-cache
       with:
         lookup-only: true
         path: ~/bitcoin
-        key: ${{ env.BITCOIN_CACHE_KEY }}
+        key: ${{ steps.generate-keys.outputs.bitcoin-cache-key }}
+        # Allows cache to "fallback" to `master` generated cache, using a prefix. The most recently created cache will be selected.
+        restore-keys: ${{ steps.generate-keys.outputs.bitcoin-restore-key }}
 
     # Restore cache data
     - name: Restore Cache
       if: |
-        inputs.action == 'restore' &&
-        steps.check_cache.outputs.cache-hit == 'true'
-      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        inputs.action == 'restore'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      id: restore-cache
       with:
         path: ~/bitcoin
-        key: ${{ env.BITCOIN_CACHE_KEY }}
+        key: ${{ steps.generate-keys.outputs.bitcoin-cache-key }}
+        # Allows cache to "fallback" to base branch or `master`
+        restore-keys: ${{ steps.generate-keys.outputs.bitcoin-restore-key }}
+        fail-on-cache-miss: true
 
     # Install bitcoin binary on cache-miss
     - name: Install Bitcoin Binary
       if: |
-        inputs.action == 'save' &&
-        steps.check_cache.outputs.cache-hit != 'true'
+        inputs.action == 'create'
       shell: bash
       run: |
         # 1. Hardcode the trusted SHA-256 checksums for specific bitcoin versions
         # (Add more as needed in the future: generate this locally using `sha256sum bitcoin.tar.gz`)
-        case "${{ inputs.btc-version }}" in
+        case "${{ steps.generate-keys.outputs.bitcoin-binary-version }}" in
           "25.0") EXPECTED_SHA="33930d432593e49d58a9bff4c30078823e9af5d98594d2935862788ce8a20aec" ;;
           "26.0") EXPECTED_SHA="23e5ab226d9e01ffaadef5ffabe8868d0db23db952b90b0593652993680bb8ab" ;;
           "27.0") EXPECTED_SHA="2a6974c5486f528793c79d42694b5987401e4a43c97f62b1383abf35bcee44a8" ;;
@@ -61,7 +73,7 @@ runs:
         esac
         
         # 2. Download the binary to a explicit filename
-        URL="https://github.com/stacks-network/bitcoin/releases/download/v${{ inputs.btc-version }}/bitcoin-${{ inputs.btc-version }}-x86_64-linux-gnu.tar.gz"
+        URL="https://github.com/stacks-network/bitcoin/releases/download/v${{ steps.generate-keys.outputs.bitcoin-binary-version }}/bitcoin-${{ steps.generate-keys.outputs.bitcoin-binary-version }}-x86_64-linux-gnu.tar.gz"
         curl -LSf -# -o bitcoin.tar.gz "$URL"
         
         # 3. Enforce the checksum validation. If this fails, the script exits immediately.
@@ -72,14 +84,13 @@ runs:
         
         # 4. Safely extract
         tar zxf bitcoin.tar.gz -C ~
-        mv ~/bitcoin-${{ inputs.btc-version }} ~/bitcoin
+        mv ~/bitcoin-${{ steps.generate-keys.outputs.bitcoin-binary-version }} ~/bitcoin
 
     # Save cache data
     - name: Save Cache
       if: |
-        inputs.action == 'save' &&
-        steps.check_cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        inputs.action == 'create'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/bitcoin
-        key: ${{ env.BITCOIN_CACHE_KEY }}
+        key: ${{ steps.generate-keys.outputs.bitcoin-cache-key }}

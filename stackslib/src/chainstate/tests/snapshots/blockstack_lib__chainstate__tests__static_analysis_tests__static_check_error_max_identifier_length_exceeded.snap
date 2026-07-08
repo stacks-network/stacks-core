@@ -1,7 +1,6 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
-expression: result
-snapshot_kind: text
+expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
@@ -35,7 +34,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "73d92f4874023e06d880c2436180699f683d2f4a9185892468d716f17b6bedac",
+    marf_hash: "bc8c7b19265be9b1fef7547d1a5fdd9d95a11ce2164291fdc304f154f7fee890",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -65,7 +64,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a7e1fbd359deb51d04ebe6169676a32555b8553ff9de104d940df9e6000f46a0",
+    marf_hash: "85923ecdd715671348afae1541181905da2d0eaffc3fdaa223724d774a85f972",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

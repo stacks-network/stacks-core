@@ -133,6 +133,7 @@ pub fn new_test_conf() -> Config {
     let p2p_port = gen_random_port();
 
     let mut conf = Config::default();
+    conf.connection_options = conf.connection_options.with_private_neighbors();
     conf.node.working_dir = format!(
         "/tmp/stacks-node-tests/integrations-neon/{}-{}",
         to_hex(format!("{rpc_port}{p2p_port}").as_bytes()),
