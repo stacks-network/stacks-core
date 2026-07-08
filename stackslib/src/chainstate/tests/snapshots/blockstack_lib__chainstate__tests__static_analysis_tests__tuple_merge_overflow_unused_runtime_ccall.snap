@@ -1,6 +1,8 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+assertion_line: 1518
 expression: result.get_expected_results()
+snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
