@@ -765,6 +765,7 @@ pub trait BlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         max_execution_time: Option<std::time::Duration>,
+        max_analysis_time: Option<std::time::Duration>,
         total_receipts_size: &mut u64,
     ) -> TransactionResult;
 
@@ -775,6 +776,7 @@ pub trait BlockBuilder {
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
         max_execution_time: Option<std::time::Duration>,
+        max_analysis_time: Option<std::time::Duration>,
         total_receipts_size: &mut u64,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
@@ -784,6 +786,7 @@ pub trait BlockBuilder {
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             max_execution_time,
+            max_analysis_time,
             total_receipts_size,
         ) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
@@ -2085,7 +2088,7 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.into_iter() {
-            match builder.try_mine_tx(&mut epoch_tx, &tx, None, &mut 0) {
+            match builder.try_mine_tx(&mut epoch_tx, &tx, None, None, &mut 0) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -2253,6 +2256,7 @@ impl StacksBlockBuilder {
                         epoch_tx,
                         initial_tx,
                         settings.max_execution_time,
+                        settings.max_analysis_time,
                         &mut receipts_total,
                     )?
                     .convert_to_event(),
@@ -2460,6 +2464,7 @@ impl BlockBuilder for StacksBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         _max_execution_time: Option<std::time::Duration>,
+        _max_analysis_time: Option<std::time::Duration>,
         _total_receipt_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
@@ -2735,6 +2740,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                     txinfo.metadata.len,
                     &block_limit_hit,
                     settings.max_execution_time,
+                    settings.max_analysis_time,
                     &mut receipts_total,
                 );
 
@@ -2910,6 +2916,7 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
             replay_tx,
             replay_tx.tx_len(),
             &BlockLimitFunction::NO_LIMIT_HIT,
+            None,
             None,
             &mut receipts_total,
         );

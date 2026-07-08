@@ -72,6 +72,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
              validation paths; it is exercised by the analysis-deadline integration tests, not
              by this consensus harness.",
         ),
+        ReadOnlyCheckerRecursionLimitExceeded => todo!(),
         // `tuple_merge_exceeds_max_value_size_cdeploy` produces `ValueTooLarge` at 4.0+ (an
         // oversized tuple `merge` rejected at the merge site); pre-4.0 the same test surfaces
         // as `Unreachable` (see that arm below).
@@ -195,6 +196,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         WithNftExpectedListOfIdentifiers => Tested(vec![static_check_error_with_nft_expected_list_of_identifiers]),
         MaxIdentifierLengthExceeded(_, _) => Tested(vec![static_check_error_max_identifier_length_exceeded]),
         TooManyAllowances(_, _) => Tested(vec![static_check_error_too_many_allowances]),
+        TraitReferenceChainTooDeep => todo!(),
     }
 }
 
