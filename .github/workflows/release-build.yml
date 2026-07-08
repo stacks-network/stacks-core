@@ -1,4 +1,5 @@
-# Github workflow to create reusable caches
+# Github workflow to create release binaries (and attest them)
+
 name: Build Release Binaries
 
 on:
@@ -91,7 +92,7 @@ jobs:
     steps:
       # Checkout the code
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -141,7 +142,7 @@ jobs:
       - name: Attest Artifact (stacks-core)
         if: |
           inputs.node_tag != ''
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
 
@@ -172,6 +173,6 @@ jobs:
       - name: Attest Artifact (stacks-signer)
         if: |
           inputs.signer_tag != ''
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
