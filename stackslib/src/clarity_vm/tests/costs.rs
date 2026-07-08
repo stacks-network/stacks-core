@@ -270,10 +270,8 @@ fn setup_cost_test_epoch(
             clarity_conn.initialize_epoch_3_3().unwrap();
         }
         StacksEpochId::Epoch40 => {
-            // `initialize_epoch_4_0()` also deploys PoX-5, which requires the chainstate
-            // test harness's sBTC stubs. Cost tests only need the costs-5 contract.
+            // Epoch 4.0 uses hardcoded Rust cost functions; no boot contract to deploy.
             clarity_conn.set_epoch_for_testing(StacksEpochId::Epoch40);
-            clarity_conn.instantiate_epoch_4_0_cost_contract().unwrap();
         }
         _ => unreachable!(
             "COST_TEST_SETUP_EPOCHS only contains epochs which instantiate boot contracts needed for costs tests"

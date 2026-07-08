@@ -39,9 +39,7 @@ use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
-use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COSTS_5,
-};
+use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::tests::consensus::{
     ConsensusTest, ConsensusUtils, ExpectedResult, TestBlock,
@@ -216,24 +214,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
             .unwrap();
         }
         StacksEpochId::Epoch40 => {
-            let (ast, _analysis) = tx
-                .analyze_smart_contract(
-                    &boot_code_id("costs-5", false),
-                    ClarityVersion::Clarity6,
-                    BOOT_CODE_COSTS_5,
-                    None,
-                )
-                .unwrap();
-            tx.initialize_smart_contract(
-                &boot_code_id("costs-5", false),
-                ClarityVersion::Clarity6,
-                &ast,
-                BOOT_CODE_COSTS_5,
-                None,
-                |_, _| None,
-                None,
-            )
-            .unwrap();
+            // Epoch 4.0 uses hardcoded Rust cost functions; no costs-5 boot contract is deployed.
         }
         _ => panic!("Epoch {} not covered.", &epoch),
     });

@@ -942,6 +942,37 @@ impl TrackerData {
         let epoch_id = clarity_db
             .get_clarity_epoch_version()
             .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
+
+        // Epoch 4.0+ uses hardcoded Rust cost functions only; no boot contract is deployed or
+        // consulted. Build the evaluator map directly without touching the DB.
+        if epoch_id >= StacksEpochId::Epoch40 {
+            let costs_id = boot_code_id(COSTS_5_NAME, self.mainnet);
+            let mut m = HashMap::with_capacity(ClarityCostFunction::ALL.len());
+            for f in ClarityCostFunction::ALL.iter() {
+                m.insert(
+                    f,
+                    ClarityCostFunctionEvaluator::Default(
+                        ClarityCostFunctionReference::new(costs_id.clone(), f.get_name()),
+                        f.clone(),
+                        DefaultVersion::Costs5,
+                    ),
+                );
+            }
+            self.cost_function_references = m;
+            self.cost_contracts = HashMap::new();
+            self.contract_call_circuits = HashMap::new();
+            if apply_updates {
+                clarity_db
+                    .commit()
+                    .map_err(|e| CostErrors::Expect(e.to_string()))?;
+            } else {
+                clarity_db
+                    .roll_back()
+                    .map_err(|e| CostErrors::Expect(e.to_string()))?;
+            }
+            return Ok(());
+        }
+
         let boot_costs_id = boot_code_id(
             &LimitedCostTracker::default_cost_contract_for_epoch(epoch_id)?,
             self.mainnet,
