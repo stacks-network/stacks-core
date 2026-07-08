@@ -18,7 +18,7 @@ use super::ExecutionCost;
 /// bench-derived formulas; analysis-phase, state-dependent, and uncalibrated functions
 /// continue to forward to `Costs4`.
 ///
-/// Calibration baseline: **1 cost unit = 96,528 CPU instructions** (derived from `+/uint`
+/// Calibration baseline: **1 cost unit = 96,588 CPU instructions** (derived from `+/uint`
 /// at n=32, where current=33 ≈ bench-suggested=33).
 use super::cost_functions::{CostValues, linear};
 use super::costs_4::Costs4;
@@ -233,35 +233,39 @@ impl CostValues for Costs5 {
     fn cost_not(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
         Ok(ExecutionCost::runtime(31))
     }
-    // Bench: is-eq/bool → 31; is-eq/buffer at 1024 → 35; n = sum of serialized sizes (NativeFunction205).
-    // linear(n >> 8, 4, 31): scalar (n=34) → 31 ✓; list-opt-uint 1000 (n≈38010) → 623.
+    // Bench: is-eq/buffer buffer_bytes=[1..65536]; 338 instrs/byte + 3,020,278 base.
+    // 338/96588 ≈ 1/286 units/byte; linear(n >> 8, 1, 31): 1 unit per 256 bytes + 31.
+    // n = sum of serialized sizes of all args; at n=65536: 256+31=287 (bench: 261).
     fn cost_eq(n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(linear(n >> 8, 4, 31)))
+        Ok(ExecutionCost::runtime(linear(n >> 8, 1, 31)))
     }
     // Bench: begin — same slope as + (5,793 instrs/arg). linear(n >> 4, 1, 31).
     fn cost_begin(n: u64) -> Result<ExecutionCost, VmExecutionError> {
         Ok(ExecutionCost::runtime(linear(n >> 4, 1, 31)))
     }
-    // Bench: hash160/buffer buffer_bytes=[1..1024]; ~70 instrs/byte + 3,025,046 base.
-    // linear(n >> 8, 1, 30): 1 unit per 256 bytes + 30. Max error ±1.
+    // Bench: hash160/buffer buffer_bytes=[1..65536]; 213.5 instrs/byte + 3,032,191 base.
+    // 213.5/96588 ≈ 1/452 units/byte; linear(n >> 9, 1, 31): 1 unit per 512 bytes + 31.
+    // At n=65536: 128+31=159 (bench: 176); at n=1M: 2048+31=2079 (bench: 2244).
     fn cost_hash160(n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(linear(n >> 8, 1, 30)))
+        Ok(ExecutionCost::runtime(linear(n >> 9, 1, 31)))
     }
-    // Bench: sha256/buffer; same slope as hash160. linear(n >> 8, 1, 30).
+    // Bench: sha256/buffer buffer_bytes=[1..65536]; 213.5 instrs/byte + 3,030,469 base. Same formula.
     fn cost_sha256(n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(linear(n >> 8, 1, 30)))
+        Ok(ExecutionCost::runtime(linear(n >> 9, 1, 31)))
     }
-    // Bench: sha512/buffer → 32 units constant (hardware-accelerated).
-    fn cost_sha512(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(32))
+    // Bench: sha512/buffer buffer_bytes=[1..65536]; 201.8 instrs/byte + 3,031,849 base.
+    // Previously assumed constant due to hardware acceleration; extended bench reveals O(n).
+    // 201.8/96588 ≈ 1/479 units/byte; linear(n >> 9, 1, 31): 1 unit per 512 bytes + 31.
+    fn cost_sha512(n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Ok(ExecutionCost::runtime(linear(n >> 9, 1, 31)))
     }
-    // Bench: sha512/256 → 32 units constant.
-    fn cost_sha512t256(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(32))
+    // Bench: sha512/256/buffer buffer_bytes=[1..65536]; 201.8 instrs/byte + 3,033,948 base. Same formula.
+    fn cost_sha512t256(n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Ok(ExecutionCost::runtime(linear(n >> 9, 1, 31)))
     }
-    // Bench: keccak256/buffer; same slope as hash160. linear(n >> 8, 1, 30).
+    // Bench: keccak256/buffer buffer_bytes=[1..65536]; 214.2 instrs/byte + 3,031,928 base. Same formula.
     fn cost_keccak256(n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(linear(n >> 8, 1, 30)))
+        Ok(ExecutionCost::runtime(linear(n >> 9, 1, 31)))
     }
     // Bench: secp256k1-recover? → 32 units constant (3,085,000 instrs).
     fn cost_secp256k1recover(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
@@ -505,14 +509,17 @@ impl CostValues for Costs5 {
     fn cost_slice(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
         Ok(ExecutionCost::runtime(31))
     }
-    // Bench: to-consensus-buff? buffer_bytes=[1..1024]; ~163 instrs/byte + base.
-    // linear(n >> 9, 1, 31): n=17 (uint128)→31 ✓; n=1029 (1024-byte buf)→33 ✓.
+    // Bench: to-consensus-buff?/buffer buffer_bytes=[1..65536]; 169.4 instrs/byte + 3,030,609 base.
+    // n = serialized byte size of the value (large tuples → large n); formula handles full range.
+    // linear(n >> 9, 1, 31): at n=65536→159 (bench: 146); at n=1M→2079 (bench extrap: 1871).
     fn cost_to_consensus_buff(n: u64) -> Result<ExecutionCost, VmExecutionError> {
         Ok(ExecutionCost::runtime(linear(n >> 9, 1, 31)))
     }
-    // Bench: from-consensus-buff?/buffer → 32 units constant across all sizes.
-    fn cost_from_consensus_buff(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(32))
+    // Bench: from-consensus-buff?/buffer buffer_bytes=[1..65536]; 170.3 instrs/byte + 3,042,522 base.
+    // Previously constant (snippet was capped at 255 bytes); extended bench reveals O(n).
+    // 170.3/96588 ≈ 1/567 units/byte; linear(n >> 9, 1, 32): 1 unit per 512 bytes + 32.
+    fn cost_from_consensus_buff(n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Ok(ExecutionCost::runtime(linear(n >> 9, 1, 32)))
     }
     fn cost_stx_transfer_memo(n: u64) -> Result<ExecutionCost, VmExecutionError> {
         Costs4::cost_stx_transfer_memo(n)
