@@ -4,7 +4,7 @@
 # derives the release tags and validates them against versions.toml.
 #
 # Required env vars:
-#   BRANCH  - branch name from github.ref_name (e.g. release/1.0.0.0.0)
+#   BRANCH  - branch name from github.ref_name (e.g. release/4.0.0)
 #
 # Exit behaviour:
 #   - Branch matches a release pattern  → validates versions.toml, writes outputs, exits 0
@@ -12,8 +12,8 @@
 #                                         jobs guard themselves with is_node/signer_release checks)
 # Outputs:
 #   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stderr if unset (via logging.sh)
-#   node_tag          - node release tag       (e.g. 1.0.0.0.0)         empty for signer-only releases
-#   signer_tag        - signer release tag     (e.g. signer-1.0.0.0.0.0)
+#   node_tag          - node release tag    (e.g. 4.0.0, empty for signer-only releases)
+#   signer_tag        - signer release tag  (e.g. signer-4.0.0)
 #   is_node_release   - "true" if this is a node release branch
 #   is_signer_release - "true" if this is a signer release branch
 set -euo pipefail
@@ -26,14 +26,14 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 : "${BRANCH:?BRANCH is required}"
 
 ## ── Release branch patterns ─────────────────────────────────────────────────
-# Node release:   release/x.x.x.x.x   (5-part version, optional -rcN suffix)
-# Signer release: release/signer-x.x.x.x.x.x  (6-part version, optional -rcN suffix)
+# Node release:   release/x.x.x         (3-part version, major.minor.revision, optional -rcN suffix)
+# Signer release: release/signer-x.x.x  (3-part version, major.minor.revision, optional -rcN suffix)
 versions_file="versions.toml"
 node_key="stacks_node_version"
 signer_key="stacks_signer_version"
 
-node_version_regex="([0-9]+\.){4}[0-9]+(-rc[0-9]+)?"
-signer_version_regex="([0-9]+\.){5}[0-9]+(-rc[0-9]+)?"
+node_version_regex="([0-9]+\.){2}[0-9]+(-rc[0-9]+)?"
+signer_version_regex="([0-9]+\.){2}[0-9]+(-rc[0-9]+)?"
 
 release_prefix="release/"
 signer_prefix="release/signer-"

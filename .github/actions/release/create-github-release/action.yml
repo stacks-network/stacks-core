@@ -62,7 +62,7 @@ runs:
         # Upload the release archives with the checksums file
         #   - pre-populate the release body text
         - name: Upload Release
-          uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+          uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
           with:
               name: "Release ${{ inputs.tag }}"
               tag_name: ${{ inputs.tag }}

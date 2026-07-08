@@ -118,7 +118,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -144,7 +144,7 @@ jobs:
       # Set docker metatdata
       - name: Docker Metadata ( ${{ matrix.dist }} )
         id: docker-metadata
-        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf #v6.0.0
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
@@ -178,7 +178,7 @@ jobs:
       # Build docker image for release
       - name: Build and Push ( ${{matrix.dist}} )
         id: docker-build
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           sbom: false
           provenance: ${{ env.PROVENANCE }}
@@ -195,7 +195,7 @@ jobs:
       - name: Attest Image (${{ github.event.repository.name }})
         if: |
           env.PROVENANCE != true
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-name: ${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/${{ inputs.release_type }}
           subject-digest: ${{ steps.docker-build.outputs.digest }}
@@ -204,7 +204,7 @@ jobs:
       # Sign the images with GitHub OIDC Token
       #   - https://github.blog/security/supply-chain-security/safeguard-container-signing-capability-actions/
       - name: Install Cosign
-        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       # Sign the images with Github OIDC token
       - name: Sign the images with OIDC Token
