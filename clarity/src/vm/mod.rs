@@ -26,7 +26,7 @@ pub mod contracts;
 pub mod ast;
 pub mod contexts;
 pub mod database;
-mod hooks;
+pub mod hooks;
 pub mod representations;
 
 pub mod callables;
@@ -77,8 +77,7 @@ use crate::vm::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, V
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
 pub use crate::vm::functions::stx_transfer_consolidated;
-pub use crate::vm::hooks::{CallArguments, CallHook, EvalHook, ExecutionOutcome};
-use crate::vm::hooks::{CallTraceFrame, EvalHookNotifier as _};
+use crate::vm::hooks::{CallArguments, CallTraceFrame, EvalHookNotifier as _};
 pub use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
