@@ -744,6 +744,7 @@ fn mask_incompatible_or_propagate_error(
 /// `Ok(true)`/`Ok(false)` is the compatibility verdict; `Err` is reserved for an
 /// analysis-deadline expiry, which must not be masked as incompatibility (see
 /// [`propagate_or_incompatible`]).
+#[allow(clippy::too_many_arguments)]
 fn clarity2_check_functions_compatible<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
