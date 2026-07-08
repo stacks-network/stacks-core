@@ -66,7 +66,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         ExecutionTimeExpired => Unreachable_Functionally("Can only be triggered at runtime."),
         AnalysisTimeExpired => Unreachable_Functionally(
             "All consensus-critical code paths (block validation and transaction processing) pass
-             `None` for max_execution_time, so the analysis-phase time tracking stays
+             `None` for max_analysis_time, so the analysis-phase time tracking stays
              unlimited and check_analysis_abort_condition always returns Ok(()). The analysis
              deadline is only enforced on the miner-local block-assembly and block-proposal
              validation paths; it is exercised by the analysis-deadline integration tests, not

@@ -846,6 +846,18 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether trait-compliance type-checking surfaces cost-tracking errors
+    /// (e.g. `CostBalanceExceeded` / `CostOverflow`) as their real error instead
+    /// of masking them as `IncompatibleTrait`.
+    ///
+    /// Before this epoch, a cost error raised inside the trait-compatibility
+    /// recursion was swallowed and reported as `IncompatibleTrait`. That masking
+    /// is corrected from Epoch 4.0 onwards. The change is consensus-breaking, so
+    /// earlier epochs must preserve the masking.
+    pub fn surfaces_trait_compliance_cost_errors(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {
