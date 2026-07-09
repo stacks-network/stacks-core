@@ -132,14 +132,10 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity4,
             ClarityVersion::Clarity5,
         ],
-        StacksEpochId::Epoch40 => &[
-            ClarityVersion::Clarity1,
-            ClarityVersion::Clarity2,
-            ClarityVersion::Clarity3,
-            ClarityVersion::Clarity4,
-            ClarityVersion::Clarity5,
-            ClarityVersion::Clarity6,
-        ],
+        // From Epoch 4.0, `process_transaction_precheck` rejects deploys
+        // pinning anything below the epoch default, so only the latest
+        // version is deployable.
+        StacksEpochId::Epoch40 => &[ClarityVersion::Clarity6],
     }
 }
 

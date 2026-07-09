@@ -275,22 +275,24 @@ fn expect_contract_error(
         None,
     );
 
+    // Check the initialization-phase expectations: assert the first whose
+    // condition matches. If none match, initialization must succeed and the
+    // test continues to the call phase.
     for (err_condition, expected_error) in expected_errors {
-        if let ExpectedContractError::Initialization(expected_error) = expected_error {
-            if err_condition(version, epoch) {
-                let err = init_result.unwrap_err();
-                if let ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(inner_err)) = &err {
-                    assert_eq!(expected_error, inner_err);
-                } else {
-                    panic!("Expected a RuntimeCheck error, but got a different error");
-                }
-                // Do not continue with the test if the initialization failed.
-                return;
+        if let ExpectedContractError::Initialization(expected_error) = expected_error
+            && err_condition(version, epoch)
+        {
+            let err = init_result.unwrap_err();
+            if let ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(inner_err)) = &err {
+                assert_eq!(expected_error, inner_err);
+            } else {
+                panic!("Expected a RuntimeCheck error, but got a different error");
             }
             // Do not continue with the test if the initialization failed.
             return;
         }
     }
+    init_result.unwrap();
 
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
@@ -298,20 +300,18 @@ fn expect_contract_error(
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
 
+    // Check the runtime-phase expectations the same way; if none match, the
+    // call must produce the expected success value.
     for (err_condition, expected_error) in expected_errors {
-        if let ExpectedContractError::Runtime(expected_error) = expected_error {
-            if err_condition(version, epoch) {
-                let err = eval_result.unwrap_err();
-                if let ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(inner_err)) = &err {
-                    assert_eq!(expected_error, inner_err);
-                } else {
-                    panic!("Expected a RuntimeCheck error, but got a different error");
-                }
-
-                // Do not continue with the test if the evaluation failed.
-                return;
+        if let ExpectedContractError::Runtime(expected_error) = expected_error
+            && err_condition(version, epoch)
+        {
+            let err = eval_result.unwrap_err();
+            if let ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(inner_err)) = &err {
+                assert_eq!(expected_error, inner_err);
+            } else {
+                panic!("Expected a RuntimeCheck error, but got a different error");
             }
-
             // Do not continue with the test if the evaluation failed.
             return;
         }
@@ -548,7 +548,7 @@ fn reuse_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "ft",
         r#"
             (define-fungible-token block-height)
             (define-read-only (test-func) false)
@@ -575,7 +575,7 @@ fn reuse_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "nft",
         r#"
             (define-non-fungible-token block-height uint)
             (define-read-only (test-func) false)
@@ -602,7 +602,7 @@ fn reuse_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "public-fn",
         r#"
         (define-public (block-height) (ok true))
         (define-private (test-func) (unwrap-panic (block-height)))
@@ -629,7 +629,7 @@ fn reuse_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "read-only-fn",
         r#"
         (define-read-only (block-height) true)
         (define-private (test-func) (block-height))
@@ -824,7 +824,7 @@ fn reuse_stacks_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "ft",
         r#"
             (define-fungible-token stacks-block-height)
             (define-read-only (test-func) false)
@@ -843,7 +843,7 @@ fn reuse_stacks_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "nft",
         r#"
             (define-non-fungible-token stacks-block-height uint)
             (define-read-only (test-func) false)
@@ -862,7 +862,7 @@ fn reuse_stacks_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "public-fn",
         r#"
         (define-public (stacks-block-height) (ok true))
         (define-private (test-func) (unwrap-panic (stacks-block-height)))
@@ -881,7 +881,7 @@ fn reuse_stacks_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "read-only-fn",
         r#"
         (define-read-only (stacks-block-height) true)
         (define-private (test-func) (stacks-block-height))
@@ -1086,7 +1086,7 @@ fn reuse_builtin_name(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "ft",
         &format!(
             r#"
             (define-fungible-token {name})
@@ -1107,7 +1107,7 @@ fn reuse_builtin_name(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "nft",
         &format!(
             r#"
             (define-non-fungible-token {name} uint)
@@ -1128,7 +1128,7 @@ fn reuse_builtin_name(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "public-fn",
         &format!(
             r#"
         (define-public ({name}) (ok true))
@@ -1149,7 +1149,7 @@ fn reuse_builtin_name(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "read-only-fn",
         &format!(
             r#"
         (define-read-only ({name}) true)
