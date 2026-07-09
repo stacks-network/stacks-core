@@ -1,0 +1,1 @@
+Optimized `Value::size` computation, precomputing size for `TupleTypeSignature`/`ListTypeData` and removing intermediate `TypeSignature` allocations.
