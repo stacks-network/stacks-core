@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use clarity::types::StacksEpochId;
+use clarity::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 use clarity::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 #[allow(unused_imports)]
 use clarity::vm::analysis::StaticCheckErrorKind;
@@ -1252,7 +1252,7 @@ fn static_check_error_at_block_unavailable() {
         (define-public (trigger-error)
             (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
                     u1)))",
-        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch34),
+        deploy_epochs: (StacksEpochId::Epoch34..).as_slice(),
         clarity_versions: ClarityVersion::up_to(ClarityVersion::Clarity4),
     );
 }
