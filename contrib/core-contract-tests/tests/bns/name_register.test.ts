@@ -13,6 +13,8 @@ const alice = accounts.get("wallet_1")!;
 const bob = accounts.get("wallet_2")!;
 const charlie = accounts.get("wallet_3")!;
 
+const PREORDER_CLAIMABILITY_TTL = 144;
+
 function utf8ToBytes(str: string) {
   return new TextEncoder().encode(str);
 }
@@ -124,13 +126,14 @@ describe("preorder namespace", () => {
     const merged = new TextEncoder().encode(`${cases[1].namespace}${cases[1].salt}`);
     const sha256 = createHash("sha256").update(merged).digest();
     const ripemd160 = createHash("ripemd160").update(sha256).digest();
+    const preorderHeight = simnet.burnBlockHeight;
     const { result } = simnet.callPublicFn(
       "bns",
       "namespace-preorder",
       [Cl.buffer(ripemd160), Cl.uint(cases[1].value)],
       cases[1].namespaceOwner
     );
-    expect(result).toBeOk(Cl.uint(143 + simnet.blockHeight));
+    expect(result).toBeOk(Cl.uint(PREORDER_CLAIMABILITY_TTL + preorderHeight));
   });
 });
 
@@ -140,13 +143,14 @@ describe("namespace reveal workflow", () => {
     const merged = new TextEncoder().encode(`${cases[1].namespace}${cases[1].salt}`);
     const sha256 = createHash("sha256").update(merged).digest();
     const ripemd160 = createHash("ripemd160").update(sha256).digest();
+    const preorderHeight = simnet.burnBlockHeight;
     const { result } = simnet.callPublicFn(
       "bns",
       "namespace-preorder",
       [Cl.buffer(ripemd160), Cl.uint(cases[1].value)],
       cases[1].namespaceOwner
     );
-    expect(result).toBeOk(Cl.uint(143 + simnet.blockHeight));
+    expect(result).toBeOk(Cl.uint(PREORDER_CLAIMABILITY_TTL + preorderHeight));
   });
 
   it("should reveal a namespace", () => {
@@ -184,13 +188,14 @@ describe("namespace reveal workflow", () => {
     const merged = new TextEncoder().encode(`${name}.${cases[1].namespace}${cases[1].salt}`);
     const sha256 = createHash("sha256").update(merged).digest();
     const ripemd160 = createHash("ripemd160").update(sha256).digest();
+    const preorderHeight = simnet.burnBlockHeight;
     const preorder = simnet.callPublicFn(
       "bns",
       "name-preorder",
       [Cl.buffer(ripemd160), Cl.uint(100)],
       bob
     );
-    expect(preorder.result).toBeOk(Cl.uint(141 + simnet.blockHeight));
+    expect(preorder.result).toBeOk(Cl.uint(PREORDER_CLAIMABILITY_TTL + preorderHeight));
 
     const register = simnet.callPublicFn(
       "bns",
@@ -354,6 +359,7 @@ describe("name revealing workflow", () => {
       bob
     );
     expect(register.result).toBeOk(Cl.bool(true));
+    const registerHeight = simnet.burnBlockHeight;
 
     const resolvePrincipal = simnet.callReadOnlyFn(
       "bns",
@@ -378,8 +384,8 @@ describe("name revealing workflow", () => {
       Cl.tuple({
         owner: Cl.standardPrincipal(bob),
         ["zonefile-hash"]: Cl.bufferFromUtf8(cases[0].zonefile),
-        ["lease-ending-at"]: Cl.some(Cl.uint(14)),
-        ["lease-started-at"]: Cl.uint(4),
+        ["lease-ending-at"]: Cl.some(Cl.uint(registerHeight + cases[0].renewalRule)),
+        ["lease-started-at"]: Cl.uint(registerHeight),
       })
     );
   });
@@ -420,6 +426,8 @@ describe("name revealing workflow", () => {
 });
 
 describe("register a name again before and after expiration", () => {
+  let bobRegisterHeight: number;
+
   beforeEach(() => {
     // launch namespace
     const mergedNS = new TextEncoder().encode(`${cases[0].namespace}${cases[0].salt}`);
@@ -483,6 +491,7 @@ describe("register a name again before and after expiration", () => {
       bob
     );
     expect(registerResult.result).toBeOk(Cl.bool(true));
+    bobRegisterHeight = simnet.burnBlockHeight;
   });
 
   it("fails if someone else tries to register it", () => {
@@ -491,15 +500,14 @@ describe("register a name again before and after expiration", () => {
     const merged = new TextEncoder().encode(`${name}.${cases[0].namespace}${salt}`);
     const sha256 = createHash("sha256").update(merged).digest();
     const ripemd160 = createHash("ripemd160").update(sha256).digest();
-    let blockHeight = simnet.blockHeight;
-    console.log("blockHeight", blockHeight);
+    const preorderHeight = simnet.burnBlockHeight;
     const preorder = simnet.callPublicFn(
       "bns",
       "name-preorder",
       [Cl.buffer(Uint8Array.from(ripemd160)), Cl.uint(2560000)],
       charlie
     );
-    expect(preorder.result).toBeOk(Cl.uint(138 + simnet.blockHeight));
+    expect(preorder.result).toBeOk(Cl.uint(PREORDER_CLAIMABILITY_TTL + preorderHeight));
 
     const register = simnet.callPublicFn(
       "bns",
@@ -512,7 +520,6 @@ describe("register a name again before and after expiration", () => {
       ],
       charlie
     );
-    console.log(simnet.blockHeight);
     expect(register.result).toBeErr(Cl.int(2004));
   });
 
@@ -539,7 +546,11 @@ describe("register a name again before and after expiration", () => {
   });
 
   it("should allow registering a new name after first name expiration", () => {
-    simnet.mineEmptyBlocks(cases[0].renewalRule + 5001);
+    // Mine past the lease + grace period (5000 blocks)
+    const leaseEnd = bobRegisterHeight + cases[0].renewalRule;
+    const gracePeriodEnd = leaseEnd + 5000;
+    const blocksToMine = gracePeriodEnd - simnet.burnBlockHeight + 1;
+    simnet.mineEmptyBlocks(blocksToMine);
 
     const resolve = simnet.callReadOnlyFn(
       "bns",
@@ -564,13 +575,14 @@ describe("register a name again before and after expiration", () => {
     const merged = new TextEncoder().encode(`${name}.${cases[0].namespace}${salt}`);
     const sha256 = createHash("sha256").update(merged).digest();
     const ripemd160 = createHash("ripemd160").update(sha256).digest();
+    const preorderHeight = simnet.burnBlockHeight;
     const preorder = simnet.callPublicFn(
       "bns",
       "name-preorder",
       [Cl.buffer(ripemd160), Cl.uint(2560000)],
       bob
     );
-    expect(preorder.result).toBeOk(Cl.uint(138 + simnet.blockHeight));
+    expect(preorder.result).toBeOk(Cl.uint(PREORDER_CLAIMABILITY_TTL + preorderHeight));
 
     const register = simnet.callPublicFn(
       "bns",
@@ -587,7 +599,11 @@ describe("register a name again before and after expiration", () => {
   });
 
   it("should allow someone else to register after expiration", () => {
-    simnet.mineEmptyBlocks(cases[0].renewalRule + 5001);
+    // Mine past the lease expiration
+    const leaseEnd = bobRegisterHeight + cases[0].renewalRule;
+    // Mine until the next contract call will see block-height > leaseEnd
+    const blocksToMine = leaseEnd - simnet.burnBlockHeight + 1;
+    simnet.mineEmptyBlocks(blocksToMine);
 
     const name = "bob";
     const salt = "2222";
@@ -607,6 +623,7 @@ describe("register a name again before and after expiration", () => {
       charlie
     );
     expect(register.result).toBeOk(Cl.bool(true));
+    const charlieRegisterHeight = simnet.burnBlockHeight;
 
     const resolve = simnet.callReadOnlyFn(
       "bns",
@@ -618,8 +635,8 @@ describe("register a name again before and after expiration", () => {
       Cl.tuple({
         owner: Cl.standardPrincipal(charlie),
         ["zonefile-hash"]: Cl.bufferFromAscii("CHARLIE"),
-        ["lease-ending-at"]: Cl.some(Cl.uint(5025)),
-        ["lease-started-at"]: Cl.uint(5015),
+        ["lease-ending-at"]: Cl.some(Cl.uint(charlieRegisterHeight + cases[0].renewalRule)),
+        ["lease-started-at"]: Cl.uint(charlieRegisterHeight),
       })
     );
   });

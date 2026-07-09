@@ -17,10 +17,12 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::core::EpochList;
 use crate::net::download::nakamoto::{AvailableTenures, NakamotoTenureDownloader, TenureStartEnd};
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
@@ -358,6 +360,7 @@ impl NakamotoTenureDownloaderSet {
         tenure_block_ids: &HashMap<NeighborAddress, AvailableTenures>,
         count: usize,
         current_reward_cycles: &BTreeMap<u64, CurrentRewardSet>,
+        epochs: &EpochList,
     ) {
         test_debug!("make_tenure_downloaders";
                "schedule" => ?schedule,
@@ -479,6 +482,15 @@ impl NakamotoTenureDownloaderSet {
                 "tenure_end_reward_cycle" => tenure_info.end_reward_cycle,
                 "tenure_burn_height" => tenure_info.tenure_id_burn_block_height);
 
+            // The signer-signature ordering rule is set based on the epoch of
+            // this sortition (strict ordering is enforced from Epoch 4.0).
+            // A tenure always has a known burn height, so the fallback is
+            // unreachable.
+            let epoch_id = epochs
+                .epoch_at_height(tenure_info.tenure_id_burn_block_height)
+                .map(|epoch| epoch.epoch_id)
+                .unwrap_or(StacksEpochId::Epoch34);
+
             let tenure_download = NakamotoTenureDownloader::new(
                 ch.clone(),
                 tenure_info.start_block_snapshot_consensus_hash.clone(),
@@ -488,6 +500,7 @@ impl NakamotoTenureDownloaderSet {
                 naddr.clone(),
                 start_reward_set.clone(),
                 end_reward_set.clone(),
+                epoch_id,
                 false,
             );
 

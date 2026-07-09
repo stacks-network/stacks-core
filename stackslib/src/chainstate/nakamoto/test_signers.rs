@@ -27,7 +27,7 @@ use self::boot::RewardSet;
 use crate::burnchains::*;
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::{NakamotoSignerEntry, PoxStartCycleInfo};
+use crate::chainstate::stacks::boot::{NakamotoSignerEntry, PoxStartCycleInfo, RewardSetV0};
 use crate::chainstate::stacks::*;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -144,14 +144,14 @@ impl TestSigners {
             pox_addrs.push(pox_addr);
         }
 
-        RewardSet {
+        RewardSet::V0(RewardSetV0 {
             rewarded_addresses: pox_addrs,
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
             },
             signers: Some(signer_entries),
             pox_ustx_threshold: Some(100_000_000_000),
-        }
+        })
     }
 
     /// Sign a Nakamoto block and generate a vec of signatures. The signatures will
@@ -188,9 +188,8 @@ impl TestSigners {
             .collect::<HashMap<_, _>>();
 
         let reward_set_keys = &reward_set
-            .clone()
-            .signers
-            .unwrap()
+            .signers()
+            .expect("reward set has signers")
             .iter()
             .map(|s| s.signing_key.to_vec())
             .collect::<Vec<_>>();

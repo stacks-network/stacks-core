@@ -1,0 +1,1 @@
+Reject `unstake-sbtc` and `announce-l1-early-exit` calls during a prepare phase.

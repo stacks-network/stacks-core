@@ -52,7 +52,6 @@ use pico_args::Arguments;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
-use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::config::chain_data::MinerStats;
@@ -176,11 +175,11 @@ fn cli_get_miner_spend(
     )
     .unwrap();
 
-    let commit_outs = if !burnchain.is_in_prepare_phase(tip.block_height + 1) {
-        RewardSetInfo::into_commit_outs(recipients, config.is_mainnet())
-    } else {
-        vec![PoxAddress::standard_burn_address(config.is_mainnet())]
-    };
+    let commit_outs = RewardSetInfo::commit_outs_for(
+        recipients,
+        burnchain.is_in_prepare_phase(tip.block_height + 1),
+        config.is_mainnet(),
+    );
 
     let spend_amount = BlockMinerThread::get_mining_spend_amount(
         &config,

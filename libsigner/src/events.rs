@@ -551,10 +551,18 @@ impl<T: SignerEventTrait> TryFrom<StackerDBChunksEvent> for SignerEvent<T> {
         {
             let mut messages = vec![];
             for chunk in event.modified_slots {
-                let Ok(msg) = T::consensus_deserialize(&mut chunk.data.as_slice()) else {
-                    continue;
-                };
-                messages.push(msg);
+                match T::consensus_deserialize(&mut chunk.data.as_slice()) {
+                    Ok(msg) => messages.push(msg),
+                    Err(e) => {
+                        debug!(
+                            "Signer failed to deserialize miner chunk";
+                            "slot_id" => chunk.slot_id,
+                            "slot_version" => chunk.slot_version,
+                            "data_len" => chunk.data.len(),
+                            "error" => %e,
+                        );
+                    }
+                }
             }
             SignerEvent::MinerMessages(messages)
         } else if event.contract_id.name.starts_with(SIGNERS_NAME) && event.contract_id.is_boot() {
@@ -852,10 +860,7 @@ mod tests {
     /// version without crashing.
     fn test_old_deserialization_works() {
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let block = NakamotoBlock::new(header, vec![]);
         let new_block_proposal = BlockProposal {
             block: block.clone(),
             burn_height: 1,
@@ -882,10 +887,7 @@ mod tests {
     /// and then deserialized into the new version.
     fn test_old_proposal_can_deserialize() {
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let block = NakamotoBlock::new(header, vec![]);
         let old_block_proposal = BlockProposalOld {
             block: block.clone(),
             burn_height: 1,

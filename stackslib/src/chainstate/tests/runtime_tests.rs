@@ -32,8 +32,8 @@ use crate::chainstate::stacks::boot::test::{
 };
 use crate::chainstate::tests::consensus::{
     clarity_versions_for_epoch, contract_call_consensus_snap_test,
-    contract_deploy_consensus_snap_test, ConsensusTest, ConsensusUtils, ContractConsensusTest,
-    TestBlock, EPOCHS_TO_TEST, SK_1,
+    contract_deploy_consensus_snap_test, max_tested_epoch, tested_epochs_since, ConsensusTest,
+    ConsensusUtils, ContractConsensusTest, TestBlock, EPOCHS_TO_TEST, SK_1,
 };
 use crate::core::test_util::to_addr;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
@@ -617,10 +617,10 @@ fn stack_depth_too_deep_call_chain_ccall() {
 
     let mut epoch_blocks = HashMap::new();
     let mut nonce = 0;
-    let deploy_epochs = (StacksEpochId::Epoch20..).as_slice();
+    let deploy_epochs = tested_epochs_since(StacksEpochId::Epoch20);
     let mut contract_names = Vec::new();
 
-    for epoch in deploy_epochs {
+    for epoch in &deploy_epochs {
         let contract_code = build_contract(max_call_stack_depth_for_epoch(*epoch));
         let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
         let clarity_versions = clarity_versions_for_epoch(*epoch);
@@ -839,7 +839,7 @@ fn defunct_pox_contracts() {
         })
     }
 
-    let epoch_blocks = HashMap::from([(StacksEpochId::latest(), blocks)]);
+    let epoch_blocks = HashMap::from([(max_tested_epoch(), blocks)]);
 
     let results = ConsensusTest::new(function_name!(), initial_balances, epoch_blocks).run();
 

@@ -41,7 +41,7 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::{
     make_mem_abort_callback, MinerTenureInfoCause, NakamotoBlockBuilder,
 };
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxVersions;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
@@ -570,15 +570,6 @@ impl NakamotoBlockProposal {
                 reason: "Wrong network/chain_id".into(),
                 failed_txid: None,
             });
-        }
-
-        // Check block version. If it's less than the compiled-in version, just emit a warning
-        // because there's a new version of the node / signer binary available that really ought to
-        // be used (hint, hint)
-        if self.block.header.version != NAKAMOTO_BLOCK_VERSION {
-            warn!("Proposed block has unexpected version. Upgrade your node and/or signer ASAP.";
-                  "block.header.version" => %self.block.header.version,
-                  "expected" => %NAKAMOTO_BLOCK_VERSION);
         }
 
         // open sortition view to the current burn view.
