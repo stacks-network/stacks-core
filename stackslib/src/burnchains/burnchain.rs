@@ -1117,7 +1117,7 @@ impl Burnchain {
 
         // extract block-commit metadata
         // Do not emit sortition/burn block events to event observer in this method, because this
-        // method is deprecated and only used in defunct helium nodes
+        // method is deprecated
 
         db.evaluate_sortition(
             false,

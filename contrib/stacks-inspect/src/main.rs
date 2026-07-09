@@ -322,9 +322,7 @@ fn build_common_opts(cli: &Cli) -> CommonOpts {
     // Handle --network-config option
     if let Some(ref network) = cli.network_config {
         let config_file = match network.to_lowercase().as_str() {
-            "helium" => ConfigFile::helium(),
             "mainnet" => ConfigFile::mainnet(),
-            "mocknet" => ConfigFile::mocknet(),
             "xenon" => ConfigFile::xenon(),
             other => {
                 eprintln!("Unknown network choice `{other}`");

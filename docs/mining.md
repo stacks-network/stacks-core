@@ -60,7 +60,6 @@ signer configuration and the critical miner-signer coordination settings.
 | [`mainnet-follower-conf.toml`](../sample/conf/mainnet-follower-conf.toml)    | Mainnet follower (read-only node)                       |
 | [`testnet-follower-conf.toml`](../sample/conf/testnet-follower-conf.toml)    | Testnet follower                                        |
 | [`testnet-signer.toml`](../sample/conf/testnet-signer.toml)                  | Testnet node-side signer config                         |
-| [`mocknet.toml`](../sample/conf/mocknet.toml)                                | Local mocknet development                               |
 
 ## RBF Configuration
 

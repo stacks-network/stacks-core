@@ -54,7 +54,7 @@ p2p_bind = "0.0.0.0:20444"
 # bootstrap_node = "02e...@seed.mainnet.hiro.so:20444"
 
 # Human-readable node name (used in logging).
-# Default: "helium-node"
+# Default: "stacks-node"
 # name = "my-stacks-miner"
 
 # Disable microblocks (not used in Nakamoto / Epoch 3.0+).

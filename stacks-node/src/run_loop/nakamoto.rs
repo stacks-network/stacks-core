@@ -37,14 +37,14 @@ use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
 use crate::burnchains::make_bitcoin_indexer;
+use crate::genesis::{
+    get_account_balances, get_account_lockups, get_names, get_namespaces,
+    use_test_genesis_chainstate,
+};
 use crate::globals::Globals as GenericGlobals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::nakamoto_node::{self, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
 use crate::neon_node::LeaderKeyRegistrationState;
-use crate::node::{
-    get_account_balances, get_account_lockups, get_names, get_namespaces,
-    use_test_genesis_chainstate,
-};
 use crate::run_loop::boot_nakamoto::Neon2NakaData;
 use crate::run_loop::neon;
 use crate::run_loop::neon::Counters;
