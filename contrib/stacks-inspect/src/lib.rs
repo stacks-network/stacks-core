@@ -364,6 +364,14 @@ pub fn command_validate_block(args: &ValidateBlockArgs, conf: Option<&Config>) {
             print!("\r");
             io::stdout().flush().ok();
             errors.push((entry.index_block_hash.clone(), e));
+
+            // not every append_block error path rolls back the Clarity trie
+            // it opened, and a trie left open panics the next block's begin
+            chainstate.with_clarity_marf(|marf| {
+                if marf.get_open_chain_tip().is_some() {
+                    marf.drop_current();
+                }
+            });
         }
         completed += 1;
         let pct = ((completed as f32 / total_blocks as f32) * 100.0).floor() as usize;
