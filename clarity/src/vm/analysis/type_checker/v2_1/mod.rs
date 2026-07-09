@@ -719,6 +719,10 @@ fn mask_incompatible_or_propagate_error(
 ) -> Result<bool, StaticCheckError> {
     match &*e.err {
         // Always propagates: never arises during consensus.
+        StaticCheckErrorKind::TraitReferenceChainTooDeep => Err(e),
+        StaticCheckErrorKind::TypeSignatureTooDeep => {
+            Err(StaticCheckErrorKind::TraitReferenceChainTooDeep.into())
+        }
         StaticCheckErrorKind::AnalysisTimeExpired => Err(e),
         // Cost-tracking errors: propagate only from the gated epoch.
         StaticCheckErrorKind::CostOverflow
@@ -740,12 +744,14 @@ fn mask_incompatible_or_propagate_error(
 /// `Ok(true)`/`Ok(false)` is the compatibility verdict; `Err` is reserved for an
 /// analysis-deadline expiry, which must not be masked as incompatibility (see
 /// [`propagate_or_incompatible`]).
+#[allow(clippy::too_many_arguments)]
 fn clarity2_check_functions_compatible<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
     epoch: StacksEpochId,
     expected_sig: &FunctionSignature,
     actual_sig: &FunctionSignature,
+    depth: u8,
     tracker: &mut T,
     time_tracker: &TimeTracker,
 ) -> Result<bool, StaticCheckError> {
@@ -760,7 +766,7 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
             epoch,
             actual_type,
             expected_type,
-            1,
+            depth + 1,
             tracker,
             time_tracker,
         ) {
@@ -773,7 +779,7 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
         epoch,
         &actual_sig.returns,
         &expected_sig.returns,
-        1,
+        depth + 1,
         tracker,
         time_tracker,
     ) {
@@ -795,9 +801,14 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
     actual_trait: &BTreeMap<ClarityName, FunctionSignature>,
     expected_trait_identifier: &TraitIdentifier,
     expected_trait: &BTreeMap<ClarityName, FunctionSignature>,
+    depth: u8,
     tracker: &mut T,
     time_tracker: &TimeTracker,
 ) -> Result<(), StaticCheckError> {
+    if depth > MAX_TYPE_DEPTH {
+        return Err(StaticCheckErrorKind::TraitReferenceChainTooDeep.into());
+    }
+
     // Shortcut for the simple case when the two traits are the same.
     if actual_trait_identifier == expected_trait_identifier {
         return Ok(());
@@ -811,6 +822,7 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
                 epoch,
                 expected_sig,
                 func,
+                depth,
                 tracker,
                 time_tracker,
             )? {
@@ -973,6 +985,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                     &atom_trait,
                     expected_trait_id,
                     &expected_trait,
+                    depth,
                     cost_tracker,
                     time_tracker,
                 )?;

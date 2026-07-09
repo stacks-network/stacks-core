@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.4.0.0.4]
+
+### Added
+
+* New `stacks-profiler` and `stacks-profiler-macros` instrumentation crates for efficient and minimally-invasive profiling of code in this workspace
+* Added documentation for the arithmetic checker
+* Added execution_stats data to the blockreplay/blocksimulate api.
+* Added a wall-clock deadline to the Clarity contract-analysis phase, bounding the time a single transaction can spend being analyzed on the block-assembly (mining) and block-proposal (signer) validation paths. A transaction whose analysis exceeds the deadline is treated as problematic (deterministic replay and block commit remain unbounded).
+* Added `max_analysis_time_secs` to the `[miner]` configuration section to bound the per-transaction contract-analysis time (in seconds) during block assembly. Defaults to 30 seconds.
+* Added `block_proposal_max_tx_analysis_time_secs` to the `[connection_options]` configuration section to bound the per-transaction contract-analysis time (in seconds) during block-proposal validation. Defaults to 30 seconds.
+* Add snapshot copy of canonical epoch 2.x block files, confirmed microblock streams, and Nakamoto staging blocks into squashed output.
+* Add snapshot copy of canonical burnchain.sqlite tables into squashed output, using the squashed sortition DB as the canonical set.
+* Add snapshot copy of Clarity side-storage tables (data_table, metadata_table) into a squashed Clarity MARF.
+* Add snapshot framework for copying canonical chainstate index side-tables into squashed output
+* Add snapshot copy of canonical sortition side tables into squashed output, with an optional Stacks-tip boundary rewrite for the sortition tip memo tables.
+* Add snapshot copy of Bitcoin SPV headers and complete chain-work intervals up to the squash height into squashed output.
+* Allow nodes booted from a squashed MARF snapshot to resolve coinbase heights and Nakamoto reward sets in the pruned range by reading the underlying immutable keys at the canonical chain tip
+* Add the `marf-squash` offline CLI (`contrib/marf-squash`) that produces a bootable Pruned Chainstate Snapshot (PCS) from another chainstate.
+* Add MARF squash engine (`squash_to_path`) and squash-aware trie lookups for root hashes and block heights
+* Reduced tenure extend timings
+* Moved transaction-codec tests from `stackslib` into the `stacks-codec` crate and added new tests for previously-untested wire-format edges.
+
+### Changed
+
+* Moved `StacksTransaction` and its supporting types (`TransactionAuth`, `*SpendingCondition`, `TransactionPayload`, `ClarityVersion`, `StacksMicroblockHeader`, `Txid`, `StacksString`, `TenureChangePayload`, and related) from `stackslib` into the `stacks-codec` crate ([#7200](https://github.com/stacks-network/stacks-core/pull/7200))
+* Rust toolchain bumped from 1.94.0 to 1.96.0 and new clippy lint warnings addressed
+* Drop unused p2p message types (BlocksAvailable, MicroblocsAvailable, BlocksData)
+* Ensure that the version in the block header matches the expected version for the current epoch, enabling use of this version for future changes to the header structure.
+* Pipeline MARF squash blob reads using `posix_fadvise` prefetch to overlap I/O with node processing during DFS collection
+* Connections opened through `sqlite_open` (including all MARF and Clarity side-store connections) now use SQLite multi-thread (`SQLITE_OPEN_NO_MUTEX`) mode instead of serialized mode; the redundant per-connection mutex measurably slowed hot paths (~11% Nakamoto catch-up throughput improvement measured on a mainnet follower).
+* Exposed connection options `max_stackerdb_push_bandwidth`, `max_nakamoto_block_push_bandwidth`, `max_transaction_push_bandwidth` as TOML configuration to set bandwidth cap on message reception.
+* Set connection option `max_stackerdb_push_bandwidth` default to 4 MB/seconds
+* Enforced StackerDB message chunk-size check against replica configuration instead of statically against `STACKERDB_MAX_CHUNK_SIZE`
+* Improved StackerDB configuration creation for miner to set chunk-size to `STACKERDB_MAX_CHUNK_SIZE` instead of `MAX_PAYLOAD_LEN`
+
+### Fixed
+
+* Prevent blocks that contain transactions with non-normalized "high S" secp256k1 signatures. Consensus still allows them (this will be changed in a future epoch), but miners won't mine them and signers won't sign them.
+* Performance improvement that prevents unnecessary work in the block downloader if nothing has changed.
+* Fixed a bug where under certain conditions, a few unspecified configuration options (notably: `connection_options.private_neighbors`) did not correctly use the documented default value.
+* Gracefully handle clock skew when computing P2P bandwidth stats.
+* Cleanup unwraps/panics in Epoch 2.x microblock downloader
+* Wired the per-call memory-abort callback and wall-clock execution-time limit into the `/v2/contracts/call-read` and `/v3/contracts/fast-call-read` read-only RPC handlers. Also added a new `read_only_call_max_mem_bytes` connection option (default 1 GB; `0` disables) to bound the heap a single read-only call may allocate.
+* Reject blocks which contain transactions with PoX assetmap overwrites
+* Signers now ignore StackerDB chunks whose payload type is not valid for the contract they were received in.
+* The sortition MARF index now auto-detects external-blob storage (a sibling `marf.sqlite.blobs` file) instead of assuming internal SQLite blobs.
+* Fixed flake in tests::signer::v0::tenure_extend::non_blocking_minority_configured_to_favour_incoming_miner
+
 ## [3.4.0.0.3]
 
 ### Added

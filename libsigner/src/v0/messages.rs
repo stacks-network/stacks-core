@@ -146,6 +146,23 @@ impl Display for MessageSlotID {
     }
 }
 
+impl SignerMessageTypePrefix {
+    /// The signer-message lane (`MessageSlotID`) this payload type is broadcast on, if any.
+    ///
+    /// Miner-only payloads (`BlockProposal`, `BlockPushed`, `MockProposal`, `MockBlock`) do
+    /// not broadcast over a `.signers-X-Y` contract and return `None`.
+    pub fn msg_id(self) -> Option<MessageSlotID> {
+        match self {
+            // Mock signature uses the same slot as block response since it's exclusively for
+            // epoch 2.5 testing.
+            Self::BlockResponse | Self::MockSignature => Some(MessageSlotID::BlockResponse),
+            Self::StateMachineUpdate => Some(MessageSlotID::StateMachineUpdate),
+            Self::BlockPreCommit => Some(MessageSlotID::BlockPreCommit),
+            Self::BlockProposal | Self::BlockPushed | Self::MockProposal | Self::MockBlock => None,
+        }
+    }
+}
+
 impl TryFrom<u8> for SignerMessageTypePrefix {
     type Error = CodecError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -198,15 +215,7 @@ impl SignerMessage {
     ///   broadcast over `.signers-0-X` contracts.
     #[cfg_attr(test, mutants::skip)]
     pub fn msg_id(&self) -> Option<MessageSlotID> {
-        match self {
-            Self::BlockProposal(_)
-            | Self::BlockPushed(_)
-            | Self::MockProposal(_)
-            | Self::MockBlock(_) => None,
-            Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), // Mock signature uses the same slot as block response since its exclusively for epoch 2.5 testing
-            Self::StateMachineUpdate(_) => Some(MessageSlotID::StateMachineUpdate),
-            Self::BlockPreCommit(_) => Some(MessageSlotID::BlockPreCommit),
-        }
+        SignerMessageTypePrefix::from(self).msg_id()
     }
 }
 

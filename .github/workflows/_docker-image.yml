@@ -5,7 +5,8 @@ name: Docker Image
 on:
   workflow_dispatch:
   schedule:
-    - cron: "00 05 * * *" # 0500 UTC daily
+    # Run at 05:00 UTC daily
+    - cron: "0 5 * * *"
 
 # Set default permissions
 permissions:
