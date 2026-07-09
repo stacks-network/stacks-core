@@ -13,6 +13,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//! End-to-end consensus tests for the Epoch 4.0 force-latest deploy rule and
+//! the Clarity 6 reserved-name relaxation: a public or read-only function may
+//! be defined under a reserved name only to implement a matching method of an
+//! implemented trait that predates the name's reservation.
+
 use std::collections::HashMap;
 
 use clarity::types::{StacksEpochId, StacksEpochRangeTestExt as _};
@@ -70,62 +75,6 @@ fn shadow_target_principal() -> Value {
     )))
 }
 
-#[test]
-fn test_example_1_cdeploy() {
-    let report = contract_deploy_consensus_unit_test!(
-        contract_name: "map_empty",
-        contract_code: "(map + (list) (list 10 20))",
-        deploy_epochs: (StacksEpochId::Epoch20..).as_slice(),
-        clarity_versions: ClarityVersion::ALL,
-    );
-
-    assert!(report.all_blocks_accepted());
-
-    let txs = report.contract_deploys();
-
-    for each in txs {
-        let expected = Value::error(Value::none()).unwrap();
-        assert_eq!(&expected, each.return_value(), "wrong return for {each:?}");
-
-        assert_eq!(
-            ":0:0: expecting expression of type 'int' or 'uint', found 'UnknownType'",
-            each.vm_error().unwrap(),
-            "wrong error for {each:?}"
-        );
-    }
-}
-
-#[test]
-fn test_example_2_ccall() {
-    let report = contract_call_consensus_unit_test!(
-        contract_name: "map_empty",
-        contract_code: "
-            (define-data-var xs (list 10 int) (list))
-            (define-data-var ys (list 10 int) (list 10 20))
-            (define-public (trigger)
-                (ok (map + (var-get xs) (var-get ys))))
-        ",
-        function_name: "trigger",
-        function_args: &[],
-        deploy_epochs: (StacksEpochId::Epoch20..).as_slice(),
-        clarity_versions: ClarityVersion::ALL,
-    );
-
-    assert!(report.all_blocks_accepted());
-
-    let txs = report.contract_calls();
-
-    for each in txs {
-        let expected = if each.block_epoch() <= &StacksEpochId::Epoch34 {
-            Value::okay(Value::list_from(vec![Value::Int(10)]).unwrap()).unwrap()
-        } else {
-            Value::okay(Value::list_from(vec![]).unwrap()).unwrap()
-        };
-
-        assert_eq!(&expected, each.return_value(), "wrong return for {each:?}");
-    }
-}
-
 /// A contract that defines `slice?` - a name that is a native function from
 /// Clarity 2 on - to implement a Clarity 1 trait method. The name was free at
 /// Clarity 1 and, from Clarity 6, a public or read-only function may take it
@@ -176,10 +125,9 @@ fn test_clarity6_shadow_deploy() {
 
 /// Without a declared trait method for it, defining a shadowable reserved
 /// name stays illegal at Clarity 6 - failing with the same `NameAlreadyUsed`
-/// as in earlier versions. (Referenced by the `RuntimeCheckErrorKind`
-/// variant-coverage report in `runtime_analysis_tests.rs`.)
+/// as in earlier versions.
 #[test]
-pub(crate) fn test_clarity6_unscoped_shadow_deploy_rejected() {
+fn test_clarity6_unscoped_shadow_deploy_rejected() {
     let report = contract_deploy_consensus_unit_test!(
         contract_name: "unscoped_shadow",
         contract_code: "(define-public (slice? (a int) (b int)) (ok (+ a b)))",

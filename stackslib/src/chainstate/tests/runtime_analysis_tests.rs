@@ -128,8 +128,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         ]),
         NameAlreadyUsed(_) => Tested(vec![
             runtime_check_error_kind_name_already_used_cdeploy,
-            runtime_check_error_kind_name_already_used_ccall,
-            super::consensus_unit_tests::test_clarity6_unscoped_shadow_deploy_rejected,
+            runtime_check_error_kind_name_already_used_ccall
         ]),
         UndefinedFunction(_) => Tested(vec![runtime_check_error_kind_undefined_function_ccall]),
         AtBlockUnavailable => Tested(vec![runtime_check_error_kind_at_block_unavailable_ccall]),

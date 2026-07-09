@@ -84,6 +84,9 @@
 ;; SIP18 message prefix
 (define-constant SIP018_MSG_PREFIX 0x534950303138)
 
+;; Bitcoin treats locktimes >= 500,000,000 as Unix timestamps, not block heights.
+(define-constant BITCOIN_LOCKTIME_THRESHOLD u500000000)
+
 ;; SIP018 domain
 (define-constant POX_5_SIGNER_DOMAIN {
     name: "pox-5-signer",
@@ -1685,10 +1688,19 @@
             (prev-staked (get-signer-pending-staked-ustx-per-cycle signer cycle))
             (prev-total-shares-staked (get-total-shares-staked-for-cycle cycle none))
             (new-delegated (+ cur-delegated-for-signer amount))
+            (prev-staker-shares (get-staker-shares-staked-for-cycle staker cycle none signer))
         )
         ;; Crystallize STX-only rewards before mutating anything
         (settle-rewards signer cycle none)
-        (settle-staker-rewards signer cycle none staker)
+        ;; When zero, this is a no-op (`earned = shares * (rpt - rpt-paid) = 0`). In this case,
+        ;; we skip calling `settle-staker-rewards` to reduce cost.
+        (if (> prev-staker-shares u0)
+            (settle-staker-rewards signer cycle none staker)
+            {
+                earned: u0,
+                rewards-per-token: u0,
+            }
+        )
 
         (if (>= new-delegated SIGNER_SET_MIN_USTX)
             (begin
@@ -2060,6 +2072,9 @@
             (seen-outpoints (get seen-outpoints accumulator))
         )
         (asserts! (>= unlock-burn-height (get minimum-unlock-height accumulator))
+            ERR_INVALID_UNLOCK_HEIGHT
+        )
+        (asserts! (< unlock-burn-height BITCOIN_LOCKTIME_THRESHOLD)
             ERR_INVALID_UNLOCK_HEIGHT
         )
         (asserts! (is-eq (get script output) expected-script-hash)
@@ -2518,8 +2533,14 @@
         (bond-index (optional uint))
     )
     (let (
-            (earned (get-earned signer reward-cycle bond-index))
+            (shares (get-signer-shares-staked-for-cycle signer reward-cycle bond-index))
             (rewards-per-token (get-rewards-per-token-for-cycle reward-cycle bond-index))
+            (earned (compute-earned-rewards
+                shares
+                rewards-per-token
+                (get-signer-rewards-per-token-settled-for-cycle signer reward-cycle bond-index)
+                (get-signer-unclaimed-rewards-for-cycle signer reward-cycle bond-index)
+            ))
         )
         (map-set signer-unclaimed-rewards-for-cycle {
             reward-cycle: reward-cycle,
@@ -2535,12 +2556,7 @@
         }
             rewards-per-token
         )
-        (if (>
-                (get-signer-shares-staked-for-cycle signer reward-cycle
-                    bond-index
-                )
-                u0
-            )
+        (if (> shares u0)
             (map-set signer-rewards-per-token-for-cycle {
                 signer: signer,
                 reward-cycle: reward-cycle,

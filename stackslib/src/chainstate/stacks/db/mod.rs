@@ -1400,6 +1400,7 @@ impl StacksChainState {
                         &boot_code_smart_contract,
                         &boot_code_account,
                         None,
+                        None,
                     )
                 })?;
                 receipts.push(tx_receipt);

@@ -228,6 +228,13 @@ fn check_special_merge(
     )?;
 
     base.shallow_merge(&mut update);
+    if checker.epoch.fixes_tuple_merge_size_check() {
+        // 4.0+: reject an oversized merged tuple cleanly with `ValueTooLarge` at the merge
+        // site. `?` converts `ClarityTypeError::ValueTooLarge` into `StaticCheckError`.
+        // Pre-4.0 the check is absent, so the oversized type propagates exactly as before
+        // (surfacing later as a block-invalidating `InvariantViolation` when it is sized).
+        base.checked_value_size()?;
+    }
     Ok(TypeSignature::TupleType(base))
 }
 

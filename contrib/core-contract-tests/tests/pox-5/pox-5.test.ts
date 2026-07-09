@@ -49,6 +49,7 @@ const emily = accounts.wallet_5.address;
 const REWARD_CYCLE_LENGTH = 100n;
 const HALF_CYCLE_LENGTH = REWARD_CYCLE_LENGTH / 2n;
 const BASIS_POINTS = 10000n;
+const BITCOIN_LOCKTIME_THRESHOLD = 500000000n;
 
 function reserveRewards(rewards: bigint) {
   return (rewards * pox5.constants.RESERVE_RATIO) / BASIS_POINTS;
@@ -2140,6 +2141,109 @@ test('stx-only stakers claim rewards after signer claims', () => {
   expect(sbtcBalance(bob)).toBe(bobBalance + bobRewards);
 });
 
+/**
+ * After a staker earns STX-only rewards in one cycle, `stake-update` removes and
+ * re-adds them across the affected cycles (extend + increase). Asserts the
+ * already-earned amount for that cycle is preserved, future cycles are not
+ * granted retroactively, and the staker can still claim the full per-cycle
+ * total through the signer manager after a second rewarded cycle.
+ */
+test('stake-update preserves staker rewards across remove/re-add fold', () => {
+  const signer = testSigner.identifier;
+  const stakeAmount = stxToUStx(50_000);
+  const amountIncrease = stxToUStx(10_000);
+  const numCycles = 4n;
+  const cyclesToExtend = 2n;
+  const rewardedCycle = 1n;
+
+  registerSigner();
+
+  txOk(
+    pox5.stake({
+      signerManager: signer,
+      amountUstx: stakeAmount,
+      numCycles,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  sbtcTransfer(1000n, deployer, pox5.identifier);
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(rewardedCycle)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([]), deployer);
+  txOk(testSigner.claimRewards([], rewardedCycle), deployer);
+
+  const earnedBefore = rov(
+    testSigner.getEarnedStakerRewards(alice, rewardedCycle, null),
+  );
+  expect(earnedBefore).toBeGreaterThan(0n);
+  expect(earnedBefore).toBe(
+    claimableRewards({
+      rewards: stxRewards(1000n),
+      shares: stakeAmount,
+      totalShares: stakeAmount,
+    }),
+  );
+
+  txOk(
+    pox5.stakeUpdate({
+      signerManager: signer,
+      oldSignerManager: signer,
+      cyclesToExtend,
+      amountIncrease,
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(
+    rov(testSigner.getEarnedStakerRewards(alice, rewardedCycle, null)),
+  ).toBe(earnedBefore);
+
+  const currentCycle = rov(pox5.currentPoxRewardCycle());
+  const unlockCycle =
+    rov(pox5.getStakerInfo(alice)).firstRewardCycle +
+    rov(pox5.getStakerInfo(alice)).numCycles;
+  for (let cycle = currentCycle + 1n; cycle < unlockCycle; cycle++) {
+    if (cycle === rewardedCycle) continue;
+    expect(rov(testSigner.getEarnedStakerRewards(alice, cycle, null))).toBe(0n);
+  }
+
+  sbtcTransfer(1000n, deployer, pox5.identifier);
+  const secondRewardedCycle = rewardedCycle + 1n;
+  mineUntil(
+    rov(pox5.rewardCycleToBurnHeight(secondRewardedCycle)) + HALF_CYCLE_LENGTH,
+  );
+  txOk(pox5.calculateRewards([]), deployer);
+  txOk(testSigner.claimRewards([], secondRewardedCycle), deployer);
+
+  const earnedCycle2 = rov(
+    testSigner.getEarnedStakerRewards(alice, secondRewardedCycle, null),
+  );
+  expect(earnedCycle2).toBeGreaterThan(0n);
+  expect(earnedCycle2).toBe(
+    claimableRewards({
+      rewards: stxRewards(1000n),
+      shares: stakeAmount + amountIncrease,
+      totalShares: stakeAmount + amountIncrease,
+    }),
+  );
+
+  const balanceBefore = sbtcBalance(alice);
+  txOk(testSigner.claimStakerRewards(rewardedCycle, null), alice);
+  txOk(testSigner.claimStakerRewards(secondRewardedCycle, null), alice);
+  expect(sbtcBalance(alice)).toBe(
+    balanceBefore + earnedBefore + earnedCycle2,
+  );
+  expect(
+    rov(testSigner.getEarnedStakerRewards(alice, rewardedCycle, null)),
+  ).toBe(0n);
+  expect(
+    rov(testSigner.getEarnedStakerRewards(alice, secondRewardedCycle, null)),
+  ).toBe(0n);
+});
+
 test('bond participants claim rewards after signer claims', () => {
   const signer = testSigner.identifier;
   const aliceSbtc = 100000n;
@@ -2448,6 +2552,36 @@ test('l1 lockup rejects an unlock height below the bond minimum', () => {
             staker: alice,
             sats: aliceSats,
             unlockBurnHeight: minimumUnlockHeight - 1n,
+          }),
+        ],
+        stakerUnlockBytes: new Uint8Array(),
+      }),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+
+  expect(result.value).toBe(errorCodes.ERR_INVALID_UNLOCK_HEIGHT);
+});
+
+test('l1 lockup rejects timestamp-style CLTV unlock heights', () => {
+  const signer = testSigner.identifier;
+  const aliceSats = 480000n;
+
+  registerSigner();
+  setupBondForAllowlist([{ maxSats: aliceSats, staker: alice }]);
+
+  const result = txErr(
+    pox5.registerForBond({
+      bondIndex: 0n,
+      signerManager: signer,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: ok({
+        outputs: [
+          buildL1Lockup({
+            staker: alice,
+            sats: aliceSats,
+            unlockBurnHeight: BITCOIN_LOCKTIME_THRESHOLD,
           }),
         ],
         stakerUnlockBytes: new Uint8Array(),

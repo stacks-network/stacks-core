@@ -50,7 +50,7 @@ use crate::core::test_util::{
     make_contract_call, make_contract_call_tx, make_contract_publish_versioned,
     make_stacks_transfer_tx, make_unsigned_tx, to_addr,
 };
-use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::core::{BLOCK_LIMIT_MAINNET_21, BLOCK_LIMIT_MAINNET_40};
 use crate::net::tests::NakamotoBootPlan;
 
 /// The epochs to test for consensus are the current and upcoming epochs.
@@ -505,6 +505,11 @@ impl ConsensusChain<'_> {
             // Create epoch
             let block_limit = if *epoch_id == StacksEpochId::Epoch10 {
                 ExecutionCost::max_value()
+            } else if *epoch_id == StacksEpochId::Epoch40 {
+                // Epoch 4.0 doubles the read budget relative to 2.1's limit; mirror
+                // the real `STACKS_EPOCHS_MAINNET`/`STACKS_EPOCHS_TESTNET` tables so
+                // consensus tests actually exercise the production block limit.
+                BLOCK_LIMIT_MAINNET_40.clone()
             } else {
                 BLOCK_LIMIT_MAINNET_21.clone()
             };

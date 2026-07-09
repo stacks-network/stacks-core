@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
 use clarity_types::types::SequenceSubtype;
 #[cfg(test)]
 use rstest::rstest;
@@ -28,12 +30,17 @@ use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::parser::v2::lexer::token::Token;
+use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
+use crate::vm::time_tracker::TimeTracker;
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::signatures::TypeSignature::OptionalType;
-use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
+use crate::vm::types::signatures::{
+    CallableSubtype, FunctionSignature, ListTypeData, StringUTF8Length,
+};
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, MAX_VALUE_SIZE, QualifiedContractIdentifier,
     TraitIdentifier, TypeSignature, TypeSignatureExt as _,
@@ -3075,6 +3082,59 @@ fn test_combine_tuples() {
     mem_type_check("(merge { a: 1, b: 2, c: 3 } 5)").unwrap_err();
 }
 
+/// Static-analysis epoch gate for an oversized tuple `merge`.
+///
+/// Two individually-valid `(buff 524288)`-typed fields merge into a tuple type whose value
+/// size exceeds `MAX_VALUE_SIZE`. The failure mode flips at the 4.0 boundary:
+/// - epoch < 4.0: `check_special_merge` does not size the merged tuple; the oversized type
+///   propagates and only fails when `new_response` (the `ok`) sizes it, surfacing as a
+///   block-invalidating `Unreachable` (wrapping an `InvariantViolation`).
+/// - epoch >= 4.0: `check_special_merge` rejects the oversized merge at the merge site with a
+///   clean `ValueTooLarge`.
+#[test]
+fn tuple_merge_oversized_analysis_gate_epoch40() {
+    let snippet = "(define-private (f (x (buff 524288)))
+        (ok (merge (tuple (a x)) (tuple (b x)))))";
+
+    // epoch < 4.0 (legacy): block-invalidating `Unreachable` from the later `.size()`.
+    let legacy_err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch34).unwrap_err();
+    assert!(
+        matches!(*legacy_err.err, StaticCheckErrorKind::Unreachable(_)),
+        "expected a pre-4.0 Unreachable failure, got {:?}",
+        legacy_err.err
+    );
+
+    // epoch >= 4.0: clean `ValueTooLarge` at the merge site.
+    let gated_err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch40).unwrap_err();
+    assert_eq!(*gated_err.err, StaticCheckErrorKind::ValueTooLarge);
+}
+
+/// Static-analysis epoch gate for an oversized tuple `merge` whose result is **never sized**.
+///
+/// The merge result is bound in a `let` but never used (the function returns `(ok true)`), so
+/// nothing computes its size during analysis. This is the case that pre-4.0 slipped past the
+/// static checker entirely — the contract type-checks and deploys, then becomes uncallable.
+/// The 4.0 gate rejects it at the merge site regardless of whether the result is ever used.
+/// - epoch < 4.0: analysis accepts the contract (no sizing occurs).
+/// - epoch >= 4.0: `check_special_merge` rejects it with `ValueTooLarge`.
+#[test]
+fn tuple_merge_unused_oversized_analysis_gate_epoch40() {
+    let snippet = "(define-private (f (x (buff 524288)))
+        (let ((m (merge (tuple (a x)) (tuple (b x)))))
+            (ok true)))";
+
+    // epoch < 4.0 (legacy): analysis accepts the unused oversized merge.
+    mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch34)
+        .expect("pre-4.0 analysis must accept an unused oversized merge");
+
+    // epoch >= 4.0: rejected at the merge site with `ValueTooLarge`, even though unused.
+    let gated_err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch40).unwrap_err();
+    assert_eq!(*gated_err.err, StaticCheckErrorKind::ValueTooLarge);
+}
+
 #[test]
 fn test_using_merge() {
     let t = "(define-map users uint
@@ -4448,4 +4508,108 @@ fn test_contract_call_with_non_callable_constant_target(
             );
         }
     }
+}
+
+#[test]
+fn test_clarity2_inner_type_check_type_aborts_when_deadline_elapsed() {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let mut cost_tracker = LimitedCostTracker::new_free();
+    // A zero-duration deadline is already elapsed at the first check.
+    let time_tracker = TimeTracker::from_max_duration(Duration::ZERO);
+
+    let result = super::clarity2_inner_type_check_type(
+        &mut db,
+        None,
+        StacksEpochId::latest(),
+        &BoolType,
+        &BoolType,
+        1,
+        &mut cost_tracker,
+        &time_tracker,
+    );
+
+    assert!(
+        matches!(result, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::AnalysisTimeExpired)),
+        "expected AnalysisTimeExpired, got {result:?}"
+    );
+}
+
+/// A cost error raised inside the trait-compliance recursion is masked as
+/// `IncompatibleTrait` before Epoch 4.0, and surfaces as its real error from
+/// Epoch 4.0 on.
+#[test]
+fn test_trait_compliance_cost_error_masking_is_epoch40_gated() {
+    // Builds a single-method trait whose method `f` takes one trait-typed
+    // argument (a reference to `arg_trait`).
+    let single_trait_arg_method = |arg_trait: TraitIdentifier| {
+        let mut methods = std::collections::BTreeMap::new();
+        methods.insert(
+            ClarityName::try_from("f").unwrap(),
+            FunctionSignature {
+                args: vec![TypeSignature::CallableType(CallableSubtype::Trait(
+                    arg_trait,
+                ))],
+                returns: BoolType,
+            },
+        );
+        methods
+    };
+
+    // Two distinct top-level traits, each with a method `f` taking a trait-typed
+    // argument. The argument trait identifiers differ, so compatibility checking
+    // enters the (Trait, Trait) arm and calls `clarity2_lookup_trait`, whose cost
+    // charge exceeds the zero budget below.
+    let expected_trait_id = TraitIdentifier {
+        name: ClarityName::try_from("expected").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("expected-def").unwrap(),
+    };
+    let actual_trait_id = TraitIdentifier {
+        name: ClarityName::try_from("actual").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("actual-def").unwrap(),
+    };
+    let expected_trait = single_trait_arg_method(TraitIdentifier {
+        name: ClarityName::try_from("arg-trait-a").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("arg-def-a").unwrap(),
+    });
+    let actual_trait = single_trait_arg_method(TraitIdentifier {
+        name: ClarityName::try_from("arg-trait-b").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("arg-def-b").unwrap(),
+    });
+
+    // Runs the compliance check under `epoch` with a fresh zero-budget tracker.
+    // The zero budget makes the first `runtime_cost` charge (the nested trait
+    // lookup) fail with `CostBalanceExceeded`.
+    let run_for_epoch = |epoch: StacksEpochId| {
+        let mut marf = MemoryBackingStore::new();
+        let mut db = marf.as_analysis_db();
+        let mut tracker = LimitedCostTracker::new_with_limit(epoch, ExecutionCost::ZERO);
+        // Unlimited time: the deadline never fires, so only the cost charge can error.
+        let time_tracker = TimeTracker::unlimited();
+        super::clarity2_trait_check_trait_compliance(
+            &mut db,
+            None,
+            epoch,
+            &actual_trait_id,
+            &actual_trait,
+            &expected_trait_id,
+            &expected_trait,
+            &mut tracker,
+            &time_tracker,
+        )
+    };
+
+    // Before the gate: the real cause (`CostBalanceExceeded`) is masked.
+    let pre = run_for_epoch(StacksEpochId::Epoch34);
+    assert!(
+        matches!(pre, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::IncompatibleTrait(..))),
+        "pre-Epoch40: expected the cost error masked as IncompatibleTrait, got {pre:?}"
+    );
+
+    // From Epoch 4.0: the real cost error surfaces.
+    let post = run_for_epoch(StacksEpochId::Epoch40);
+    assert!(
+        matches!(post, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::CostBalanceExceeded(..))),
+        "Epoch40: expected the real CostBalanceExceeded to surface, got {post:?}"
+    );
 }

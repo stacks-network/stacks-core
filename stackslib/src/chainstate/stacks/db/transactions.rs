@@ -1305,6 +1305,7 @@ impl StacksChainState {
         tx: &StacksTransaction,
         origin_account: &StacksAccount,
         max_execution_time: Option<std::time::Duration>,
+        max_analysis_time: Option<std::time::Duration>,
     ) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
@@ -1548,10 +1549,15 @@ impl StacksChainState {
                 // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
                 // The reason for this is that analyzing the transaction is itself an expensive
                 // operation, and the paying account will need to be debited the fee regardless.
+                //
+                // `max_analysis_time` bounds the analysis phase on the
+                // non-consensus voting paths (mining / block-proposal validation); it is
+                // `None` on deterministic replay/commit (consensus stays deterministic).
                 let analysis_resp = clarity_tx.analyze_smart_contract(
                     &contract_id,
                     clarity_version,
                     &contract_code_str,
+                    max_analysis_time,
                 );
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
@@ -1571,6 +1577,14 @@ impl StacksChainState {
                                     cost_after.clone(),
                                     budget.clone(),
                                 ));
+                            }
+                            ClarityError::AnalysisTimeExpired => {
+                                // The analysis phase exceeded its wall-clock deadline (on a voting path only).
+                                warn!("Contract analysis exceeded the analysis time limit; tx will be dropped from the mempool";
+                                      "txid" => %tx.txid(),
+                                      "contract_name" => %contract_id,
+                                );
+                                return Err(Error::AnalysisTimeExpired);
                             }
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {
@@ -1858,9 +1872,17 @@ impl StacksChainState {
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        Self::process_transaction_with_check(clarity_block, tx, quiet, max_execution_time, |_| {
-            Ok(())
-        })
+        // The generic/replay entry point imposes no analysis deadline (`None`): only the
+        // miner assembly and block-proposal validation paths (which call
+        // `process_transaction_with_check` directly) bound the analysis phase.
+        Self::process_transaction_with_check(
+            clarity_block,
+            tx,
+            quiet,
+            max_execution_time,
+            None,
+            |_| Ok(()),
+        )
     }
 
     /// Process a transaction that has been marked problematic by the
@@ -1941,6 +1963,7 @@ impl StacksChainState {
         tx: &StacksTransaction,
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
+        max_analysis_time: Option<std::time::Duration>,
         mut check: F,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
@@ -1969,6 +1992,7 @@ impl StacksChainState {
                 tx,
                 &origin_account,
                 max_execution_time,
+                max_analysis_time,
             )?;
 
             // update the account nonces
@@ -1996,6 +2020,7 @@ impl StacksChainState {
                 &mut transaction,
                 tx,
                 &origin_account,
+                None,
                 None,
             )?;
 
@@ -2181,6 +2206,7 @@ pub mod test {
                 nonce: 0,
                 stx_balance: STXBalance::Unlocked { amount: 100 },
             },
+            None,
             None,
         )
         .unwrap();

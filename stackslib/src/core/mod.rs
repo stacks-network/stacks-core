@@ -254,6 +254,15 @@ pub const BLOCK_LIMIT_MAINNET_21: ExecutionCost = ExecutionCost {
     runtime: 5_000_000_000,
 };
 
+// Block limit in Stacks 4.0. Same as 2.1, except the read budget is doubled.
+pub const BLOCK_LIMIT_MAINNET_40: ExecutionCost = ExecutionCost {
+    write_length: 15_000_000,
+    write_count: 15_000,
+    read_length: 200_000_000,
+    read_count: 30_000,
+    runtime: 5_000_000_000,
+};
+
 // Block limit for the testnet in Stacks 2.0.
 pub const HELIUM_BLOCK_LIMIT_20: ExecutionCost = ExecutionCost {
     write_length: 150_000_000,
@@ -375,7 +384,7 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch40,
             start_height: BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_MAINNET_21,
+            block_limit: BLOCK_LIMIT_MAINNET_40,
             network_epoch: PEER_VERSION_EPOCH_4_0
         },
     ]);
@@ -478,7 +487,7 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch40,
             start_height: BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_MAINNET_21,
+            block_limit: BLOCK_LIMIT_MAINNET_40,
             network_epoch: PEER_VERSION_EPOCH_4_0
         },
     ]);
@@ -581,7 +590,7 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch40,
             start_height: 12001,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_MAINNET_21,
+            block_limit: BLOCK_LIMIT_MAINNET_40,
             network_epoch: PEER_VERSION_EPOCH_4_0
         },
     ]);
@@ -927,6 +936,24 @@ fn test_ord_for_stacks_epoch_id() {
         StacksEpochId::Epoch20.cmp(&StacksEpochId::Epoch10),
         Ordering::Greater
     );
+}
+
+// The doubled Epoch 4.0 read budget is exercised end-to-end via a real contract
+// call in `chainstate::tests::consensus_unit_tests::epoch_40_read_budget`. This
+// test only pins the wiring: that the production epoch tables actually reference
+// `BLOCK_LIMIT_MAINNET_40` for Epoch 4.0, rather than e.g. `BLOCK_LIMIT_MAINNET_21`.
+#[test]
+fn test_epoch_40_uses_the_doubled_read_budget_block_limit() {
+    for epochs in [
+        &*STACKS_EPOCHS_MAINNET,
+        &*STACKS_EPOCHS_TESTNET,
+        &*STACKS_EPOCHS_REGTEST,
+    ] {
+        assert_eq!(
+            epochs[StacksEpochId::Epoch40].block_limit,
+            BLOCK_LIMIT_MAINNET_40
+        );
+    }
 }
 
 #[cfg(test)]

@@ -58,8 +58,13 @@ fn test_try_parse_request() {
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-    let mut handler =
-        callreadonly::RPCCallReadOnlyRequestHandler::new(4096, BLOCK_LIMIT_MAINNET_21);
+    let conn_opts = ConnectionOptions::default();
+    let mut handler = callreadonly::RPCCallReadOnlyRequestHandler::new(
+        4096,
+        BLOCK_LIMIT_MAINNET_21,
+        std::time::Duration::from_secs(conn_opts.read_only_max_execution_time_secs),
+        conn_opts.read_only_call_max_mem_bytes,
+    );
     let mut parsed_request = http
         .handle_try_parse_request(
             &mut handler,
