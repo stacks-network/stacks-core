@@ -280,6 +280,11 @@ impl LeaderBlockCommitOp {
             op_error::InvalidInput
         })?;
 
+        if output_0.amount == 0 {
+            warn!("Invalid commit tx: waterfall commit output 0 has zero amount");
+            return Err(op_error::InvalidInput);
+        }
+
         let BurnchainRecipient { address, amount } = output_0;
         let apparent_sender = BurnchainSigner(
             outputs
@@ -1489,6 +1494,36 @@ mod tests {
                 RewardSetInfo::into_commit_outs(Some(waterfall.clone()), mainnet),
             );
         }
+    }
+
+    /// A pox-waterfall block commit whose first (sBTC) output pays 0 must be
+    /// rejected: such an output is dust (non-standard on the Bitcoin network),
+    /// and accepting it would let a miner commit at zero cost. A positive-amount
+    /// output parses into a commit whose `burn_fee` carries that amount.
+    #[test]
+    fn test_parse_pox_waterfall_rejects_zero_amount() {
+        fn recipient(amount: u64) -> Option<BurnchainRecipient> {
+            let addr = StacksAddress::new(1, Hash160([1; 20])).unwrap();
+            Some(BurnchainRecipient {
+                address: PoxAddress::Standard(addr, None),
+                amount,
+            })
+        }
+
+        // zero-amount first output -> rejected as invalid input
+        let output_0 = recipient(0);
+        let outputs = vec![output_0.clone()];
+        assert!(matches!(
+            LeaderBlockCommitOp::parse_pox_waterfall_commits(&outputs, &output_0),
+            Err(op_error::InvalidInput)
+        ));
+
+        // positive-amount first output -> parsed, burn_fee carries the amount
+        let output_0 = recipient(10);
+        let outputs = vec![output_0.clone()];
+        let calc = LeaderBlockCommitOp::parse_pox_waterfall_commits(&outputs, &output_0)
+            .expect("positive-amount waterfall commit should parse");
+        assert_eq!(calc.burn_fee, 10);
     }
 
     #[test]
