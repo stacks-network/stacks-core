@@ -961,10 +961,20 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
             TypeSignature::CallableType(CallableSubtype::Trait(expected_trait_id)),
         ) => {
             if atom_trait_id != expected_trait_id {
-                let atom_trait =
-                    clarity2_lookup_trait(db, contract_context, atom_trait_id, cost_tracker)?;
-                let expected_trait =
-                    clarity2_lookup_trait(db, contract_context, expected_trait_id, cost_tracker)?;
+                let atom_trait = clarity2_lookup_trait(
+                    db,
+                    contract_context,
+                    epoch,
+                    atom_trait_id,
+                    cost_tracker,
+                )?;
+                let expected_trait = clarity2_lookup_trait(
+                    db,
+                    contract_context,
+                    epoch,
+                    expected_trait_id,
+                    cost_tracker,
+                )?;
                 clarity2_trait_check_trait_compliance(
                     db,
                     contract_context,
@@ -1004,8 +1014,13 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                         .into());
                     }
                 };
-            let expected_trait =
-                clarity2_lookup_trait(db, contract_context, expected_trait_id, cost_tracker)?;
+            let expected_trait = clarity2_lookup_trait(
+                db,
+                contract_context,
+                epoch,
+                expected_trait_id,
+                cost_tracker,
+            )?;
             contract_to_check.check_trait_compliance(
                 &StacksEpochId::Epoch21,
                 expected_trait_id,
@@ -1047,22 +1062,28 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
 fn clarity2_lookup_trait<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
+    epoch: StacksEpochId,
     trait_id: &TraitIdentifier,
     tracker: &mut T,
 ) -> Result<BTreeMap<ClarityName, FunctionSignature>, StaticCheckError> {
     if let Some(contract_context) = contract_context {
+        if let Some(trait_sig) = contract_context.get_trait(trait_id) {
+            if epoch.meters_in_contract_trait_entry() {
+                runtime_cost(
+                    ClarityCostFunction::AnalysisUseTraitEntry,
+                    tracker,
+                    trait_type_size(trait_sig)?,
+                )?;
+            }
+            return Ok(trait_sig.clone());
+        }
         // If the trait is from this contract, then it must be in the context or it doesn't exist.
         if contract_context.is_contract(&trait_id.contract_identifier) {
-            return Ok(contract_context
-                .get_trait(trait_id)
-                .ok_or(StaticCheckErrorKind::NoSuchTrait(
-                    trait_id.contract_identifier.to_string(),
-                    trait_id.name.to_string(),
-                ))?
-                .clone());
-        }
-        if let Some(trait_sig) = contract_context.get_trait(trait_id) {
-            return Ok(trait_sig.clone());
+            return Err(StaticCheckErrorKind::NoSuchTrait(
+                trait_id.contract_identifier.to_string(),
+                trait_id.name.to_string(),
+            )
+            .into());
         }
     }
 

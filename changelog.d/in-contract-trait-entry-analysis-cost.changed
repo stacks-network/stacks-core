@@ -1,0 +1,1 @@
+Contract analysis now charges `AnalysisUseTraitEntry` when a trait is resolved from the contract under analysis, matching the existing charge for traits fetched from the datastore. This closes a metering asymmetry between the two lookup paths and applies starting with Epoch 4.0.
