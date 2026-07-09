@@ -4649,17 +4649,18 @@ fn test_in_contract_trait_entry_metered_from_epoch40() {
         )
         .expect("analysis succeeds")
     };
-    let runtime_of = |analysis: &ContractAnalysis| -> u64 {
+    let total_of = |analysis: &ContractAnalysis| -> ExecutionCost {
         analysis
             .cost_track
             .as_ref()
             .expect("cost tracker present")
             .get_total()
-            .runtime
     };
 
     let pre = analyze_at(StacksEpochId::Epoch33);
     let post = analyze_at(StacksEpochId::Epoch40);
+    let pre_cost = total_of(&pre);
+    let post_cost = total_of(&post);
 
     // The analysis cost functions are identical between the two epochs' cost
     // contracts, so the runtime difference must be exactly the two in-contract
@@ -4677,8 +4678,14 @@ fn test_in_contract_trait_entry_metered_from_epoch40() {
         .expect("charge");
     }
     assert_eq!(
-        runtime_of(&post) - runtime_of(&pre),
+        post_cost.runtime - pre_cost.runtime,
         expected.get_total().runtime,
         "Epoch 4.0 analysis should cost exactly two AnalysisUseTraitEntry charges more"
     );
+    // Only the runtime dimension is charged for in-contract lookups: resolving
+    // from the in-memory context does no datastore I/O.
+    assert_eq!(post_cost.read_count, pre_cost.read_count);
+    assert_eq!(post_cost.read_length, pre_cost.read_length);
+    assert_eq!(post_cost.write_count, pre_cost.write_count);
+    assert_eq!(post_cost.write_length, pre_cost.write_length);
 }

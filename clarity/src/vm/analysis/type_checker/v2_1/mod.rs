@@ -1069,11 +1069,13 @@ fn clarity2_lookup_trait<T: CostTracker>(
     if let Some(contract_context) = contract_context {
         if let Some(trait_sig) = contract_context.get_trait(trait_id) {
             if epoch.meters_in_contract_trait_entry() {
-                runtime_cost(
+                // Only the runtime is charged: unlike the datastore path
+                // below, resolving from the in-memory context does no I/O.
+                let cost = tracker.compute_cost(
                     ClarityCostFunction::AnalysisUseTraitEntry,
-                    tracker,
-                    trait_type_size(trait_sig)?,
+                    &[trait_type_size(trait_sig)?],
                 )?;
+                tracker.add_cost(ExecutionCost::runtime(cost.runtime))?;
             }
             return Ok(trait_sig.clone());
         }
