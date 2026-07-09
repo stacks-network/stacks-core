@@ -237,6 +237,7 @@ fn serde_blockstack_ops() {
                 treatment: vec![],
                 sunset_burn: 6,
                 burn_header_hash: BurnchainHeaderHash([4u8; 32]),
+                descends_from_anchor_block: false,
             },
         )),
     };

@@ -1100,6 +1100,8 @@ impl BlockMinerThread {
             burn_header_hash: BurnchainHeaderHash::zero(),
             burn_parent_modulus,
             commit_outs,
+            // unused
+            descends_from_anchor_block: true,
         })
     }
 

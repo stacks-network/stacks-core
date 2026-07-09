@@ -275,6 +275,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             .map_err(db_error::SerializationError)?
             .unwrap_or_default();
 
+        let descends_from_anchor_block_opt: Option<bool> = row.get("descends_from_anchor_block")?;
         let block_commit = LeaderBlockCommitOp {
             block_header_hash,
             new_seed,
@@ -295,6 +296,7 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             block_height,
             burn_header_hash,
             treatment: punished,
+            descends_from_anchor_block: descends_from_anchor_block_opt.unwrap_or(false),
         };
         Ok(block_commit)
     }
@@ -486,7 +488,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: u32 = 11;
+pub const SORTITION_DB_VERSION: u32 = 12;
 
 const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
@@ -741,6 +743,9 @@ static SORTITION_DB_SCHEMA_11: &[&str] = &[r#"
         FOREIGN KEY(consensus_hash) REFERENCES snapshots(consensus_hash)
     );
     "#];
+
+static SORTITION_DB_SCHEMA_12: &[&str] =
+    &[r#"ALTER TABLE block_commits ADD descends_from_anchor_block BOOLEAN DEFAULT NULL;"#];
 
 const LAST_SORTITION_DB_INDEX: &str =
     "stacks_chain_tips_by_burn_view_by_sortition_id_and_block_height";
@@ -1073,6 +1078,13 @@ pub trait SortitionHandle {
         Ok(Some(StacksBlockId::new(&ch, &bhh)))
     }
 
+    /// Get an ancestral sortition ID
+    fn get_ancestor_sort_id(
+        &mut self,
+        block_height: u64,
+        tip: &SortitionId,
+    ) -> Result<Option<SortitionId>, db_error>;
+
     /// Check if the descendancy cache has an entry for whether or not the winning block in `key.0`
     ///  descends from `key.1`
     ///
@@ -1210,6 +1222,29 @@ pub trait SortitionHandle {
             false,
         );
         return Ok(false);
+    }
+
+    /// Get a parent block commit at a specific location in the burn chain on a particular fork.
+    /// Returns None if there is no block commit at this location.
+    fn get_block_commit_parent(
+        &mut self,
+        block_height: u64,
+        vtxindex: u32,
+        tip: &SortitionId,
+    ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        if block_height >= BLOCK_HEIGHT_MAX {
+            return Err(db_error::BlockHeightOutOfRange);
+        }
+        let Some(ancestor_id) = self.get_ancestor_sort_id(block_height, tip)? else {
+            return Ok(None);
+        };
+
+        SortitionDB::get_block_commit_of_sortition(
+            self.sqlite(),
+            &ancestor_id,
+            block_height,
+            vtxindex,
+        )
     }
 }
 
@@ -1579,6 +1614,14 @@ impl SortitionHandle for SortitionHandleTx<'_> {
         self.context.chain_tip.clone()
     }
 
+    fn get_ancestor_sort_id(
+        &mut self,
+        block_height: u64,
+        tip: &SortitionId,
+    ) -> Result<Option<SortitionId>, db_error> {
+        get_ancestor_sort_id_tx(self, block_height, tip)
+    }
+
     fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
         let sn = SortitionDB::get_block_snapshot(self.sqlite(), &self.context.chain_tip)?
             .ok_or(db_error::NotFoundError)?;
@@ -1608,6 +1651,14 @@ impl SortitionHandle for SortitionHandleConn<'_> {
 
     fn tip(&self) -> SortitionId {
         self.context.chain_tip.clone()
+    }
+
+    fn get_ancestor_sort_id(
+        &mut self,
+        block_height: u64,
+        tip: &SortitionId,
+    ) -> Result<Option<SortitionId>, db_error> {
+        get_ancestor_sort_id(self, block_height, tip)
     }
 
     fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
@@ -2928,6 +2979,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_10(&db_tx)?;
         SortitionDB::apply_schema_11(&db_tx)?;
+        SortitionDB::apply_schema_12(&db_tx)?;
         db_tx.commit()?;
 
         self.add_indexes()?;
@@ -3437,6 +3489,19 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_12(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_12 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["12"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3505,6 +3570,10 @@ impl SortitionDB {
                     } else if version == 10 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_11(tx.deref())?;
+                        tx.commit()?;
+                    } else if version == 11 {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_12(tx.deref())?;
                         tx.commit()?;
                     } else if version == SORTITION_DB_VERSION {
                         // this transaction is almost never needed
@@ -5999,10 +6068,11 @@ impl SortitionHandleTx<'_> {
             apparent_sender_str,
             block_commit.burn_parent_modulus,
             serde_json::to_string(&block_commit.treatment).unwrap(),
+            block_commit.descends_from_anchor_block
         ];
 
-        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus, punished) \
-                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)", args)?;
+        self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus, punished, descends_from_anchor_block) \
+                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)", args)?;
 
         let parent_args = params![sort_id, block_commit.txid, parent_sortition_id];
 
@@ -7796,6 +7866,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
             treatment: vec![],
+            descends_from_anchor_block: false,
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
@@ -8511,6 +8582,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
             treatment: vec![],
+            descends_from_anchor_block: false,
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
@@ -10758,6 +10830,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x03; 32]),
             treatment: vec![],
+            descends_from_anchor_block: false,
         };
 
         // descends from genesis
@@ -10801,6 +10874,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 2) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x04; 32]),
             treatment: vec![],
+            descends_from_anchor_block: false,
         };
 
         // descends from block_commit_1
@@ -10844,6 +10918,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 3) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x05; 32]),
             treatment: vec![],
+            descends_from_anchor_block: false,
         };
 
         // descends from genesis_block_commit
@@ -10887,6 +10962,7 @@ pub mod tests {
             burn_parent_modulus: ((block_height + 4) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x06; 32]),
             treatment: vec![],
+            descends_from_anchor_block: false,
         };
 
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();

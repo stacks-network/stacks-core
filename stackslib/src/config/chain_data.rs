@@ -293,6 +293,7 @@ impl MinerStats {
                 burn_parent_modulus: ((next_block_height.saturating_sub(1))
                     % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                 burn_header_hash: BurnchainHeaderHash(DEADBEEF),
+                descends_from_anchor_block: true,
             };
 
             unconfirmed_spends.push(mocked_commit);
@@ -459,6 +460,7 @@ impl MinerStats {
                         % BURN_BLOCK_MINED_AT_MODULUS)
                         as u8,
                     burn_header_hash: BurnchainHeaderHash(DEADBEEF),
+                    descends_from_anchor_block: true,
                 };
                 commit_table.insert(miner.to_string(), mocked_commit);
             }
@@ -577,6 +579,7 @@ pub mod tests {
             block_height: 124,
             burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+            descends_from_anchor_block: false,
         };
 
         let block_commit_2 = LeaderBlockCommitOp {
@@ -613,6 +616,7 @@ pub mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000004",
             )
             .unwrap(),
+            descends_from_anchor_block: false,
         };
 
         let block_commit_3 = LeaderBlockCommitOp {
@@ -649,6 +653,7 @@ pub mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000004",
             )
             .unwrap(),
+            descends_from_anchor_block: false,
         };
         let burn_dist = vec![
             BurnSamplePoint {
@@ -927,6 +932,7 @@ echo ]
                     block_height: 124,
                     burn_parent_modulus: (123 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash: BurnchainHeaderHash([0x00; 32]),
+                    descends_from_anchor_block: false,
                 },
             ),
             (
@@ -962,6 +968,7 @@ echo ]
                         "0000000000000000000000000000000000000000000000000000000000000004",
                     )
                     .unwrap(),
+                    descends_from_anchor_block: false,
                 },
             ),
             (
@@ -996,6 +1003,7 @@ echo ]
                         "0000000000000000000000000000000000000000000000000000000000000004",
                     )
                     .unwrap(),
+                    descends_from_anchor_block: false,
                 },
             ),
         ];
@@ -1027,6 +1035,7 @@ echo ]
                 block_height: 125,
                 burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                 burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+                descends_from_anchor_block: false,
             },
             LeaderBlockCommitOp {
                 treatment: vec![],
@@ -1054,6 +1063,7 @@ echo ]
                 block_height: 125,
                 burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                 burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+                descends_from_anchor_block: false,
             },
             LeaderBlockCommitOp {
                 treatment: vec![],
@@ -1081,6 +1091,7 @@ echo ]
                 block_height: 125,
                 burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                 burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+                descends_from_anchor_block: false,
             },
             LeaderBlockCommitOp {
                 treatment: vec![],
@@ -1108,6 +1119,7 @@ echo ]
                 block_height: 125,
                 burn_parent_modulus: (124 % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                 burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+                descends_from_anchor_block: false,
             },
         ];
 

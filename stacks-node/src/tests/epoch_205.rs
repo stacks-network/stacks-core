@@ -652,6 +652,7 @@ fn transition_empty_blocks() {
                 burn_header_hash: BurnchainHeaderHash::zero(),
                 burn_parent_modulus,
                 commit_outs,
+                descends_from_anchor_block: true,
             });
             let mut op_signer = keychain.generate_op_signer();
             let res =
