@@ -199,18 +199,21 @@ impl CostValues for Costs5 {
     fn cost_div(n: u64) -> Result<ExecutionCost, VmExecutionError> {
         Ok(ExecutionCost::runtime(linear(n >> 5, 1, 32)))
     }
-    // Bench: >=, <=, <, > all → 31 units constant (n=2 always at runtime).
-    fn cost_geq(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(31))
+    // Bench: >=, <=, <, > / buffer buffer_bytes=[1..65536]; 338 instrs/byte + ~3,015,000 base.
+    // Dispatch (Clarity 2): SpecialFunction → n = min(a.size(), b.size()) ≈ buffer_bytes.
+    // 338/80000 ≈ 1/237; >> 8 (÷256) closest power-of-2, 8% undercharge.
+    // Int (n=16) and string-ascii (n≤128) round to constant 38 via n >> 8 = 0.
+    fn cost_geq(n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Ok(ExecutionCost::runtime(linear(n >> 8, 1, 38)))
     }
-    fn cost_leq(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(31))
+    fn cost_leq(n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Ok(ExecutionCost::runtime(linear(n >> 8, 1, 38)))
     }
-    fn cost_le(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(31))
+    fn cost_le(n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Ok(ExecutionCost::runtime(linear(n >> 8, 1, 38)))
     }
-    fn cost_ge(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
-        Ok(ExecutionCost::runtime(31))
+    fn cost_ge(n: u64) -> Result<ExecutionCost, VmExecutionError> {
+        Ok(ExecutionCost::runtime(linear(n >> 8, 1, 38)))
     }
     // Bench: to-int, mod, pow, sqrti, log2, not all → 31 units constant (n=1 or 2 always).
     fn cost_int_cast(_n: u64) -> Result<ExecutionCost, VmExecutionError> {
