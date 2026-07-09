@@ -68,12 +68,13 @@ runs:
       with:
         ref: ${{ github.ref }}
   
-    # Setup rust toolchain
+    # Setup rust toolchain (with nightly, so we can use parallel front-end experimental feature)
     - name: Setup Rust Toolchain
       if: |
         inputs.action == 'create'
       uses: ./.github/actions/setup-rust-toolchain
       with:
+        toolchain: nightly
         components: llvm-tools-preview
     
     #  Install nextest
@@ -99,7 +100,7 @@ runs:
         inputs.action == 'create'
       shell: bash
       env:
-        RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
+        RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings -Z threads=8"
         CARGO_INCREMENTAL: 0
       # This command should be kept in sync with the same command in artifacts/nextest-archive action
       run: |
