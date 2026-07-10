@@ -4,37 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "77e97ab2bf09cf130903aca6cd61aee395d8ee329f4299efb854752caba08081",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: too-many-allowances-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: too many allowances specified, the maximum is 128, found 130) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 396,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 51150,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 396,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 51150,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "92af2c51c8948cc3f5363eb45eb1a0881e076be16e55fc52a5a854539bdc89ed",
+    marf_hash: "2965551a637f75c6accf93a0d7b1c890a09b573191a976523221a91bc5ca3472",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fac5fc88225bcfb98bac990144d31c5e0ee4cdb48fd1713651ddde3e8801303a",
+    marf_hash: "c0a48526177feefc61648c150b16691df1acc4634075045c9b7ffe47a42f80e5",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

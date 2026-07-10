@@ -636,6 +636,10 @@ impl FunctionType {
                 clarity2_inner_type_check_type(
                     db,
                     None,
+                    // Non-consensus path with a free cost tracker: no cost error can
+                    // arise, so the epoch used for the propagate-vs-mask decision is
+                    // inert. Pin it to Epoch21 to match this function's convention.
+                    StacksEpochId::Epoch21,
                     arg_type,
                     &expected_arg.signature,
                     1,
@@ -688,18 +692,48 @@ fn check_function_arg_signature<T: CostTracker>(
 
 /// Map an error from the trait-compliance recursion to a compatibility verdict.
 ///
-/// An analysis-deadline expiry or block rejectable err *propagates*
-/// (`Err`); every other error collapses to "not compatible"
-/// (`Ok(false)`).
+/// `Err` *propagates* the error; `Ok(false)` masks it as "not compatible" (the
+/// caller turns that into `IncompatibleTrait`). Which errors propagate depends on
+/// the epoch:
 ///
-/// Propagating **only** these is deliberate and consensus-critical.
-fn propagate_or_incompatible(e: StaticCheckError) -> Result<bool, StaticCheckError> {
-    match *e.err {
+/// - `AnalysisTimeExpired` **always** propagates, in every epoch. The analysis
+///   deadline is configured only on the non-consensus voting paths (mining
+///   assembly / block-proposal validation) and is `NoTracking` on replay/commit,
+///   so it can never arise during consensus — propagating it changes no
+///   deterministic outcome, which is why it needs no epoch gate.
+///
+/// - Cost-tracking errors (`CostOverflow` / `CostBalanceExceeded` /
+///   `MemoryBalanceExceeded` / `CostComputationFailed`, charged in
+///   `clarity2_lookup_trait` and the Principal->Trait arm) propagate only from
+///   the epoch gated by [`StacksEpochId::surfaces_trait_compliance_cost_errors`].
+///   These *can* arise during consensus, so earlier epochs
+///   keep masking them as `IncompatibleTrait` to preserve the historical
+///   replay-path outcome — changing that without a gate would be a consensus
+///   break.
+///
+/// - Every other error (e.g. a genuine type mismatch) masks to `Ok(false)` in
+///   all epochs.
+fn mask_incompatible_or_propagate_error(
+    e: StaticCheckError,
+    epoch: StacksEpochId,
+) -> Result<bool, StaticCheckError> {
+    match &*e.err {
+        // Always propagates: never arises during consensus.
         StaticCheckErrorKind::TraitReferenceChainTooDeep => Err(e),
         StaticCheckErrorKind::TypeSignatureTooDeep => {
             Err(StaticCheckErrorKind::TraitReferenceChainTooDeep.into())
         }
         StaticCheckErrorKind::AnalysisTimeExpired => Err(e),
+        // Cost-tracking errors: propagate only from the gated epoch.
+        StaticCheckErrorKind::CostOverflow
+        | StaticCheckErrorKind::CostBalanceExceeded(..)
+        | StaticCheckErrorKind::MemoryBalanceExceeded(..)
+        | StaticCheckErrorKind::CostComputationFailed(_)
+            if epoch.surfaces_trait_compliance_cost_errors() =>
+        {
+            Err(e)
+        }
+        // Everything else masks as "not compatible".
         _ => Ok(false),
     }
 }
@@ -710,9 +744,11 @@ fn propagate_or_incompatible(e: StaticCheckError) -> Result<bool, StaticCheckErr
 /// `Ok(true)`/`Ok(false)` is the compatibility verdict; `Err` is reserved for an
 /// analysis-deadline expiry, which must not be masked as incompatibility (see
 /// [`propagate_or_incompatible`]).
+#[allow(clippy::too_many_arguments)]
 fn clarity2_check_functions_compatible<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
+    epoch: StacksEpochId,
     expected_sig: &FunctionSignature,
     actual_sig: &FunctionSignature,
     depth: u8,
@@ -727,25 +763,27 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
         if let Err(e) = clarity2_inner_type_check_type(
             db,
             contract_context,
+            epoch,
             actual_type,
             expected_type,
             depth + 1,
             tracker,
             time_tracker,
         ) {
-            return propagate_or_incompatible(e);
+            return mask_incompatible_or_propagate_error(e, epoch);
         }
     }
     if let Err(e) = clarity2_inner_type_check_type(
         db,
         contract_context,
+        epoch,
         &actual_sig.returns,
         &expected_sig.returns,
         depth + 1,
         tracker,
         time_tracker,
     ) {
-        return propagate_or_incompatible(e);
+        return mask_incompatible_or_propagate_error(e, epoch);
     }
     Ok(true)
 }
@@ -758,6 +796,7 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
 pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
+    epoch: StacksEpochId,
     actual_trait_identifier: &TraitIdentifier,
     actual_trait: &BTreeMap<ClarityName, FunctionSignature>,
     expected_trait_identifier: &TraitIdentifier,
@@ -780,6 +819,7 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
             if !clarity2_check_functions_compatible(
                 db,
                 contract_context,
+                epoch,
                 expected_sig,
                 func,
                 depth,
@@ -805,9 +845,11 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
 
 /// Check if `expected_type` admits `actual_type`, handling traits and callable types
 /// through invoking trait compliance checks.
+#[allow(clippy::too_many_arguments)]
 fn clarity2_inner_type_check_type<T: CostTracker>(
     db: &mut AnalysisDatabase,
     contract_context: Option<&ContractContext>,
+    epoch: StacksEpochId,
     actual_type: &TypeSignature,
     expected_type: &TypeSignature,
     depth: u8,
@@ -834,6 +876,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
             clarity2_inner_type_check_type(
                 db,
                 contract_context,
+                epoch,
                 atom_inner_type,
                 expected_inner_type,
                 depth + 1,
@@ -848,6 +891,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
             clarity2_inner_type_check_type(
                 db,
                 contract_context,
+                epoch,
                 &atom_inner_types.0,
                 &expected_inner_types.0,
                 depth + 1,
@@ -857,6 +901,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
             clarity2_inner_type_check_type(
                 db,
                 contract_context,
+                epoch,
                 &atom_inner_types.1,
                 &expected_inner_types.1,
                 depth + 1,
@@ -872,6 +917,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                 clarity2_inner_type_check_type(
                     db,
                     contract_context,
+                    epoch,
                     atom_list_type.get_list_item_type(),
                     expected_list_type.get_list_item_type(),
                     depth + 1,
@@ -904,6 +950,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                         clarity2_inner_type_check_type(
                             db,
                             contract_context,
+                            epoch,
                             atom_field_type,
                             expected_field_type,
                             depth + 1,
@@ -933,6 +980,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                 clarity2_trait_check_trait_compliance(
                     db,
                     contract_context,
+                    epoch,
                     atom_trait_id,
                     &atom_trait,
                     expected_trait_id,
@@ -986,6 +1034,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                 clarity2_inner_type_check_type(
                     db,
                     contract_context,
+                    epoch,
                     &TypeSignature::CallableType(subtype.clone()),
                     expected_type,
                     depth + 1,
@@ -1675,6 +1724,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         clarity2_inner_type_check_type(
             self.db,
             Some(&self.contract_context),
+            self.epoch,
             &expr_type,
             expected_type,
             1,

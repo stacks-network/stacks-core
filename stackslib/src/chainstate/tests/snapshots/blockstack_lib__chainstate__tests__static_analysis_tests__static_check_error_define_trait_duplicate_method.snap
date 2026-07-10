@@ -4,125 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "6e029fb90969022005edc0f55a5df8974c4846518c2bd02ce0d6f5e0375ee7b9",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-dup-method-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 163,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 12905,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 163,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 12905,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "41c3beaf2a5f425de3aabd2442d04894f8d86a97e5c413da423f20de167dc9c6",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-dup-method-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 21,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 4094,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 21,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 4094,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ade2978aa5f6b9364969b48572cecce437e114a4aca8aa307107ed31517166ed",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-dup-method-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 21,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 4094,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 21,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 4094,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b2e59a0cb1b3d85f6540a9069b39edf65b379accd853a758dce5d58fbcf11036",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: def-trait-dup-method-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 21,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 4094,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 21,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 4094,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "d666ba86c73cc7848f1a239631cce680dd01b7405c672bcd3f1607c54a0c2ac8",
+    marf_hash: "2bbbf7f30731629f3f57314963084ac90ea23ea2eacee9404f3fed9c411e4b27",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -150,7 +32,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5e71b68449fe8f4995fa6ad84d8f9f54392ff77bfb87351bb37d4ec630c95eb1",
+    marf_hash: "c19ba186ae49a2adb27192284362e96d9e9cbabedaf133452f38595b9b89bc80",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -180,7 +62,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f386f1f5e3c045f8132c19500ba61eaf62c76e54ab9c26d7cb85b21ce7b8f678",
+    marf_hash: "39a275aaf950fd26400722ed8ed6443762840612650392c006b0b50ded602639",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -210,7 +92,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8ae73910a1f1f405074fe3dd353b910e6ba19c3f91d8a69dcc453069411575c6",
+    marf_hash: "e8eb99ad12b69e3fb4ea840dc78ae57b55e68fc49c701fd3aced89fa55bc6802",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -240,7 +122,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "120279435d4aa28d5bb651765ad4bbb08a82064839614295346bf9079731f06b",
+    marf_hash: "5674b1323a79adcadf5dadd24c17d7252c494b5488878eae764112be662047fc",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

@@ -36,7 +36,6 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use stacks::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
-use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
     set_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
@@ -1125,14 +1124,12 @@ impl RelayerThread {
             NakamotoNodeError::SnapshotNotFoundForChainTip
         })?;
 
-        let commit_outs = if self
-            .burnchain
-            .is_in_prepare_phase(sort_tip.block_height + 1)
-        {
-            vec![PoxAddress::standard_burn_address(self.config.is_mainnet())]
-        } else {
-            RewardSetInfo::into_commit_outs(recipients, self.config.is_mainnet())
-        };
+        let commit_outs = RewardSetInfo::commit_outs_for(
+            recipients,
+            self.burnchain
+                .is_in_prepare_phase(sort_tip.block_height + 1),
+            self.config.is_mainnet(),
+        );
 
         // find the sortition that kicked off this tenure (it may be different from the sortition
         // tip, such as when there is no sortition or when the miner of the current sortition never

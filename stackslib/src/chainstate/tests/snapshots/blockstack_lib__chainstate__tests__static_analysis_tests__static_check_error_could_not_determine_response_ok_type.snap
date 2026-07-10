@@ -4,127 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "23dfd92b3591bc2368de19f62fbeecd710a283597884d6d8bc76d2cc9f263dc8",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: attempted to obtain \'ok\' value from response, but \'ok\' type is indeterminate) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 7,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 931,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 7,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 931,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "d2b6d42730f6e8bbd156bc0c9ea9e7eb47f1b50036b02dc071316a16e9579369",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: attempted to obtain \'ok\' value from response, but \'ok\' type is indeterminate) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 7,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 931,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 7,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 931,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "dfeed653e34ac9128d3f6f4c939819e2a7efc83e96a644685e0143c8e3f8cab3",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: attempted to obtain \'ok\' value from response, but \'ok\' type is indeterminate) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 7,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 931,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 7,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 931,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "55a6f76d104bfdfe73e65d18463c3c23ee56c33a0646bfa5fe0cec995753bda7",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: could-not-determine-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: attempted to obtain \'ok\' value from response, but \'ok\' type is indeterminate) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 7,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 931,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 7,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 931,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b3c9a14fa3174474becb680354c46d49bb81903a34bf3ae787ce51bcebc16cc7",
+    marf_hash: "c2623bf4736311097222df32db7a038a8d88e0402c522167a348d2087a649f26",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "82c75c6f7d2921062946700bdacf896c27e59f9b9d31db1a277b19091a041c97",
+    marf_hash: "49d33079d9bb8eb9e9e4c3a45d498cbed7bc70439bb97962ca624bc72b9e87fd",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bfb1745779fb759755c669c74354c3caccca3328cf382f95dc8b48f99b6196b1",
+    marf_hash: "23f2076c43d5ca1535e121684441a4e402d36b0f6e80713abb631366ae470b03",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -214,7 +94,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "454113d8f59ecf95ff369bd128ca0e0f2b869f2a0b6dfb83e2fa935a72db5f35",
+    marf_hash: "8695a65669aabcd9bdea287c6b65264e680c857b2edcdddf2a176fd5e3469bce",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -244,7 +124,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "656a7418e0c1a909f6eb23b364eafb2f9132961d2d5f1c19c870958d76775a45",
+    marf_hash: "b15955fde27640790059b114c02925c07386e55b56620cf11d620ad7f0a167c1",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
