@@ -24,7 +24,7 @@ use super::common::{
     assert_source_schema, clone_schemas_from_source, copied_rows, execute_copy_specs,
     with_offline_write_session, TableCopySpec,
 };
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::StacksBlockStore;
 use crate::chainstate::stacks::index::Error;
 use crate::core::EMPTY_MICROBLOCK_PARENT_HASH;
 use crate::util_lib::db::sqlite_open;
@@ -289,7 +289,7 @@ pub fn copy_epoch2_block_files(
             continue;
         }
 
-        let rel_path = StacksChainState::index_block_hash_to_rel_path(&index_block_hash);
+        let rel_path = StacksBlockStore::index_block_hash_to_rel_path(&index_block_hash);
         let src_path = Path::new(src_blocks_dir).join(&rel_path);
         let dst_path = Path::new(dst_blocks_dir).join(&rel_path);
 

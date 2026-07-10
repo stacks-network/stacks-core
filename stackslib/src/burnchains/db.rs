@@ -31,8 +31,8 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::StacksEpochId;
 use crate::util_lib::db::{
-    opt_u64_to_sql, query_row, query_row_panic, query_rows, sqlite_open, table_exists,
-    tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
+    is_sqlite_memory_path, opt_u64_to_sql, query_row, query_row_panic, query_rows, sqlite_open,
+    table_exists, tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
 };
 
 struct Migration {
@@ -517,7 +517,8 @@ impl BurnchainDB {
         readwrite: bool,
     ) -> Result<BurnchainDB, BurnchainError> {
         let mut create_flag = false;
-        let open_flags = if path == ":memory:" {
+        let sqlite_memory = is_sqlite_memory_path(path);
+        let open_flags = if sqlite_memory {
             create_flag = true;
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
         } else {
@@ -556,7 +557,9 @@ impl BurnchainDB {
         let conn = sqlite_open(path, open_flags, true)?;
         debug!("Burnchain DB instantiated at {path}.");
         let mut burnchain_db = Self { conn };
-        burnchain_db.create_or_migrate(burnchain, readwrite, create_flag)?;
+        let should_instantiate =
+            create_flag && !table_exists(burnchain_db.conn(), "burnchain_db_block_headers")?;
+        burnchain_db.create_or_migrate(burnchain, readwrite, should_instantiate)?;
 
         Ok(burnchain_db)
     }
@@ -680,7 +683,7 @@ impl BurnchainDB {
     }
 
     pub fn open(path: &str, readwrite: bool) -> Result<BurnchainDB, BurnchainError> {
-        let open_flags = if readwrite {
+        let open_flags = if readwrite || is_sqlite_memory_path(path) {
             OpenFlags::SQLITE_OPEN_READ_WRITE
         } else {
             OpenFlags::SQLITE_OPEN_READ_ONLY

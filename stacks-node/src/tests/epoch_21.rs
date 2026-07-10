@@ -33,7 +33,9 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{
+    DiskChainStateBackend, Epoch2BlockValidator, StacksChainState,
+};
 use stacks::chainstate::stacks::miner::{
     set_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
 };
@@ -219,14 +221,14 @@ fn advance_to_2_1(
         );
 
         // this block is the epoch transition?
-        let (chainstate, _) = StacksChainState::open(
+        let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
             false,
             conf.burnchain.chain_id,
             &conf.get_chainstate_path_str(),
             None,
         )
         .unwrap();
-        let res = StacksChainState::block_crosses_epoch_boundary(
+        let res = Epoch2BlockValidator::block_crosses_epoch_boundary(
             chainstate.db(),
             &tip_info.stacks_tip_consensus_hash,
             &tip_info.stacks_tip,
@@ -735,14 +737,14 @@ fn transition_fixes_bitcoin_rigidity() {
         let tip_info = get_chain_info(&conf);
 
         // this block is the epoch transition?
-        let (chainstate, _) = StacksChainState::open(
+        let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
             false,
             conf.burnchain.chain_id,
             &conf.get_chainstate_path_str(),
             None,
         )
         .unwrap();
-        let res = StacksChainState::block_crosses_epoch_boundary(
+        let res = Epoch2BlockValidator::block_crosses_epoch_boundary(
             chainstate.db(),
             &tip_info.stacks_tip_consensus_hash,
             &tip_info.stacks_tip,
@@ -1845,14 +1847,14 @@ fn transition_empty_blocks() {
         );
 
         // this block is the epoch transition?
-        let (chainstate, _) = StacksChainState::open(
+        let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
             false,
             conf.burnchain.chain_id,
             &conf.get_chainstate_path_str(),
             None,
         )
         .unwrap();
-        let res = StacksChainState::block_crosses_epoch_boundary(
+        let res = Epoch2BlockValidator::block_crosses_epoch_boundary(
             chainstate.db(),
             &tip_info.stacks_tip_consensus_hash,
             &tip_info.stacks_tip,
@@ -2873,7 +2875,7 @@ fn test_v1_unlock_height_with_current_stackers() {
     let tip_info = get_chain_info(&conf);
     let tip = StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
 
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         false,
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -3147,7 +3149,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     let tip_info = get_chain_info(&conf);
     let tip = StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
 
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         false,
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),

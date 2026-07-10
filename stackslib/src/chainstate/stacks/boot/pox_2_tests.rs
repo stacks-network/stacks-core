@@ -37,13 +37,13 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::{POX_2_NAME, POX_3_NAME};
-use crate::chainstate::stacks::db::{StacksChainState, StacksDBConn};
+use crate::chainstate::stacks::db::{SharedMemoryChainStateBackend, StacksDBConn, StacksHeadersDb};
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::tests::make_coinbase;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
-use crate::net::test::{TestEventObserver, TestPeer};
+use crate::net::test::{TestEventObserver, TestPeer, TestPeerChainstateFactory};
 use crate::util_lib::boot::boot_code_id;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
@@ -55,8 +55,8 @@ fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
 }
 
 /// Get the reward set entries if evaluated at the given StacksBlock
-pub fn get_reward_set_entries_at(
-    peer: &mut TestPeer,
+pub fn get_reward_set_entries_at<'a, CSP: TestPeerChainstateFactory<'a>>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     at_burn_ht: u64,
 ) -> Vec<RawRewardSetEntry> {
@@ -68,8 +68,8 @@ pub fn get_reward_set_entries_at(
 
 /// Get the reward set entries if evaluated at the given StacksBlock
 ///  in order of index in the reward-cycle-address-list map
-pub fn get_reward_set_entries_index_order_at(
-    peer: &mut TestPeer,
+pub fn get_reward_set_entries_index_order_at<'a, CSP: TestPeerChainstateFactory<'a>>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     at_burn_ht: u64,
 ) -> Vec<RawRewardSetEntry> {
@@ -81,8 +81,8 @@ pub fn get_reward_set_entries_index_order_at(
 }
 
 /// Get the canonicalized STXBalance for `account` at the given chaintip
-pub fn get_stx_account_at(
-    peer: &mut TestPeer,
+pub fn get_stx_account_at<'a, CSP: TestPeerChainstateFactory<'a>>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     account: &PrincipalData,
 ) -> STXBalance {
@@ -95,8 +95,8 @@ pub fn get_stx_account_at(
 }
 
 /// get the stacking-state entry for an account at the chaintip
-pub fn get_stacking_state_pox(
-    peer: &mut TestPeer,
+pub fn get_stacking_state_pox<'a, CSP: TestPeerChainstateFactory<'a>>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     account: &PrincipalData,
     pox_contract: &str,
@@ -123,8 +123,8 @@ pub fn get_stacking_state_pox(
 }
 
 /// Get the pox-2 stacking-state entry for `account` at the given chaintip
-pub fn get_stacking_state_pox_2(
-    peer: &mut TestPeer,
+pub fn get_stacking_state_pox_2<'a, CSP: TestPeerChainstateFactory<'a>>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     account: &PrincipalData,
 ) -> Option<Value> {
@@ -132,8 +132,8 @@ pub fn get_stacking_state_pox_2(
 }
 
 /// Perform `check_stacker_link_invariants` on cycles [first_cycle_number, max_cycle_number]
-pub fn check_all_stacker_link_invariants(
-    peer: &mut TestPeer,
+pub fn check_all_stacker_link_invariants<'a, CSP: TestPeerChainstateFactory<'a>>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     first_cycle_number: u64,
     max_cycle_number: u64,
@@ -302,8 +302,8 @@ pub struct StackingStateCheckData {
 
 /// Check the stacking-state invariants of `stacker`
 /// Mostly that all `stacking-state.reward-set-indexes` match the index of their reward cycle entries
-pub fn check_stacking_state_invariants(
-    peer: &mut TestPeer,
+pub fn check_stacking_state_invariants<'a, CSP: TestPeerChainstateFactory<'a>>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     stacker: &PrincipalData,
     expect_indexes: bool,
@@ -316,7 +316,7 @@ pub fn check_stacking_state_invariants(
             .unwrap()
     });
 
-    let tip_burn_height = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+    let tip_burn_height = StacksHeadersDb::get_stacks_block_header_info_by_index_block_hash(
         peer.chainstate().db(),
         tip,
     )
@@ -443,8 +443,12 @@ pub fn check_stacking_state_invariants(
 ///  (3) all `stacking-state.reward-set-indexes` match the index of their reward cycle entries
 ///  (4) `reward-cycle-total-stacked` is equal to the sum of all entries
 ///  (5) `stacking-state.pox-addr` matches `reward-cycle-pox-address-list.pox-addr`
-pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) {
-    let current_burn_height = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+pub fn check_stacker_link_invariants<'a, CSP: TestPeerChainstateFactory<'a>>(
+    peer: &mut TestPeer<'a, CSP>,
+    tip: &StacksBlockId,
+    cycle_number: u64,
+) {
+    let current_burn_height = StacksHeadersDb::get_stacks_block_header_info_by_index_block_hash(
         peer.chainstate().db(),
         tip,
     )
@@ -590,7 +594,11 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
 }
 
 /// Get the `cycle_number`'s total stacked amount at the given chaintip
-pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) -> u128 {
+pub fn get_reward_cycle_total<'a, CSP: TestPeerChainstateFactory<'a>>(
+    peer: &mut TestPeer<'a, CSP>,
+    tip: &StacksBlockId,
+    cycle_number: u64,
+) -> u128 {
     let active_pox_contract = peer
         .config
         .chain_config
@@ -637,8 +645,8 @@ pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_nu
 }
 
 /// Get the `partial-stacked-by-cycle` entry at a given chain tip
-pub fn get_partial_stacked(
-    peer: &mut TestPeer,
+pub fn get_partial_stacked<'a, CSP: TestPeerChainstateFactory<'a>>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     pox_addr: &Value,
     cycle_number: u64,
@@ -682,8 +690,13 @@ pub fn get_partial_stacked(
 }
 
 /// Allows you to do something read-only with the ClarityDB at the given chaintip
-pub fn with_clarity_db_ro<F, R>(peer: &mut TestPeer, tip: &StacksBlockId, todo: F) -> R
+pub fn with_clarity_db_ro<'a, CSP, F, R>(
+    peer: &mut TestPeer<'a, CSP>,
+    tip: &StacksBlockId,
+    todo: F,
+) -> R
 where
+    CSP: TestPeerChainstateFactory<'a>,
     F: FnOnce(&mut ClarityDatabase) -> R,
 {
     with_sortdb(peer, |ref mut c, sortdb| {
@@ -2277,91 +2290,97 @@ fn test_pox_extend_transition_pox_2() {
 
     // these checks should pass between Alice's first reward cycle,
     //  and the start of V2 reward cycles
-    let alice_rewards_to_v2_start_checks = |tip_index_block, peer: &mut TestPeer| {
-        let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
-        let cur_reward_cycle = burnchain
-            .block_height_to_reward_cycle(tip_burn_block_height)
-            .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
-            (
-                c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
-                get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
-                c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
-                    .unwrap(),
-            )
-        });
+    let alice_rewards_to_v2_start_checks =
+        |tip_index_block, peer: &mut TestPeer<'_, SharedMemoryChainStateBackend>| {
+            let tip_burn_block_height =
+                get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+            let cur_reward_cycle = burnchain
+                .block_height_to_reward_cycle(tip_burn_block_height)
+                .unwrap() as u128;
+            let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
+                (
+                    c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
+                    get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block)
+                        .unwrap(),
+                    c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                        .unwrap(),
+                )
+            });
 
-        assert!(
-            cur_reward_cycle >= EXPECTED_ALICE_FIRST_REWARD_CYCLE
-                && cur_reward_cycle < first_v2_cycle as u128
-        );
-        //  Alice is the only Stacker, so check that.
-        let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
-            get_stacker_info(peer, &key_to_stacks_addr(&alice).into()).unwrap();
-        eprintln!(
+            assert!(
+                cur_reward_cycle >= EXPECTED_ALICE_FIRST_REWARD_CYCLE
+                    && cur_reward_cycle < first_v2_cycle as u128
+            );
+            //  Alice is the only Stacker, so check that.
+            let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
+                get_stacker_info(peer, &key_to_stacks_addr(&alice).into()).unwrap();
+            eprintln!(
             "\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n",
             amount_ustx, lock_period, &pox_addr, first_reward_cycle
         );
 
-        // one reward address, and it's Alice's
-        // either way, there's a single reward address
-        assert_eq!(reward_addrs.len(), 1);
-        assert_eq!(
-            (reward_addrs[0].0).version(),
-            AddressHashMode::SerializeP2PKH as u8
-        );
-        assert_eq!(
-            (reward_addrs[0].0).hash160(),
-            key_to_stacks_addr(&alice).destruct().1,
-        );
-        assert_eq!(reward_addrs[0].1, ALICE_LOCKUP);
-    };
+            // one reward address, and it's Alice's
+            // either way, there's a single reward address
+            assert_eq!(reward_addrs.len(), 1);
+            assert_eq!(
+                (reward_addrs[0].0).version(),
+                AddressHashMode::SerializeP2PKH as u8
+            );
+            assert_eq!(
+                (reward_addrs[0].0).hash160(),
+                key_to_stacks_addr(&alice).destruct().1,
+            );
+            assert_eq!(reward_addrs[0].1, ALICE_LOCKUP);
+        };
 
     // these checks should pass after the start of V2 reward cycles
-    let v2_rewards_checks = |tip_index_block, peer: &mut TestPeer| {
-        let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
-        let cur_reward_cycle = burnchain
-            .block_height_to_reward_cycle(tip_burn_block_height)
-            .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
-            (
-                c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
-                get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
-                c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
-                    .unwrap(),
-            )
-        });
+    let v2_rewards_checks =
+        |tip_index_block, peer: &mut TestPeer<'_, SharedMemoryChainStateBackend>| {
+            let tip_burn_block_height =
+                get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+            let cur_reward_cycle = burnchain
+                .block_height_to_reward_cycle(tip_burn_block_height)
+                .unwrap() as u128;
+            let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
+                (
+                    c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
+                    get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block)
+                        .unwrap(),
+                    c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                        .unwrap(),
+                )
+            });
 
-        eprintln!(
-            "reward_cycle = {}, reward_addrs = {}, total_stacked = {}",
-            cur_reward_cycle,
-            reward_addrs.len(),
-            total_stacked
-        );
+            eprintln!(
+                "reward_cycle = {}, reward_addrs = {}, total_stacked = {}",
+                cur_reward_cycle,
+                reward_addrs.len(),
+                total_stacked
+            );
 
-        assert!(cur_reward_cycle >= first_v2_cycle as u128);
-        // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is Bob + Alice
-        assert_eq!(reward_addrs.len(), 2);
-        assert_eq!(
-            (reward_addrs[0].0).version(),
-            AddressHashMode::SerializeP2PKH as u8
-        );
-        assert_eq!(
-            (reward_addrs[0].0).hash160(),
-            key_to_stacks_addr(&bob).destruct().1,
-        );
-        assert_eq!(reward_addrs[0].1, BOB_LOCKUP);
+            assert!(cur_reward_cycle >= first_v2_cycle as u128);
+            // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is Bob + Alice
+            assert_eq!(reward_addrs.len(), 2);
+            assert_eq!(
+                (reward_addrs[0].0).version(),
+                AddressHashMode::SerializeP2PKH as u8
+            );
+            assert_eq!(
+                (reward_addrs[0].0).hash160(),
+                key_to_stacks_addr(&bob).destruct().1,
+            );
+            assert_eq!(reward_addrs[0].1, BOB_LOCKUP);
 
-        assert_eq!(
-            (reward_addrs[1].0).version(),
-            AddressHashMode::SerializeP2PKH as u8
-        );
-        assert_eq!(
-            (reward_addrs[1].0).hash160(),
-            key_to_stacks_addr(&alice).destruct().1,
-        );
-        assert_eq!(reward_addrs[1].1, ALICE_LOCKUP);
-    };
+            assert_eq!(
+                (reward_addrs[1].0).version(),
+                AddressHashMode::SerializeP2PKH as u8
+            );
+            assert_eq!(
+                (reward_addrs[1].0).hash160(),
+                key_to_stacks_addr(&alice).destruct().1,
+            );
+            assert_eq!(reward_addrs[1].1, ALICE_LOCKUP);
+        };
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());
@@ -2724,69 +2743,75 @@ fn test_delegate_extend_transition_pox_2() {
 
     // these checks should pass between Alice's first reward cycle,
     //  and the start of V2 reward cycles
-    let alice_rewards_to_v2_start_checks = |tip_index_block, peer: &mut TestPeer| {
-        let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
-        let cur_reward_cycle = burnchain
-            .block_height_to_reward_cycle(tip_burn_block_height)
-            .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
-            (
-                c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
-                get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
-                c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
-                    .unwrap(),
-            )
-        });
+    let alice_rewards_to_v2_start_checks =
+        |tip_index_block, peer: &mut TestPeer<'_, SharedMemoryChainStateBackend>| {
+            let tip_burn_block_height =
+                get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+            let cur_reward_cycle = burnchain
+                .block_height_to_reward_cycle(tip_burn_block_height)
+                .unwrap() as u128;
+            let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
+                (
+                    c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
+                    get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block)
+                        .unwrap(),
+                    c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                        .unwrap(),
+                )
+            });
 
-        assert!(
-            cur_reward_cycle >= EXPECTED_ALICE_FIRST_REWARD_CYCLE
-                && cur_reward_cycle < first_v2_cycle as u128
-        );
-        // one reward address, and it's Charlies's
-        // either way, there's a single reward address
-        assert_eq!(reward_addrs.len(), 1);
-        assert_eq!(
-            (reward_addrs[0].0).version(),
-            AddressHashMode::SerializeP2PKH as u8
-        );
-        assert_eq!(&(reward_addrs[0].0).hash160(), charlie_address.bytes());
-        // 1 lockup was done between alice's first cycle and the start of v2 cycles
-        assert_eq!(reward_addrs[0].1, 1 * LOCKUP_AMT);
-    };
+            assert!(
+                cur_reward_cycle >= EXPECTED_ALICE_FIRST_REWARD_CYCLE
+                    && cur_reward_cycle < first_v2_cycle as u128
+            );
+            // one reward address, and it's Charlies's
+            // either way, there's a single reward address
+            assert_eq!(reward_addrs.len(), 1);
+            assert_eq!(
+                (reward_addrs[0].0).version(),
+                AddressHashMode::SerializeP2PKH as u8
+            );
+            assert_eq!(&(reward_addrs[0].0).hash160(), charlie_address.bytes());
+            // 1 lockup was done between alice's first cycle and the start of v2 cycles
+            assert_eq!(reward_addrs[0].1, 1 * LOCKUP_AMT);
+        };
 
     // these checks should pass after the start of V2 reward cycles
-    let v2_rewards_checks = |tip_index_block, peer: &mut TestPeer| {
-        let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
-        let cur_reward_cycle = burnchain
-            .block_height_to_reward_cycle(tip_burn_block_height)
-            .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
-            (
-                c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
-                get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
-                c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
-                    .unwrap(),
-            )
-        });
+    let v2_rewards_checks =
+        |tip_index_block, peer: &mut TestPeer<'_, SharedMemoryChainStateBackend>| {
+            let tip_burn_block_height =
+                get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+            let cur_reward_cycle = burnchain
+                .block_height_to_reward_cycle(tip_burn_block_height)
+                .unwrap() as u128;
+            let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
+                (
+                    c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
+                    get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block)
+                        .unwrap(),
+                    c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                        .unwrap(),
+                )
+            });
 
-        eprintln!(
-            "reward_cycle = {}, reward_addrs = {}, total_stacked = {}",
-            cur_reward_cycle,
-            reward_addrs.len(),
-            total_stacked
-        );
+            eprintln!(
+                "reward_cycle = {}, reward_addrs = {}, total_stacked = {}",
+                cur_reward_cycle,
+                reward_addrs.len(),
+                total_stacked
+            );
 
-        assert!(cur_reward_cycle >= first_v2_cycle as u128);
-        // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is just Charlie, but 2048*threshold
-        assert_eq!(reward_addrs.len(), 1);
-        assert_eq!(
-            (reward_addrs[0].0).version(),
-            AddressHashMode::SerializeP2PKH as u8
-        );
-        assert_eq!(&(reward_addrs[0].0).hash160(), charlie_address.bytes());
-        // 2 lockups were performed in v2 cycles
-        assert_eq!(reward_addrs[0].1, 2 * LOCKUP_AMT);
-    };
+            assert!(cur_reward_cycle >= first_v2_cycle as u128);
+            // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is just Charlie, but 2048*threshold
+            assert_eq!(reward_addrs.len(), 1);
+            assert_eq!(
+                (reward_addrs[0].0).version(),
+                AddressHashMode::SerializeP2PKH as u8
+            );
+            assert_eq!(&(reward_addrs[0].0).hash160(), charlie_address.bytes());
+            // 2 lockups were performed in v2 cycles
+            assert_eq!(reward_addrs[0].1, 2 * LOCKUP_AMT);
+        };
 
     // our "tenure counter" is now at 0
     let tip = get_tip(peer.chain.sortdb.as_ref());

@@ -34,24 +34,59 @@ use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConnRef,
 };
+use crate::chainstate::stacks::db::SharedMemoryChainStateBackend;
 use crate::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, TenureChangeCause,
     TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
     TransactionPayload, TransactionVersion,
 };
-use crate::clarity::vm::types::StacksAddressExtensions;
+use crate::clarity::vm::types::{PrincipalData, StacksAddressExtensions};
 use crate::core::test_util::to_addr;
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::download::nakamoto::{TenureStartEnd, WantedTenure, *};
 use crate::net::inv::nakamoto::NakamotoTenureInv;
 use crate::net::test::{dns_thread_start, TestEventObserver};
 use crate::net::tests::inv::nakamoto::{
-    make_nakamoto_peer_from_invs, make_nakamoto_peers_from_invs_ext, peer_get_nakamoto_invs,
+    make_nakamoto_peer_from_invs, make_nakamoto_peers_from_invs_ext_shared, peer_get_nakamoto_invs,
 };
 use crate::net::tests::{NakamotoBootPlan, TestPeer};
 use crate::net::{Error as NetError, Hash160, NeighborAddress, SortitionDB};
 use crate::stacks_common::types::Address;
 use crate::util_lib::db::Error as DBError;
+
+fn make_shared_nakamoto_download_peer_from_invs<'a>(
+    test_name: &str,
+    observer: &'a TestEventObserver,
+    rc_len: u32,
+    prepare_len: u32,
+    bitvecs: Vec<Vec<bool>>,
+) -> TestPeer<'a, SharedMemoryChainStateBackend> {
+    make_nakamoto_peers_from_invs_ext_shared(test_name, observer, bitvecs, |boot_plan| {
+        boot_plan
+            .with_pox_constants(rc_len, prepare_len)
+            .with_extra_peers(0)
+            .with_initial_balances(vec![])
+    })
+    .0
+}
+
+fn make_shared_nakamoto_download_peer_from_invs_and_balances<'a>(
+    test_name: &str,
+    observer: &'a TestEventObserver,
+    rc_len: u32,
+    prepare_len: u32,
+    bitvecs: Vec<Vec<bool>>,
+    initial_balances: Vec<(PrincipalData, u64)>,
+) -> TestPeer<'a, SharedMemoryChainStateBackend> {
+    make_nakamoto_peers_from_invs_ext_shared(test_name, observer, bitvecs, |boot_plan| {
+        boot_plan
+            .with_pox_constants(rc_len, prepare_len)
+            .with_extra_peers(0)
+            .with_initial_balances(initial_balances)
+            .with_malleablized_blocks(false)
+    })
+    .0
+}
 
 impl NakamotoTenureDownloadState {
     pub fn request_time(&self) -> Option<u128> {
@@ -2102,7 +2137,7 @@ fn test_nakamoto_download_run_2_peers() {
     ];
 
     let rc_len = 10u64;
-    let peer = make_nakamoto_peer_from_invs(
+    let peer = make_shared_nakamoto_download_peer_from_invs(
         function_name!(),
         &observer,
         rc_len as u32,
@@ -2153,14 +2188,14 @@ fn test_nakamoto_download_run_2_peers() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),
@@ -2222,7 +2257,13 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     ];
 
     let rc_len = 10u64;
-    let peer = make_nakamoto_peer_from_invs(function_name!(), &observer, rc_len as u32, 5, bitvecs);
+    let peer = make_shared_nakamoto_download_peer_from_invs(
+        function_name!(),
+        &observer,
+        rc_len as u32,
+        5,
+        bitvecs,
+    );
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
@@ -2265,14 +2306,14 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),
@@ -2341,14 +2382,14 @@ fn test_nakamoto_microfork_download_run_2_peers() {
 
     let rc_len = 10u64;
 
-    let (mut peer, _) =
-        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
-            boot_plan
-                .with_pox_constants(rc_len as u32, 5)
-                .with_extra_peers(0)
-                .with_initial_balances(initial_balances)
-                .with_malleablized_blocks(false)
-        });
+    let mut peer = make_shared_nakamoto_download_peer_from_invs_and_balances(
+        function_name!(),
+        &observer,
+        rc_len as u32,
+        5,
+        bitvecs,
+        initial_balances,
+    );
     peer.refresh_burnchain_view();
 
     let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
@@ -2450,14 +2491,14 @@ fn test_nakamoto_microfork_download_run_2_peers() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),
@@ -2521,14 +2562,14 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     let bitvecs = vec![vec![true, true, false, false]];
 
     let rc_len = 10u64;
-    let (mut peer, _) =
-        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
-            boot_plan
-                .with_pox_constants(rc_len as u32, 5)
-                .with_extra_peers(0)
-                .with_initial_balances(initial_balances)
-                .with_malleablized_blocks(false)
-        });
+    let mut peer = make_shared_nakamoto_download_peer_from_invs_and_balances(
+        function_name!(),
+        &observer,
+        rc_len as u32,
+        5,
+        bitvecs,
+        initial_balances,
+    );
     peer.refresh_burnchain_view();
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
@@ -2630,14 +2671,14 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),
@@ -2706,14 +2747,14 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     let bitvecs = vec![vec![true, true]];
 
     let rc_len = 10u64;
-    let (mut peer, _) =
-        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
-            boot_plan
-                .with_pox_constants(rc_len as u32, 5)
-                .with_extra_peers(0)
-                .with_initial_balances(initial_balances)
-                .with_malleablized_blocks(false)
-        });
+    let mut peer = make_shared_nakamoto_download_peer_from_invs_and_balances(
+        function_name!(),
+        &observer,
+        rc_len as u32,
+        5,
+        bitvecs,
+        initial_balances,
+    );
     peer.refresh_burnchain_view();
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
@@ -2837,14 +2878,14 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),
@@ -2914,14 +2955,14 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
     let bitvecs = vec![vec![true, true]];
 
     let rc_len = 10u64;
-    let (mut peer, _) =
-        make_nakamoto_peers_from_invs_ext(function_name!(), &observer, bitvecs, |boot_plan| {
-            boot_plan
-                .with_pox_constants(rc_len as u32, 5)
-                .with_extra_peers(0)
-                .with_initial_balances(initial_balances)
-                .with_malleablized_blocks(false)
-        });
+    let mut peer = make_shared_nakamoto_download_peer_from_invs_and_balances(
+        function_name!(),
+        &observer,
+        rc_len as u32,
+        5,
+        bitvecs,
+        initial_balances,
+    );
     peer.refresh_burnchain_view();
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
@@ -3047,14 +3088,14 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {ops:?}");
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),

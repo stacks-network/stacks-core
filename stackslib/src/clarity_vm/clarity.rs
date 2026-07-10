@@ -45,7 +45,9 @@ use crate::chainstate::stacks::boot::{
     POX_4_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME,
     SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_NAME,
 };
-use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
+use crate::chainstate::stacks::db::{
+    handle_poison_microblock, StacksAccount, StacksAccountWriter, StacksTransactionExecution,
+};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::{
@@ -397,6 +399,15 @@ impl ClarityInstance {
             mainnet,
             chain_id,
         }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn try_clone_ephemeral(&self) -> Result<ClarityInstance, VmExecutionError> {
+        Ok(ClarityInstance {
+            datastore: self.datastore.try_clone_ephemeral()?,
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+        })
     }
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
@@ -1081,14 +1092,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 // initialize with a synthetic transaction
                 debug!("Instantiate .costs-2 contract");
-                StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &costs_2_contract_tx,
-                    &boot_code_account,
-                    None,
-                    None,
-                )
-                .expect("FATAL: Failed to process PoX 2 contract initialization")
+                tx_conn
+                    .process_transaction_payload(
+                        &costs_2_contract_tx,
+                        &boot_code_account,
+                        None,
+                        None,
+                    )
+                    .expect("FATAL: Failed to process PoX 2 contract initialization")
             });
 
             if initialization_receipt.result != Value::okay_true()
@@ -1192,14 +1203,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &pox_2_contract_id);
-                let receipt = StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &pox_2_contract_tx,
-                    &boot_code_account,
-                    None,
-                    None,
-                )
-                .expect("FATAL: Failed to process PoX 2 contract initialization");
+                let receipt = tx_conn
+                    .process_transaction_payload(&pox_2_contract_tx, &boot_code_account, None, None)
+                    .expect("FATAL: Failed to process PoX 2 contract initialization");
 
                 // set burnchain params
                 let consts_setter = PrincipalData::from(pox_2_contract_id.clone());
@@ -1264,14 +1270,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 // initialize with a synthetic transaction
                 debug!("Instantiate .costs-3 contract");
-                let receipt = StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &costs_3_contract_tx,
-                    &boot_code_account,
-                    None,
-                    None,
-                )
-                .expect("FATAL: Failed to process costs-3 contract initialization");
+                let receipt = tx_conn
+                    .process_transaction_payload(
+                        &costs_3_contract_tx,
+                        &boot_code_account,
+                        None,
+                        None,
+                    )
+                    .expect("FATAL: Failed to process costs-3 contract initialization");
 
                 receipt
             });
@@ -1433,14 +1439,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let pox_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &pox_3_contract_id);
-                let receipt = StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &pox_3_contract_tx,
-                    &boot_code_account,
-                    None,
-                    None,
-                )
-                .expect("FATAL: Failed to process PoX 3 contract initialization");
+                let receipt = tx_conn
+                    .process_transaction_payload(&pox_3_contract_tx, &boot_code_account, None, None)
+                    .expect("FATAL: Failed to process PoX 3 contract initialization");
 
                 // set burnchain params
                 let consts_setter = PrincipalData::from(pox_3_contract_id.clone());
@@ -1552,14 +1553,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let pox_4_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &pox_4_contract_id);
-                let receipt = StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &pox_4_contract_tx,
-                    &boot_code_account,
-                    None,
-                    None,
-                )
-                .expect("FATAL: Failed to process PoX 4 contract initialization");
+                let receipt = tx_conn
+                    .process_transaction_payload(&pox_4_contract_tx, &boot_code_account, None, None)
+                    .expect("FATAL: Failed to process PoX 4 contract initialization");
 
                 // set burnchain params
                 let consts_setter = PrincipalData::from(pox_4_contract_id.clone());
@@ -1612,14 +1608,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let signers_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &signers_contract_id);
-                let receipt = StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &signers_contract_tx,
-                    &boot_code_account,
-                    None,
-                    None,
-                )
-                .expect("FATAL: Failed to process .signers contract initialization");
+                let receipt = tx_conn
+                    .process_transaction_payload(
+                        &signers_contract_tx,
+                        &boot_code_account,
+                        None,
+                        None,
+                    )
+                    .expect("FATAL: Failed to process .signers contract initialization");
                 receipt
             });
 
@@ -1659,14 +1655,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     let signers_db_receipt = self.as_transaction(|tx_conn| {
                         // initialize with a synthetic transaction
                         debug!("Instantiate .{} contract", &signers_name);
-                        let receipt = StacksChainState::process_transaction_payload(
-                            tx_conn,
-                            &signers_contract_tx,
-                            &boot_code_account,
-                            None,
-                            None,
-                        )
-                        .expect("FATAL: Failed to process .signers DB contract initialization");
+                        let receipt = tx_conn
+                            .process_transaction_payload(
+                                &signers_contract_tx,
+                                &boot_code_account,
+                                None,
+                                None,
+                            )
+                            .expect("FATAL: Failed to process .signers DB contract initialization");
                         receipt
                     });
 
@@ -1699,14 +1695,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let signers_voting_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &signers_voting_contract_id);
-                let receipt = StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &signers_contract_tx,
-                    &boot_code_account,
-                    None,
-                    None,
-                )
-                .expect("FATAL: Failed to process .signers-voting contract initialization");
+                let receipt = tx_conn
+                    .process_transaction_payload(
+                        &signers_contract_tx,
+                        &boot_code_account,
+                        None,
+                        None,
+                    )
+                    .expect("FATAL: Failed to process .signers-voting contract initialization");
                 receipt
             });
 
@@ -1831,14 +1827,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let mut sip_031_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 info!("Instantiate {} contract", &sip_031_contract_id);
-                let receipt = StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &sip_031_contract_tx,
-                    &boot_code_account,
-                    None,
-                    None,
-                )
-                .expect("FATAL: Failed to process .sip-031 contract initialization");
+                let receipt = tx_conn
+                    .process_transaction_payload(
+                        &sip_031_contract_tx,
+                        &boot_code_account,
+                        None,
+                        None,
+                    )
+                    .expect("FATAL: Failed to process .sip-031 contract initialization");
                 receipt
             });
 
@@ -1860,8 +1856,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                             .map_err(|e| e.into())
                     })
                     .expect("FATAL: `SIP-031 initial mint` overflowed");
-                StacksChainState::account_credit(
-                    tx_conn,
+                tx_conn.account_credit(
                     &recipient,
                     u64::try_from(SIP_031_INITIAL_MINT)
                         .expect("FATAL: transferred more STX than exist"),
@@ -1946,14 +1941,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 // initialize with a synthetic transaction
                 info!("Instantiate .costs-4 contract");
-                let receipt = StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &costs_4_contract_tx,
-                    &boot_code_account,
-                    None,
-                    None,
-                )
-                .expect("FATAL: Failed to process costs-4 contract initialization");
+                let receipt = tx_conn
+                    .process_transaction_payload(
+                        &costs_4_contract_tx,
+                        &boot_code_account,
+                        None,
+                        None,
+                    )
+                    .expect("FATAL: Failed to process costs-4 contract initialization");
 
                 receipt
             });
@@ -2255,7 +2250,7 @@ impl ClarityTransactionConnection<'_, '_> {
                 vm_env
                     .execute_in_env(sender.clone(), None, None, |exec_state, invoke_ctx| {
                         exec_state.run_as_transaction(invoke_ctx, |exec_state, invoke_ctx| {
-                            StacksChainState::handle_poison_microblock(
+                            handle_poison_microblock(
                                 exec_state,
                                 invoke_ctx,
                                 mblock_header_1,
@@ -3188,24 +3183,21 @@ mod tests {
             );
 
             conn.as_transaction(|clarity_tx| {
-                let receipt = StacksChainState::process_transaction_payload(
-                    clarity_tx, &tx1, &account, None, None,
-                )
-                .unwrap();
+                let receipt = clarity_tx
+                    .process_transaction_payload(&tx1, &account, None, None)
+                    .unwrap();
                 assert!(receipt.post_condition_aborted);
             });
             conn.as_transaction(|clarity_tx| {
-                StacksChainState::process_transaction_payload(
-                    clarity_tx, &tx2, &account, None, None,
-                )
-                .unwrap();
+                clarity_tx
+                    .process_transaction_payload(&tx2, &account, None, None)
+                    .unwrap();
             });
 
             conn.as_transaction(|clarity_tx| {
-                let receipt = StacksChainState::process_transaction_payload(
-                    clarity_tx, &tx3, &account, None, None,
-                )
-                .unwrap();
+                let receipt = clarity_tx
+                    .process_transaction_payload(&tx3, &account, None, None)
+                    .unwrap();
 
                 assert!(receipt.post_condition_aborted);
             });

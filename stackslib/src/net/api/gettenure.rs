@@ -20,7 +20,7 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::api::getblock_v3::NakamotoBlockStream;
 use crate::net::http::{
@@ -66,7 +66,7 @@ pub struct NakamotoTenureStream {
 
 impl NakamotoTenureStream {
     pub fn new(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         block_id: StacksBlockId,
         consensus_hash: ConsensusHash,
         parent_block_id: StacksBlockId,
@@ -192,7 +192,9 @@ impl HttpRequest for RPCNakamotoTenureRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCNakamotoTenureRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
@@ -204,7 +206,7 @@ impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_id = self
             .block_id

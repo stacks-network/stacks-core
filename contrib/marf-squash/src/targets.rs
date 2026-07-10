@@ -23,7 +23,9 @@ use stackslib::burnchains::PoxConstants;
 use stackslib::chainstate::burn::BlockSnapshot;
 use stackslib::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use stackslib::chainstate::nakamoto::NakamotoChainState;
-use stackslib::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use stackslib::chainstate::stacks::db::{
+    DiskChainStateBackend, StacksChainState, StacksHeaderInfo,
+};
 
 /// Mainnet only: the squash boundary must sit at least this many Bitcoin blocks
 /// behind the canonical burn tip, so the squashed tenure is final and cannot be
@@ -121,7 +123,15 @@ struct SortitionReadCtx<'a> {
 /// `(chainstate, sortition_db, first_bitcoin_height, canonical_tip)`.
 fn open_squash_dbs(
     query: &SquashTargetQuery,
-) -> Result<(StacksChainState, SortitionDB, u32, BlockSnapshot), String> {
+) -> Result<
+    (
+        StacksChainState<DiskChainStateBackend>,
+        SortitionDB,
+        u32,
+        BlockSnapshot,
+    ),
+    String,
+> {
     let (chainstate, _) =
         StacksChainState::open(query.mainnet, query.chain_id, query.chainstate_root, None)
             .map_err(|e| {
@@ -263,7 +273,7 @@ fn resolve_squash_burn_view_snapshot(
 /// `tenure_ch` but are not the tenure start, so they fall above the boundary and are
 /// re-synced from peers on boot.
 fn resolve_tenure_start_anchor(
-    chainstate: &StacksChainState,
+    chainstate: &StacksChainState<DiskChainStateBackend>,
     sortition_db: &SortitionDB,
     tenure_ch: &ConsensusHash,
     start_height: u64,

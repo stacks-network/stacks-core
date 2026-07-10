@@ -23,7 +23,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
 
 use crate::burnchains::Txid;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::net::http::{
     parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
     HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
@@ -86,8 +86,8 @@ pub struct RPCPeerInfoData {
 
 impl RPCPeerInfoData {
     pub fn from_network(
-        network: &PeerNetwork,
-        chainstate: &StacksChainState,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         exit_at_block_height: Option<u64>,
         genesis_chainstate_hash: &Sha256Sum,
         coinbase_height: u64,
@@ -180,7 +180,9 @@ impl HttpRequest for RPCPeerInfoRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCPeerInfoRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCPeerInfoRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {}
 
@@ -189,7 +191,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let ibd = node.ibd;
 

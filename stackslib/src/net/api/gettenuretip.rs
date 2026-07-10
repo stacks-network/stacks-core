@@ -74,7 +74,9 @@ impl HttpRequest for RPCNakamotoTenureTipRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoTenureTipRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCNakamotoTenureTipRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.consensus_hash = None;
@@ -85,7 +87,7 @@ impl RPCRequestHandler for RPCNakamotoTenureTipRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let consensus_hash = self
             .consensus_hash

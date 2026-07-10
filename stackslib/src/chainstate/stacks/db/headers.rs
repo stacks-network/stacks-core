@@ -98,7 +98,10 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
     }
 }
 
-impl StacksChainState {
+/// SQL helpers for Stacks block headers and ancestry metadata.
+pub struct StacksHeadersDb;
+
+impl StacksHeadersDb {
     /// Insert a block header that is paired with an already-existing block commit and snapshot
     pub fn insert_stacks_block_header(
         tx: &DBTx,
@@ -295,7 +298,7 @@ impl StacksChainState {
         height: u64,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         assert!(tip.stacks_block_height >= height);
-        StacksChainState::get_index_tip_ancestor(tx, &tip.index_block_hash(), height)
+        StacksHeadersDb::get_index_tip_ancestor(tx, &tip.index_block_hash(), height)
     }
 
     /// Get an ancestor block header given an index hash
@@ -309,7 +312,7 @@ impl StacksChainState {
             .map_err(Error::DBError)?
         {
             Some(bhh) => {
-                StacksChainState::get_stacks_block_header_info_by_index_block_hash(tx, &bhh)
+                StacksHeadersDb::get_stacks_block_header_info_by_index_block_hash(tx, &bhh)
             }
             None => Ok(None),
         }
@@ -329,10 +332,10 @@ impl StacksChainState {
             }
             let block_id = cursor.index_block_hash();
             ancestors.push(cursor.clone());
-            let parent_block_id = StacksChainState::get_parent_block_id(conn, &block_id)?;
+            let parent_block_id = StacksHeadersDb::get_parent_block_id(conn, &block_id)?;
             if let Some(parent_block_id) = parent_block_id {
                 ancestry_cursor =
-                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                    StacksHeadersDb::get_stacks_block_header_info_by_index_block_hash(
                         conn,
                         &parent_block_id,
                     )?;
@@ -390,7 +393,7 @@ impl StacksChainState {
         for _i in 0..count {
             let parent_index_block_hash = {
                 let cur_index_block_hash = ret.last().expect("FATAL: empty list of ancestors");
-                match StacksChainState::get_parent_block_id(conn, cur_index_block_hash)? {
+                match StacksHeadersDb::get_parent_block_id(conn, cur_index_block_hash)? {
                     Some(ibhh) => ibhh,
                     None => {
                         // out of ancestors

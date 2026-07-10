@@ -88,7 +88,8 @@ use stackslib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stackslib::chainstate::stacks::StacksBlockHeader;
 use stackslib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
 use stackslib::chainstate::stacks::db::{
-    ChainStateBootData, StacksBlockHeaderTypes, StacksChainState,
+    ChainStateBootData, DiskChainStateBackend, Epoch2BlockProcessor, Epoch2StagingBlocksDb,
+    StacksBlockHeaderTypes, StacksBlockStore, StacksChainState,
 };
 use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
 use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnection};
@@ -262,7 +263,7 @@ impl P2PSession {
 fn open_nakamoto_chainstate_dbs(
     chainstate_dir: &str,
     network: &str,
-) -> (SortitionDB, StacksChainState) {
+) -> (SortitionDB, StacksChainState<DiskChainStateBackend>) {
     let (mainnet, chain_id, pox_constants, dirname) = match network {
         "mainnet" => (
             true,
@@ -891,10 +892,10 @@ fn main() {
                 .unwrap()
                 .expect("FATAL: no such block");
             let mut block_info =
-                StacksChainState::load_staging_block_info(chainstate.db(), &index_block_hash)
+                Epoch2StagingBlocksDb::load_staging_block_info(chainstate.db(), &index_block_hash)
                     .unwrap()
                     .expect("No such block");
-            block_info.block_data = StacksChainState::load_block_bytes(
+            block_info.block_data = StacksBlockStore::load_block_bytes(
                 &chainstate.blocks_path,
                 &consensus_hash,
                 &block_hash,
@@ -911,7 +912,7 @@ fn main() {
                     .unwrap();
 
             let microblocks =
-                StacksChainState::find_parent_microblock_stream(chainstate.db(), &block_info)
+                Epoch2BlockProcessor::find_parent_microblock_stream(chainstate.db(), &block_info)
                     .unwrap()
                     .unwrap_or_default();
 
@@ -1032,7 +1033,7 @@ fn main() {
                     StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
                 let start_load_header = get_epoch_time_ms();
                 let parent_header_opt = {
-                    let child_block_info = match StacksChainState::load_staging_block_info(
+                    let child_block_info = match Epoch2StagingBlocksDb::load_staging_block_info(
                         chain_state.db(),
                         &index_block_hash,
                     ) {
@@ -1043,7 +1044,7 @@ fn main() {
                         }
                     };
 
-                    match StacksChainState::load_block_header(
+                    match StacksBlockStore::load_block_header(
                         &chain_state.blocks_path,
                         &child_block_info.parent_consensus_hash,
                         &child_block_info.parent_anchored_block_hash,
@@ -1064,7 +1065,7 @@ fn main() {
                 total_load_headers += end_load_header.saturating_sub(start_load_header);
 
                 if let Some((parent_header, parent_consensus_hash)) = parent_header_opt {
-                    PeerNetwork::can_download_microblock_stream(
+                    PeerNetwork::<DiskChainStateBackend>::can_download_microblock_stream(
                         &local_peer,
                         &chain_state,
                         &parent_consensus_hash,
@@ -1172,7 +1173,7 @@ fn main() {
 
             let all_snapshots = old_sortition_db.get_all_snapshots().unwrap();
             let all_stacks_blocks =
-                StacksChainState::get_all_staging_block_headers(old_chainstate.db()).unwrap();
+                Epoch2StagingBlocksDb::get_all_staging_block_headers(old_chainstate.db()).unwrap();
 
             // order block hashes by arrival index
             let mut stacks_blocks_arrival_indexes = vec![];
@@ -1311,7 +1312,7 @@ fn main() {
                         {
                             if stacks_blocks_available.contains_key(&stacks_block_id) {
                                 // load up the block
-                                let stacks_block_opt = StacksChainState::load_block(
+                                let stacks_block_opt = StacksBlockStore::load_block(
                                     &old_chainstate.blocks_path,
                                     &new_snapshot.consensus_hash,
                                     &new_snapshot.winning_stacks_block_hash,
@@ -1611,7 +1612,7 @@ pub fn tip_mine(working_dir: &str, event_log: &str, mine_tip_height: u64, max_tx
                 nakamoto_header.parent_block_id.clone()
             }
             StacksBlockHeaderTypes::Epoch2(ref epoch2_header) => {
-                let block_info = StacksChainState::load_staging_block(
+                let block_info = Epoch2StagingBlocksDb::load_staging_block(
                     chain_state.db(),
                     &chain_state.blocks_path,
                     &stacks_header.consensus_hash,

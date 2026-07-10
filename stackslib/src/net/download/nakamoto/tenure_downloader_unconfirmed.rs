@@ -24,7 +24,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::boot::RewardSet;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
 use crate::net::download::nakamoto::NakamotoTenureDownloader;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
@@ -145,11 +145,11 @@ impl NakamotoUnconfirmedTenureDownloader {
     ///
     /// We may already have the tenure-start block for the unconfirmed tenure. If so, then don't go
     /// fetch it again; just get the new unconfirmed blocks.
-    pub fn try_accept_tenure_info(
+    pub fn try_accept_tenure_info<B: ChainStatePersistence>(
         &mut self,
         sortdb: &SortitionDB,
         local_sort_tip: &BlockSnapshot,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<B>,
         remote_tenure_tip: RPCGetTenureInfo,
         current_reward_sets: &BTreeMap<u64, CurrentRewardSet>,
     ) -> Result<(), NetError> {
@@ -610,9 +610,9 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// Return Ok(true) if we need it still
     /// Return Ok(false) if we already have it
     /// Return Err(..) if we encounter a DB error or if this function was called out of sequence.
-    pub fn need_highest_complete_tenure(
+    pub fn need_highest_complete_tenure<B: ChainStatePersistence>(
         &self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<B>,
     ) -> Result<bool, NetError> {
         if self.state != NakamotoUnconfirmedDownloadState::Done {
             return Err(NetError::InvalidState);
@@ -759,9 +759,9 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// Advance the state of the downloader from chainstate, if possible.
     /// For example, a tenure-start block may have been pushed to us already (or it
     /// may be a shadow block)
-    pub fn try_advance_from_chainstate(
+    pub fn try_advance_from_chainstate<B: ChainStatePersistence>(
         &mut self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<B>,
     ) -> Result<(), NetError> {
         loop {
             match &self.state {
@@ -802,7 +802,7 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// Returns Err(..) if the neighbor is dead or broken.
     pub fn send_next_download_request(
         &self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         neighbor_rpc: &mut NeighborRPC,
     ) -> Result<(), NetError> {
         if neighbor_rpc.has_inflight(&self.naddr) {
@@ -845,12 +845,12 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// Returns Ok(None) if we're still working, in which case the caller should call
     /// `send_next_download_request()`
     /// Returns Err(..) on unrecoverable failure to advance state
-    pub fn handle_next_download_response(
+    pub fn handle_next_download_response<B: ChainStatePersistence>(
         &mut self,
         response: StacksHttpResponse,
         sortdb: &SortitionDB,
         local_sort_tip: &BlockSnapshot,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<B>,
         current_reward_sets: &BTreeMap<u64, CurrentRewardSet>,
     ) -> Result<Option<Vec<NakamotoBlock>>, NetError> {
         match &self.state {

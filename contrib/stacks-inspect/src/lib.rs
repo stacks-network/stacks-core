@@ -44,7 +44,8 @@ use stackslib::chainstate::nakamoto::miner::{
 use stackslib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stackslib::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stackslib::chainstate::stacks::db::{
-    ChainstateTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+    ChainstateTx, DiskChainStateBackend, Epoch2BlockProcessor, Epoch2StagingBlocksDb,
+    StacksBlockHeaderTypes, StacksBlockStore, StacksChainState, StacksHeaderInfo, StacksHeadersDb,
 };
 use stackslib::chainstate::stacks::miner::*;
 use stackslib::chainstate::stacks::{Error as ChainstateError, *};
@@ -153,7 +154,7 @@ fn convert_args_to_selection(mode: &Option<ValidateBlockMode>) -> Result<BlockSe
 fn collect_block_entries_for_selection(
     db_path: &str,
     selection: &BlockSelection,
-    chainstate: &StacksChainState,
+    chainstate: &StacksChainState<DiskChainStateBackend>,
 ) -> Vec<BlockScanEntry> {
     let mut entries = Vec::new();
     let clause = selection.clause();
@@ -204,7 +205,7 @@ fn count_epoch2_index_entries(db_path: &str) -> u64 {
         })
 }
 
-fn count_nakamoto_index_entries(chainstate: &StacksChainState) -> u64 {
+fn count_nakamoto_index_entries(chainstate: &StacksChainState<DiskChainStateBackend>) -> u64 {
     let sql = "SELECT COUNT(*) FROM nakamoto_staging_blocks WHERE orphaned = 0";
     let conn = chainstate.nakamoto_blocks_db();
     let mut stmt = conn.prepare(sql).unwrap_or_else(|e| {
@@ -262,7 +263,7 @@ fn collect_epoch2_entries(
 fn collect_nakamoto_entries(
     entries: &mut Vec<BlockScanEntry>,
     clause: &str,
-    chainstate: &StacksChainState,
+    chainstate: &StacksChainState<DiskChainStateBackend>,
     limit: Option<u64>,
 ) -> bool {
     if limit_reached(limit, entries.len()) {
@@ -688,11 +689,11 @@ fn replay_staging_block(
     let blocks_path = chainstate.blocks_path.clone();
     let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
     let mut next_staging_block =
-        StacksChainState::load_staging_block_info(&chainstate_tx.tx, block_id)
+        Epoch2StagingBlocksDb::load_staging_block_info(&chainstate_tx.tx, block_id)
             .map_err(|e| format!("Failed to load staging block info: {e:?}"))?
             .ok_or_else(|| "No such index block hash in block database".to_string())?;
 
-    next_staging_block.block_data = StacksChainState::load_block_bytes(
+    next_staging_block.block_data = StacksBlockStore::load_block_bytes(
         &blocks_path,
         &next_staging_block.consensus_hash,
         &next_staging_block.anchored_block_hash,
@@ -701,11 +702,11 @@ fn replay_staging_block(
     .unwrap_or_default();
 
     let parent_header_info =
-        StacksChainState::get_parent_header_info(&chainstate_tx, &next_staging_block)
+        Epoch2BlockProcessor::get_parent_header_info(&chainstate_tx, &next_staging_block)
             .map_err(|e| format!("Failed to get parent header info: {e:?}"))?
             .ok_or_else(|| "Missing parent header info".to_string())?;
 
-    let block = StacksChainState::extract_stacks_block(&next_staging_block)
+    let block = Epoch2BlockProcessor::extract_stacks_block(&next_staging_block)
         .map_err(|e| format!("{e:?}"))?;
     let block_size = next_staging_block.block_data.len() as u64;
 
@@ -769,7 +770,7 @@ fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Opt
         .unwrap_or_else(|e| panic!("Error serializing block {block_hash}: {e}"))
         .expect("u64 overflow");
 
-    let Some(parent_header_info) = StacksChainState::get_anchored_block_header_info(
+    let Some(parent_header_info) = StacksHeadersDb::get_anchored_block_header_info(
         &chainstate_tx,
         &block.parent_consensus_hash,
         &block.anchored_block.header.parent_block,
@@ -824,9 +825,9 @@ fn replay_block(
     // We don't ensure that the cost is found here, because when replaying mock-mined blocks
     // there may not be a stored cost for the block.
     let cost_opt =
-        StacksChainState::get_stacks_block_anchored_cost(chainstate_tx.conn(), block_id).unwrap();
+        StacksHeadersDb::get_stacks_block_anchored_cost(chainstate_tx.conn(), block_id).unwrap();
 
-    let Some(next_microblocks) = StacksChainState::inner_find_parent_microblock_stream(
+    let Some(next_microblocks) = Epoch2BlockProcessor::inner_find_parent_microblock_stream(
         &chainstate_tx.tx,
         block_hash,
         &parent_block_hash,
@@ -859,7 +860,7 @@ fn replay_block(
         block_consensus_hash, block_hash, &block_id, &burn_header_hash, parent_microblock_hash,
     );
 
-    if !StacksChainState::check_block_attachment(parent_block_header, &block.header) {
+    if !Epoch2BlockProcessor::check_block_attachment(parent_block_header, &block.header) {
         return Err(format!(
             "Invalid stacks block {}/{} -- does not attach to parent {}/{}",
             block_consensus_hash,
@@ -871,7 +872,7 @@ fn replay_block(
 
     // validation check -- validate parent microblocks and find the ones that connect the
     // block's parent to this block.
-    let next_microblocks = StacksChainState::extract_connecting_microblocks(
+    let next_microblocks = Epoch2BlockProcessor::extract_connecting_microblocks(
         parent_header_info,
         block_consensus_hash,
         block_hash,
@@ -894,7 +895,7 @@ fn replay_block(
 
     let pox_constants = sort_tx.context.pox_constants.clone();
 
-    match StacksChainState::append_block(
+    match Epoch2BlockProcessor::append_block(
         &mut chainstate_tx,
         clarity_instance,
         &mut sort_tx,
@@ -976,7 +977,7 @@ fn replay_naka_staging_block(
 #[allow(clippy::result_large_err)]
 fn replay_block_nakamoto(
     sort_db: &mut SortitionDB,
-    stacks_chain_state: &mut StacksChainState,
+    stacks_chain_state: &mut StacksChainState<DiskChainStateBackend>,
     block: &NakamotoBlock,
     block_size: u64,
 ) -> Result<(), ChainstateError> {

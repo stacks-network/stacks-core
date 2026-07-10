@@ -44,11 +44,14 @@ use crate::chainstate::stacks::boot::pox_2_tests::{
 };
 use crate::chainstate::stacks::boot::signers_tests::get_signer_index;
 use crate::chainstate::stacks::boot::{PoxVersions, MINERS_NAME};
+use crate::chainstate::stacks::db::SharedMemoryChainStateBackend;
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use crate::chainstate::stacks::*;
 use crate::chainstate::tests::TestChainstateConfig;
 use crate::core::*;
-use crate::net::test::{TestEventObserver, TestEventObserverBlock, TestPeer, TestPeerConfig};
+use crate::net::test::{
+    TestEventObserver, TestEventObserverBlock, TestPeer, TestPeerChainstateFactory, TestPeerConfig,
+};
 use crate::net::tests::NakamotoBootPlan;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
@@ -71,12 +74,15 @@ pub fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
 #[case::epoch_25(false)]
 fn nakamoto_cases(#[case] use_nakamoto: bool) {}
 
-fn make_simple_pox_4_lock(
+fn make_simple_pox_4_lock<'a, CSP>(
     key: &StacksPrivateKey,
-    peer: &mut TestPeer,
+    peer: &mut TestPeer<'a, CSP>,
     amount: u128,
     lock_period: u128,
-) -> StacksTransaction {
+) -> StacksTransaction
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     let addr = key_to_stacks_addr(key);
     let pox_addr = PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
     let signer_pk = StacksPublicKey::from_private(key);
@@ -276,91 +282,97 @@ fn pox_extend_transition() {
 
     // these checks should pass between Alice's first reward cycle,
     //  and the start of V2 reward cycles
-    let alice_rewards_to_v2_start_checks = |tip_index_block, peer: &mut TestPeer| {
-        let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
-        let cur_reward_cycle = burnchain
-            .block_height_to_reward_cycle(tip_burn_block_height)
-            .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
-            (
-                c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
-                get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
-                c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
-                    .unwrap(),
-            )
-        });
+    let alice_rewards_to_v2_start_checks =
+        |tip_index_block, peer: &mut TestPeer<'_, SharedMemoryChainStateBackend>| {
+            let tip_burn_block_height =
+                get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+            let cur_reward_cycle = burnchain
+                .block_height_to_reward_cycle(tip_burn_block_height)
+                .unwrap() as u128;
+            let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
+                (
+                    c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
+                    get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block)
+                        .unwrap(),
+                    c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                        .unwrap(),
+                )
+            });
 
-        assert!(
-            cur_reward_cycle >= EXPECTED_ALICE_FIRST_REWARD_CYCLE
-                && cur_reward_cycle < first_v2_cycle as u128
-        );
-        //  Alice is the only Stacker, so check that.
-        let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
-            get_stacker_info(peer, &key_to_stacks_addr(&alice).into()).unwrap();
-        eprintln!(
+            assert!(
+                cur_reward_cycle >= EXPECTED_ALICE_FIRST_REWARD_CYCLE
+                    && cur_reward_cycle < first_v2_cycle as u128
+            );
+            //  Alice is the only Stacker, so check that.
+            let (amount_ustx, pox_addr, lock_period, first_reward_cycle) =
+                get_stacker_info(peer, &key_to_stacks_addr(&alice).into()).unwrap();
+            eprintln!(
             "\nAlice: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n",
             amount_ustx, lock_period, &pox_addr, first_reward_cycle
         );
 
-        // one reward address, and it's Alice's
-        // either way, there's a single reward address
-        assert_eq!(reward_addrs.len(), 1);
-        assert_eq!(
-            (reward_addrs[0].0).version(),
-            AddressHashMode::SerializeP2PKH as u8
-        );
-        assert_eq!(
-            (reward_addrs[0].0).hash160(),
-            key_to_stacks_addr(&alice).destruct().1
-        );
-        assert_eq!(reward_addrs[0].1, ALICE_LOCKUP);
-    };
+            // one reward address, and it's Alice's
+            // either way, there's a single reward address
+            assert_eq!(reward_addrs.len(), 1);
+            assert_eq!(
+                (reward_addrs[0].0).version(),
+                AddressHashMode::SerializeP2PKH as u8
+            );
+            assert_eq!(
+                (reward_addrs[0].0).hash160(),
+                key_to_stacks_addr(&alice).destruct().1
+            );
+            assert_eq!(reward_addrs[0].1, ALICE_LOCKUP);
+        };
 
     // these checks should pass after the start of V2 reward cycles
-    let v2_rewards_checks = |tip_index_block, peer: &mut TestPeer| {
-        let tip_burn_block_height = get_par_burn_block_height(peer.chainstate(), &tip_index_block);
-        let cur_reward_cycle = burnchain
-            .block_height_to_reward_cycle(tip_burn_block_height)
-            .unwrap() as u128;
-        let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
-            (
-                c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
-                get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block).unwrap(),
-                c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
-                    .unwrap(),
-            )
-        });
+    let v2_rewards_checks =
+        |tip_index_block, peer: &mut TestPeer<'_, SharedMemoryChainStateBackend>| {
+            let tip_burn_block_height =
+                get_par_burn_block_height(peer.chainstate(), &tip_index_block);
+            let cur_reward_cycle = burnchain
+                .block_height_to_reward_cycle(tip_burn_block_height)
+                .unwrap() as u128;
+            let (min_ustx, reward_addrs, total_stacked) = with_sortdb(peer, |ref mut c, sortdb| {
+                (
+                    c.get_stacking_minimum(sortdb, &tip_index_block).unwrap(),
+                    get_reward_addresses_with_par_tip(c, &burnchain, sortdb, &tip_index_block)
+                        .unwrap(),
+                    c.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
+                        .unwrap(),
+                )
+            });
 
-        eprintln!(
-            "reward_cycle = {}, reward_addrs = {}, total_stacked = {}",
-            cur_reward_cycle,
-            reward_addrs.len(),
-            total_stacked
-        );
+            eprintln!(
+                "reward_cycle = {}, reward_addrs = {}, total_stacked = {}",
+                cur_reward_cycle,
+                reward_addrs.len(),
+                total_stacked
+            );
 
-        assert!(cur_reward_cycle >= first_v2_cycle as u128);
-        // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is Bob + Alice
-        assert_eq!(reward_addrs.len(), 2);
-        assert_eq!(
-            (reward_addrs[0].0).version(),
-            AddressHashMode::SerializeP2PKH as u8
-        );
-        assert_eq!(
-            (reward_addrs[0].0).hash160(),
-            key_to_stacks_addr(&bob).destruct().1,
-        );
-        assert_eq!(reward_addrs[0].1, BOB_LOCKUP);
+            assert!(cur_reward_cycle >= first_v2_cycle as u128);
+            // v2 reward cycles have begun, so reward addrs should be read from PoX2 which is Bob + Alice
+            assert_eq!(reward_addrs.len(), 2);
+            assert_eq!(
+                (reward_addrs[0].0).version(),
+                AddressHashMode::SerializeP2PKH as u8
+            );
+            assert_eq!(
+                (reward_addrs[0].0).hash160(),
+                key_to_stacks_addr(&bob).destruct().1,
+            );
+            assert_eq!(reward_addrs[0].1, BOB_LOCKUP);
 
-        assert_eq!(
-            (reward_addrs[1].0).version(),
-            AddressHashMode::SerializeP2PKH as u8
-        );
-        assert_eq!(
-            (reward_addrs[1].0).hash160(),
-            key_to_stacks_addr(&alice).destruct().1,
-        );
-        assert_eq!(reward_addrs[1].1, ALICE_LOCKUP);
-    };
+            assert_eq!(
+                (reward_addrs[1].0).version(),
+                AddressHashMode::SerializeP2PKH as u8
+            );
+            assert_eq!(
+                (reward_addrs[1].0).hash160(),
+                key_to_stacks_addr(&alice).destruct().1,
+            );
+            assert_eq!(reward_addrs[1].1, ALICE_LOCKUP);
+        };
 
     // first tenure is empty
     let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -823,7 +835,10 @@ fn pox_extend_transition() {
     check_pox_print_event(stack_extend_tx, common_data, stack_ext_op_data);
 }
 
-fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
+fn get_burn_pox_addr_info<'a, CSP>(peer: &mut TestPeer<'a, CSP>) -> (Vec<PoxAddress>, u128)
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     let tip = get_tip(peer.chain.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
@@ -2944,11 +2959,11 @@ fn pox_4_revoke_delegate_stx_events() {
     );
 }
 
-fn verify_signer_key_sig(
+fn verify_signer_key_sig<'a, CSP>(
     signature: &[u8],
     signing_key: &Secp256k1PublicKey,
     pox_addr: &PoxAddress,
-    peer: &mut TestPeer,
+    peer: &mut TestPeer<'a, CSP>,
     latest_block: &StacksBlockId,
     reward_cycle: u128,
     period: u128,
@@ -2956,7 +2971,10 @@ fn verify_signer_key_sig(
     amount: u128,
     max_amount: u128,
     auth_id: u128,
-) -> Value {
+) -> Value
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     let result: Value = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
         chainstate
             .with_read_only_clarity_tx(&sortdb.index_handle_at_tip(), latest_block, |clarity_tx| {
@@ -4225,8 +4243,8 @@ impl StackerSignerInfo {
 
 /// Helper function to advance to a specific block height with the passed txs as the first in the block
 /// Returns a tuple of the tip and the observed block that should contain the provided txs
-fn advance_to_block_height(
-    peer: &mut TestPeer,
+fn advance_to_block_height<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     observer: &TestEventObserver,
     txs: &[StacksTransaction],
     peer_nonce: &mut usize,
@@ -4236,7 +4254,10 @@ fn advance_to_block_height(
     StacksBlockId,
     TestEventObserverBlock,
     Vec<StacksTransactionReceipt>,
-) {
+)
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     let mut tx_block = None;
     let mut latest_block = None;
     let mut passed_txs = txs;
@@ -4297,7 +4318,7 @@ fn stack_agg_increase() {
         (grace.principal.clone(), default_initial_balances),
     ];
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
-    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
     let private_key = peer_config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -4352,7 +4373,7 @@ fn stack_agg_increase() {
     let epochs = peer_config.chain_config.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpochId::Epoch30];
 
-    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
+    let mut peer = TestPeer::new_shared_ephemeral_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
     // Set constants
     let reward_cycle_len = peer
@@ -5144,7 +5165,10 @@ fn stack_increase_different_signer_keys(use_nakamoto: bool) {
     assert_eq!(increase_result, Value::error(Value::Int(40)).unwrap())
 }
 
-pub fn assert_latest_was_burn(peer: &mut TestPeer) {
+pub fn assert_latest_was_burn<'a, CSP>(peer: &mut TestPeer<'a, CSP>)
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     let tip = get_tip(peer.chain.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
@@ -5182,7 +5206,10 @@ pub fn assert_latest_was_burn(peer: &mut TestPeer) {
     }
 }
 
-fn assert_latest_was_pox(peer: &mut TestPeer) -> Vec<PoxAddress> {
+fn assert_latest_was_pox<'a, CSP>(peer: &mut TestPeer<'a, CSP>) -> Vec<PoxAddress>
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     let tip = get_tip(peer.chain.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
@@ -5209,11 +5236,14 @@ fn assert_latest_was_pox(peer: &mut TestPeer) -> Vec<PoxAddress> {
     addrs
 }
 
-fn balances_from_keys(
-    peer: &mut TestPeer,
+fn balances_from_keys<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     keys: &[Secp256k1PrivateKey],
-) -> Vec<STXBalance> {
+) -> Vec<STXBalance>
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     keys.iter()
         .map(key_to_stacks_addr)
         .map(PrincipalData::from)
@@ -6693,7 +6723,7 @@ pub fn pox_4_scenario_test_setup<'a>(
     initial_balances: Vec<(PrincipalData, u64)>,
     use_nakamoto: bool,
 ) -> (
-    TestPeer<'a>,
+    TestPeer<'a, SharedMemoryChainStateBackend>,
     usize,
     u64,
     u128,
@@ -6708,7 +6738,7 @@ pub fn pox_4_scenario_test_setup<'a>(
     // Setup code extracted from your original test
     let test_signers = TestSigners::new(vec![]);
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
-    let mut peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
     let private_key = peer_config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -6761,7 +6791,8 @@ pub fn pox_4_scenario_test_setup<'a>(
         .pox_constants
         .prepare_length = 5;
 
-    let mut peer = TestPeer::new_with_observer(peer_config.clone(), Some(observer));
+    let mut peer =
+        TestPeer::new_shared_ephemeral_with_observer(peer_config.clone(), Some(observer));
 
     let mut peer_nonce = 0;
 
@@ -6815,7 +6846,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     observer: &'a TestEventObserver,
     initial_balances: Vec<(PrincipalData, u64)>,
 ) -> (
-    TestPeer<'a>,
+    TestPeer<'a, SharedMemoryChainStateBackend>,
     usize,
     u64,
     u128,
@@ -6855,7 +6886,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
         pox_addr: Some(pox_addr_from(&test_key)),
         max_amount: None,
     }];
-    let mut peer_config = TestPeerConfig::default();
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(test_name, 0, 0);
     peer_config.chain_config.aggregate_public_key = Some(aggregate_public_key);
     let mut pox_constants = peer_config.chain_config.burnchain.pox_constants.clone();
     pox_constants.reward_cycle_length = 10;
@@ -6877,7 +6908,9 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     peer_config.chain_config.test_signers = Some(test_signers.clone());
 
     info!("---- Booting into Nakamoto Peer ----");
-    let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], Some(observer));
+    let mut peer = boot_plan
+        .boot_into_nakamoto_peers_shared_ephemeral(vec![], Some(observer))
+        .0;
     let sort_db = peer.chain.sortdb.as_ref().unwrap();
     let latest_block = sort_db
         .index_handle_at_tip()
@@ -9054,11 +9087,14 @@ fn delegate_stack_increase_err(use_nakamoto: bool) {
     }
 }
 
-pub fn get_stacking_state_pox_4(
-    peer: &mut TestPeer,
+pub fn get_stacking_state_pox_4<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     account: &PrincipalData,
-) -> Option<Value> {
+) -> Option<Value>
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
             TupleData::from_data(vec![(
@@ -9117,8 +9153,8 @@ pub fn make_signer_key_authorization_lookup_key(
     .into()
 }
 
-pub fn get_signer_key_authorization_pox_4(
-    peer: &mut TestPeer,
+pub fn get_signer_key_authorization_pox_4<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     pox_addr: &PoxAddress,
     reward_cycle: u64,
@@ -9127,7 +9163,10 @@ pub fn get_signer_key_authorization_pox_4(
     signer_key: &StacksPublicKey,
     max_amount: u128,
     auth_id: u128,
-) -> Option<bool> {
+) -> Option<bool>
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = make_signer_key_authorization_lookup_key(
             pox_addr,
@@ -9155,8 +9194,8 @@ pub fn get_signer_key_authorization_pox_4(
 /// Lookup in the `used-signer-key-authorizations` map
 /// for a specific signer key authorization. If no entry is
 /// found, `false` is returned.
-pub fn get_signer_key_authorization_used_pox_4(
-    peer: &mut TestPeer,
+pub fn get_signer_key_authorization_used_pox_4<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     pox_addr: &PoxAddress,
     reward_cycle: u64,
@@ -9165,7 +9204,10 @@ pub fn get_signer_key_authorization_used_pox_4(
     signer_key: &StacksPublicKey,
     max_amount: u128,
     auth_id: u128,
-) -> bool {
+) -> bool
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = make_signer_key_authorization_lookup_key(
             pox_addr,
@@ -9191,13 +9233,16 @@ pub fn get_signer_key_authorization_used_pox_4(
     .unwrap_or(false)
 }
 
-pub fn get_partially_stacked_state_pox_4(
-    peer: &mut TestPeer,
+pub fn get_partially_stacked_state_pox_4<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     pox_addr: &PoxAddress,
     reward_cycle: u64,
     sender: &StacksAddress,
-) -> Option<u128> {
+) -> Option<u128>
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = TupleData::from_data(vec![
             (
@@ -9236,11 +9281,14 @@ pub fn get_partially_stacked_state_pox_4(
     })
 }
 
-pub fn get_delegation_state_pox_4(
-    peer: &mut TestPeer,
+pub fn get_delegation_state_pox_4<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     account: &PrincipalData,
-) -> Option<Value> {
+) -> Option<Value>
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
             TupleData::from_data(vec![(
@@ -9262,7 +9310,13 @@ pub fn get_delegation_state_pox_4(
     })
 }
 
-pub fn get_stacking_minimum(peer: &mut TestPeer, latest_block: &StacksBlockId) -> u128 {
+pub fn get_stacking_minimum<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
+    latest_block: &StacksBlockId,
+) -> u128
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     with_sortdb(peer, |ref mut chainstate, sortdb| {
         chainstate.get_stacking_minimum(sortdb, latest_block)
     })
@@ -9275,7 +9329,7 @@ pub fn prepare_pox4_test<'a>(
     use_nakamoto: bool,
 ) -> (
     Burnchain,
-    TestPeer<'a>,
+    TestPeer<'a, SharedMemoryChainStateBackend>,
     Vec<StacksPrivateKey>,
     StacksBlockId,
     u64,
@@ -9332,7 +9386,9 @@ pub fn prepare_pox4_test<'a>(
         burnchain.pox_constants = pox_constants;
 
         info!("---- Booting into Nakamoto Peer ----");
-        let peer = boot_plan.boot_into_nakamoto_peer(vec![], observer);
+        let peer = boot_plan
+            .boot_into_nakamoto_peers_shared_ephemeral(vec![], observer)
+            .0;
         let sort_db = peer.chain.sortdb.as_ref().unwrap();
         let latest_block = sort_db
             .index_handle_at_tip()
@@ -9382,12 +9438,15 @@ pub fn prepare_pox4_test<'a>(
 }
 
 use crate::chainstate::stacks::Error as ChainstateError;
-pub fn tenure_with_txs_fallible(
-    peer: &mut TestPeer,
+pub fn tenure_with_txs_fallible<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     txs: &[StacksTransaction],
     coinbase_nonce: &mut usize,
     test_signers: &mut Option<TestSigners>,
-) -> Result<StacksBlockId, ChainstateError> {
+) -> Result<StacksBlockId, ChainstateError>
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     if let Some(test_signers) = test_signers {
         let (burn_ops, mut tenure_change, miner_key) =
             peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -9436,12 +9495,15 @@ pub fn tenure_with_txs_fallible(
     }
 }
 
-pub fn tenure_with_txs(
-    peer: &mut TestPeer,
+pub fn tenure_with_txs<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     txs: &[StacksTransaction],
     coinbase_nonce: &mut usize,
     test_signers: &mut Option<TestSigners>,
-) -> StacksBlockId {
+) -> StacksBlockId
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     if let Some(test_signers) = test_signers {
         let (burn_ops, mut tenure_change, miner_key) =
             peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);

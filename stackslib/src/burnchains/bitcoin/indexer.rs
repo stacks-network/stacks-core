@@ -14,10 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(any(test, feature = "testing"))]
+use std::collections::HashMap;
 use std::net::Shutdown;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use std::{cmp, fs, net};
 
@@ -49,6 +53,8 @@ use crate::core::{
     EpochList, StacksEpoch, StacksEpochExtension, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST,
     STACKS_EPOCHS_TESTNET,
 };
+#[cfg(test)]
+use crate::util_lib::db::sqlite_memory_namespace;
 use crate::util_lib::db::Error as DBError;
 
 pub const USER_AGENT: &str = "Stacks/2.1";
@@ -147,6 +153,11 @@ pub struct BitcoinIndexer {
     pub should_keep_running: Option<Arc<AtomicBool>>,
 }
 
+#[cfg(any(test, feature = "testing"))]
+/// Holds named in-memory SPV DBs open for the duration of the test process.
+static IN_MEMORY_SPV_HEADERS_KEEPALIVE: LazyLock<Mutex<HashMap<String, SpvClient>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 impl BitcoinIndexerConfig {
     pub fn default(first_block: u64) -> BitcoinIndexerConfig {
         BitcoinIndexerConfig {
@@ -234,6 +245,10 @@ impl BitcoinIndexer {
 
     #[cfg(test)]
     pub fn new_unit_test(working_dir: &str) -> BitcoinIndexer {
+        if working_dir.starts_with("memory://") {
+            return BitcoinIndexer::new_unit_test_in_memory(working_dir);
+        }
+
         let mut working_dir_path = PathBuf::from(working_dir);
         if fs::metadata(&working_dir_path).is_err() {
             fs::create_dir_all(&working_dir_path).unwrap();
@@ -259,6 +274,44 @@ impl BitcoinIndexer {
             config,
             runtime: BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest, timeout),
             should_keep_running: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_unit_test_in_memory(namespace: &str) -> BitcoinIndexer {
+        let namespace = sqlite_memory_namespace(namespace);
+        let headers_path = format!("file:{namespace}-bitcoin-headers?mode=memory&cache=shared");
+        let spv_headers_keepalive = SpvClient::new(
+            &headers_path,
+            0,
+            None,
+            BitcoinNetworkType::Regtest,
+            true,
+            false,
+        )
+        .unwrap_or_else(|_| panic!("Failed to open in-memory SPV headers DB {headers_path:?}"));
+
+        let config = BitcoinIndexerConfig::default_regtest(headers_path);
+        let timeout = config.timeout;
+        let spv_headers_path = config.spv_headers_path.clone();
+        IN_MEMORY_SPV_HEADERS_KEEPALIVE
+            .lock()
+            .expect("in-memory SPV headers keepalive registry poisoned")
+            .insert(spv_headers_path, spv_headers_keepalive);
+
+        BitcoinIndexer {
+            config,
+            runtime: BitcoinIndexerRuntime::new(BitcoinNetworkType::Regtest, timeout),
+            should_keep_running: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_unit_test_for_working_dir(working_dir: &str) -> BitcoinIndexer {
+        if working_dir.starts_with("memory://") {
+            BitcoinIndexer::new_unit_test_in_memory(working_dir)
+        } else {
+            BitcoinIndexer::new_unit_test(working_dir)
         }
     }
 

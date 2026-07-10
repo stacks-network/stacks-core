@@ -33,7 +33,10 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+    let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
+        addr,
+        &ConnectionOptions::default(),
+    );
 
     let request = StacksHttpRequest::new_getclaritymetadata(
         addr.into(),
@@ -79,14 +82,19 @@ fn test_try_parse_request() {
 
     assert_eq!(&preamble, request.preamble());
 
-    handler.restart();
+    RPCRequestHandler::<crate::chainstate::stacks::db::DiskChainStateBackend>::restart(
+        &mut handler,
+    );
     assert!(handler.clarity_metadata_key.is_none());
 }
 
 #[test]
 fn test_try_parse_invalid_store_type() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+    let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
+        addr,
+        &ConnectionOptions::default(),
+    );
 
     let request = StacksHttpRequest::new_getclaritymetadata(
         addr.into(),
@@ -115,13 +123,18 @@ fn test_try_parse_invalid_store_type() {
         parsed_request_err,
         HttpError::DecodeError("Invalid metadata type".to_string()).into()
     );
-    handler.restart();
+    RPCRequestHandler::<crate::chainstate::stacks::db::DiskChainStateBackend>::restart(
+        &mut handler,
+    );
 }
 
 #[test]
 fn test_try_parse_invalid_contract_metadata_var_name() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+    let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
+        addr,
+        &ConnectionOptions::default(),
+    );
 
     let request = StacksHttpRequest::new_getclaritymetadata(
         addr.into(),
@@ -150,13 +163,18 @@ fn test_try_parse_invalid_contract_metadata_var_name() {
         parsed_request_err,
         HttpError::DecodeError("Invalid metadata var name".to_string()).into()
     );
-    handler.restart();
+    RPCRequestHandler::<crate::chainstate::stacks::db::DiskChainStateBackend>::restart(
+        &mut handler,
+    );
 }
 
 #[test]
 fn test_try_parse_request_for_analysis() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+    let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
+        addr,
+        &ConnectionOptions::default(),
+    );
 
     let request = StacksHttpRequest::new_getclaritymetadata(
         addr.into(),
@@ -199,7 +217,9 @@ fn test_try_parse_request_for_analysis() {
 
     assert_eq!(&preamble, request.preamble());
 
-    handler.restart();
+    RPCRequestHandler::<crate::chainstate::stacks::db::DiskChainStateBackend>::restart(
+        &mut handler,
+    );
     assert!(handler.clarity_metadata_key.is_none());
 }
 

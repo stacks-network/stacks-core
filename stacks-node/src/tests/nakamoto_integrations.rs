@@ -57,7 +57,7 @@ use stacks::chainstate::stacks::boot::{
     COSTS_4_NAME, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
     SIP_031_TESTNET_ADDR,
 };
-use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResult, TransactionSuccessEvent,
     TEST_TX_STALL,
@@ -389,7 +389,7 @@ pub fn get_stackerdb_slot_version(
 
 pub fn get_last_block_in_current_tenure(
     sortdb: &SortitionDB,
-    chainstate: &StacksChainState,
+    chainstate: &StacksChainState<DiskChainStateBackend>,
 ) -> Option<StacksHeaderInfo> {
     let ch = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
         .unwrap()
@@ -609,7 +609,7 @@ pub fn read_and_sign_block_proposal(
     let conf = configs.first().unwrap();
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -1754,7 +1754,7 @@ fn simple_neon_integration() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -1995,7 +1995,7 @@ fn restarting_miner() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -2248,7 +2248,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -2466,7 +2466,7 @@ fn mine_multiple_per_tenure_integration() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -2714,7 +2714,7 @@ fn multiple_miners() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -3241,7 +3241,7 @@ fn block_proposal_api_endpoint() {
 
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -3768,7 +3768,7 @@ fn vote_for_aggregate_key_burn_op() {
 
     let burnchain = naka_conf.get_burnchain();
     let _sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (_chainstate, _) = StacksChainState::open(
+    let (_chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -3996,7 +3996,7 @@ fn follower_bootup_simple() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -4317,7 +4317,7 @@ fn follower_bootup_across_multiple_cycles() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -4544,7 +4544,7 @@ fn follower_bootup_custom_chain_id() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -5479,7 +5479,7 @@ fn bad_commit_does_not_trigger_fork() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -5858,7 +5858,7 @@ fn check_block_heights() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -6294,7 +6294,7 @@ fn nakamoto_attempt_time() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -6890,7 +6890,7 @@ fn signer_chainstate() {
     // query for prometheus metrics
     #[cfg(feature = "monitoring_prom")]
     {
-        let (chainstate, _) = StacksChainState::open(
+        let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
             naka_conf.is_mainnet(),
             naka_conf.burnchain.chain_id,
             &naka_conf.get_chainstate_path_str(),
@@ -7481,7 +7481,7 @@ fn continue_tenure_extend() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -8371,7 +8371,7 @@ fn check_block_info() {
         result.expect_tuple().unwrap().data_map
     };
 
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -9155,7 +9155,7 @@ fn check_block_info_rewards() {
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {info:?}");
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -10164,7 +10164,7 @@ fn v3_blockbyheight_api_endpoint() {
 
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -10274,7 +10274,7 @@ fn nakamoto_lockup_events() {
     blind_signer(&conf, &signers, &counters);
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -10455,7 +10455,7 @@ fn skip_mining_long_tx() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -10612,7 +10612,7 @@ fn test_shadow_recovery() {
 
     let burnchain = naka_conf.get_burnchain();
     let mut sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         false,
         CHAIN_ID_TESTNET,
         &naka_conf.get_chainstate_path_str(),
@@ -10819,7 +10819,7 @@ fn sip029_coinbase_change() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -12913,7 +12913,7 @@ fn v3_transaction_api_endpoint() {
 
     let burnchain = conf.get_burnchain();
     let _sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (_chainstate, _) = StacksChainState::open(
+    let (_chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -13622,7 +13622,7 @@ fn test_sip_031_activation() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -13952,7 +13952,7 @@ fn test_sip_031_last_phase() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -14276,7 +14276,7 @@ fn test_sip_031_last_phase_out_of_epoch() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -14475,7 +14475,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -14847,7 +14847,7 @@ fn test_epoch_3_3_activation() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),

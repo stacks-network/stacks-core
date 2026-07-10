@@ -25,7 +25,7 @@ use stacks_common::util::hash::Hash160;
 use crate::burnchains::PoxConstants;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::RawRewardSetEntry;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::PoxRewardSetCalculator;
 use crate::proptest_utils::reward_set_entry_strategy;
 
 pub fn check_make_reward_set(
@@ -45,7 +45,7 @@ pub fn check_make_reward_set(
 
     prop_assume!(total_stacked <= liquid_ustx);
 
-    let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
+    let (threshold, participation) = PoxRewardSetCalculator::get_reward_threshold_and_participation(
         &pox_settings,
         addresses,
         liquid_ustx,
@@ -53,8 +53,11 @@ pub fn check_make_reward_set(
 
     prop_assume!(threshold > 0);
 
-    let reward_set =
-        StacksChainState::make_reward_set(threshold, addresses.to_vec(), StacksEpochId::latest());
+    let reward_set = PoxRewardSetCalculator::make_reward_set(
+        threshold,
+        addresses.to_vec(),
+        StacksEpochId::latest(),
+    );
 
     prop_assert_eq!(Some(threshold), reward_set.pox_ustx_threshold);
 

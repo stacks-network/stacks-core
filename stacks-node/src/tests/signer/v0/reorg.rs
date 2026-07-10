@@ -24,7 +24,9 @@ use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::chainstate::nakamoto::NakamotoChainState;
-use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{
+    DiskChainStateBackend, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+};
 use stacks::chainstate::stacks::TenureChangeCause;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::test_util::{make_stacks_transfer_serialized, to_addr};
@@ -1665,7 +1667,7 @@ fn forked_tenure_testing(
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -3491,7 +3493,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
 
     let burnchain = conf_1.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf_1.is_mainnet(),
         conf_1.burnchain.chain_id,
         &conf_1.get_chainstate_path_str(),

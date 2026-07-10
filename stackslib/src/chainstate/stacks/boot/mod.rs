@@ -42,7 +42,10 @@ use stacks_common::util::tests::TestFlag;
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::db::{StacksChainState, StacksDBConn};
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, PoxCycleStartHandler, PoxRewardSetCalculator, StacksChainState,
+    StacksDBConn,
+};
 use crate::chainstate::stacks::Error;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
 use crate::clarity_vm::database::HeadersDBConn;
@@ -342,7 +345,7 @@ impl RewardSetData {
     }
 }
 
-impl StacksChainState {
+impl PoxCycleStartHandler {
     /// Return the MARF key used to store whether or not a given PoX
     ///  cycle's "start" has been handled by the Stacks fork yet. This
     ///  is used in Stacks 2.1 to help process unlocks.
@@ -629,7 +632,9 @@ impl StacksChainState {
 
         Ok(total_events)
     }
+}
 
+impl<B: ChainStatePersistence> StacksChainState<B> {
     pub fn eval_boot_code_read_only(
         &mut self,
         sortdb: &SortitionDB,
@@ -766,7 +771,9 @@ impl StacksChainState {
                 .expect("FATAL: unexpected PoX structure")
         })
     }
+}
 
+impl PoxRewardSetCalculator {
     pub fn make_signer_set(
         threshold: u128,
         entries: &[RawRewardSetEntry],
@@ -991,7 +998,9 @@ impl StacksChainState {
         );
         (threshold, participation)
     }
+}
 
+impl<B: ChainStatePersistence> StacksChainState<B> {
     fn get_reward_addresses_pox_1(
         &mut self,
         sortdb: &SortitionDB,
@@ -1501,7 +1510,7 @@ pub mod test {
             },
         ];
         assert_eq!(
-            StacksChainState::make_reward_set(threshold, addresses, StacksEpochId::Epoch2_05)
+            PoxRewardSetCalculator::make_reward_set(threshold, addresses, StacksEpochId::Epoch2_05)
                 .rewarded_addresses
                 .len(),
             3
@@ -1531,7 +1540,7 @@ pub mod test {
         //   the threshold should always be the step size.
         let liquid = POX_THRESHOLD_STEPS_USTX;
         assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
+            PoxRewardSetCalculator::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[],
                 liquid,
@@ -1540,7 +1549,7 @@ pub mod test {
             POX_THRESHOLD_STEPS_USTX
         );
         assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
+            PoxRewardSetCalculator::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
@@ -1557,7 +1566,7 @@ pub mod test {
         let liquid = 200_000_000 * MICROSTACKS_PER_STACKS as u128;
         // with zero participation, should scale to 25% of liquid
         assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
+            PoxRewardSetCalculator::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[],
                 liquid,
@@ -1567,7 +1576,7 @@ pub mod test {
         );
         // should be the same at 25% participation
         assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
+            PoxRewardSetCalculator::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
@@ -1582,7 +1591,7 @@ pub mod test {
         );
         // but not at 30% participation
         assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
+            PoxRewardSetCalculator::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[
                     RawRewardSetEntry {
@@ -1606,7 +1615,7 @@ pub mod test {
 
         // bump by just a little bit, should go to the next threshold step
         assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
+            PoxRewardSetCalculator::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[
                     RawRewardSetEntry {
@@ -1630,7 +1639,7 @@ pub mod test {
 
         // bump by just a little bit, should go to the next threshold step
         assert_eq!(
-            StacksChainState::get_reward_threshold_and_participation(
+            PoxRewardSetCalculator::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
@@ -1662,7 +1671,10 @@ pub mod test {
     pub fn instantiate_pox_peer<'a>(
         burnchain: &Burnchain,
         test_name: &str,
-    ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
+    ) -> (
+        TestPeer<'a, SharedMemoryChainStateBackend>,
+        Vec<StacksPrivateKey>,
+    ) {
         instantiate_pox_peer_with_epoch(burnchain, test_name, None, None)
     }
 
@@ -1671,8 +1683,11 @@ pub mod test {
         test_name: &str,
         epochs: Option<EpochList>,
         observer: Option<&'a TestEventObserver>,
-    ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
-        let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
+    ) -> (
+        TestPeer<'a, SharedMemoryChainStateBackend>,
+        Vec<StacksPrivateKey>,
+    ) {
+        let mut peer_config = TestPeerConfig::new_shared_ephemeral(test_name, 0, 0);
         peer_config.chain_config.burnchain = burnchain.clone();
         peer_config.chain_config.epochs = epochs;
         peer_config.setup_code = format!(
@@ -1712,12 +1727,19 @@ pub mod test {
             .collect();
 
         peer_config.chain_config.initial_balances = balances;
-        let peer = TestPeer::new_with_observer(peer_config, observer);
+        let peer = TestPeer::new_shared_ephemeral_with_observer(peer_config, observer);
 
         (peer, keys.to_vec())
     }
 
-    pub fn eval_at_tip(peer: &mut TestPeer, boot_contract: &str, expr: &str) -> Value {
+    pub fn eval_at_tip<'a, CSP>(
+        peer: &mut TestPeer<'a, CSP>,
+        boot_contract: &str,
+        expr: &str,
+    ) -> Value
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let sortdb = peer.chain.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -1740,12 +1762,15 @@ pub mod test {
         )
     }
 
-    fn eval_contract_at_tip(
-        peer: &mut TestPeer,
+    fn eval_contract_at_tip<'a, CSP>(
+        peer: &mut TestPeer<'a, CSP>,
         addr: &StacksAddress,
         name: &str,
         expr: &str,
-    ) -> Value {
+    ) -> Value
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let sortdb = peer.chain.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -1761,7 +1786,10 @@ pub mod test {
         value
     }
 
-    pub fn get_liquid_ustx(peer: &mut TestPeer) -> u128 {
+    pub fn get_liquid_ustx<'a, CSP>(peer: &mut TestPeer<'a, CSP>) -> u128
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let value = eval_at_tip(peer, "pox", "stx-liquid-supply");
         if let Value::UInt(inner_uint) = value {
             return inner_uint;
@@ -1770,7 +1798,10 @@ pub mod test {
         }
     }
 
-    pub fn get_balance(peer: &mut TestPeer, addr: &PrincipalData) -> u128 {
+    pub fn get_balance<'a, CSP>(peer: &mut TestPeer<'a, CSP>, addr: &PrincipalData) -> u128
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let value = eval_at_tip(peer, "pox", &format!("(stx-get-balance '{addr})"));
         if let Value::UInt(balance) = value {
             return balance;
@@ -1779,10 +1810,13 @@ pub mod test {
         }
     }
 
-    pub fn get_stacker_info_pox_4(
-        peer: &mut TestPeer,
+    pub fn get_stacker_info_pox_4<'a, CSP>(
+        peer: &mut TestPeer<'a, CSP>,
         addr: &PrincipalData,
-    ) -> Option<(PoxAddress, u128, u128, Vec<u128>)> {
+    ) -> Option<(PoxAddress, u128, u128, Vec<u128>)>
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let value_opt = eval_at_tip(peer, "pox-4", &format!("(get-stacker-info '{addr})"));
         let data = if let Some(d) = value_opt.expect_optional().unwrap() {
             d
@@ -1828,10 +1862,13 @@ pub mod test {
         ))
     }
 
-    pub fn get_stacker_info(
-        peer: &mut TestPeer,
+    pub fn get_stacker_info<'a, CSP>(
+        peer: &mut TestPeer<'a, CSP>,
         addr: &PrincipalData,
-    ) -> Option<(u128, PoxAddress, u128, u128)> {
+    ) -> Option<(u128, PoxAddress, u128, u128)>
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let value_opt = eval_at_tip(peer, "pox", &format!("(get-stacker-info '{addr})"));
         let data = value_opt.expect_optional().unwrap()?;
 
@@ -1865,9 +1902,10 @@ pub mod test {
         Some((amount_ustx, pox_addr, lock_period, first_reward_cycle))
     }
 
-    pub fn with_sortdb<F, R>(peer: &mut TestPeer, todo: F) -> R
+    pub fn with_sortdb<'a, CSP, F, R>(peer: &mut TestPeer<'a, CSP>, todo: F) -> R
     where
-        F: FnOnce(&mut StacksChainState, &SortitionDB) -> R,
+        CSP: TestPeerChainstateFactory<'a>,
+        F: FnOnce(&mut StacksChainState<CSP>, &SortitionDB) -> R,
     {
         let sortdb = peer.chain.sortdb.take().unwrap();
         let r = todo(peer.chainstate(), &sortdb);
@@ -1875,7 +1913,10 @@ pub mod test {
         r
     }
 
-    pub fn get_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAccount {
+    pub fn get_account<'a, CSP>(peer: &mut TestPeer<'a, CSP>, addr: &PrincipalData) -> StacksAccount
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let account = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
             let (consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -1886,14 +1927,20 @@ pub mod test {
                         .index_handle_at_block(chainstate, &stacks_block_id)
                         .unwrap(),
                     &stacks_block_id,
-                    |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
+                    |clarity_tx| clarity_tx.get_account(addr),
                 )
                 .unwrap()
         });
         account
     }
 
-    fn get_contract(peer: &mut TestPeer, addr: &QualifiedContractIdentifier) -> Option<Contract> {
+    fn get_contract<'a, CSP>(
+        peer: &mut TestPeer<'a, CSP>,
+        addr: &QualifiedContractIdentifier,
+    ) -> Option<Contract>
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let contract_opt = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
             let (consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -1904,7 +1951,7 @@ pub mod test {
                         .index_handle_at_block(chainstate, &stacks_block_id)
                         .unwrap(),
                     &stacks_block_id,
-                    |clarity_tx| StacksChainState::get_contract(clarity_tx, addr).unwrap(),
+                    |clarity_tx| clarity_tx.get_contract(addr).unwrap(),
                 )
                 .unwrap()
         });
@@ -2124,11 +2171,14 @@ pub mod test {
         make_tx(key, nonce, 1, payload)
     }
 
-    pub fn get_approved_aggregate_key(
-        peer: &mut TestPeer<'_>,
+    pub fn get_approved_aggregate_key<'a, CSP>(
+        peer: &mut TestPeer<'a, CSP>,
         latest_block_id: &StacksBlockId,
         reward_cycle: u128,
-    ) -> Option<Vec<u8>> {
+    ) -> Option<Vec<u8>>
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let key_opt = readonly_call(
             peer,
             latest_block_id,
@@ -2766,8 +2816,8 @@ pub mod test {
         make_pox_contract_call(key, nonce, "reject-pox", vec![])
     }
 
-    pub fn get_reward_addresses_with_par_tip(
-        state: &mut StacksChainState,
+    pub fn get_reward_addresses_with_par_tip<B: ChainStatePersistence>(
+        state: &mut StacksChainState<B>,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
@@ -2783,8 +2833,8 @@ pub mod test {
         )
     }
 
-    pub fn get_reward_set_entries_at_block(
-        state: &mut StacksChainState,
+    pub fn get_reward_set_entries_at_block<B: ChainStatePersistence>(
+        state: &mut StacksChainState<B>,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
@@ -2798,14 +2848,14 @@ pub mod test {
             })
     }
 
-    pub fn get_parent_tip(
+    pub fn get_parent_tip<B: ChainStatePersistence>(
         parent_opt: &Option<&StacksBlock>,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<B>,
         sortdb: &SortitionDB,
     ) -> StacksHeaderInfo {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let parent_tip = match parent_opt {
-            None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+            None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
             Some(block) => {
                 let ic = sortdb.index_conn();
                 let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -2815,7 +2865,7 @@ pub mod test {
                 )
                 .unwrap()
                 .unwrap(); // succeeds because we don't fork
-                StacksChainState::get_anchored_block_header_info(
+                StacksHeadersDb::get_anchored_block_header_info(
                     chainstate.db(),
                     &snapshot.consensus_hash,
                     &snapshot.winning_stacks_block_hash,
@@ -2827,7 +2877,13 @@ pub mod test {
         parent_tip
     }
 
-    pub fn get_current_reward_cycle(peer: &TestPeer, burnchain: &Burnchain) -> u128 {
+    pub fn get_current_reward_cycle<'a, CSP>(
+        peer: &TestPeer<'a, CSP>,
+        burnchain: &Burnchain,
+    ) -> u128
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
                 .unwrap();
@@ -2921,7 +2977,7 @@ pub mod test {
             0,
             &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
         );
-        let mut peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
+        let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2000, 2001);
         let alice = StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap();
         let bob = StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap();
         peer_config.chain_config.initial_lockups = vec![
@@ -2935,7 +2991,7 @@ pub mod test {
             ChainstateAccountLockup::new(alice.clone(), 1000, 6),
             ChainstateAccountLockup::new(alice.clone(), 1000, 7),
         ];
-        let mut peer = TestPeer::new(peer_config);
+        let mut peer = TestPeer::new_shared_ephemeral(peer_config);
 
         let num_blocks = 8;
         let mut missed_initial_blocks = 0;
@@ -3239,21 +3295,20 @@ pub mod test {
         }
     }
 
-    pub fn get_par_burn_block_height(
-        state: &mut StacksChainState,
+    pub fn get_par_burn_block_height<B: ChainStatePersistence>(
+        state: &mut StacksChainState<B>,
         block_id: &StacksBlockId,
     ) -> u64 {
-        let parent_block_id = StacksChainState::get_parent_block_id(state.db(), block_id)
+        let parent_block_id = StacksHeadersDb::get_parent_block_id(state.db(), block_id)
             .unwrap()
             .unwrap();
 
-        let parent_header_info =
-            StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                state.db(),
-                &parent_block_id,
-            )
-            .unwrap()
-            .unwrap();
+        let parent_header_info = StacksHeadersDb::get_stacks_block_header_info_by_index_block_hash(
+            state.db(),
+            &parent_block_id,
+        )
+        .unwrap()
+        .unwrap();
 
         parent_header_info.burn_header_height as u64
     }

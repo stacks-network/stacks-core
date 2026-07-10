@@ -26,7 +26,7 @@ use stacks_common::util::get_epoch_time_secs;
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHashExtensions};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::net::chat::ConversationP2P;
 use crate::net::connection::ReplyHandleP2P;
 use crate::net::db::PeerDB;
@@ -703,7 +703,7 @@ impl NeighborBlockStats {
     /// Determine whether or not a received PoxInv is less certain than the local PoX
     /// inventory.  Return the lowest reward cycle where the remote node is less certain than us.
     pub fn check_remote_pox_inv_uncertainty(
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         target_pox_reward_cycle: u64,
         poxinv_data: &PoxInvData,
     ) -> u64 {
@@ -727,7 +727,7 @@ impl NeighborBlockStats {
     /// inventory.  Return the loewst reward cycle where the local nodes is less certain than the
     /// remote node.
     pub fn check_local_pox_inv_uncertainty(
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         target_pox_reward_cycle: u64,
         poxinv_data: &PoxInvData,
     ) -> u64 {
@@ -751,7 +751,10 @@ impl NeighborBlockStats {
     /// Return true if this method is done -- i.e. all requests have been handled.
     /// Return false if we're not done.
     /// Return Err(..) on irrecoverable error.
-    pub fn getpoxinv_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn getpoxinv_try_finish(
+        &mut self,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> Result<bool, net_error> {
         assert!(!self.done);
         assert_eq!(self.state, InvWorkState::GetPoxInvFinish);
 
@@ -847,7 +850,7 @@ impl NeighborBlockStats {
     /// Return false if we're not done.
     pub fn getblocksinv_try_finish(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<bool, net_error> {
         assert!(!self.done);
         assert_eq!(self.state, InvWorkState::GetBlocksInvFinish);
@@ -989,7 +992,7 @@ impl InvState {
 
     fn reset_sync_peers(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         peers: HashSet<NeighborKey>,
         bootstrap_peers: &HashSet<NeighborKey>,
         max_neighbors: usize,
@@ -1317,7 +1320,7 @@ impl InvState {
     }
 }
 
-impl PeerNetwork {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> PeerNetwork<CSP> {
     /// Get our current tip snapshot, accounting for PoX invalidation
     fn get_tip_sortition_snapshot(&self, sortdb: &SortitionDB) -> Result<BlockSnapshot, net_error> {
         match SortitionDB::get_block_snapshot(sortdb.conn(), &self.tip_sort_id)? {
@@ -2159,7 +2162,7 @@ impl PeerNetwork {
 
     /// Refresh our cached PoX bitvector, and invalidate any PoX state if we have since learned
     /// about a new reward cycle.
-    /// Call right after PeerNetwork::refresh_burnchain_view()
+    /// Call right after Self::refresh_burnchain_view()
     pub fn refresh_sortition_view(&mut self, sortdb: &SortitionDB) -> Result<(), net_error> {
         if self.inv_state.is_none() {
             self.init_inv_sync_epoch2x(sortdb);
@@ -2233,7 +2236,7 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         ibd: bool,
     ) -> (bool, bool, Vec<NeighborKey>, Vec<NeighborKey>) {
-        PeerNetwork::with_inv_state(self, |network, inv_state| {
+        Self::with_inv_state(self, |network, inv_state| {
             debug!(
                 "{:?}: Inventory state has {} block stats tracked on connections {:?}",
                 &network.local_peer,
@@ -2478,9 +2481,9 @@ impl PeerNetwork {
         .expect("FATAL: network not connected")
     }
 
-    pub fn with_inv_state<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
+    pub fn with_inv_state<F, R>(network: &mut PeerNetwork<CSP>, handler: F) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut InvState) -> R,
+        F: FnOnce(&mut PeerNetwork<CSP>, &mut InvState) -> R,
     {
         let mut inv_state = network.inv_state.take();
         let res = match inv_state {
@@ -2548,9 +2551,9 @@ impl PeerNetwork {
         func: F,
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut NeighborBlockStats) -> R,
+        F: FnOnce(&mut PeerNetwork<CSP>, &mut NeighborBlockStats) -> R,
     {
-        match PeerNetwork::with_inv_state(self, |network, inv_state| {
+        match Self::with_inv_state(self, |network, inv_state| {
             if let Some(nstats) = inv_state.block_stats.get_mut(nk) {
                 Ok(func(network, nstats))
             } else {
@@ -2569,7 +2572,7 @@ impl PeerNetwork {
     pub fn get_local_blocks_inv(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         reward_cycle: u64,
     ) -> Result<BlocksInvData, net_error> {
         let target_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);

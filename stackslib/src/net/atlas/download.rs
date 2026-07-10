@@ -93,7 +93,7 @@ impl AttachmentsDownloader {
     pub fn run(
         &mut self,
         dns_client: &mut DNSClient,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<(Vec<(AttachmentInstance, Attachment)>, Vec<usize>), net_error> {
         let mut resolved_attachments = vec![];
         let mut events_to_deregister = vec![];
@@ -588,7 +588,7 @@ impl AttachmentsBatchStateMachine {
     fn try_proceed(
         fsm: AttachmentsBatchStateMachine,
         dns_client: &mut DNSClient,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> AttachmentsBatchStateMachine {
         match fsm {
             AttachmentsBatchStateMachine::Initialized(context) => {
@@ -820,7 +820,7 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
     fn try_proceed(
         fsm: BatchedRequestsState<T>,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         connection_options: &ConnectionOptions,
     ) -> BatchedRequestsState<T> {
         let mut fsm = fsm;

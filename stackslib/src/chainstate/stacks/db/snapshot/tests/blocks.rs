@@ -37,8 +37,9 @@ use super::{
     create_dest_db_with_canonical_blocks, create_source_db, insert_epoch2_block_header_with_ibh,
     insert_nakamoto_header,
 };
-use crate::chainstate::nakamoto::staging_blocks::NAKAMOTO_STAGING_DB_SCHEMA_LATEST;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::nakamoto::staging_blocks::{
+    NakamotoStagingBlocksDb, NAKAMOTO_STAGING_DB_SCHEMA_LATEST,
+};
 use crate::chainstate::stacks::index::Error;
 use crate::chainstate::stacks::{
     StacksMicroblock, StacksMicroblockHeader, StacksTransaction, TokenTransferMemo,
@@ -92,7 +93,7 @@ fn test_epoch2_block_file_copy() {
     );
 
     // Create source block file for height 1.
-    // StacksChainState::index_block_hash_to_rel_path uses 2-byte (4 hex char) directory segments.
+    // StacksBlockStore::index_block_hash_to_rel_path uses 2-byte (4 hex char) directory segments.
     let rel = format!("aabb/ccdd/{hash_hex}");
     let src_file = src_blocks_dir.join(&rel);
     std::fs::create_dir_all(src_file.parent().unwrap()).unwrap();
@@ -338,16 +339,16 @@ fn insert_staging_block_with_microblock_parent(
 }
 
 /// Create a source nakamoto.sqlite via the production initializer
-/// ([`StacksChainState::open_nakamoto_staging_blocks`]), so the fixture
+/// ([`NakamotoStagingBlocksDb::open_nakamoto_staging_blocks`]), so the fixture
 /// always carries the current schema instead of replaying migrations by
 /// hand.
 fn create_source_nakamoto_db(path: &Path) -> Connection {
     // The first open instantiates the base schema only; migrations run on
     // subsequent opens, so a second open brings the DB to the current
     // version - exactly as node restarts do in production.
-    StacksChainState::open_nakamoto_staging_blocks(path.to_str().unwrap(), true)
+    NakamotoStagingBlocksDb::open_nakamoto_staging_blocks(path.to_str().unwrap(), true)
         .expect("nakamoto staging DB init failed");
-    StacksChainState::open_nakamoto_staging_blocks(path.to_str().unwrap(), true)
+    NakamotoStagingBlocksDb::open_nakamoto_staging_blocks(path.to_str().unwrap(), true)
         .expect("nakamoto staging DB migration failed");
     Connection::open(path).unwrap()
 }

@@ -77,14 +77,17 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             push_round: 0,
             last_eviction_time: get_epoch_time_secs(),
         };
-        dbsync.reset(None, config);
+        dbsync.reset(
+            None::<&PeerNetwork<crate::chainstate::stacks::db::DiskChainStateBackend>>,
+            config,
+        );
         dbsync
     }
 
     /// Find stackerdb replicas and apply filtering rules
     fn find_qualified_replicas(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<HashSet<NeighborAddress>, net_error> {
         let mut found = HashSet::new();
         let mut min_age =
@@ -147,7 +150,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     fn find_new_replicas(
         &self,
         mut connected_replicas: HashSet<NeighborAddress>,
-        network: Option<&PeerNetwork>,
+        network: Option<&PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>>,
         config: &StackerDBConfig,
     ) -> Result<HashSet<NeighborAddress>, net_error> {
         // keep all connected replicas, and replenish from config hints and the DB as needed
@@ -172,7 +175,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// and newly-learned information about connection statistics
     pub fn reset(
         &mut self,
-        network: Option<&PeerNetwork>,
+        network: Option<&PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>>,
         config: &StackerDBConfig,
     ) -> StackerDBSyncResult {
         debug!(
@@ -280,7 +283,11 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     }
 
     /// Unpin and remove a connected replica by naddr
-    pub fn unpin_connected_replica(&mut self, network: &PeerNetwork, naddr: &NeighborAddress) {
+    pub fn unpin_connected_replica(
+        &mut self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        naddr: &NeighborAddress,
+    ) {
         let nk = naddr.to_neighbor_key(network);
         if let Some(event_id) = network.get_event_id(&nk) {
             self.comms.unpin_connection(event_id);
@@ -303,7 +310,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// ordered from rarest chunk to most-common chunk.
     pub fn make_chunk_request_schedule(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         local_slot_versions_opt: Option<Vec<u32>>,
     ) -> Result<Vec<(StackerDBGetChunkData, Vec<NeighborAddress>)>, net_error> {
         let rc_consensus_hash = network.get_chain_view().rc_consensus_hash.clone();
@@ -429,7 +436,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// * what order to push them in, in rarest-first order
     pub fn make_chunk_push_schedule(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<Vec<(StackerDBPushChunkData, Vec<NeighborAddress>)>, net_error> {
         let rc_consensus_hash = network.get_chain_view().rc_consensus_hash.clone();
         let local_slot_versions = self.stackerdbs.get_slot_versions(&self.smart_contract_id)?;
@@ -533,7 +540,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Validate a downloaded chunk
     pub fn validate_downloaded_chunk(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         config: &StackerDBConfig,
         data: &StackerDBChunkData,
     ) -> Result<bool, net_error> {
@@ -582,7 +589,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Returns false otherwise
     pub fn add_pushed_chunk(
         &mut self,
-        _network: &PeerNetwork,
+        _network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         naddr: NeighborAddress,
         new_inv: StackerDBChunkInvData,
         slot_id: u32,
@@ -640,7 +647,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Logs errors but does not return them.
     fn send_getchunkinv_to_inbound_neighbors(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         already_sent: &[NeighborAddress],
     ) {
         let sent_naddr_set: HashSet<_> = already_sent.iter().collect();
@@ -713,7 +720,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Returns Ok(false) if we should try this again
     /// Returns Err(NoSuchNeighbor) if we don't have anyone to talk to
     /// Returns Err(..) on DB query error
-    pub fn connect_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn connect_begin(
+        &mut self,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> Result<bool, net_error> {
         if self.replicas.is_empty() {
             // find some from the peer DB
             let replicas = self.find_qualified_replicas(network)?;
@@ -797,7 +807,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Fills in self.connected_replicas based on receipt of a handshake accept.
     /// Returns true if we've received all pending messages
     /// Returns false otherwise
-    pub fn connect_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn connect_try_finish(
+        &mut self,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> Result<bool, net_error> {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
             let data = match message.payload {
                 StacksMessageType::StackerDBHandshakeAccept(_, db_data) => {
@@ -901,7 +914,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Clears self.connected_replicas.
     /// StackerDBGetChunksInv
     /// Always succeeds; does not block.
-    pub fn getchunksinv_begin(&mut self, network: &mut PeerNetwork) {
+    pub fn getchunksinv_begin(
+        &mut self,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) {
         let naddrs = mem::replace(&mut self.connected_replicas, HashSet::new());
         let mut already_sent = vec![];
         debug!(
@@ -941,7 +957,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Return Ok(false) if not
     pub fn getchunksinv_try_finish(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<bool, net_error> {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
             let chunk_inv_opt = match message.payload {
@@ -1012,7 +1028,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Ask each prioritized replica for some chunks we need.
     /// Return Ok(true) if we processed all requested chunks
     /// Return Ok(false) if there are still some requests to make
-    pub fn getchunks_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn getchunks_begin(
+        &mut self,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> Result<bool, net_error> {
         if self.chunk_fetch_priorities.is_empty() {
             // done
             debug!(
@@ -1120,7 +1139,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Returns Ok(false) otherwise
     pub fn getchunks_try_finish(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         config: &StackerDBConfig,
     ) -> Result<bool, net_error> {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
@@ -1185,7 +1204,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Push out chunks to peers
     /// Returns true if there are no more chunks to push.
     /// Returns false if there are
-    pub fn pushchunks_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn pushchunks_begin(
+        &mut self,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> Result<bool, net_error> {
         if self.chunk_push_priorities.is_empty() && self.push_round != self.rounds {
             // only do this once per round
             let priorities = self.make_chunk_push_schedule(network)?;
@@ -1304,7 +1326,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// than we have, then set `self.need_resync` to true.
     /// Returns true if all inflight messages have been received (or dealt with)
     /// Returns false otherwise
-    pub fn pushchunks_try_finish(&mut self, network: &mut PeerNetwork) -> bool {
+    pub fn pushchunks_try_finish(
+        &mut self,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> bool {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
             let new_chunk_inv = match message.payload {
                 StacksMessageType::StackerDBChunkInv(data) => data,
@@ -1367,7 +1392,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Recalculate the download schedule based on chunkinvs received on push
     pub fn recalculate_chunk_request_schedule(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<(), net_error> {
         // figure out the new expected versions
         let mut expected_versions = vec![0u32; self.num_slots];
@@ -1400,7 +1425,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Otherwise, if there's still more work to do, then return None
     pub fn run(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         config: &StackerDBConfig,
     ) -> Result<Option<StackerDBSyncResult>, net_error> {
         if network.get_connection_opts().disable_stackerdb_sync {

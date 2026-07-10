@@ -47,7 +47,10 @@ use crate::chainstate::stacks::db::transactions::{
     finalize_failed_transaction, handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
-use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, ChainstateTx, ClarityTx, Epoch2BlockProcessor, Epoch2BlockValidator,
+    Epoch2StagingBlocksDb, StacksChainState, StacksHeadersDb, StacksTransactionBlock,
+};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
 use crate::clarity_vm::clarity::{ClarityError, ClarityInstance};
@@ -805,25 +808,25 @@ pub trait BlockBuilder {
 ///     StacksMicroblockBuilder holds a mutable reference to the provided chainstate in the
 ///       new function. This is required for the `clarity_tx` -- basically, to append transactions
 ///       as new microblocks, the builder _needs_ to be able to keep the current clarity_tx "open"
-pub struct StacksMicroblockBuilder<'a> {
+pub struct StacksMicroblockBuilder<'a, B: ChainStatePersistence> {
     anchor_block: BlockHeaderHash,
     anchor_block_consensus_hash: ConsensusHash,
     anchor_block_height: u64,
-    header_reader: StacksChainState,
+    header_reader: StacksChainState<B>,
     clarity_tx: Option<ClarityTx<'a, 'a>>,
     unconfirmed: bool,
     runtime: MicroblockMinerRuntime,
     settings: BlockBuilderSettings,
 }
 
-impl<'a> StacksMicroblockBuilder<'a> {
+impl<'a, B: ChainStatePersistence> StacksMicroblockBuilder<'a, B> {
     pub fn new(
         anchor_block: BlockHeaderHash,
         anchor_block_consensus_hash: ConsensusHash,
-        chainstate: &'a mut StacksChainState,
+        chainstate: &'a mut StacksChainState<B>,
         burn_dbconn: &'a dyn BurnStateDB,
         settings: BlockBuilderSettings,
-    ) -> Result<StacksMicroblockBuilder<'a>, Error> {
+    ) -> Result<StacksMicroblockBuilder<'a, B>, Error> {
         let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
             MicroblockMinerRuntime::from(unconfirmed_state)
         } else {
@@ -832,7 +835,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         };
 
         let (header_reader, _) = chainstate.reopen()?;
-        let anchor_block_header = StacksChainState::get_anchored_block_header_info(
+        let anchor_block_header = StacksHeadersDb::get_anchored_block_header_info(
             header_reader.db(),
             &anchor_block_consensus_hash,
             &anchor_block,
@@ -853,7 +856,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let parent_index_hash =
             StacksBlockHeader::make_index_block_hash(&anchor_block_consensus_hash, &anchor_block);
         let cost_so_far =
-            StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
+            StacksHeadersDb::get_stacks_block_anchored_cost(chainstate.db(), &parent_index_hash)?
                 .ok_or(Error::NoSuchBlockError)?;
 
         // We need to open the chainstate _after_ any possible errors could occur, otherwise, we'd have opened
@@ -889,11 +892,11 @@ impl<'a> StacksMicroblockBuilder<'a> {
     /// Create a microblock miner off of the _unconfirmed_ chaintip, i.e., resuming construction of
     /// a microblock stream.
     pub fn resume_unconfirmed(
-        chainstate: &'a mut StacksChainState,
+        chainstate: &'a mut StacksChainState<B>,
         burn_dbconn: &'a dyn BurnStateDB,
         cost_so_far: &ExecutionCost,
         settings: BlockBuilderSettings,
-    ) -> Result<StacksMicroblockBuilder<'a>, Error> {
+    ) -> Result<StacksMicroblockBuilder<'a, B>, Error> {
         let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
             MicroblockMinerRuntime::from(unconfirmed_state)
         } else {
@@ -905,7 +908,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let (anchored_consensus_hash, anchored_block_hash, anchored_block_height) =
             if let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() {
                 let header_info =
-                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                    StacksHeadersDb::get_stacks_block_header_info_by_index_block_hash(
                         chainstate.db(),
                         &unconfirmed.confirmed_chain_tip,
                     )?
@@ -1006,7 +1009,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         tx_events: Vec<TransactionEvent>,
         event_dispatcher: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<StacksMicroblock, Error> {
-        let microblock = StacksMicroblockBuilder::make_next_microblock_from_txs(
+        let microblock = Self::make_next_microblock_from_txs(
             txs,
             miner_key,
             &self.anchor_block,
@@ -1041,7 +1044,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     /// Returns Ok(TransactionResult::Problematic) if the transaction should be dropped from the mempool.
     /// Returns Err(e) if an error occurs during the function.
     ///
-    /// This calls `StacksChainState::process_transaction` and also checks certain pre-conditions
+    /// This calls `ClarityTx::process_transaction` and also checks certain pre-conditions
     /// and handles errors.
     ///
     /// # Pre-Checks
@@ -1123,7 +1126,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
 
         let quiet = !cfg!(test);
         let cost_before = clarity_tx.cost_so_far();
-        match StacksChainState::process_transaction(clarity_tx, &tx, quiet, None) {
+        match clarity_tx.process_transaction(&tx, quiet, None) {
             Ok((_fee, receipt)) => TransactionResult::success(&tx, receipt),
             Err(e) => finalize_failed_transaction(clarity_tx, &tx, &cost_before, e),
         }
@@ -1161,7 +1164,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                 considered.insert(tx.txid());
             }
 
-            let tx_result = StacksMicroblockBuilder::mine_next_transaction(
+            let tx_result = Self::mine_next_transaction(
                 &mut clarity_tx,
                 tx.clone(),
                 tx_len,
@@ -1294,7 +1297,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                             considered.insert(mempool_tx.tx.txid());
                         }
 
-                        let tx_result = StacksMicroblockBuilder::mine_next_transaction(
+                        let tx_result = Self::mine_next_transaction(
                             clarity_tx,
                             mempool_tx.tx.clone(),
                             mempool_tx.metadata.len,
@@ -1475,7 +1478,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
     }
 }
 
-impl Drop for StacksMicroblockBuilder<'_> {
+impl<B: ChainStatePersistence> Drop for StacksMicroblockBuilder<'_, B> {
     fn drop(&mut self) {
         debug!(
             "Drop StacksMicroblockBuilder";
@@ -1684,7 +1687,7 @@ impl StacksBlockBuilder {
         let quiet = !cfg!(test);
         if !self.anchored_done {
             // save
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
+            match clarity_tx.process_transaction(tx, quiet, None) {
                 Ok((fee, receipt)) => {
                     self.total_anchored_fees += fee;
                 }
@@ -1695,7 +1698,7 @@ impl StacksBlockBuilder {
 
             self.txs.push(tx.clone());
         } else {
-            match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
+            match clarity_tx.process_transaction(tx, quiet, None) {
                 Ok((fee, receipt)) => {
                     self.total_streamed_fees += fee;
                 }
@@ -1771,7 +1774,7 @@ impl StacksBlockBuilder {
     /// Returns: stacks block
     pub fn mine_anchored_block(&mut self, clarity_tx: &mut ClarityTx) -> StacksBlock {
         assert!(!self.anchored_done);
-        StacksChainState::finish_block(
+        Epoch2BlockProcessor::finish_block(
             clarity_tx,
             self.miner_payouts.as_ref(),
             u32::try_from(self.header.total_work.work).expect("FATAL: more than 2^32 blocks"),
@@ -1834,13 +1837,13 @@ impl StacksBlockBuilder {
 
     fn load_parent_microblocks(
         &mut self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         parent_consensus_hash: &ConsensusHash,
         parent_header_hash: &BlockHeaderHash,
     ) -> Result<Vec<StacksMicroblock>, Error> {
         if let Some(microblock_parent_hash) = self.parent_microblock_hash.as_ref() {
             // load up a microblock fork
-            let microblocks = StacksChainState::load_microblock_stream_fork(
+            let microblocks = Epoch2StagingBlocksDb::load_microblock_stream_fork(
                 chainstate.db(),
                 parent_consensus_hash,
                 parent_header_hash,
@@ -1863,7 +1866,7 @@ impl StacksBlockBuilder {
                 &self.parent_header_hash,
             );
             let (parent_microblocks, _) =
-                match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+                match Epoch2StagingBlocksDb::load_descendant_staging_microblock_stream_with_poison(
                     chainstate.db(),
                     &parent_index_hash,
                     0,
@@ -1892,9 +1895,9 @@ impl StacksBlockBuilder {
     /// of the burn tip, burn tip height + 1, the parent microblock stream,
     /// the parent consensus hash, the parent header hash, and a bool
     /// representing whether the network is mainnet or not.
-    pub fn pre_epoch_begin<'a>(
+    pub fn pre_epoch_begin<'a, B: ChainStatePersistence>(
         &mut self,
-        chainstate: &'a mut StacksChainState,
+        chainstate: &'a mut StacksChainState<B>,
         burn_dbconn: &'a SortitionHandleConn,
         confirm_microblocks: bool,
     ) -> Result<MinerEpochInfo<'a>, Error> {
@@ -1927,7 +1930,7 @@ impl StacksBlockBuilder {
         let parent_microblocks = if !confirm_microblocks {
             debug!("Block assembly invoked with confirm_microblocks = false. Will not confirm any microblocks.");
             vec![]
-        } else if StacksChainState::block_crosses_epoch_boundary(
+        } else if Epoch2BlockValidator::block_crosses_epoch_boundary(
             chainstate.db(),
             &self.parent_consensus_hash,
             &self.parent_header_hash,
@@ -2004,7 +2007,7 @@ impl StacksBlockBuilder {
             microblock_fees,
             matured_miner_rewards_opt,
             ..
-        } = StacksChainState::setup_block(
+        } = Epoch2BlockProcessor::setup_block(
             &mut info.chainstate_tx,
             info.clarity_instance,
             burn_dbconn,
@@ -2056,7 +2059,7 @@ impl StacksBlockBuilder {
     #[cfg(test)]
     pub fn make_anchored_block_from_txs(
         builder: StacksBlockBuilder,
-        chainstate_handle: &StacksChainState,
+        chainstate_handle: &StacksChainState<impl ChainStatePersistence>,
         burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
@@ -2071,18 +2074,88 @@ impl StacksBlockBuilder {
     }
 
     /// Unconditionally build an anchored block from a list of transactions.
+    /// Used by test harnesses that may use an in-memory chainstate.
+    #[cfg(test)]
+    pub fn make_anchored_block_from_txs_in_test_chainstate(
+        builder: StacksBlockBuilder,
+        chainstate_handle: &mut StacksChainState<impl ChainStatePersistence>,
+        burn_dbconn: &SortitionHandleConn,
+        txs: Vec<StacksTransaction>,
+    ) -> Result<(StacksBlock, u64, ExecutionCost), Error> {
+        Self::make_anchored_block_and_microblock_from_txs_in_test_chainstate(
+            builder,
+            chainstate_handle,
+            burn_dbconn,
+            txs,
+            vec![],
+        )
+        .map(|(stacks_block, size, cost, _)| (stacks_block, size, cost))
+    }
+
+    /// Unconditionally build an anchored block from a list of transactions.
     ///  Used in test cases
     #[cfg(test)]
     pub fn make_anchored_block_and_microblock_from_txs(
+        builder: StacksBlockBuilder,
+        chainstate_handle: &StacksChainState<impl ChainStatePersistence>,
+        burn_dbconn: &SortitionHandleConn,
+        txs: Vec<StacksTransaction>,
+        mblock_txs: Vec<StacksTransaction>,
+    ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
+        let (mut chainstate, _) = chainstate_handle.reopen()?;
+        Self::make_anchored_block_and_microblock_from_txs_in_place(
+            builder,
+            &mut chainstate,
+            burn_dbconn,
+            txs,
+            mblock_txs,
+        )
+    }
+
+    /// Unconditionally build an anchored block from a list of transactions.
+    /// Used by test harnesses that may use an in-memory chainstate.
+    #[cfg(test)]
+    pub fn make_anchored_block_and_microblock_from_txs_in_test_chainstate(
+        builder: StacksBlockBuilder,
+        chainstate_handle: &mut StacksChainState<impl ChainStatePersistence>,
+        burn_dbconn: &SortitionHandleConn,
+        txs: Vec<StacksTransaction>,
+        mblock_txs: Vec<StacksTransaction>,
+    ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
+        if crate::chainstate::stacks::db::DiskChainStateLayout::is_ephemeral_root_path(
+            &chainstate_handle.root_path,
+        ) {
+            let (mut chainstate, _) = chainstate_handle.reopen()?;
+            Self::make_anchored_block_and_microblock_from_txs_in_place(
+                builder,
+                &mut chainstate,
+                burn_dbconn,
+                txs,
+                mblock_txs,
+            )
+        } else {
+            // Disk-backed tests keep the historical reopen behavior so mining writes stay isolated
+            // from the chainstate that later validates the returned block.
+            Self::make_anchored_block_and_microblock_from_txs(
+                builder,
+                chainstate_handle,
+                burn_dbconn,
+                txs,
+                mblock_txs,
+            )
+        }
+    }
+
+    #[cfg(test)]
+    fn make_anchored_block_and_microblock_from_txs_in_place(
         mut builder: StacksBlockBuilder,
-        chainstate_handle: &StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
         mut mblock_txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> {
         debug!("Build anchored block from {} transactions", txs.len());
-        let (mut chainstate, _) = chainstate_handle.reopen()?;
-        let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
+        let mut miner_epoch_info = builder.pre_epoch_begin(chainstate, burn_dbconn, true)?;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.into_iter() {
             match builder.try_mine_tx(&mut epoch_tx, &tx, None, &mut 0) {
@@ -2319,7 +2392,7 @@ impl StacksBlockBuilder {
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
     pub fn build_anchored_block(
-        chainstate_handle: &StacksChainState, // not directly used; used as a handle to open other chainstates
+        chainstate_handle: &StacksChainState<impl ChainStatePersistence>, // not directly used; used as a handle to open other chainstates
         burn_dbconn: &SortitionHandleConn,
         mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
@@ -2525,13 +2598,12 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let cost_before = clarity_tx.cost_so_far();
-            let (fee, receipt) =
-                match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
-                    Ok((fee, receipt)) => (fee, receipt),
-                    Err(e) => {
-                        return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
-                    }
-                };
+            let (fee, receipt) = match clarity_tx.process_transaction(tx, quiet, None) {
+                Ok((fee, receipt)) => (fee, receipt),
+                Err(e) => {
+                    return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
+                }
+            };
             info!("Include tx";
                   "tx" => %tx.txid(),
                   "payload" => tx.payload.name(),
@@ -2569,13 +2641,12 @@ impl BlockBuilder for StacksBlockBuilder {
                 return TransactionResult::problematic(tx, Error::NetError(e));
             }
             let cost_before = clarity_tx.cost_so_far();
-            let (fee, receipt) =
-                match StacksChainState::process_transaction(clarity_tx, tx, quiet, None) {
-                    Ok((fee, receipt)) => (fee, receipt),
-                    Err(e) => {
-                        return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
-                    }
-                };
+            let (fee, receipt) = match clarity_tx.process_transaction(tx, quiet, None) {
+                Ok((fee, receipt)) => (fee, receipt),
+                Err(e) => {
+                    return finalize_failed_transaction(clarity_tx, tx, &cost_before, e);
+                }
+            };
             debug!(
                 "Include tx {} ({}) in microblock",
                 tx.txid(),

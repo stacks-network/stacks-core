@@ -100,7 +100,9 @@ impl HttpRequest for RPCNakamotoTenureBlocksByHashRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoTenureBlocksByHashRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCNakamotoTenureBlocksByHashRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.burnchain_block_hash = None;
@@ -111,7 +113,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHashRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let burnchain_block_hash = self
             .burnchain_block_hash

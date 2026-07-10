@@ -45,11 +45,15 @@ use crate::chainstate::coordinator::comm::{
 use crate::chainstate::stacks::address::{pox_addr_b58_serde, PoxAddress};
 use crate::chainstate::stacks::boot::{POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::db::accounts::MinerReward;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 use crate::chainstate::stacks::db::ChainStateBootData;
 use crate::chainstate::stacks::db::{
-    MinerRewardInfo, StacksChainState, StacksEpochReceipt, StacksHeaderInfo,
+    ChainStatePersistence, DiskChainStateBackend, DiskChainStateLayout, Epoch2StagingBlocksDb,
+    MinerRewardInfo, PoxRewardSetCalculator, StacksBlockStore, StacksChainState,
+    StacksEpochReceipt, StacksHeaderInfo, StacksHeadersDb,
 };
+#[cfg(any(test, feature = "testing"))]
+use crate::chainstate::stacks::db::{MemoryChainStateBackend, SharedMemoryChainStateBackend};
 use crate::chainstate::stacks::events::{
     StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
@@ -208,10 +212,11 @@ pub struct ChainsCoordinator<
     CE: CostEstimator + ?Sized,
     FE: FeeEstimator + ?Sized,
     B: BurnchainHeaderReader,
+    CSP: ChainStatePersistence,
 > {
     pub canonical_sortition_tip: Option<SortitionId>,
     pub burnchain_blocks_db: BurnchainDB,
-    pub chain_state_db: StacksChainState,
+    pub chain_state_db: StacksChainState<CSP>,
     pub sortition_db: SortitionDB,
     pub burnchain: Burnchain,
     pub atlas_db: Option<AtlasDB>,
@@ -276,7 +281,7 @@ pub trait RewardSetProvider {
     fn get_reward_set(
         &self,
         cycle_start_burn_height: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
@@ -284,7 +289,7 @@ pub trait RewardSetProvider {
 
     fn get_reward_set_nakamoto(
         &self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         cycle: u64,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
@@ -303,7 +308,7 @@ impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_,
     fn get_reward_set(
         &self,
         cycle_start_burn_height: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
@@ -358,7 +363,7 @@ impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_,
 
     fn get_reward_set_nakamoto(
         &self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         reward_cycle: u64,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
@@ -372,7 +377,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         &self,
         // Todo: `current_burn_height` is a misleading name: should be the `cycle_start_burn_height`
         current_burn_height: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
@@ -435,11 +440,12 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
 
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);
 
-        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
-            &burnchain.pox_constants,
-            &registered_addrs[..],
-            liquid_ustx,
-        );
+        let (threshold, participation) =
+            PoxRewardSetCalculator::get_reward_threshold_and_participation(
+                &burnchain.pox_constants,
+                &registered_addrs[..],
+                liquid_ustx,
+            );
 
         if !burnchain
             .pox_constants
@@ -460,7 +466,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                   "registered_addrs" => registered_addrs.len());
         }
 
-        Ok(StacksChainState::make_reward_set(
+        Ok(PoxRewardSetCalculator::make_reward_set(
             threshold,
             registered_addrs,
             cur_epoch.epoch_id,
@@ -474,6 +480,7 @@ impl<
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
         B: BurnchainHeaderReader,
+        CSP: ChainStatePersistence,
     >
     ChainsCoordinator<
         'a,
@@ -483,11 +490,12 @@ impl<
         CE,
         FE,
         B,
+        CSP,
     >
 {
     pub fn run(
         config: ChainsCoordinatorConfig,
-        chain_state_db: StacksChainState,
+        chain_state_db: StacksChainState<CSP>,
         burnchain: Burnchain,
         dispatcher: &'a T,
         comms: CoordinatorReceivers,
@@ -610,8 +618,62 @@ impl<
     }
 }
 
+impl<
+        T: BlockEventDispatcher,
+        U: RewardSetProvider,
+        B: BurnchainHeaderReader,
+        CSP: ChainStatePersistence,
+    > ChainsCoordinator<'_, T, (), U, (), (), B, CSP>
+{
+    /// Create a coordinator for testing from an already-opened chainstate.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn test_new_full_with_chainstate<'a>(
+        burnchain: &Burnchain,
+        chain_state_db: StacksChainState<CSP>,
+        reward_set_provider: U,
+        dispatcher: Option<&'a T>,
+        burnchain_indexer: B,
+        atlas_db: AtlasDB,
+        atlas_config: Option<AtlasConfig>,
+        txindex: bool,
+    ) -> ChainsCoordinator<'a, T, (), U, (), (), B, CSP> {
+        let burnchain = burnchain.clone();
+
+        let sortition_db = SortitionDB::open(
+            &burnchain.get_db_path(),
+            true,
+            burnchain.pox_constants.clone(),
+            None,
+        )
+        .unwrap();
+        let burnchain_blocks_db =
+            BurnchainDB::open(&burnchain.get_burnchaindb_path(), false).unwrap();
+        let canonical_sortition_tip =
+            SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
+
+        ChainsCoordinator {
+            canonical_sortition_tip: Some(canonical_sortition_tip),
+            burnchain_blocks_db,
+            chain_state_db,
+            sortition_db,
+            burnchain,
+            dispatcher,
+            cost_estimator: None,
+            fee_estimator: None,
+            reward_set_provider,
+            notifier: (),
+            atlas_config: atlas_config.unwrap_or(AtlasConfig::new(false)),
+            atlas_db: Some(atlas_db),
+            config: ChainsCoordinatorConfig::test_new(txindex),
+            burnchain_indexer,
+            refresh_stacker_db: Arc::new(AtomicBool::new(false)),
+            in_nakamoto_epoch: false,
+        }
+    }
+}
+
 impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
-    ChainsCoordinator<'_, T, (), U, (), (), B>
+    ChainsCoordinator<'_, T, (), U, (), (), B, DiskChainStateBackend>
 {
     /// Create a coordinator for testing, with some parameters defaulted to None
     #[cfg(test)]
@@ -622,7 +684,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         reward_set_provider: U,
         indexer: B,
         txindex: bool,
-    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), (), B, DiskChainStateBackend> {
         ChainsCoordinator::test_new_full(
             burnchain,
             chain_id,
@@ -646,7 +708,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         burnchain_indexer: B,
         atlas_config: Option<AtlasConfig>,
         txindex: bool,
-    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
+    ) -> ChainsCoordinator<'a, T, (), U, (), (), B, DiskChainStateBackend> {
         let burnchain = burnchain.clone();
 
         let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
@@ -668,9 +730,6 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
             None,
         )
         .unwrap();
-        let canonical_sortition_tip =
-            SortitionDB::get_canonical_sortition_tip(sortition_db.conn()).unwrap();
-
         let atlas_config = atlas_config.unwrap_or(AtlasConfig::new(false));
         let atlas_db = AtlasDB::connect(
             atlas_config.clone(),
@@ -679,30 +738,97 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
         )
         .unwrap();
 
-        ChainsCoordinator {
-            canonical_sortition_tip: Some(canonical_sortition_tip),
-            burnchain_blocks_db,
+        ChainsCoordinator::test_new_full_with_chainstate(
+            &burnchain,
             chain_state_db,
-            sortition_db,
-            burnchain,
-            dispatcher,
-            cost_estimator: None,
-            fee_estimator: None,
             reward_set_provider,
-            notifier: (),
-            atlas_config,
-            atlas_db: Some(atlas_db),
-            config: ChainsCoordinatorConfig::test_new(txindex),
+            dispatcher,
             burnchain_indexer,
-            refresh_stacker_db: Arc::new(AtomicBool::new(false)),
-            in_nakamoto_epoch: false,
-        }
+            atlas_db,
+            Some(atlas_config),
+            txindex,
+        )
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
+    ChainsCoordinator<'_, T, (), U, (), (), B, MemoryChainStateBackend>
+{
+    /// Create a coordinator for testing while keeping its chainstate and atlas DB in memory.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn test_new_full_ephemeral<'a>(
+        burnchain: &Burnchain,
+        chain_id: u32,
+        reward_set_provider: U,
+        dispatcher: Option<&'a T>,
+        burnchain_indexer: B,
+        atlas_config: Option<AtlasConfig>,
+        txindex: bool,
+    ) -> ChainsCoordinator<'a, T, (), U, (), (), B, MemoryChainStateBackend> {
+        let burnchain = burnchain.clone();
+
+        let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
+
+        let (chain_state_db, _) =
+            StacksChainState::new_ephemeral(false, chain_id, Some(&mut boot_data), None).unwrap();
+        let atlas_config = atlas_config.unwrap_or(AtlasConfig::new(false));
+        let atlas_db = AtlasDB::connect_memory(atlas_config.clone()).unwrap();
+
+        ChainsCoordinator::test_new_full_with_chainstate(
+            &burnchain,
+            chain_state_db,
+            reward_set_provider,
+            dispatcher,
+            burnchain_indexer,
+            atlas_db,
+            Some(atlas_config),
+            txindex,
+        )
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl<T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
+    ChainsCoordinator<'_, T, (), U, (), (), B, SharedMemoryChainStateBackend>
+{
+    /// Create a coordinator for testing while keeping its chainstate and atlas DB in shared memory.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn test_new_full_shared_ephemeral<'a>(
+        burnchain: &Burnchain,
+        chain_id: u32,
+        reward_set_provider: U,
+        dispatcher: Option<&'a T>,
+        burnchain_indexer: B,
+        atlas_config: Option<AtlasConfig>,
+        txindex: bool,
+    ) -> ChainsCoordinator<'a, T, (), U, (), (), B, SharedMemoryChainStateBackend> {
+        let burnchain = burnchain.clone();
+
+        let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
+
+        let (chain_state_db, _) =
+            StacksChainState::new_shared_ephemeral(false, chain_id, Some(&mut boot_data), None)
+                .unwrap();
+        let atlas_config = atlas_config.unwrap_or(AtlasConfig::new(false));
+        let atlas_db = AtlasDB::connect_memory(atlas_config.clone()).unwrap();
+
+        ChainsCoordinator::test_new_full_with_chainstate(
+            &burnchain,
+            chain_state_db,
+            reward_set_provider,
+            dispatcher,
+            burnchain_indexer,
+            atlas_db,
+            Some(atlas_config),
+            txindex,
+        )
     }
 }
 
 pub fn get_next_recipients<U: RewardSetProvider>(
     sortition_tip: &BlockSnapshot,
-    chain_state: &mut StacksChainState,
+    chain_state: &mut StacksChainState<impl ChainStatePersistence>,
     sort_db: &mut SortitionDB,
     burnchain: &Burnchain,
     provider: &U,
@@ -731,7 +857,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     parent_bhh: &BurnchainHeaderHash,
     sortition_tip: &SortitionId,
     burnchain: &Burnchain,
-    chain_state: &mut StacksChainState,
+    chain_state: &mut StacksChainState<impl ChainStatePersistence>,
     sort_db: &mut SortitionDB,
     provider: &U,
 ) -> Result<Option<RewardCycleInfo>, Error> {
@@ -768,7 +894,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     }?;
     let reward_cycle_info =
         if let Some((consensus_hash, stacks_block_hash, txid)) = reward_cycle_info {
-            let anchor_block_known = StacksChainState::is_stacks_block_processed(
+            let anchor_block_known = StacksHeadersDb::is_stacks_block_processed(
                 chain_state.db(),
                 &consensus_hash,
                 &stacks_block_hash,
@@ -972,7 +1098,7 @@ fn forget_orphan_stacks_blocks(
             // only retry blocks that are truly in descendant
             // sortitions.
             if sn.sortition && sn.block_height > invalidation_height {
-                StacksChainState::forget_orphaned_epoch_data(
+                Epoch2StagingBlocksDb::forget_orphaned_epoch_data(
                     chainstate_db_tx,
                     &sn.consensus_hash,
                     &sn.winning_stacks_block_hash,
@@ -990,7 +1116,8 @@ impl<
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
         B: BurnchainHeaderReader,
-    > ChainsCoordinator<'_, T, N, U, CE, FE, B>
+        CSP: ChainStatePersistence,
+    > ChainsCoordinator<'_, T, N, U, CE, FE, B, CSP>
 {
     /// Process new Stacks blocks.  If we get stuck for want of a missing PoX anchor block, return
     /// its hash.
@@ -1300,7 +1427,7 @@ impl<
                 )? {
                     if sortition.sortition {
                         if let Some(stacks_block_header) =
-                            StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                            StacksHeadersDb::get_stacks_block_header_info_by_index_block_hash(
                                 self.chain_state_db.db(),
                                 &StacksBlockId::new(
                                     &sortition.consensus_hash,
@@ -1539,7 +1666,7 @@ impl<
         blocks: Vec<BlockHeaderHash>,
     ) -> Result<(), Error> {
         for bhh in blocks.into_iter() {
-            let staging_block_chs = StacksChainState::get_staging_block_consensus_hashes(
+            let staging_block_chs = Epoch2StagingBlocksDb::get_staging_block_consensus_hashes(
                 self.chain_state_db.db(),
                 &bhh,
             )?;
@@ -1549,7 +1676,7 @@ impl<
 
             for alt_ch in staging_block_chs.into_iter() {
                 let alt_id = StacksBlockHeader::make_index_block_hash(&alt_ch, &bhh);
-                if !StacksChainState::has_block_indexed(&self.chain_state_db.blocks_path, &alt_id)
+                if !StacksBlockStore::has_block_indexed(&self.chain_state_db.blocks_path, &alt_id)
                     .unwrap_or(false)
                 {
                     continue;
@@ -1579,7 +1706,7 @@ impl<
                 let ch = ancestor_sn.consensus_hash;
 
                 if let Ok(Some(block)) =
-                    StacksChainState::load_block(&self.chain_state_db.blocks_path, &alt_ch, &bhh)
+                    StacksBlockStore::load_block(&self.chain_state_db.blocks_path, &alt_ch, &bhh)
                 {
                     let ic = self.sortition_db.index_conn();
                     if let Some(parent_snapshot) = ic
@@ -1617,7 +1744,7 @@ impl<
         canonical_snapshot: &BlockSnapshot,
         next_snapshot: &BlockSnapshot,
     ) -> Result<(), Error> {
-        let staging_block_chs = StacksChainState::get_staging_block_consensus_hashes(
+        let staging_block_chs = Epoch2StagingBlocksDb::get_staging_block_consensus_hashes(
             self.chain_state_db.db(),
             &next_snapshot.winning_stacks_block_hash,
         )?;
@@ -1879,7 +2006,7 @@ pub fn check_chainstate_db_versions(
         let cur_epoch = cur_epoch_opt.expect(
             "FATAL: chainstate corruption: sortition DB does not exist, but chainstate does.",
         );
-        let db_config = StacksChainState::get_db_config_from_path(chainstate_path)?;
+        let db_config = DiskChainStateLayout::get_db_config_from_path(chainstate_path)?;
         if !db_config.supports_epoch(cur_epoch) {
             error!("Chainstate DB at {chainstate_path} does not support epoch {cur_epoch}");
             return Ok(false);
@@ -1896,13 +2023,13 @@ pub fn check_chainstate_db_versions(
 /// Sortition DB migrator.
 /// This is an opaque struct that is meant to assist migrating an epoch 2.1-2.4 chainstate to epoch
 /// 2.5.  It will not work for 2.5 to 3.0+
-pub struct SortitionDBMigrator {
-    chainstate: Option<StacksChainState>,
+pub struct SortitionDBMigrator<CSP: ChainStatePersistence> {
+    chainstate: Option<StacksChainState<CSP>>,
     burnchain: Burnchain,
     burnchain_db: BurnchainDB,
 }
 
-impl SortitionDBMigrator {
+impl SortitionDBMigrator<DiskChainStateBackend> {
     /// Instantiate the migrator.
     /// The chainstate must already exist
     pub fn new(
@@ -1910,13 +2037,30 @@ impl SortitionDBMigrator {
         chainstate_path: &str,
         marf_opts: Option<MARFOpenOpts>,
     ) -> Result<Self, Error> {
-        let db_config = StacksChainState::get_db_config_from_path(chainstate_path)?;
+        let db_config = DiskChainStateLayout::get_db_config_from_path(chainstate_path)?;
         let (chainstate, _) = StacksChainState::open(
             db_config.mainnet,
             db_config.chain_id,
             chainstate_path,
             marf_opts,
         )?;
+        Self::from_chainstate(burnchain, chainstate)
+    }
+}
+
+impl<CSP: ChainStatePersistence> SortitionDBMigrator<CSP> {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_with_chainstate(
+        burnchain: Burnchain,
+        chainstate: StacksChainState<CSP>,
+    ) -> Result<Self, Error> {
+        Self::from_chainstate(burnchain, chainstate)
+    }
+
+    fn from_chainstate(
+        burnchain: Burnchain,
+        chainstate: StacksChainState<CSP>,
+    ) -> Result<Self, Error> {
         let burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false)?;
 
         Ok(Self {
@@ -2005,7 +2149,7 @@ pub fn migrate_chainstate_dbs(
     }
     if fs::metadata(&chainstate_path).is_ok() {
         info!("Migrating chainstate DB to the latest schema version");
-        let db_config = StacksChainState::get_db_config_from_path(chainstate_path)?;
+        let db_config = DiskChainStateLayout::get_db_config_from_path(chainstate_path)?;
 
         // this does the migration internally
         let _ = StacksChainState::open(

@@ -25,13 +25,15 @@ use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_secs;
 
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, DiskChainStateLayout, StacksChainState,
+};
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::util_lib::db::{
-    query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
-    Error as DBError,
+    is_sqlite_memory_path, query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate,
+    u64_to_sql, Error as DBError,
 };
 
 /// The means by which a block is obtained.
@@ -186,6 +188,16 @@ impl DerefMut for NakamotoStagingBlocksConn {
 impl NakamotoStagingBlocksConn {
     pub fn conn(&self) -> NakamotoStagingBlocksConnRef<'_> {
         NakamotoStagingBlocksConnRef(&self.0)
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn try_clone_ephemeral(&self) -> Result<NakamotoStagingBlocksConn, ChainstateError> {
+        let mut conn = Connection::open_in_memory()?;
+        {
+            let backup = rusqlite::backup::Backup::new(&self.0, &mut conn)?;
+            backup.run_to_completion(100, std::time::Duration::from_millis(0), None)?;
+        }
+        Ok(NakamotoStagingBlocksConn(conn))
     }
 }
 
@@ -786,7 +798,21 @@ impl NakamotoStagingBlocksTx<'_> {
     }
 }
 
-impl StacksChainState {
+pub struct NakamotoStagingBlocksDb;
+
+impl NakamotoStagingBlocksDb {
+    fn instantiate_nakamoto_staging_blocks(conn: &Connection) -> Result<(), ChainstateError> {
+        for cmd in NAKAMOTO_STAGING_DB_SCHEMA_1.iter() {
+            conn.execute(cmd, NO_PARAMS)?;
+        }
+        for cmd in NAKAMOTO_STAGING_DB_SCHEMA_2.iter() {
+            conn.execute(cmd, NO_PARAMS)?;
+        }
+        Ok(())
+    }
+}
+
+impl<B: ChainStatePersistence> StacksChainState<B> {
     /// Begin a transaction against the staging blocks DB.
     /// Note that this DB is (or will eventually be) in a separate database from the headers.
     pub fn staging_db_tx_begin(&mut self) -> Result<NakamotoStagingBlocksTx<'_>, ChainstateError> {
@@ -819,26 +845,16 @@ impl StacksChainState {
     pub fn nakamoto_blocks_db(&self) -> NakamotoStagingBlocksConnRef<'_> {
         NakamotoStagingBlocksConnRef(&self.nakamoto_staging_blocks_conn)
     }
+}
 
-    /// Get the path to the Nakamoto staging blocks DB.
-    /// It's separate from the headers DB in order to avoid DB contention between downloading
-    /// blocks and processing them.
-    pub fn static_get_nakamoto_staging_blocks_path(
-        root_path: PathBuf,
-    ) -> Result<String, ChainstateError> {
-        let mut nakamoto_blocks_path = Self::blocks_path(root_path);
-        nakamoto_blocks_path.push("nakamoto.sqlite");
-        Ok(nakamoto_blocks_path
-            .to_str()
-            .ok_or(ChainstateError::DBError(DBError::ParseError))?
-            .to_string())
-    }
-
+impl<B: ChainStatePersistence> StacksChainState<B> {
     /// Get the path to the Nakamoto staging blocks DB.
     pub fn get_nakamoto_staging_blocks_path(&self) -> Result<String, ChainstateError> {
-        Self::static_get_nakamoto_staging_blocks_path(PathBuf::from(self.root_path.as_str()))
+        DiskChainStateLayout::nakamoto_staging_blocks_path(PathBuf::from(self.root_path.as_str()))
     }
+}
 
+impl NakamotoStagingBlocksDb {
     /// Get the database version
     pub fn get_nakamoto_staging_blocks_db_version(
         conn: &Connection,
@@ -931,6 +947,20 @@ impl StacksChainState {
         path: &str,
         readwrite: bool,
     ) -> Result<NakamotoStagingBlocksConn, ChainstateError> {
+        if is_sqlite_memory_path(path) {
+            let conn = sqlite_open(
+                path,
+                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+                false,
+            )?;
+            if table_exists(&conn, "nakamoto_staging_blocks")? {
+                Self::migrate_nakamoto_staging_blocks(&conn)?;
+            } else {
+                Self::instantiate_nakamoto_staging_blocks(&conn)?;
+            }
+            return Ok(NakamotoStagingBlocksConn(conn));
+        }
+
         let exists = fs::metadata(&path).is_ok();
         let flags = if !exists {
             // try to instantiate
@@ -946,16 +976,19 @@ impl StacksChainState {
         };
         let conn = sqlite_open(path, flags, false)?;
         if !exists {
-            for cmd in NAKAMOTO_STAGING_DB_SCHEMA_1.iter() {
-                conn.execute(cmd, NO_PARAMS)?;
-            }
-            for cmd in NAKAMOTO_STAGING_DB_SCHEMA_2.iter() {
-                conn.execute(cmd, NO_PARAMS)?;
-            }
+            Self::instantiate_nakamoto_staging_blocks(&conn)?;
         } else if readwrite {
             Self::migrate_nakamoto_staging_blocks(&conn)?;
         }
 
+        Ok(NakamotoStagingBlocksConn(conn))
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn open_nakamoto_staging_blocks_ephemeral(
+    ) -> Result<NakamotoStagingBlocksConn, ChainstateError> {
+        let conn = Connection::open_in_memory()?;
+        Self::instantiate_nakamoto_staging_blocks(&conn)?;
         Ok(NakamotoStagingBlocksConn(conn))
     }
 }

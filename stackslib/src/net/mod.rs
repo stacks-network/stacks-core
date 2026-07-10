@@ -42,7 +42,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::chainstate::stacks::{
     Error as chainstate_error, Error as chain_error, StacksBlock, StacksMicroblock,
@@ -639,10 +639,10 @@ impl RPCHandlerArgs<'_> {
 }
 
 /// Wrapper around Stacks chainstate data that an HTTP request handler might need
-pub struct StacksNodeState<'a> {
-    inner_network: Option<&'a mut PeerNetwork>,
+pub struct StacksNodeState<'a, CSP: ChainStatePersistence> {
+    inner_network: Option<&'a mut PeerNetwork<CSP>>,
     inner_sortdb: Option<&'a SortitionDB>,
-    inner_chainstate: Option<&'a mut StacksChainState>,
+    inner_chainstate: Option<&'a mut StacksChainState<CSP>>,
     inner_mempool: Option<&'a mut MemPoolDB>,
     inner_rpc_args: Option<&'a RPCHandlerArgs<'a>>,
     relay_message: Option<StacksMessageType>,
@@ -652,16 +652,16 @@ pub struct StacksNodeState<'a> {
     txindex: bool,
 }
 
-impl<'a> StacksNodeState<'a> {
+impl<'a, CSP: ChainStatePersistence> StacksNodeState<'a, CSP> {
     pub fn new(
-        inner_network: &'a mut PeerNetwork,
+        inner_network: &'a mut PeerNetwork<CSP>,
         inner_sortdb: &'a SortitionDB,
-        inner_chainstate: &'a mut StacksChainState,
+        inner_chainstate: &'a mut StacksChainState<CSP>,
         inner_mempool: &'a mut MemPoolDB,
         inner_rpc_args: &'a RPCHandlerArgs<'a>,
         ibd: bool,
         txindex: bool,
-    ) -> StacksNodeState<'a> {
+    ) -> StacksNodeState<'a, CSP> {
         StacksNodeState {
             inner_network: Some(inner_network),
             inner_sortdb: Some(inner_sortdb),
@@ -678,9 +678,9 @@ impl<'a> StacksNodeState<'a> {
     pub fn with_node_state<F, R>(&mut self, func: F) -> R
     where
         F: FnOnce(
-            &mut PeerNetwork,
+            &mut PeerNetwork<CSP>,
             &SortitionDB,
-            &mut StacksChainState,
+            &mut StacksChainState<CSP>,
             &mut MemPoolDB,
             &RPCHandlerArgs<'a>,
         ) -> R,
@@ -2267,6 +2267,7 @@ pub mod test {
     use rand::{self, RngCore};
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
+    use stacks_common::types::chainstate::StacksWorkScore;
     use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::*;
     use stacks_common::util::secp256k1::*;
@@ -2285,12 +2286,12 @@ pub mod test {
     use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::accounts::MinerReward;
-    use crate::chainstate::stacks::db::{StacksChainState, *};
+    use crate::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState, *};
     use crate::chainstate::stacks::events::{StacksBlockEventData, StacksTransactionReceipt};
     use crate::chainstate::stacks::tests::chain_histories::mine_smart_contract_block_contract_call_microblock;
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::{StacksMicroblockHeader, *};
-    use crate::chainstate::tests::{TestChainstate, TestChainstateConfig};
+    use crate::chainstate::tests::{TestChainstate, TestChainstateConfig, TestChainstateStorage};
     use crate::core::{StacksEpoch, StacksEpochExtension};
     use crate::cost_estimates::metrics::UnitMetric;
     use crate::cost_estimates::tests::fee_rate_fuzzer::ConstantFeeEstimator;
@@ -2303,6 +2304,8 @@ pub mod test {
     use crate::net::relay::*;
     use crate::net::stackerdb::{StackerDBSync, StackerDBs};
     use crate::net::Error as net_error;
+    use crate::util_lib::boot::boot_code_id;
+    use crate::util_lib::db::is_sqlite_memory_path;
     use crate::util_lib::strings::*;
 
     impl StacksMessageCodec for BlockstackOperationType {
@@ -2719,6 +2722,22 @@ pub mod test {
             config
         }
 
+        pub fn new_ephemeral(test_name: &str, p2p_port: u16, rpc_port: u16) -> TestPeerConfig {
+            let mut config = TestPeerConfig::new(test_name, p2p_port, rpc_port);
+            config.chain_config.storage = TestChainstateStorage::Ephemeral;
+            config
+        }
+
+        pub fn new_shared_ephemeral(
+            test_name: &str,
+            p2p_port: u16,
+            rpc_port: u16,
+        ) -> TestPeerConfig {
+            let mut config = TestPeerConfig::new(test_name, p2p_port, rpc_port);
+            config.chain_config.storage = TestChainstateStorage::SharedEphemeral;
+            config
+        }
+
         pub fn add_neighbor(&mut self, n: &Neighbor) {
             self.initial_neighbors.push(n.clone());
         }
@@ -2780,6 +2799,249 @@ pub mod test {
         }
     }
 
+    #[test]
+    fn test_ephemeral_test_peer_uses_in_memory_stores() {
+        let peer_config =
+            TestPeerConfig::new_ephemeral("test_ephemeral_test_peer_uses_in_memory_stores", 0, 0);
+        let peer = TestPeer::new_ephemeral(peer_config);
+
+        assert_eq!(
+            peer.config.chain_config.storage,
+            TestChainstateStorage::Ephemeral
+        );
+        assert!(peer.chain.test_path.starts_with("memory://stacks-test/"));
+        assert!(std::fs::metadata(&peer.chain.test_path).is_err());
+        assert!(peer
+            .config
+            .chain_config
+            .burnchain
+            .working_dir
+            .starts_with("memory://stacks-test/"));
+        assert!(peer
+            .chain
+            .indexer
+            .as_ref()
+            .unwrap()
+            .config
+            .spv_headers_path
+            .contains("mode=memory"));
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        assert_eq!(chainstate.clarity_state_index_path, ":memory:");
+        assert!(chainstate
+            .root_path
+            .starts_with("memory://stacks-chainstate/"));
+        assert!(std::fs::metadata(&chainstate.root_path).is_err());
+        assert!(chainstate
+            .blocks_path
+            .starts_with("memory://stacks-blocks/"));
+        let reopen_err = match StacksChainState::open(
+            false,
+            peer.config.chain_config.network_id,
+            &chainstate.root_path,
+            None,
+        ) {
+            Ok(_) => panic!("ephemeral chainstate root unexpectedly reopened from a path"),
+            Err(e) => format!("{:?}", e),
+        };
+        assert!(reopen_err.contains("ephemeral chainstate roots"));
+        let db_config_err =
+            match DiskChainStateLayout::get_db_config_from_path(&chainstate.root_path) {
+                Ok(_) => panic!("ephemeral chainstate root unexpectedly loaded path config"),
+                Err(e) => e.to_string(),
+            };
+        assert!(db_config_err.contains("ephemeral chainstate roots"));
+        assert!(peer
+            .config
+            .chain_config
+            .burnchain
+            .get_db_path()
+            .starts_with("file:"));
+        assert!(peer
+            .config
+            .chain_config
+            .burnchain
+            .get_burnchaindb_path()
+            .starts_with("file:"));
+        assert!(is_sqlite_memory_path(peer.mempool.as_ref().unwrap().path()));
+    }
+
+    #[test]
+    fn test_ephemeral_test_peer_with_stackerdb_uses_in_memory_stores() {
+        let mut peer_config = TestPeerConfig::new_ephemeral(
+            "test_ephemeral_test_peer_with_stackerdb_uses_in_memory_stores",
+            0,
+            0,
+        );
+        peer_config.add_stacker_db(boot_code_id(MINERS_NAME, false), StackerDBConfig::noop());
+
+        let peer = TestPeer::new_ephemeral(peer_config);
+
+        assert_eq!(peer.config.stacker_dbs.len(), 1);
+        assert_eq!(
+            peer.config.chain_config.storage,
+            TestChainstateStorage::Ephemeral
+        );
+        assert!(peer.chain.test_path.starts_with("memory://stacks-test/"));
+        assert!(std::fs::metadata(&peer.chain.test_path).is_err());
+        assert!(peer
+            .chain
+            .indexer
+            .as_ref()
+            .unwrap()
+            .config
+            .spv_headers_path
+            .contains("mode=memory"));
+        let chainstate = &peer.chain.stacks_node.as_ref().unwrap().chainstate;
+        assert!(chainstate
+            .root_path
+            .starts_with("memory://stacks-chainstate/"));
+        assert!(std::fs::metadata(&chainstate.root_path).is_err());
+        assert!(chainstate
+            .blocks_path
+            .starts_with("memory://stacks-blocks/"));
+        assert!(is_sqlite_memory_path(peer.mempool.as_ref().unwrap().path()));
+    }
+
+    #[test]
+    fn test_shared_ephemeral_test_peer_shares_chainstate_reopens() {
+        let peer_config = TestPeerConfig::new_shared_ephemeral(
+            "test_shared_ephemeral_test_peer_shares_chainstate_reopens",
+            0,
+            0,
+        );
+        let mut peer = TestPeer::new_shared_ephemeral(peer_config);
+
+        assert_eq!(
+            peer.config.chain_config.storage,
+            TestChainstateStorage::SharedEphemeral
+        );
+
+        let node_chainstate = &peer.chain.stacks_node_ref().chainstate;
+        let coord_chainstate = &peer.chain.coord.chain_state_db;
+        let node_header_path = node_chainstate.state_index.get_db_path();
+        let coord_header_path = coord_chainstate.state_index.get_db_path();
+        assert_eq!(node_header_path, coord_header_path);
+        assert!(node_header_path.contains("mode=memory"));
+        assert_eq!(
+            node_chainstate.clarity_state_index_path,
+            coord_chainstate.clarity_state_index_path
+        );
+        assert!(node_chainstate
+            .clarity_state_index_path
+            .contains("mode=memory"));
+
+        let headers_conn = node_chainstate.reopen_db().unwrap();
+        let db_config = ChainStateSchema::load_db_config(&headers_conn).unwrap();
+        assert_eq!(db_config.chain_id, peer.config.chain_config.network_id);
+
+        let (burn_ops, stacks_block, microblocks) = peer.make_default_tenure();
+        let _ = peer.next_burnchain_block(burn_ops);
+        peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+        let block_hash = stacks_block.block_hash();
+        let node_staged_consensus_hashes =
+            Epoch2StagingBlocksDb::get_staging_block_consensus_hashes(
+                peer.chainstate_ref().db(),
+                &block_hash,
+            )
+            .unwrap();
+        let coord_staged_consensus_hashes =
+            Epoch2StagingBlocksDb::get_staging_block_consensus_hashes(
+                peer.chain.coord.chain_state_db.db(),
+                &block_hash,
+            )
+            .unwrap();
+        assert_eq!(node_staged_consensus_hashes, coord_staged_consensus_hashes);
+        assert!(!coord_staged_consensus_hashes.is_empty());
+    }
+
+    #[test]
+    fn test_ephemeral_block_builder_mines_in_fork() {
+        let peer_config =
+            TestPeerConfig::new_ephemeral("test_ephemeral_block_builder_mines_in_fork", 0, 0);
+        let mut peer = TestPeer::new_ephemeral(peer_config);
+        let burnchain = peer.config.chain_config.burnchain.clone();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
+
+        let (_burn_ops, stacks_block, microblocks) = peer.make_tenure(
+            |ref mut miner,
+             ref mut sortdb,
+             ref mut chainstate,
+             vrf_proof,
+             ref parent_opt,
+             ref _parent_microblock_header_opt| {
+                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                let coinbase_tx = make_coinbase(miner, 0);
+                let microblock_privkey = miner.next_microblock_privkey();
+                let microblock_pubkeyhash = Hash160::from_node_public_key(
+                    &StacksPublicKey::from_private(&microblock_privkey),
+                );
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(
+                    &burnchain,
+                    &parent_tip,
+                    vrf_proof,
+                    tip.total_burn,
+                    &microblock_pubkeyhash,
+                )
+                .unwrap();
+                let (anchored_block, _size, _cost) =
+                    StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
+                        block_builder,
+                        chainstate,
+                        &sortdb.index_handle(&tip.sortition_id),
+                        vec![coinbase_tx],
+                    )
+                    .unwrap();
+                (anchored_block, vec![])
+            },
+        );
+
+        assert!(microblocks.is_empty());
+        assert_eq!(stacks_block.txs.len(), 1);
+        let mined_tip = StacksHeadersDb::get_anchored_block_header_info(
+            peer.chainstate_ref().db(),
+            &MINER_BLOCK_CONSENSUS_HASH,
+            &MINER_BLOCK_HEADER_HASH,
+        )
+        .unwrap();
+        assert!(
+            mined_tip.is_none(),
+            "ephemeral block builder should mine in a forked chainstate"
+        );
+    }
+
+    #[test]
+    fn test_ephemeral_test_peer_mines_and_processes_default_tenure() {
+        let peer_config = TestPeerConfig::new_ephemeral(
+            "test_ephemeral_test_peer_mines_and_processes_default_tenure",
+            0,
+            0,
+        );
+        let mut peer = TestPeer::new_ephemeral(peer_config);
+
+        let (burn_ops, stacks_block, microblocks) = peer.make_default_tenure();
+        let _ = peer.next_burnchain_block(burn_ops);
+        peer.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+        let chainstate = peer.chainstate_ref();
+        let block_hash = stacks_block.block_hash();
+        let staged_consensus_hashes =
+            Epoch2StagingBlocksDb::get_staging_block_consensus_hashes(chainstate.db(), &block_hash)
+                .unwrap();
+        assert!(!staged_consensus_hashes.is_empty());
+        assert!(staged_consensus_hashes.iter().any(|staged_consensus_hash| {
+            StacksBlockStore::load_block_bytes(
+                &chainstate.blocks_path,
+                staged_consensus_hash,
+                &block_hash,
+            )
+            .unwrap()
+            .is_some()
+        }));
+    }
+
     pub fn dns_thread_start(max_inflight: u64) -> (DNSClient, thread::JoinHandle<()>) {
         let (mut resolver, client) = DNSResolver::new(max_inflight);
         let jh = thread::spawn(move || {
@@ -2793,23 +3055,98 @@ pub mod test {
         thread_handle.join().unwrap();
     }
 
-    pub struct TestPeer<'a> {
+    pub trait TestPeerChainstateFactory<'a>: ChainStatePersistence {
+        fn new_test_chainstate(
+            config: TestChainstateConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> TestChainstate<'a, Self>
+        where
+            Self: Sized;
+    }
+
+    impl<'a> TestPeerChainstateFactory<'a> for DiskChainStateBackend {
+        fn new_test_chainstate(
+            config: TestChainstateConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> TestChainstate<'a, Self> {
+            TestChainstate::new_with_observer(config, observer)
+        }
+    }
+
+    impl<'a> TestPeerChainstateFactory<'a> for MemoryChainStateBackend {
+        fn new_test_chainstate(
+            config: TestChainstateConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> TestChainstate<'a, Self> {
+            TestChainstate::new_ephemeral_with_observer(config, observer)
+        }
+    }
+
+    impl<'a> TestPeerChainstateFactory<'a> for SharedMemoryChainStateBackend {
+        fn new_test_chainstate(
+            config: TestChainstateConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> TestChainstate<'a, Self> {
+            TestChainstate::new_shared_ephemeral_with_observer(config, observer)
+        }
+    }
+
+    pub struct TestPeer<'a, CSP: ChainStatePersistence = DiskChainStateBackend> {
         pub config: TestPeerConfig,
-        pub network: PeerNetwork,
+        pub network: PeerNetwork<CSP>,
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
-        pub chain: TestChainstate<'a>,
+        pub chain: TestChainstate<'a, CSP>,
         /// RPC handler args to use
         pub rpc_handler_args: Option<RPCHandlerArgsType>,
     }
 
-    impl<'a> TestPeer<'a> {
-        pub fn new(config: TestPeerConfig) -> TestPeer<'a> {
-            TestPeer::new_with_observer(config, None)
+    impl<'a> TestPeer<'a, DiskChainStateBackend> {
+        pub fn new(config: TestPeerConfig) -> Self {
+            Self::new_with_observer(config, None)
         }
 
+        pub fn new_with_observer(
+            config: TestPeerConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> Self {
+            Self::new_with_observer_for_backend(config, observer)
+        }
+    }
+
+    impl<'a> TestPeer<'a, MemoryChainStateBackend> {
+        pub fn new_ephemeral(config: TestPeerConfig) -> Self {
+            Self::new_ephemeral_with_observer(config, None)
+        }
+
+        pub fn new_ephemeral_with_observer(
+            config: TestPeerConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> Self {
+            Self::new_with_observer_for_backend(config, observer)
+        }
+    }
+
+    impl<'a> TestPeer<'a, SharedMemoryChainStateBackend> {
+        pub fn new_shared_ephemeral(config: TestPeerConfig) -> Self {
+            Self::new_shared_ephemeral_with_observer(config, None)
+        }
+
+        pub fn new_shared_ephemeral_with_observer(
+            config: TestPeerConfig,
+            observer: Option<&'a TestEventObserver>,
+        ) -> Self {
+            Self::new_with_observer_for_backend(config, observer)
+        }
+    }
+
+    impl<'a, CSP> TestPeer<'a, CSP>
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         fn init_stackerdb_syncs(
             root_path: &str,
+            stackerdb_memory_namespace: Option<&str>,
             peerdb: &PeerDB,
             stacker_dbs: &mut HashMap<QualifiedContractIdentifier, StackerDBConfig>,
         ) -> HashMap<QualifiedContractIdentifier, (StackerDBConfig, StackerDBSync<PeerNetworkComms>)>
@@ -2831,7 +3168,10 @@ pub mod test {
                 .collect();
 
                 db_config.hint_replicas = initial_peers;
-                let stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
+                let stacker_dbs = match stackerdb_memory_namespace {
+                    Some(namespace) => StackerDBs::connect_memory_shared(namespace).unwrap(),
+                    None => StackerDBs::connect(&stackerdb_path, true).unwrap(),
+                };
                 let stacker_db_sync = StackerDBSync::new(
                     contract_id.clone(),
                     db_config,
@@ -2848,7 +3188,7 @@ pub mod test {
             &self,
             privkey: StacksPrivateKey,
             observer: Option<&'a TestEventObserver>,
-        ) -> TestPeer<'a> {
+        ) -> Self {
             let mut config = self.config.clone();
             config.private_key = privkey;
             config.chain_config.test_name = format!(
@@ -2863,37 +3203,54 @@ pub mod test {
             config.chain_config.test_stackers = self.config.chain_config.test_stackers.clone();
             config.initial_neighbors = vec![self.to_neighbor()];
 
-            let peer = TestPeer::new_with_observer(config, observer);
+            let peer = Self::new_with_observer_for_backend(config, observer);
             peer
         }
 
-        pub fn new_with_observer(
+        fn new_with_observer_for_backend(
             mut config: TestPeerConfig,
             observer: Option<&'a TestEventObserver>,
-        ) -> TestPeer<'a> {
-            let mut chain =
-                TestChainstate::new_with_observer(config.chain_config.clone(), observer);
+        ) -> Self {
+            let mut chain = CSP::new_test_chainstate(config.chain_config.clone(), observer);
             // Write back the chain config as TestChainstate::new may have made modifications.
             config.chain_config = chain.config.clone();
+            let use_ephemeral_storage = matches!(
+                config.chain_config.storage,
+                TestChainstateStorage::Ephemeral | TestChainstateStorage::SharedEphemeral
+            );
             let test_path = chain.test_path.clone();
 
             let peerdb_path = format!("{test_path}/peers.sqlite");
 
-            let mut peerdb = PeerDB::connect(
-                &peerdb_path,
-                true,
-                config.chain_config.network_id,
-                config.chain_config.burnchain.network_id,
-                None,
-                config.private_key_expire,
-                PeerAddress::from_ipv4(127, 0, 0, 1),
-                config.server_port,
-                config.data_url.clone(),
-                &config.asn4_entries,
-                Some(&config.initial_neighbors),
-                &config.stacker_dbs,
-            )
-            .unwrap();
+            let mut peerdb = if use_ephemeral_storage {
+                PeerDB::connect_memory_with_stacker_dbs(
+                    config.chain_config.network_id,
+                    config.chain_config.burnchain.network_id,
+                    config.private_key_expire,
+                    config.server_port,
+                    config.data_url.clone(),
+                    &config.asn4_entries,
+                    &config.initial_neighbors,
+                    &config.stacker_dbs,
+                )
+                .unwrap()
+            } else {
+                PeerDB::connect(
+                    &peerdb_path,
+                    true,
+                    config.chain_config.network_id,
+                    config.chain_config.burnchain.network_id,
+                    None,
+                    config.private_key_expire,
+                    PeerAddress::from_ipv4(127, 0, 0, 1),
+                    config.server_port,
+                    config.data_url.clone(),
+                    &config.asn4_entries,
+                    Some(&config.initial_neighbors),
+                    &config.stacker_dbs,
+                )
+                .unwrap()
+            };
             {
                 // bootstrap nodes *always* allowed
                 let tx = peerdb.tx_begin().unwrap();
@@ -2912,7 +3269,11 @@ pub mod test {
             }
 
             let atlasdb_path = format!("{test_path}/atlas.sqlite");
-            let atlasdb = AtlasDB::connect(AtlasConfig::new(false), &atlasdb_path, true).unwrap();
+            let atlasdb = if use_ephemeral_storage {
+                AtlasDB::connect_memory(AtlasConfig::new(false)).unwrap()
+            } else {
+                AtlasDB::connect(AtlasConfig::new(false), &atlasdb_path, true).unwrap()
+            };
 
             let local_addr =
                 SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), config.server_port);
@@ -2948,9 +3309,22 @@ pub mod test {
                 .unwrap()
             };
             let stackerdb_path = format!("{test_path}/stacker_db.sqlite");
-            let mut stacker_dbs_conn = StackerDBs::connect(&stackerdb_path, true).unwrap();
-            let relayer_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
-            let p2p_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
+            let stackerdb_memory_namespace = format!("{test_path}-stackerdb");
+            let mut stacker_dbs_conn = if use_ephemeral_storage {
+                StackerDBs::connect_memory_shared(&stackerdb_memory_namespace).unwrap()
+            } else {
+                StackerDBs::connect(&stackerdb_path, true).unwrap()
+            };
+            let relayer_stacker_dbs = if use_ephemeral_storage {
+                StackerDBs::connect_memory_shared(&stackerdb_memory_namespace).unwrap()
+            } else {
+                StackerDBs::connect(&stackerdb_path, true).unwrap()
+            };
+            let p2p_stacker_dbs = if use_ephemeral_storage {
+                StackerDBs::connect_memory_shared(&stackerdb_memory_namespace).unwrap()
+            } else {
+                StackerDBs::connect(&stackerdb_path, true).unwrap()
+            };
 
             let mut old_stackerdb_configs = HashMap::new();
             for (i, contract) in config.stacker_dbs.iter().enumerate() {
@@ -2973,8 +3347,12 @@ pub mod test {
                 )
                 .expect("Failed to refresh stackerdb configs");
 
-            let stacker_db_syncs =
-                Self::init_stackerdb_syncs(&test_path, &peerdb, &mut stackerdb_configs);
+            let stacker_db_syncs = Self::init_stackerdb_syncs(
+                &test_path,
+                use_ephemeral_storage.then_some(stackerdb_memory_namespace.as_str()),
+                &peerdb,
+                &mut stackerdb_configs,
+            );
 
             let stackerdb_contracts: Vec<_> = stacker_db_syncs.keys().cloned().collect();
 
@@ -2988,7 +3366,7 @@ pub mod test {
                 StacksEpoch::unit_test_pre_2_05(config.chain_config.burnchain.first_block_height)
             });
 
-            let mut peer_network = PeerNetwork::new(
+            let mut peer_network = PeerNetwork::<CSP>::new(
                 peerdb,
                 atlasdb,
                 p2p_stacker_dbs,
@@ -3005,12 +3383,16 @@ pub mod test {
 
             peer_network.bind(&local_addr, &http_local_addr).unwrap();
             let relayer = Relayer::from_p2p(&mut peer_network, relayer_stacker_dbs);
-            let mempool = MemPoolDB::open_test(
-                false,
-                config.chain_config.network_id,
-                &chain.chainstate_path,
-            )
-            .unwrap();
+            let mempool = if use_ephemeral_storage {
+                MemPoolDB::open_memory_test().unwrap()
+            } else {
+                MemPoolDB::open_test(
+                    false,
+                    config.chain_config.network_id,
+                    &chain.chainstate_path,
+                )
+                .unwrap()
+            };
 
             // extract bound ports (which may be different from what's in the config file, if e.g.
             // they were 0)
@@ -3136,7 +3518,7 @@ pub mod test {
             .unwrap()
             .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
-            let ibd = TestPeer::infer_initial_burnchain_block_download(
+            let ibd = Self::infer_initial_burnchain_block_download(
                 &self.config.chain_config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,
@@ -3239,14 +3621,20 @@ pub mod test {
                 None,
             );
 
+            self.chain
+                .sync_ephemeral_chainstate_to_coordinator(&stacks_node)
+                .unwrap();
+            self.chain.coord.handle_new_burnchain_block().unwrap();
+            self.chain.coord.handle_new_stacks_block().unwrap();
+            self.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
+            self.chain
+                .sync_ephemeral_chainstate_from_coordinator(&mut stacks_node)
+                .unwrap();
+
             self.chain.sortdb = Some(sortdb);
             self.chain.stacks_node = Some(stacks_node);
             self.mempool = Some(mempool);
             self.chain.indexer = Some(indexer);
-
-            self.chain.coord.handle_new_burnchain_block().unwrap();
-            self.chain.coord.handle_new_stacks_block().unwrap();
-            self.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
 
             receipts_res.map(|receipts| (net_result, receipts))
         }
@@ -3255,8 +3643,9 @@ pub mod test {
             let sortdb = self.chain.sortdb.take().unwrap();
             let mut stacks_node = self.chain.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
-            let indexer =
-                BitcoinIndexer::new_unit_test(&self.config.chain_config.burnchain.working_dir);
+            let indexer = BitcoinIndexer::new_unit_test_for_working_dir(
+                &self.config.chain_config.burnchain.working_dir,
+            );
 
             let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
@@ -3268,13 +3657,14 @@ pub mod test {
             .unwrap()
             .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
-            let ibd = TestPeer::infer_initial_burnchain_block_download(
+            let ibd = Self::infer_initial_burnchain_block_download(
                 &self.config.chain_config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,
             );
-            let indexer =
-                BitcoinIndexer::new_unit_test(&self.config.chain_config.burnchain.working_dir);
+            let indexer = BitcoinIndexer::new_unit_test_for_working_dir(
+                &self.config.chain_config.burnchain.working_dir,
+            );
             let rpc_handler_args = self
                 .rpc_handler_args
                 .as_ref()
@@ -3333,8 +3723,9 @@ pub mod test {
         pub fn refresh_burnchain_view(&mut self) {
             let sortdb = self.chain.sortdb.take().unwrap();
             let mut stacks_node = self.chain.stacks_node.take().unwrap();
-            let indexer =
-                BitcoinIndexer::new_unit_test(&self.config.chain_config.burnchain.working_dir);
+            let indexer = BitcoinIndexer::new_unit_test_for_working_dir(
+                &self.config.chain_config.burnchain.working_dir,
+            );
 
             self.network
                 .refresh_burnchain_view(&sortdb, &mut stacks_node.chainstate, false)
@@ -3509,7 +3900,7 @@ pub mod test {
                 tip_block_hash,
                 num_ops
             );
-            let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
+            let indexer = BitcoinIndexer::new_unit_test_for_working_dir(&burnchain.working_dir);
             let parent_hdr = indexer
                 .read_burnchain_header(tip_block_height)
                 .unwrap()
@@ -3556,7 +3947,7 @@ pub mod test {
             let mut burnchain_db =
                 BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap();
 
-            let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
+            let mut indexer = BitcoinIndexer::new_unit_test_for_working_dir(&burnchain.working_dir);
 
             test_debug!(
                 "Store header and block ops for {}-{} ({})",
@@ -3609,7 +4000,7 @@ pub mod test {
                     .epoch_id;
 
                 if set_consensus_hash {
-                    TestPeer::set_ops_consensus_hash(&mut blockstack_ops, &tip.consensus_hash);
+                    Self::set_ops_consensus_hash(&mut blockstack_ops, &tip.consensus_hash);
                 }
 
                 let block_header = Self::make_next_burnchain_block(
@@ -3621,10 +4012,7 @@ pub mod test {
                 );
 
                 if set_burn_hash {
-                    TestPeer::set_ops_burn_header_hash(
-                        &mut blockstack_ops,
-                        &block_header.block_hash,
-                    );
+                    Self::set_ops_burn_header_hash(&mut blockstack_ops, &block_header.block_hash);
                 }
 
                 if update_burnchain {
@@ -3736,7 +4124,13 @@ pub mod test {
                     &block.block_hash(),
                     &pox_id
                 );
+                self.chain
+                    .sync_ephemeral_chainstate_to_coordinator(&node)
+                    .unwrap();
                 self.chain.coord.handle_new_stacks_block().unwrap();
+                self.chain
+                    .sync_ephemeral_chainstate_from_coordinator(&mut node)
+                    .unwrap();
             }
 
             self.chain.sortdb = Some(sortdb);
@@ -3812,7 +4206,13 @@ pub mod test {
                     .preprocess_stacks_epoch(&ic, &tip, block, microblocks)
                     .unwrap();
             }
+            self.chain
+                .sync_ephemeral_chainstate_to_coordinator(&node)
+                .unwrap();
             self.chain.coord.handle_new_stacks_block().unwrap();
+            self.chain
+                .sync_ephemeral_chainstate_from_coordinator(&mut node)
+                .unwrap();
 
             let pox_id = {
                 let ic = sortdb.index_conn();
@@ -3836,7 +4236,7 @@ pub mod test {
         fn inner_process_stacks_epoch_at_tip(
             &mut self,
             sortdb: &SortitionDB,
-            node: &mut TestStacksNode,
+            node: &mut TestStacksNode<CSP>,
             block: &StacksBlock,
             microblocks: &[StacksMicroblock],
         ) -> Result<(), coordinator_error> {
@@ -3846,7 +4246,10 @@ pub mod test {
                 node.chainstate
                     .preprocess_stacks_epoch(&ic, &tip, block, microblocks)?;
             }
+            self.chain.sync_ephemeral_chainstate_to_coordinator(node)?;
             self.chain.coord.handle_new_stacks_block()?;
+            self.chain
+                .sync_ephemeral_chainstate_from_coordinator(node)?;
 
             let pox_id = {
                 let ic = sortdb.index_conn();
@@ -3907,7 +4310,13 @@ pub mod test {
                         .unwrap();
                 }
             }
+            self.chain
+                .sync_ephemeral_chainstate_to_coordinator(&node)
+                .unwrap();
             self.chain.coord.handle_new_stacks_block().unwrap();
+            self.chain
+                .sync_ephemeral_chainstate_from_coordinator(&mut node)
+                .unwrap();
 
             let pox_id = {
                 let ic = sortdb.index_conn();
@@ -3943,11 +4352,11 @@ pub mod test {
             self.mempool.as_mut().unwrap()
         }
 
-        pub fn chainstate(&mut self) -> &mut StacksChainState {
+        pub fn chainstate(&mut self) -> &mut StacksChainState<CSP> {
             &mut self.chain.stacks_node.as_mut().unwrap().chainstate
         }
 
-        pub fn chainstate_ref(&self) -> &StacksChainState {
+        pub fn chainstate_ref(&self) -> &StacksChainState<CSP> {
             &self.chain.stacks_node.as_ref().unwrap().chainstate
         }
 
@@ -3961,7 +4370,12 @@ pub mod test {
 
         pub fn with_dbs<F, R>(&mut self, f: F) -> R
         where
-            F: FnOnce(&mut TestPeer, &mut SortitionDB, &mut TestStacksNode, &mut MemPoolDB) -> R,
+            F: FnOnce(
+                &mut TestPeer<'a, CSP>,
+                &mut SortitionDB,
+                &mut TestStacksNode<CSP>,
+                &mut MemPoolDB,
+            ) -> R,
         {
             let mut sortdb = self.chain.sortdb.take().unwrap();
             let mut stacks_node = self.chain.stacks_node.take().unwrap();
@@ -3979,7 +4393,7 @@ pub mod test {
         where
             F: FnOnce(
                 &mut SortitionDB,
-                &mut StacksChainState,
+                &mut StacksChainState<CSP>,
                 &mut Relayer,
                 &mut MemPoolDB,
             ) -> Result<R, net_error>,
@@ -4007,7 +4421,7 @@ pub mod test {
                 &mut SortitionDB,
                 &mut TestMiner,
                 &mut TestMiner,
-                &mut TestStacksNode,
+                &mut TestStacksNode<CSP>,
             ) -> Result<R, net_error>,
         {
             let mut stacks_node = self.chain.stacks_node.take().unwrap();
@@ -4027,8 +4441,8 @@ pub mod test {
         where
             F: FnOnce(
                 &mut SortitionDB,
-                &mut StacksChainState,
-                &mut PeerNetwork,
+                &mut StacksChainState<CSP>,
+                &mut PeerNetwork<CSP>,
                 &mut Relayer,
                 &mut MemPoolDB,
             ) -> Result<R, net_error>,
@@ -4054,9 +4468,9 @@ pub mod test {
         pub fn with_peer_state<F, R>(&mut self, f: F) -> Result<R, net_error>
         where
             F: FnOnce(
-                &mut TestPeer,
+                &mut TestPeer<'a, CSP>,
                 &mut SortitionDB,
-                &mut StacksChainState,
+                &mut StacksChainState<CSP>,
                 &mut MemPoolDB,
             ) -> Result<R, net_error>,
         {
@@ -4110,7 +4524,7 @@ pub mod test {
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
-                        StacksBlockBuilder::make_anchored_block_from_txs(
+                        StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                             block_builder,
                             chainstate,
                             &sortdb.index_handle(&tip.sortition_id),
@@ -4163,7 +4577,7 @@ pub mod test {
             F: FnMut(
                 &mut TestMiner,
                 &mut SortitionDB,
-                &mut StacksChainState,
+                &mut StacksChainState<CSP>,
                 &VRFProof,
                 Option<&StacksBlock>,
                 Option<&StacksMicroblockHeader>,
@@ -4192,10 +4606,6 @@ pub mod test {
                 parent_block_opt.as_ref(),
             );
             let last_key = stacks_node.get_last_key(&self.chain.miner);
-
-            let network_id = self.config.chain_config.network_id;
-            let chainstate_path = self.chain.chainstate_path.clone();
-            let burn_block_height = burn_block.block_height;
 
             let proof = self
                 .chain
@@ -4320,44 +4730,99 @@ pub mod test {
             );
             let last_key = stacks_node.get_last_key(&self.chain.miner);
 
-            let network_id = self.config.chain_config.network_id;
-            let chainstate_path = self.chain.chainstate_path.clone();
-            let burn_block_height = burn_block.block_height;
+            let proof = self
+                .chain
+                .miner
+                .make_proof(
+                    &last_key.public_key,
+                    &burn_block.parent_snapshot.sortition_hash,
+                )
+                .unwrap_or_else(|| panic!("FATAL: no private key for {:?}", last_key.public_key));
 
-            let (stacks_block, microblocks, block_commit_op) = stacks_node.mine_stacks_block(
-                &sortdb,
-                &mut self.chain.miner,
-                &mut burn_block,
-                &last_key,
-                parent_block_opt.as_ref(),
-                1000,
-                |mut builder, ref mut miner, sortdb| {
-                    let (mut miner_chainstate, _) =
-                        StacksChainState::open(false, network_id, &chainstate_path, None).unwrap();
-                    let sort_iconn = sortdb.index_handle_at_tip();
-
-                    let mut miner_epoch_info = builder
-                        .pre_epoch_begin(&mut miner_chainstate, &sort_iconn, true)
-                        .unwrap();
-                    let mut epoch = builder
-                        .epoch_begin(&sort_iconn, &mut miner_epoch_info)
+            let (mut builder, parent_block_snapshot_opt) = match parent_block_opt.as_ref() {
+                None => {
+                    let builder = StacksBlockBuilder::first(
+                        self.chain.miner.id,
+                        &burn_block.parent_snapshot.consensus_hash,
+                        &burn_block.parent_snapshot.burn_header_hash,
+                        burn_block.parent_snapshot.block_height as u32,
+                        burn_block.parent_snapshot.burn_header_timestamp,
+                        &proof,
+                        &self.chain.miner.next_microblock_privkey(),
+                    );
+                    (builder, None)
+                }
+                Some(parent_stacks_block) => {
+                    let parent_stacks_block_snapshot = {
+                        let ic = sortdb.index_conn();
+                        SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &burn_block.parent_snapshot.sortition_id,
+                            &parent_stacks_block.block_hash(),
+                        )
                         .unwrap()
-                        .0;
+                        .unwrap()
+                    };
+                    let parent_chain_tip = StacksHeadersDb::get_anchored_block_header_info(
+                        stacks_node.chainstate.db(),
+                        &parent_stacks_block_snapshot.consensus_hash,
+                        &parent_stacks_block.header.block_hash(),
+                    )
+                    .unwrap()
+                    .unwrap();
+                    let new_work = StacksWorkScore {
+                        burn: parent_stacks_block_snapshot.total_burn,
+                        work: parent_stacks_block
+                            .header
+                            .total_work
+                            .work
+                            .checked_add(1)
+                            .expect("FATAL: stacks block height overflow"),
+                    };
+                    let builder = StacksBlockBuilder::from_parent(
+                        self.chain.miner.id,
+                        &parent_chain_tip,
+                        &new_work,
+                        &proof,
+                        &self.chain.miner.next_microblock_privkey(),
+                    );
+                    (builder, Some(parent_stacks_block_snapshot))
+                }
+            };
 
-                    let (stacks_block, microblocks) =
-                        mine_smart_contract_block_contract_call_microblock(
-                            &mut epoch,
-                            &mut builder,
-                            miner,
-                            burn_block_height as usize,
-                            parent_microblock_header_opt.as_ref(),
-                        );
+            let (stacks_block, microblocks) = {
+                let sort_iconn = sortdb.index_handle_at_tip();
+                let mut miner_epoch_info = builder
+                    .pre_epoch_begin(&mut stacks_node.chainstate, &sort_iconn, true)
+                    .unwrap();
+                let mut epoch = builder
+                    .epoch_begin(&sort_iconn, &mut miner_epoch_info)
+                    .unwrap()
+                    .0;
 
-                    builder.epoch_finish(epoch).unwrap();
-                    (stacks_block, microblocks)
-                },
+                let (stacks_block, microblocks) =
+                    mine_smart_contract_block_contract_call_microblock(
+                        &mut epoch,
+                        &mut builder,
+                        &mut self.chain.miner,
+                        burn_block.block_height as usize,
+                        parent_microblock_header_opt.as_ref(),
+                    );
+
+                builder.epoch_finish(epoch).unwrap();
+                (stacks_block, microblocks)
+            };
+
+            let block_commit_op = stacks_node.make_tenure_commitment(
+                &sortdb,
+                &mut burn_block,
+                &mut self.chain.miner,
+                &stacks_block,
+                microblocks.clone(),
+                1000,
+                &last_key,
+                parent_block_snapshot_opt.as_ref(),
             );
-
             let leader_key_op =
                 stacks_node.add_key_register(&mut burn_block, &mut self.chain.miner);
 
@@ -4485,6 +4950,7 @@ pub mod test {
             let mut sortdb = self.chain.sortdb.take().unwrap();
             let mut node = self.chain.stacks_node.take().unwrap();
             let chainstate = &mut node.chainstate;
+            let migrator_chainstate = chainstate.reopen().unwrap().0;
 
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
             let epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
@@ -4582,10 +5048,9 @@ pub mod test {
                 .unwrap();
             tx.commit().unwrap();
 
-            let migrator = SortitionDBMigrator::new(
+            let migrator = SortitionDBMigrator::new_with_chainstate(
                 self.config.chain_config.burnchain.clone(),
-                &self.chain.chainstate_path,
-                None,
+                migrator_chainstate,
             )
             .unwrap();
             sortdb
@@ -4703,7 +5168,7 @@ pub mod test {
                 .maybe_read_only_clarity_tx(
                     &sortdb.index_handle_at_block(&node.chainstate, tip).unwrap(),
                     tip,
-                    |clarity_tx| StacksChainState::get_account(clarity_tx, account),
+                    |clarity_tx| clarity_tx.get_account(account),
                 )
                 .unwrap()
                 .unwrap();

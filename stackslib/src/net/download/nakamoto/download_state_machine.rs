@@ -24,7 +24,7 @@ use crate::burnchains::{BurnchainView, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::net::chat::ConversationP2P;
 use crate::net::connection::ConnectionOptions;
 use crate::net::download::nakamoto::{
@@ -33,7 +33,7 @@ use crate::net::download::nakamoto::{
 };
 use crate::net::inv::nakamoto::NakamotoTenureInv;
 use crate::net::neighbors::rpc::NeighborRPC;
-use crate::net::p2p::{CurrentRewardSet, DropReason, DropSource, PeerNetwork};
+use crate::net::p2p::{is_reorg, CurrentRewardSet, DropReason, DropSource, PeerNetwork};
 use crate::net::{Error as NetError, NeighborAddress};
 use crate::util_lib::db::Error as DBError;
 
@@ -314,7 +314,7 @@ impl NakamotoDownloadStateMachine {
     pub(crate) fn inner_update_processed_wanted_tenures(
         nakamoto_start: u64,
         wanted_tenures: &mut [WantedTenure],
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         stacks_tip: &StacksBlockId,
     ) -> Result<(), NetError> {
         for wt in wanted_tenures.iter_mut() {
@@ -350,7 +350,7 @@ impl NakamotoDownloadStateMachine {
     /// Returns Err(..) on DB error
     pub(crate) fn update_processed_tenures(
         &mut self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
     ) -> Result<(), NetError> {
         if let Some(prev_wanted_tenures) = self.prev_wanted_tenures.as_mut() {
             debug!("update_processed_wanted_tenures: update prev_tenures");
@@ -373,7 +373,7 @@ impl NakamotoDownloadStateMachine {
     /// Update `self.wanted_tenures` with newly-discovered sortition data.
     fn extend_wanted_tenures(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
     ) -> Result<(), NetError> {
         let sort_tip = &network.burnchain_tip;
@@ -406,7 +406,7 @@ impl NakamotoDownloadStateMachine {
         sortdb: &SortitionDB,
     ) -> Result<(), NetError> {
         // check for reorgs
-        let reorg = PeerNetwork::is_reorg(self.last_sort_tip.as_ref(), sort_tip, sortdb);
+        let reorg = is_reorg(self.last_sort_tip.as_ref(), sort_tip, sortdb);
         if reorg {
             // force a reload
             debug!("Detected reorg! Refreshing wanted tenures");
@@ -492,7 +492,7 @@ impl NakamotoDownloadStateMachine {
     /// `self.wnated_tenures` and `self.prev_wanted_tenures` if it is safe to do so.
     pub(crate) fn update_wanted_tenures(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
     ) -> Result<(), NetError> {
         let sort_tip = &network.burnchain_tip;
@@ -1131,11 +1131,11 @@ impl NakamotoDownloadStateMachine {
     /// alone, since we need to know the tenure-start block from the ongoing tenure).
     pub(crate) fn run_unconfirmed_downloaders(
         downloaders: &mut HashMap<NeighborAddress, NakamotoUnconfirmedTenureDownloader>,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         neighbor_rpc: &mut NeighborRPC,
         sortdb: &SortitionDB,
         sort_tip: &BlockSnapshot,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
     ) -> (
         HashMap<NeighborAddress, Vec<NakamotoBlock>>,
         HashMap<NeighborAddress, NakamotoTenureDownloader>,
@@ -1322,8 +1322,8 @@ impl NakamotoDownloadStateMachine {
     /// Returns the set of downloaded confirmed tenures obtained.
     fn download_confirmed_tenures(
         &mut self,
-        network: &mut PeerNetwork,
-        chainstate: &mut StacksChainState,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         max_count: usize,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         // queue up more downloaders
@@ -1341,9 +1341,9 @@ impl NakamotoDownloadStateMachine {
     /// Do the needful bookkeeping to remove dead peers.
     fn download_unconfirmed_tenures(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         highest_processed_block_id: Option<StacksBlockId>,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         // queue up more downloaders
@@ -1437,9 +1437,9 @@ impl NakamotoDownloadStateMachine {
     fn run_downloads(
         &mut self,
         burnchain_height: u64,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         ibd: bool,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         debug!(
@@ -1569,9 +1569,9 @@ impl NakamotoDownloadStateMachine {
     pub fn run(
         &mut self,
         burnchain_height: u64,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         ibd: bool,
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         self.nakamoto_tip = network.stacks_tip.block_id();

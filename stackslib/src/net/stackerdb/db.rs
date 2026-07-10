@@ -27,9 +27,11 @@ use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::net::stackerdb::{StackerDBConfig, StackerDBTx, StackerDBs, STACKERDB_INV_MAX};
 use crate::net::{Error as net_error, StackerDBChunkData};
+#[cfg(any(test, feature = "testing"))]
+use crate::util_lib::db::sqlite_memory_namespace;
 use crate::util_lib::db::{
-    query_row, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql, DBConn, Error as db_error,
-    FromColumn, FromRow,
+    is_sqlite_memory_path, query_row, query_rows, sqlite_open, table_exists, tx_begin_immediate,
+    u64_to_sql, DBConn, Error as db_error, FromColumn, FromRow,
 };
 
 const STACKER_DB_SCHEMA: &[&str] = &[
@@ -442,7 +444,8 @@ impl StackerDBs {
     fn instantiate(path: &str, readwrite: bool) -> Result<StackerDBs, net_error> {
         let mut create_flag = false;
 
-        let open_flags = if path != ":memory:" {
+        let sqlite_memory = is_sqlite_memory_path(path);
+        let open_flags = if !sqlite_memory {
             if let Err(e) = fs::metadata(path) {
                 if e.kind() != io::ErrorKind::NotFound {
                     return Err(db_error::IOError(e).into());
@@ -476,7 +479,7 @@ impl StackerDBs {
             path: path.to_string(),
         };
 
-        if create_flag {
+        if create_flag && !table_exists(&db.conn, "databases")? {
             let db_tx = db.tx_begin(StackerDBConfig::noop())?;
             for sql in STACKER_DB_SCHEMA.iter() {
                 db_tx.sql_tx.execute_batch(sql)?;
@@ -493,9 +496,18 @@ impl StackerDBs {
         Self::instantiate(path, readwrite)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn connect_memory() -> StackerDBs {
         Self::instantiate(":memory:", true).unwrap()
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn connect_memory_shared(namespace: &str) -> Result<StackerDBs, net_error> {
+        let namespace = sqlite_memory_namespace(namespace);
+        Self::instantiate(
+            &format!("file:{namespace}-stackerdb?mode=memory&cache=shared"),
+            true,
+        )
     }
 
     /// Open the StackerDBs again

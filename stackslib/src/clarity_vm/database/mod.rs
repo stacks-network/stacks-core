@@ -27,7 +27,7 @@ use crate::chainstate::burn::db::sortdb::{
 use crate::chainstate::nakamoto::{keys as nakamoto_keys, StacksDBIndexed};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::{ChainstateTx, StacksChainState, StacksDBConn, StacksDBTx};
+use crate::chainstate::stacks::db::{ChainstateTx, MinerRewardsDb, StacksDBConn, StacksDBTx};
 use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::Error as ChainstateError;
@@ -835,7 +835,7 @@ fn get_matured_reward<GTS: GetTenureStartId>(
 
     if let Some(parent_id_bhh) = parent_id_bhh {
         let parent_tenure_id = get_first_block_in_tenure(conn, &parent_id_bhh, tip, None);
-        StacksChainState::get_matured_miner_payment(conn.conn(), &parent_tenure_id, child_id_bhh)
+        MinerRewardsDb::get_matured_miner_payment(conn.conn(), &parent_tenure_id, child_id_bhh)
             .expect("Unexpected SQL failure querying miner reward table")
     } else {
         None

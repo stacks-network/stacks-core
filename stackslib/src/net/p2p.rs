@@ -40,7 +40,10 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::{OnChainRewardSetProvider, RewardCycleInfo};
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::stacks::boot::RewardSet;
-use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, Epoch2StagingBlocksDb, StacksBlockHeaderTypes, StacksBlockStore,
+    StacksChainState, StacksHeadersDb,
+};
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::core::{EpochList, StacksEpoch};
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
@@ -454,7 +457,7 @@ impl From<&DropNeighbor> for DropPeer {
     }
 }
 
-pub struct PeerNetwork {
+pub struct PeerNetwork<CSP: ChainStatePersistence> {
     // constants
     pub peer_version: u32,
     pub epochs: EpochList,
@@ -574,7 +577,7 @@ pub struct PeerNetwork {
     pub prune_inbound_counts: HashMap<NeighborKey, u64>,
 
     // http endpoint, used for driving HTTP conversations (some of which we initiate)
-    pub http: Option<HttpPeer>,
+    pub http: Option<HttpPeer<CSP>>,
 
     // our own neighbor address that we bind on
     bind_nk: NeighborKey,
@@ -635,7 +638,86 @@ pub struct PeerNetwork {
     pub highest_stacks_neighbor: Option<(SocketAddr, u64)>,
 }
 
-impl PeerNetwork {
+/// Extract an IP address from a UrlString if it exists.
+pub fn try_get_url_ip(url_str: &UrlString) -> Result<Option<SocketAddr>, net_error> {
+    let url = url_str.parse_to_block_url()?;
+    let port = match url.port_or_known_default() {
+        Some(p) => p,
+        None => {
+            warn!("Unsupported URL {:?}: unknown port", &url);
+            return Ok(None);
+        }
+    };
+    match url.host() {
+        Some(url::Host::Domain(d)) => {
+            if d == "localhost" {
+                Ok(Some(SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                    port,
+                )))
+            } else {
+                Ok(None)
+            }
+        }
+        Some(url::Host::Ipv4(addr)) => Ok(Some(SocketAddr::new(IpAddr::V4(addr), port))),
+        Some(url::Host::Ipv6(addr)) => Ok(Some(SocketAddr::new(IpAddr::V6(addr), port))),
+        None => {
+            warn!("Unsupported URL {:?}", &url_str);
+            Ok(None)
+        }
+    }
+}
+
+/// Check whether the burnchain view moved across a sortition fork.
+pub fn is_reorg(
+    last_sort_tip: Option<&BlockSnapshot>,
+    sort_tip: &BlockSnapshot,
+    sortdb: &SortitionDB,
+) -> bool {
+    let Some(last_sort_tip) = last_sort_tip else {
+        return false;
+    };
+
+    if last_sort_tip.block_height == sort_tip.block_height
+        && last_sort_tip.consensus_hash == sort_tip.consensus_hash
+    {
+        return false;
+    }
+
+    if last_sort_tip.block_height == sort_tip.block_height
+        && last_sort_tip.consensus_hash != sort_tip.consensus_hash
+    {
+        info!(
+            "Burnchain reorg detected at burn height {}: {} != {}",
+            sort_tip.block_height, &last_sort_tip.consensus_hash, &sort_tip.consensus_hash
+        );
+        return true;
+    }
+
+    let ih = sortdb.index_handle(&sort_tip.sortition_id);
+    let Ok(Some(ancestor_sn)) = ih.get_block_snapshot_by_height(last_sort_tip.block_height) else {
+        info!(
+            "Reorg detected: no ancestor of burn block {} ({}) found",
+            sort_tip.block_height, &sort_tip.consensus_hash
+        );
+        return true;
+    };
+
+    if ancestor_sn.consensus_hash != last_sort_tip.consensus_hash {
+        info!(
+            "Reorg detected at burn block {}: ancestor tip at {}: {} != {}",
+            sort_tip.block_height,
+            last_sort_tip.block_height,
+            &ancestor_sn.consensus_hash,
+            &last_sort_tip.consensus_hash
+        );
+        return true;
+    }
+
+    false
+}
+
+impl<CSP: ChainStatePersistence> PeerNetwork<CSP> {
     pub fn new(
         peerdb: PeerDB,
         atlasdb: AtlasDB,
@@ -651,8 +733,8 @@ impl PeerNetwork {
             (StackerDBConfig, StackerDBSync<PeerNetworkComms>),
         >,
         epochs: EpochList,
-    ) -> PeerNetwork {
-        let http = HttpPeer::new(
+    ) -> PeerNetwork<CSP> {
+        let http = HttpPeer::<CSP>::new(
             connection_opts.clone(),
             0,
             SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
@@ -837,9 +919,9 @@ impl PeerNetwork {
     /// Do something with the HTTP peer.
     /// NOTE: the HTTP peer is *always* instantiated; it's just an Option<..> so its methods can
     /// receive a ref to the PeerNetwork that contains it.
-    pub fn with_http<F, R>(network: &mut PeerNetwork, to_do: F) -> R
+    pub fn with_http<F, R>(network: &mut PeerNetwork<CSP>, to_do: F) -> R
     where
-        F: FnOnce(&mut PeerNetwork, &mut HttpPeer) -> R,
+        F: FnOnce(&mut PeerNetwork<CSP>, &mut HttpPeer<CSP>) -> R,
     {
         let mut http = network
             .http
@@ -867,7 +949,7 @@ impl PeerNetwork {
         self.p2p_network_handle = p2p_handle;
         self.http_network_handle = http_handle;
 
-        PeerNetwork::with_http(self, |_, ref mut http| {
+        Self::with_http(self, |_, ref mut http| {
             http.set_server_handle(http_handle, bound_http_addr);
         });
 
@@ -1042,11 +1124,11 @@ impl PeerNetwork {
 
     /// Run a closure with the network state
     pub fn with_network_state<F, R>(
-        peer_network: &mut PeerNetwork,
+        peer_network: &mut PeerNetwork<CSP>,
         closure: F,
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut NetworkState) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork<CSP>, &mut NetworkState) -> Result<R, net_error>,
     {
         let mut net = peer_network.network.take();
         let res = match net {
@@ -1061,11 +1143,11 @@ impl PeerNetwork {
 
     /// Run a closure with the attachments_downloader
     pub fn with_attachments_downloader<F, R>(
-        peer_network: &mut PeerNetwork,
+        peer_network: &mut PeerNetwork<CSP>,
         closure: F,
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut AttachmentsDownloader) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork<CSP>, &mut AttachmentsDownloader) -> Result<R, net_error>,
     {
         let mut attachments_downloader = peer_network.attachments_downloader.take();
         let res = match attachments_downloader {
@@ -1137,7 +1219,7 @@ impl PeerNetwork {
         handle: &mut ReplyHandleP2P,
     ) -> Result<(usize, bool), net_error> {
         let res = self.with_p2p_convo(event_id, |_network, convo, client_sock| {
-            PeerNetwork::do_saturate_p2p_socket(convo, client_sock, handle)
+            Self::do_saturate_p2p_socket(convo, client_sock, handle)
         })?;
         res
     }
@@ -1207,7 +1289,7 @@ impl PeerNetwork {
             let _seq = message.preamble.seq;
             let mut reply_handle = convo.relay_signed_message(message)?;
             let (num_sent, flushed) =
-                PeerNetwork::do_saturate_p2p_socket(convo, client_sock, &mut reply_handle)?;
+                Self::do_saturate_p2p_socket(convo, client_sock, &mut reply_handle)?;
             test_debug!(
                 "Saturated socket {:?} with message {} seq {}: sent={}, flushed={}",
                 &client_sock,
@@ -1900,7 +1982,7 @@ impl PeerNetwork {
         }
 
         // consider rate-limits on in-bound peers
-        let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
+        let num_outbound = Self::count_outbound_conversations(&self.peers);
         if !outbound && (self.peers.len() as u64) - num_outbound >= self.connection_opts.num_clients
         {
             // too many inbounds
@@ -2308,7 +2390,7 @@ impl PeerNetwork {
     /// so `todo` can take a mutable ref to the PeerNetwork
     fn with_p2p_convo<F, R>(&mut self, event_id: usize, todo: F) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut ConversationP2P, &mut mio_net::TcpStream) -> R,
+        F: FnOnce(&mut PeerNetwork<CSP>, &mut ConversationP2P, &mut mio_net::TcpStream) -> R,
     {
         // "check out" the conversation and client socket.
         // If one of them is missing, then "check in" the other so we can properly deregister the
@@ -2356,7 +2438,7 @@ impl PeerNetwork {
         &mut self,
         event_id: usize,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         dns_client_opt: &mut Option<&mut DNSClient>,
         ibd: bool,
     ) -> Result<(Vec<StacksMessage>, bool), net_error> {
@@ -2447,7 +2529,7 @@ impl PeerNetwork {
     fn process_ready_sockets(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         dns_client_opt: &mut Option<&mut DNSClient>,
         poll_state: &mut NetworkPollState,
         ibd: bool,
@@ -2833,7 +2915,7 @@ impl PeerNetwork {
                 let res = self.with_p2p_convo(*event_id, |_network, convo, client_sock| {
                     if let Some(handle) = handle_list.front_mut() {
                         let (num_sent, flushed) =
-                            match PeerNetwork::do_saturate_p2p_socket(convo, client_sock, handle) {
+                            match Self::do_saturate_p2p_socket(convo, client_sock, handle) {
                                 Ok(x) => x,
                                 Err(e) => {
                                     info!("Broken connection on event {event_id}: {e:?}");
@@ -3204,7 +3286,7 @@ impl PeerNetwork {
     fn do_network_block_download(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         dns_client: &mut DNSClient,
         ibd: bool,
         network_result: &mut NetworkResult,
@@ -3278,13 +3360,13 @@ impl PeerNetwork {
             }
         }
 
-        let _ = PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
+        let _ = Self::with_network_state(self, |ref mut network, ref mut network_state| {
             for dead_event in broken_http_peers.into_iter() {
                 debug!(
                     "{:?}: De-register dead/broken HTTP connection {} from epoch2x block download",
                     &network.local_peer, dead_event
                 );
-                PeerNetwork::with_http(network, |_, http| {
+                Self::with_http(network, |_, http| {
                     http.deregister_http(network_state, dead_event);
                 });
             }
@@ -3323,7 +3405,7 @@ impl PeerNetwork {
         reward_cycle: u64,
         height: u64,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<CSP>,
         local_blocks_inv: &BlocksInvData,
         block_stats: &NeighborBlockStats,
     ) -> Option<(ConsensusHash, StacksBlock)> {
@@ -3347,7 +3429,7 @@ impl PeerNetwork {
                 &ancestor_sn.consensus_hash,
                 &ancestor_sn.winning_stacks_block_hash,
             );
-            let block = match StacksChainState::load_block(
+            let block = match StacksBlockStore::load_block(
                 &chainstate.blocks_path,
                 &ancestor_sn.consensus_hash,
                 &ancestor_sn.winning_stacks_block_hash,
@@ -3387,7 +3469,7 @@ impl PeerNetwork {
         reward_cycle: u64,
         height: u64,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<CSP>,
         local_blocks_inv: &BlocksInvData,
         block_stats: &NeighborBlockStats,
     ) -> Option<(ConsensusHash, BlockHeaderHash, Vec<StacksMicroblock>)> {
@@ -3409,7 +3491,7 @@ impl PeerNetwork {
                 }
             };
 
-            let block_info = match StacksChainState::load_staging_block_info(
+            let block_info = match Epoch2StagingBlocksDb::load_staging_block_info(
                 chainstate.db(),
                 &StacksBlockHeader::make_index_block_hash(
                     &ancestor_sn.consensus_hash,
@@ -3438,7 +3520,7 @@ impl PeerNetwork {
                 }
             };
 
-            let microblocks = match StacksChainState::load_processed_microblock_stream_fork(
+            let microblocks = match Epoch2StagingBlocksDb::load_processed_microblock_stream_fork(
                 chainstate.db(),
                 &block_info.parent_consensus_hash,
                 &block_info.parent_anchored_block_hash,
@@ -3492,7 +3574,11 @@ impl PeerNetwork {
     /// fetched older data via the block-downloader.
     ///
     /// Only applicable to epoch 2.x state.
-    fn try_push_local_data_epoch2x(&mut self, sortdb: &SortitionDB, chainstate: &StacksChainState) {
+    fn try_push_local_data_epoch2x(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &StacksChainState<CSP>,
+    ) {
         if self.antientropy_last_push_ts + self.connection_opts.antientropy_retry
             >= get_epoch_time_secs()
         {
@@ -3816,7 +3902,7 @@ impl PeerNetwork {
                 "{:?}: AntiEntropy: Invalidate inventory for {:?} at and after reward cycle {}",
                 &self.local_peer, &nk, reward_cycle
             );
-            PeerNetwork::with_inv_state(self, |network, inv_state| {
+            Self::with_inv_state(self, |network, inv_state| {
                 if let Some(block_stats) = inv_state.block_stats.get_mut(&nk) {
                     block_stats
                         .inv
@@ -3829,33 +3915,7 @@ impl PeerNetwork {
 
     /// Extract an IP address from a UrlString if it exists
     pub fn try_get_url_ip(url_str: &UrlString) -> Result<Option<SocketAddr>, net_error> {
-        let url = url_str.parse_to_block_url()?;
-        let port = match url.port_or_known_default() {
-            Some(p) => p,
-            None => {
-                warn!("Unsupported URL {:?}: unknown port", &url);
-                return Ok(None);
-            }
-        };
-        match url.host() {
-            Some(url::Host::Domain(d)) => {
-                if d == "localhost" {
-                    Ok(Some(SocketAddr::new(
-                        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-                        port,
-                    )))
-                } else {
-                    // can't use this
-                    Ok(None)
-                }
-            }
-            Some(url::Host::Ipv4(addr)) => Ok(Some(SocketAddr::new(IpAddr::V4(addr), port))),
-            Some(url::Host::Ipv6(addr)) => Ok(Some(SocketAddr::new(IpAddr::V6(addr), port))),
-            None => {
-                warn!("Unsupported URL {:?}", &url_str);
-                Ok(None)
-            }
-        }
+        try_get_url_ip(url_str)
     }
 
     /// Check to see if we need to run the epoch 2.x state machines.
@@ -3873,7 +3933,7 @@ impl PeerNetwork {
         &mut self,
         burnchain_height: u64,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
         ibd: bool,
@@ -3941,7 +4001,7 @@ impl PeerNetwork {
         &mut self,
         burnchain_height: u64,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         ibd: bool,
         network_result: &mut NetworkResult,
     ) {
@@ -3988,7 +4048,7 @@ impl PeerNetwork {
     fn do_network_work_epoch2x(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
         ibd: bool,
@@ -4117,7 +4177,7 @@ impl PeerNetwork {
 
         match dns_client_opt {
             Some(ref mut dns_client) => {
-                let dead_events = PeerNetwork::with_attachments_downloader(
+                let dead_events = Self::with_attachments_downloader(
                     self,
                     |network, attachments_downloader| {
                         let mut dead_events = vec![];
@@ -4137,21 +4197,18 @@ impl PeerNetwork {
                     },
                 ).expect("FATAL: with_attachments_downloader() should be infallible (and it is not initialized)");
 
-                let _ = PeerNetwork::with_network_state(
-                    self,
-                    |ref mut network, ref mut network_state| {
-                        for event_id in dead_events.into_iter() {
-                            debug!(
-                                "Atlas: Deregistering faulty connection (event_id: {})",
-                                event_id
-                            );
-                            PeerNetwork::with_http(network, |_, http| {
-                                http.deregister_http(network_state, event_id);
-                            });
-                        }
-                        Ok(())
-                    },
-                );
+                let _ = Self::with_network_state(self, |ref mut network, ref mut network_state| {
+                    for event_id in dead_events.into_iter() {
+                        debug!(
+                            "Atlas: Deregistering faulty connection (event_id: {})",
+                            event_id
+                        );
+                        Self::with_http(network, |_, http| {
+                            http.deregister_http(network_state, event_id);
+                        });
+                    }
+                    Ok(())
+                });
             }
             None => {
                 // skip this step -- no DNS client available
@@ -4441,7 +4498,7 @@ impl PeerNetwork {
     pub fn refresh_stacker_db_configs(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
     ) -> Result<(), net_error> {
         let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
         self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdbs(
@@ -4461,7 +4518,7 @@ impl PeerNetwork {
     /// that it builds atop.
     pub(crate) fn get_parent_stacks_tip(
         &self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<CSP>,
         stacks_tip_block_id: &StacksBlockId,
     ) -> Result<StacksTipInfo, net_error> {
         let header = NakamotoChainState::get_block_header(chainstate.db(), stacks_tip_block_id)?
@@ -4493,7 +4550,7 @@ impl PeerNetwork {
             StacksBlockHeaderTypes::Nakamoto(ref nakamoto_header) => {
                 nakamoto_header.parent_block_id.clone()
             }
-            StacksBlockHeaderTypes::Epoch2(..) => StacksChainState::get_parent_block_id(
+            StacksBlockHeaderTypes::Epoch2(..) => StacksHeadersDb::get_parent_block_id(
                 chainstate.db(),
                 &tenure_start_header.index_block_hash(),
             )?
@@ -4596,7 +4653,7 @@ impl PeerNetwork {
     fn check_reload_cached_reward_set(
         &self,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<CSP>,
         rc: u64,
         tip_sn: &BlockSnapshot,
         tip_block_id: &StacksBlockId,
@@ -4664,7 +4721,7 @@ impl PeerNetwork {
     pub fn refresh_reward_cycles(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         tip_sn: &BlockSnapshot,
         tip_block_id: &StacksBlockId,
         tip_height: u64,
@@ -4733,7 +4790,7 @@ impl PeerNetwork {
     pub fn refresh_burnchain_view(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         ibd: bool,
     ) -> Result<PendingMessages, net_error> {
         // update burnchain snapshot if we need to (careful -- it's expensive)
@@ -4995,7 +5052,7 @@ impl PeerNetwork {
         burnchain_height: u64,
         sortdb: &SortitionDB,
         mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         mut dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
         ibd: bool,
@@ -5149,7 +5206,7 @@ impl PeerNetwork {
         // do this after processing new sockets, so we don't accidentally re-use an event ID.
         self.dispatch_requests();
 
-        let outbound_neighbors = PeerNetwork::count_outbound_conversations(&self.peers);
+        let outbound_neighbors = Self::count_outbound_conversations(&self.peers);
         let inbound_neighbors = self.peers.len() - outbound_neighbors as usize;
         update_outbound_neighbors(outbound_neighbors as i64);
         update_inbound_neighbors(inbound_neighbors as i64);
@@ -5176,7 +5233,7 @@ impl PeerNetwork {
     fn store_transaction(
         mempool: &mut MemPoolDB,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         burnchain_tip: &BlockSnapshot,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
@@ -5226,7 +5283,7 @@ impl PeerNetwork {
     #[cfg_attr(test, mutants::skip)]
     pub fn store_transactions(
         mempool: &mut MemPoolDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         sortdb: &SortitionDB,
         network_result: &mut NetworkResult,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
@@ -5250,7 +5307,7 @@ impl PeerNetwork {
         // messages pushed via the p2p network
         for (nk, tx_data) in network_result.pushed_transactions.drain() {
             for (relayers, tx) in tx_data.into_iter() {
-                if PeerNetwork::store_transaction(
+                if Self::store_transaction(
                     mempool,
                     sortdb,
                     chainstate,
@@ -5272,7 +5329,7 @@ impl PeerNetwork {
         // (HTTP-uploaded transactions are already in the mempool)
         // Mempool-synced transactions (don't re-relay these)
         for tx in network_result.synced_transactions.drain(..) {
-            PeerNetwork::store_transaction(
+            Self::store_transaction(
                 mempool,
                 sortdb,
                 chainstate,
@@ -5294,61 +5351,7 @@ impl PeerNetwork {
         sort_tip: &BlockSnapshot,
         sortdb: &SortitionDB,
     ) -> bool {
-        let Some(last_sort_tip) = last_sort_tip else {
-            // no prior tip, so no reorg to handle
-            return false;
-        };
-
-        if last_sort_tip.block_height == sort_tip.block_height
-            && last_sort_tip.consensus_hash == sort_tip.consensus_hash
-        {
-            // prior tip and current tip are the same, so no reorg
-            return false;
-        }
-
-        if last_sort_tip.block_height == sort_tip.block_height
-            && last_sort_tip.consensus_hash != sort_tip.consensus_hash
-        {
-            // current and previous sortition tips are at the same height, but represent different
-            // blocks.
-            info!(
-                "Burnchain reorg detected at burn height {}: {} != {}",
-                sort_tip.block_height, &last_sort_tip.consensus_hash, &sort_tip.consensus_hash
-            );
-            return true;
-        }
-
-        // It will never be the case that the last and current tip have different heights, but the
-        // same consensus hash.  If they have the same height, then we would have already returned
-        // since we've handled both the == and != cases for their consensus hashes.  So if we reach
-        // this point, the heights and consensus hashes are not equal.  We only need to check that
-        // last_sort_tip is an ancestor of sort_tip
-
-        let ih = sortdb.index_handle(&sort_tip.sortition_id);
-        let Ok(Some(ancestor_sn)) = ih.get_block_snapshot_by_height(last_sort_tip.block_height)
-        else {
-            // no such ancestor, so it's a reorg
-            info!(
-                "Reorg detected: no ancestor of burn block {} ({}) found",
-                sort_tip.block_height, &sort_tip.consensus_hash
-            );
-            return true;
-        };
-
-        if ancestor_sn.consensus_hash != last_sort_tip.consensus_hash {
-            // ancestor doesn't have the expected consensus hash
-            info!(
-                "Reorg detected at burn block {}: ancestor tip at {}: {} != {}",
-                sort_tip.block_height,
-                last_sort_tip.block_height,
-                &ancestor_sn.consensus_hash,
-                &last_sort_tip.consensus_hash
-            );
-            return true;
-        }
-
-        // ancestor has expected consensus hash, so no rerog
-        false
+        is_reorg(last_sort_tip, sort_tip, sortdb)
     }
 
     /// Static helper to check to see if there has been a Nakamoto reorg.
@@ -5359,7 +5362,7 @@ impl PeerNetwork {
         last_stacks_tip_height: u64,
         stacks_tip: &StacksBlockId,
         stacks_tip_height: u64,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<CSP>,
     ) -> bool {
         if last_stacks_tip == stacks_tip {
             // same tip
@@ -5446,7 +5449,7 @@ impl PeerNetwork {
         &mut self,
         indexer: &B,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         mempool: &mut MemPoolDB,
         dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
@@ -5514,7 +5517,7 @@ impl PeerNetwork {
         // This operation needs to be performed before any early return:
         // Events are being parsed and dispatched here once and we want to
         // enqueue them.
-        PeerNetwork::with_attachments_downloader(self, |network, attachments_downloader| {
+        Self::with_attachments_downloader(self, |network, attachments_downloader| {
             let mut known_attachments = attachments_downloader
                 .check_queued_attachment_instances(&mut network.atlasdb)
                 .expect("FATAL: failed to store new attachments to the atlas DB");
@@ -5523,8 +5526,8 @@ impl PeerNetwork {
         })
         .expect("FATAL: with_attachments_downloader should be infallable (not connected)");
 
-        PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
-            let http_stacks_msgs = PeerNetwork::with_http(network, |ref mut net, ref mut http| {
+        Self::with_network_state(self, |ref mut network, ref mut network_state| {
+            let http_stacks_msgs = Self::with_http(network, |ref mut net, ref mut http| {
                 let mut node_state = StacksNodeState::new(
                     net,
                     sortdb,
@@ -5616,7 +5619,9 @@ mod test {
         neighbor
     }
 
-    fn make_test_p2p_network(initial_neighbors: &[Neighbor]) -> PeerNetwork {
+    fn make_test_p2p_network(
+        initial_neighbors: &[Neighbor],
+    ) -> PeerNetwork<crate::chainstate::stacks::db::DiskChainStateBackend> {
         let mut conn_opts = ConnectionOptions::default().with_private_neighbors();
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
@@ -5656,6 +5661,7 @@ mod test {
             0x9abcdef0,
             0,
             23456,
+            23456,
             UrlString::from_literal("http://test-p2p.com"),
             &[],
             initial_neighbors,
@@ -5667,7 +5673,7 @@ mod test {
         let burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
-        let p2p = PeerNetwork::new(
+        let p2p = PeerNetwork::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
             db,
             atlasdb,
             stacker_db,
@@ -5928,8 +5934,8 @@ mod test {
 
     #[test]
     fn test_is_connecting() {
-        let peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_1 = TestPeer::new(peer_1_config);
+        let peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
         let nk = peer_1.to_neighbor().addr;
 
         assert!(!peer_1.network.is_connecting(1));

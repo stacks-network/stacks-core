@@ -84,7 +84,9 @@ impl HttpRequest for RPCGetAttachmentRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCGetAttachmentRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCGetAttachmentRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.attachment_hash = None;
@@ -94,7 +96,7 @@ impl RPCRequestHandler for RPCGetAttachmentRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let attachment_hash = self
             .attachment_hash

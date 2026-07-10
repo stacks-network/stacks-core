@@ -161,7 +161,9 @@ impl HttpRequest for RPCFastCallReadOnlyRequestHandler {
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCFastCallReadOnlyRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.call_read_only_handler.contract_identifier = None;
@@ -176,7 +178,7 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,

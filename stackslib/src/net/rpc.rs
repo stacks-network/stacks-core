@@ -24,6 +24,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::get_epoch_time_secs;
 
+use crate::chainstate::stacks::db::ChainStatePersistence;
 use crate::monitoring;
 use crate::net::connection::{ConnectionHttp, ConnectionOptions, ReplyHandleHttp};
 use crate::net::http::HttpResponseContents;
@@ -36,9 +37,9 @@ use crate::util_lib::strings::UrlString;
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
-pub struct ConversationHttp {
+pub struct ConversationHttp<CSP: ChainStatePersistence> {
     /// send/receive buffering state-machine for interfacing with a non-blocking socket
-    connection: ConnectionHttp,
+    connection: ConnectionHttp<CSP>,
     /// poll ID for this struct's associated socket
     conn_id: usize,
     /// time (in seconds) for how long an attempt to connect to a peer is allowed to take
@@ -62,16 +63,16 @@ pub struct ConversationHttp {
     /// absolute time when this conversation was instantiated
     connection_time: u64,
     /// Ongoing replies
-    reply_streams: VecDeque<(ReplyHandleHttp, HttpResponseContents, bool)>,
+    reply_streams: VecDeque<(ReplyHandleHttp<CSP>, HttpResponseContents, bool)>,
     /// outstanding request
-    pending_request: Option<ReplyHandleHttp>,
+    pending_request: Option<ReplyHandleHttp<CSP>>,
     /// outstanding response
     pending_response: Option<StacksHttpResponse>,
     /// how much data to buffer (i.e. the socket's send buffer size)
     socket_send_buffer_size: u32,
 }
 
-impl fmt::Display for ConversationHttp {
+impl<CSP: ChainStatePersistence> fmt::Display for ConversationHttp<CSP> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -83,7 +84,7 @@ impl fmt::Display for ConversationHttp {
     }
 }
 
-impl fmt::Debug for ConversationHttp {
+impl<CSP: ChainStatePersistence> fmt::Debug for ConversationHttp<CSP> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -95,7 +96,7 @@ impl fmt::Debug for ConversationHttp {
     }
 }
 
-impl ConversationHttp {
+impl<CSP: ChainStatePersistence> ConversationHttp<CSP> {
     pub fn new(
         peer_addr: SocketAddr,
         outbound_url: Option<UrlString>,
@@ -103,10 +104,10 @@ impl ConversationHttp {
         conn_opts: &ConnectionOptions,
         conn_id: usize,
         socket_send_buffer_size: u32,
-    ) -> ConversationHttp {
-        let stacks_http = StacksHttp::new(peer_addr, conn_opts);
+    ) -> ConversationHttp<CSP> {
+        let stacks_http = StacksHttp::<CSP>::new(peer_addr, conn_opts);
         ConversationHttp {
-            connection: ConnectionHttp::new(stacks_http, conn_opts, None),
+            connection: ConnectionHttp::<CSP>::new(stacks_http, conn_opts, None),
             conn_id,
             timeout: conn_opts.timeout,
             reply_streams: VecDeque::new(),
@@ -147,7 +148,7 @@ impl ConversationHttp {
 
     /// Start a HTTP request from this peer, and expect a response.
     /// Returns the request handle; does not set the handle into this connection.
-    fn start_request(&mut self, req: StacksHttpRequest) -> Result<ReplyHandleHttp, net_error> {
+    fn start_request(&mut self, req: StacksHttpRequest) -> Result<ReplyHandleHttp<CSP>, net_error> {
         test_debug!(
             "{:?},id={}: Start HTTP request {:?}",
             &self.peer_host,
@@ -217,7 +218,7 @@ impl ConversationHttp {
     pub fn handle_request(
         &mut self,
         req: StacksHttpRequest,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<Option<StacksMessageType>, net_error> {
         // NOTE: This may set node.relay_message
         let keep_alive = req.preamble().keep_alive;
@@ -355,8 +356,8 @@ impl ConversationHttp {
     /// If we are not done yet, then return Ok(reply-handle) if we can try again, or net_error if
     /// we cannot.
     fn try_send_recv_response(
-        req: ReplyHandleHttp,
-    ) -> Result<StacksHttpResponse, Result<ReplyHandleHttp, net_error>> {
+        req: ReplyHandleHttp<CSP>,
+    ) -> Result<StacksHttpResponse, Result<ReplyHandleHttp<CSP>, net_error>> {
         match req.try_send_recv() {
             Ok(message) => match message {
                 StacksHttpMessage::Request(_) => {
@@ -478,7 +479,7 @@ impl ConversationHttp {
     /// Returns the list of messages we'll need to forward to the peer network
     pub fn chat(
         &mut self,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<Vec<StacksMessageType>, net_error> {
         // handle in-bound HTTP request(s)
         let num_inbound = self.connection.inbox_len();

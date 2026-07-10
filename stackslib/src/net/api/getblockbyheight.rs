@@ -87,7 +87,9 @@ impl HttpRequest for RPCNakamotoBlockByHeightRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCNakamotoBlockByHeightRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.block_height = None;
@@ -98,7 +100,7 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_height = self
             .block_height

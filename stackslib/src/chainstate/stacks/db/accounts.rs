@@ -243,34 +243,30 @@ impl MinerPaymentSchedule {
     }
 }
 
-impl StacksChainState {
-    pub fn get_account<T: ClarityConnection>(
-        clarity_tx: &mut T,
-        principal: &PrincipalData,
-    ) -> StacksAccount {
-        clarity_tx
-            .with_clarity_db_readonly(|ref mut db| {
-                let stx_balance = db.get_account_stx_balance(principal)?;
-                let nonce = db.get_account_nonce(principal)?;
-                Ok(StacksAccount {
-                    principal: principal.clone(),
-                    stx_balance,
-                    nonce,
-                })
+/// Read account and asset state from any read-capable Clarity connection.
+pub trait StacksAccountReader: ClarityConnection {
+    fn get_account(&mut self, principal: &PrincipalData) -> StacksAccount {
+        self.with_clarity_db_readonly(|ref mut db| {
+            let stx_balance = db.get_account_stx_balance(principal)?;
+            let nonce = db.get_account_nonce(principal)?;
+            Ok(StacksAccount {
+                principal: principal.clone(),
+                stx_balance,
+                nonce,
             })
-            .map_err(Error::ClarityError)
-            .unwrap_or_else(|e| {
-                error!(
-                    "FATAL: Failed to query account for {:?}: {:?}",
-                    principal, &e
-                );
-                panic!();
-            })
+        })
+        .map_err(Error::ClarityError)
+        .unwrap_or_else(|e| {
+            error!(
+                "FATAL: Failed to query account for {:?}: {:?}",
+                principal, &e
+            );
+            panic!();
+        })
     }
 
-    pub fn get_nonce<T: ClarityConnection>(clarity_tx: &mut T, principal: &PrincipalData) -> u64 {
-        clarity_tx
-            .with_clarity_db_readonly(|ref mut db| db.get_account_nonce(principal))
+    fn get_nonce(&mut self, principal: &PrincipalData) -> u64 {
+        self.with_clarity_db_readonly(|ref mut db| db.get_account_nonce(principal))
             .map_err(|x| Error::ClarityError(x.into()))
             .unwrap_or_else(|e| {
                 error!(
@@ -281,149 +277,148 @@ impl StacksChainState {
             })
     }
 
-    pub fn get_account_ft(
-        clarity_tx: &mut ClarityTx,
+    fn get_account_ft(
+        &mut self,
         contract_id: &QualifiedContractIdentifier,
         token_name: &str,
         principal: &PrincipalData,
     ) -> Result<u128, Error> {
-        clarity_tx
-            .connection()
-            .with_clarity_db_readonly(|ref mut db| {
-                let ft_balance = db.get_ft_balance(contract_id, token_name, principal, None)?;
-                Ok(ft_balance)
-            })
-            .map_err(Error::ClarityError)
+        self.with_clarity_db_readonly(|ref mut db| {
+            let ft_balance = db.get_ft_balance(contract_id, token_name, principal, None)?;
+            Ok(ft_balance)
+        })
+        .map_err(Error::ClarityError)
     }
 
-    pub fn get_account_nft(
-        clarity_tx: &mut ClarityTx,
+    fn get_account_nft(
+        &mut self,
         contract_id: &QualifiedContractIdentifier,
         token_name: &str,
         token_value: &Value,
     ) -> Result<PrincipalData, Error> {
-        clarity_tx
-            .connection()
-            .with_clarity_db_readonly(|ref mut db| {
-                let expected_asset_type = db.get_nft_key_type(contract_id, token_name)?;
-                let nft_owner =
-                    db.get_nft_owner(contract_id, token_name, token_value, &expected_asset_type)?;
-                Ok(nft_owner)
-            })
-            .map_err(Error::ClarityError)
+        self.with_clarity_db_readonly(|ref mut db| {
+            let expected_asset_type = db.get_nft_key_type(contract_id, token_name)?;
+            let nft_owner =
+                db.get_nft_owner(contract_id, token_name, token_value, &expected_asset_type)?;
+            Ok(nft_owner)
+        })
+        .map_err(Error::ClarityError)
     }
+}
 
+impl<T: ClarityConnection + ?Sized> StacksAccountReader for T {}
+
+/// Mutate account state inside a Clarity transaction.
+pub trait StacksAccountWriter {
     /// Called each time a transaction is invoked from this principal, to e.g.
     /// debit the STX-denominated tx fee or transfer/burn STX.
     /// Will consolidate unlocked STX.
     /// DOES NOT UPDATE THE NONCE
-    pub fn account_debit(
-        clarity_tx: &mut ClarityTransactionConnection,
-        principal: &PrincipalData,
-        amount: u64,
-    ) {
-        clarity_tx
-            .with_clarity_db(|ref mut db| {
-                let mut snapshot = db.get_stx_balance_snapshot(principal)?;
-
-                // last line of defense: if we don't have sufficient funds, panic.
-                // This should be checked by the block validation logic.
-                if !snapshot.can_transfer(amount as u128)? {
-                    panic!(
-                        "Tried to debit {} from account {} (which only has {})",
-                        amount,
-                        principal,
-                        snapshot.get_available_balance()?
-                    );
-                }
-
-                snapshot.debit(amount as u128)?;
-                snapshot.save()?;
-                Ok(())
-            })
-            .unwrap_or_else(|e| {
-                error!(
-                    "FATAL: failed to debit account {:?} for {} uSTX: {:?}",
-                    principal, amount, &e
-                );
-                panic!();
-            })
-    }
+    fn account_debit(&mut self, principal: &PrincipalData, amount: u64);
 
     /// Called each time a transaction sends STX to this principal.
     /// No nonce update is needed, since the transfer action is not taken by the principal.
-    pub fn account_credit(
-        clarity_tx: &mut ClarityTransactionConnection,
-        principal: &PrincipalData,
-        amount: u64,
-    ) {
-        clarity_tx
-            .with_clarity_db(|ref mut db| {
-                let mut snapshot = db.get_stx_balance_snapshot(principal)?;
-                snapshot.credit(amount as u128)?;
-
-                let new_balance = snapshot.get_available_balance()?;
-                snapshot.save()?;
-
-                info!("{} credited: {} uSTX", principal, new_balance);
-                Ok(())
-            })
-            .unwrap_or_else(|e| {
-                error!(
-                    "FATAL: failed to credit account {:?} for {} uSTX: {:?}",
-                    principal, amount, &e
-                );
-                panic!();
-            })
-    }
+    fn account_credit(&mut self, principal: &PrincipalData, amount: u64);
 
     /// Called during the genesis / boot sequence.
-    pub fn account_genesis_credit(
-        clarity_tx: &mut ClarityTransactionConnection,
-        principal: &PrincipalData,
-        amount: u128,
-    ) {
-        clarity_tx
-            .with_clarity_db(|ref mut db| {
-                let mut snapshot = db.get_stx_balance_snapshot_genesis(principal)?;
-                snapshot.credit(amount)?;
-                snapshot.save()?;
-                Ok(())
-            })
-            .unwrap_or_else(|e| {
-                error!(
-                    "FATAL: failed to credit genesis account {:?} for {} uSTX: {:?}",
-                    principal, amount, &e
+    fn account_genesis_credit(&mut self, principal: &PrincipalData, amount: u128);
+
+    /// Increment an account's nonce.
+    fn update_account_nonce(&mut self, principal: &PrincipalData, cur_nonce: u64);
+}
+
+impl StacksAccountWriter for ClarityTransactionConnection<'_, '_> {
+    fn account_debit(&mut self, principal: &PrincipalData, amount: u64) {
+        self.with_clarity_db(|ref mut db| {
+            let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+
+            // last line of defense: if we don't have sufficient funds, panic.
+            // This should be checked by the block validation logic.
+            if !snapshot.can_transfer(amount as u128)? {
+                panic!(
+                    "Tried to debit {} from account {} (which only has {})",
+                    amount,
+                    principal,
+                    snapshot.get_available_balance()?
                 );
-                panic!();
-            })
+            }
+
+            snapshot.debit(amount as u128)?;
+            snapshot.save()?;
+            Ok(())
+        })
+        .unwrap_or_else(|e| {
+            error!(
+                "FATAL: failed to debit account {:?} for {} uSTX: {:?}",
+                principal, amount, &e
+            );
+            panic!();
+        })
     }
 
-    /// Increment an account's nonce
-    pub fn update_account_nonce(
-        clarity_tx: &mut ClarityTransactionConnection,
-        principal: &PrincipalData,
-        cur_nonce: u64,
-    ) {
-        clarity_tx
-            .with_clarity_db(|ref mut db| {
-                let next_nonce = cur_nonce.checked_add(1).unwrap_or_else(|| {
-                    error!("OUT OF NONCES");
-                    panic!();
-                });
+    fn account_credit(&mut self, principal: &PrincipalData, amount: u64) {
+        self.with_clarity_db(|ref mut db| {
+            let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+            snapshot.credit(amount as u128)?;
 
-                db.set_account_nonce(principal, next_nonce)?;
-                Ok(())
-            })
-            .unwrap_or_else(|e| {
-                error!(
-                    "FATAL: failed to update account nonce for account {:?} from {}: {:?}",
-                    principal, cur_nonce, &e
-                );
-                panic!();
-            })
+            let new_balance = snapshot.get_available_balance()?;
+            snapshot.save()?;
+
+            info!("{} credited: {} uSTX", principal, new_balance);
+            Ok(())
+        })
+        .unwrap_or_else(|e| {
+            error!(
+                "FATAL: failed to credit account {:?} for {} uSTX: {:?}",
+                principal, amount, &e
+            );
+            panic!();
+        })
     }
 
+    fn account_genesis_credit(&mut self, principal: &PrincipalData, amount: u128) {
+        self.with_clarity_db(|ref mut db| {
+            let mut snapshot = db.get_stx_balance_snapshot_genesis(principal)?;
+            snapshot.credit(amount)?;
+            snapshot.save()?;
+            Ok(())
+        })
+        .unwrap_or_else(|e| {
+            error!(
+                "FATAL: failed to credit genesis account {:?} for {} uSTX: {:?}",
+                principal, amount, &e
+            );
+            panic!();
+        })
+    }
+
+    fn update_account_nonce(&mut self, principal: &PrincipalData, cur_nonce: u64) {
+        self.with_clarity_db(|ref mut db| {
+            let next_nonce = cur_nonce.checked_add(1).unwrap_or_else(|| {
+                error!("OUT OF NONCES");
+                panic!();
+            });
+
+            db.set_account_nonce(principal, next_nonce)?;
+            Ok(())
+        })
+        .unwrap_or_else(|e| {
+            error!(
+                "FATAL: failed to update account nonce for account {:?} from {}: {:?}",
+                principal, cur_nonce, &e
+            );
+            panic!();
+        })
+    }
+}
+
+/// SQL helpers for miner reward schedules and matured reward rows.
+pub struct MinerRewardsDb;
+
+/// Pure miner reward calculation helpers.
+pub struct MinerRewardCalculator;
+
+impl MinerRewardsDb {
     /// Schedule a miner payment in the future.
     /// Schedules payments out to both miners and users that support them.
     pub fn insert_miner_payment_schedule(
@@ -503,7 +498,7 @@ impl StacksChainState {
     ) -> Result<(), Error> {
         // the only time it's okay to re-insert the same reward is if there are two Stacks forks
         // trying to store the same matured rewards for a common ancestor block.
-        let cur_rewards = StacksChainState::inner_get_matured_miner_payments(
+        let cur_rewards = MinerRewardsDb::inner_get_matured_miner_payments(
             tx,
             &parent_block_id.clone().into(),
             &child_block_id.clone().into(),
@@ -576,7 +571,7 @@ impl StacksChainState {
             parent_reward.vtxindex, 0,
             "FATAL: tried to insert a user reward as a miner reward"
         );
-        StacksChainState::inner_insert_matured_miner_reward(
+        MinerRewardsDb::inner_insert_matured_miner_reward(
             tx,
             parent_block_id,
             child_block_id,
@@ -606,7 +601,7 @@ impl StacksChainState {
             child_reward.vtxindex, 0,
             "FATAL: tried to insert a user reward as a miner reward"
         );
-        StacksChainState::inner_insert_matured_miner_reward(
+        MinerRewardsDb::inner_insert_matured_miner_reward(
             tx,
             parent_block_id,
             child_block_id,
@@ -631,7 +626,7 @@ impl StacksChainState {
             child_reward.vtxindex > 0,
             "FATAL: tried to insert a miner reward as a user reward"
         );
-        StacksChainState::inner_insert_matured_miner_reward(
+        MinerRewardsDb::inner_insert_matured_miner_reward(
             tx,
             parent_block_id,
             child_block_id,
@@ -657,8 +652,8 @@ impl StacksChainState {
         parent_block_id: &TenureBlockId,
         child_block_id: &TenureBlockId,
     ) -> Result<Option<MinerReward>, Error> {
-        let config = StacksChainState::load_db_config(conn)?;
-        let ret = StacksChainState::inner_get_matured_miner_payments(
+        let config = ChainStateSchema::load_db_config(conn)?;
+        let ret = MinerRewardsDb::inner_get_matured_miner_payments(
             conn,
             parent_block_id,
             child_block_id,
@@ -724,7 +719,7 @@ impl StacksChainState {
         tip: &StacksHeaderInfo,
         block_height: u64,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
-        let ancestor_info = match StacksChainState::get_tip_ancestor(tx, tip, block_height)? {
+        let ancestor_info = match StacksHeadersDb::get_tip_ancestor(tx, tip, block_height)? {
             Some(info) => info,
             None => {
                 test_debug!("No ancestor at height {}", block_height);
@@ -757,7 +752,7 @@ impl StacksChainState {
         }
 
         let block_height = tip.stacks_block_height - MINER_REWARD_MATURITY;
-        StacksChainState::get_scheduled_block_rewards_in_fork_at_height(tx, tip, block_height)
+        MinerRewardsDb::get_scheduled_block_rewards_in_fork_at_height(tx, tip, block_height)
     }
 
     /// Get the miner info at a particular burn/stacks block
@@ -791,7 +786,9 @@ impl StacksChainState {
             }
         }
     }
+}
 
+impl MinerRewardCalculator {
     /// What's the commission for reporting a poison microblock stream?
     fn poison_microblock_commission(coinbase: u128) -> u128 {
         (coinbase * POISON_MICROBLOCK_COMMISSION_FRACTION) / 100
@@ -802,7 +799,7 @@ impl StacksChainState {
     ///
     /// If poison_reporter_opt is not None, then the returned MinerReward will reward the _poison reporter_,
     /// not the miner, for reporting the microblock stream fork.
-    fn calculate_miner_reward(
+    pub(crate) fn calculate_miner_reward(
         mainnet: bool,
         parent_block_epoch: StacksEpochId,
         participant: &MinerPaymentSchedule,
@@ -877,12 +874,12 @@ impl StacksChainState {
                     debug!(
                         "{:?} will recieve poison-microblock commission {}",
                         &reporter_address.to_string(),
-                        StacksChainState::poison_microblock_commission(coinbase_reward)
+                        Self::poison_microblock_commission(coinbase_reward)
                     );
                     (
                         reporter_address.clone(),
                         reporter_address.to_account_principal(),
-                        StacksChainState::poison_microblock_commission(coinbase_reward),
+                        Self::poison_microblock_commission(coinbase_reward),
                         true,
                     )
                 } else {
@@ -979,7 +976,9 @@ impl StacksChainState {
 
         (parent_miner_reward, miner_reward)
     }
+}
 
+impl MinerRewardsDb {
     /// Find the latest miner reward to mature, assuming that there are mature rewards.
     /// Returns a list of payments to make to each address -- miners and user-support burners -- as
     /// well as an info struct about where the rewards took place on the chain.
@@ -1028,7 +1027,7 @@ impl StacksChainState {
         // was this block penalized for mining a forked microblock stream?
         // If so, find the principal that detected the poison, and reward them instead.
         let poison_recipient_opt =
-            StacksChainState::get_poison_microblock_report(clarity_tx, reward_height)?
+            MinerRewardsDb::get_poison_microblock_report(clarity_tx, reward_height)?
                 .map(|(reporter, _)| reporter);
 
         if let Some(ref _poison_reporter) = poison_recipient_opt.as_ref() {
@@ -1042,7 +1041,7 @@ impl StacksChainState {
         }
 
         // calculate miner reward
-        let (parent_miner_reward, miner_reward) = StacksChainState::calculate_miner_reward(
+        let (parent_miner_reward, miner_reward) = MinerRewardCalculator::calculate_miner_reward(
             mainnet,
             parent_evaluated_epoch.epoch_id,
             &miner,
@@ -1055,7 +1054,7 @@ impl StacksChainState {
         // calculate reward for each user-support-burn
         let mut user_rewards = vec![];
         for user_reward in users.iter() {
-            let (parent_reward, reward) = StacksChainState::calculate_miner_reward(
+            let (parent_reward, reward) = MinerRewardCalculator::calculate_miner_reward(
                 mainnet,
                 parent_evaluated_epoch.epoch_id,
                 user_reward,
@@ -1140,7 +1139,7 @@ mod test {
     }
 
     fn advance_tip(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         parent_header_info: &StacksHeaderInfo,
         block_reward: &mut MinerPaymentSchedule,
     ) -> StacksHeaderInfo {
@@ -1171,7 +1170,7 @@ mod test {
         block_reward.consensus_hash = new_tip.consensus_hash.clone();
 
         let mut tx = chainstate.index_tx_begin();
-        let tip = StacksChainState::advance_tip(
+        let tip = ChainStateMetadataDb::advance_tip(
             &mut tx,
             parent_header_info
                 .anchored_header
@@ -1221,12 +1220,9 @@ mod test {
 
         {
             let mut tx = chainstate.index_tx_begin();
-            let ancestor_0 = StacksChainState::get_tip_ancestor(
-                &mut tx,
-                &StacksHeaderInfo::regtest_genesis(),
-                0,
-            )
-            .unwrap();
+            let ancestor_0 =
+                StacksHeadersDb::get_tip_ancestor(&mut tx, &StacksHeaderInfo::regtest_genesis(), 0)
+                    .unwrap();
             assert!(ancestor_0.is_some());
         }
 
@@ -1238,8 +1234,8 @@ mod test {
 
         {
             let mut tx = chainstate.index_tx_begin();
-            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 0).unwrap();
-            let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &parent_tip, 1).unwrap();
+            let ancestor_0 = StacksHeadersDb::get_tip_ancestor(&mut tx, &parent_tip, 0).unwrap();
+            let ancestor_1 = StacksHeadersDb::get_tip_ancestor(&mut tx, &parent_tip, 1).unwrap();
 
             assert!(ancestor_1.is_some());
             assert!(ancestor_0.is_some());
@@ -1251,9 +1247,9 @@ mod test {
 
         {
             let mut tx = chainstate.index_tx_begin();
-            let ancestor_2 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 2).unwrap();
-            let ancestor_1 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 1).unwrap();
-            let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
+            let ancestor_2 = StacksHeadersDb::get_tip_ancestor(&mut tx, &tip, 2).unwrap();
+            let ancestor_1 = StacksHeadersDb::get_tip_ancestor(&mut tx, &tip, 1).unwrap();
+            let ancestor_0 = StacksHeadersDb::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
 
             assert!(ancestor_2.is_some());
             assert_eq!(ancestor_2.unwrap().stacks_block_height, 2);
@@ -1294,13 +1290,13 @@ mod test {
         {
             let mut tx = chainstate.index_tx_begin();
             let payments_0 =
-                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0)
+                MinerRewardsDb::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0)
                     .unwrap();
             let payments_1 =
-                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 1)
+                MinerRewardsDb::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 1)
                     .unwrap();
             let payments_2 =
-                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 2)
+                MinerRewardsDb::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 2)
                     .unwrap();
 
             assert_eq!(payments_0, vec![]);
@@ -1340,13 +1336,13 @@ mod test {
         {
             let mut tx = chainstate.index_tx_begin();
             let payments_0 =
-                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0)
+                MinerRewardsDb::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0)
                     .unwrap();
             let payments_1 =
-                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 1)
+                MinerRewardsDb::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 1)
                     .unwrap();
             let payments_2 =
-                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 2)
+                MinerRewardsDb::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 2)
                     .unwrap();
 
             assert_eq!(payments_0, vec![]);
@@ -1361,7 +1357,7 @@ mod test {
             StacksAddress::from_string("SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5").unwrap();
         let participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
 
-        let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
+        let (parent_reward, miner_reward) = MinerRewardCalculator::calculate_miner_reward(
             false,
             StacksEpochId::Epoch2_05,
             &participant,
@@ -1391,7 +1387,7 @@ mod test {
         let mut participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
         participant.recipient = PrincipalData::Contract(QualifiedContractIdentifier::transient());
 
-        let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
+        let (parent_reward, miner_reward) = MinerRewardCalculator::calculate_miner_reward(
             false,
             StacksEpochId::Epoch2_05,
             &participant,
@@ -1432,7 +1428,7 @@ mod test {
         let miner = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 250, 1000);
         let user = make_dummy_user_payment_schedule(&user_1, 500, 0, 0, 750, 1000, 1);
 
-        let (parent_miner_1, reward_miner_1) = StacksChainState::calculate_miner_reward(
+        let (parent_miner_1, reward_miner_1) = MinerRewardCalculator::calculate_miner_reward(
             false,
             StacksEpochId::Epoch2_05,
             &miner,
@@ -1441,7 +1437,7 @@ mod test {
             &MinerPaymentSchedule::genesis(true),
             None,
         );
-        let (parent_user_1, reward_user_1) = StacksChainState::calculate_miner_reward(
+        let (parent_user_1, reward_user_1) = MinerRewardCalculator::calculate_miner_reward(
             false,
             StacksEpochId::Epoch2_05,
             &user,
@@ -1480,7 +1476,7 @@ mod test {
         let parent_participant =
             make_dummy_miner_payment_schedule(&parent_miner_1, 500, 100, 395, 1000, 1000);
 
-        let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
+        let (parent_reward, miner_reward) = MinerRewardCalculator::calculate_miner_reward(
             false,
             StacksEpochId::Epoch2_05,
             &participant,

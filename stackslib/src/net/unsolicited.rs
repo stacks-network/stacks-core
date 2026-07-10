@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoBlock;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::net::p2p::{PeerNetwork, PendingMessages};
 use crate::net::{NakamotoBlocksData, NeighborKey, Preamble, StacksMessage, StacksMessageType};
 
@@ -43,7 +43,7 @@ use crate::net::{NakamotoBlocksData, NeighborKey, Preamble, StacksMessage, Stack
 ///
 /// Transactions are not considered here, but are handled separately with the mempool
 /// synchronization state machine.
-impl PeerNetwork {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> PeerNetwork<CSP> {
     #[cfg_attr(test, mutants::skip)]
     /// Check that the sender is authenticated.
     /// Returns Some(remote sender address) if so
@@ -314,7 +314,7 @@ impl PeerNetwork {
     pub(crate) fn is_nakamoto_block_bufferable(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         nakamoto_block: &NakamotoBlock,
     ) -> bool {
         if chainstate
@@ -357,7 +357,7 @@ impl PeerNetwork {
     pub(crate) fn inner_handle_unsolicited_NakamotoBlocksData(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         remote_neighbor_key_opt: Option<NeighborKey>,
         nakamoto_blocks: &NakamotoBlocksData,
     ) -> bool {
@@ -399,7 +399,7 @@ impl PeerNetwork {
     fn handle_unsolicited_NakamotoBlocksData(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         event_id: usize,
         nakamoto_blocks: &NakamotoBlocksData,
     ) -> bool {
@@ -435,7 +435,7 @@ impl PeerNetwork {
     fn handle_unsolicited_sortition_message(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         event_id: usize,
         payload: &StacksMessageType,
         buffer: bool,
@@ -491,7 +491,7 @@ impl PeerNetwork {
     /// *not* be processed.
     fn handle_unsolicited_stacks_message(
         &mut self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         event_id: usize,
         preamble: &Preamble,
         payload: &StacksMessageType,
@@ -591,7 +591,7 @@ impl PeerNetwork {
     pub fn handle_unsolicited_sortition_messages(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         mut unsolicited: PendingMessages,
         buffer: bool,
     ) -> HashMap<(usize, NeighborKey), Vec<StacksMessage>> {
@@ -662,7 +662,7 @@ impl PeerNetwork {
     /// Returns messages we could not buffer, keyed by sender.
     pub fn handle_unsolicited_stacks_messages(
         &mut self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         mut unsolicited: PendingMessages,
         buffer: bool,
     ) -> HashMap<(usize, NeighborKey), Vec<StacksMessage>> {

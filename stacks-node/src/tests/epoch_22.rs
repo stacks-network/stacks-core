@@ -5,7 +5,7 @@ use clarity::vm::types::PrincipalData;
 use clarity::vm::{execute_with_parameters as execute, ClarityVersion, Value};
 use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use stacks::core::test_util::{make_contract_call, make_stacks_transfer_serialized};
 use stacks::core::{self, EpochList, STACKS_EPOCH_MAX};
@@ -368,7 +368,7 @@ fn disable_pox() {
     let tip_info = get_chain_info(&conf);
     let tip = StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
 
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         false,
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -1042,7 +1042,7 @@ fn pox_2_unlock_all() {
     let tip_info = get_chain_info(&conf);
     let tip = StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
 
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         false,
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),

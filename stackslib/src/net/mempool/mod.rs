@@ -28,7 +28,7 @@ use crate::core::MemPoolDB;
 use crate::net::chat::ConversationP2P;
 use crate::net::dns::{DNSClient, DNSRequest};
 use crate::net::httpcore::StacksHttpRequest;
-use crate::net::p2p::PeerNetwork;
+use crate::net::p2p::{try_get_url_ip, PeerNetwork};
 use crate::net::{Error as NetError, HttpRequestContents};
 use crate::util_lib::strings::UrlString;
 
@@ -80,7 +80,7 @@ impl MempoolSync {
     #[cfg_attr(test, mutants::skip)]
     pub fn run(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         dns_client_opt: &mut Option<&mut DNSClient>,
         mempool: &MemPoolDB,
         ibd: bool,
@@ -140,7 +140,7 @@ impl MempoolSync {
     #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_pick_outbound_peer(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         dns_client_opt: &mut Option<&mut DNSClient>,
         page_id: &Txid,
     ) -> Result<Option<MempoolSyncState>, NetError> {
@@ -180,7 +180,7 @@ impl MempoolSync {
             // can we resolve the data URL?
             let url = convo.data_url.clone();
             if dns_client_opt.is_none() {
-                if let Ok(Some(_)) = PeerNetwork::try_get_url_ip(&url) {
+                if let Ok(Some(_)) = try_get_url_ip(&url) {
                 } else {
                     // need a DNS client for this one
                     continue;
@@ -216,7 +216,7 @@ impl MempoolSync {
     #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_begin_resolve_data_url(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         url_str: UrlString,
         dns_client_opt: &mut Option<&mut DNSClient>,
         page_id: &Txid,
@@ -232,7 +232,7 @@ impl MempoolSync {
         };
 
         // bare IP address?
-        if let Some(addr) = PeerNetwork::try_get_url_ip(&url_str)? {
+        if let Some(addr) = try_get_url_ip(&url_str)? {
             return Ok(Some(MempoolSyncState::SendQuery(
                 url_str,
                 addr,
@@ -277,7 +277,7 @@ impl MempoolSync {
         request: &DNSRequest,
         dns_client_opt: &mut Option<&mut DNSClient>,
     ) -> (bool, Option<SocketAddr>) {
-        if let Ok(Some(addr)) = PeerNetwork::try_get_url_ip(url_str) {
+        if let Ok(Some(addr)) = try_get_url_ip(url_str) {
             // URL contains an IP address -- go with that
             (false, Some(addr))
         } else if let Some(dns_client) = dns_client_opt {
@@ -321,7 +321,7 @@ impl MempoolSync {
     #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_send_query(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         url: &UrlString,
         addr: &SocketAddr,
         mempool: &MemPoolDB,
@@ -348,7 +348,7 @@ impl MempoolSync {
     #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_recv_response(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         event_id: usize,
     ) -> Result<(bool, Option<Txid>, Option<Vec<StacksTransaction>>), NetError> {
         PeerNetwork::with_http(network, |network, http| {
@@ -402,7 +402,7 @@ impl MempoolSync {
     #[cfg_attr(test, mutants::skip)]
     fn do_mempool_sync(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         dns_client_opt: &mut Option<&mut DNSClient>,
         mempool: &MemPoolDB,
     ) -> (bool, Option<Vec<StacksTransaction>>) {
@@ -587,7 +587,7 @@ impl MempoolSync {
     }
 }
 
-impl PeerNetwork {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> PeerNetwork<CSP> {
     /// Run the internal mempool sync machine
     pub fn run_mempool_sync(
         &mut self,

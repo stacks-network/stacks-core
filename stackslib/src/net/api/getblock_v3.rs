@@ -22,7 +22,7 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoStagingBlocksConn};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::http::{
     parse_bytes, Error, HttpChunkGenerator, HttpContentType, HttpNotFound, HttpRequest,
@@ -62,13 +62,12 @@ pub struct NakamotoBlockStream {
 
 impl NakamotoBlockStream {
     pub fn new(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         block_id: StacksBlockId,
         consensus_hash: ConsensusHash,
         parent_block_id: StacksBlockId,
     ) -> Result<Self, ChainError> {
-        let staging_db_path = chainstate.get_nakamoto_staging_blocks_path()?;
-        let db_conn = StacksChainState::open_nakamoto_staging_blocks(&staging_db_path, false)?;
+        let db_conn = chainstate.reopen_nakamoto_staging_blocks()?;
         let rowid = db_conn
             .conn()
             .get_nakamoto_block_rowid(&block_id)?
@@ -152,7 +151,9 @@ impl HttpRequest for RPCNakamotoBlockRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoBlockRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCNakamotoBlockRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
@@ -163,7 +164,7 @@ impl RPCRequestHandler for RPCNakamotoBlockRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_id = self
             .block_id

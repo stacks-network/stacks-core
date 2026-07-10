@@ -33,7 +33,10 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
-use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksEpochReceipt};
+use crate::chainstate::stacks::db::{
+    ClarityTx, ClarityTxFactory, Epoch2BlockProcessor, SharedMemoryChainStateBackend,
+    StacksEpochReceipt, StacksHeadersDb,
+};
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::miner::BlockBuilder;
 use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
@@ -121,7 +124,9 @@ where
             TransactionSmartContract { name, code_body },
             clarity_version,
         )) => {
-            format!("SmartContract(name: {name}, code_body: [..], clarity_version: {clarity_version:?})")
+            format!(
+                "SmartContract(name: {name}, code_body: [..], clarity_version: {clarity_version:?})"
+            )
         }
         Some(TransactionPayload::ContractCall(TransactionContractCall {
             address,
@@ -129,7 +134,9 @@ where
             function_name,
             function_args,
         })) => {
-            format!("ContractCall(address: {address}, contract_name: {contract_name}, function_name: {function_name}, function_args: [{function_args:?}])")
+            format!(
+                "ContractCall(address: {address}, contract_name: {contract_name}, function_name: {function_name}, function_args: [{function_args:?}])"
+            )
         }
         Some(payload) => {
             format!("{payload:?}")
@@ -266,7 +273,7 @@ pub struct TestBlock {
 /// Provides high-level helpers for:
 /// - Appending Nakamoto or pre-Nakamoto blocks
 pub struct ConsensusChain<'a> {
-    pub test_chainstate: TestChainstate<'a>,
+    pub test_chainstate: TestChainstate<'a, SharedMemoryChainStateBackend>,
 }
 
 impl ConsensusChain<'_> {
@@ -307,7 +314,8 @@ impl ConsensusChain<'_> {
         let (epochs, first_burnchain_height) =
             Self::calculate_epochs(&boot_plan.pox_constants, num_blocks_per_epoch);
         boot_plan = boot_plan.with_epochs(epochs);
-        let test_chainstate = boot_plan.to_chainstate(None, Some(first_burnchain_height));
+        let test_chainstate =
+            boot_plan.to_shared_ephemeral_chainstate(None, Some(first_burnchain_height));
         Self { test_chainstate }
     }
 
@@ -674,14 +682,14 @@ impl ConsensusChain<'_> {
             tip.block_height.try_into().unwrap(),
         );
         let mut stacks_block = {
-            let genesis_header_info = StacksChainState::get_genesis_header_info(
+            let genesis_header_info = StacksHeadersDb::get_genesis_header_info(
                 self.test_chainstate.stacks_node_ref().chainstate.db(),
             )
             .unwrap();
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(self.test_chainstate.sortdb_ref().conn())
                     .unwrap();
-            let parent_tip = StacksChainState::get_anchored_block_header_info(
+            let parent_tip = StacksHeadersDb::get_anchored_block_header_info(
                 self.test_chainstate.stacks_node_ref().chainstate.db(),
                 &tip.canonical_stacks_tip_consensus_hash,
                 &tip.canonical_stacks_tip_hash,
@@ -858,7 +866,7 @@ impl ConsensusChain<'_> {
         let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
         let burndb_conn = sortdb.index_handle_at_tip();
 
-        let mut clarity_tx = StacksChainState::chainstate_block_begin(
+        let mut clarity_tx = ClarityTxFactory::chainstate_block_begin(
             &chainstate_tx,
             clarity_instance,
             &burndb_conn,
@@ -897,7 +905,7 @@ impl ConsensusChain<'_> {
             })
             .map_err(|e| e.to_string())?;
 
-        StacksChainState::process_block_transactions(clarity_tx, block_txs, 0)
+        Epoch2BlockProcessor::process_block_transactions(clarity_tx, block_txs, 0)
             .map_err(|e| e.to_string())?;
 
         NakamotoChainState::finish_block(clarity_tx, None, false, burn_header_height)
@@ -1720,33 +1728,27 @@ impl std::fmt::Debug for ContractTxReport {
         )?;
 
         match &self.outcome {
-            TxOutcome::BlockAccepted(t) => {
-                match &t.tx {
-                    Some(TransactionPayload::SmartContract(
-                        TransactionSmartContract { name, code_body: _ },
-                        clarity_version,
-                    )) => {
-                        write!(
-                            f,
-                            "SmartContract(name: {}, clarity_version: {:?})",
-                            name, clarity_version
-                        )?
-                    }
-                    Some(TransactionPayload::ContractCall(TransactionContractCall {
-                        address,
-                        contract_name,
-                        function_name,
-                        function_args,
-                    })) => {
-                        write!(
-                            f,
-                            "ContractCall(address: {}, contract_name: {}, function_name: {}, function_args: {:?})",
-                            address, contract_name, function_name, function_args
-                        )?
-                    }
-                    _ => panic!("Tx format not managed for {:?}", t.tx),
-                }
-            }
+            TxOutcome::BlockAccepted(t) => match &t.tx {
+                Some(TransactionPayload::SmartContract(
+                    TransactionSmartContract { name, code_body: _ },
+                    clarity_version,
+                )) => write!(
+                    f,
+                    "SmartContract(name: {}, clarity_version: {:?})",
+                    name, clarity_version
+                )?,
+                Some(TransactionPayload::ContractCall(TransactionContractCall {
+                    address,
+                    contract_name,
+                    function_name,
+                    function_args,
+                })) => write!(
+                    f,
+                    "ContractCall(address: {}, contract_name: {}, function_name: {}, function_args: {:?})",
+                    address, contract_name, function_name, function_args
+                )?,
+                _ => panic!("Tx format not managed for {:?}", t.tx),
+            },
             TxOutcome::BlockRejected(err) => write!(f, "BlockRejected({})", err)?,
         }
 

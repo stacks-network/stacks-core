@@ -38,7 +38,9 @@ use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, Epoch2StagingBlocksDb, StacksChainState,
+};
 use crate::chainstate::stacks::{StacksBlockHeader, TransactionPayload};
 use crate::core::mempool::{MemPoolDB, *};
 use crate::monitoring::update_stacks_tip_height;
@@ -581,7 +583,10 @@ impl Relayer {
         }
     }
 
-    pub fn from_p2p(network: &mut PeerNetwork, stacker_dbs: StackerDBs) -> Relayer {
+    pub fn from_p2p(
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        stacker_dbs: StackerDBs,
+    ) -> Relayer {
         let handle = network.new_handle(1024);
         Relayer::new(handle, network.connection_opts.clone(), stacker_dbs)
     }
@@ -631,7 +636,7 @@ impl Relayer {
     pub fn validate_nakamoto_blocks_push(
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         stacks_tip: &StacksBlockId,
         nakamoto_blocks_data: &NakamotoBlocksData,
     ) -> Result<(), net_error> {
@@ -781,7 +786,7 @@ impl Relayer {
     /// Return Ok(true) if we stored it, Ok(false) if we didn't
     pub fn process_new_anchored_block(
         sort_ic: &SortitionDBConn,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
         download_time: u64,
@@ -856,7 +861,7 @@ impl Relayer {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         sort_handle: &mut SortitionHandleConn,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         stacks_tip: &StacksBlockId,
         block: &NakamotoBlock,
         coord_comms: Option<&CoordinatorChannels>,
@@ -891,7 +896,7 @@ impl Relayer {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         sort_handle: &mut SortitionHandleConn,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         stacks_tip: &StacksBlockId,
         block: &NakamotoBlock,
         coord_comms: Option<&CoordinatorChannels>,
@@ -1067,7 +1072,7 @@ impl Relayer {
     pub fn process_downloaded_nakamoto_blocks(
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         stacks_tip: &StacksBlockId,
         blocks: impl Iterator<Item = NakamotoBlock>,
         coord_comms: Option<&CoordinatorChannels>,
@@ -1187,7 +1192,7 @@ impl Relayer {
     fn preprocess_downloaded_blocks(
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     ) -> HashMap<ConsensusHash, StacksBlock> {
         let mut new_blocks = HashMap::new();
 
@@ -1293,7 +1298,7 @@ impl Relayer {
     fn preprocess_pushed_blocks(
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     ) -> Result<(HashMap<ConsensusHash, StacksBlock>, Vec<NeighborKey>), net_error> {
         let mut new_blocks = HashMap::new();
         let mut bad_neighbors = vec![];
@@ -1396,7 +1401,7 @@ impl Relayer {
     fn preprocess_downloaded_microblocks(
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     ) -> HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)> {
         let mut ret = HashMap::new();
         for (consensus_hash, microblock_stream, _download_time) in
@@ -1485,7 +1490,7 @@ impl Relayer {
     fn preprocess_pushed_microblocks(
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     ) -> Result<(Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>), net_error> {
         let mut new_microblocks: HashMap<
             StacksBlockId,
@@ -1654,7 +1659,7 @@ impl Relayer {
         network_result: &mut NetworkResult,
         burnchain: &Burnchain,
         sortdb: &mut SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         coord_comms: Option<&CoordinatorChannels>,
         reject_blocks_pushed: bool,
     ) -> Result<(Vec<AcceptedNakamotoBlocks>, Vec<NeighborKey>), net_error> {
@@ -1907,7 +1912,7 @@ impl Relayer {
     pub fn process_new_blocks(
         network_result: &mut NetworkResult,
         sortdb: &mut SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         coord_comms: Option<&CoordinatorChannels>,
     ) -> Result<
         (
@@ -1958,7 +1963,7 @@ impl Relayer {
         for block_data in network_result.uploaded_blocks.drain(..) {
             for BlocksDatum(consensus_hash, block) in block_data.blocks.into_iter() {
                 // did we actually store it?
-                if StacksChainState::get_staging_block_status(
+                if Epoch2StagingBlocksDb::get_staging_block_status(
                     chainstate.db(),
                     &consensus_hash,
                     &block.block_hash(),
@@ -2022,7 +2027,7 @@ impl Relayer {
         network_result: &mut NetworkResult,
         burnchain: &Burnchain,
         sortdb: &mut SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         coord_comms: Option<&CoordinatorChannels>,
     ) -> Result<(Vec<AcceptedNakamotoBlocks>, Vec<NeighborKey>), net_error> {
         // process downloaded Nakamoto blocks.
@@ -2171,10 +2176,10 @@ impl Relayer {
 
     /// Store all new transactions we received, and return the list of transactions that we need to
     /// forward (as well as their relay hints).  Also, garbage-collect the mempool.
-    pub(crate) fn process_transactions(
+    pub(crate) fn process_transactions<CSP: ChainStatePersistence>(
         network_result: &mut NetworkResult,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         mempool: &mut MemPoolDB,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
@@ -2196,7 +2201,7 @@ impl Relayer {
         let chain_height = chain_tip.anchored_header.height();
         Relayer::filter_problematic_transactions(network_result, chainstate.mainnet, epoch_id);
 
-        if let Err(e) = PeerNetwork::store_transactions(
+        if let Err(e) = PeerNetwork::<CSP>::store_transactions(
             mempool,
             chainstate,
             sortdb,
@@ -2271,7 +2276,7 @@ impl Relayer {
     /// Set up the unconfirmed chain state off of the canonical chain tip.
     /// Only relevant in Stacks 2.x.  Nakamoto nodes should not call this.
     pub fn setup_unconfirmed_state(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
     ) -> Result<ProcessedUnconfirmedState, Error> {
         let (canonical_consensus_hash, canonical_block_hash) =
@@ -2296,7 +2301,7 @@ impl Relayer {
     /// Set up unconfirmed chain state in a read-only fashion.
     /// Only relevant in Stacks 2.x.  Nakamoto nodes should not call this.
     pub fn setup_unconfirmed_state_readonly(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
     ) -> Result<(), Error> {
         let (canonical_consensus_hash, canonical_block_hash) =
@@ -2318,7 +2323,7 @@ impl Relayer {
     /// Reload unconfirmed microblock stream.
     /// Only call if we're in Stacks 2.x
     pub fn refresh_unconfirmed(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &mut SortitionDB,
     ) -> ProcessedUnconfirmedState {
         match Relayer::setup_unconfirmed_state(chainstate, sortdb) {
@@ -2565,7 +2570,7 @@ impl Relayer {
         _local_peer: &LocalPeer,
         network_result: &mut NetworkResult,
         sortdb: &mut SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         ibd: bool,
         coord_comms: Option<&CoordinatorChannels>,
     ) -> (u64, u64, u64) {
@@ -2755,7 +2760,7 @@ impl Relayer {
         network_result: &mut NetworkResult,
         burnchain: &Burnchain,
         sortdb: &mut SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         ibd: bool,
         coord_comms: Option<&CoordinatorChannels>,
     ) -> u64 {
@@ -2803,7 +2808,7 @@ impl Relayer {
         _local_peer: &LocalPeer,
         network_result: &mut NetworkResult,
         sortdb: &mut SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         mempool: &mut MemPoolDB,
         ibd: bool,
         event_observer: Option<&dyn RelayEventDispatcher>,
@@ -2865,7 +2870,7 @@ impl Relayer {
         network_result: &mut NetworkResult,
         burnchain: &Burnchain,
         sortdb: &mut SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         mempool: &mut MemPoolDB,
         ibd: bool,
         coord_comms: Option<&CoordinatorChannels>,
@@ -2952,7 +2957,7 @@ impl Relayer {
     }
 }
 
-impl PeerNetwork {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> PeerNetwork<CSP> {
     /// Find out which neighbors need at least one (micro)block from the availability set.
     /// For outbound neighbors (i.e. ones we have inv data for), send (Micro)BlocksData messages if
     /// we can; fall back to (Micro)BlocksAvailable messages if we can't.
@@ -2962,7 +2967,7 @@ impl PeerNetwork {
         &mut self,
         available: &BlocksAvailableMap,
     ) -> Result<(Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
-        let outbound_recipients_set = PeerNetwork::with_inv_state(self, |_network, inv_state| {
+        let outbound_recipients_set = Self::with_inv_state(self, |_network, inv_state| {
             let mut recipients = HashSet::new();
             for (neighbor, stats) in inv_state.block_stats.iter() {
                 for (_, (block_height, _)) in available.iter() {
@@ -3143,7 +3148,7 @@ impl PeerNetwork {
         available: &BlocksAvailableMap,
         blocks: &HashMap<ConsensusHash, StacksBlock>,
     ) -> Result<(), net_error> {
-        PeerNetwork::with_inv_state(self, |network, inv_state| {
+        Self::with_inv_state(self, |network, inv_state| {
             if let Some(stats) = inv_state.block_stats.get(recipient) {
                 for (bhh, (block_height, ch)) in available.iter() {
                     if !stats.inv.has_ith_block(*block_height) {
@@ -3181,7 +3186,7 @@ impl PeerNetwork {
         available: &BlocksAvailableMap,
         microblocks: &HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
     ) -> Result<(), net_error> {
-        PeerNetwork::with_inv_state(self, |network, inv_state| {
+        Self::with_inv_state(self, |network, inv_state| {
             if let Some(stats) = inv_state.block_stats.get(recipient) {
                 for (bhh, (block_height, ch)) in available.iter() {
                     if !stats.inv.has_ith_microblock_stream(*block_height) {

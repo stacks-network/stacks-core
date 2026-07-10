@@ -19,7 +19,7 @@ use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
 
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::api::getmicroblocks_indexed::StacksIndexedMicroblockStream;
 use crate::net::http::{
@@ -44,7 +44,7 @@ impl RPCMicroblocksConfirmedRequestHandler {
 impl StacksIndexedMicroblockStream {
     /// Make a new indexed microblock streamer using the descendent Stacks anchored block
     pub fn new_confirmed(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         child_block_id: &StacksBlockId,
     ) -> Result<Self, ChainError> {
         let tail_microblock_index_hash =
@@ -94,7 +94,9 @@ impl HttpRequest for RPCMicroblocksConfirmedRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCMicroblocksConfirmedRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCMicroblocksConfirmedRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
@@ -105,7 +107,7 @@ impl RPCRequestHandler for RPCMicroblocksConfirmedRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_id = self
             .block_id

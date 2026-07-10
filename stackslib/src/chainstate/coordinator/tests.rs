@@ -56,7 +56,8 @@ use crate::chainstate::stacks::boot::{
 };
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{
-    ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo,
+    ChainStateBootData, ChainStatePersistence, ClarityTx, DiskChainStateBackend,
+    DiskChainStateLayout, DiskIndexDb, StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::miner::BlockBuilder;
 use crate::chainstate::stacks::*;
@@ -433,6 +434,7 @@ pub fn make_coordinator<'a>(
     (),
     (),
     BitcoinIndexer,
+    DiskChainStateBackend,
 > {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
@@ -459,6 +461,7 @@ pub fn make_coordinator_atlas<'a>(
     (),
     (),
     BitcoinIndexer,
+    DiskChainStateBackend,
 > {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
@@ -480,7 +483,7 @@ impl RewardSetProvider for StubbedRewardSetProvider {
     fn get_reward_set(
         &self,
         _current_burn_height: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
@@ -497,7 +500,7 @@ impl RewardSetProvider for StubbedRewardSetProvider {
 
     fn get_reward_set_nakamoto(
         &self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         cycle: u64,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
@@ -510,8 +513,16 @@ fn make_reward_set_coordinator<'a>(
     path: &str,
     addrs: Vec<PoxAddress>,
     pox_consts: Option<PoxConstants>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider, (), (), BitcoinIndexer>
-{
+) -> ChainsCoordinator<
+    'a,
+    NullEventDispatcher,
+    (),
+    StubbedRewardSetProvider,
+    (),
+    (),
+    BitcoinIndexer,
+    DiskChainStateBackend,
+> {
     let burnchain = get_burnchain(path, None);
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new(
@@ -575,7 +586,7 @@ pub fn get_chainstate_path_str(path: &str) -> String {
     format!("{path}/chainstate/")
 }
 
-pub fn get_chainstate(path: &str) -> StacksChainState {
+pub fn get_chainstate(path: &str) -> StacksChainState<DiskChainStateBackend> {
     let (chainstate, _) =
         StacksChainState::open(false, 0x80000000, &get_chainstate_path_str(path), None).unwrap();
     chainstate
@@ -584,7 +595,7 @@ pub fn get_chainstate(path: &str) -> StacksChainState {
 fn make_genesis_block(
     burnchain: &Burnchain,
     sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+    state: &mut StacksChainState<impl ChainStatePersistence>,
     parent_block: &BlockHeaderHash,
     miner: &StacksPrivateKey,
     my_burn: u64,
@@ -609,7 +620,7 @@ fn make_genesis_block(
 fn make_genesis_block_with_recipients(
     burnchain: &Burnchain,
     sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+    state: &mut StacksChainState<impl ChainStatePersistence>,
     parent_block: &BlockHeaderHash,
     miner: &StacksPrivateKey,
     my_burn: u64,
@@ -707,7 +718,7 @@ fn make_genesis_block_with_recipients(
 
 fn make_stacks_block(
     sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+    state: &mut StacksChainState<impl ChainStatePersistence>,
     burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
     parent_height: u64,
@@ -732,7 +743,7 @@ fn make_stacks_block(
 
 fn make_stacks_block_from_parent_sortition(
     sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+    state: &mut StacksChainState<impl ChainStatePersistence>,
     burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
     parent_height: u64,
@@ -767,7 +778,7 @@ fn make_stacks_block_from_parent_sortition(
 /// parent_block _must_ be included in the StacksChainState
 fn make_stacks_block_with_recipients(
     sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+    state: &mut StacksChainState<impl ChainStatePersistence>,
     burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
     parent_height: u64,
@@ -798,7 +809,7 @@ fn make_stacks_block_with_recipients(
 /// parent_block _must_ be included in the StacksChainState
 fn make_stacks_block_with_recipients_and_sunset_burn(
     sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+    state: &mut StacksChainState<impl ChainStatePersistence>,
     burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
     parent_height: u64,
@@ -835,7 +846,7 @@ fn make_stacks_block_with_recipients_and_sunset_burn(
 /// `txs`: transactions to try to include in block
 fn make_stacks_block_with_input(
     sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+    state: &mut StacksChainState<impl ChainStatePersistence>,
     burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
     parent_height: u64,
@@ -893,7 +904,7 @@ fn make_stacks_block_with_input(
             .unwrap()
             .unwrap();
 
-    let parent_stacks_header = StacksChainState::get_anchored_block_header_info(
+    let parent_stacks_header = StacksHeadersDb::get_anchored_block_header_info(
         state.db(),
         &parents_sortition.consensus_hash,
         parent_block,
@@ -3350,7 +3361,7 @@ fn test_stx_transfer_btc_ops() {
 // Given an address, it retrieves the fields `amount-ustx` and `pox-addr` from the map
 // `delegation-state` in pox-2.
 fn get_delegation_info_pox_2(
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     burn_dbconn: &dyn BurnStateDB,
     parent_tip: &StacksBlockId,
     del_addr: &StacksAddress,
@@ -4866,7 +4877,7 @@ fn atlas_stop_start() {
 }
 
 fn get_total_stacked_info(
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     burn_dbconn: &dyn BurnStateDB,
     parent_tip: &StacksBlockId,
     reward_cycle: u64,
@@ -6410,7 +6421,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
 fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>(
     chainstate_path: &str,
     sort_db: &SortitionDB,
-    coord: &mut ChainsCoordinator<T, N, U, (), (), BitcoinIndexer>,
+    coord: &mut ChainsCoordinator<T, N, U, (), (), BitcoinIndexer, DiskChainStateBackend>,
     my_sortition: &SortitionId,
     block: &StacksBlock,
 ) {
@@ -6425,7 +6436,7 @@ fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProv
 }
 
 fn preprocess_block(
-    chain_state: &mut StacksChainState,
+    chain_state: &mut StacksChainState<impl ChainStatePersistence>,
     sort_db: &SortitionDB,
     my_sortition: &BlockSnapshot,
     block: StacksBlock,
@@ -6485,15 +6496,15 @@ fn test_check_chainstate_db_versions() {
             .unwrap()
     );
 
-    StacksChainState::make_chainstate_dirs(&chainstate_path).unwrap();
+    DiskChainStateLayout::make_chainstate_dirs(&chainstate_path).unwrap();
 
     let sortdb_v1 =
         SortitionDB::connect_v1(&sortdb_path, 100, &BurnchainHeaderHash([0x00; 32]), 0, true)
             .unwrap();
-    let chainstate_v1 = StacksChainState::open_db_without_migrations(
+    let chainstate_v1 = DiskIndexDb::open_db_without_migrations(
         false,
         CHAIN_ID_TESTNET,
-        StacksChainState::header_index_root_path(PathBuf::from(&chainstate_path))
+        DiskChainStateLayout::header_index_root_path(PathBuf::from(&chainstate_path))
             .to_str()
             .unwrap(),
     )
@@ -6502,7 +6513,7 @@ fn test_check_chainstate_db_versions() {
     assert!(fs::metadata(&chainstate_path).is_ok());
     assert!(fs::metadata(&sortdb_path).is_ok());
     assert_eq!(
-        StacksChainState::get_db_config_from_path(&chainstate_path)
+        DiskChainStateLayout::get_db_config_from_path(&chainstate_path)
             .unwrap()
             .version,
         "1"

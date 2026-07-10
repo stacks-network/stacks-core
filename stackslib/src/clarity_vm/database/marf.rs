@@ -41,6 +41,8 @@ use crate::clarity_vm::clarity::{
 use crate::clarity_vm::database::ephemeral::EphemeralMarfStore;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+#[cfg(any(test, feature = "testing"))]
+use crate::util_lib::db::is_sqlite_memory_path;
 use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
@@ -106,6 +108,46 @@ impl MarfedKV {
         Ok(marf)
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    fn setup_ephemeral_db(
+        unconfirmed: bool,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<MARF<StacksBlockId>, VmExecutionError> {
+        MarfedKV::setup_ephemeral_db_at_path(":memory:", unconfirmed, marf_opts)
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    fn setup_ephemeral_db_at_path(
+        marf_path: &str,
+        unconfirmed: bool,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<MARF<StacksBlockId>, VmExecutionError> {
+        let mut marf_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
+        marf_opts.external_blobs = false;
+        test_override_marf_compression(&mut marf_opts);
+
+        let mut marf = if unconfirmed {
+            MARF::from_path_unconfirmed(marf_path, marf_opts)
+                .map_err(|err| VmInternalError::MarfFailure(err.to_string()))?
+        } else {
+            MARF::from_path(marf_path, marf_opts)
+                .map_err(|err| VmInternalError::MarfFailure(err.to_string()))?
+        };
+
+        if SqliteConnection::check_schema(marf.sqlite_conn()).is_ok() {
+            return Ok(marf);
+        }
+
+        let tx = marf
+            .storage_tx()
+            .map_err(|err| VmInternalError::DBError(err.to_string()))?;
+        SqliteConnection::initialize_conn(&tx)?;
+        tx.commit()
+            .map_err(|err| VmInternalError::SqliteError(IncomparableError { err }))?;
+
+        Ok(marf)
+    }
+
     pub fn open(
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
@@ -124,11 +166,63 @@ impl MarfedKV {
         })
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    pub fn open_ephemeral(
+        miner_tip: Option<&StacksBlockId>,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<MarfedKV, VmExecutionError> {
+        let marf = MarfedKV::setup_ephemeral_db(false, marf_opts)?;
+        let chain_tip = match miner_tip {
+            Some(miner_tip) => miner_tip.clone(),
+            None => StacksBlockId::sentinel(),
+        };
+
+        Ok(MarfedKV {
+            marf,
+            chain_tip,
+            ephemeral_marf: None,
+        })
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn open_shared_ephemeral(
+        marf_path: &str,
+        miner_tip: Option<&StacksBlockId>,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<MarfedKV, VmExecutionError> {
+        let marf = MarfedKV::setup_ephemeral_db_at_path(marf_path, false, marf_opts)?;
+        let chain_tip = match miner_tip {
+            Some(miner_tip) => miner_tip.clone(),
+            None => StacksBlockId::sentinel(),
+        };
+
+        Ok(MarfedKV {
+            marf,
+            chain_tip,
+            ephemeral_marf: None,
+        })
+    }
+
     pub fn open_unconfirmed(
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
         marf_opts: Option<MARFOpenOpts>,
     ) -> Result<MarfedKV, VmExecutionError> {
+        #[cfg(any(test, feature = "testing"))]
+        if is_sqlite_memory_path(path_str) {
+            let marf = MarfedKV::setup_ephemeral_db_at_path(path_str, true, marf_opts)?;
+            let chain_tip = match miner_tip {
+                Some(miner_tip) => miner_tip.clone(),
+                None => StacksBlockId::sentinel(),
+            };
+
+            return Ok(MarfedKV {
+                marf,
+                chain_tip,
+                ephemeral_marf: None,
+            });
+        }
+
         let marf = MarfedKV::setup_db(path_str, true, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(miner_tip) => miner_tip.clone(),
@@ -138,6 +232,27 @@ impl MarfedKV {
         Ok(MarfedKV {
             marf,
             chain_tip,
+            ephemeral_marf: None,
+        })
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn try_clone_ephemeral(&self) -> Result<MarfedKV, VmExecutionError> {
+        if self.ephemeral_marf.is_some() {
+            return Err(VmInternalError::MarfFailure(
+                "cannot clone MarfedKV while an ephemeral block is open".into(),
+            )
+            .into());
+        }
+
+        let marf = self
+            .marf
+            .try_clone_ephemeral()
+            .map_err(|err| VmInternalError::MarfFailure(err.to_string()))?;
+
+        Ok(MarfedKV {
+            chain_tip: self.chain_tip.clone(),
+            marf,
             ephemeral_marf: None,
         })
     }

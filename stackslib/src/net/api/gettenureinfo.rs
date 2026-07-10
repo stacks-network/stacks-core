@@ -88,7 +88,9 @@ impl HttpRequest for RPCNakamotoTenureInfoRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoTenureInfoRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCNakamotoTenureInfoRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {}
 
@@ -97,7 +99,7 @@ impl RPCRequestHandler for RPCNakamotoTenureInfoRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let info = node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {
             RPCGetTenureInfo {

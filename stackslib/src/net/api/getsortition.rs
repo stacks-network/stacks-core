@@ -27,7 +27,7 @@ use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{NakamotoChainState, StacksDBIndexed};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpNotFound, HttpRequest, HttpRequestContents,
@@ -150,7 +150,7 @@ impl GetSortitionHandler {
     fn get_sortition_info(
         sortition_sn: BlockSnapshot,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         tip: &StacksBlockId,
     ) -> Result<SortitionInfo, ChainError> {
         let is_shadow = chainstate
@@ -295,7 +295,9 @@ impl HttpRequest for GetSortitionHandler {
     }
 }
 
-impl RPCRequestHandler for GetSortitionHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for GetSortitionHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.query = QuerySpecifier::Latest;
@@ -306,7 +308,7 @@ impl RPCRequestHandler for GetSortitionHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let result = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
             let query_result = match self.query {

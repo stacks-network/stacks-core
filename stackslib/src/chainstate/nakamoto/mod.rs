@@ -77,7 +77,9 @@ use crate::chainstate::nakamoto::tenure::{
 use crate::chainstate::stacks::boot::SIP_031_NAME;
 use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{
-    DBConfig as ChainstateConfig, StacksChainState, StacksDBConn, StacksDBTx,
+    ChainStateMetadataDb, ChainStatePersistence, ClarityTxFactory, DBConfig as ChainstateConfig,
+    Epoch2BlockProcessor, MinerRewardsDb, StacksAccountWriter, StacksChainState, StacksDBConn,
+    StacksDBTx, StacksHeadersDb,
 };
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
@@ -109,7 +111,8 @@ pub mod test_signers;
 pub mod tests;
 
 pub use self::staging_blocks::{
-    NakamotoStagingBlocksConn, NakamotoStagingBlocksConnRef, NakamotoStagingBlocksTx,
+    NakamotoStagingBlocksConn, NakamotoStagingBlocksConnRef, NakamotoStagingBlocksDb,
+    NakamotoStagingBlocksTx,
 };
 
 pub const NAKAMOTO_BLOCK_VERSION: u8 = 0;
@@ -1776,7 +1779,7 @@ impl NakamotoChainState {
     /// Infallibly set a block as processed.
     /// Does not return until it succeeds.
     fn infallible_set_block_processed(
-        stacks_chain_state: &mut StacksChainState,
+        stacks_chain_state: &mut StacksChainState<impl ChainStatePersistence>,
         block_id: &StacksBlockId,
     ) {
         loop {
@@ -1811,7 +1814,7 @@ impl NakamotoChainState {
     /// Infallibly set a block as orphaned.
     /// Does not return until it succeeds.
     fn infallible_set_block_orphaned(
-        stacks_chain_state: &mut StacksChainState,
+        stacks_chain_state: &mut StacksChainState<impl ChainStatePersistence>,
         block_id: &StacksBlockId,
     ) {
         loop {
@@ -1920,7 +1923,7 @@ impl NakamotoChainState {
     /// It returns Err(..) on DB error, or if the child block does not connect to the parent.
     /// The caller should keep calling this until it gets Ok(None)
     pub fn process_next_nakamoto_block<T: BlockEventDispatcher>(
-        stacks_chain_state: &mut StacksChainState,
+        stacks_chain_state: &mut StacksChainState<impl ChainStatePersistence>,
         sort_db: &mut SortitionDB,
         canonical_sortition_tip: &SortitionId,
         dispatcher_opt: Option<&T>,
@@ -2473,7 +2476,7 @@ impl NakamotoChainState {
     /// * we already have the block
     /// Returns true if we stored the block; false if not.
     pub fn accept_block(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         block: &NakamotoBlock,
         db_handle: &mut SortitionHandleConn,
         reward_set: &RewardSet,
@@ -2832,7 +2835,7 @@ impl NakamotoChainState {
         }
 
         // epoch2?
-        let epoch2_header_info = StacksChainState::get_stacks_block_header_info_by_consensus_hash(
+        let epoch2_header_info = StacksHeadersDb::get_stacks_block_header_info_by_consensus_hash(
             chainstate_conn.sqlite(),
             consensus_hash,
         )?;
@@ -2898,7 +2901,7 @@ impl NakamotoChainState {
     /// Get the highest block in a given tenure (identified by its consensus hash) with a canonical
     ///  burn_view (i.e., burn_view on the canonical sortition fork)
     pub fn find_highest_known_block_header_in_tenure(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         sort_db: &SortitionDB,
         tenure_id: &ConsensusHash,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
@@ -2944,7 +2947,7 @@ impl NakamotoChainState {
 
         // see if this is an epoch2 header. If it exists, then there will only be one.
         let epoch2_x =
-            StacksChainState::get_stacks_block_header_info_by_consensus_hash(db, tenure_id)?;
+            StacksHeadersDb::get_stacks_block_header_info_by_consensus_hash(db, tenure_id)?;
         Ok(Vec::from_iter(epoch2_x))
     }
 
@@ -2954,7 +2957,7 @@ impl NakamotoChainState {
     /// Get the highest block in a given tenure (identified by burnchain block height) with a canonical
     ///  burn_view (i.e., burn_view on the canonical sortition fork).
     pub fn find_highest_known_block_header_in_tenure_by_block_height(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         sort_db: &SortitionDB,
         tenure_height: u64,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
@@ -2975,7 +2978,7 @@ impl NakamotoChainState {
     /// Get the highest block in a given tenure (identified by burnchain block hash) with a canonical
     ///  burn_view (i.e., burn_view on the canonical sortition fork).
     pub fn find_highest_known_block_header_in_tenure_by_block_hash(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         sort_db: &SortitionDB,
         tenure_block_hash: &BurnchainHeaderHash,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
@@ -3019,7 +3022,7 @@ impl NakamotoChainState {
         if !out.is_empty() {
             return Ok(out);
         }
-        StacksChainState::get_stacks_block_header_info_by_burn_header_height(db, tenure_height)
+        StacksHeadersDb::get_stacks_block_header_info_by_burn_header_height(db, tenure_height)
     }
 
     /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
@@ -3051,7 +3054,7 @@ impl NakamotoChainState {
         if !out.is_empty() {
             return Ok(out);
         }
-        StacksChainState::get_stacks_block_header_info_by_burn_header_hash(db, tenure_block_hash)
+        StacksHeadersDb::get_stacks_block_header_info_by_burn_header_hash(db, tenure_block_hash)
     }
 
     /// Get the VRF proof for a Stacks block.
@@ -3660,12 +3663,12 @@ impl NakamotoChainState {
             tenure_fees,
         )?;
         if let Some(block_reward) = block_reward {
-            StacksChainState::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
+            MinerRewardsDb::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
         }
 
         // NOTE: this is a no-op if the block isn't a tenure-start block
         if new_tenure {
-            StacksChainState::store_burnchain_txids(
+            ChainStateMetadataDb::store_burnchain_txids(
                 headers_tx.deref(),
                 &index_block_hash,
                 burn_stack_stx_ops,
@@ -3689,13 +3692,13 @@ impl NakamotoChainState {
                     .from_parent_stacks_block_hash,
             );
 
-            StacksChainState::insert_matured_child_miner_reward(
+            MinerRewardsDb::insert_matured_child_miner_reward(
                 headers_tx.deref_mut(),
                 &rewarded_parent_miner_block_id,
                 &rewarded_miner_block_id,
                 &matured_miner_payouts.recipient,
             )?;
-            StacksChainState::insert_matured_parent_miner_reward(
+            MinerRewardsDb::insert_matured_parent_miner_reward(
                 headers_tx.deref_mut(),
                 &rewarded_parent_miner_block_id,
                 &rewarded_miner_block_id,
@@ -3828,7 +3831,7 @@ impl NakamotoChainState {
             let Some(tenure_start_block_id) = conn.get_tenure_start_block_id(&tip, &cursor)? else {
                 break;
             };
-            let txids = StacksChainState::get_burnchain_txids_for_block(
+            let txids = ChainStateMetadataDb::get_burnchain_txids_for_block(
                 conn.sqlite(),
                 &tenure_start_block_id,
             )?;
@@ -4265,7 +4268,7 @@ impl NakamotoChainState {
         };
 
         let mut clarity_tx = if ephemeral {
-            StacksChainState::chainstate_ephemeral_block_begin(
+            ClarityTxFactory::chainstate_ephemeral_block_begin(
                 chainstate_tx,
                 clarity_instance,
                 sortition_dbconn.as_burn_state_db(),
@@ -4275,7 +4278,7 @@ impl NakamotoChainState {
                 &MINER_BLOCK_HEADER_HASH,
             )
         } else {
-            StacksChainState::chainstate_block_begin(
+            ClarityTxFactory::chainstate_block_begin(
                 chainstate_tx,
                 clarity_instance,
                 sortition_dbconn.as_burn_state_db(),
@@ -4320,7 +4323,7 @@ impl NakamotoChainState {
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
-            StacksChainState::process_epoch_transition(
+            Epoch2BlockProcessor::process_epoch_transition(
                 &mut clarity_tx,
                 sortition_dbconn.as_burn_state_db(),
                 burn_header_height,
@@ -4355,7 +4358,7 @@ impl NakamotoChainState {
         let evaluated_epoch = clarity_tx.get_epoch();
 
         let auto_unlock_events = if evaluated_epoch >= StacksEpochId::Epoch21 {
-            let unlock_events = StacksChainState::check_and_handle_reward_start(
+            let unlock_events = Epoch2BlockProcessor::check_and_handle_reward_start(
                 burn_header_height.into(),
                 sortition_dbconn.as_burn_state_db(),
                 sortition_dbconn,
@@ -4376,12 +4379,12 @@ impl NakamotoChainState {
         let active_pox_contract = pox_constants.active_pox_contract(burn_header_height.into());
 
         // process stacking & transfer operations from burnchain ops
-        tx_receipts.extend(StacksChainState::process_stacking_ops(
+        tx_receipts.extend(Epoch2BlockProcessor::process_stacking_ops(
             &mut clarity_tx,
             stacking_burn_ops.clone(),
             active_pox_contract,
         ));
-        tx_receipts.extend(StacksChainState::process_transfer_ops(
+        tx_receipts.extend(Epoch2BlockProcessor::process_transfer_ops(
             &mut clarity_tx,
             transfer_burn_ops.clone(),
         ));
@@ -4395,7 +4398,7 @@ impl NakamotoChainState {
         // The query for the delegate ops only returns anything in and after Epoch 2.1,
         // but we do a second check here just to be safe.
         if evaluated_epoch >= StacksEpochId::Epoch21 {
-            tx_receipts.extend(StacksChainState::process_delegate_ops(
+            tx_receipts.extend(Epoch2BlockProcessor::process_delegate_ops(
                 &mut clarity_tx,
                 delegate_burn_ops.clone(),
                 active_pox_contract,
@@ -4417,7 +4420,7 @@ impl NakamotoChainState {
                 burn_header_height.into(),
                 coinbase_height,
             )?;
-            tx_receipts.extend(StacksChainState::process_vote_for_aggregate_key_ops(
+            tx_receipts.extend(Epoch2BlockProcessor::process_vote_for_aggregate_key_ops(
                 &mut clarity_tx,
                 vote_for_agg_key_ops.clone(),
             ));
@@ -4466,7 +4469,7 @@ impl NakamotoChainState {
         // add miner payments
         if let Some(rewards) = miner_payouts {
             // grant in order by miner, then users
-            let matured_ustx = StacksChainState::process_matured_miner_rewards(
+            let matured_ustx = Epoch2BlockProcessor::process_matured_miner_rewards(
                 clarity_tx,
                 &rewards.recipient,
                 &[],
@@ -4477,7 +4480,8 @@ impl NakamotoChainState {
         }
 
         // process unlocks
-        let (new_unlocked_ustx, lockup_events) = StacksChainState::process_stx_unlocks(clarity_tx)?;
+        let (new_unlocked_ustx, lockup_events) =
+            Epoch2BlockProcessor::process_stx_unlocks(clarity_tx)?;
 
         clarity_tx.increment_ustx_liquid_supply(new_unlocked_ustx);
 
@@ -4889,17 +4893,20 @@ impl NakamotoChainState {
         );
 
         // process anchored block
-        let (block_fees, txs_receipts) =
-            match StacksChainState::process_block_transactions(&mut clarity_tx, &block.txs, 0) {
-                Err(e) => {
-                    let msg = format!("Invalid Stacks block {block_hash}: {e:?}");
-                    warn!("{msg}");
+        let (block_fees, txs_receipts) = match Epoch2BlockProcessor::process_block_transactions(
+            &mut clarity_tx,
+            &block.txs,
+            0,
+        ) {
+            Err(e) => {
+                let msg = format!("Invalid Stacks block {block_hash}: {e:?}");
+                warn!("{msg}");
 
-                    clarity_tx.rollback_block();
-                    return Err(ChainstateError::InvalidStacksBlock(msg));
-                }
-                Ok((block_fees, _block_burns, txs_receipts)) => (block_fees, txs_receipts),
-            };
+                clarity_tx.rollback_block();
+                return Err(ChainstateError::InvalidStacksBlock(msg));
+            }
+            Ok((block_fees, _block_burns, txs_receipts)) => (block_fees, txs_receipts),
+        };
 
         tx_receipts.extend(txs_receipts);
 
@@ -5184,8 +5191,7 @@ impl NakamotoChainState {
                                 .map_err(|e| e.into())
                         })
                         .expect("FATAL: `SIP-031 mint` overflowed");
-                    StacksChainState::account_credit(
-                        tx_conn,
+                    tx_conn.account_credit(
                         &recipient,
                         u64::try_from(sip_031_mint_and_transfer_amount)
                             .expect("FATAL: transferred more STX than exist"),

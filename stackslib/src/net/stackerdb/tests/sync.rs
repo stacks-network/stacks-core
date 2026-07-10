@@ -26,6 +26,8 @@ use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::stacks::db::ChainStatePersistence;
+use crate::chainstate::tests::TestChainstateStorage;
 use crate::net::p2p::PeerNetwork;
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestPeer, TestPeerConfig};
@@ -39,6 +41,12 @@ const CHUNK_SIZE: u64 = 2 * (97 + 3000 * 33);
 
 // Number of neighbors to test with
 const NUM_NEIGHBORS: usize = 8;
+
+fn shared_ephemeral_config_from_port(port: u16) -> TestPeerConfig {
+    let mut config = TestPeerConfig::from_port(port);
+    config.chain_config.storage = TestChainstateStorage::SharedEphemeral;
+    config
+}
 
 /// Some testable configurations for stacker DB configs
 impl StackerDBConfig {
@@ -78,7 +86,12 @@ fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDB
 
 /// Set up a stacker DB and optionally fill it with random data.
 /// `idx` refers to the `idx`th stacker DB in the node config struct.
-fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize) {
+fn setup_stackerdb<CSP: ChainStatePersistence>(
+    peer: &mut TestPeer<'_, CSP>,
+    idx: usize,
+    fill: bool,
+    num_slots: usize,
+) {
     let contract_id = &peer.config.stacker_dbs[idx];
     let rc_consensus_hash = &peer.network.get_chain_view().rc_consensus_hash;
 
@@ -145,11 +158,14 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize
         .unwrap()
         .get_mut(contract_id)
         .unwrap()
-        .reset(None, stackerdb_config);
+        .reset(None::<&PeerNetwork<CSP>>, stackerdb_config);
 }
 
 /// Load up the entire stacker DB, including its metadata
-fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(SlotMetadata, Vec<u8>)> {
+fn load_stackerdb<CSP: ChainStatePersistence>(
+    peer: &TestPeer<'_, CSP>,
+    idx: usize,
+) -> Vec<(SlotMetadata, Vec<u8>)> {
     let num_slots = peer.config.stacker_db_configs[idx]
         .as_ref()
         .unwrap_or(&StackerDBConfig::noop())
@@ -185,7 +201,9 @@ fn check_sync_results(network_sync: &NetworkResult) {
     }
 }
 
-fn test_reconnect(network: &mut PeerNetwork) {
+fn test_reconnect(
+    network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+) {
     let mut stacker_db_syncs = network
         .stacker_db_syncs
         .take()
@@ -209,8 +227,8 @@ fn test_reconnect(network: &mut PeerNetwork) {
 fn test_stackerdb_replica_2_neighbors_1_chunk() {
     with_timeout(600, || {
         std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
-        let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT);
-        let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 2);
+        let mut peer_1_config = shared_ephemeral_config_from_port(BASE_PORT);
+        let mut peer_2_config = shared_ephemeral_config_from_port(BASE_PORT + 2);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -227,8 +245,8 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
         let idx_1 = add_stackerdb(&mut peer_1_config, Some(StackerDBConfig::template()));
         let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::template()));
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 gets the DB
         setup_stackerdb(&mut peer_1, idx_1, true, 1);
@@ -325,8 +343,8 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
 fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
     with_timeout(600, || {
         std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
-        let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT + 4);
-        let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 8);
+        let mut peer_1_config = shared_ephemeral_config_from_port(BASE_PORT + 4);
+        let mut peer_2_config = shared_ephemeral_config_from_port(BASE_PORT + 8);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -343,8 +361,8 @@ fn test_stackerdb_replica_2_neighbors_1_chunk_stale_view() {
         let idx_1 = add_stackerdb(&mut peer_1_config, Some(StackerDBConfig::template()));
         let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::template()));
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 gets the DB
         setup_stackerdb(&mut peer_1, idx_1, true, 1);
@@ -550,8 +568,8 @@ fn test_stackerdb_replica_2_neighbors_10_push_chunks() {
 fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port: u16) {
     with_timeout(600, move || {
         std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
-        let mut peer_1_config = TestPeerConfig::from_port(base_port);
-        let mut peer_2_config = TestPeerConfig::from_port(base_port + 2);
+        let mut peer_1_config = shared_ephemeral_config_from_port(base_port);
+        let mut peer_2_config = shared_ephemeral_config_from_port(base_port + 2);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -573,8 +591,8 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
         let idx_1 = add_stackerdb(&mut peer_1_config, Some(StackerDBConfig::template()));
         let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::template()));
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 gets the DB
         setup_stackerdb(&mut peer_1, idx_1, true, 10);
@@ -677,9 +695,9 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
 fn test_stackerdb_push_relayer() {
     with_timeout(600, move || {
         std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
-        let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT + 100);
-        let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 102);
-        let mut peer_3_config = TestPeerConfig::from_port(BASE_PORT + 104);
+        let mut peer_1_config = shared_ephemeral_config_from_port(BASE_PORT + 100);
+        let mut peer_2_config = shared_ephemeral_config_from_port(BASE_PORT + 102);
+        let mut peer_3_config = shared_ephemeral_config_from_port(BASE_PORT + 104);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -703,9 +721,9 @@ fn test_stackerdb_push_relayer() {
         let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::template()));
         let idx_3 = add_stackerdb(&mut peer_3_config, Some(StackerDBConfig::template()));
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
-        let mut peer_3 = TestPeer::new(peer_3_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
+        let mut peer_3 = TestPeer::new_shared_ephemeral(peer_3_config);
 
         // peer 1 gets the DB
         setup_stackerdb(&mut peer_1, idx_1, true, 10);
@@ -846,9 +864,9 @@ fn test_stackerdb_push_relayer() {
 fn test_stackerdb_push_relayer_late_chunks() {
     with_timeout(600, move || {
         std::env::set_var("STACKS_TEST_DISABLE_EDGE_TRIGGER_TEST", "1");
-        let mut peer_1_config = TestPeerConfig::from_port(BASE_PORT + 106);
-        let mut peer_2_config = TestPeerConfig::from_port(BASE_PORT + 108);
-        let mut peer_3_config = TestPeerConfig::from_port(BASE_PORT + 110);
+        let mut peer_1_config = shared_ephemeral_config_from_port(BASE_PORT + 106);
+        let mut peer_2_config = shared_ephemeral_config_from_port(BASE_PORT + 108);
+        let mut peer_3_config = shared_ephemeral_config_from_port(BASE_PORT + 110);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -872,9 +890,9 @@ fn test_stackerdb_push_relayer_late_chunks() {
         let idx_2 = add_stackerdb(&mut peer_2_config, Some(StackerDBConfig::template()));
         let idx_3 = add_stackerdb(&mut peer_3_config, Some(StackerDBConfig::template()));
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
-        let mut peer_3 = TestPeer::new(peer_3_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
+        let mut peer_3 = TestPeer::new_shared_ephemeral(peer_3_config);
 
         // advance peers 1 and 2, but not 3
         let mut peer_1_nonce = 0;
@@ -1067,7 +1085,7 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
         let mut peer_db_configs = vec![];
 
         for i in 0..num_peers {
-            let mut peer_config = TestPeerConfig::from_port(base_port + (2 * i as u16));
+            let mut peer_config = shared_ephemeral_config_from_port(base_port + (2 * i as u16));
 
             peer_config.allowed = -1;
 
@@ -1105,7 +1123,7 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
         }
 
         for (i, peer_config) in peer_configs.into_iter().enumerate() {
-            let mut peer = TestPeer::new(peer_config);
+            let mut peer = TestPeer::new_shared_ephemeral(peer_config);
 
             if i == 0 {
                 // peer 0 -- at one end of the line -- gets the initial DB
@@ -1203,7 +1221,7 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
 /// would otherwise validate.
 #[test]
 fn test_validate_received_chunk_rejects_oversized() {
-    let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 100);
+    let mut peer_config = shared_ephemeral_config_from_port(BASE_PORT + 100);
     peer_config.allowed = -1;
 
     // Use a small chunk_size so we can build an "oversized" chunk cheaply.
@@ -1211,7 +1229,7 @@ fn test_validate_received_chunk_rejects_oversized() {
     stackerdb_config.chunk_size = 1024;
     let idx = add_stackerdb(&mut peer_config, Some(stackerdb_config));
 
-    let mut peer = TestPeer::new(peer_config);
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     // 1 slot, no fill — signer key generated and registered.
     setup_stackerdb(&mut peer, idx, false, 1);
 
@@ -1243,14 +1261,14 @@ fn test_validate_received_chunk_rejects_oversized() {
 /// (if other validations — signer, version — pass as well)
 #[test]
 fn test_validate_received_chunk_accepts_max_size() {
-    let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 102);
+    let mut peer_config = shared_ephemeral_config_from_port(BASE_PORT + 102);
     peer_config.allowed = -1;
 
     let mut stackerdb_config = StackerDBConfig::template();
     stackerdb_config.chunk_size = 1024;
     let idx = add_stackerdb(&mut peer_config, Some(stackerdb_config));
 
-    let mut peer = TestPeer::new(peer_config);
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     // 1 slot, fill with a valid signed chunk so a same-size resubmission can
     // pass signature + version checks and we can confirm Ok(true).
     setup_stackerdb(&mut peer, idx, true, 1);

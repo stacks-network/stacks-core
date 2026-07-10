@@ -23,7 +23,7 @@ use stacks_common::util::hash::hex_bytes;
 use url::form_urlencoded;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction};
 use crate::net::api::blockreplay::{remine_nakamoto_block, RPCReplayedBlock};
 use crate::net::http::{
@@ -93,7 +93,7 @@ impl RPCNakamotoBlockSimulateRequestHandler {
     pub fn block_simulate(
         &self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     ) -> Result<RPCReplayedBlock, ChainError> {
         let Some(block_id) = &self.block_id else {
             return Err(ChainError::InvalidStacksBlock("block_id is None".into()));
@@ -213,7 +213,9 @@ impl HttpRequest for RPCNakamotoBlockSimulateRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCNakamotoBlockSimulateRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
@@ -224,7 +226,7 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let Some(block_id) = &self.block_id else {
             return Err(NetError::SendError("Missing `block_id`".into()));

@@ -24,7 +24,7 @@ use pinny::tag;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::NakamotoChainState;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
 use stacks::chainstate::stacks::{TenureChangeCause, TenureChangePayload};
 use stacks::codec::StacksMessageCodec;
@@ -1021,7 +1021,7 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),

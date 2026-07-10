@@ -72,7 +72,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         ]),
         ExecutionTimeExpired => Unreachable_Functionally(
             "All consensus-critical code paths (block validation and transaction processing)
-             pass `None` for max_execution_time to StacksChainState::process_transaction,
+             pass `None` for max_execution_time to `ClarityTx::process_transaction`,
              causing GlobalContext::execution_time_tracker to remain ExecutionTimeTracker::NoTracking.
              The check_max_execution_time_expired function always returns Ok(()) when tracker
              is NoTracking. Execution time limits are only enforced in RPC API calls

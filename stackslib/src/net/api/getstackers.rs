@@ -21,7 +21,7 @@ use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::coordinator::OnChainRewardSetProvider;
 use crate::chainstate::stacks::boot::{PoxVersions, RewardSet};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
@@ -76,7 +76,7 @@ impl std::fmt::Display for GetStackersErrors {
 impl GetStackersResponse {
     pub fn load(
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         tip: &StacksBlockId,
         burnchain: &Burnchain,
         cycle_number: u64,
@@ -146,7 +146,9 @@ impl HttpRequest for GetStackersRequestHandler {
     }
 }
 
-impl RPCRequestHandler for GetStackersRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for GetStackersRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.cycle_number = None;
@@ -157,7 +159,7 @@ impl RPCRequestHandler for GetStackersRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,

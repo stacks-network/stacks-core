@@ -45,8 +45,8 @@ use crate::codec::StacksMessageCodec;
 use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
 use crate::util::hash::to_hex;
 use crate::util_lib::db::{
-    sql_pragma, sqlite_open, tx_begin_immediate, Error as db_error, SQLITE_MARF_PAGE_SIZE,
-    SQLITE_MMAP_SIZE,
+    is_sqlite_memory_path, sql_pragma, sqlite_open, tx_begin_immediate, Error as db_error,
+    SQLITE_MARF_PAGE_SIZE, SQLITE_MMAP_SIZE,
 };
 
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
@@ -1852,7 +1852,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         marf_opts: MARFOpenOpts,
     ) -> Result<TrieFileStorage<T>, Error> {
         let mut create_flag = false;
-        let open_flags = if db_path != ":memory:" {
+        let sqlite_memory = is_sqlite_memory_path(db_path);
+        let open_flags = if !sqlite_memory {
             match fs::metadata(db_path) {
                 Err(e) => {
                     if e.kind() == io::ErrorKind::NotFound {
@@ -1892,7 +1893,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             trie_sql::create_tables_if_needed(&mut db)?;
         }
 
-        let mut blobs = if marf_opts.external_blobs {
+        let mut blobs = if marf_opts.external_blobs && !sqlite_memory {
             Some(TrieFile::from_db_path(&db_path, readonly)?)
         } else {
             None
@@ -1971,6 +1972,63 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     #[cfg(test)]
     pub fn new_memory(marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<T>, Error> {
         TrieFileStorage::open(":memory:", marf_opts)
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn try_clone_ephemeral(&self) -> Result<TrieFileStorage<T>, Error> {
+        if !is_sqlite_memory_path(&self.db_path) || self.blobs.is_some() {
+            return Err(Error::CorruptionError(
+                "only in-memory MARFs without external blobs can be cloned in memory".into(),
+            ));
+        }
+
+        let mut db = marf_sqlite_open(
+            ":memory:",
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+            false,
+        )?;
+        {
+            let backup = rusqlite::backup::Backup::new(&self.db, &mut db)?;
+            backup.run_to_completion(100, std::time::Duration::from_millis(0), None)?;
+        }
+
+        let mut ret = TrieFileStorage {
+            db_path: ":memory:".to_string(),
+            db,
+            blobs: None,
+            cache: TrieCache::default(),
+            bench: TrieBenchmark::new(),
+            hash_calculation_mode: self.hash_calculation_mode,
+            compress: self.compress,
+
+            data: TrieStorageTransientData {
+                uncommitted_writes: self.data.uncommitted_writes.clone(),
+                cur_block: self.data.cur_block.clone(),
+                cur_block_id: self.data.cur_block_id,
+
+                read_count: 0,
+                read_backptr_count: 0,
+                read_node_count: 0,
+                read_leaf_count: 0,
+
+                write_count: 0,
+                write_node_count: 0,
+                write_leaf_count: 0,
+
+                trie_ancestor_hash_bytes_cache: None,
+
+                readonly: self.data.readonly,
+                unconfirmed: self.data.unconfirmed,
+
+                squash_info: self.data.squash_info.clone(),
+            },
+
+            #[cfg(test)]
+            test_genesis_block: self.test_genesis_block.clone(),
+        };
+
+        ret.load_squash_info()?;
+        Ok(ret)
     }
 
     pub fn open(db_path: &str, marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<T>, Error> {

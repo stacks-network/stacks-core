@@ -26,7 +26,7 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,
 };
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::PoxRewardSetCalculator;
 use crate::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
     TransactionAuth, TransactionPayload, TransactionVersion,
@@ -42,7 +42,10 @@ use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+    let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
+        addr,
+        &ConnectionOptions::default(),
+    );
 
     let request = StacksHttpRequest::new_getpoxinfo(
         addr.into(),
@@ -289,7 +292,7 @@ fn test_getpoxinfo_uses_persisted_threshold_after_additional_stack() {
         additional_amount as u64
     );
 
-    let live_next_cycle_threshold = StacksChainState::get_threshold_from_participation(
+    let live_next_cycle_threshold = PoxRewardSetCalculator::get_threshold_from_participation(
         additional_pox.total_liquid_supply_ustx as u128,
         additional_pox.next_cycle.stacked_ustx as u128,
         additional_pox.reward_slots as u128,

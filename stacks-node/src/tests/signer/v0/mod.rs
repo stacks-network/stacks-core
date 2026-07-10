@@ -41,7 +41,7 @@ use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
-use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{TransactionEvent, TransactionSuccessEvent};
 use stacks::chainstate::stacks::{StacksTransaction, TenureChangeCause, TransactionPayload};
 use stacks::codec::StacksMessageCodec;
@@ -2292,7 +2292,7 @@ pub fn get_nakamoto_headers(config: &Config) -> Vec<StacksHeaderInfo> {
         })
         .collect();
 
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         config.is_mainnet(),
         config.burnchain.chain_id,
         &config.get_chainstate_path_str(),

@@ -33,7 +33,8 @@ use crate::chainstate::nakamoto::{
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::{DummyEventDispatcher, MAX_RECEIPT_SIZES};
 use crate::chainstate::stacks::db::{
-    ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+    ChainStatePersistence, ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState,
+    StacksHeaderInfo, StacksTransactionBlock,
 };
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent, TransactionResult,
@@ -356,9 +357,9 @@ impl NakamotoBlockBuilder {
     /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
     /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
     /// expire.  This is used for normal blocks.
-    pub fn load_tenure_info<'a>(
+    pub fn load_tenure_info<'a, B: ChainStatePersistence>(
         &self,
-        chainstate: &'a mut StacksChainState,
+        chainstate: &'a mut StacksChainState<B>,
         burn_dbconn: &'a SortitionHandleConn,
         cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
@@ -369,9 +370,9 @@ impl NakamotoBlockBuilder {
     /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
     /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
     /// expire.  This is used for ephemeral blocks
-    pub fn load_ephemeral_tenure_info<'a>(
+    pub fn load_ephemeral_tenure_info<'a, B: ChainStatePersistence>(
         &self,
-        chainstate: &'a mut StacksChainState,
+        chainstate: &'a mut StacksChainState<B>,
         burn_dbconn: &'a SortitionHandleConn,
         cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
@@ -382,9 +383,9 @@ impl NakamotoBlockBuilder {
     /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
     /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
     /// expire.
-    pub(crate) fn inner_load_tenure_info<'a>(
+    pub(crate) fn inner_load_tenure_info<'a, B: ChainStatePersistence>(
         &self,
-        chainstate: &'a mut StacksChainState,
+        chainstate: &'a mut StacksChainState<B>,
         burn_dbconn: &'a SortitionHandleConn,
         cause: MinerTenureInfoCause,
         shadow_block: bool,
@@ -676,7 +677,7 @@ impl NakamotoBlockBuilder {
     /// It will not be signed.
     pub fn build_nakamoto_block(
         // not directly used; used as a handle to open other chainstates
-        chainstate_handle: &StacksChainState,
+        chainstate_handle: &StacksChainState<impl ChainStatePersistence>,
         burn_dbconn: &SortitionHandleConn,
         mempool: &mut MemPoolDB,
         // Stacks header we're building off of.
@@ -908,8 +909,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-            let (_fee, receipt) = match StacksChainState::process_transaction_with_check(
-                clarity_tx,
+            let (_fee, receipt) = match clarity_tx.process_transaction_with_check(
                 tx,
                 quiet,
                 max_execution_time,

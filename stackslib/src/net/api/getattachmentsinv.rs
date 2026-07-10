@@ -125,7 +125,9 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCGetAttachmentsInvRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.index_block_hash = None;
@@ -136,7 +138,7 @@ impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let index_block_hash = self
             .index_block_hash

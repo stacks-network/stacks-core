@@ -57,12 +57,9 @@ use crate::cost_estimates::UnitEstimator;
 
 #[test]
 fn test_build_anchored_blocks_empty() {
-    let peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
+    let peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2000, 2001);
     let burnchain = peer_config.chain_config.burnchain.clone();
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let num_blocks = 10;
     let first_stacks_block_height = {
         let sn =
@@ -94,7 +91,7 @@ fn test_build_anchored_blocks_empty() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -104,7 +101,7 @@ fn test_build_anchored_blocks_empty() {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -114,8 +111,7 @@ fn test_build_anchored_blocks_empty() {
                     }
                 };
 
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
@@ -158,14 +154,11 @@ fn test_build_anchored_blocks_stx_transfers_single() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2002, 2003);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2002, 2003);
     peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let num_blocks = 10;
     let first_stacks_block_height = {
         let sn =
@@ -192,7 +185,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -202,7 +195,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -215,8 +208,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
                 let parent_consensus_hash = parent_tip.consensus_hash.clone();
 
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
@@ -293,14 +285,11 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2022, 2023);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2022, 2023);
     peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let num_blocks = 10;
     let first_stacks_block_height = {
         let sn =
@@ -327,7 +316,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -337,7 +326,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -350,8 +339,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
                 let parent_consensus_hash = parent_tip.consensus_hash.clone();
 
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
@@ -431,14 +419,11 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2004, 2005);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2004, 2005);
     peer_config.chain_config.initial_balances = balances;
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -464,7 +449,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -474,7 +459,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -487,8 +472,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
                 let parent_consensus_hash = parent_tip.consensus_hash.clone();
 
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
@@ -593,7 +577,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2016, 2017);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2016, 2017);
     peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
     let burnchain = peer_config.chain_config.burnchain.clone();
 
@@ -636,10 +620,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
         mblock_privks.push(mblock_privk);
     }
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -667,7 +648,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -677,7 +658,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -694,8 +675,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                     &parent_header_hash,
                 );
 
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
                 let sort_ic = sortdb.index_handle_at_tip();
@@ -831,7 +811,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2018, 2019);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2018, 2019);
     peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
     let burnchain = peer_config.chain_config.burnchain.clone();
 
@@ -874,10 +854,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
         mblock_privks.push(mblock_privk);
     }
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -907,7 +884,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
 
@@ -921,7 +898,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                                 .unwrap()
                                 .unwrap();
 
-                            StacksChainState::get_anchored_block_header_info(
+                            StacksHeadersDb::get_anchored_block_header_info(
                                 chainstate.db(),
                                 &snapshot.consensus_hash,
                                 &snapshot.winning_stacks_block_hash,
@@ -934,7 +911,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                             // Verify that the last block was indeed marked as invalid, and abort.
                             let bhh = last_block.as_ref().unwrap().block_hash();
                             let ch = last_block_ch.as_ref().unwrap().clone();
-                            assert!(StacksChainState::is_block_orphaned(
+                            assert!(Epoch2StagingBlocksDb::is_block_orphaned(
                                 chainstate.db(),
                                 &ch,
                                 &bhh
@@ -952,8 +929,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                     &parent_header_hash,
                 );
 
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
                 let coinbase_tx = make_coinbase(miner, tenure_id);
                 let sort_ic = sortdb.index_handle_at_tip();
@@ -1094,7 +1070,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
 
             // the parent of this block crosses the epoch boundary
             let last_block_ch = last_block_ch.clone().unwrap();
-            assert!(StacksChainState::block_crosses_epoch_boundary(
+            assert!(Epoch2BlockValidator::block_crosses_epoch_boundary(
                 peer.chainstate().db(),
                 &last_block_ch,
                 &stacks_block.header.parent_block
@@ -1174,7 +1150,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
     initial_balances.push((addr.to_account_principal(), 100000000000));
     initial_balances.push((addr_extra.to_account_principal(), 200000000000));
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2006, 2007);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2006, 2007);
     peer_config.chain_config.initial_balances = initial_balances;
     peer_config.chain_config.epochs = Some(EpochList::new(&[StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
@@ -1193,10 +1169,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
     }]));
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1222,7 +1195,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -1232,7 +1205,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -1246,8 +1219,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                 let parent_consensus_hash = parent_tip.consensus_hash.clone();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
                 if tenure_id > 0 {
                     let mut expensive_part = vec![];
@@ -1378,14 +1350,11 @@ fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2032, 2033);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2032, 2033);
     peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
@@ -1400,7 +1369,7 @@ fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
          ref parent_opt,
          ref parent_microblock_header_opt| {
             let parent_tip = match parent_opt {
-                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                 Some(block) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -1410,7 +1379,7 @@ fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
                     )
                     .unwrap()
                     .unwrap();
-                    StacksChainState::get_anchored_block_header_info(
+                    StacksHeadersDb::get_anchored_block_header_info(
                         chainstate.db(),
                         &snapshot.consensus_hash,
                         &snapshot.winning_stacks_block_hash,
@@ -1423,7 +1392,7 @@ fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
             let parent_header_hash = parent_tip.anchored_header.block_hash();
             let parent_consensus_hash = parent_tip.consensus_hash.clone();
 
-            let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+            let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
             let coinbase_tx = make_coinbase(miner, 0);
 
@@ -1498,14 +1467,11 @@ fn test_build_anchored_blocks_zero_fee_transaction() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2032, 2033);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2032, 2033);
     peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
@@ -1520,7 +1486,7 @@ fn test_build_anchored_blocks_zero_fee_transaction() {
          ref parent_opt,
          ref parent_microblock_header_opt| {
             let parent_tip = match parent_opt {
-                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                 Some(block) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -1530,7 +1496,7 @@ fn test_build_anchored_blocks_zero_fee_transaction() {
                     )
                     .unwrap()
                     .unwrap();
-                    StacksChainState::get_anchored_block_header_info(
+                    StacksHeadersDb::get_anchored_block_header_info(
                         chainstate.db(),
                         &snapshot.consensus_hash,
                         &snapshot.winning_stacks_block_hash,
@@ -1560,13 +1526,14 @@ fn test_build_anchored_blocks_zero_fee_transaction() {
             )
             .unwrap();
 
-            let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
-                block_builder,
-                chainstate,
-                &sortdb.index_handle_at_tip(),
-                vec![coinbase_tx, zero_fee_tx],
-            )
-            .unwrap();
+            let anchored_block =
+                StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
+                    block_builder,
+                    chainstate,
+                    &sortdb.index_handle_at_tip(),
+                    vec![coinbase_tx, zero_fee_tx],
+                )
+                .unwrap();
 
             (anchored_block.0, vec![])
         },
@@ -1603,18 +1570,16 @@ fn test_build_anchored_blocks_multiple_chaintips() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2008, 2009);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2008, 2009);
     peer_config.chain_config.initial_balances = balances;
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     // make a blank chainstate and mempool so we can mine empty blocks
     //  without punishing the correspondingly "too expensive" transactions
     let blank_chainstate = instantiate_chainstate(false, 1, function_name!());
-    let mut blank_mempool = MemPoolDB::open_test(false, 1, &blank_chainstate.root_path).unwrap();
+    let mut blank_mempool = MemPoolDB::open_memory_test().unwrap();
+    let mut pending_mempool = MemPoolDB::open_memory_test().unwrap();
 
     let first_stacks_block_height = {
         let sn =
@@ -1637,7 +1602,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -1647,7 +1612,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -1660,9 +1625,6 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
                 let parent_consensus_hash = parent_tip.consensus_hash.clone();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
-
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                 if tenure_id > 0 {
                     let contract = "
@@ -1678,7 +1640,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                         &format!("hello-world-{tenure_id}"),
                         contract,
                     );
-                    mempool
+                    pending_mempool
                         .submit(
                             chainstate,
                             sortdb,
@@ -1696,7 +1658,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                     let mempool_to_use = if tenure_id < num_blocks - 1 {
                         &mut blank_mempool
                     } else {
-                        &mut mempool
+                        &mut pending_mempool
                     };
 
                     StacksBlockBuilder::build_anchored_block(
@@ -1749,20 +1711,18 @@ fn test_build_anchored_blocks_empty_chaintips() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2010, 2011);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2010, 2011);
     peer_config.chain_config.initial_balances = balances;
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
                 .unwrap();
         sn.block_height
     };
+    let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
@@ -1778,7 +1738,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -1788,7 +1748,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -1801,9 +1761,6 @@ fn test_build_anchored_blocks_empty_chaintips() {
                 let parent_header_hash = parent_tip.anchored_header.block_hash();
                 let parent_consensus_hash = parent_tip.consensus_hash.clone();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
-
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
                 let anchored_block = StacksBlockBuilder::build_anchored_block(
                     chainstate,
@@ -1891,14 +1848,11 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2013, 2014);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2013, 2014);
     peer_config.chain_config.initial_balances = balances;
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1920,7 +1874,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -1930,7 +1884,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -1944,8 +1898,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
                 let parent_consensus_hash = parent_tip.consensus_hash.clone();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
                 if tenure_id == 2 {
                     let contract = "
@@ -2045,12 +1998,9 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
 
 #[test]
 fn test_build_anchored_blocks_invalid() {
-    let peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
+    let peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2014, 2015);
     let burnchain = peer_config.chain_config.burnchain.clone();
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let num_blocks = 10;
     let first_stacks_block_height = {
         let sn =
@@ -2121,7 +2071,7 @@ fn test_build_anchored_blocks_invalid() {
                         assert!(tenure_id != bad_block_tenure + 1);
                         match parent_opt {
                             None => {
-                                StacksChainState::get_genesis_header_info(chainstate.db()).unwrap()
+                                StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap()
                             }
                             Some(ref block) => {
                                 let ic = sortdb.index_conn();
@@ -2134,7 +2084,7 @@ fn test_build_anchored_blocks_invalid() {
                                     };
 
                                 let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(&ic, &tip.sortition_id, &parent_block_hash).unwrap().unwrap();      // succeeds because we don't fork
-                                StacksChainState::get_anchored_block_header_info(chainstate.db(), &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
+                                StacksHeadersDb::get_anchored_block_header_info(chainstate.db(), &snapshot.consensus_hash, &snapshot.winning_stacks_block_hash).unwrap().unwrap()
                             }
                         }
                     }
@@ -2171,7 +2121,7 @@ fn test_build_anchored_blocks_invalid() {
                 miner.set_nonce(miner.get_nonce() - ((bad_block_tenure - bad_block_ancestor_tenure) as u64));
             }
 
-            let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+            let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
             let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
@@ -2253,14 +2203,11 @@ fn test_build_anchored_blocks_bad_nonces() {
         balances.push((addr.to_account_principal(), 100000000));
     }
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2012, 2013);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2012, 2013);
     peer_config.chain_config.initial_balances = balances;
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -2283,7 +2230,7 @@ fn test_build_anchored_blocks_bad_nonces() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -2293,7 +2240,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -2307,8 +2254,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                 let parent_tip_ch = parent_tip.consensus_hash.clone();
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
-                let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
                 if tenure_id == 2 {
                     let contract = "
@@ -2504,14 +2450,11 @@ fn test_build_microblock_stream_forks() {
         balances.push((addr.to_account_principal(), initial_balance));
     }
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2014, 2015);
     peer_config.chain_config.initial_balances = balances;
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -2536,7 +2479,7 @@ fn test_build_microblock_stream_forks() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db())
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db())
                         .unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
@@ -2548,7 +2491,7 @@ fn test_build_microblock_stream_forks() {
                             )
                             .unwrap()
                             .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -2563,14 +2506,14 @@ fn test_build_microblock_stream_forks() {
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
                 let parent_size = parent_tip.anchored_block_size;
 
-                let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
                 let expected_parent_microblock_opt =
                     if tenure_id > 0 {
                         let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
 
                         let parent_mblock_stream = {
-                            let parent_cost = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash)).unwrap().unwrap();
+                            let parent_cost = StacksHeadersDb::get_stacks_block_anchored_cost(chainstate.db(), &StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash)).unwrap().unwrap();
 
                             // produce the microblock stream for the parent, which this tenure's anchor
                             // block will confirm.
@@ -2648,7 +2591,7 @@ fn test_build_microblock_stream_forks() {
                         }
 
                         // find the poison-microblock at seq 2
-                        let (_, poison_opt) = match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+                        let (_, poison_opt) = match Epoch2StagingBlocksDb::load_descendant_staging_microblock_stream_with_poison(
                             chainstate.db(),
                             &parent_index_hash,
                             0,
@@ -2804,14 +2747,11 @@ fn test_build_microblock_stream_forks_with_descendants() {
         balances.push((addr.to_account_principal(), initial_balance));
     }
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2014, 2015);
     peer_config.chain_config.initial_balances = balances;
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -2848,7 +2788,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                 let mut parent_tip =
                     if tenure_id == 0 || tenure_id == 1 {
                         let tip = match parent_opt {
-                            None => StacksChainState::get_genesis_header_info(chainstate.db())
+                            None => StacksHeadersDb::get_genesis_header_info(chainstate.db())
                                 .unwrap(),
                             Some(block) => {
                                 let ic = sortdb.index_conn();
@@ -2860,7 +2800,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                                     )
                                     .unwrap()
                                     .unwrap(); // succeeds because we don't fork
-                                StacksChainState::get_anchored_block_header_info(
+                                StacksHeadersDb::get_anchored_block_header_info(
                                     chainstate.db(),
                                     &snapshot.consensus_hash,
                                     &snapshot.winning_stacks_block_hash,
@@ -2889,7 +2829,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash);
                 let parent_size = parent_tip.anchored_block_size;
 
-                let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
                 let (expected_parent_microblock_opt, fork_1, fork_2) =
                     if tenure_id == 1 {
@@ -2897,7 +2837,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                         let parent_microblock_privkey = mblock_privks[tenure_id - 1].clone();
 
                         let parent_mblock_stream = {
-                            let parent_cost = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash)).unwrap().unwrap();
+                            let parent_cost = StacksHeadersDb::get_stacks_block_anchored_cost(chainstate.db(), &StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_header_hash)).unwrap().unwrap();
 
                             // produce the microblock stream for the parent, which this tenure's anchor
                             // block will confirm.
@@ -2975,7 +2915,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                         }
 
                         // find the poison-microblock at seq 2
-                        let (_, poison_opt) = match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+                        let (_, poison_opt) = match Epoch2StagingBlocksDb::load_descendant_staging_microblock_stream_with_poison(
                             chainstate.db(),
                             &parent_index_hash,
                             0,
@@ -3189,7 +3129,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
         peer.process_stacks_epoch(&stacks_block, &consensus_hash, &microblocks);
 
         if tenure_id >= 1 {
-            let next_tip = StacksChainState::get_anchored_block_header_info(
+            let next_tip = StacksHeadersDb::get_anchored_block_header_info(
                 peer.chainstate().db(),
                 &consensus_hash,
                 &stacks_block.block_hash(),
@@ -3234,7 +3174,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                     &chain_tip,
                     |clarity_tx| {
                         // the key at height 1 should be reported as poisoned
-                        let report = StacksChainState::get_poison_microblock_report(clarity_tx, 1)
+                        let report = MinerRewardsDb::get_poison_microblock_report(clarity_tx, 1)
                             .unwrap()
                             .unwrap();
                         assert_eq!(report.0, reporter_addr);
@@ -3275,7 +3215,7 @@ fn test_contract_call_across_clarity_versions() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2024, 2025);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2024, 2025);
     peer_config.chain_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
@@ -3316,9 +3256,7 @@ fn test_contract_call_across_clarity_versions() {
 
     let num_blocks = 10;
     let mut anchored_sender_nonce = 0;
-    let mut peer = TestPeer::new(peer_config);
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -3345,7 +3283,7 @@ fn test_contract_call_across_clarity_versions() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -3355,7 +3293,7 @@ fn test_contract_call_across_clarity_versions() {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -3712,7 +3650,7 @@ fn test_contract_call_across_clarity_versions() {
                 )
                 .unwrap();
 
-                let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
+                let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                     builder,
                     chainstate,
                     &sort_ic,
@@ -3856,7 +3794,7 @@ fn test_is_tx_problematic() {
     initial_balances.push((addr.to_account_principal(), 100000000000));
     initial_balances.push((addr_extra.to_account_principal(), 200000000000));
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2018, 2019);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2018, 2019);
     peer_config.chain_config.initial_balances = initial_balances;
     peer_config.chain_config.epochs = Some(EpochList::new(&[
         StacksEpoch {
@@ -3876,10 +3814,7 @@ fn test_is_tx_problematic() {
     ]));
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -3905,7 +3840,7 @@ fn test_is_tx_problematic() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot =
@@ -3916,7 +3851,7 @@ fn test_is_tx_problematic() {
                             )
                             .unwrap()
                             .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -3931,7 +3866,7 @@ fn test_is_tx_problematic() {
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 let mut mempool =
-                    MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                    MemPoolDB::open_memory_test().unwrap();
 
                 let mut expected_txids = vec![];
                 expected_txids.push(coinbase_tx.txid());
@@ -3967,7 +3902,7 @@ fn test_is_tx_problematic() {
                     )
                     .unwrap();
 
-                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
+                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                         block_builder,
                         chainstate,
                         &sortdb.index_handle_at_tip(),
@@ -4144,7 +4079,7 @@ fn test_is_tx_problematic() {
                     )
                     .unwrap();
 
-                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
+                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                         block_builder,
                         chainstate,
                         &sortdb.index_handle_at_tip(),
@@ -4194,7 +4129,7 @@ fn test_is_tx_problematic() {
                     )
                     .unwrap();
 
-                    let err = StacksBlockBuilder::make_anchored_block_from_txs(
+                    let err = StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                         block_builder,
                         chainstate,
                         &sortdb.index_handle_at_tip(),
@@ -4246,7 +4181,7 @@ fn test_is_tx_problematic() {
                     )
                     .unwrap();
 
-                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs(
+                    if let Err(ChainstateError::ProblematicTransaction(txid)) = StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                         block_builder,
                         chainstate,
                         &sortdb.index_handle_at_tip(),
@@ -4331,7 +4266,7 @@ fn mempool_incorporate_pox_unlocks() {
     initial_balances.push((addr.to_account_principal(), total_balance));
     let principal = PrincipalData::from(addr.clone());
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2020, 2021);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2020, 2021);
     peer_config.chain_config.initial_balances = initial_balances;
     peer_config.chain_config.epochs = Some(EpochList::new(&[
         StacksEpoch {
@@ -4367,10 +4302,7 @@ fn mempool_incorporate_pox_unlocks() {
     let pox_constants = peer_config.chain_config.burnchain.pox_constants.clone();
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -4414,7 +4346,7 @@ fn mempool_incorporate_pox_unlocks() {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                  let parent_tip = match parent_opt {
-                     None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                     None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                      Some(block) => {
                          let ic = sortdb.index_conn();
                          let snapshot =
@@ -4425,7 +4357,7 @@ fn mempool_incorporate_pox_unlocks() {
                              )
                              .unwrap()
                              .unwrap(); // succeeds because we don't fork
-                         StacksChainState::get_anchored_block_header_info(
+                         StacksHeadersDb::get_anchored_block_header_info(
                              chainstate.db(),
                              &snapshot.consensus_hash,
                              &snapshot.winning_stacks_block_hash,
@@ -4442,7 +4374,7 @@ fn mempool_incorporate_pox_unlocks() {
                  let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
                  let mut mempool =
-                     MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+                     MemPoolDB::open_memory_test().unwrap();
 
                  let mut expected_txids = vec![];
                  expected_txids.push(coinbase_tx.txid());
@@ -4574,14 +4506,11 @@ fn test_fee_order_mismatch_nonce_order() {
     )
     .unwrap();
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 2002, 2003);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 2002, 2003);
     peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-
-    let chainstate_path = peer.chain.chainstate_path.clone();
-
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let first_stacks_block_height = {
         let sn =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -4605,7 +4534,7 @@ fn test_fee_order_mismatch_nonce_order() {
          ref parent_opt,
          ref parent_microblock_header_opt| {
             let parent_tip = match parent_opt {
-                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                 Some(block) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -4615,7 +4544,7 @@ fn test_fee_order_mismatch_nonce_order() {
                     )
                     .unwrap()
                     .unwrap(); // succeeds because we don't fork
-                    StacksChainState::get_anchored_block_header_info(
+                    StacksHeadersDb::get_anchored_block_header_info(
                         chainstate.db(),
                         &snapshot.consensus_hash,
                         &snapshot.winning_stacks_block_hash,
@@ -4628,7 +4557,7 @@ fn test_fee_order_mismatch_nonce_order() {
             let parent_header_hash = parent_tip.anchored_header.block_hash();
             let parent_consensus_hash = parent_tip.consensus_hash.clone();
 
-            let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+            let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
             let coinbase_tx = make_coinbase(miner, 0);
 
@@ -4761,7 +4690,7 @@ fn paramaterized_mempool_walk_test(
         "mempool_walk_test_users_{}_rounds_{}_cache_size_{}_null_prob_{}",
         num_users, num_rounds, nonce_and_candidate_cache_size, consider_no_estimate_tx_prob
     );
-    let mut peer_config = TestPeerConfig::new(&test_name, 2002, 2003);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(&test_name, 2002, 2003);
 
     peer_config.chain_config.initial_balances = vec![];
     for (privk, addr) in &key_address_pairs {
@@ -4944,7 +4873,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
     let address_6 = accounts[6].to_string();
 
     let test_name = function_name!();
-    let mut peer_config = TestPeerConfig::new(&test_name, 0, 0);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(&test_name, 0, 0);
     peer_config.chain_config.initial_balances = vec![];
     for (privk, addr) in &key_address_pairs {
         peer_config
@@ -5195,13 +5124,12 @@ fn run_mempool_walk_strategy_nonce_order_test<F>(
         .map(|addr| (addr.to_account_principal(), 100000000000))
         .collect();
 
-    let mut peer_config = TestPeerConfig::new(test_name, 2030, 2031);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(test_name, 2030, 2031);
     peer_config.chain_config.initial_balances = initial_balances;
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
-    let chainstate_path = peer.chain.chainstate_path.clone();
-    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
+    let mut mempool = MemPoolDB::open_memory_test().unwrap();
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
         .unwrap();
@@ -5214,7 +5142,7 @@ fn run_mempool_walk_strategy_nonce_order_test<F>(
          ref parent_opt,
          ref parent_microblock_header_opt| {
             let parent_tip = match parent_opt {
-                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                 Some(block) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -5224,7 +5152,7 @@ fn run_mempool_walk_strategy_nonce_order_test<F>(
                     )
                     .unwrap()
                     .unwrap();
-                    StacksChainState::get_anchored_block_header_info(
+                    StacksHeadersDb::get_anchored_block_header_info(
                         chainstate.db(),
                         &snapshot.consensus_hash,
                         &snapshot.winning_stacks_block_hash,

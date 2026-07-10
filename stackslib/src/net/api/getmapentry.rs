@@ -122,7 +122,9 @@ impl HttpRequest for RPCGetMapEntryRequestHandler {
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCGetMapEntryRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCGetMapEntryRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.contract_identifier = None;
@@ -135,7 +137,7 @@ impl RPCRequestHandler for RPCGetMapEntryRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let contract_identifier = self
             .contract_identifier

@@ -26,16 +26,19 @@ use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
 use crate::chainstate::stacks::*;
 use crate::core::test_util::to_addr;
 use crate::net::test::*;
-use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs_and_balances;
+use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs_ext_shared;
 use crate::net::tests::relay::epoch2x::make_contract_tx;
 use crate::net::*;
+
+const MEMPOOL_TEST_PAGE_SIZE: u64 = 16;
+const MEMPOOL_TEST_PAGINATED_TXS: usize = (MEMPOOL_TEST_PAGE_SIZE as usize * 2) + 1;
 
 #[test]
 fn test_mempool_sync_2_peers() {
     // peer 1 gets some transactions; verify peer 2 gets the recent ones and not the old
     // ones
-    let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+    let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
     peer_1_config.connection_opts.mempool_sync_interval = 1;
     peer_2_config.connection_opts.mempool_sync_interval = 1;
@@ -51,8 +54,8 @@ fn test_mempool_sync_2_peers() {
     peer_1_config.chain_config.initial_balances = initial_balances.clone();
     peer_2_config.chain_config.initial_balances = initial_balances;
 
-    let mut peer_1 = TestPeer::new(peer_1_config);
-    let mut peer_2 = TestPeer::new(peer_2_config);
+    let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+    let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
     peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
     peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
@@ -302,13 +305,15 @@ fn test_mempool_sync_2_peers() {
 #[test]
 fn test_mempool_sync_2_peers_paginated() {
     // peer 1 gets some transactions; verify peer 2 gets them all
-    let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+    let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
     peer_1_config.connection_opts.mempool_sync_interval = 1;
     peer_2_config.connection_opts.mempool_sync_interval = 1;
+    peer_1_config.connection_opts.mempool_max_tx_query = MEMPOOL_TEST_PAGE_SIZE;
+    peer_2_config.connection_opts.mempool_max_tx_query = MEMPOOL_TEST_PAGE_SIZE;
 
-    let num_txs = 1024;
+    let num_txs = MEMPOOL_TEST_PAGINATED_TXS;
     let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
@@ -319,8 +324,8 @@ fn test_mempool_sync_2_peers_paginated() {
     peer_1_config.chain_config.initial_balances = initial_balances.clone();
     peer_2_config.chain_config.initial_balances = initial_balances;
 
-    let mut peer_1 = TestPeer::new(peer_1_config);
-    let mut peer_2 = TestPeer::new(peer_2_config);
+    let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+    let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
     peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
     peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
@@ -493,8 +498,8 @@ fn test_mempool_sync_2_peers_paginated() {
 fn test_mempool_sync_2_peers_blacklisted() {
     // peer 1 gets some transactions; peer 2 blacklists some of them;
     // verify peer 2 gets only the non-blacklisted ones.
-    let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+    let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
     peer_1_config.connection_opts.mempool_sync_interval = 1;
     peer_2_config.connection_opts.mempool_sync_interval = 1;
@@ -510,8 +515,8 @@ fn test_mempool_sync_2_peers_blacklisted() {
     peer_1_config.chain_config.initial_balances = initial_balances.clone();
     peer_2_config.chain_config.initial_balances = initial_balances;
 
-    let mut peer_1 = TestPeer::new(peer_1_config);
-    let mut peer_2 = TestPeer::new(peer_2_config);
+    let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+    let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
     peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
     peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
@@ -704,8 +709,8 @@ fn test_mempool_sync_2_peers_blacklisted() {
 fn test_mempool_sync_2_peers_problematic() {
     // peer 1 gets some transactions; peer 2 blacklists them all due to being invalid.
     // verify peer 2 stores nothing.
-    let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+    let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
     peer_1_config.connection_opts.mempool_sync_interval = 1;
     peer_2_config.connection_opts.mempool_sync_interval = 1;
@@ -721,8 +726,8 @@ fn test_mempool_sync_2_peers_problematic() {
     peer_1_config.chain_config.initial_balances = initial_balances.clone();
     peer_2_config.chain_config.initial_balances = initial_balances;
 
-    let mut peer_1 = TestPeer::new(peer_1_config);
-    let mut peer_2 = TestPeer::new(peer_2_config);
+    let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+    let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
     peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
     peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
@@ -1087,7 +1092,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         // full rc
         vec![true, true, true, true, true, true, true, true, true, true],
     ];
-    let num_txs = 1024;
+    let num_txs = MEMPOOL_TEST_PAGINATED_TXS;
     let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
@@ -1095,16 +1100,21 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         .map(|a| (a.to_account_principal(), 1000000000))
         .collect();
 
-    let (mut peer_1, mut other_peers) = make_nakamoto_peers_from_invs_and_balances(
+    let (mut peer_1, mut other_peers) = make_nakamoto_peers_from_invs_ext_shared(
         function_name!(),
         &observer,
-        10,
-        3,
         bitvecs,
-        1,
-        initial_balances,
+        |boot_plan| {
+            boot_plan
+                .with_pox_constants(10, 3)
+                .with_extra_peers(1)
+                .with_initial_balances(initial_balances)
+        },
     );
     let mut peer_2 = other_peers.pop().unwrap();
+
+    peer_1.network.connection_opts.mempool_max_tx_query = MEMPOOL_TEST_PAGE_SIZE;
+    peer_2.network.connection_opts.mempool_max_tx_query = MEMPOOL_TEST_PAGE_SIZE;
 
     let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
         &peer_1.config.chain_config.burnchain.pox_constants,
@@ -1206,8 +1216,6 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
             None,
         )
         .unwrap();
-
-        eprintln!("Added {} {}", i, &txid);
     }
     mempool_tx.commit().unwrap();
     peer_1.mempool = Some(peer_1_mempool);

@@ -55,6 +55,7 @@ use crate::chainstate::stacks::boot::{
     MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::blocks::test::make_empty_coinbase_block;
+use crate::chainstate::stacks::db::SharedMemoryChainStateBackend;
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::test::make_codec_test_microblock;
 use crate::chainstate::stacks::{
@@ -62,11 +63,13 @@ use crate::chainstate::stacks::{
     TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
     TransactionPayload, TransactionVersion,
 };
-use crate::chainstate::tests::{TestChainstate, TestChainstateConfig};
+use crate::chainstate::tests::{TestChainstate, TestChainstateConfig, TestChainstateStorage};
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::{StacksEpoch, StacksEpochExtension};
 use crate::net::relay::Relayer;
-use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
+use crate::net::test::{
+    RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerChainstateFactory, TestPeerConfig,
+};
 use crate::net::{
     BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborKey, NetworkResult,
     PingData, StackerDBPushChunkData, StacksMessage, StacksMessageType, StacksNodeState,
@@ -109,6 +112,7 @@ pub struct NakamotoBootPlan {
     pub extra_tenures: Vec<NakamotoBootTenure>,
     /// Do not fail if a transaction returns error (by default the BootPlan will stop on tx failure)
     pub ignore_transaction_errors: bool,
+    pub storage: TestChainstateStorage,
 }
 
 impl NakamotoBootPlan {
@@ -132,6 +136,7 @@ impl NakamotoBootPlan {
             epochs: None,
             tip_transactions: vec![],
             ignore_transaction_errors: false,
+            storage: TestChainstateStorage::Disk,
         }
     }
 
@@ -140,6 +145,7 @@ impl NakamotoBootPlan {
         let mut chainstate_config = TestChainstateConfig::new(&self.test_name);
         chainstate_config.network_id = self.network_id;
         chainstate_config.txindex = self.txindex;
+        chainstate_config.storage = self.storage;
 
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -203,6 +209,21 @@ impl NakamotoBootPlan {
 
     pub fn with_network_id(mut self, network_id: u32) -> Self {
         self.network_id = network_id;
+        self
+    }
+
+    pub fn ephemeral(mut self) -> Self {
+        self.storage = TestChainstateStorage::Ephemeral;
+        self
+    }
+
+    pub fn shared_ephemeral(mut self) -> Self {
+        self.storage = TestChainstateStorage::SharedEphemeral;
+        self
+    }
+
+    pub fn disk(mut self) -> Self {
+        self.storage = TestChainstateStorage::Disk;
         self
     }
 
@@ -341,12 +362,14 @@ impl NakamotoBootPlan {
     }
 
     /// Apply burn ops and blocks to the peer replicas
-    fn apply_blocks_to_other_peers(
+    fn apply_blocks_to_other_peers<'a, CSP>(
         burn_ops: &[BlockstackOperationType],
         blocks: &[NakamotoBlock],
         malleablized_blocks: &[NakamotoBlock],
-        other_peers: &mut [TestPeer],
-    ) {
+        other_peers: &mut [TestPeer<'a, CSP>],
+    ) where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         info!("Applying block to other peers"; "block_height" => ?burn_ops.first().map(|op| op.block_height()));
         for (i, peer) in other_peers.iter_mut().enumerate() {
             peer.next_burnchain_block(burn_ops.to_vec());
@@ -383,13 +406,25 @@ impl NakamotoBootPlan {
                     "Did NOT accept Nakamoto block {block_id} to other peer {i}"
                 );
                 test_debug!("Accepted Nakamoto block {block_id} to other peer {i}");
+                peer.chain
+                    .sync_ephemeral_chainstate_to_coordinator(&node)
+                    .unwrap();
                 peer.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
+                peer.chain
+                    .sync_ephemeral_chainstate_from_coordinator(&mut node)
+                    .unwrap();
 
                 possible_chain_tips.insert(block.block_id());
 
                 // process it
+                peer.chain
+                    .sync_ephemeral_chainstate_to_coordinator(&node)
+                    .unwrap();
                 peer.chain.coord.handle_new_stacks_block().unwrap();
                 peer.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
+                peer.chain
+                    .sync_ephemeral_chainstate_from_coordinator(&mut node)
+                    .unwrap();
             }
 
             for block in malleablized_blocks {
@@ -416,13 +451,25 @@ impl NakamotoBootPlan {
                     "Did NOT accept malleablized Nakamoto block {block_id} to other peer {i}"
                 );
                 test_debug!("Accepted malleablized Nakamoto block {block_id} to other peer {i}");
+                peer.chain
+                    .sync_ephemeral_chainstate_to_coordinator(&node)
+                    .unwrap();
                 peer.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
+                peer.chain
+                    .sync_ephemeral_chainstate_from_coordinator(&mut node)
+                    .unwrap();
 
                 possible_chain_tips.insert(block.block_id());
 
                 // process it
+                peer.chain
+                    .sync_ephemeral_chainstate_to_coordinator(&node)
+                    .unwrap();
                 peer.chain.coord.handle_new_stacks_block().unwrap();
                 peer.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
+                peer.chain
+                    .sync_ephemeral_chainstate_from_coordinator(&mut node)
+                    .unwrap();
             }
 
             peer.chain.sortdb = Some(sortdb);
@@ -449,6 +496,26 @@ impl NakamotoBootPlan {
         chain
     }
 
+    /// Make a shared in-memory chainstate capable of transitioning into the Nakamoto epoch.
+    ///
+    /// This is useful for tests that need coordinator/node chainstate handles to reopen the same
+    /// backing state without paying filesystem persistence costs.
+    pub fn to_shared_ephemeral_chainstate(
+        self,
+        observer: Option<&TestEventObserver>,
+        current_block: Option<u64>,
+    ) -> TestChainstate<'_, SharedMemoryChainStateBackend> {
+        let mine_malleablized_blocks = self.malleablized_blocks;
+        let mut chainstate_config = self.shared_ephemeral().build_nakamoto_chainstate_config();
+        if let Some(current_block) = current_block {
+            chainstate_config.current_block = current_block;
+        }
+        let mut chain =
+            TestChainstate::new_shared_ephemeral_with_observer(chainstate_config, observer);
+        chain.mine_malleablized_blocks = mine_malleablized_blocks;
+        chain
+    }
+
     /// Make a peer and transition it into the Nakamoto epoch.
     /// The node needs to be stacking; otherwise, Nakamoto won't activate.
     /// Boot a TestPeer and followers into the Nakamoto epoch
@@ -456,6 +523,32 @@ impl NakamotoBootPlan {
         self,
         observer: Option<&TestEventObserver>,
     ) -> (TestPeer<'_>, Vec<TestPeer<'_>>) {
+        self.boot_nakamoto_peers_with(observer, |config, observer| {
+            TestPeer::new_with_observer(config, observer)
+        })
+    }
+
+    pub fn boot_nakamoto_peers_shared_ephemeral(
+        self,
+        observer: Option<&TestEventObserver>,
+    ) -> (
+        TestPeer<'_, SharedMemoryChainStateBackend>,
+        Vec<TestPeer<'_, SharedMemoryChainStateBackend>>,
+    ) {
+        self.boot_nakamoto_peers_with(observer, |config, observer| {
+            TestPeer::new_shared_ephemeral_with_observer(config, observer)
+        })
+    }
+
+    fn boot_nakamoto_peers_with<'a, CSP, MakePeer>(
+        self,
+        observer: Option<&'a TestEventObserver>,
+        make_peer: MakePeer,
+    ) -> (TestPeer<'a, CSP>, Vec<TestPeer<'a, CSP>>)
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+        MakePeer: Fn(TestPeerConfig, Option<&'a TestEventObserver>) -> TestPeer<'a, CSP> + Copy,
+    {
         let mut peer_config = TestPeerConfig::new(&self.test_name, 0, 0);
         peer_config.chain_config = self.build_nakamoto_chainstate_config();
         peer_config.private_key = self.private_key.clone();
@@ -464,7 +557,7 @@ impl NakamotoBootPlan {
             .stacker_dbs
             .push(boot_code_id(MINERS_NAME, false));
 
-        let mut peer = TestPeer::new_with_observer(peer_config.clone(), observer);
+        let mut peer = make_peer(peer_config.clone(), observer);
         peer.chain.mine_malleablized_blocks = self.malleablized_blocks;
 
         let mut other_peers = vec![];
@@ -479,7 +572,7 @@ impl NakamotoBootPlan {
             other_config.private_key = StacksPrivateKey::from_seed(&(i as u128).to_be_bytes());
             other_config.add_neighbor(&peer.to_neighbor());
 
-            let mut other_peer = TestPeer::new_with_observer(other_config, None);
+            let mut other_peer = make_peer(other_config, None);
             other_peer.chain.mine_malleablized_blocks = self.malleablized_blocks;
             other_peers.push(other_peer);
         }
@@ -498,9 +591,37 @@ impl NakamotoBootPlan {
 
     pub fn boot_into_nakamoto_peers(
         self,
-        mut boot_plan: Vec<NakamotoBootTenure>,
+        boot_plan: Vec<NakamotoBootTenure>,
         observer: Option<&TestEventObserver>,
     ) -> (TestPeer<'_>, Vec<TestPeer<'_>>) {
+        self.boot_into_nakamoto_peers_with(boot_plan, observer, |config, observer| {
+            TestPeer::new_with_observer(config, observer)
+        })
+    }
+
+    pub fn boot_into_nakamoto_peers_shared_ephemeral(
+        self,
+        boot_plan: Vec<NakamotoBootTenure>,
+        observer: Option<&TestEventObserver>,
+    ) -> (
+        TestPeer<'_, SharedMemoryChainStateBackend>,
+        Vec<TestPeer<'_, SharedMemoryChainStateBackend>>,
+    ) {
+        self.boot_into_nakamoto_peers_with(boot_plan, observer, |config, observer| {
+            TestPeer::new_shared_ephemeral_with_observer(config, observer)
+        })
+    }
+
+    fn boot_into_nakamoto_peers_with<'a, CSP, MakePeer>(
+        self,
+        mut boot_plan: Vec<NakamotoBootTenure>,
+        observer: Option<&'a TestEventObserver>,
+        make_peer: MakePeer,
+    ) -> (TestPeer<'a, CSP>, Vec<TestPeer<'a, CSP>>)
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+        MakePeer: Fn(TestPeerConfig, Option<&'a TestEventObserver>) -> TestPeer<'a, CSP> + Copy,
+    {
         let test_signers = self.test_signers.clone();
         let pox_constants = self.pox_constants.clone();
         let test_stackers = self.test_stackers.clone();
@@ -508,7 +629,7 @@ impl NakamotoBootPlan {
 
         boot_plan.extend(self.extra_tenures.clone());
 
-        let (mut peer, mut other_peers) = self.boot_nakamoto_peers(observer);
+        let (mut peer, mut other_peers) = self.boot_nakamoto_peers_with(observer, make_peer);
         if boot_plan.is_empty() {
             debug!("No boot plan steps supplied -- returning once nakamoto epoch has been reached");
             return (peer, other_peers);
@@ -1042,7 +1163,8 @@ fn test_boot_nakamoto_peer() {
         .with_test_stackers(test_stackers);
 
     let observer = TestEventObserver::new();
-    let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(&observer));
+    let (_peer, _other_peers) =
+        plan.boot_into_nakamoto_peers_shared_ephemeral(boot_tenures, Some(&observer));
 }
 
 #[test]
@@ -1713,8 +1835,8 @@ fn test_update_highest_stacks_height_of_neighbors(
     #[case] new_height: Option<u64>,
     #[case] is_update_accepted: bool,
 ) {
-    let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let mut peer = TestPeer::new(peer_config);
+    let peer_config = TestPeerConfig::new_ephemeral(function_name!(), 0, 0);
+    let mut peer = TestPeer::new_ephemeral(peer_config);
 
     let prev_highest_neighbor =
         old_height.map(|h| (SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080), h));

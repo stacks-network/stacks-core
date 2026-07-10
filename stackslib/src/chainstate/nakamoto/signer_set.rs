@@ -29,7 +29,9 @@ use crate::chainstate::stacks::boot::{
     PoxVersions, RawRewardSetEntry, RewardSet, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
     SIGNERS_UPDATE_STATE, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
-use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, ClarityTx, PoxRewardSetCalculator, StacksChainState,
+};
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TransactionPayload};
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::ClarityTransactionConnection;
@@ -211,13 +213,17 @@ impl NakamotoSigners {
 
         let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
         let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
-        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
-            pox_constants,
-            &reward_slots[..],
-            liquid_ustx,
+        let (threshold, participation) =
+            PoxRewardSetCalculator::get_reward_threshold_and_participation(
+                pox_constants,
+                &reward_slots[..],
+                liquid_ustx,
+            );
+        let reward_set = PoxRewardSetCalculator::make_reward_set(
+            threshold,
+            reward_slots,
+            StacksEpochId::Epoch30,
         );
-        let reward_set =
-            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
 
         test_debug!("Reward set for cycle {}: {:?}", &reward_cycle, &reward_set);
         let stackerdb_list = if participation == 0 {
@@ -458,7 +464,7 @@ impl NakamotoSigners {
 
     /// Get the signer addresses and corresponding weights for a given reward cycle
     pub fn get_signers_weights(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
         reward_cycle: u64,

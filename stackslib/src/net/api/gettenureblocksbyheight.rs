@@ -92,7 +92,9 @@ impl HttpRequest for RPCNakamotoTenureBlocksByHeightRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoTenureBlocksByHeightRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCNakamotoTenureBlocksByHeightRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.burnchain_block_height = None;
@@ -103,7 +105,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHeightRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let burnchain_block_height =
             self.burnchain_block_height

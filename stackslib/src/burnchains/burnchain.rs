@@ -19,6 +19,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
+#[cfg(any(test, feature = "testing"))]
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use std::{fs, thread};
 
@@ -58,7 +60,14 @@ use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::{StacksEpochId, NETWORK_ID_MAINNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET};
 use crate::monitoring::update_burnchain_height;
-use crate::util_lib::db::Error as db_error;
+#[cfg(any(test, feature = "testing"))]
+use crate::util_lib::db::sqlite_memory_namespace;
+use crate::util_lib::db::{is_sqlite_memory_path, Error as db_error};
+
+#[cfg(any(test, feature = "testing"))]
+/// Process-lifetime registry for test-only memory DB URIs, keyed by logical working dir.
+static IN_MEMORY_BURNCHAIN_DB_PATHS: LazyLock<Mutex<HashMap<String, (String, String)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(any(test, feature = "testing"))]
 pub static TEST_DOWNLOAD_ERROR_ON_REORG: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
@@ -675,6 +684,27 @@ impl Burnchain {
         dirpath
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    fn in_memory_db_paths_for_working_dir(working_dir: &str) -> Option<(String, String)> {
+        IN_MEMORY_BURNCHAIN_DB_PATHS
+            .lock()
+            .expect("in-memory burnchain DB path registry poisoned")
+            .get(working_dir)
+            .cloned()
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn use_in_memory_databases(&mut self, namespace: &str) {
+        let namespace = sqlite_memory_namespace(namespace);
+        let sortition_path = format!("file:{namespace}-sortition?mode=memory&cache=shared");
+        let burnchain_path = format!("file:{namespace}-burnchain?mode=memory&cache=shared");
+
+        IN_MEMORY_BURNCHAIN_DB_PATHS
+            .lock()
+            .expect("in-memory burnchain DB path registry poisoned")
+            .insert(self.working_dir.clone(), (sortition_path, burnchain_path));
+    }
+
     pub fn get_chainstate_config_path(working_dir: &String, chain_name: &String) -> String {
         let chainstate_dir = Burnchain::get_chainstate_path_str(working_dir);
         let mut config_pathbuf = PathBuf::from(&chainstate_dir);
@@ -685,6 +715,10 @@ impl Burnchain {
     }
 
     pub fn setup_chainstate_dirs(working_dir: &String) -> Result<(), burnchain_error> {
+        if working_dir.starts_with("memory://") {
+            return Ok(());
+        }
+
         let chainstate_dir = Burnchain::get_chainstate_path_str(working_dir);
         let chainstate_pathbuf = PathBuf::from(&chainstate_dir);
 
@@ -701,7 +735,7 @@ impl Burnchain {
         let headers_path = indexer.get_headers_path();
         let headers_pathbuf = PathBuf::from(&headers_path);
 
-        let headers_height = if headers_pathbuf.exists() {
+        let headers_height = if is_sqlite_memory_path(&headers_path) || headers_pathbuf.exists() {
             indexer.get_highest_header_height()?
         } else {
             0
@@ -720,6 +754,13 @@ impl Burnchain {
     }
 
     pub fn get_db_path(&self) -> String {
+        #[cfg(any(test, feature = "testing"))]
+        if let Some((sortition_path, _)) =
+            Burnchain::in_memory_db_paths_for_working_dir(&self.working_dir)
+        {
+            return sortition_path;
+        }
+
         let chainstate_dir = Burnchain::get_chainstate_path_str(&self.working_dir);
         let mut db_pathbuf = PathBuf::from(&chainstate_dir);
         db_pathbuf.push("sortition");
@@ -729,6 +770,13 @@ impl Burnchain {
     }
 
     pub fn get_burnchaindb_path(&self) -> String {
+        #[cfg(any(test, feature = "testing"))]
+        if let Some((_, burnchain_path)) =
+            Burnchain::in_memory_db_paths_for_working_dir(&self.working_dir)
+        {
+            return burnchain_path;
+        }
+
         if self.working_dir.as_str() == ":memory:" {
             return ":memory:".to_string();
         }
@@ -775,7 +823,7 @@ impl Burnchain {
     /// Open just the burnchain database
     pub fn open_burnchain_db(&self, readwrite: bool) -> Result<BurnchainDB, burnchain_error> {
         let burnchain_db_path = self.get_burnchaindb_path();
-        if burnchain_db_path != ":memory:" {
+        if !is_sqlite_memory_path(&burnchain_db_path) {
             if let Err(e) = fs::metadata(&burnchain_db_path) {
                 warn!(
                     "Failed to stat burnchain DB path '{}': {:?}",
@@ -796,12 +844,14 @@ impl Burnchain {
     /// Open just the sortition database
     pub fn open_sortition_db(&self, readwrite: bool) -> Result<SortitionDB, burnchain_error> {
         let sort_db_path = self.get_db_path();
-        if let Err(e) = fs::metadata(&sort_db_path) {
-            warn!(
-                "Failed to stat sortition DB path '{}': {:?}",
-                &sort_db_path, &e
-            );
-            return Err(burnchain_error::DBError(db_error::NoDBError));
+        if !is_sqlite_memory_path(&sort_db_path) {
+            if let Err(e) = fs::metadata(&sort_db_path) {
+                warn!(
+                    "Failed to stat sortition DB path '{}': {:?}",
+                    &sort_db_path, &e
+                );
+                return Err(burnchain_error::DBError(db_error::NoDBError));
+            }
         }
         test_debug!("Open sortition DB at {} (rw? {})", &sort_db_path, readwrite);
         let sortition_db = SortitionDB::open(

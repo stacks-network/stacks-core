@@ -44,7 +44,9 @@ use crate::chainstate::nakamoto::miner::{
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxVersions;
-use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+};
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
     TransactionSkipped,
@@ -347,10 +349,10 @@ pub fn is_event_pox_addr_valid(is_mainnet: bool, event: &StacksTransactionEvent)
 }
 
 impl NakamotoBlockProposal {
-    fn spawn_validation_thread(
+    fn spawn_validation_thread<CSP: ChainStatePersistence>(
         self,
         sortdb: SortitionDB,
-        mut chainstate: StacksChainState,
+        mut chainstate: StacksChainState<CSP>,
         receiver: Box<dyn ProposalCallbackReceiver>,
         connection_opts: &ConnectionOptions,
     ) -> Result<JoinHandle<()>, std::io::Error> {
@@ -389,7 +391,7 @@ impl NakamotoBlockProposal {
     /// - its parent must exist, and
     /// - its parent must be as high as the highest block in the given tenure.
     fn check_block_builds_on_highest_block_in_tenure(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         tenure_id: &ConsensusHash,
         parent_block_id: &StacksBlockId,
@@ -480,7 +482,7 @@ impl NakamotoBlockProposal {
     ///
     /// Implemented as a static function to facilitate testing
     pub(crate) fn check_block_has_valid_parent(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         block: &NakamotoBlock,
     ) -> Result<(), BlockValidateRejectReason> {
@@ -543,7 +545,7 @@ impl NakamotoBlockProposal {
     pub fn validate(
         &self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>, // not directly used; used as a handle to open other chainstates
         timeout_secs: u64,
         max_tx_execution_time_secs: u64,
         max_tx_analysis_time_secs: u64,
@@ -933,7 +935,7 @@ impl NakamotoBlockProposal {
         coinbase: Option<&StacksTransaction>,
         tenure_cause: MinerTenureInfoCause,
         // not directly used; used as a handle to open other chainstates
-        chainstate_handle: &StacksChainState,
+        chainstate_handle: &StacksChainState<impl ChainStatePersistence>,
         burn_dbconn: &SortitionHandleConn,
     ) -> Result<bool, BlockValidateRejectReason> {
         let mut replay_txs_maybe: Option<VecDeque<StacksTransaction>> =
@@ -1204,13 +1206,9 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
     }
 }
 
-struct ProposalThreadInfo {
-    sortdb: SortitionDB,
-    chainstate: StacksChainState,
-    receiver: Box<dyn ProposalCallbackReceiver>,
-}
-
-impl RPCRequestHandler for RPCBlockProposalRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCBlockProposalRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.block_proposal = None
@@ -1221,7 +1219,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_proposal = self
             .block_proposal

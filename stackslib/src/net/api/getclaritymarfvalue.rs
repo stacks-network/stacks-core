@@ -93,7 +93,9 @@ impl HttpRequest for RPCGetClarityMarfRequestHandler {
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCGetClarityMarfRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCGetClarityMarfRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.marf_key_hash = None;
@@ -104,7 +106,7 @@ impl RPCRequestHandler for RPCGetClarityMarfRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let marf_key_hash = self
             .marf_key_hash

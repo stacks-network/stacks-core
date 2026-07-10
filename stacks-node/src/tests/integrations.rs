@@ -33,7 +33,9 @@ use reqwest;
 use serde_json::json;
 use stacks::burnchains::Address;
 use stacks::chainstate::stacks::db::blocks::{MemPoolRejection, MINIMUM_TX_FEE_RATE_PER_BYTE};
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{
+    Epoch2StagingBlocksDb, MinerRewardsDb, StacksBlockStore, StacksHeadersDb,
+};
 use stacks::chainstate::stacks::{
     StacksBlockHeader, StacksPrivateKey, StacksTransaction, TokenTransferMemo,
     TransactionContractCall, TransactionPayload,
@@ -390,7 +392,7 @@ fn integration_test_get_info() {
         match round {
             1 => {
                 // - Chain length should be 2.
-                let blocks = StacksChainState::list_blocks(chain_state.db()).unwrap();
+                let blocks = Epoch2StagingBlocksDb::list_blocks(chain_state.db()).unwrap();
                 assert!(chain_tip.metadata.stacks_block_height == 2);
 
                 // Block #1 should have 5 txs
@@ -404,7 +406,7 @@ fn integration_test_get_info() {
                 // find header metadata
                 let mut headers = vec![];
                 for block in blocks.iter() {
-                    let header = StacksChainState::get_anchored_block_header_info(chain_state.db(), &block.0, &block.1).unwrap().unwrap();
+                    let header = StacksHeadersDb::get_anchored_block_header_info(chain_state.db(), &block.0, &block.1).unwrap().unwrap();
                     eprintln!("{}/{}: {header:?}", &block.0, &block.1);
                     headers.push(header);
                 }
@@ -414,7 +416,7 @@ fn integration_test_get_info() {
                 // find miner metadata
                 let mut miners = vec![];
                 for block in blocks.iter() {
-                    let miner = StacksChainState::get_miner_info(chain_state.db(), &block.0, &block.1).unwrap().unwrap();
+                    let miner = MinerRewardsDb::get_miner_info(chain_state.db(), &block.0, &block.1).unwrap().unwrap();
                     miners.push(miner);
                 }
 
@@ -454,7 +456,7 @@ fn integration_test_get_info() {
                 //   which in this integration test, should be blocks[0]
                 let last_tip = &blocks[0];
                 eprintln!("Last block info: stacks: {}, burn: {}", last_tip.1, last_tip.0);
-                let last_block = StacksChainState::load_block(&chain_state.blocks_path, &last_tip.0, &last_tip.1).unwrap().unwrap();
+                let last_block = StacksBlockStore::load_block(&chain_state.blocks_path, &last_tip.0, &last_tip.1).unwrap().unwrap();
                 assert_eq!(parent, &last_block.header.block_hash());
 
                 let last_vrf_seed = VRFSeed::from_proof(&last_block.header.proof).as_bytes().to_vec();

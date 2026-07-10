@@ -53,7 +53,7 @@ use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
-use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksChainState};
+use crate::chainstate::stacks::db::{ChainStatePersistence, MinerPaymentTxFees, StacksChainState};
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::{
@@ -65,7 +65,7 @@ use crate::chainstate::tests::TestChainstateConfig;
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::{EpochList, StacksEpochExtension};
 use crate::net::relay::{BlockAcceptResponse, Relayer};
-use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
+use crate::net::test::{TestEventObserver, TestPeer, TestPeerChainstateFactory, TestPeerConfig};
 use crate::net::tests::NakamotoBootPlan;
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::util_lib::boot::boot_code_id;
@@ -355,7 +355,7 @@ pub fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
 
 /// Make a token-transfer from a private key
 pub fn make_token_transfer(
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     sortdb: &SortitionDB,
     private_key: &StacksPrivateKey,
     nonce: u64,
@@ -386,7 +386,7 @@ pub fn make_token_transfer(
 
 /// Make contract publish
 pub fn make_contract(
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     name: ContractName,
     code: &str,
     private_key: &StacksPrivateKey,
@@ -648,7 +648,10 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     peer.check_nakamoto_migration();
 }
 
-impl TestPeer<'_> {
+impl<'a, CSP> TestPeer<'a, CSP>
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     pub fn mine_single_block_tenure<F, G>(
         &mut self,
         sender_key: &StacksPrivateKey,
@@ -732,7 +735,7 @@ impl TestPeer<'_> {
     where
         F: FnMut(
             &mut TestMiner,
-            &mut StacksChainState,
+            &mut StacksChainState<CSP>,
             &SortitionDB,
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,

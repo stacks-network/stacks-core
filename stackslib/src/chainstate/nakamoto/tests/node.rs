@@ -276,7 +276,7 @@ impl NakamotoStagingBlocksConnRef<'_> {
     }
 }
 
-impl TestStacksNode {
+impl<CSP: ChainStatePersistence> TestStacksNode<CSP> {
     pub fn add_nakamoto_tenure_commit(
         sortdb: &SortitionDB,
         burn_block: &mut TestBurnchainBlock,
@@ -382,7 +382,7 @@ impl TestStacksNode {
         let vrf_seed = VRFSeed::from_proof(&vrf_proof);
 
         // send block commit for this block
-        let block_commit_op = TestStacksNode::add_nakamoto_tenure_commit(
+        let block_commit_op = Self::add_nakamoto_tenure_commit(
             sortdb,
             burn_block,
             miner,
@@ -555,7 +555,7 @@ impl TestStacksNode {
                 parent_stacks_block_snapshot
             };
 
-            let parent_chain_tip = StacksChainState::get_anchored_block_header_info(
+            let parent_chain_tip = StacksHeadersDb::get_anchored_block_header_info(
                 self.chainstate.db(),
                 &parent_stacks_block_snapshot.consensus_hash,
                 &parent_stacks_block.header.block_hash(),
@@ -673,7 +673,7 @@ impl TestStacksNode {
     ///     * its execution cost
     ///     * a list of malleablized blocks with the same contents, if desired
     pub fn make_nakamoto_tenure_blocks<'a, S, F, G>(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<CSP>,
         sortdb: &mut SortitionDB,
         miner: &mut TestMiner,
         signers: &mut TestSigners,
@@ -688,6 +688,7 @@ impl TestStacksNode {
             (),
             (),
             BitcoinIndexer,
+            CSP,
         >,
         mut miner_setup: S,
         mut block_builder: F,
@@ -697,10 +698,11 @@ impl TestStacksNode {
         timestamp: Option<u64>,
     ) -> Result<Vec<(NakamotoBlock, u64, ExecutionCost, Vec<NakamotoBlock>)>, ChainstateError>
     where
+        CSP: TestPeerChainstateFactory<'a>,
         S: FnMut(&mut NakamotoBlockBuilder),
         F: FnMut(
             &mut TestMiner,
-            &mut StacksChainState,
+            &mut StacksChainState<CSP>,
             &SortitionDB,
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
@@ -924,7 +926,13 @@ impl TestStacksNode {
                 };
                 if accepted.is_accepted() {
                     test_debug!("Accepted Nakamoto block {}", &block_to_store.block_id());
+                    if DiskChainStateLayout::is_ephemeral_root_path(&chainstate.root_path) {
+                        coord.chain_state_db = chainstate.reopen()?.0;
+                    }
                     coord.handle_new_nakamoto_stacks_block().unwrap();
+                    if DiskChainStateLayout::is_ephemeral_root_path(&chainstate.root_path) {
+                        *chainstate = coord.chain_state_db.reopen()?.0;
+                    }
                     processed_blocks.push(block_to_store.clone());
 
                     if block_to_store.block_id() == block_id && mined_canonical {
@@ -978,7 +986,11 @@ impl TestStacksNode {
 
             for processed_block in processed_blocks {
                 debug!("Begin check Nakamoto block {}", &processed_block.block_id());
-                TestPeer::check_processed_nakamoto_block(sortdb, chainstate, &processed_block);
+                TestPeer::<CSP>::check_processed_nakamoto_block(
+                    sortdb,
+                    chainstate,
+                    &processed_block,
+                );
                 debug!("End check Nakamoto block {}", &processed_block.block_id());
             }
             blocks.push((nakamoto_block, size, cost));
@@ -994,7 +1006,7 @@ impl TestStacksNode {
 
     pub fn make_nakamoto_block_from_txs(
         mut builder: NakamotoBlockBuilder,
-        chainstate_handle: &StacksChainState,
+        chainstate_handle: &StacksChainState<impl ChainStatePersistence>,
         burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), ChainstateError> {
@@ -1073,7 +1085,7 @@ impl TestStacksNode {
     /// NOTE: Will panic if called with unprocessed staging
     /// blocks already in the queue.
     pub fn process_pre_nakamoto_next_ready_block<'a>(
-        stacks_node: &mut TestStacksNode,
+        stacks_node: &mut TestStacksNode<CSP>,
         sortdb: &mut SortitionDB,
         miner: &mut TestMiner,
         coord: &mut ChainsCoordinator<
@@ -1084,6 +1096,7 @@ impl TestStacksNode {
             (),
             (),
             BitcoinIndexer,
+            CSP,
         >,
         block: &StacksBlock,
         microblocks: &[StacksMicroblock],
@@ -1124,7 +1137,7 @@ impl TestStacksNode {
                 .expect("FATAL: have block commit but no total burns in its sortition");
 
             // queue block up for processing
-            StacksChainState::store_staging_block_test(
+            Epoch2StagingBlocksDb::store_staging_block_test(
                 &mut block_tx,
                 &blocks_path,
                 &tip.consensus_hash,
@@ -1187,7 +1200,7 @@ impl TestStacksNode {
     /// NOTE: Will panic if called with unprocessed staging
     /// blocks already in the queue.
     pub fn process_pushed_next_ready_block<'a>(
-        stacks_node: &mut TestStacksNode,
+        stacks_node: &mut TestStacksNode<CSP>,
         sortdb: &mut SortitionDB,
         miner: &mut TestMiner,
         tenure_id_consensus_hash: &ConsensusHash,
@@ -1199,6 +1212,7 @@ impl TestStacksNode {
             (),
             (),
             BitcoinIndexer,
+            CSP,
         >,
         nakamoto_block: NakamotoBlock,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
@@ -1281,7 +1295,7 @@ impl TestStacksNode {
 /// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure, parent-sortition)
 pub fn get_nakamoto_parent(
     miner: &TestMiner,
-    stacks_node: &TestStacksNode,
+    stacks_node: &TestStacksNode<impl ChainStatePersistence>,
     sortdb: &SortitionDB,
 ) -> (
     StacksBlockId,
@@ -1351,7 +1365,10 @@ pub fn get_nakamoto_parent(
     }
 }
 
-impl TestPeer<'_> {
+impl<'a, CSP> TestPeer<'a, CSP>
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     /// Start the next Nakamoto tenure.
     /// This generates the VRF key and block-commit txs, as well as the TenureChange and
     /// leader key this commit references
@@ -1422,7 +1439,7 @@ impl TestPeer<'_> {
     where
         F: FnMut(
             &mut TestMiner,
-            &mut StacksChainState,
+            &mut StacksChainState<CSP>,
             &SortitionDB,
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
@@ -1456,7 +1473,7 @@ impl TestPeer<'_> {
         S: FnMut(&mut NakamotoBlockBuilder),
         F: FnMut(
             &mut TestMiner,
-            &mut StacksChainState,
+            &mut StacksChainState<CSP>,
             &SortitionDB,
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
@@ -1467,7 +1484,7 @@ impl TestPeer<'_> {
             // Ensure the signers are setup for the current cycle
             signers.generate_aggregate_key(cycle);
 
-            let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
+            let blocks = TestStacksNode::<CSP>::make_nakamoto_tenure_blocks(
                 &mut stacks_node.chainstate,
                 sortdb,
                 &mut peer.chain.miner,
@@ -1529,7 +1546,7 @@ impl TestPeer<'_> {
     where
         F: FnMut(
             &mut TestMiner,
-            &mut StacksChainState,
+            &mut StacksChainState<CSP>,
             &SortitionDB,
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
@@ -1558,7 +1575,7 @@ impl TestPeer<'_> {
         // Ensure the signers are setup for the current cycle
         signers.generate_aggregate_key(cycle);
 
-        let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
+        let blocks = TestStacksNode::<CSP>::make_nakamoto_tenure_blocks(
             &mut stacks_node.chainstate,
             &mut sortdb,
             &mut self.chain.miner,
@@ -1636,10 +1653,16 @@ impl TestPeer<'_> {
             .unwrap();
             if accepted.is_accepted() {
                 test_debug!("Accepted Nakamoto block {}", &block_id);
+                self.chain
+                    .sync_ephemeral_chainstate_to_coordinator(&node)
+                    .unwrap();
                 self.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
+                self.chain
+                    .sync_ephemeral_chainstate_from_coordinator(&mut node)
+                    .unwrap();
 
                 debug!("Begin check Nakamoto block {}", &block.block_id());
-                TestPeer::check_processed_nakamoto_block(&mut sortdb, &mut node.chainstate, block);
+                Self::check_processed_nakamoto_block(&mut sortdb, &mut node.chainstate, block);
                 debug!("Eegin check Nakamoto block {}", &block.block_id());
             } else {
                 test_debug!("Did NOT accept Nakamoto block {}", &block_id);
@@ -1653,7 +1676,7 @@ impl TestPeer<'_> {
     /// Get the tenure-start block of the parent tenure of `tenure_id_consensus_hash`
     fn get_parent_tenure_start_header(
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         tip_block_id: &StacksBlockId,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> StacksHeaderInfo {
@@ -1706,7 +1729,7 @@ impl TestPeer<'_> {
     /// its parent tenure.
     fn get_tenure_block_commit(
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         tip_block_id: &StacksBlockId,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> LeaderBlockCommitOp {
@@ -1734,7 +1757,7 @@ impl TestPeer<'_> {
 
     /// Load up all blocks from the given block back to the last tenure-change block-found tx
     fn load_nakamoto_tenure(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         tip_block_id: &StacksBlockId,
     ) -> Vec<NakamotoBlock> {
         // count up the number of blocks between `tip_block_id` and its ancestral tenure-change
@@ -1779,7 +1802,7 @@ impl TestPeer<'_> {
     /// * check_tenure_continuity
     pub fn check_processed_nakamoto_block(
         sortdb: &mut SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         block: &NakamotoBlock,
     ) {
         let Ok(Some(parent_block_header)) =
@@ -2617,11 +2640,17 @@ impl TestPeer<'_> {
 
         drop(rollback_tx);
 
-        self.chain.stacks_node = Some(stacks_node);
         self.chain.sortdb = Some(sortdb);
 
         // process it
+        self.chain
+            .sync_ephemeral_chainstate_to_coordinator(&stacks_node)
+            .unwrap();
         self.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
+        self.chain
+            .sync_ephemeral_chainstate_from_coordinator(&mut stacks_node)
+            .unwrap();
+        self.chain.stacks_node = Some(stacks_node);
 
         // verify that it processed
         self.refresh_burnchain_view();

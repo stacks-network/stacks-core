@@ -47,7 +47,7 @@ impl NeighborRPC {
     /// Add a dead neighbor -- a neighbor which failed to communicate with us.
     pub fn add_dead(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         naddr: &NeighborAddress,
         reason: DropReason,
         source: DropSource,
@@ -62,7 +62,7 @@ impl NeighborRPC {
     /// Add a broken neighbor -- a neighbor which violated protocol.
     pub fn add_broken(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         naddr: &NeighborAddress,
         reason: DropReason,
         source: DropSource,
@@ -75,7 +75,11 @@ impl NeighborRPC {
     }
 
     /// Is a neighbor dead?
-    pub fn is_dead(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
+    pub fn is_dead(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        naddr: &NeighborAddress,
+    ) -> bool {
         // reason and source does't matter. They are ignored by the hasher/partial eq
         self.dead.contains(&DropNeighbor {
             key: naddr.to_neighbor_key(network),
@@ -85,7 +89,11 @@ impl NeighborRPC {
     }
 
     /// Is a neighbor broken
-    pub fn is_broken(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
+    pub fn is_broken(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        naddr: &NeighborAddress,
+    ) -> bool {
         // reason and source does't matter. They are ignored by the hasher/partial eq
         self.broken.contains(&DropNeighbor {
             key: naddr.to_neighbor_key(network),
@@ -95,7 +103,11 @@ impl NeighborRPC {
     }
 
     /// Is a neighbor dead or broken?
-    pub fn is_dead_or_broken(&self, network: &PeerNetwork, naddr: &NeighborAddress) -> bool {
+    pub fn is_dead_or_broken(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        naddr: &NeighborAddress,
+    ) -> bool {
         // reason and source does't matter. They are ignored by the hasher/partial eq
         let dn = DropNeighbor {
             key: naddr.to_neighbor_key(network),
@@ -120,7 +132,7 @@ impl NeighborRPC {
     /// so the client of this module should eagerly call this over and over again.
     pub fn collect_replies(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Vec<(NeighborAddress, StacksHttpResponse)> {
         let mut inflight = HashMap::new();
         let mut dead = vec![];
@@ -182,7 +194,10 @@ impl NeighborRPC {
     /// Find the PeerHost to use when creating a Stacks HTTP request.
     /// Returns Some(host) if we're connected and authenticated to this peer
     /// Returns None otherwise.
-    pub fn get_peer_host(network: &PeerNetwork, addr: &NeighborAddress) -> Option<PeerHost> {
+    pub fn get_peer_host(
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        addr: &NeighborAddress,
+    ) -> Option<PeerHost> {
         let nk = addr.to_neighbor_key(network);
         let convo = network.get_neighbor_convo(&nk)?;
         PeerHost::try_from_url(&convo.data_url)
@@ -194,7 +209,7 @@ impl NeighborRPC {
     /// Returns Err(..) if we fail to connect to the remote peer for some reason.
     pub fn send_request(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         naddr: NeighborAddress,
         request: StacksHttpRequest,
     ) -> Result<(), NetError> {
@@ -258,7 +273,7 @@ impl NeighborRPC {
     /// Returns Err(NetError::WaitingForDNS) if we're still waiting to resolve the peer's data URL
     /// Returns Err(..) if we fail to connect, or if we are unable to receive a reply.
     fn poll_next_reply(
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         naddr: &NeighborAddress,
         event_id: usize,
         request_opt: &mut Option<StacksHttpRequest>,

@@ -21,7 +21,7 @@ use stacks_common::util::get_epoch_time_ms;
 
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::boot::RewardSet;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::TransactionPayload;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::neighbors::rpc::NeighborRPC;
@@ -527,7 +527,7 @@ impl NakamotoTenureDownloader {
     /// may be shadow blocks)
     pub fn try_advance_from_chainstate(
         &mut self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     ) -> Result<(), NetError> {
         loop {
             match &self.state {
@@ -702,7 +702,7 @@ impl NakamotoTenureDownloader {
     /// resolve its data URL to a socket address.
     pub fn send_next_download_request(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         neighbor_rpc: &mut NeighborRPC,
     ) -> Result<bool, NetError> {
         if neighbor_rpc.has_inflight(&self.naddr) {

@@ -30,7 +30,7 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
+use crate::chainstate::stacks::db::{ChainStatePersistence, ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
@@ -178,7 +178,7 @@ impl BlockReplayExecutionTracker {
 pub fn remine_nakamoto_block<F0, F1>(
     block_id: &StacksBlockId,
     sortdb: &SortitionDB,
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     enable_profiler: bool,
     get_transactions: F0,
     before_mining: F1,
@@ -194,8 +194,7 @@ where
         return Err(ChainError::NoSuchBlockError);
     };
 
-    let staging_db_path = chainstate.get_nakamoto_staging_blocks_path()?;
-    let db_conn = StacksChainState::open_nakamoto_staging_blocks(&staging_db_path, false)?;
+    let db_conn = chainstate.reopen_nakamoto_staging_blocks()?;
     let rowid = db_conn
         .conn()
         .get_nakamoto_block_rowid(&block_id)?
@@ -371,7 +370,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
     pub fn block_replay(
         &self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     ) -> Result<RPCReplayedBlock, ChainError> {
         let Some(block_id) = &self.block_id else {
             return Err(ChainError::InvalidStacksBlock("block_id is None".into()));
@@ -612,7 +611,9 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoBlockReplayRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCNakamotoBlockReplayRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
@@ -623,7 +624,7 @@ impl RPCRequestHandler for RPCNakamotoBlockReplayRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let Some(block_id) = &self.block_id else {
             return Err(NetError::SendError("Missing `block_id`".into()));

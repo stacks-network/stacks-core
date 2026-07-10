@@ -100,7 +100,9 @@ impl HttpRequest for GetSignerRequestHandler {
     }
 }
 
-impl RPCRequestHandler for GetSignerRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for GetSignerRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.signer_pubkey = None;
@@ -112,7 +114,7 @@ impl RPCRequestHandler for GetSignerRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let signer_pubkey = self
             .signer_pubkey
