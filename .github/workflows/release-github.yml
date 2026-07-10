@@ -5,16 +5,8 @@ name: "Release: Github"
 on:
   workflow_call:
     inputs:
-      node_tag:
-        description: "Node Docker Release Tag"
-        required: true
-        type: string
-      signer_tag:
-        description: "Signer Docker Release Tag"
-        required: true
-        type: string
-      is_node_release:
-        description: "True if it is a node release"
+      tag:
+        description: "Release Tag (shared by the node and signer)"
         required: true
         type: string
 
@@ -28,19 +20,19 @@ concurrency:
   # Always cancel duplicate jobs
   cancel-in-progress: true
 
-run-name: ${{ inputs.node_tag || inputs.signer_tag }}
+run-name: ${{ inputs.tag }}
 
 jobs:
 
   # Build arch dependent binaries from source
   #
   # Runs when the following is true:
-  #  - either node or signer tag is provided
+  #  - a release tag is provided
   #  - workflow approval is provided
   andon-cord:
     name: Andon Cord
     if: >-
-      (inputs.node_tag != '' || inputs.signer_tag != '')
+      inputs.tag != ''
     runs-on: ubuntu-latest
     environment: "Build Release"
     steps:
@@ -54,16 +46,14 @@ jobs:
     needs:
       - andon-cord
     if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
+      inputs.tag != ''
     permissions:
       contents: read       # required for checkout inside release-build.yml
       id-token: write      # required for attestation inside release-build.yml
       attestations: write  # required for attestation inside release-build.yml
     uses: ./.github/workflows/release-build.yml
     with:
-      node_tag: ${{ inputs.node_tag }} # used to conditionally run step in release-build.yml
-      signer_tag: ${{ inputs.signer_tag }} # used to conditionally run step in release-build.yml
+      tag: ${{ inputs.tag }}
 
   # Build docker images using the binary artifacts
   docker-images:
@@ -72,8 +62,7 @@ jobs:
       - andon-cord
       - build-binaries
     if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
+      inputs.tag != ''
     permissions:
       contents: read       # required for checkout inside release-docker.yml
       id-token: write      # required for attestation inside release-docker.yml
@@ -87,14 +76,10 @@ jobs:
         type:
           - stacks-core
           - stacks-signer
-        exclude:
-          # When is_node_release is false, only build stacks-signer.
-          - type: ${{ inputs.is_node_release == 'false' && 'stacks-core' }}
     # Build the docker images
     uses: ./.github/workflows/release-docker.yml
     with:
-      node_tag: ${{ inputs.node_tag }} # node_tag will contains the 3 char node version, i.e. 4.0.0
-      signer_tag: ${{ inputs.signer_tag }} # signer_tag contains 3 char signer version, i.e. 4.0.0
+      tag: ${{ inputs.tag }} # 3-part version shared by the node and signer, i.e. 4.0.0
       release_type: ${{ matrix.type }} # one of stacks-signer or stacks-core
 
   # Consolidate all digest artifacts from docker-images matrix into a single manifest
@@ -171,8 +156,7 @@ jobs:
       - consolidate-digests
     if: >-
       github.event.repository.visibility == 'public' &&
-      (inputs.node_tag != '' ||
-      inputs.signer_tag != '')
+      inputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -193,11 +177,9 @@ jobs:
           name: digest-manifest
           path: /tmp
 
-      # Creates github release(s)
+      # Creates the combined github release
       - name: Create Release
         uses: ./.github/actions/release
         with:
-          node_tag: ${{ inputs.node_tag }} # name used for release (use the version by itself
-          # node_epoch: ${{ inputs.node_epoch }}
-          signer_tag: signer-${{ inputs.signer_tag }} # name used for release (prefix with 'signer-')
+          tag: ${{ inputs.tag }}
           digest_manifest: /tmp/digest-manifest.json

@@ -1,13 +1,10 @@
 name: Create Releases
 description: |
-    Wrapper workflow to create GitHub Releases
+    Wrapper workflow to create the GitHub Release
 
 inputs:
-    node_tag:
-        description: "Node Release Tag"
-        required: true
-    signer_tag:
-        description: "Signer Release Tag"
+    tag:
+        description: "Release Tag (e.g. 4.0.0)"
         required: true
     digest_manifest:
         description: "Path to docker digest manifest directory (optional)"
@@ -23,20 +20,9 @@ runs:
           with:
             ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-        # Creates the node release
-        - name: Create Node Release
-          if: inputs.node_tag != ''
+        # Creates the combined release
+        - name: Create Release
           uses: ./.github/actions/release/create-github-release
           with:
-              tag: ${{ inputs.node_tag }}
-              release_type: stacks-core
-              digest_manifest: ${{ inputs.digest_manifest }}
-
-        # Creates the signer release
-        - name: Create Signer Release
-          if: inputs.signer_tag != ''
-          uses: ./.github/actions/release/create-github-release
-          with:
-              tag: ${{ inputs.signer_tag }}
-              release_type: stacks-signer
+              tag: ${{ inputs.tag }}
               digest_manifest: ${{ inputs.digest_manifest }}

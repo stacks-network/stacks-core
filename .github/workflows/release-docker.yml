@@ -6,12 +6,8 @@ name: Docker Release Images
 on:
   workflow_call:
     inputs:
-      node_tag:
-        description: "Node Docker Release Tag"
-        required: true
-        type: string
-      signer_tag:
-        description: "Signer Docker Release Tag"
+      tag:
+        description: "Docker Release Tag (shared by the node and signer)"
         required: true
         type: string
       release_type:
@@ -34,7 +30,7 @@ concurrency:
   # Always cancel duplicate jobs
   cancel-in-progress: true
 
-run-name: ${{ inputs.node_tag || inputs.signer_tag }}
+run-name: ${{ inputs.tag }}
 
 # Set default env vars
 env:
@@ -50,7 +46,7 @@ jobs:
     name: Docker Image (${{ inputs.release_type }}, ${{ matrix.dist }})
     if: |
       ( inputs.release_type == 'stacks-core' || inputs.release_type == 'stacks-signer') &&
-      ( inputs.signer_tag != '' || inputs.node_tag != '' )
+      inputs.tag != ''
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -87,17 +83,19 @@ jobs:
           fi
           # set a default docker image: registry/repo/release_type
           var_default_image="${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/${{ inputs.release_type }}"
-          var_artifact_pattern="${{ github.sha }}-${{ inputs.release_type }}-linux-${var_build_arch}*"
+          # both image types are built from the stacks-core binary archives,
+          # which contain the stacks-node and stacks-signer binaries
+          var_artifact_pattern="${{ github.sha }}-stacks-core-linux-${var_build_arch}*"
+          # the node and signer share a version, so both image types use the same tag
+          var_docker_tag=${{ inputs.tag }}
           if [ "${{ inputs.release_type }}" == "stacks-signer" ]; then
             # stacks-signer
             var_dockerfile_name="Dockerfile.signer"
             var_images="${var_default_image}" # use default, set in conditional to allow for individual changes based on release type
-            var_docker_tag=${{ inputs.signer_tag }} # use the input signer_tag if this is the stacks-signer build
             var_annotation_pattern="Stacks Signer"
           else
             # stacks-core
             var_images="${var_default_image}" # use default, set in conditional to allow for individual changes based on release type
-            var_docker_tag=${{ inputs.node_tag }} # use the input node_tag if this is the stacks-node build
             var_annotation_pattern="Stacks Core"
           fi
           # Set docker rc tag if branch is named `..-rc[0-9]`
