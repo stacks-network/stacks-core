@@ -1055,6 +1055,7 @@ impl TestStacksNode {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
+                None,
                 &mut total,
             ) {
                 TransactionResult::Success(..) => {

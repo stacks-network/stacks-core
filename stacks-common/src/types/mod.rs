@@ -910,14 +910,14 @@ impl StacksEpochId {
 
     /// Returns all [`StacksEpochId`] variants after the provided `epoch` (exclusive).
     ///
-    /// Provided as a helper function since this can't be expressed as a range (there's no
-    /// "excluded" start-bound syntax).
+    /// Provided as a helper function since this can't be expressed using standard range syntax
+    /// (there's no "excluded" start-bound syntax).
     ///
     /// Useful for iterating over all epochs _after_ a specific epoch, when the next epoch may not
     /// yet be known or defined (e.g. in tests that want to assert an invariant for all future
     /// [`StacksEpochId`] variants).
-    pub fn all_after(epoch: Self) -> impl Iterator<Item = Self> {
-        (Bound::Excluded(epoch), Bound::Unbounded).iter().copied()
+    pub fn all_after(epoch: Self) -> &'static [Self] {
+        (Bound::Excluded(epoch), Bound::Unbounded).as_slice()
     }
 
     /// Returns the first (lowest) [`StacksEpochId`] variant.
@@ -932,6 +932,7 @@ impl StacksEpochId {
 }
 
 /// Extension methods for iterating over standard Rust range bounds of [`StacksEpochId`].
+///
 /// Note: When `Step` stabilizes, this can be refactored.
 #[cfg(any(test, feature = "testing"))]
 pub trait StacksEpochRangeTestExt: RangeBounds<StacksEpochId> + Sized {
@@ -940,6 +941,11 @@ pub trait StacksEpochRangeTestExt: RangeBounds<StacksEpochId> + Sized {
     /// Forgiving: behaves like standard `Range` iterators in that `start >= end` results in an
     /// empty iterator.
     fn iter(&self) -> std::slice::Iter<'static, StacksEpochId> {
+        self.as_slice().iter()
+    }
+
+    /// Returns a slice of all [`StacksEpochId`] variants in this range.
+    fn as_slice(&self) -> &'static [StacksEpochId] {
         let start = match self.start_bound() {
             Bound::Included(epoch) => StacksEpochId::index_of(*epoch),
             Bound::Excluded(epoch) => StacksEpochId::index_of(*epoch) + 1,
@@ -954,12 +960,7 @@ pub trait StacksEpochRangeTestExt: RangeBounds<StacksEpochId> + Sized {
 
         // Yield an empty slice if end <= start, mirroring standard Rust behavior.
         let end = end.max(start);
-        StacksEpochId::ALL[start..end].iter()
-    }
-
-    /// Returns a slice of all [`StacksEpochId`] variants in this range.
-    fn as_slice(&self) -> &'static [StacksEpochId] {
-        self.iter().as_slice()
+        &StacksEpochId::ALL[start..end]
     }
 }
 

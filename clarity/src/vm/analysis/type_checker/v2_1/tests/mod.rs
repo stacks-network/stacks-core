@@ -4595,6 +4595,7 @@ fn test_trait_compliance_cost_error_masking_is_epoch40_gated() {
             &actual_trait,
             &expected_trait_id,
             &expected_trait,
+            0,
             &mut tracker,
             &time_tracker,
         )
