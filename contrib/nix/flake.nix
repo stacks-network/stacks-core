@@ -148,7 +148,7 @@
         stacks-signer = craneLib.buildPackage (
           individualCrateArgs
           // rec {
-            version = versions.stacks_signer_version;
+            inherit version;
             pname = "stacks-signer";
             cargoFeatures = "--features monitoring_prom";
             cargoExtraArgs = "${cargoFeatures} -p ${pname}";

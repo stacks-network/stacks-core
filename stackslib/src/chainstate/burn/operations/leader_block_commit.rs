@@ -280,6 +280,11 @@ impl LeaderBlockCommitOp {
             op_error::InvalidInput
         })?;
 
+        if output_0.amount == 0 {
+            warn!("Invalid commit tx: waterfall commit output 0 has zero amount");
+            return Err(op_error::InvalidInput);
+        }
+
         let BurnchainRecipient { address, amount } = output_0;
         let apparent_sender = BurnchainSigner(
             outputs
@@ -739,6 +744,23 @@ impl RewardSetInfo {
             None => (0..OUTPUTS_PER_COMMIT)
                 .map(|_| PoxAddress::standard_burn_address(mainnet))
                 .collect(),
+        }
+    }
+
+    /// Select the block-commit outputs for a commit that will land at a burnchain height whose
+    /// prepare-phase status is `in_prepare_phase`, given the recipient set `from`.
+    ///  * Waterfall PoX (Epoch 4.0+): a single sBTC output for every block of the cycle
+    ///  * Classic PoX prepare phase (or no reward set): a single burn output.
+    ///  * Classic PoX reward phase: the full PoX recipient output set.
+    pub fn commit_outs_for(
+        from: Option<RewardSetInfo>,
+        in_prepare_phase: bool,
+        mainnet: bool,
+    ) -> Vec<PoxAddress> {
+        match from.as_ref() {
+            Some(RewardSetInfo::Waterfall(_)) => Self::into_commit_outs(from, mainnet),
+            _ if in_prepare_phase => vec![PoxAddress::standard_burn_address(mainnet)],
+            _ => Self::into_commit_outs(from, mainnet),
         }
     }
 }
@@ -1409,6 +1431,99 @@ mod tests {
                 LegacyBitcoinAddress::to_p2sh_tx_out(addr.bytes(), value)
             }
         }
+    }
+
+    /// `commit_outs_for` is the single source of truth shared by the miner (relayer) and the
+    /// miner-spend estimators. Assert it models the commit outputs correctly in both the classic
+    /// and waterfall regimes, so the estimators can't drift back to the pre-waterfall scheme.
+    #[test]
+    fn test_commit_outs_for_classic_and_waterfall() {
+        let anchor_block = BlockHeaderHash([0xaa; 32]);
+        fn reward_addr(i: usize) -> PoxAddress {
+            let addr = StacksAddress::new(1, Hash160::from_data(&i.to_be_bytes())).unwrap();
+            PoxAddress::Standard(addr, None)
+        }
+        let sbtc_addr = reward_addr(42);
+
+        let v0 = RewardSetInfo::V0(RewardSetInfoV0 {
+            anchor_block: anchor_block.clone(),
+            recipients: vec![(reward_addr(0), 0), (reward_addr(1), 1)],
+            allow_nakamoto_punishment: true,
+        });
+        let waterfall = RewardSetInfo::Waterfall(RewardSetInfoWaterfall {
+            anchor_block: anchor_block.clone(),
+            sbtc_address: sbtc_addr.clone(),
+        });
+
+        for mainnet in [false, true] {
+            let burn = PoxAddress::standard_burn_address(mainnet);
+
+            // Classic PoX, reward phase: full PoX recipient set (must match `into_commit_outs`).
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(v0.clone()), false, mainnet),
+                RewardSetInfo::into_commit_outs(Some(v0.clone()), mainnet),
+            );
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(v0.clone()), false, mainnet),
+                vec![reward_addr(0), reward_addr(1)],
+            );
+
+            // Classic PoX, prepare phase: a single burn output, regardless of recipients.
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(v0.clone()), true, mainnet),
+                vec![burn.clone()],
+            );
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(None, true, mainnet),
+                vec![burn.clone()],
+            );
+
+            // Waterfall PoX: always a single sBTC output, even in the prepare phase (the
+            // classic prepare-phase burn-output override must not clobber it).
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(waterfall.clone()), false, mainnet),
+                vec![sbtc_addr.clone()],
+            );
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(waterfall.clone()), true, mainnet),
+                vec![sbtc_addr.clone()],
+            );
+            // ...and it agrees with `into_commit_outs` for the same reward-set input.
+            assert_eq!(
+                RewardSetInfo::commit_outs_for(Some(waterfall.clone()), false, mainnet),
+                RewardSetInfo::into_commit_outs(Some(waterfall.clone()), mainnet),
+            );
+        }
+    }
+
+    /// A pox-waterfall block commit whose first (sBTC) output pays 0 must be
+    /// rejected: such an output is dust (non-standard on the Bitcoin network),
+    /// and accepting it would let a miner commit at zero cost. A positive-amount
+    /// output parses into a commit whose `burn_fee` carries that amount.
+    #[test]
+    fn test_parse_pox_waterfall_rejects_zero_amount() {
+        fn recipient(amount: u64) -> Option<BurnchainRecipient> {
+            let addr = StacksAddress::new(1, Hash160([1; 20])).unwrap();
+            Some(BurnchainRecipient {
+                address: PoxAddress::Standard(addr, None),
+                amount,
+            })
+        }
+
+        // zero-amount first output -> rejected as invalid input
+        let output_0 = recipient(0);
+        let outputs = vec![output_0.clone()];
+        assert!(matches!(
+            LeaderBlockCommitOp::parse_pox_waterfall_commits(&outputs, &output_0),
+            Err(op_error::InvalidInput)
+        ));
+
+        // positive-amount first output -> parsed, burn_fee carries the amount
+        let output_0 = recipient(10);
+        let outputs = vec![output_0.clone()];
+        let calc = LeaderBlockCommitOp::parse_pox_waterfall_commits(&outputs, &output_0)
+            .expect("positive-amount waterfall commit should parse");
+        assert_eq!(calc.burn_fee, 10);
     }
 
     #[test]

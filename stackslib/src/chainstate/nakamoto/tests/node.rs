@@ -21,6 +21,7 @@ use clarity::vm::types::*;
 use rusqlite::params;
 use stacks_common::address::*;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId, VRFSeed};
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::util::vrf::VRFProof;
@@ -913,7 +914,10 @@ impl TestStacksNode {
             let mut malleablized_blocks = vec![];
             loop {
                 // don't process if we don't have enough signatures
-                if let Err(e) = block_to_store.header.verify_signer_signatures(&reward_set) {
+                if let Err(e) = block_to_store
+                    .header
+                    .verify_signer_signatures(&reward_set, StacksEpochId::latest())
+                {
                     info!(
                         "Will stop processing malleablized blocks for {}: {:?}",
                         &block_id, &e
@@ -1050,6 +1054,7 @@ impl TestStacksNode {
                 &tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
+                None,
                 None,
                 &mut total,
             ) {

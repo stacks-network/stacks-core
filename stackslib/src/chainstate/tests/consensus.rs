@@ -50,7 +50,7 @@ use crate::core::test_util::{
     make_contract_call, make_contract_call_tx, make_contract_publish_versioned,
     make_stacks_transfer_tx, make_unsigned_tx, to_addr,
 };
-use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::core::{BLOCK_LIMIT_MAINNET_21, BLOCK_LIMIT_MAINNET_40};
 use crate::net::tests::NakamotoBootPlan;
 
 /// The epochs to test for consensus are the current and upcoming epochs.
@@ -509,6 +509,11 @@ impl ConsensusChain<'_> {
             // Create epoch
             let block_limit = if *epoch_id == StacksEpochId::Epoch10 {
                 ExecutionCost::max_value()
+            } else if *epoch_id == StacksEpochId::Epoch40 {
+                // Epoch 4.0 doubles the read budget relative to 2.1's limit; mirror
+                // the real `STACKS_EPOCHS_MAINNET`/`STACKS_EPOCHS_TESTNET` tables so
+                // consensus tests actually exercise the production block limit.
+                BLOCK_LIMIT_MAINNET_40.clone()
             } else {
                 BLOCK_LIMIT_MAINNET_21.clone()
             };
@@ -776,13 +781,19 @@ impl ConsensusChain<'_> {
 
             // First mine the coinbase transaction
             builder
-                .try_mine_tx(&mut epoch_tx, &coinbase_tx, None, &mut total_receipt_size)
+                .try_mine_tx(
+                    &mut epoch_tx,
+                    &coinbase_tx,
+                    None,
+                    None,
+                    &mut total_receipt_size,
+                )
                 .unwrap();
 
             // We attempt to mine each transaction to build the hash
             for tx in &test_block.transactions {
                 // NOTE: It is expected to fail when trying computing the marf for invalid block/transactions.
-                let _ = builder.try_mine_tx(&mut epoch_tx, tx, None, &mut total_receipt_size);
+                let _ = builder.try_mine_tx(&mut epoch_tx, tx, None, None, &mut total_receipt_size);
             }
 
             let stacks_block = builder.mine_anchored_block(&mut epoch_tx);
@@ -1959,28 +1970,29 @@ macro_rules! contract_call_consensus_unit_test {
         // Handle deploy_epochs parameter (default to every epoch from 2.0 up to the
         // latest epoch under test if not provided, so excluded epochs such as 4.0 are
         // never deployed in; see `tested_epochs_since`).
-        let default_deploy_epochs = $crate::chainstate::tests::consensus::tested_epochs_since(clarity::types::StacksEpochId::Epoch20);
-        let deploy_epochs: &[clarity::types::StacksEpochId] = &default_deploy_epochs;
-        $(let deploy_epochs: &[clarity::types::StacksEpochId] = $deploy_epochs;)?
+        let __contract_call_default_deploy_epochs = $crate::chainstate::tests::consensus::tested_epochs_since(clarity::types::StacksEpochId::Epoch20);
+        let __contract_call_deploy_epochs: &[clarity::types::StacksEpochId] = &__contract_call_default_deploy_epochs;
+        $(let __contract_call_deploy_epochs: &[clarity::types::StacksEpochId] = $deploy_epochs;)?
 
         // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
-        let call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
-        $(let call_epochs = $call_epochs;)?
-        let setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
-        $(let setup_contracts = $setup_contracts;)?
-        let clarity_versions: &[clarity::vm::ClarityVersion] = clarity::vm::ClarityVersion::ALL;
-        $(let clarity_versions = $clarity_versions;)?
+        let __contract_call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
+        $(let __contract_call_epochs = $call_epochs;)?
+        let __contract_call_setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
+        $(let __contract_call_setup_contracts = $setup_contracts;)?
+        let __contract_call_clarity_versions: &[clarity::vm::ClarityVersion] =
+            clarity::vm::ClarityVersion::ALL;
+        $(let __contract_call_clarity_versions = $clarity_versions;)?
         let contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(
             function_name!(),
             vec![],
-            deploy_epochs,
-            call_epochs,
+            __contract_call_deploy_epochs,
+            __contract_call_epochs,
             $contract_name,
             $contract_code,
             $function_name,
             $function_args,
-            clarity_versions,
-            setup_contracts,
+            __contract_call_clarity_versions,
+            __contract_call_setup_contracts,
         );
         let result = contract_test.run();
         $crate::chainstate::tests::consensus::ConsensusMacroUnitReport::new(result)
@@ -2053,14 +2065,14 @@ macro_rules! contract_deploy_consensus_unit_test {
     ) => {{
         // Deploy-only tests default to deploying in `EPOCHS_TO_TEST` (the current epoch
         // under test), unlike call tests which deploy across every epoch since 2.0.
-        let deploy_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
-        $(let deploy_epochs = $deploy_epochs;)?
+        let __contract_deploy_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
+        $(let __contract_deploy_epochs = $deploy_epochs;)?
         $crate::chainstate::tests::consensus::contract_call_consensus_unit_test!(
             contract_name: $contract_name,
             contract_code: $contract_code,
             function_name: "",   // No function calls, just deploys
             function_args: &[],  // No function calls, just deploys
-            deploy_epochs: deploy_epochs,
+            deploy_epochs: __contract_deploy_epochs,
             call_epochs: &[],    // No function calls, just deploys
             $(clarity_versions: $clarity_versions,)?
             $(setup_contracts: $setup_contracts,)?

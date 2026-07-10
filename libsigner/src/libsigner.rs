@@ -53,7 +53,7 @@ use std::sync::LazyLock;
 use blockstack_lib::{version_only_string, version_string};
 use clarity::codec::StacksMessageCodec;
 use clarity::vm::types::QualifiedContractIdentifier;
-use stacks_common::versions::STACKS_SIGNER_VERSION;
+use stacks_common::versions::STACKS_NODE_VERSION;
 
 pub use crate::error::{EventError, RPCError};
 pub use crate::events::{
@@ -78,14 +78,15 @@ pub trait SignerMessage<T: MessageSlotID>: StacksMessageCodec {
     fn msg_id(&self) -> Option<T>;
 }
 
-/// The version string for the signer with package name
+/// The version string for the signer with package name.
+/// The signer shares the node's version (see `versions.toml`).
 pub static VERSION_STRING: LazyLock<String> = LazyLock::new(|| {
-    let pkg_version = option_env!("STACKS_NODE_VERSION").or(Some(STACKS_SIGNER_VERSION));
+    let pkg_version = option_env!("STACKS_NODE_VERSION").or(Some(STACKS_NODE_VERSION));
     version_string("stacks-signer", pkg_version)
 });
 
 /// The version string for the signer without package name
 pub static VERSION_ONLY_STRING: LazyLock<String> = LazyLock::new(|| {
-    let pkg_version = option_env!("STACKS_NODE_VERSION").unwrap_or(STACKS_SIGNER_VERSION);
+    let pkg_version = option_env!("STACKS_NODE_VERSION").unwrap_or(STACKS_NODE_VERSION);
     version_only_string(pkg_version)
 });

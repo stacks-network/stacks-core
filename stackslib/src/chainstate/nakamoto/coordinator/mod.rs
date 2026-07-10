@@ -1091,12 +1091,14 @@ impl<
                 .burnchain
                 .block_height_to_reward_cycle(header.block_height)
                 .unwrap_or(u64::MAX);
+            let is_reward_cycle_start =
+                is_naka_reward_cycle_start_for_epoch(&self.burnchain, header.block_height);
 
             info!(
                 "Process burn block {} reward cycle {} in {}",
                 header.block_height, reward_cycle, &self.burnchain.working_dir;
                 "in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height),
-                "is_rc_start" => self.burnchain.is_reward_cycle_start(header.block_height),
+                "is_rc_start" => is_reward_cycle_start,
                 "is_prior_in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height.saturating_sub(2)),
                 "burn_block_hash" => %header.block_hash,
             );
@@ -1113,8 +1115,6 @@ impl<
                 }
             };
 
-            let is_reward_cycle_start =
-                is_naka_reward_cycle_start_for_epoch(&self.burnchain, header.block_height);
             let reward_cycle_info = if is_reward_cycle_start {
                 // we're at the end of the prepare phase, so we'd better have obtained the reward
                 // cycle info or we must block.

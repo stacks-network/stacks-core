@@ -66,12 +66,13 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         ExecutionTimeExpired => Unreachable_Functionally("Can only be triggered at runtime."),
         AnalysisTimeExpired => Unreachable_Functionally(
             "All consensus-critical code paths (block validation and transaction processing) pass
-             `None` for max_execution_time, so the analysis-phase time tracking stays
+             `None` for max_analysis_time, so the analysis-phase time tracking stays
              unlimited and check_analysis_abort_condition always returns Ok(()). The analysis
              deadline is only enforced on the miner-local block-assembly and block-proposal
              validation paths; it is exercised by the analysis-deadline integration tests, not
              by this consensus harness.",
         ),
+        ReadOnlyCheckerRecursionLimitExceeded => todo!(),
         // `tuple_merge_exceeds_max_value_size_cdeploy` produces `ValueTooLarge` at 4.0+ (an
         // oversized tuple `merge` rejected at the merge site); pre-4.0 the same test surfaces
         // as `Unreachable` (see that arm below).
@@ -195,6 +196,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         WithNftExpectedListOfIdentifiers => Tested(vec![static_check_error_with_nft_expected_list_of_identifiers]),
         MaxIdentifierLengthExceeded(_, _) => Tested(vec![static_check_error_max_identifier_length_exceeded]),
         TooManyAllowances(_, _) => Tested(vec![static_check_error_too_many_allowances]),
+        TraitReferenceChainTooDeep => todo!(),
     }
 }
 
