@@ -39,9 +39,9 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
     make_pox_5_body, make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2,
-    BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COSTS_5,
+    BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
-    COSTS_3_NAME, COSTS_4_NAME, COSTS_5_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE,
+    COSTS_3_NAME, COSTS_4_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE,
     POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, POX_5_NAME,
     SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY,
     SIGNERS_VOTING_NAME, SIP_031_NAME,
@@ -2090,27 +2090,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         })
     }
 
-    /// Instantiates epoch 4.0's `costs-5` cost contract using the [`COSTS_5_NAME`] and
-    /// [`BOOT_CODE_COSTS_5`] constants.
-    ///
-    /// Returns an error if this instance's epoch is not already set to
-    /// [`Epoch40`](StacksEpochId::Epoch40).
-    ///
-    /// Used both by epoch 4.0 initialization and by tests which need to instantiate the costs-5
-    /// contract without full epoch 4.0 initialization.
-    pub(super) fn instantiate_epoch_4_0_cost_contract(
-        &mut self,
-    ) -> Result<StacksTransactionReceipt, ClarityError> {
-        if self.epoch != StacksEpochId::Epoch40 {
-            return Err(ClarityError::BadTransaction(format!(
-                "Epoch 4.0 cost contract initialization requires Epoch 4.0 rules; current epoch is {}",
-                self.epoch
-            )));
-        }
-
-        self.instantiate_boot_contract(COSTS_5_NAME, BOOT_CODE_COSTS_5, None)
-    }
-
     pub fn initialize_epoch_4_0(&mut self) -> Result<Vec<StacksTransactionReceipt>, ClarityError> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
@@ -2144,11 +2123,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             )
             .expect("PANIC: PoX-5 first reward cycle begins *before* first burn block height")
                 + 1;
-
-            /////////////////// .costs-5 ////////////////////////
-            let costs_5_initialization_receipt = self
-                .instantiate_epoch_4_0_cost_contract()
-                .expect("FATAL: Failed to initialize Epoch 4.0 cost contract");
 
             /////////////////// .pox-5 ////////////////////////
             let pox_5_contract_id = boot_code_id(POX_5_NAME, self.mainnet);
@@ -2206,13 +2180,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             }
 
             info!("Epoch 4.0 initialized");
-            (
-                old_cost_tracker,
-                Ok(vec![
-                    costs_5_initialization_receipt,
-                    pox_5_initialization_receipt,
-                ]),
-            )
+            (old_cost_tracker, Ok(vec![pox_5_initialization_receipt]))
         })
     }
 
