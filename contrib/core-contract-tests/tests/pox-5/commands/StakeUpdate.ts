@@ -132,7 +132,7 @@ export const StakeUpdate = (accounts: Real['accounts']) =>
           // Receipt reflects the recomputed unlock cycle and new amount/signer.
           expect(receipt.value.unlockCycle).toBe(expectedUnlockCycle);
           expect(receipt.value.unlockBurnHeight).toBe(expectedUnlockBurnHeight);
-          expect(receipt.value.prevUnlockHeight).toBe(prevUnlockCycle);
+          expect(receipt.value.prevUnlockCycle).toBe(prevUnlockCycle);
           expect(receipt.value.amountUstx).toBe(expectedAmountUstx);
           expect(receipt.value.signer).toBe(newSigner);
           expect(receipt.value.staker).toBe(r.sender);

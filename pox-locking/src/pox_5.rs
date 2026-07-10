@@ -440,8 +440,8 @@ fn handle_lockup_pox_v5(
     }
 }
 
-/// Handle responses from stake-extend and stake-extend-pooled in pox-5 -- functions that
-/// *extend already-locked* STX.
+/// Handle responses from `stake-update` in pox-5 -- the function that
+/// *extends or increases already-locked* STX.
 fn handle_stake_lockup_update_pox_v5(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -677,7 +677,7 @@ mod tests {
                 ),
                 (ClarityName::from_literal("num-cycle"), Value::UInt(1)),
                 (
-                    ClarityName::from_literal("prev-unlock-height"),
+                    ClarityName::from_literal("prev-unlock-cycle"),
                     Value::UInt(2),
                 ),
                 (
