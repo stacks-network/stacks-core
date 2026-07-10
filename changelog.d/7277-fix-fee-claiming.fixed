@@ -1,0 +1,1 @@
+Fixed an issue related to signer managers not being able to withdrawal their accumulated fees.

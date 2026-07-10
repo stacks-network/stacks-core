@@ -17,6 +17,7 @@ use std::fmt;
 
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_ms;
 
 use crate::chainstate::nakamoto::NakamotoBlock;
@@ -101,6 +102,8 @@ pub struct NakamotoTenureDownloader {
     pub start_signer_keys: RewardSet,
     /// Signer public keys that signed the end-block of this tenure
     pub end_signer_keys: RewardSet,
+    /// Epoch of this tenure's sortition
+    pub epoch_id: StacksEpochId,
     /// Whether or not we're idle -- i.e. there are no ongoing network requests associated with
     /// this state machine.
     pub idle: bool,
@@ -129,6 +132,7 @@ impl NakamotoTenureDownloader {
         naddr: NeighborAddress,
         start_signer_keys: RewardSet,
         end_signer_keys: RewardSet,
+        epoch_id: StacksEpochId,
         is_tenure_unconfirmed: bool,
     ) -> Self {
         debug!(
@@ -148,6 +152,7 @@ impl NakamotoTenureDownloader {
             naddr,
             start_signer_keys,
             end_signer_keys,
+            epoch_id,
             idle: false,
             state: NakamotoTenureDownloadState::GetTenureStartBlock(
                 tenure_start_block_id,
@@ -193,7 +198,7 @@ impl NakamotoTenureDownloader {
 
         if let Err(e) = tenure_start_block
             .header
-            .verify_signer_signatures(&self.start_signer_keys)
+            .verify_signer_signatures(&self.start_signer_keys, self.epoch_id)
         {
             // signature verification failed
             warn!("Invalid tenure-start block: bad signer signature";
@@ -266,7 +271,7 @@ impl NakamotoTenureDownloader {
 
         if let Err(e) = tenure_end_block
             .header
-            .verify_signer_signatures(&self.end_signer_keys)
+            .verify_signer_signatures(&self.end_signer_keys, self.epoch_id)
         {
             // bad signature
             warn!("Invalid tenure-end block: bad signer signature";
@@ -389,7 +394,7 @@ impl NakamotoTenureDownloader {
 
             if let Err(e) = block
                 .header
-                .verify_signer_signatures(&self.start_signer_keys)
+                .verify_signer_signatures(&self.start_signer_keys, self.epoch_id)
             {
                 warn!("Invalid block: bad signer signature";
                       "tenure_id" => %self.tenure_id_consensus_hash,

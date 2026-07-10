@@ -250,9 +250,12 @@ pub struct LeaderBlockCommitOp {
     pub sunset_burn: u64,
 
     // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
+    /// transaction ID
+    pub txid: Txid,
+    /// index in the block where this tx occurs
+    pub vtxindex: u32,
+    /// burn block height at which this TX occurs
+    pub block_height: u64,
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
 }
 

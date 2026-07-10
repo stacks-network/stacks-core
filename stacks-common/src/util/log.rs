@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::Write;
-use std::time::{Duration, SystemTime};
 use std::{env, io, thread};
 
 use chrono::prelude::*;
@@ -41,21 +40,18 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
     write!(rd, " ")?;
 
     rd.start_timestamp()?;
-    let system_time = SystemTime::now();
     match &*STACKS_LOG_FORMAT_TIME {
         None => {
-            let elapsed = system_time
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or(Duration::from_secs(0));
+            let now = Utc::now();
             write!(
                 rd,
                 "[{:5}.{:06}]",
-                elapsed.as_secs(),
-                elapsed.subsec_micros()
+                now.timestamp(),
+                now.timestamp_subsec_micros()
             )?;
         }
         Some(ref format) => {
-            let datetime: DateTime<Local> = system_time.into();
+            let datetime: DateTime<Local> = Local::now();
             write!(rd, "[{}]", datetime.format(format))?;
         }
     }

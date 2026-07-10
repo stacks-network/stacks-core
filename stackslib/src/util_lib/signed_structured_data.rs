@@ -412,6 +412,57 @@ pub mod pox4 {
     }
 }
 
+pub mod pox5 {
+    use clarity::vm::types::PrincipalData;
+    use clarity::vm::ClarityName;
+
+    use super::{
+        make_structured_data_domain, structured_data_message_hash, MessageSignature, PrivateKey,
+        Secp256k1PrivateKey, Sha256Sum, TupleData, Value,
+    };
+
+    pub fn make_pox_5_signed_data_domain(chain_id: u32) -> Value {
+        make_structured_data_domain("pox-5-signer", "1.0.0", chain_id)
+    }
+
+    /// Compute the hash of the `grant-authorization` message that is signed
+    /// by a signer key when authorizing a `signer-manager` contract to
+    /// register the corresponding signer via pox-5's `grant-signer-key`.
+    pub fn make_pox_5_signer_grant_message_hash(
+        signer_manager: &PrincipalData,
+        auth_id: u128,
+        chain_id: u32,
+    ) -> Sha256Sum {
+        let domain_tuple = make_pox_5_signed_data_domain(chain_id);
+        let data_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    ClarityName::from_literal("topic"),
+                    Value::string_ascii_from_bytes("grant-authorization".into()).unwrap(),
+                ),
+                (
+                    ClarityName::from_literal("signer-manager"),
+                    Value::Principal(signer_manager.clone()),
+                ),
+                (ClarityName::from_literal("auth-id"), Value::UInt(auth_id)),
+            ])
+            .expect("Error creating signature hash"),
+        );
+        structured_data_message_hash(data_tuple, domain_tuple)
+    }
+
+    /// Sign a pox-5 `grant-authorization` message with `signer_key`.
+    pub fn make_pox_5_signer_grant_signature(
+        signer_manager: &PrincipalData,
+        auth_id: u128,
+        chain_id: u32,
+        signer_key: &Secp256k1PrivateKey,
+    ) -> Result<MessageSignature, &'static str> {
+        let msg_hash = make_pox_5_signer_grant_message_hash(signer_manager, auth_id, chain_id);
+        signer_key.sign(msg_hash.as_bytes())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use clarity::vm::types::{TupleData, Value};
