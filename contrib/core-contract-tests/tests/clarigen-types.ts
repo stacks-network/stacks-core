@@ -5708,7 +5708,7 @@ export const contracts = {
                   { name: 'cycles-to-extend', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   { name: 'old-signer', type: 'principal' },
-                  { name: 'prev-unlock-height', type: 'uint128' },
+                  { name: 'prev-unlock-cycle', type: 'uint128' },
                   { name: 'signer', type: 'principal' },
                   { name: 'staker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
@@ -5734,7 +5734,7 @@ export const contracts = {
             cyclesToExtend: bigint;
             numCycles: bigint;
             oldSigner: string;
-            prevUnlockHeight: bigint;
+            prevUnlockCycle: bigint;
             signer: string;
             staker: string;
             unlockBurnHeight: bigint;
@@ -7365,6 +7365,11 @@ export const contracts = {
       } as TypedAbiMap<number | bigint, bigint>,
     },
     variables: {
+      BITCOIN_LOCKTIME_THRESHOLD: {
+        name: 'BITCOIN_LOCKTIME_THRESHOLD',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
       BOND_GAP_CYCLES: {
         name: 'BOND_GAP_CYCLES',
         type: 'uint128',
@@ -7372,6 +7377,11 @@ export const contracts = {
       } as TypedAbiVariable<bigint>,
       BOND_LENGTH_CYCLES: {
         name: 'BOND_LENGTH_CYCLES',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      BOND_LENGTH_PERIODS: {
+        name: 'BOND_LENGTH_PERIODS',
         type: 'uint128',
         access: 'constant',
       } as TypedAbiVariable<bigint>,
@@ -7986,8 +7996,10 @@ export const contracts = {
       } as TypedAbiVariable<bigint>,
     },
     constants: {
+      BITCOIN_LOCKTIME_THRESHOLD: 500_000_000n,
       BOND_GAP_CYCLES: 2n,
       BOND_LENGTH_CYCLES: 12n,
+      BOND_LENGTH_PERIODS: 6n,
       ERR_ACTIVE_BOND_NOT_INCLUDED: {
         isOk: false,
         value: 33n,
@@ -8446,7 +8458,7 @@ export const contracts = {
                   { name: 'cycles-to-extend', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   { name: 'old-signer', type: 'principal' },
-                  { name: 'prev-unlock-height', type: 'uint128' },
+                  { name: 'prev-unlock-cycle', type: 'uint128' },
                   { name: 'signer', type: 'principal' },
                   { name: 'staker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
@@ -8472,7 +8484,7 @@ export const contracts = {
             cyclesToExtend: bigint;
             numCycles: bigint;
             oldSigner: string;
-            prevUnlockHeight: bigint;
+            prevUnlockCycle: bigint;
             signer: string;
             staker: string;
             unlockBurnHeight: bigint;

@@ -740,7 +740,7 @@ impl NakamotoBlockProposal {
         let per_tx_max_execution_time = Duration::from_secs(max_tx_execution_time_secs);
         // Bound the analysis phase during proposal validation by the
         // dedicated per-tx analysis budget, independently of the eval budget above.
-        builder.max_analysis_time = Some(Duration::from_secs(max_tx_analysis_time_secs));
+        let per_tx_max_analysis_time = Duration::from_secs(max_tx_analysis_time_secs);
         let mut receipts_total = 0u64;
         for (i, tx) in self.block.txs.iter().enumerate() {
             // Enforce the overall block validation budget between txs. A tx
@@ -789,6 +789,7 @@ impl NakamotoBlockProposal {
                         tx_len,
                         &BlockLimitFunction::NO_LIMIT_HIT,
                         Some(per_tx_max_execution_time),
+                        Some(per_tx_max_analysis_time),
                         &mut receipts_total,
                     ),
                     Err(e) => e,
@@ -995,6 +996,7 @@ impl NakamotoBlockProposal {
                     replay_tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
                     None,
+                    None,
                     &mut total_receipts,
                 );
                 match tx_result {
@@ -1062,6 +1064,7 @@ impl NakamotoBlockProposal {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
+                None,
                 &mut total_receipts,
             );
         }
@@ -1076,6 +1079,7 @@ impl NakamotoBlockProposal {
                     &tx,
                     tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
+                    None,
                     None,
                     &mut total_receipts,
                 );

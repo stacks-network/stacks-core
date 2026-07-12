@@ -1,1 +1,0 @@
-Ensure that the version in the block header matches the expected version for the current epoch, enabling use of this version for future changes to the header structure.

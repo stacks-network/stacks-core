@@ -74,6 +74,11 @@
 (define-constant BOND_LENGTH_CYCLES u12)
 ;; The gap between the start of different bond periods
 (define-constant BOND_GAP_CYCLES u2)
+;; Bond length measured in bond-period indices
+;; (`BOND_LENGTH_CYCLES / BOND_GAP_CYCLES`). Also the maximum number of
+;; concurrently active bond periods (and the `(list 6 ...)` bound used for
+;; bond-period arguments).
+(define-constant BOND_LENGTH_PERIODS u6)
 ;; The maximum amount of time that a user can stake for
 (define-constant MAX_NUM_CYCLES u96)
 
@@ -83,6 +88,9 @@
 
 ;; SIP18 message prefix
 (define-constant SIP018_MSG_PREFIX 0x534950303138)
+
+;; Bitcoin treats locktimes >= 500,000,000 as Unix timestamps, not block heights.
+(define-constant BITCOIN_LOCKTIME_THRESHOLD u500000000)
 
 ;; SIP018 domain
 (define-constant POX_5_SIGNER_DOMAIN {
@@ -857,7 +865,7 @@
             (bond-index (get bond-index current-membership))
             (current-cycle (current-pox-reward-cycle))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
-            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
+            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index BOND_LENGTH_PERIODS)))
             (next-cycle (+ current-cycle u1))
             ;; If the bond hasn't started yet, then the first cycle where
             ;; this new signer is active is the start cycle. Otherwise, it's the next reward
@@ -1156,7 +1164,7 @@
                 staker: tx-sender,
                 signer: signer,
                 old-signer: old-signer,
-                prev-unlock-height: prev-unlock-cycle,
+                prev-unlock-cycle: prev-unlock-cycle,
                 unlock-cycle: unlock-cycle,
                 num-cycles: num-cycles,
                 amount-ustx: new-lock-amount,
@@ -1201,7 +1209,7 @@
             (signer (get signer membership))
             (current-cycle (current-pox-reward-cycle))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
-            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
+            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index BOND_LENGTH_PERIODS)))
             (current-total-staked (get-total-sbtc-staked-for-bond bond-index))
             (first-changed-reward-cycle (clamp current-cycle bond-start-cycle bond-end-cycle))
             (amount-sats (get amount-sats membership))
@@ -1268,7 +1276,7 @@
             (signer (get signer membership))
             (current-cycle (current-pox-reward-cycle))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
-            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
+            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index BOND_LENGTH_PERIODS)))
             (first-changed-reward-cycle (clamp current-cycle bond-start-cycle bond-end-cycle))
             (num-cycles (- bond-end-cycle first-changed-reward-cycle))
             (current-amount-sats (get amount-sats membership))
@@ -1685,10 +1693,19 @@
             (prev-staked (get-signer-pending-staked-ustx-per-cycle signer cycle))
             (prev-total-shares-staked (get-total-shares-staked-for-cycle cycle none))
             (new-delegated (+ cur-delegated-for-signer amount))
+            (prev-staker-shares (get-staker-shares-staked-for-cycle staker cycle none signer))
         )
         ;; Crystallize STX-only rewards before mutating anything
         (settle-rewards signer cycle none)
-        (settle-staker-rewards signer cycle none staker)
+        ;; When zero, this is a no-op (`earned = shares * (rpt - rpt-paid) = 0`). In this case,
+        ;; we skip calling `settle-staker-rewards` to reduce cost.
+        (if (> prev-staker-shares u0)
+            (settle-staker-rewards signer cycle none staker)
+            {
+                earned: u0,
+                rewards-per-token: u0,
+            }
+        )
 
         (if (>= new-delegated SIGNER_SET_MIN_USTX)
             (begin
@@ -2062,6 +2079,9 @@
         (asserts! (>= unlock-burn-height (get minimum-unlock-height accumulator))
             ERR_INVALID_UNLOCK_HEIGHT
         )
+        (asserts! (< unlock-burn-height BITCOIN_LOCKTIME_THRESHOLD)
+            ERR_INVALID_UNLOCK_HEIGHT
+        )
         (asserts! (is-eq (get script output) expected-script-hash)
             ERR_INVALID_LOCKUP_SCRIPT
         )
@@ -2264,7 +2284,7 @@
             ))
             (calculation-height (get calculation-height accumulator))
             (bond-start-height (bond-period-to-burn-height bond-index))
-            (bond-end-height (bond-period-to-burn-height (+ bond-index u6)))
+            (bond-end-height (bond-period-to-burn-height (+ bond-index BOND_LENGTH_PERIODS)))
         )
         ;; Verify that we're paying out bonds in the right order
         (match (get last-bond-stx-value-ratio accumulator)
@@ -2518,8 +2538,14 @@
         (bond-index (optional uint))
     )
     (let (
-            (earned (get-earned signer reward-cycle bond-index))
+            (shares (get-signer-shares-staked-for-cycle signer reward-cycle bond-index))
             (rewards-per-token (get-rewards-per-token-for-cycle reward-cycle bond-index))
+            (earned (compute-earned-rewards
+                shares
+                rewards-per-token
+                (get-signer-rewards-per-token-settled-for-cycle signer reward-cycle bond-index)
+                (get-signer-unclaimed-rewards-for-cycle signer reward-cycle bond-index)
+            ))
         )
         (map-set signer-unclaimed-rewards-for-cycle {
             reward-cycle: reward-cycle,
@@ -2535,12 +2561,7 @@
         }
             rewards-per-token
         )
-        (if (>
-                (get-signer-shares-staked-for-cycle signer reward-cycle
-                    bond-index
-                )
-                u0
-            )
+        (if (> shares u0)
             (map-set signer-rewards-per-token-for-cycle {
                 signer: signer,
                 reward-cycle: reward-cycle,
@@ -2843,9 +2864,9 @@
     )
 )
 
-;; Construct the message hash for validating a signer key grant. Unlike [get-signer-key-message-hash],
-;; this message hash does not include `max-amount`, `period`, or `reward-cycle`. The topic is always `"grant-authorization"`.
-;; The `pox-addr` field is optional. When `none`, it means the signer key can be used for any PoX address.
+;; Construct the message hash for validating a signer key grant.
+;; Unlike [get-signer-key-message-hash], this hash covers only
+;; `signer-manager` and `auth-id`. The topic is always `"grant-authorization"`.
 (define-read-only (get-signer-grant-message-hash
         (signer-manager principal)
         (auth-id uint)
@@ -2935,8 +2956,9 @@
 
 ;; Reject calls that would modify the next reward cycle's signer / staker
 ;; set during the current cycle's prepare phase, when that set is frozen.
-;; Used by `stake`, `stake-update`, `register-for-bond`, and
-;; `update-bond-registration` as `(try! (verify-not-prepare-phase))`.
+;; Used by `stake`, `stake-update`, `register-for-bond`,
+;; `update-bond-registration`, `announce-l1-early-exit`, and `unstake-sbtc`
+;; as `(try! (verify-not-prepare-phase))`.
 (define-private (verify-not-prepare-phase)
     (ok (asserts! (not (is-in-prepare-phase (current-pox-reward-cycle)))
         ERR_STAKE_IN_PREPARE_PHASE
@@ -3014,7 +3036,7 @@
     )
     (let (
             (bond-start-height (bond-period-to-burn-height bond-index))
-            (bond-end-height (bond-period-to-burn-height (+ bond-index u6)))
+            (bond-end-height (bond-period-to-burn-height (+ bond-index BOND_LENGTH_PERIODS)))
         )
         (and
             (is-some (map-get? protocol-bonds bond-index))
@@ -3324,7 +3346,7 @@
 ;; Returns the expected L1 unlock height for a given bond index.
 ;; This is equal to 1/2 of a reward cycle before the end of the bond period.
 (define-read-only (get-bond-l1-unlock-height (bond-index uint))
-    (- (bond-period-to-burn-height (+ bond-index u6))
+    (- (bond-period-to-burn-height (+ bond-index BOND_LENGTH_PERIODS))
         (/ (var-get pox-reward-cycle-length) u2)
     )
 )

@@ -23,7 +23,7 @@ use super::{
     BITCOIN_TESTNET_GENESIS_BURN_HEIGHT, BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT,
     COINBASE_INTERVALS_MAINNET, COINBASE_INTERVALS_TESTNET,
 };
-use crate::types::StacksEpochRangeTestExt;
+use crate::types::StacksEpochRangeTestExt as _;
 
 #[test]
 fn test_epoch40_cost_voting_contract_support_gate() {
@@ -108,8 +108,7 @@ fn test_epoch_range_ext_iter() {
         (Bound::Excluded(StacksEpochId::Epoch32), Bound::Unbounded).as_slice(),
         expected
     );
-    let all_after: Vec<_> = StacksEpochId::all_after(StacksEpochId::Epoch32).collect();
-    assert_eq!(&all_after, expected);
+    assert_eq!(StacksEpochId::all_after(StacksEpochId::Epoch32), expected);
 
     // Single element range with exclusive end bound should yield empty.
     assert_eq!(
@@ -146,6 +145,17 @@ fn test_stacks_epoch_id_display_fromstr_tryfrom_roundtrip() {
             "TryFrom<u32> roundtrip failed for {epoch:?} (0x{u:x})"
         );
     }
+}
+
+#[test]
+fn test_epoch_id_first_last_helpers() {
+    assert_eq!(StacksEpochId::first(), StacksEpochId::ALL[0]);
+    assert_eq!(
+        StacksEpochId::last(),
+        StacksEpochId::ALL[StacksEpochId::ALL.len() - 1]
+    );
+    assert_eq!(StacksEpochId::ALL.first(), Some(&StacksEpochId::first()));
+    assert_eq!(StacksEpochId::ALL.last(), Some(&StacksEpochId::last()));
 }
 
 #[test]

@@ -23,6 +23,7 @@ use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, TrieHash,
 };
 use stacks_common::types::net::PeerAddress;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
@@ -293,6 +294,7 @@ fn test_nakamoto_tenure_downloader() {
         naddr,
         reward_set.clone(),
         reward_set,
+        StacksEpochId::latest(),
         false,
     );
 
@@ -2005,6 +2007,8 @@ fn test_make_tenure_downloaders() {
         let old_schedule = ibd_schedule.clone();
         let sched_len = ibd_schedule.len();
 
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
+
         // make 6 downloaders
         downloaders.make_tenure_downloaders(
             &mut ibd_schedule,
@@ -2012,6 +2016,7 @@ fn test_make_tenure_downloaders() {
             &tenure_block_ids,
             6,
             &current_reward_sets,
+            &epochs,
         );
 
         // made all 6 downloaders
@@ -2050,6 +2055,7 @@ fn test_make_tenure_downloaders() {
             &tenure_block_ids,
             12,
             &current_reward_sets,
+            &epochs,
         );
 
         // only made 4 downloaders got created

@@ -136,7 +136,7 @@ export const StakeExtend = (accounts: Real['accounts']) =>
           // Receipt reflects the new unlock cycle; amount and signer unchanged.
           expect(receipt.value.unlockCycle).toBe(expectedUnlockCycle);
           expect(receipt.value.unlockBurnHeight).toBe(expectedUnlockBurnHeight);
-          expect(receipt.value.prevUnlockHeight).toBe(prevUnlockCycle);
+          expect(receipt.value.prevUnlockCycle).toBe(prevUnlockCycle);
           expect(receipt.value.amountUstx).toBe(expectedAmountUstx);
           expect(receipt.value.signer).toBe(signer);
           expect(receipt.value.staker).toBe(r.sender);
