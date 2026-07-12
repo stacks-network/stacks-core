@@ -1019,7 +1019,18 @@ impl TrackerData {
             let cost_function_ref = cost_function_references.remove(f).unwrap_or_else(|| {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
-            if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
+
+            let is_boot_default = cost_function_ref.contract_id == boot_costs_id;
+
+            // Beginning in epoch 4.0 the costs are implemented in Rust only,
+            // and not deployed on-chain in a contract. This is possible with
+            // the disabling of cost-voting.
+            let requires_contract_load =
+                !is_boot_default || epoch_id.supports_cost_voting_contract();
+
+            if requires_contract_load
+                && !cost_contracts.contains_key(&cost_function_ref.contract_id)
+            {
                 let contract = match clarity_db.get_contract(&cost_function_ref.contract_id) {
                     Ok(contract) => contract,
                     Err(e) => {
@@ -1035,7 +1046,7 @@ impl TrackerData {
                 cost_contracts.insert(cost_function_ref.contract_id.clone(), contract);
             }
 
-            if cost_function_ref.contract_id == boot_costs_id {
+            if is_boot_default {
                 m.insert(
                     f,
                     ClarityCostFunctionEvaluator::Default(cost_function_ref, f.clone(), v),

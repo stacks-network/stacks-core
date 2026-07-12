@@ -24,13 +24,14 @@ use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingError};
-use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis};
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::parser::v2::lexer::token::Token;
-use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{ExecutionCost, LimitedCostTracker, runtime_cost};
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::time_tracker::TimeTracker;
@@ -4613,4 +4614,79 @@ fn test_trait_compliance_cost_error_masking_is_epoch40_gated() {
         matches!(post, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::CostBalanceExceeded(..))),
         "Epoch40: expected the real CostBalanceExceeded to surface, got {post:?}"
     );
+}
+
+/// In-contract trait lookups are charged `AnalysisUseTraitEntry` from Epoch 4.0,
+/// matching the datastore lookup path; earlier epochs charge only the datastore
+/// path.
+#[test]
+fn test_in_contract_trait_entry_metered_from_epoch40() {
+    // Checking a <trait-a> value against a <trait-b> parameter forces the
+    // type-checker to resolve both in-contract trait definitions.
+    let contract = r#"
+        (define-trait trait-a ((f (uint) (response bool bool))))
+        (define-trait trait-b ((f (uint) (response bool bool))))
+        (define-private (sink (x <trait-b>)) true)
+        (define-private (pass (y <trait-a>)) (sink y))
+    "#;
+
+    let analyze_at = |epoch: StacksEpochId| -> ContractAnalysis {
+        let id = QualifiedContractIdentifier::transient();
+        let version = ClarityVersion::Clarity2;
+        let ast = build_ast(&id, contract, &mut (), version, epoch).expect("ast");
+        let mut marf = MemoryBackingStore::new();
+        let mut adb = marf.as_analysis_db();
+        let tracker = LimitedCostTracker::new_with_limit(epoch, ExecutionCost::max_value());
+        run_analysis(
+            &id,
+            &ast.expressions,
+            &mut adb,
+            false,
+            tracker,
+            epoch,
+            version,
+            true,
+            TimeTracker::unlimited(),
+        )
+        .expect("analysis succeeds")
+    };
+    let total_of = |analysis: &ContractAnalysis| -> ExecutionCost {
+        analysis
+            .cost_track
+            .as_ref()
+            .expect("cost tracker present")
+            .get_total()
+    };
+
+    let pre = analyze_at(StacksEpochId::Epoch33);
+    let post = analyze_at(StacksEpochId::Epoch40);
+    let pre_cost = total_of(&pre);
+    let post_cost = total_of(&post);
+
+    // The analysis cost functions are identical between the two epochs' cost
+    // contracts, so the runtime difference must be exactly the two in-contract
+    // lookups (trait-a and trait-b, equally sized) newly charged at Epoch 4.0.
+    let trait_sig = post.defined_traits.get("trait-a").expect("trait-a defined");
+    let type_size = super::trait_type_size(trait_sig).expect("trait size");
+    let mut expected =
+        LimitedCostTracker::new_with_limit(StacksEpochId::Epoch40, ExecutionCost::max_value());
+    for _ in 0..2 {
+        runtime_cost(
+            ClarityCostFunction::AnalysisUseTraitEntry,
+            &mut expected,
+            type_size,
+        )
+        .expect("charge");
+    }
+    assert_eq!(
+        post_cost.runtime - pre_cost.runtime,
+        expected.get_total().runtime,
+        "Epoch 4.0 analysis should cost exactly two AnalysisUseTraitEntry charges more"
+    );
+    // Only the runtime dimension is charged for in-contract lookups: resolving
+    // from the in-memory context does no datastore I/O.
+    assert_eq!(post_cost.read_count, pre_cost.read_count);
+    assert_eq!(post_cost.read_length, pre_cost.read_length);
+    assert_eq!(post_cost.write_count, pre_cost.write_count);
+    assert_eq!(post_cost.write_length, pre_cost.write_length);
 }

@@ -790,6 +790,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch33
     }
 
+    /// Whether contract analysis charges `AnalysisUseTraitEntry` for traits
+    /// resolved from the in-memory type-checking context, not only for those
+    /// fetched from the datastore.
+    pub fn meters_in_contract_trait_entry(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     pub fn handles_with_stx_combined_check(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
