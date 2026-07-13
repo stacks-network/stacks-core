@@ -467,6 +467,10 @@ impl BurnStateDB for TestSimBurnStateDB {
         u32::MAX
     }
 
+    fn get_pox_5_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
     fn get_pox_prepare_length(&self) -> u32 {
         self.pox_constants.prepare_length
     }
@@ -1791,7 +1795,7 @@ fn test_deploy_smart_contract(
     version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
-        let (ast, analysis) = tx.analyze_smart_contract(contract_id, version, content)?;
+        let (ast, analysis) = tx.analyze_smart_contract(contract_id, version, content, None)?;
         tx.initialize_smart_contract(contract_id, version, &ast, content, None, |_, _| None, None)?;
         tx.save_analysis(contract_id, &analysis)?;
         return Ok(());

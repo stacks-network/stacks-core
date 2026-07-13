@@ -1,0 +1,1 @@
+Fixed PoX-5 L1 lockup script construction to reject Bitcoin `CHECKLOCKTIMEVERIFY` values that would be interpreted as Unix timestamps instead of block heights.

@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
 use clarity_types::types::SequenceSubtype;
 #[cfg(test)]
 use rstest::rstest;
@@ -28,15 +30,20 @@ use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::parser::v2::lexer::token::Token;
+use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
+use crate::vm::time_tracker::TimeTracker;
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::signatures::TypeSignature::OptionalType;
-use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
+use crate::vm::types::signatures::{
+    CallableSubtype, FunctionSignature, ListTypeData, StringUTF8Length,
+};
 use crate::vm::types::{
-    BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, TypeSignatureExt as _,
+    BufferLength, FixedFunction, FunctionType, MAX_VALUE_SIZE, QualifiedContractIdentifier,
+    TraitIdentifier, TypeSignature, TypeSignatureExt as _,
 };
 use crate::vm::{ClarityName, ClarityVersion, execute_v2};
 
@@ -2105,10 +2112,13 @@ fn test_native_concat() {
         "(concat (list u0))",
     ];
 
+    // `type_check_helper` runs at the latest Clarity version, which is variadic
+    // for `concat` (Clarity 6+). The 1-arg case therefore produces
+    // `RequiresAtLeastArguments` rather than the strict `IncorrectArgumentCount`.
     let bad_expected = [
         StaticCheckErrorKind::TypeError(Box::new(IntType), Box::new(UIntType)),
         StaticCheckErrorKind::TypeError(Box::new(UIntType), Box::new(IntType)),
-        StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
+        StaticCheckErrorKind::RequiresAtLeastArguments(2, 1),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
@@ -2151,6 +2161,146 @@ fn test_buff_concat() {
             &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
+}
+
+/// Variadic `concat` was introduced in Clarity 6 / Epoch 4.0. The type checker
+/// folds `least_supertype` across all args (for lists) and sums `max_len` for
+/// every sequence kind. Older Clarity versions must still reject more than 2
+/// arguments.
+#[test]
+fn test_variadic_concat_type_check() {
+    let v6_pairs = [
+        ("(concat 0x01 0x02 0x03)", "(buff 3)"),
+        (
+            "(concat \"Hi \" \"Stacks\" \" World!\")",
+            "(string-ascii 16)",
+        ),
+        ("(concat u\"a\" u\"bc\" u\"d\")", "(string-utf8 4)"),
+        ("(concat (list 1) (list 2 3) (list 4))", "(list 4 int)"),
+        // Many args stress-test: the fold should keep summing max_len.
+        (
+            "(concat 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08)",
+            "(buff 8)",
+        ),
+    ];
+    for (snippet, expected) in v6_pairs {
+        let got =
+            type_check_helper_version(snippet, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+                .unwrap();
+        assert_eq!(expected, &format!("{got}"), "snippet: {snippet}");
+    }
+
+    // List element types must be unifiable across all args
+    let list_supertype = type_check_helper_version(
+        "(concat (list) (list 2 3) (list))",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+    )
+    .unwrap();
+    assert_eq!("(list 2 int)", &format!("{list_supertype}"));
+
+    // Nested list element types are propagated through `least_supertype`
+    let nested = type_check_helper_version(
+        "(concat (list (list 1)) (list (list 2)) (list (list 3)))",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+    )
+    .unwrap();
+    assert_eq!("(list 3 (list 1 int))", &format!("{nested}"));
+}
+
+#[test]
+fn test_variadic_concat_pre_clarity_6_rejected() {
+    // Older versions of `check_special_concat` keep the strict 2-arg signature
+    // and must reject every arg count other than exactly 2. The expected error
+    // variant differs by version: pre-Clarity-6 uses `IncorrectArgumentCount`
+    // for *all* off-arity calls (including the too-few side), while Clarity 6+
+    // returns `RequiresAtLeastArguments` for too-few only — covered separately
+    // in `test_variadic_concat_arity_rejected` and `test_native_concat`.
+    let snippets_and_expected = [
+        (
+            "(concat)",
+            StaticCheckErrorKind::IncorrectArgumentCount(2, 0),
+        ),
+        (
+            "(concat 0xaa)",
+            StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
+        ),
+        (
+            "(concat 0x01 0x02 0x03)",
+            StaticCheckErrorKind::IncorrectArgumentCount(2, 3),
+        ),
+    ];
+
+    for version in ClarityVersion::ALL
+        .iter()
+        .copied()
+        .take_while(|v| *v < ClarityVersion::Clarity6)
+    {
+        // Pick a compatible epoch for each version.
+        let epoch = match version {
+            ClarityVersion::Clarity1 => StacksEpochId::Epoch20,
+            ClarityVersion::Clarity2 => StacksEpochId::Epoch21,
+            ClarityVersion::Clarity3 => StacksEpochId::Epoch30,
+            ClarityVersion::Clarity4 => StacksEpochId::Epoch33,
+            ClarityVersion::Clarity5 => StacksEpochId::Epoch34,
+            ClarityVersion::Clarity6 => unreachable!(),
+        };
+        for (snippet, expected) in &snippets_and_expected {
+            let err = type_check_helper_version(snippet, version, epoch).unwrap_err();
+            assert_eq!(
+                *expected, *err.err,
+                "expected strict 2-arg rejection at {version}/{epoch} for `{snippet}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_variadic_concat_buffer_max_length_exceeded() {
+    // The combined declared length of `ARG_COUNT × PER_ARG_LEN` must exceed
+    // `MAX_VALUE_SIZE`, so the type checker rejects this at compile time. A
+    // literal buffer of that size can't be written directly, so the args are
+    // passed via declared function-parameter types.
+    //
+    // The const_assert below guards against `MAX_VALUE_SIZE` ever growing
+    // past this test's combined size, which would silently turn this into a
+    // pass-without-asserting case.
+    const PER_ARG_LEN: u32 = 350_000;
+    const ARG_COUNT: u32 = 3;
+    const _: () = assert!(
+        PER_ARG_LEN * ARG_COUNT > MAX_VALUE_SIZE,
+        "PER_ARG_LEN * ARG_COUNT must exceed MAX_VALUE_SIZE; if MAX_VALUE_SIZE \
+         grew, bump these constants so this test still exercises the overflow"
+    );
+
+    let snippet = format!(
+        "(define-public (foo (a (buff {PER_ARG_LEN})) (b (buff {PER_ARG_LEN})) (c (buff {PER_ARG_LEN})))
+            (ok (concat a b c)))"
+    );
+    let err = type_check_helper_version(&snippet, ClarityVersion::Clarity6, StacksEpochId::Epoch40)
+        .unwrap_err();
+    assert!(
+        matches!(*err.err, StaticCheckErrorKind::ValueTooLarge),
+        "expected ValueTooLarge for an oversized variadic concat, got {:?}",
+        err.err
+    );
+}
+
+#[test]
+fn test_variadic_concat_mixed_types_rejected() {
+    // Buffer mixed with string-ascii — third arg breaks the chain
+    let err = type_check_helper_version(
+        "(concat 0x01 0x02 \"hi\")",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+    )
+    .unwrap_err();
+    let err_str = format!("{:?}", err.err);
+    assert!(
+        err_str.contains("TypeError") || err_str.contains("ExpectedSequence"),
+        "expected a type error mixing buff and string, got: {err_str}"
+    );
 }
 
 #[test]
@@ -2930,6 +3080,59 @@ fn test_combine_tuples() {
     }
 
     mem_type_check("(merge { a: 1, b: 2, c: 3 } 5)").unwrap_err();
+}
+
+/// Static-analysis epoch gate for an oversized tuple `merge`.
+///
+/// Two individually-valid `(buff 524288)`-typed fields merge into a tuple type whose value
+/// size exceeds `MAX_VALUE_SIZE`. The failure mode flips at the 4.0 boundary:
+/// - epoch < 4.0: `check_special_merge` does not size the merged tuple; the oversized type
+///   propagates and only fails when `new_response` (the `ok`) sizes it, surfacing as a
+///   block-invalidating `Unreachable` (wrapping an `InvariantViolation`).
+/// - epoch >= 4.0: `check_special_merge` rejects the oversized merge at the merge site with a
+///   clean `ValueTooLarge`.
+#[test]
+fn tuple_merge_oversized_analysis_gate_epoch40() {
+    let snippet = "(define-private (f (x (buff 524288)))
+        (ok (merge (tuple (a x)) (tuple (b x)))))";
+
+    // epoch < 4.0 (legacy): block-invalidating `Unreachable` from the later `.size()`.
+    let legacy_err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch34).unwrap_err();
+    assert!(
+        matches!(*legacy_err.err, StaticCheckErrorKind::Unreachable(_)),
+        "expected a pre-4.0 Unreachable failure, got {:?}",
+        legacy_err.err
+    );
+
+    // epoch >= 4.0: clean `ValueTooLarge` at the merge site.
+    let gated_err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch40).unwrap_err();
+    assert_eq!(*gated_err.err, StaticCheckErrorKind::ValueTooLarge);
+}
+
+/// Static-analysis epoch gate for an oversized tuple `merge` whose result is **never sized**.
+///
+/// The merge result is bound in a `let` but never used (the function returns `(ok true)`), so
+/// nothing computes its size during analysis. This is the case that pre-4.0 slipped past the
+/// static checker entirely — the contract type-checks and deploys, then becomes uncallable.
+/// The 4.0 gate rejects it at the merge site regardless of whether the result is ever used.
+/// - epoch < 4.0: analysis accepts the contract (no sizing occurs).
+/// - epoch >= 4.0: `check_special_merge` rejects it with `ValueTooLarge`.
+#[test]
+fn tuple_merge_unused_oversized_analysis_gate_epoch40() {
+    let snippet = "(define-private (f (x (buff 524288)))
+        (let ((m (merge (tuple (a x)) (tuple (b x)))))
+            (ok true)))";
+
+    // epoch < 4.0 (legacy): analysis accepts the unused oversized merge.
+    mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch34)
+        .expect("pre-4.0 analysis must accept an unused oversized merge");
+
+    // epoch >= 4.0: rejected at the merge site with `ValueTooLarge`, even though unused.
+    let gated_err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch40).unwrap_err();
+    assert_eq!(*gated_err.err, StaticCheckErrorKind::ValueTooLarge);
 }
 
 #[test]
@@ -4305,4 +4508,109 @@ fn test_contract_call_with_non_callable_constant_target(
             );
         }
     }
+}
+
+#[test]
+fn test_clarity2_inner_type_check_type_aborts_when_deadline_elapsed() {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let mut cost_tracker = LimitedCostTracker::new_free();
+    // A zero-duration deadline is already elapsed at the first check.
+    let time_tracker = TimeTracker::from_max_duration(Duration::ZERO);
+
+    let result = super::clarity2_inner_type_check_type(
+        &mut db,
+        None,
+        StacksEpochId::latest(),
+        &BoolType,
+        &BoolType,
+        1,
+        &mut cost_tracker,
+        &time_tracker,
+    );
+
+    assert!(
+        matches!(result, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::AnalysisTimeExpired)),
+        "expected AnalysisTimeExpired, got {result:?}"
+    );
+}
+
+/// A cost error raised inside the trait-compliance recursion is masked as
+/// `IncompatibleTrait` before Epoch 4.0, and surfaces as its real error from
+/// Epoch 4.0 on.
+#[test]
+fn test_trait_compliance_cost_error_masking_is_epoch40_gated() {
+    // Builds a single-method trait whose method `f` takes one trait-typed
+    // argument (a reference to `arg_trait`).
+    let single_trait_arg_method = |arg_trait: TraitIdentifier| {
+        let mut methods = std::collections::BTreeMap::new();
+        methods.insert(
+            ClarityName::try_from("f").unwrap(),
+            FunctionSignature {
+                args: vec![TypeSignature::CallableType(CallableSubtype::Trait(
+                    arg_trait,
+                ))],
+                returns: BoolType,
+            },
+        );
+        methods
+    };
+
+    // Two distinct top-level traits, each with a method `f` taking a trait-typed
+    // argument. The argument trait identifiers differ, so compatibility checking
+    // enters the (Trait, Trait) arm and calls `clarity2_lookup_trait`, whose cost
+    // charge exceeds the zero budget below.
+    let expected_trait_id = TraitIdentifier {
+        name: ClarityName::try_from("expected").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("expected-def").unwrap(),
+    };
+    let actual_trait_id = TraitIdentifier {
+        name: ClarityName::try_from("actual").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("actual-def").unwrap(),
+    };
+    let expected_trait = single_trait_arg_method(TraitIdentifier {
+        name: ClarityName::try_from("arg-trait-a").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("arg-def-a").unwrap(),
+    });
+    let actual_trait = single_trait_arg_method(TraitIdentifier {
+        name: ClarityName::try_from("arg-trait-b").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("arg-def-b").unwrap(),
+    });
+
+    // Runs the compliance check under `epoch` with a fresh zero-budget tracker.
+    // The zero budget makes the first `runtime_cost` charge (the nested trait
+    // lookup) fail with `CostBalanceExceeded`.
+    let run_for_epoch = |epoch: StacksEpochId| {
+        let mut marf = MemoryBackingStore::new();
+        let mut db = marf.as_analysis_db();
+        let mut tracker = LimitedCostTracker::new_with_limit(epoch, ExecutionCost::ZERO);
+        // Unlimited time: the deadline never fires, so only the cost charge can error.
+        let time_tracker = TimeTracker::unlimited();
+        super::clarity2_trait_check_trait_compliance(
+            &mut db,
+            None,
+            epoch,
+            &actual_trait_id,
+            &actual_trait,
+            &expected_trait_id,
+            &expected_trait,
+            0,
+            &mut tracker,
+            &time_tracker,
+        )
+    };
+
+    // Before the gate: the real cause (`CostBalanceExceeded`) is masked.
+    let pre = run_for_epoch(StacksEpochId::Epoch34);
+    assert!(
+        matches!(pre, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::IncompatibleTrait(..))),
+        "pre-Epoch40: expected the cost error masked as IncompatibleTrait, got {pre:?}"
+    );
+
+    // From Epoch 4.0: the real cost error surfaces.
+    let post = run_for_epoch(StacksEpochId::Epoch40);
+    assert!(
+        matches!(post, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::CostBalanceExceeded(..))),
+        "Epoch40: expected the real CostBalanceExceeded to surface, got {post:?}"
+    );
 }

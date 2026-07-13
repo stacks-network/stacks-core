@@ -130,3 +130,20 @@ fn test_no_abort_callback_allows_large_allocation() {
         "Expected execution to succeed without abort callback, but got: {result:?}"
     );
 }
+
+/// The read-only RPC memory limit must be threaded from `ConnectionOptions`
+/// into the HTTP server state so the handlers can install the abort callback.
+#[test]
+fn test_read_only_call_max_mem_bytes_threaded_into_http() {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    use stacks::net::connection::ConnectionOptions;
+    use stacks::net::httpcore::StacksHttp;
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
+    let mut conn_opts = ConnectionOptions::default();
+    conn_opts.read_only_call_max_mem_bytes = 12345;
+
+    let http = StacksHttp::new(addr, &conn_opts);
+    assert_eq!(http.read_only_call_max_mem_bytes, 12345);
+}

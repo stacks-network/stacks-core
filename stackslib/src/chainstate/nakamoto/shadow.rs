@@ -94,7 +94,7 @@ impl NakamotoBlockHeader {
 
     /// Get the signing weight of a shadow block
     pub fn get_shadow_signer_weight(&self, reward_set: &RewardSet) -> Result<u32, Error> {
-        let Some(signers) = &reward_set.signers else {
+        let Some(signers) = reward_set.signers() else {
             return Err(ChainstateError::InvalidStacksBlock(
                 "No signers in the reward set".to_string(),
             ));
@@ -300,7 +300,7 @@ impl NakamotoChainState {
 
             return Err(e);
         }
-        Self::validate_nakamoto_block_transactions_static(
+        Self::validate_nakamoto_block_static(
             mainnet,
             chain_id,
             db_handle.conn(),
@@ -537,6 +537,7 @@ impl NakamotoBlockBuilder {
                 &tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
+                None,
                 None,
                 &mut receipts_total,
             ) {

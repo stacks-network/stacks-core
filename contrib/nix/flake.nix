@@ -140,6 +140,7 @@
               (craneLib.fileset.commonCargoSources ../../contrib/stacks-inspect)
               (craneLib.fileset.commonCargoSources ../../contrib/stacks-cli)
               (craneLib.fileset.commonCargoSources ../../contrib/clarity-cli)
+              (craneLib.fileset.commonCargoSources ../../contrib/marf-squash)
               (craneLib.fileset.commonCargoSources ../../stacks-signer)
             ];
           };
@@ -199,6 +200,16 @@
           }
         );
 
+        marf-squash = craneLib.buildPackage (
+          individualCrateArgs
+          // rec {
+            inherit version;
+            pname = "marf-squash";
+            cargoExtraArgs = "-p ${pname}";
+            src = fileSetForCrate ../../contrib/marf-squash;
+          }
+        );
+
         stacks-node-app = {
           type = "app";
           program = "${stacks-core}/bin/stacks-node";
@@ -230,6 +241,7 @@
             stacks-cli
             clarity-cli
             stacks-inspect
+            marf-squash
             ;
           default = stacks-core;
         };

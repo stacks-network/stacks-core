@@ -1,0 +1,1 @@
+Replaced `time` dependency in logging code with `chrono` to allow it to work properly in Wasm builds.

@@ -52,7 +52,7 @@ use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConn,
     NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2, NAKAMOTO_CHAINSTATE_SCHEMA_3,
     NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5, NAKAMOTO_CHAINSTATE_SCHEMA_6,
-    NAKAMOTO_CHAINSTATE_SCHEMA_7, NAKAMOTO_CHAINSTATE_SCHEMA_8,
+    NAKAMOTO_CHAINSTATE_SCHEMA_7, NAKAMOTO_CHAINSTATE_SCHEMA_8, NAKAMOTO_CHAINSTATE_SCHEMA_9,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -289,20 +289,14 @@ impl DBConfig {
             error!("Failed to parse Stacks chainstate version as u32: {e}");
             0
         });
-        match epoch_id {
-            StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => (1..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
-            StacksEpochId::Epoch2_05 => (2..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
+        if epoch_id >= StacksEpochId::Epoch21 {
+            (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32)
+        } else if epoch_id == StacksEpochId::Epoch2_05 {
+            (2..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32)
+        } else if epoch_id == StacksEpochId::Epoch20 {
+            (1..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32)
+        } else {
+            true
         }
     }
 }
@@ -676,8 +670,8 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "13";
-pub const CHAINSTATE_VERSION_NUMBER: u32 = 13;
+pub const CHAINSTATE_VERSION: &str = "14";
+pub const CHAINSTATE_VERSION_NUMBER: u32 = 14;
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1187,6 +1181,14 @@ impl StacksChainState {
                         tx.execute_batch(cmd)?;
                     }
                 }
+                "13" => {
+                    info!(
+                        "Migrating chainstate schema from version 13 to 14: add problematic_txs column to nakamoto_block_headers"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_9.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
                 _ => {
                     error!(
                         "Invalid chain state database: expected version = {}, got {}",
@@ -1397,6 +1399,7 @@ impl StacksChainState {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
+                        None,
                         None,
                     )
                 })?;
@@ -3075,7 +3078,7 @@ pub mod test {
         for (name, version, code) in contracts {
             conn.as_transaction(|clarity_db| {
                 let (ast, _) = clarity_db
-                    .analyze_smart_contract(&boot_code_id(name, mainnet), *version, code)
+                    .analyze_smart_contract(&boot_code_id(name, mainnet), *version, code, None)
                     .unwrap();
                 clarity_db
                     .initialize_smart_contract(

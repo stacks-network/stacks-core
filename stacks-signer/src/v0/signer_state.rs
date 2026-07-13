@@ -1373,16 +1373,16 @@ impl LocalStateMachine {
         forked_blocks.sort_by_key(|block| block.header.chain_length);
         let forked_txs = forked_blocks
             .iter()
-            .flat_map(|block| block.txs.iter())
+            .flat_map(|block| block.txs())
             .filter(|tx|
                 // Don't include Coinbase, TenureChange, or PoisonMicroblock transactions
                 !matches!(
-                    tx.payload,
+                    tx.payload(),
                     TransactionPayload::TenureChange(..)
                         | TransactionPayload::Coinbase(..)
                         | TransactionPayload::PoisonMicroblock(..)
                 ))
-            .cloned()
+            .map(|tx| tx.tx_ignoring_problematic_state().clone())
             .collect::<Vec<_>>();
         forked_txs
     }

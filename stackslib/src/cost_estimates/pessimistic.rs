@@ -205,29 +205,12 @@ impl PessimisticEstimator {
             TransactionPayload::TokenTransfer(..) => "stx-transfer".to_string(),
             TransactionPayload::ContractCall(cc) => {
                 // Epoch key is "" before Epoch2_05 for backwards compatibility.
-                let epoch_marker = match evaluated_epoch {
-                    StacksEpochId::Epoch10 => "",
-                    StacksEpochId::Epoch20 => "",
-                    StacksEpochId::Epoch2_05 => ":2.05",
-                    StacksEpochId::Epoch21 => ":2.1",
-                    // reuse cost estimates in Epoch22
-                    StacksEpochId::Epoch22 => ":2.1",
-                    // reuse cost estimates in Epoch23
-                    StacksEpochId::Epoch23 => ":2.1",
-                    // reuse cost estimates in Epoch24
-                    StacksEpochId::Epoch24 => ":2.1",
-                    // reuse cost estimates in Epoch25
-                    StacksEpochId::Epoch25 => ":2.1",
-                    // reuse cost estimates in Epoch30
-                    StacksEpochId::Epoch30 => ":2.1",
-                    // reuse cost estimates in Epoch31
-                    StacksEpochId::Epoch31 => ":2.1",
-                    // reuse cost estimates in Epoch32
-                    StacksEpochId::Epoch32 => ":2.1",
-                    // reuse cost estimates in Epoch33
-                    StacksEpochId::Epoch33 => ":2.1",
-                    // reuse cost estimates in Epoch34
-                    StacksEpochId::Epoch34 => ":2.1",
+                let epoch_marker = if evaluated_epoch >= &StacksEpochId::Epoch21 {
+                    ":2.1"
+                } else if evaluated_epoch >= &StacksEpochId::Epoch2_05 {
+                    ":2.05"
+                } else {
+                    ""
                 };
                 format!(
                     "cc{}:{}:{}.{}",
