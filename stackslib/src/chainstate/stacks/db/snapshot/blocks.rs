@@ -17,12 +17,13 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
+use rusqlite::types::Value;
 use rusqlite::{params, Connection, OpenFlags};
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
 
 use super::common::{
     clone_schemas_from_source, copied_rows, execute_copy_specs, with_offline_write_session,
-    DbSnapshotSpec, TableCopyBind, TableCopySpec, TableCopySpecs,
+    DbSnapshotSpec, NoBind, TableCopySpec, TableCopySpecs,
 };
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::Error;
@@ -59,16 +60,26 @@ pub struct NakamotoBlockCopyStats {
 pub(super) struct NakamotoStagingDbSnapshotSpec;
 
 impl DbSnapshotSpec for NakamotoStagingDbSnapshotSpec {
-    fn copy_specs(&self) -> TableCopySpecs<'static> {
-        TableCopySpecs::new(nakamoto_copy_specs())
+    type Bind = NoBind;
+
+    fn table_names() -> Vec<&'static str> {
+        TableCopySpecs::new(nakamoto_copy_specs()).table_names()
     }
 
-    fn db_label(&self) -> &'static str {
+    fn db_label() -> &'static str {
         "Nakamoto staging DB"
     }
 
-    fn classify_hint(&self) -> &'static str {
+    fn classify_hint() -> &'static str {
         "nakamoto_copy_specs() in snapshot/blocks.rs"
+    }
+
+    fn copy_specs(&self) -> TableCopySpecs<'static, NoBind> {
+        TableCopySpecs::new(nakamoto_copy_specs())
+    }
+
+    fn bind_params(&self, bind: NoBind) -> Result<Vec<Value>, Error> {
+        match bind {}
     }
 }
 
@@ -76,7 +87,7 @@ impl DbSnapshotSpec for NakamotoStagingDbSnapshotSpec {
 /// [`DbSnapshotSpec::assert_source_classified`]);
 /// `test_no_unclassified_nakamoto_staging_tables` runs it against a fresh schema.
 pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
-    NakamotoStagingDbSnapshotSpec.assert_source_classified(src_conn)
+    NakamotoStagingDbSnapshotSpec::assert_source_classified(src_conn)
 }
 
 /// Return the `(sequence, microblock_hash)` rows of processed,
@@ -211,8 +222,8 @@ fn populate_microblock_temp_tables(
 
 /// Copy specs for the confirmed-microblock tables, filtered by the temp
 /// tables [`populate_microblock_temp_tables`] builds.
-fn microblock_copy_specs() -> &'static [TableCopySpec] {
-    static SPECS: &[TableCopySpec] = &[
+fn microblock_copy_specs() -> &'static [TableCopySpec<NoBind>] {
+    static SPECS: &[TableCopySpec<NoBind>] = &[
         TableCopySpec::sql(
             "staging_microblocks",
             "SELECT s.* FROM src.staging_microblocks s \
@@ -246,12 +257,7 @@ pub fn copy_confirmed_epoch2_microblocks(
         if !selected_hashes.is_empty() {
             populate_microblock_temp_tables(conn, &selected_hashes, &selected_parents)?;
 
-            let results = execute_copy_specs(conn, microblock_copy_specs(), |bind| match bind {
-                TableCopyBind::None => Ok(Vec::new()),
-                other => Err(Error::CorruptionError(format!(
-                    "BUG: microblock copy does not handle table-copy bind {other:?}"
-                ))),
-            })?;
+            let results = execute_copy_specs(conn, microblock_copy_specs(), |bind| match bind {})?;
             stats.microblock_rows_copied = copied_rows(&results, "staging_microblocks");
 
             stats.microblock_bytes_copied = conn.query_row(
@@ -330,8 +336,8 @@ pub fn copy_epoch2_block_files(
 }
 
 /// Copy specs for the Nakamoto staging DB.
-pub(super) fn nakamoto_copy_specs() -> &'static [TableCopySpec] {
-    static SPECS: &[TableCopySpec] = &[
+pub(super) fn nakamoto_copy_specs() -> &'static [TableCopySpec<NoBind>] {
+    static SPECS: &[TableCopySpec<NoBind>] = &[
         TableCopySpec::sql("db_version", "SELECT * FROM src.db_version"),
         TableCopySpec::sql(
             "nakamoto_staging_blocks",
@@ -375,7 +381,7 @@ pub fn copy_nakamoto_staging_blocks(
         "",
         |conn| {
             let spec = NakamotoStagingDbSnapshotSpec;
-            clone_schemas_from_source(conn, &spec.copy_specs().table_names())?;
+            clone_schemas_from_source(conn, &NakamotoStagingDbSnapshotSpec::table_names())?;
 
             let results = spec.run_copy(conn)?;
 

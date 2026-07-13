@@ -22,7 +22,7 @@ use stacks_common::types::sqlite::NO_PARAMS;
 
 use super::common::{
     clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec,
-    TableCopyBind, TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
+    TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 pub use crate::chainstate::burn::db::sortdb::SortitionTipCopyBoundary;
@@ -168,32 +168,23 @@ pub(super) struct SortitionDbSnapshotSpec {
     pub boundary: Option<SortitionTipCopyBoundary>,
 }
 
-impl SortitionDbSnapshotSpec {
-    /// For source-schema classification only: the recognized table-name set is
-    /// independent of the boundary, so the guard uses a `None` boundary.
-    fn for_classification() -> Self {
-        Self { boundary: None }
-    }
+/// The sortition snapshot's `?N` bind: the `stacks_chain_tips*` memo tables'
+/// boundary-rewrite anchors. Present only when copying with a boundary.
+#[derive(Clone, Copy)]
+pub(super) enum SortitionBind {
+    TipMemo { include_burn_view: bool },
 }
 
 impl DbSnapshotSpec for SortitionDbSnapshotSpec {
-    fn copy_specs(&self) -> TableCopySpecs<'static> {
-        TableCopySpecs::new(sortition_copy_specs(self.boundary.is_some()))
+    type Bind = SortitionBind;
+
+    fn table_names() -> Vec<&'static str> {
+        // Boundary-invariant: `has_boundary` only swaps memo SQL templates, not
+        // the table set (asserted by `test_sortition_copy_specs_boundary_invariant_table_set`).
+        TableCopySpecs::new(sortition_copy_specs(false)).table_names()
     }
 
-    fn bind_params(&self, bind: TableCopyBind) -> Result<Vec<Value>, Error> {
-        match bind {
-            TableCopyBind::None => Ok(Vec::new()),
-            TableCopyBind::SortitionTipMemo { include_burn_view } => {
-                stacks_tip_memo_copy_binds(self.boundary.as_ref(), include_burn_view)
-            }
-            other => Err(Error::CorruptionError(format!(
-                "BUG: sortition snapshot does not handle table-copy bind {other:?}"
-            ))),
-        }
-    }
-
-    fn extra_recognized_tables(&self) -> Vec<&'static str> {
+    fn extra_recognized_tables() -> Vec<&'static str> {
         MARF_INFRA_TABLES
             .iter()
             .copied()
@@ -201,12 +192,24 @@ impl DbSnapshotSpec for SortitionDbSnapshotSpec {
             .collect()
     }
 
-    fn db_label(&self) -> &'static str {
+    fn db_label() -> &'static str {
         "sortition DB"
     }
 
-    fn classify_hint(&self) -> &'static str {
+    fn classify_hint() -> &'static str {
         "sortition_copy_specs() (to copy) or IGNORED_TABLES (to skip) in snapshot/sortition.rs"
+    }
+
+    fn copy_specs(&self) -> TableCopySpecs<'static, SortitionBind> {
+        TableCopySpecs::new(sortition_copy_specs(self.boundary.is_some()))
+    }
+
+    fn bind_params(&self, bind: SortitionBind) -> Result<Vec<Value>, Error> {
+        match bind {
+            SortitionBind::TipMemo { include_burn_view } => {
+                stacks_tip_memo_copy_binds(self.boundary.as_ref(), include_burn_view)
+            }
+        }
     }
 }
 
@@ -214,7 +217,7 @@ impl DbSnapshotSpec for SortitionDbSnapshotSpec {
 /// [`DbSnapshotSpec::assert_source_classified`]); `test_no_unclassified_sortition_tables`
 /// runs it against a fresh schema. The recognized set is independent of the boundary.
 pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
-    SortitionDbSnapshotSpec::for_classification().assert_source_classified(src_conn)
+    SortitionDbSnapshotSpec::assert_source_classified(src_conn)
 }
 
 /// Row-count statistics returned by [`copy_sortition_side_tables`].
@@ -313,7 +316,7 @@ fn validate_tip_boundary(boundary: Option<&SortitionTipCopyBoundary>) -> Result<
 ///
 /// The set of tables is independent of `boundary`; the boundary only rewrites
 /// the `stacks_chain_tips*` source SQL.
-pub(super) fn sortition_copy_specs(has_boundary: bool) -> &'static [TableCopySpec] {
+pub(super) fn sortition_copy_specs(has_boundary: bool) -> &'static [TableCopySpec<SortitionBind>] {
     // The only runtime values are the `stacks_chain_tips*` boundary-rewrite
     // anchors, supplied as `?N` binds; `has_boundary` selects the rewrite vs
     // plain memo template (see `stacks_tip_memo_copy_sql`). The plain and rewrite
@@ -352,14 +355,14 @@ pub(super) fn sortition_copy_specs(has_boundary: bool) -> &'static [TableCopySpe
                 TableCopySpec::sql_with_bind(
                     "stacks_chain_tips",
                     stacks_tip_memo_copy_sql(false, $has_boundary),
-                    TableCopyBind::SortitionTipMemo {
+                    SortitionBind::TipMemo {
                         include_burn_view: false,
                     },
                 ),
                 TableCopySpec::sql_with_bind(
                     "stacks_chain_tips_by_burn_view",
                     stacks_tip_memo_copy_sql(true, $has_boundary),
-                    TableCopyBind::SortitionTipMemo {
+                    SortitionBind::TipMemo {
                         include_burn_view: true,
                     },
                 ),
@@ -399,8 +402,8 @@ pub(super) fn sortition_copy_specs(has_boundary: bool) -> &'static [TableCopySpe
             ]
         };
     }
-    static PLAIN: &[TableCopySpec] = sortition_specs!(false);
-    static REWRITE: &[TableCopySpec] = sortition_specs!(true);
+    static PLAIN: &[TableCopySpec<SortitionBind>] = sortition_specs!(false);
+    static REWRITE: &[TableCopySpec<SortitionBind>] = sortition_specs!(true);
     if has_boundary {
         REWRITE
     } else {
@@ -441,12 +444,7 @@ pub fn copy_sortition_side_tables_with_boundary(
     with_offline_write_session(dst_path, &[("src", src_path)], "", |conn| {
         // Clone only the spec tables' schemas; MARF infra is created by the
         // squash engine and ignored tables are intentionally absent from the dst.
-        clone_schemas_from_source(
-            conn,
-            &SortitionDbSnapshotSpec::for_classification()
-                .copy_specs()
-                .table_names(),
-        )?;
+        clone_schemas_from_source(conn, &SortitionDbSnapshotSpec::table_names())?;
         copy_sortition_tables_inner(&src_conn, conn, &leaf_hashes, stacks_boundary)
     })
 }

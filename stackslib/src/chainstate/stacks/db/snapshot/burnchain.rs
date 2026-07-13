@@ -16,12 +16,13 @@
 use std::fs;
 use std::path::Path;
 
+use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
 
 use super::common::{
-    clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec,
+    clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec, NoBind,
     TableCopySpec, TableCopySpecs,
 };
 use super::sortition::SortitionSnapshotExt;
@@ -64,16 +65,26 @@ impl BurnchainSnapshotExt for Connection {
 pub(super) struct BurnchainDbSnapshotSpec;
 
 impl DbSnapshotSpec for BurnchainDbSnapshotSpec {
-    fn copy_specs(&self) -> TableCopySpecs<'static> {
-        TableCopySpecs::new(burnchain_copy_specs())
+    type Bind = NoBind;
+
+    fn table_names() -> Vec<&'static str> {
+        TableCopySpecs::new(burnchain_copy_specs()).table_names()
     }
 
-    fn db_label(&self) -> &'static str {
+    fn db_label() -> &'static str {
         "burnchain DB"
     }
 
-    fn classify_hint(&self) -> &'static str {
+    fn classify_hint() -> &'static str {
         "burnchain_copy_specs() in snapshot/burnchain.rs"
+    }
+
+    fn copy_specs(&self) -> TableCopySpecs<'static, NoBind> {
+        TableCopySpecs::new(burnchain_copy_specs())
+    }
+
+    fn bind_params(&self, bind: NoBind) -> Result<Vec<Value>, Error> {
+        match bind {}
     }
 }
 
@@ -85,7 +96,7 @@ const CANONICAL_BURN_HASHES_SQL: &str = "SELECT burn_header_hash FROM canonical_
 /// [`DbSnapshotSpec::assert_source_classified`]);
 /// `test_no_unclassified_burnchain_tables` runs it against a fresh schema.
 pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
-    BurnchainDbSnapshotSpec.assert_source_classified(src_conn)
+    BurnchainDbSnapshotSpec::assert_source_classified(src_conn)
 }
 
 /// Row-count statistics returned by [`copy_burnchain_db`].
@@ -204,8 +215,8 @@ pub fn copy_burnchain_db(
 /// derived from the copied commit metadata. `overrides` is schema-only:
 /// reward-cycle affirmation-map overrides are never read or written by any
 /// production path, so its schema is cloned for fidelity but no rows are copied.
-pub(super) fn burnchain_copy_specs() -> &'static [TableCopySpec] {
-    static SPECS: &[TableCopySpec] = &[
+pub(super) fn burnchain_copy_specs() -> &'static [TableCopySpec<NoBind>] {
+    static SPECS: &[TableCopySpec<NoBind>] = &[
         TableCopySpec::sql("db_config", "SELECT * FROM src.db_config"),
         TableCopySpec::sql(
             "burnchain_db_block_headers",
@@ -254,7 +265,7 @@ fn copy_burnchain_db_inner(
     canonical_hashes: &[BurnchainHeaderHash],
 ) -> Result<BurnchainDbCopyStats, Error> {
     let spec = BurnchainDbSnapshotSpec;
-    clone_schemas_from_source(conn, &spec.copy_specs().table_names())?;
+    clone_schemas_from_source(conn, &BurnchainDbSnapshotSpec::table_names())?;
 
     populate_canonical_burn_hashes(conn, canonical_hashes)?;
 

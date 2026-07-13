@@ -22,12 +22,19 @@ use stacks_common::types::chainstate::StacksBlockId;
 
 use super::common::{
     clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec,
-    TableCopyBind, TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
+    TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 use crate::burnchains::PoxConstants;
 use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue};
 use crate::util_lib::db::{sqlite_open, u64_to_sql};
+
+/// The index snapshot's `?N` bind: the `signer_stats` reward-cycle bound.
+#[derive(Clone, Copy)]
+pub(super) enum IndexBind {
+    /// `signer_stats` filters `reward_cycle <= ?1`.
+    MaxRewardCycle,
+}
 
 /// The index (`index.sqlite`) side-table snapshot spec. `max_reward_cycle` feeds
 /// the `signer_stats` `?N` bind only -- the table-name set is independent of it.
@@ -37,44 +44,35 @@ pub(super) struct IndexDbSnapshotSpec {
     pub max_reward_cycle: u64,
 }
 
-impl IndexDbSnapshotSpec {
-    /// For source-schema classification only: the recognized table-name set is
-    /// independent of `max_reward_cycle`, so the guard/clone use a zero sentinel.
-    fn for_classification() -> Self {
-        Self {
-            max_reward_cycle: 0,
-        }
-    }
-}
-
 impl DbSnapshotSpec for IndexDbSnapshotSpec {
-    fn copy_specs(&self) -> TableCopySpecs<'static> {
-        TableCopySpecs::new(index_copy_specs())
+    type Bind = IndexBind;
+
+    fn table_names() -> Vec<&'static str> {
+        TableCopySpecs::new(index_copy_specs()).table_names()
     }
 
-    fn bind_params(&self, bind: TableCopyBind) -> Result<Vec<Value>, Error> {
-        match bind {
-            TableCopyBind::None => Ok(Vec::new()),
-            // `signer_stats` filters `reward_cycle <= ?1`.
-            TableCopyBind::IndexMaxRewardCycle => {
-                Ok(vec![Value::Integer(u64_to_sql(self.max_reward_cycle)?)])
-            }
-            other => Err(Error::CorruptionError(format!(
-                "BUG: index snapshot does not handle table-copy bind {other:?}"
-            ))),
-        }
-    }
-
-    fn extra_recognized_tables(&self) -> Vec<&'static str> {
+    fn extra_recognized_tables() -> Vec<&'static str> {
         MARF_INFRA_TABLES.to_vec()
     }
 
-    fn db_label(&self) -> &'static str {
+    fn db_label() -> &'static str {
         "index DB"
     }
 
-    fn classify_hint(&self) -> &'static str {
+    fn classify_hint() -> &'static str {
         "index_copy_specs() in snapshot/index.rs"
+    }
+
+    fn copy_specs(&self) -> TableCopySpecs<'static, IndexBind> {
+        TableCopySpecs::new(index_copy_specs())
+    }
+
+    fn bind_params(&self, bind: IndexBind) -> Result<Vec<Value>, Error> {
+        match bind {
+            IndexBind::MaxRewardCycle => {
+                Ok(vec![Value::Integer(u64_to_sql(self.max_reward_cycle)?)])
+            }
+        }
     }
 }
 
@@ -82,7 +80,7 @@ impl DbSnapshotSpec for IndexDbSnapshotSpec {
 /// [`DbSnapshotSpec::assert_source_classified`]);
 /// `test_no_unclassified_source_tables` runs it against a fresh schema.
 pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
-    IndexDbSnapshotSpec::for_classification().assert_source_classified(src_conn)
+    IndexDbSnapshotSpec::assert_source_classified(src_conn)
 }
 
 /// Row-count statistics returned by [`copy_index_side_tables`].
@@ -200,10 +198,10 @@ fn derive_max_reward_cycle(
 /// - `db_config` is copied in full.
 /// - `staging_blocks` adds a check for processend and non-orphaned blocks.
 /// - `signer_stats` is cut off at the canonical tip's  reward cycle.
-pub(super) fn index_copy_specs() -> &'static [TableCopySpec] {
+pub(super) fn index_copy_specs() -> &'static [TableCopySpec<IndexBind>] {
     // `signer_stats`'s reward-cycle bound is the only runtime value, passed as
     // the `?1` bind.
-    static SPECS: &[TableCopySpec] = &[
+    static SPECS: &[TableCopySpec<IndexBind>] = &[
         TableCopySpec::sql("db_config", "SELECT * FROM src.db_config"),
         TableCopySpec::sql(
             "block_headers",
@@ -261,7 +259,7 @@ pub(super) fn index_copy_specs() -> &'static [TableCopySpec] {
         TableCopySpec::sql_with_bind(
             "signer_stats",
             "SELECT * FROM src.signer_stats WHERE reward_cycle <= ?1",
-            TableCopyBind::IndexMaxRewardCycle,
+            IndexBind::MaxRewardCycle,
         ),
         // Schema-only: schema cloned for fidelity, not row-copied here.
         // `staging_microblocks`/`_data` are populated later by the
@@ -298,7 +296,7 @@ pub fn copy_index_side_tables(
     with_offline_write_session(dst_path, &[("src", src_path)], "", |conn| {
         // Clone only the spec tables' schemas; MARF infra tables are created by
         // the squash engine, not cloned here.
-        clone_schemas_from_source(conn, &TableCopySpecs::new(index_copy_specs()).table_names())?;
+        clone_schemas_from_source(conn, &IndexDbSnapshotSpec::table_names())?;
         copy_tables_inner(conn, &leaf_hashes, first_burn_height, reward_cycle_len)
     })
 }
