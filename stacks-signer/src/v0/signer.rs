@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -827,6 +827,25 @@ impl Signer {
                 RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
                 &block_info.block,
             ));
+        }
+
+        // For this first version, reject any block that marks transactions as
+        // problematic. The criteria for what may legitimately appear in
+        // `problematic_txs` has not been decided yet, so signers reject all
+        // such blocks until that policy is established.
+        if !block_info.block.header.problematic_txs.is_empty() {
+            warn!(
+                "{self}: Block proposal marks transactions as problematic, which signers do not yet allow; rejecting";
+                "signer_signature_hash" => %block_info.block.header.signer_signature_hash(),
+                "block_id" => %block_info.block.block_id(),
+                "problematic_tx_count" => block_info.block.header.problematic_txs.len(),
+            );
+            return Some(
+                self.create_block_rejection(
+                    RejectReason::ProblematicTransactions,
+                    &block_info.block,
+                ),
+            );
         }
 
         if state_version.uses_global_state() {
@@ -2005,8 +2024,10 @@ impl Signer {
         );
 
         // recover public key
-        let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), signature)
-        else {
+        let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_hash.bits(),
+            signature,
+        ) else {
             debug!("{self}: Received unrecovarable signature. Will not store.";
                    "signature" => %signature,
                    "signer_signature_hash" => %block_hash);
@@ -2090,8 +2111,10 @@ impl Signer {
         let addrs_to_sigs: HashMap<_, _> = signatures
             .into_iter()
             .filter_map(|sig| {
-                let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey(block_hash.bits(), &sig)
-                else {
+                let Ok(public_key) = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+                    block_hash.bits(),
+                    &sig,
+                ) else {
                     return None;
                 };
                 let addr = StacksAddress::p2pkh(self.mainnet, &public_key);
@@ -2334,7 +2357,8 @@ fn should_reevaluate_reject_reason(block_info: &BlockInfo) -> bool {
             | RejectReason::NotLatestSortitionWinner
             | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound
-            | RejectReason::IrrecoverablePubkeyHash => {
+            | RejectReason::IrrecoverablePubkeyHash
+            | RejectReason::ProblematicTransactions => {
                 // No need to re-validate these types of rejections.
                 false
             }

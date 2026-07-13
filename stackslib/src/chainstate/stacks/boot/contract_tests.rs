@@ -467,6 +467,10 @@ impl BurnStateDB for TestSimBurnStateDB {
         u32::MAX
     }
 
+    fn get_pox_5_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
     fn get_pox_prepare_length(&self) -> u32 {
         self.pox_constants.prepare_length
     }
@@ -540,6 +544,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         _bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
         None
@@ -614,6 +619,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
         Some(MINER_ADDR.clone())
@@ -622,6 +628,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -631,6 +638,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -640,6 +648,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -1786,7 +1795,7 @@ fn test_deploy_smart_contract(
     version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
-        let (ast, analysis) = tx.analyze_smart_contract(contract_id, version, content)?;
+        let (ast, analysis) = tx.analyze_smart_contract(contract_id, version, content, None)?;
         tx.initialize_smart_contract(contract_id, version, &ast, content, None, |_, _| None, None)?;
         tx.save_analysis(contract_id, &analysis)?;
         return Ok(());

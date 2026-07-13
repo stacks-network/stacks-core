@@ -223,7 +223,7 @@ max_rbf = 150
 #   Signer times out new winner first, then accepts the extend -> OK
 #
 # Additionally, the signer requires `tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs`
-# (default 62s) to have passed since the last block before accepting any extend.
+# (default 32s) to have passed since the last block before accepting any extend.
 # Both conditions must be met on the signer side.
 #
 # Default: 120_000
@@ -239,7 +239,7 @@ max_rbf = 150
 # timestamp allows it.
 #
 # WARNING: Should be greater than `tenure_extend_wait_timeout_ms` and
-# greater than signer's `tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs` (default 62s).
+# greater than signer's `tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs` (default 32s).
 #
 # Default: 180
 # Units: seconds

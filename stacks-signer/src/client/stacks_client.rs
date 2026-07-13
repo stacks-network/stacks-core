@@ -350,7 +350,7 @@ impl StacksClient {
                         .into(),
                 ));
             }
-            tenures.extend(next_results.into_iter());
+            tenures.extend(next_results);
         }
 
         Ok(tenures.into_iter().collect())
@@ -473,7 +473,11 @@ impl StacksClient {
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Vec<NakamotoSignerEntry>>, ClientError> {
-        Ok(self.get_reward_set(reward_cycle)?.stacker_set.signers)
+        Ok(self
+            .get_reward_set(reward_cycle)?
+            .stacker_set
+            .signers()
+            .cloned())
     }
 
     /// Get the reward set signers from the stacks node for the given reward cycle
@@ -742,7 +746,7 @@ mod tests {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
     use blockstack_lib::chainstate::stacks::address::PoxAddress;
     use blockstack_lib::chainstate::stacks::boot::{
-        NakamotoSignerEntry, PoxStartCycleInfo, RewardSet,
+        NakamotoSignerEntry, PoxStartCycleInfo, RewardSet, RewardSetV0,
     };
     use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
     use clarity::types::chainstate::{StacksBlockId, TrieHash};
@@ -1018,10 +1022,7 @@ mod tests {
     fn submit_block_for_validation_should_succeed() {
         let mock = MockServerClient::new();
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let block = NakamotoBlock::new(header, vec![]);
         let h = spawn(move || mock.client.submit_block_for_validation(block, None));
         write_response(mock.server, b"HTTP/1.1 200 OK\n\n");
         assert!(h.join().unwrap().is_ok());
@@ -1031,10 +1032,7 @@ mod tests {
     fn submit_block_for_validation_should_fail() {
         let mock = MockServerClient::new();
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let block = NakamotoBlock::new(header, vec![]);
         let h = spawn(move || mock.client.submit_block_for_validation(block, None));
         write_response(mock.server, b"HTTP/1.1 404 Not Found\n\n");
         assert!(h.join().unwrap().is_err());
@@ -1067,7 +1065,7 @@ mod tests {
         let public_key = StacksPublicKey::from_private(&private_key);
         let mut bytes = [0u8; 33];
         bytes.copy_from_slice(&public_key.to_bytes_compressed());
-        let stacker_set = RewardSet {
+        let stacker_set = RewardSet::V0(RewardSetV0 {
             rewarded_addresses: vec![PoxAddress::standard_burn_address(false)],
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
@@ -1078,7 +1076,7 @@ mod tests {
                 weight: 1,
             }]),
             pox_ustx_threshold: None,
-        };
+        });
         let stackers_response = GetStackersResponse {
             stacker_set: stacker_set.clone(),
         };
@@ -1088,7 +1086,7 @@ mod tests {
         let response = format!("HTTP/1.1 200 OK\n\n{stackers_response_json}");
         let h = spawn(move || mock.client.get_reward_set_signers(0));
         write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), stacker_set.signers);
+        assert_eq!(h.join().unwrap().unwrap(), stacker_set.signers().cloned());
     }
 
     #[test]
@@ -1107,6 +1105,7 @@ mod tests {
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
         });
         let with_metadata = BlockHeaderWithMetadata {
             anchored_header,

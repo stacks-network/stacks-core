@@ -272,3 +272,53 @@ fn test_migrate_schema_3_creates_squash_tables_on_v2_db() {
     trie_sql::migrate_tables_if_needed::<BlockHeaderHash>(&mut db).unwrap();
     assert_eq!(count_squash_tables(&db), 2);
 }
+
+/// The parallel chunked reader must return exactly what per-block
+/// `read_blob_header` reads, regardless of how the entries split
+/// across worker threads.
+#[test]
+fn test_bulk_read_blob_headers_sorted_matches_sequential() {
+    let dir = tempfile::tempdir().unwrap();
+    let marf_path = dir.path().join("bulk_headers.sqlite");
+    // 67 blocks: not a multiple of any plausible worker count, so the last
+    // chunk is ragged.
+    let (mut marf, _, _) = super::marf::setup_marf(marf_path.to_str().unwrap(), 67, 4);
+
+    marf.with_conn(|conn| {
+        let mut entries =
+            trie_sql::bulk_read_block_entries::<StacksBlockId>(conn.sqlite_conn()).unwrap();
+        conn.warm_trie_offsets_from_entries(&entries);
+        entries.sort_unstable_by_key(|e| (e.external_offset, e.block_id));
+        assert!(entries.len() >= 67);
+
+        let bulk = conn.bulk_read_blob_headers_sorted(&entries).unwrap();
+        assert_eq!(bulk.len(), entries.len());
+        for entry in &entries {
+            let expected = conn.read_blob_header(entry.block_id).unwrap();
+            assert_eq!(
+                bulk.get(&entry.block_hash),
+                Some(&expected),
+                "bulk header mismatch for block {}",
+                entry.block_hash
+            );
+        }
+    });
+}
+
+/// An empty entry list is a valid request: zero entries yield an
+/// empty map.
+#[test]
+fn test_bulk_read_blob_headers_sorted_empty_returns_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let marf_path = dir.path().join("bulk_headers_empty.sqlite");
+    let (mut marf, _, _) = super::marf::setup_marf(marf_path.to_str().unwrap(), 1, 4);
+
+    marf.with_conn(|conn| {
+        let entries =
+            trie_sql::bulk_read_block_entries::<StacksBlockId>(conn.sqlite_conn()).unwrap();
+        // Empty slice of the right element type, without naming the private entry struct.
+        let empty = entries.get(..0).unwrap();
+        let headers = conn.bulk_read_blob_headers_sorted(empty).unwrap();
+        assert!(headers.is_empty());
+    });
+}

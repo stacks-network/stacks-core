@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -243,6 +243,8 @@ pub struct BlockBuilderSettings {
     /// Should the builder attempt to confirm any parent microblocks
     pub confirm_microblocks: bool,
     pub max_execution_time: Option<std::time::Duration>,
+    /// Wall-clock deadline for the contract-analysis phase of a single tx
+    pub max_analysis_time: Option<std::time::Duration>,
     pub max_tenure_bytes: u64,
     /// Transaction IDs to temporarily exclude from block building (e.g., signer-rejected txs)
     pub temporarily_excluded_txids: HashSet<Txid>,
@@ -262,6 +264,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_analysis_time: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
@@ -277,6 +280,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_analysis_time: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
@@ -736,6 +740,16 @@ impl TransactionResult {
                 );
                 return (true, Error::ExecutionTimeExpired);
             }
+            Error::AnalysisTimeExpired => {
+                // The transaction's contract analysis took too long. Consider it problematic so the
+                // contract-publish is dropped and blacklisted instead of being re-mined.
+                info!("Problematic transaction caused AnalysisTimeExpired";
+                      "txid" => %tx.txid(),
+                      "origin" => %tx.get_origin().get_address(false),
+                      "payload" => ?tx.payload,
+                );
+                return (true, Error::AnalysisTimeExpired);
+            }
             e => e,
         };
         (false, error)
@@ -751,6 +765,7 @@ pub trait BlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         max_execution_time: Option<std::time::Duration>,
+        max_analysis_time: Option<std::time::Duration>,
         total_receipts_size: &mut u64,
     ) -> TransactionResult;
 
@@ -761,6 +776,7 @@ pub trait BlockBuilder {
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
         max_execution_time: Option<std::time::Duration>,
+        max_analysis_time: Option<std::time::Duration>,
         total_receipts_size: &mut u64,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
@@ -770,6 +786,7 @@ pub trait BlockBuilder {
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             max_execution_time,
+            max_analysis_time,
             total_receipts_size,
         ) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
@@ -2071,7 +2088,7 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.into_iter() {
-            match builder.try_mine_tx(&mut epoch_tx, &tx, None, &mut 0) {
+            match builder.try_mine_tx(&mut epoch_tx, &tx, None, None, &mut 0) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -2239,6 +2256,7 @@ impl StacksBlockBuilder {
                         epoch_tx,
                         initial_tx,
                         settings.max_execution_time,
+                        settings.max_analysis_time,
                         &mut receipts_total,
                     )?
                     .convert_to_event(),
@@ -2446,6 +2464,7 @@ impl BlockBuilder for StacksBlockBuilder {
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
         _max_execution_time: Option<std::time::Duration>,
+        _max_analysis_time: Option<std::time::Duration>,
         _total_receipt_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
@@ -2721,6 +2740,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                     txinfo.metadata.len,
                     &block_limit_hit,
                     settings.max_execution_time,
+                    settings.max_analysis_time,
                     &mut receipts_total,
                 );
 
@@ -2896,6 +2916,7 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
             replay_tx,
             replay_tx.tx_len(),
             &BlockLimitFunction::NO_LIMIT_HIT,
+            None,
             None,
             &mut receipts_total,
         );

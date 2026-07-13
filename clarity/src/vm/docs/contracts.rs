@@ -147,8 +147,8 @@ pub fn make_docs(
         .collect();
 
     let ecode_names = variable_types
-        .iter()
-        .filter_map(|(var_name, _)| {
+        .keys()
+        .filter_map(|var_name| {
             if var_name.starts_with("ERR_") {
                 Some(format!("{}: {}", var_name.as_str(), var_name.as_str()))
             } else {

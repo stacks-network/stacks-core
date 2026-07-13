@@ -1,0 +1,387 @@
+name: Slack Open PR Nag Bot
+
+on:
+  schedule:
+    # Run at 6am Eastern Time on Mon, Weds, Fri
+    - cron: '0 6 * * 1,3,5'
+      timezone: 'America/New_York'
+  workflow_dispatch: # Allows manual testing
+
+permissions:
+  pull-requests: read
+
+jobs:
+  nag-slack:
+    runs-on: ubuntu-latest
+    # Only execute if running in our core repo
+    if: github.repository == 'stacks-network/stacks-core'
+    steps:
+      - name: Fetch PRs and Post Nags to Slack
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_CORE_PR_NAG_BOT }}
+          
+          # CONFIGURABLE VARIABLES
+          TARGET_OWNER: 'stacks-network'
+          TARGET_REPO: 'stacks-core'
+          IGNORE_DRAFTS: 'true'
+          MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+          
+          # CENTRAL USER REGISTRY (FOR DISPLAY NAMES)
+          USER_MAPPING: |
+            {
+              "aaronb-stacks": "Aaron",
+              "adriano-stacks": "Adriano",
+              "benjamin-stacks": "Benjamin",
+              "brice-stacks": "Brice",
+              "cylewitruk-stacks": "Cyle",
+              "dhaney-stacks": "David",
+              "djordon-stacks": "Daniel",
+              "federico-stacks": "Federico",
+              "francesco-stacks": "Francesco",
+              "hstove-stacks": "Hank",
+              "radu-stacks": "Radu",
+              "rob-stacks": "Roberto",
+              "simone-stacks": "Simone"
+            }
+
+          # SLACK USER REGISTRY (FOR REFERENCE)
+          SLACK_MAPPING: |
+            {
+              "aaronb-stacks": "U067F1SRYT0",
+              "adriano-stacks": "U07CAH5D38Q",
+              "benjamin-stacks": "U09N5BM0SGP",
+              "brice-stacks": "U067BVCJE30",
+              "cylewitruk-stacks": "U06815BCSB0",
+              "dhaney-stacks": "U09538PV0RZ",
+              "djordon-stacks": "U07GRAS4X42",
+              "federico-stacks": "U08ASJ1LKEV",
+              "francesco-stacks": "U07MCETKTKN",
+              "hstove-stacks": "U068W8VBSQM",
+              "radu-stacks": "U0ANRRXD080",
+              "rob-stacks": "U07UNFAS4BD",
+              "simone-stacks": "U09NA1TP8PK"
+            }
+          # ------------------------------
+          
+        with:
+          script: |
+            const owner = process.env.TARGET_OWNER;
+            const repo = process.env.TARGET_REPO;
+            const ignoreDrafts = process.env.IGNORE_DRAFTS === 'true';
+            const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+            const manualRun = process.env.MANUAL_RUN === 'true';
+
+            if (!webhookUrl) {
+              core.setFailed('Missing SLACK_WEBHOOK_URL secret.');
+              return;
+            }
+
+            // 1. Parse Registry Objects safely
+            let userMap = {};
+            let slackMap = {};
+            try {
+              const rawMap = JSON.parse(process.env.USER_MAPPING || '{}');
+              userMap = Object.fromEntries(Object.entries(rawMap).map(([k, v]) => [k.toLowerCase(), v]));
+              
+              const rawSlackMap = JSON.parse(process.env.SLACK_MAPPING || '{}');
+              slackMap = Object.fromEntries(Object.entries(rawSlackMap).map(([k, v]) => [k.toLowerCase(), v]));
+            } catch (e) {
+              core.setFailed('Error parsing configuration registries JSON objects.');
+              return;
+            }
+
+            const allowedUsers = new Set(Object.keys(userMap));
+
+            // Helper to get Slack mention or display name
+            const getSlackMention = (githubUsername) => {
+              const clean = githubUsername.toLowerCase();
+              // If we have a Slack ID, return it as a mention
+              if (slackMap[clean]) {
+                return `<@${slackMap[clean]}>`;
+              }
+              // Fallback to display name
+              if (userMap[clean]) {
+                return userMap[clean];
+              }
+              // Fallback to capitalized login
+              return githubUsername.charAt(0).toUpperCase() + githubUsername.slice(1);
+            };
+
+            const sanitizeTitle = (title) => {
+              return title
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\|/g, '—');
+            };
+
+            // 2. Fetch open Pull Requests
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'open', per_page: 100
+            });
+
+            const filteredSortedPrs = prs
+              .filter(pr => {
+                if (ignoreDrafts && pr.draft) return false;
+                return allowedUsers.has(pr.user.login.toLowerCase());
+              });
+
+            if (filteredSortedPrs.length === 0) {
+              console.log('No matching team PRs found.');
+              return;
+            }
+
+            // 3. Enrich PR data with unresolved review comments and precise reviewer state maps via GraphQL
+            console.log(`Enriching ${filteredSortedPrs.length} PRs with merge metrics, comments, and reviewer status tokens...`);
+            
+            const reviewsGroup = await Promise.all(filteredSortedPrs.map(async (pr) => {
+              let unresolvedComments = [];
+              let allReviewersSuperset = [];
+              const reviewerStateMap = {}; // Maps lowercased login -> state string
+              let approvedCount = 0;
+              let mergeableState = 'UNKNOWN';
+              let mergeStateStatus = 'UNKNOWN';
+            
+              try {
+                const gqlResponse = await github.graphql(`
+                  query($owner: String!, $repo: String!, $number: Int!) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $number) {
+                        mergeable
+                        mergeStateStatus
+                        reviewThreads(first: 50) {
+                          nodes {
+                            isResolved
+                            comments(first: 1) {
+                              nodes {
+                                author { login }
+                                body
+                              }
+                            }
+                          }
+                        }
+                        reviewRequests(first: 50) {
+                          nodes {
+                            requestedReviewer {
+                              ... on User {
+                                login
+                              }
+                            }
+                          }
+                        }
+                        latestReviews(first: 50) {
+                          nodes {
+                            author {
+                              login
+                            }
+                            state
+                          }
+                        }
+                      }
+                    }
+                  }
+                `, { owner, repo, number: pr.number });
+            
+                const prNode = gqlResponse.repository?.pullRequest;
+                mergeableState = prNode?.mergeable || 'UNKNOWN';
+                mergeStateStatus = prNode?.mergeStateStatus || 'UNKNOWN';
+            
+                // Process unresolved comments
+                const threads = prNode?.reviewThreads?.nodes || [];
+                unresolvedComments = threads
+                  .filter(thread => !thread.isResolved)
+                  .map(thread => {
+                    const topComment = thread.comments?.nodes[0];
+                    return {
+                      commenter: topComment?.author?.login || 'unknown',
+                      text_snippet: topComment?.body ? topComment.body.substring(0, 100).replace(/\r?\n|\r/g, " ") : ""
+                    };
+                  });
+            
+                // Populate historical review statuses (APPROVED, CHANGES_REQUESTED, COMMENTED)
+                const latestReviewsNodes = prNode?.latestReviews?.nodes || [];
+                latestReviewsNodes.forEach(node => {
+                  if (node.author?.login) {
+                    const login = node.author.login.toLowerCase();
+                    reviewerStateMap[login] = node.state; // e.g., 'APPROVED', 'CHANGES_REQUESTED', 'COMMENTED'
+                    if (node.state === 'APPROVED') {
+                      approvedCount++;
+                    }
+                  }
+                });
+            
+                // Extract active pending reviewers and overwrite map state to 'AWAITING_REVIEW'
+                const pendingLogins = prNode?.reviewRequests?.nodes
+                  ?.map(node => node.requestedReviewer?.login)
+                  .filter(Boolean) || [];
+                  
+                pendingLogins.forEach(login => {
+                  reviewerStateMap[login.toLowerCase()] = 'AWAITING_REVIEW';
+                });
+            
+                // Deduplicate all unique reviewer handles and filter out Copilot
+                allReviewersSuperset = Object.keys(reviewerStateMap)
+                  .filter(login => login !== 'copilot-pull-request-reviewer');
+            
+              } catch (err) {
+                console.error(`Failed to fetch GraphQL data for PR #${pr.number}:`, err);
+                allReviewersSuperset = pr.requested_reviewers
+                  .map(r => r.login)
+                  .filter(login => login.toLowerCase() !== 'copilot-pull-request-reviewer');
+                  
+                allReviewersSuperset.forEach(login => {
+                  reviewerStateMap[login.toLowerCase()] = 'AWAITING_REVIEW';
+                });
+              }
+            
+              // Package structural models back up for the line builder to scan
+              pr.unresolved_comment_threads = unresolvedComments;
+              pr.requested_reviewers = allReviewersSuperset.map(login => ({
+                login,
+                state: reviewerStateMap[login.toLowerCase()] || 'AWAITING_REVIEW'
+              }));
+              pr.merge_conflict_present = mergeableState === 'CONFLICTING';
+              pr.out_of_date_with_base = mergeStateStatus === 'BEHIND';
+            
+              // 4. Classify the PRs locally (Hierarchical Triage Engine)
+              let explanation = '';
+              let sortWeight = 7;
+              let statusIcon = '👀';
+
+              const changesRequested = pr.requested_reviewers
+                .some(r => r.state === 'CHANGES_REQUESTED');
+              const resolveCount = unresolvedComments.length;
+
+              if (changesRequested) {
+                explanation = `Changes requested`;
+                sortWeight = 1;
+                statusIcon = '🛑';
+              } else if (resolveCount > 0) {
+                explanation = `${resolveCount} ${resolveCount === 1 ? 'comment' : 'comments'} to resolve`;
+                sortWeight = 2;
+                statusIcon = '💬';
+              } else if (pr.merge_conflict_present) {
+                explanation = `Needs merge conflicts fixed`;
+                sortWeight = 3;
+                statusIcon = '⚠️';
+              } else if (pr.out_of_date_with_base) {
+                explanation = `Needs rebase/merge`;
+                sortWeight = 4;
+                statusIcon = '⏩';
+              } else if (approvedCount >= 2) {
+                explanation = `Ready for merge`;
+                sortWeight = 0;
+                statusIcon = '✅';
+              } else if (allReviewersSuperset.length === 0) {
+                explanation = `Needs reviewers assigned`;
+                sortWeight = 6;
+                statusIcon = '👥';
+              } else {
+                explanation = `Needs reviews`;
+                sortWeight = 5;
+                statusIcon = '⏳';
+              }
+            
+              return { pr, explanation, sortWeight, statusIcon };
+            }));
+
+            // 5. Programmatic Priority Sort Engine
+            reviewsGroup.sort((a, b) => {
+              if (a.sortWeight !== b.sortWeight) {
+                return a.sortWeight - b.sortWeight;
+              }
+
+              // Alphabetical tie-breaker by Author display name
+              const authorA = getSlackMention(a.pr.user.login).toLowerCase();
+              const authorB = getSlackMention(b.pr.user.login).toLowerCase();
+              if (authorA !== authorB) {
+                return authorA.localeCompare(authorB);
+              }
+              return new Date(a.pr.created_at) - new Date(b.pr.created_at);
+            });
+
+            // 6. Construct Slack payload blocks
+            const payload = { blocks: [] };
+            payload.blocks.push({
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `*📋 Open PR Status Report (${filteredSortedPrs.length} Total)*${manualRun ? ' | _(Manual Run)_' : ''}\n`
+              }
+            });
+          
+            const buildPrLine = (item) => {
+              const pr = item.pr;
+              const author = getSlackMention(pr.user.login);
+              const title = sanitizeTitle(pr.title);
+            
+              // Helper to extract the plain display name for consistent sorting
+              const getPlainName = (login) => {
+                const clean = login.toLowerCase();
+                if (userMap[clean]) return userMap[clean];
+                const base = clean.replace('-stacks', '');
+                return base.charAt(0).toUpperCase() + base.slice(1);
+              };
+            
+              const reviewers = pr.requested_reviewers
+                .slice() // Clone to prevent mutation
+                .sort((a, b) => {
+                  // 1. Alphabetize by Plain Display Name
+                  return getPlainName(a.login).localeCompare(getPlainName(b.login));
+                })
+                .map(r => {
+                  // 2. Use Slack Ping/Mention for the final output
+                  const name = getSlackMention(r.login);
+                  
+                  switch (r.state) {
+                    case 'APPROVED':
+                      return `${name} ✅`;
+                    case 'CHANGES_REQUESTED':
+                      return `${name} 🛑`;
+                    case 'COMMENTED':
+                      return `${name} 💬`;
+                    case 'AWAITING_REVIEW':
+                    default:
+                      return `${name} ⏳`;
+                  }
+                }).join(', ') || 'Anyone';
+              
+              let line = `\`${item.statusIcon} ${author}\` <${pr.html_url}|${title}> (\`${reviewers}\`)`;
+              if (item.explanation) {
+                line += ` _${item.explanation}_`;
+              }
+              return line;
+            };
+
+            // Build payload list chunks
+            let currentLines = [];
+            for (const item of reviewsGroup) {
+              currentLines.push(buildPrLine(item));
+              if (currentLines.length === 6) {
+                payload.blocks.push({
+                  type: 'section',
+                  text: { type: 'mrkdwn', text: currentLines.join('\n') }
+                });
+                currentLines = [];
+              }
+            }
+            if (currentLines.length > 0) {
+              payload.blocks.push({
+                type: 'section',
+                text: { type: 'mrkdwn', text: currentLines.join('\n') }
+              });
+            }
+
+            // 7. Send payload via Webhook
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+              core.setFailed(`Slack API responded with status ${response.status}`);
+            } else {
+              console.log(`Successfully posted real-time PR triage lines to Slack.`);
+            }

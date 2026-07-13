@@ -1,0 +1,9 @@
+Fixed an issue related to how current and future cycle rewards state is managed after unstaking.
+
+Before this fix, there was an issue where the "global" bond signer membership state was used,
+even though bond participants could have a different signer in the current cycle. This led
+to various issues around reward calculations if a staker unstaked after updating their signer.
+
+This change updates the logic around unstaking to remove the staker from the current and
+future cycles. In each cycle, the signer is derived from per-cycle state instead of
+being passed explicitly.

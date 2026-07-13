@@ -103,7 +103,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         block_id: &StacksBlockId,
         debug_log: bool,
     ) -> Result<RewardSet, Error> {
-        // figure out the block ID
+        // figure out the block in which .signers was last updated for this cycle
         let Some(coinbase_height_of_calculation) = chainstate
             .eval_boot_code_read_only(
                 sortdb,
@@ -218,8 +218,11 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         // This method should only ever called if the current reward cycle is a nakamoto reward cycle
         //  (i.e., its reward set is fetched for determining signer sets (and therefore agg keys).
         //  Non participation is fatal.
-        if reward_set.rewarded_addresses.is_empty() {
-            // no one is stacking
+        if reward_set
+            .rewarded_addresses()
+            .map_or(false, |addrs| addrs.is_empty())
+        {
+            // no one is stacking (V0 with empty rewarded_addresses)
             err_or_debug!(debug_log, "No PoX participation");
             return Err(Error::PoXAnchorBlockRequired);
         }
@@ -233,7 +236,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
             "burn_header_height" => reward_set_block.burn_header_height,
         );
 
-        if reward_set.signers.is_none() {
+        if reward_set.signers().is_none() {
             err_or_debug!(
                 debug_log,
                 "FATAL: PoX reward set did not specify signer set in Nakamoto"
@@ -525,7 +528,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
 
     // make sure the `anchor_block` field is the same as whatever goes into the block-commit,
     // or PoX ancestry queries won't work.
-    let (block_id, stacks_block_hash) = match anchor_block_header.anchored_header {
+    let (anchor_block_id, stacks_block_hash) = match anchor_block_header.anchored_header {
         StacksBlockHeaderTypes::Epoch2(ref header) => (
             StacksBlockId::new(&anchor_block_header.consensus_hash, &header.block_hash()),
             header.block_hash(),
@@ -538,18 +541,21 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     let txid = anchor_block_sn.winning_block_txid;
 
     test_debug!("Stacks anchor block found";
-           "block_id" => %block_id,
+           "block_id" => %anchor_block_id,
            "block_hash" => %stacks_block_hash,
            "consensus_hash" => %anchor_block_sn.consensus_hash,
            "txid" => %txid,
            "cycle_start_height" => %cycle_start_height,
            "burnchain_height" => %anchor_block_sn.block_height);
 
+    // `get_reward_set_nakamoto` resolves `reward_cycle`'s reward set from the fork of
+    // the tip it is given. `anchor_block_id` is an ancestor of `stacks_tip`, so passing
+    // `stacks_tip` reads the same reward set while anchoring at a tip that is never pruned.
     let reward_set =
-        provider.get_reward_set_nakamoto(chain_state, reward_cycle, sort_db, &block_id)?;
+        provider.get_reward_set_nakamoto(chain_state, reward_cycle, sort_db, stacks_tip)?;
     debug!(
         "Stacks anchor block (ch {}) {} cycle {} is processed",
-        &anchor_block_header.consensus_hash, &block_id, reward_cycle;
+        &anchor_block_header.consensus_hash, &anchor_block_id, reward_cycle;
         "anchor.consensus_hash" => %anchor_block_header.consensus_hash,
         "anchor.burn_header_hash" => %anchor_block_header.burn_header_hash,
         "anchor.burn_block_height" => anchor_block_header.burn_header_height
@@ -561,6 +567,23 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
         anchor_status,
     };
     Ok(Some((rc_info, anchor_block_header)))
+}
+
+/// Is `block_height` the first reward-receiving block of its reward cycle?
+///
+/// In waterfall epochs (Epoch 4.0+) the cycle's first reward-receiving block
+/// is the mod-0 block (the same block the cycle's signer set first signs).
+/// In classic PoX it is the mod-1 block.
+fn is_naka_reward_cycle_start_for_epoch(burnchain: &Burnchain, block_height: u64) -> bool {
+    let first_wf_block = burnchain
+        .pox_constants
+        .first_pox_waterfall_block(burnchain.first_block_height)
+        .unwrap_or(u64::MAX);
+    if block_height >= first_wf_block {
+        burnchain.is_naka_signing_cycle_start(block_height)
+    } else {
+        burnchain.is_reward_cycle_start(block_height)
+    }
 }
 
 /// Get the next PoX recipients in the Nakamoto epoch.
@@ -581,7 +604,8 @@ pub fn get_nakamoto_next_recipients(
         error!("CORRUPTION: evaluating burn block height before starting burn height");
         return Err(Error::BurnchainError(burnchains::Error::NoStacksEpoch));
     };
-    let reward_cycle_info = if burnchain.is_reward_cycle_start(next_burn_height) {
+    let is_cycle_start = is_naka_reward_cycle_start_for_epoch(burnchain, next_burn_height);
+    let reward_cycle_info = if is_cycle_start {
         let Some((reward_set, _)) = load_nakamoto_reward_set(
             reward_cycle,
             &sortition_tip.sortition_id,
@@ -1067,12 +1091,14 @@ impl<
                 .burnchain
                 .block_height_to_reward_cycle(header.block_height)
                 .unwrap_or(u64::MAX);
+            let is_reward_cycle_start =
+                is_naka_reward_cycle_start_for_epoch(&self.burnchain, header.block_height);
 
             info!(
                 "Process burn block {} reward cycle {} in {}",
                 header.block_height, reward_cycle, &self.burnchain.working_dir;
                 "in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height),
-                "is_rc_start" => self.burnchain.is_reward_cycle_start(header.block_height),
+                "is_rc_start" => is_reward_cycle_start,
                 "is_prior_in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height.saturating_sub(2)),
                 "burn_block_hash" => %header.block_hash,
             );
@@ -1089,9 +1115,9 @@ impl<
                 }
             };
 
-            let reward_cycle_info = if self.burnchain.is_reward_cycle_start(header.block_height) {
+            let reward_cycle_info = if is_reward_cycle_start {
                 // we're at the end of the prepare phase, so we'd better have obtained the reward
-                // cycle info of we must block.
+                // cycle info or we must block.
                 // NOTE(safety): the reason it's safe to use the local best stacks tip here is
                 // because as long as at least 30% of the signers are honest, there's no way there
                 // can be two or more distinct reward sets calculated for a reward cycle.  Due to

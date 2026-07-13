@@ -34,6 +34,7 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{
     ClarityEvalError, EarlyReturnError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError,
+    VmInternalError,
 };
 use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
@@ -42,8 +43,8 @@ use crate::vm::types::{
     TypeSignature,
 };
 use crate::vm::{
-    CallStack, ClarityVersion, ContractContext, CostErrors, GlobalContext, LocalContext, Value,
-    ValueRef, eval, execute as vm_execute, execute_v2 as vm_execute_v2,
+    CallStack, ClarityVersion, ContractContext, GlobalContext, LocalContext, Value, ValueRef, eval,
+    execute as vm_execute, execute_v2 as vm_execute_v2,
     execute_with_limited_execution_time as vm_execute_with_limited_execution_time,
     execute_with_parameters,
 };
@@ -1717,6 +1718,76 @@ fn merge_update_type_signature_2239() {
         });
 }
 
+/// Runtime epoch gate for an oversized tuple `merge`.
+///
+/// Builds two individually-valid ~512 KiB tuples whose combined size exceeds `MAX_VALUE_SIZE`
+/// and merges them at runtime.
+/// The merge result is bound in a `let` but never sized, isolating the merge itself:
+/// - epoch < 4.0: `merge` is infallible (legacy), so the program returns `true`.
+/// - epoch >= 4.0: `merge` rejects the oversized result cleanly with `ValueTooLarge`.
+#[test]
+fn tuple_merge_runtime_size_gate_epoch40() {
+    let program = r#"
+        (define-private (make-buff-256)
+            (let ((b16 0x00112233445566778899aabbccddeeff)
+                  (b32 (concat b16 b16))
+                  (b64 (concat b32 b32))
+                  (b128 (concat b64 b64))
+                  (b256 (concat b128 b128)))
+              b256))
+        (define-private (make-buff-4096)
+            (let ((b256 (make-buff-256))
+                  (b512 (concat b256 b256))
+                  (b1024 (concat b512 b512))
+                  (b2048 (concat b1024 b1024))
+                  (b4096 (concat b2048 b2048)))
+              b4096))
+        (define-private (make-buff-65536)
+            (let ((b4096 (make-buff-4096))
+                  (b8192 (concat b4096 b4096))
+                  (b16384 (concat b8192 b8192))
+                  (b32768 (concat b16384 b16384))
+                  (b65536 (concat b32768 b32768)))
+              b65536))
+        (define-private (make-buff-524288)
+            (let ((b65536 (make-buff-65536))
+                  (b131072 (concat b65536 b65536))
+                  (b262144 (concat b131072 b131072))
+                  (b524288 (concat b262144 b262144)))
+              b524288))
+        (let ((big (unwrap-panic (as-max-len? (make-buff-524288) u524288))))
+            (let ((m (merge (tuple (a big)) (tuple (b big)))))
+                true))
+    "#;
+
+    // epoch < 4.0 (legacy): the infallible merge yields an oversized value that later fails
+    // during cost calculation with a block-invalidating internal `Expect`.
+    let legacy_err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity3,
+        StacksEpochId::Epoch34,
+        false,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            legacy_err,
+            ClarityEvalError::Vm(VmExecutionError::Internal(VmInternalError::Expect(_)))
+        ),
+        "expected a pre-4.0 Expect failure, got {legacy_err:?}"
+    );
+
+    // epoch >= 4.0: the oversized merge is rejected cleanly with `ValueTooLarge`.
+    let gated_err = execute_with_parameters(
+        program,
+        ClarityVersion::Clarity3,
+        StacksEpochId::Epoch40,
+        false,
+    )
+    .unwrap_err();
+    assert_eq!(gated_err, RuntimeCheckErrorKind::ValueTooLarge.into());
+}
+
 #[test]
 fn test_2053_stacked_user_funcs() {
     let test = "
@@ -1866,7 +1937,7 @@ fn test_execution_time_expiration() {
         vm_execute_with_limited_execution_time("(+ 1 1)", Duration::from_secs(0))
             .err()
             .unwrap(),
-        ClarityEvalError::Vm(CostErrors::ExecutionTimeExpired.into())
+        ClarityEvalError::Vm(RuntimeCheckErrorKind::ExecutionTimeExpired.into())
     );
 }
 

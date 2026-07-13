@@ -809,6 +809,7 @@ dependencies = [
  "criterion",
  "integer-sqrt",
  "lazy_static",
+ "madhouse",
  "mutants",
  "pinny",
  "proptest",
@@ -875,6 +876,7 @@ dependencies = [
  "serde_json",
  "slog",
  "stacks-common 0.0.1",
+ "variant_count",
 ]
 
 [[package]]
@@ -2552,6 +2554,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "marf-squash"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "rstest",
+ "rusqlite",
+ "serde",
+ "sha2 0.10.8",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+ "tempfile",
+ "toml 0.5.11",
+]
+
+[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3146,7 +3163,10 @@ name = "pox-locking"
 version = "2.4.0"
 dependencies = [
  "clarity 0.0.1",
+ "madhouse",
  "mutants",
+ "pinny",
+ "proptest",
  "slog",
  "stacks-common 0.0.1",
 ]
@@ -4401,6 +4421,7 @@ dependencies = [
  "clarity-types 0.0.1",
  "serde",
  "stacks-common 0.0.1",
+ "variant_count",
 ]
 
 [[package]]
@@ -4513,6 +4534,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "slog",
+ "stacks-codec",
  "stacks-common 0.0.1",
  "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "stacks-inspect",
@@ -4647,6 +4669,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "rusqlite",
+ "secp256k1",
  "serde",
  "serde_derive",
  "serde_json",
@@ -5433,6 +5456,17 @@ name = "value-bag"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ba6f5989077681266825251a52748b8c1d8a4ad098cc37e440103d0ea717fc0"
+
+[[package]]
+name = "variant_count"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1935e10c6f04d22688d07c0790f2fc0e1b1c5c2c55bc0cc87ed67656e587dd8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
 
 [[package]]
 name = "vcpkg"

@@ -30,13 +30,11 @@ use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::NakamotoBlockHeader;
-use crate::chainstate::stacks::test::{make_codec_test_block, make_codec_test_microblock};
 use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::*;
 use crate::chainstate::tests::TestChainstate;
-use crate::core::*;
 use crate::net::relay::{AcceptedNakamotoBlocks, ProcessedNetReceipts, Relayer};
-use crate::net::stackerdb::StackerDBs;
+use crate::net::stackerdb::{StackerDBConfig, StackerDBs};
 use crate::net::test::*;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
 use crate::net::{Error as NetError, *};
@@ -368,66 +366,11 @@ fn test_buffer_data_message() {
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::zeros(1).unwrap(),
+            problematic_txs: vec![],
         },
         txs: vec![],
     };
 
-    let blocks_available = StacksMessage::new(
-        1,
-        1,
-        1,
-        &BurnchainHeaderHash([0x01; 32]),
-        7,
-        &BurnchainHeaderHash([0x07; 32]),
-        StacksMessageType::BlocksAvailable(BlocksAvailableData {
-            available: vec![
-                (ConsensusHash([0x11; 20]), BurnchainHeaderHash([0x22; 32])),
-                (ConsensusHash([0x33; 20]), BurnchainHeaderHash([0x44; 32])),
-            ],
-        }),
-    );
-
-    let microblocks_available = StacksMessage::new(
-        1,
-        1,
-        1,
-        &BurnchainHeaderHash([0x01; 32]),
-        7,
-        &BurnchainHeaderHash([0x07; 32]),
-        StacksMessageType::MicroblocksAvailable(BlocksAvailableData {
-            available: vec![
-                (ConsensusHash([0x11; 20]), BurnchainHeaderHash([0x22; 32])),
-                (ConsensusHash([0x33; 20]), BurnchainHeaderHash([0x44; 32])),
-            ],
-        }),
-    );
-
-    let block = StacksMessage::new(
-        1,
-        1,
-        1,
-        &BurnchainHeaderHash([0x01; 32]),
-        7,
-        &BurnchainHeaderHash([0x07; 32]),
-        StacksMessageType::Blocks(BlocksData {
-            blocks: vec![BlocksDatum(
-                ConsensusHash([0x11; 20]),
-                make_codec_test_block(10, StacksEpochId::Epoch25),
-            )],
-        }),
-    );
-    let microblocks = StacksMessage::new(
-        1,
-        1,
-        1,
-        &BurnchainHeaderHash([0x01; 32]),
-        7,
-        &BurnchainHeaderHash([0x07; 32]),
-        StacksMessageType::Microblocks(MicroblocksData {
-            index_anchor_block: StacksBlockId([0x55; 32]),
-            microblocks: vec![make_codec_test_microblock(10)],
-        }),
-    );
     let nakamoto_block = StacksMessage::new(
         1,
         1,
@@ -460,48 +403,6 @@ fn test_buffer_data_message() {
             },
         }),
     );
-
-    for _ in 0..peer.network.connection_opts.max_buffered_blocks_available {
-        assert!(peer
-            .network
-            .buffer_sortition_data_message(0, &peer_nk, blocks_available.clone()));
-    }
-    assert!(!peer
-        .network
-        .buffer_sortition_data_message(0, &peer_nk, blocks_available));
-
-    for _ in 0..peer
-        .network
-        .connection_opts
-        .max_buffered_microblocks_available
-    {
-        assert!(peer.network.buffer_sortition_data_message(
-            0,
-            &peer_nk,
-            microblocks_available.clone()
-        ));
-    }
-    assert!(!peer
-        .network
-        .buffer_sortition_data_message(0, &peer_nk, microblocks_available));
-
-    for _ in 0..peer.network.connection_opts.max_buffered_blocks {
-        assert!(peer
-            .network
-            .buffer_sortition_data_message(0, &peer_nk, block.clone()));
-    }
-    assert!(!peer
-        .network
-        .buffer_sortition_data_message(0, &peer_nk, block));
-
-    for _ in 0..peer.network.connection_opts.max_buffered_microblocks {
-        assert!(peer
-            .network
-            .buffer_sortition_data_message(0, &peer_nk, microblocks.clone()));
-    }
-    assert!(!peer
-        .network
-        .buffer_sortition_data_message(0, &peer_nk, microblocks));
 
     for _ in 0..peer.network.connection_opts.max_buffered_nakamoto_blocks {
         assert!(peer
@@ -548,6 +449,12 @@ fn test_no_buffer_ready_nakamoto_blocks() {
 
     let (seed_comms, mut follower_comms) = SeedNode::comms();
 
+    // Collect assertion failures and check them *after* the seed thread has
+    // exited. Asserting inline would panic the follower mid-run while the seed
+    // thread is still live, deadlocking `thread::scope` (the seed spins forever
+    // waiting for a connection that never returns).
+    let mut deferred_failures: Vec<String> = vec![];
+
     thread::scope(|s| {
         s.spawn(|| {
             SeedNode::main(peer, rc_len, seed_comms);
@@ -568,7 +475,11 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                     debug!("Follower got {}: {:?}", &consensus_hash, &burn_ops);
                     let (_, _, follower_consensus_hash) =
                         follower.next_burnchain_block(burn_ops.clone());
-                    assert_eq!(follower_consensus_hash, consensus_hash);
+                    if follower_consensus_hash != consensus_hash {
+                        deferred_failures.push(format!(
+                            "follower consensus hash {follower_consensus_hash} != seed {consensus_hash}"
+                        ));
+                    }
                 }
                 Some(SeedData::Blocks(blocks)) => {
                     debug!("Follower got Nakamoto blocks {:?}", &blocks);
@@ -589,15 +500,23 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                                 blocks: blocks.clone(),
                             },
                         );
-                    assert!(!buffer);
+                    if buffer {
+                        deferred_failures
+                            .push("ready block batch should not need buffering".to_string());
+                    }
 
                     // we need these blocks, but we don't need to buffer them
                     for block in blocks.iter() {
-                        assert!(!follower.network.is_nakamoto_block_bufferable(
+                        if follower.network.is_nakamoto_block_bufferable(
                             &sortdb,
                             &node.chainstate,
-                            block
-                        ));
+                            block,
+                        ) {
+                            deferred_failures.push(format!(
+                                "ready block should not be bufferable: {}",
+                                block.block_id()
+                            ));
+                        }
 
                         // suppose these blocks were invalid -- they would not be bufferable.
                         // bad signature? not bufferable
@@ -612,47 +531,56 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                             .header
                             .signer_signature
                             .push(bad_block.header.signer_signature.last().cloned().unwrap());
-                        assert_eq!(
-                            follower
-                                .network
-                                .find_nakamoto_block_reward_cycle(&sortdb, &bad_block),
-                            (
-                                Some(
-                                    follower
-                                        .network
-                                        .burnchain
-                                        .block_height_to_reward_cycle(block_sn.block_height)
-                                        .unwrap()
-                                ),
-                                true
-                            )
+                        let got = follower
+                            .network
+                            .find_nakamoto_block_reward_cycle(&sortdb, &bad_block);
+                        let want = (
+                            Some(
+                                follower
+                                    .network
+                                    .burnchain
+                                    .block_height_to_reward_cycle(block_sn.block_height)
+                                    .unwrap(),
+                            ),
+                            true,
                         );
-                        assert!(!follower.network.is_nakamoto_block_bufferable(
+                        if got != want {
+                            deferred_failures.push(format!(
+                                "bad-signature block reward cycle mismatch: {got:?} != {want:?}"
+                            ));
+                        }
+                        if follower.network.is_nakamoto_block_bufferable(
                             &sortdb,
                             &node.chainstate,
-                            &bad_block
-                        ));
+                            &bad_block,
+                        ) {
+                            deferred_failures
+                                .push("bad-signature block should not be bufferable".to_string());
+                        }
 
                         // unrecognized consensus hash
                         let mut bad_block = block.clone();
                         bad_block.header.consensus_hash = ConsensusHash([0xde; 20]);
-                        assert_eq!(
-                            follower
-                                .network
-                                .find_nakamoto_block_reward_cycle(&sortdb, &bad_block),
-                            (
-                                Some(
-                                    follower
-                                        .network
-                                        .burnchain
-                                        .block_height_to_reward_cycle(
-                                            follower.network.burnchain_tip.block_height
-                                        )
-                                        .unwrap()
-                                ),
-                                false
-                            )
+                        let got = follower
+                            .network
+                            .find_nakamoto_block_reward_cycle(&sortdb, &bad_block);
+                        let want = (
+                            Some(
+                                follower
+                                    .network
+                                    .burnchain
+                                    .block_height_to_reward_cycle(
+                                        follower.network.burnchain_tip.block_height,
+                                    )
+                                    .unwrap(),
+                            ),
+                            false,
                         );
+                        if got != want {
+                            deferred_failures.push(format!(
+                                "unrecognized-consensus-hash reward cycle mismatch: {got:?} != {want:?}"
+                            ));
+                        }
 
                         // stale consensus hash
                         let mut bad_block = block.clone();
@@ -664,21 +592,24 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                         .unwrap()
                         .unwrap();
                         bad_block.header.consensus_hash = ancestor_sn.consensus_hash;
-                        assert_eq!(
-                            follower
-                                .network
-                                .find_nakamoto_block_reward_cycle(&sortdb, &bad_block),
-                            (
-                                Some(
-                                    follower
-                                        .network
-                                        .burnchain
-                                        .block_height_to_reward_cycle(ancestor_sn.block_height)
-                                        .unwrap()
-                                ),
-                                true
-                            )
+                        let got = follower
+                            .network
+                            .find_nakamoto_block_reward_cycle(&sortdb, &bad_block);
+                        let want = (
+                            Some(
+                                follower
+                                    .network
+                                    .burnchain
+                                    .block_height_to_reward_cycle(ancestor_sn.block_height)
+                                    .unwrap(),
+                            ),
+                            true,
                         );
+                        if got != want {
+                            deferred_failures.push(format!(
+                                "stale-consensus-hash reward cycle mismatch: {got:?} != {want:?}"
+                            ));
+                        }
                     }
 
                     // go process the blocks _as if_ they came from a network result
@@ -706,7 +637,12 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                         );
 
                         // because we process in order, they should all get processed
-                        assert_eq!(num_processed, blocks.len() as u64);
+                        if num_processed != blocks.len() as u64 {
+                            deferred_failures.push(format!(
+                                "expected to process {} blocks, processed {num_processed}",
+                                blocks.len()
+                            ));
+                        }
                     }
 
                     // no need to buffer if we already have the block
@@ -720,15 +656,24 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                                 blocks: blocks.clone(),
                             },
                         );
-                    assert!(!buffer);
+                    if buffer {
+                        deferred_failures.push(
+                            "already-processed block batch should not need buffering".to_string(),
+                        );
+                    }
 
                     // we don't need these blocks anymore
                     for block in blocks.iter() {
-                        assert!(!follower.network.is_nakamoto_block_bufferable(
+                        if follower.network.is_nakamoto_block_bufferable(
                             &sortdb,
                             &node.chainstate,
-                            block
-                        ));
+                            block,
+                        ) {
+                            deferred_failures.push(format!(
+                                "already-processed block should not be bufferable: {}",
+                                block.block_id()
+                            ));
+                        }
                     }
 
                     follower.chain.stacks_node = Some(node);
@@ -750,6 +695,15 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                 .handle_new_nakamoto_stacks_block()
                 .unwrap();
         }
+
+        // The seed thread has exited by now (the follower sent it the exit
+        // command when it processed `SeedData::Exit`), so it is safe to assert
+        // without risking a `thread::scope` deadlock.
+        assert!(
+            deferred_failures.is_empty(),
+            "ready-block buffering checks failed:\n{}",
+            deferred_failures.join("\n")
+        );
 
         // compare chain tips
         let sortdb = follower.chain.sortdb.take().unwrap();
@@ -816,6 +770,13 @@ fn test_buffer_nonready_nakamoto_blocks() {
     let mut buffered_burn_ops = VecDeque::new();
     let mut all_blocks = vec![];
 
+    // Record the buffering decisions and assert them *after* the seed thread
+    // has exited. Asserting inline would panic the follower mid-run while the
+    // seed thread is still blocked on its comms channel, deadlocking
+    // `thread::scope`.
+    let mut batch_buffer_decisions = vec![];
+    let mut block_bufferable_decisions = vec![];
+
     thread::scope(|s| {
         thread::Builder::new()
             .name("seed".into())
@@ -872,15 +833,19 @@ fn test_buffer_nonready_nakamoto_blocks() {
                                 blocks: blocks.clone(),
                             },
                         );
-                    assert!(buffer);
-
-                    // we need these blocks, but we can't process them yet
+                    // The sortitions for these blocks haven't been processed
+                    // yet, so the batch, and every block in it, must be
+                    // bufferable. Record the decisions and assert them once
+                    // the seed thread has exited (see note above).
+                    batch_buffer_decisions.push(buffer);
                     for block in blocks.iter() {
-                        assert!(follower.network.is_nakamoto_block_bufferable(
-                            &sortdb,
-                            &node.chainstate,
-                            block
-                        ));
+                        block_bufferable_decisions.push(
+                            follower.network.is_nakamoto_block_bufferable(
+                                &sortdb,
+                                &node.chainstate,
+                                block,
+                            ),
+                        );
                     }
 
                     // pass this and other blocks to the p2p network's unsolicited message handler,
@@ -911,7 +876,6 @@ fn test_buffer_nonready_nakamoto_blocks() {
                         &sortdb,
                         &node.chainstate,
                         unsolicited_msgs,
-                        true,
                         true,
                     );
 
@@ -989,6 +953,24 @@ fn test_buffer_nonready_nakamoto_blocks() {
                 .unwrap();
         }
 
+        // The seed thread has exited by now (the follower sent it the exit
+        // command when it processed `SeedData::Exit`), so it is safe to assert
+        // without risking a `thread::scope` deadlock.
+        assert!(
+            !batch_buffer_decisions.is_empty(),
+            "test never observed a not-yet-ready block batch"
+        );
+        assert!(
+            batch_buffer_decisions.iter().all(|buffered| *buffered),
+            "every not-yet-ready block batch must be bufferable, got {batch_buffer_decisions:?}"
+        );
+        assert!(
+            block_bufferable_decisions
+                .iter()
+                .all(|bufferable| *bufferable),
+            "every not-yet-ready block must be individually bufferable, got {block_bufferable_decisions:?}"
+        );
+
         // compare chain tips
         let sortdb = follower.chain.sortdb.take().unwrap();
         let stacks_node = follower.chain.stacks_node.take().unwrap();
@@ -1045,6 +1027,12 @@ fn test_nakamoto_boot_node_from_block_push() {
 
     let (seed_comms, mut follower_comms) = SeedNode::comms();
 
+    // Collect assertion failures and check them *after* the seed thread has
+    // exited. Asserting inline would panic the follower mid-run while the seed
+    // thread is still live, deadlocking `thread::scope` (the seed spins forever
+    // waiting for a connection that never returns).
+    let mut deferred_failures: Vec<String> = vec![];
+
     thread::scope(|s| {
         s.spawn(|| {
             SeedNode::main(peer, rc_len, seed_comms);
@@ -1071,7 +1059,11 @@ fn test_nakamoto_boot_node_from_block_push() {
                 Some(SeedData::BurnOps(burn_ops, consensus_hash)) => {
                     debug!("Follower will process {}: {:?}", &consensus_hash, &burn_ops);
                     let (_, _, follower_ch) = follower.next_burnchain_block(burn_ops.clone());
-                    assert_eq!(follower_ch, consensus_hash);
+                    if follower_ch != consensus_hash {
+                        deferred_failures.push(format!(
+                            "follower consensus hash {follower_ch} != seed {consensus_hash}"
+                        ));
+                    }
                 }
                 Some(SeedData::Blocks(blocks)) => {
                     debug!("Follower got Nakamoto blocks {:?}", &blocks);
@@ -1093,6 +1085,15 @@ fn test_nakamoto_boot_node_from_block_push() {
                 .handle_new_nakamoto_stacks_block()
                 .unwrap();
         }
+
+        // The seed thread has exited by now (the follower sent it the exit
+        // command when it processed `SeedData::Exit`), so it is safe to assert
+        // without risking a `thread::scope` deadlock.
+        assert!(
+            deferred_failures.is_empty(),
+            "boot-from-block-push checks failed:\n{}",
+            deferred_failures.join("\n")
+        );
 
         // recover exited peer and get its chain tips
         let mut exited_peer = exited_peer.unwrap();
@@ -1142,4 +1143,151 @@ fn test_nakamoto_boot_node_from_block_push() {
 
         assert!(synced);
     });
+}
+
+/// Verify that the FutureView path in [`PeerNetwork::handle_unsolicited_StackerDBPushChunk`]
+/// validates chunks before buffering them.
+#[test]
+fn test_handle_unsolicited_stackerdb_push_chunk_future_view_validation() {
+    let observer = TestEventObserver::new();
+    let bitvecs = vec![vec![
+        true, true, true, true, true, true, true, true, true, true,
+    ]];
+
+    let (mut peer, _followers) =
+        make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 5, bitvecs, 1);
+
+    // Register a conversation for event_id 1 so get_p2p_convo() succeeds
+    let convo = peer.make_client_convo();
+    peer.network.peers.insert(1, convo);
+
+    // Create a test StackerDB with known signers.
+    let signer_privk = StacksPrivateKey::from_seed(&[42]);
+    let signer_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&signer_privk));
+    let contract_id =
+        QualifiedContractIdentifier::parse("ST000000000000000000002AMW42H.test-stackerdb").unwrap();
+
+    // Create the StackerDB in the database with slot 0 owned by our signer
+    let slots: Vec<(StacksAddress, u32)> = vec![(signer_addr.clone(), 1)];
+    {
+        let tx = peer
+            .network
+            .stackerdbs
+            .tx_begin(StackerDBConfig::noop())
+            .unwrap();
+        tx.create_stackerdb(&contract_id, &slots).unwrap();
+        tx.commit().unwrap();
+    }
+
+    peer.network.stacker_db_configs.insert(
+        contract_id.clone(),
+        StackerDBConfig {
+            chunk_size: 4096,
+            signers: slots.clone(),
+            write_freq: 0,
+            max_writes: u32::MAX,
+            hint_replicas: vec![],
+            max_neighbors: 8,
+        },
+    );
+
+    let mut stacks_node = peer.chain.stacks_node.take().unwrap();
+
+    let preamble = Preamble {
+        peer_version: 1,
+        network_id: 1,
+        seq: 0,
+        burn_block_height: 1,
+        burn_block_hash: BurnchainHeaderHash([0x01; 32]),
+        burn_stable_block_height: 0,
+        burn_stable_block_hash: BurnchainHeaderHash([0x00; 32]),
+        additional_data: 0,
+        signature: MessageSignature::empty(),
+        payload_len: 0,
+    };
+
+    // Use a bogus rc_consensus_hash that doesn't match the network's view and isn't known
+    // in the chain state, which triggers the FutureView Nack path.
+    let future_consensus_hash = ConsensusHash([0xfe; 20]);
+
+    // --- Test 1: Properly signed chunk should be BUFFERED on the FutureView path ---
+    let mut good_chunk_data = StackerDBPushChunkData {
+        contract_id: contract_id.clone(),
+        rc_consensus_hash: future_consensus_hash.clone(),
+        chunk_data: StackerDBChunkData::new(0, 1, vec![1, 2, 3, 4, 5]),
+    };
+    good_chunk_data.chunk_data.sign(&signer_privk).unwrap();
+
+    let result = peer
+        .network
+        .handle_unsolicited_StackerDBPushChunk(
+            &mut stacks_node.chainstate,
+            1,
+            &preamble,
+            &good_chunk_data,
+            false,
+        )
+        .unwrap();
+
+    assert_eq!(
+        result,
+        (true, false),
+        "chunk with valid signature must be buffered on FutureView path"
+    );
+
+    // --- Test 2: Forged signature (empty) should be REJECTED ---
+    // An empty signature can't be recovered, so chunk validation fails with error.
+    let bad_chunk_data = StackerDBPushChunkData {
+        contract_id: contract_id.clone(),
+        rc_consensus_hash: future_consensus_hash.clone(),
+        chunk_data: StackerDBChunkData {
+            slot_id: 0,
+            slot_version: 1,
+            sig: MessageSignature::empty(),
+            data: vec![1, 2, 3, 4, 5],
+        },
+    };
+
+    let result = peer
+        .network
+        .handle_unsolicited_StackerDBPushChunk(
+            &mut stacks_node.chainstate,
+            1,
+            &preamble,
+            &bad_chunk_data,
+            false,
+        )
+        .unwrap_err();
+
+    assert!(
+        matches!(result, NetError::VerifyingError(_)),
+        "chunk with forged (empty) signature must be rejected"
+    );
+
+    // --- Test 3: Valid signature from the WRONG signer should be REJECTED ---
+    let wrong_privk = StacksPrivateKey::from_seed(&[99]);
+
+    let mut wrong_signer_chunk = StackerDBPushChunkData {
+        contract_id: contract_id.clone(),
+        rc_consensus_hash: future_consensus_hash,
+        chunk_data: StackerDBChunkData::new(0, 1, vec![1, 2, 3, 4, 5]),
+    };
+    wrong_signer_chunk.chunk_data.sign(&wrong_privk).unwrap();
+
+    let result = peer
+        .network
+        .handle_unsolicited_StackerDBPushChunk(
+            &mut stacks_node.chainstate,
+            1,
+            &preamble,
+            &wrong_signer_chunk,
+            false,
+        )
+        .unwrap();
+
+    assert_eq!(
+        result,
+        (false, false),
+        "chunk signed by wrong signer must be rejected on FutureView path"
+    );
 }
