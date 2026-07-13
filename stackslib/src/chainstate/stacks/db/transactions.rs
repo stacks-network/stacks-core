@@ -745,30 +745,49 @@ impl StacksChainState {
                     post_condition,
                     TransactionPostCondition::Staking(..) | TransactionPostCondition::Pox(..)
                 ) {
-                    let msg = "Invalid Stacks transaction: Staking/Pox post-condition is not supported before Stacks 4.0".to_string();
+                    let msg = "Invalid Stacks transaction: Staking/Pox post-condition is not supported before epoch 4.0".to_string();
                     info!("{}", &msg; "txid" => %tx.txid());
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
             }
         }
 
-        // check that the requested Clarity version is supported in this epoch.
-        // Only a versioned smart-contract deploy can pin a specific version;
-        // every other transaction implicitly uses the epoch default. A version
-        // newer than the epoch allows is statically invalid, so reject it
-        // here.
-        if let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload {
-            let max_version = ClarityVersion::default_for_epoch(epoch_id);
-            if *clarity_version > max_version {
-                let msg = format!(
-                    "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch_id} only supports up to {max_version}",
-                    tx.txid()
-                );
-                info!("{msg}");
-                return Err(Error::InvalidStacksTransaction(msg, false));
-            }
-        }
+        Self::validate_deploy_clarity_version(tx, epoch_id)?;
 
+        Ok(())
+    }
+
+    /// Validate the Clarity version pinned by a versioned smart-contract
+    /// deploy: newer than the epoch default is statically invalid, and from
+    /// epoch 4.0 older versions are rejected too - already-deployed contracts
+    /// keep running at their pinned version, and the Clarity 6 name-shadowing
+    /// rules let contracts that were only version-locked by later-reserved
+    /// names use the latest version instead. Unversioned deploys use the
+    /// epoch default.
+    fn validate_deploy_clarity_version(
+        tx: &StacksTransaction,
+        epoch_id: StacksEpochId,
+    ) -> Result<(), Error> {
+        let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload else {
+            return Ok(());
+        };
+        let epoch_default = ClarityVersion::default_for_epoch(epoch_id);
+        if *clarity_version > epoch_default {
+            let msg = format!(
+                "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch_id} only supports up to {epoch_default}",
+                tx.txid()
+            );
+            info!("{msg}");
+            return Err(Error::InvalidStacksTransaction(msg, false));
+        }
+        if epoch_id >= StacksEpochId::Epoch40 && *clarity_version < epoch_default {
+            let msg = format!(
+                "Invalid transaction {}: asks for {clarity_version}, but epoch {epoch_id} requires contracts to use {epoch_default}",
+                tx.txid()
+            );
+            info!("{msg}");
+            return Err(Error::InvalidStacksTransaction(msg, false));
+        }
         Ok(())
     }
 
@@ -2305,6 +2324,69 @@ pub mod test {
                     assert!(msg.contains("target epoch is not activated"), "{msg}");
                 }
                 _ => panic!("Expected InvalidStacksTransaction for epoch {epoch_id:?}"),
+            }
+        };
+    }
+
+    #[rstest]
+    // Before epoch 4.0, pinning an older Clarity version is allowed.
+    #[case(StacksEpochId::Epoch34, Some(ClarityVersion::Clarity5), true)]
+    // From epoch 4.0, a deploy pinning a version below the epoch default is
+    // rejected at pre-check; the latest version and unversioned deploys (which
+    // resolve to the epoch default) are accepted.
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity5), false)]
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity6), true)]
+    #[case(StacksEpochId::Epoch40, None, true)]
+    fn precheck_deploy_version_enforcement(
+        #[case] epoch_id: StacksEpochId,
+        #[case] version_opt: Option<ClarityVersion>,
+        #[case] should_succeed: bool,
+    ) {
+        let sk = Secp256k1PrivateKey::random();
+        let auth = TransactionAuth::from_p2pkh(&sk).unwrap();
+        let chain_id = 0x80000000;
+
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id,
+            auth,
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::from_literal("test-contract"),
+                    code_body: StacksString::from_str("(define-public (ping) (ok true))").unwrap(),
+                },
+                version_opt,
+            ),
+        };
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&sk).unwrap();
+        let tx = signer.get_tx().unwrap();
+
+        let config = DBConfig {
+            version: CHAINSTATE_VERSION.to_string(),
+            mainnet: false,
+            chain_id,
+        };
+        let result = StacksChainState::process_transaction_precheck(&config, &tx, epoch_id, None);
+        if should_succeed {
+            result.unwrap();
+            // An unversioned deploy runs at the epoch default, which from
+            // Epoch 4.0 is the latest version.
+            if version_opt.is_none() {
+                assert_eq!(
+                    ClarityVersion::default_for_epoch(epoch_id),
+                    ClarityVersion::latest()
+                );
+            }
+        } else {
+            match result.unwrap_err() {
+                Error::InvalidStacksTransaction(msg, false) => {
+                    assert!(msg.contains("requires contracts to use"), "{msg}");
+                }
+                e => panic!("Expected InvalidStacksTransaction for epoch {epoch_id:?}, got {e:?}"),
             }
         };
     }

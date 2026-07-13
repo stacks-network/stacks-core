@@ -50,7 +50,7 @@ pub mod test_util;
 
 pub mod clarity;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub use clarity_types::max_call_stack_depth_for_epoch;
 use stacks_common::types::StacksEpochId;
@@ -565,6 +565,31 @@ pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
         || variables::is_reserved_name(name, version)
 }
 
+/// A reserved name is "shadowable" at `version` if some earlier Clarity
+/// version had it free, so legacy contracts and traits may carry it. Names
+/// reserved since Clarity 1 are never shadowable; removed natives (e.g.
+/// `block-height` from Clarity 3 on) are plain free names, not shadowable.
+///
+/// From Clarity 6, a public or read-only function may take a shadowable name,
+/// but only to implement a trait method that predates the reservation -
+/// checked per trait in `validate_shadowable_reserved_definitions`; this
+/// function is just the feasibility filter. Both checks run in the VM at
+/// initialization (analysis accepts these defines, like reserved names
+/// generally).
+///
+/// The definition never wins over the native: bare references still resolve
+/// to the native, and the function is reachable only by literal name
+/// (`contract-call?`, trait dispatch). Keyword names split by position:
+/// `(stacks-block-height)` calls the function, the bare atom reads the
+/// keyword.
+pub fn is_shadowable_reserved(name: &str, version: &ClarityVersion) -> bool {
+    is_reserved(name, version)
+        && ClarityVersion::ALL
+            .iter()
+            .filter(|v| *v < version)
+            .any(|v| !is_reserved(name, v))
+}
+
 /// This function evaluates a list of expressions, sharing a global context.
 /// It returns the final evaluated result.
 /// Used for the initialization of a new contract.
@@ -690,9 +715,100 @@ pub fn eval_all(
             }
         }
 
+        validate_shadowable_reserved_definitions(contract_context, global_context)?;
+
         contract_context.data_size = total_memory_use;
         Ok(last_executed)
     })
+}
+
+/// From Clarity 6, a function may be defined under a shadowable reserved name
+/// only to implement a method of a trait this contract declares with
+/// `impl-trait`, and only if the name was free at the trait's own Clarity
+/// version (see [`is_shadowable_reserved`]). Runs after every expression has
+/// been evaluated so that the relative order of the define and the
+/// `impl-trait` declaration does not matter.
+fn validate_shadowable_reserved_definitions(
+    contract_context: &ContractContext,
+    global_context: &mut GlobalContext,
+) -> Result<(), VmExecutionError> {
+    let version = *contract_context.get_clarity_version();
+    if version < ClarityVersion::Clarity6 {
+        return Ok(());
+    }
+    // Shadowable defined names not yet matched to a legacy trait method. A
+    // sorted set, so the name reported on failure is the same on every node.
+    let mut unmatched = contract_context
+        .functions
+        .keys()
+        .filter(|name| is_shadowable_reserved(name, &version))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if unmatched.is_empty() {
+        return Ok(());
+    }
+
+    // `implemented_traits` is a HashSet whose iteration order is
+    // nondeterministic across processes; the loop below charges cost and
+    // memory per trait and can fail mid-way, so it must run in a
+    // deterministic order on every node.
+    let mut implemented_traits: Vec<_> = contract_context.implemented_traits.iter().collect();
+    implemented_traits.sort();
+
+    let mut memory_use = 0;
+    finally_drop_memory!(global_context, memory_use; {
+        for trait_identifier in implemented_traits {
+            if unmatched.is_empty() {
+                break;
+            }
+            // A trait defined by this same contract cannot declare reserved
+            // method names, so only foreign traits are consulted.
+            if trait_identifier.contract_identifier == contract_context.contract_identifier {
+                continue;
+            }
+            // Loading the trait-defining contract is priced like any contract
+            // load (see `inner_execute_contract`), once per implemented trait
+            // until every name is matched. A missing contract surfaces as
+            // `NoSuchContract` from the store itself; other load failures are
+            // node-local and must propagate as-is.
+            let contract_size = global_context
+                .database
+                .get_contract_size(&trait_identifier.contract_identifier)?;
+            runtime_cost(ClarityCostFunction::LoadContract, global_context, contract_size)?;
+            // `add_memory` counts the memory before reporting an exceeded
+            // limit, so record the amount first to drop exactly what was
+            // added on every exit path.
+            memory_use += contract_size;
+            global_context.add_memory(contract_size)?;
+            let defining_contract = global_context
+                .database
+                .get_contract(&trait_identifier.contract_identifier)?;
+            remove_matched_names(&mut unmatched, &defining_contract, &trait_identifier.name);
+        }
+        if let Some(name) = unmatched.first() {
+            return Err(RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()).into());
+        }
+        Ok(())
+    })
+}
+
+/// Removes from `unmatched` every method name of `trait_name` in
+/// `defining_contract` that was still free - not yet reserved - at the
+/// defining contract's own Clarity version.
+fn remove_matched_names(
+    unmatched: &mut BTreeSet<ClarityName>,
+    defining_contract: &ContractContext,
+    trait_name: &str,
+) {
+    let Some(trait_definition) = defining_contract.lookup_trait_definition(trait_name) else {
+        return;
+    };
+    let trait_version = defining_contract.get_clarity_version();
+    for method in trait_definition.into_keys() {
+        if !is_reserved(&method, trait_version) {
+            unmatched.remove(&method);
+        }
+    }
 }
 
 /// Run provided program in a brand new environment, with a transient, empty

@@ -94,7 +94,7 @@ fn epoch_40_read_budget_still_rejects_calls_beyond_double_the_old_limit() {
         function_args: &[],
         deploy_epochs: &[StacksEpochId::Epoch40],
         call_epochs: &[StacksEpochId::Epoch40],
-        clarity_versions: &[ClarityVersion::Clarity2],
+        clarity_versions: &[ClarityVersion::Clarity6],
     );
 
     let calls = report.contract_calls();

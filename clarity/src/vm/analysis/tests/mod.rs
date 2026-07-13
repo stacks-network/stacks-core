@@ -28,7 +28,7 @@ use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::time_tracker::TimeTracker;
-use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 
 mod utils {
     use super::*;
@@ -496,4 +496,59 @@ fn test_run_analysis_generous_deadline_succeeds() {
         "analysis deadline should not trip on a trivial contract, got {:?}",
         result.map(|_| ())
     );
+}
+
+// --- Clarity 6: a contract may define a public/read-only function under a
+// --- shadowable reserved name (free in Clarity 1, reserved later). The
+// --- definition never wins over the native: bare references still resolve to
+// --- the native; the function is reachable only by literal-name lookup
+// --- (contract-call?, trait dispatch).
+
+#[test]
+fn clarity6_shadowable_define_keeps_native_for_bare_references() {
+    // `slice?` has been a native function since Clarity 2. The contract defines
+    // its own `slice?` AND still uses the native by its bare name.
+    let snippet = "(define-read-only (slice? (a int) (b int)) (+ a b))
+                   (define-read-only (use-native) (slice? (list 1 2 3) u0 u2))";
+    let (_, analysis) =
+        mem_run_analysis(snippet, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap();
+
+    // The user signature is recorded under its literal name, so static
+    // cross-contract calls and trait-compliance checks can find it.
+    assert!(analysis.read_only_function_types.contains_key("slice?"));
+
+    // A bare call shaped for the user function still types against the NATIVE
+    // and fails: within the contract, the reserved name means the native.
+    let snippet_bare = "(define-read-only (slice? (a int) (b int)) (+ a b))
+                        (define-read-only (use-mine) (slice? 2 3))";
+    mem_run_analysis(
+        snippet_bare,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+    )
+    .unwrap_err();
+}
+
+#[test]
+fn clarity6_native_keyword_still_wins_at_analysis() {
+    // `stacks-block-height` is a native (uint) keyword since Clarity 3; keyword
+    // references keep resolving to the native in every version, including 6.
+    let snippet = "(define-read-only (get-it) stacks-block-height)
+                   (get-it)";
+    for (version, epoch) in [
+        (ClarityVersion::Clarity5, StacksEpochId::Epoch34),
+        (ClarityVersion::Clarity6, StacksEpochId::Epoch40),
+    ] {
+        let (ty, _) = mem_run_analysis(snippet, version, epoch).unwrap();
+        assert_eq!(ty, Some(TypeSignature::UIntType));
+    }
+}
+
+#[test]
+fn clarity6_native_available_when_not_shadowed() {
+    // A Clarity 6 contract that does not redefine `element-at?` gets the native
+    // as usual.
+    let snippet = "(define-read-only (use-native) (element-at? (list 1 2 3) u0))
+                   (use-native)";
+    mem_run_analysis(snippet, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap();
 }

@@ -1,0 +1,1 @@
+From Epoch 4.0, a versioned smart-contract deploy pinning a Clarity version older than the epoch default is rejected as statically invalid: new contracts must use the latest Clarity version, while already-deployed contracts keep running at their pinned version.
