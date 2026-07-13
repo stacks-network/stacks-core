@@ -1,1 +1,0 @@
-Fixed an error where there could be an arithmetic underflow if a staker claimed rewards before the signer claimed their own first. Instead, we now explicitly return an error.

@@ -1,1 +1,0 @@
-Consensus now rejects blocks that contain transactions with non-normalized "high S" secp256k1 signatures. This is a requirement of SIP 005, but was never correctly implemented. This change applies starting with Epoch 4.0.
