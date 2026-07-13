@@ -189,7 +189,7 @@ pub struct CoinbaseInterval {
 pub const BITCOIN_MAINNET_GENESIS_BURN_HEIGHT: u64 = 666_050;
 
 /// Burnchain height at which the Stacks 4.0 epoch activates (mainnet).
-pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 1_012_860;
+pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 960_230;
 
 /// Burnchain height of the Stacks genesis block (testnet).
 pub const BITCOIN_TESTNET_GENESIS_BURN_HEIGHT: u64 = 2_000_000;
