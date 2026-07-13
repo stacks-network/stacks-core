@@ -1,0 +1,1 @@
+The miner-spend estimators (`get_miner_spend` CLI helper and `MinerStats`) now model block-commit outputs using the PoX-5 waterfall single-output scheme when active, matching the relayer.

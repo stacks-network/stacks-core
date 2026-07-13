@@ -152,12 +152,7 @@ fn setup_failed_tx_test(reject_code: ValidateRejectCode) -> FailedTxTestContext 
     // Pause mining so we can inject rejections without the miner immediately reproposing
     TEST_MINE_SKIP.set(true);
     // Verify the first proposal contains all 4 transfer txs
-    let first_txids: Vec<_> = first_proposal
-        .block
-        .txs
-        .iter()
-        .map(|tx| tx.txid())
-        .collect();
+    let first_txids: Vec<_> = first_proposal.block.txs().map(|tx| tx.txid()).collect();
     assert!(
         first_txids.contains(&txid_a0),
         "First proposal should contain sender A tx 0"
@@ -238,7 +233,7 @@ fn setup_failed_tx_test(reject_code: ValidateRejectCode) -> FailedTxTestContext 
     let second_block = wait_for_block_pushed_by_miner_key(30, expected_height, &miner_pubk)
         .expect("Miner did not propose a second block");
     info!("------------------------- Verify second block excludes sender A's txs -------------------------");
-    let second_txids: Vec<_> = second_block.txs.iter().map(|tx| tx.txid()).collect();
+    let second_txids: Vec<_> = second_block.txs().map(|tx| tx.txid()).collect();
     assert_eq!(
         second_txids.len(),
         2,
@@ -299,7 +294,7 @@ fn miner_excludes_failed_txid_and_nonce_dependent_txs() {
         &miner_pubk,
     )
     .expect("Miner did not mine a third block");
-    let third_txids: Vec<_> = third_block.txs.iter().map(|tx| tx.txid()).collect();
+    let third_txids: Vec<_> = third_block.txs().map(|tx| tx.txid()).collect();
     assert!(
         third_txids.contains(&ctx.txid_a0),
         "Third block should contain sender A tx 0 (exclusion only lasts one block)"
@@ -364,7 +359,7 @@ fn miner_permanently_bans_problematic_txid() {
         &miner_pubk,
     )
     .expect("Miner did not mine a third block");
-    let third_txids: Vec<_> = third_block.txs.iter().map(|tx| tx.txid()).collect();
+    let third_txids: Vec<_> = third_block.txs().map(|tx| tx.txid()).collect();
     assert_eq!(
         third_txids.len(),
         1,

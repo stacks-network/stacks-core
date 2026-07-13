@@ -118,8 +118,8 @@ fn setup_test_environment(
     fs::create_dir_all(signer_db_dir).unwrap();
     let signer_db = SignerDb::new(signer_db_path).unwrap();
 
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader {
+    let mut block = NakamotoBlock::new(
+        NakamotoBlockHeader {
             version: 1,
             chain_length: 10,
             burn_spent: 10,
@@ -131,9 +131,10 @@ fn setup_test_environment(
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
         },
-        txs: vec![],
-    };
+        vec![],
+    );
 
     block.header.miner_signature = block_sk
         .sign(block.header.miner_signature_hash().as_bytes())
@@ -276,8 +277,8 @@ fn reorg_timing_testing(
     cur_sortition.data.miner_pubkey = Some(block_pk);
 
     let block_proposal_1 = BlockProposal {
-        block: NakamotoBlock {
-            header: NakamotoBlockHeader {
+        block: NakamotoBlock::new(
+            NakamotoBlockHeader {
                 version: 1,
                 chain_length: 10,
                 burn_spent: 10,
@@ -289,9 +290,10 @@ fn reorg_timing_testing(
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
-            txs: vec![],
-        },
+            vec![],
+        ),
         burn_height: 2,
         reward_cycle: 1,
         block_proposal_data: BlockProposalData::empty(),
@@ -423,7 +425,7 @@ where
     let mut payload = make_payload(&mut cur_sortition, &block);
     payload.previous_tenure_end = block.header.parent_block_id.clone();
     let tx = make_tenure_change_tx(payload);
-    block.txs = vec![tx];
+    *block.executed_and_skipped_txs_mut() = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();
 
     let exit_flag = Arc::new(AtomicBool::new(false));
@@ -518,7 +520,7 @@ fn check_proposal_with_extend_during_replay() {
     extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
     extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
     let tx = make_tenure_change_tx(extend_payload);
-    block.txs = vec![tx];
+    *block.executed_and_skipped_txs_mut() = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();
 
     let replay_tx = make_stacks_transfer_tx(
@@ -603,8 +605,8 @@ fn check_sortition_timeout() {
 
     // Insert a signed over block so its no longer an empty tenure
     let block_proposal = BlockProposal {
-        block: NakamotoBlock {
-            header: NakamotoBlockHeader {
+        block: NakamotoBlock::new(
+            NakamotoBlockHeader {
                 version: 1,
                 chain_length: 10,
                 burn_spent: 10,
@@ -616,9 +618,10 @@ fn check_sortition_timeout() {
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
-            txs: vec![],
-        },
+            vec![],
+        ),
         burn_height: 2,
         reward_cycle: 1,
         block_proposal_data: BlockProposalData::empty(),
@@ -671,8 +674,8 @@ fn check_tenure_change_rejects_when_locally_accepted_block_exists() {
     // only queries by consensus_hash and block state — the block's transactions
     // are irrelevant to the duplicate check.
     let existing_block_proposal = BlockProposal {
-        block: NakamotoBlock {
-            header: NakamotoBlockHeader {
+        block: NakamotoBlock::new(
+            NakamotoBlockHeader {
                 version: 1,
                 chain_length: 10,
                 burn_spent: 10,
@@ -684,9 +687,10 @@ fn check_tenure_change_rejects_when_locally_accepted_block_exists() {
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
-            txs: vec![],
-        },
+            vec![],
+        ),
         burn_height: 2,
         reward_cycle: 1,
         block_proposal_data: BlockProposalData::empty(),
@@ -714,7 +718,7 @@ fn check_tenure_change_rejects_when_locally_accepted_block_exists() {
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, Some(VRFProof::empty())),
     );
-    block.txs = vec![tenure_change_tx, coinbase_tx];
+    *block.executed_and_skipped_txs_mut() = vec![tenure_change_tx, coinbase_tx];
     block.header.sign_miner(&block_sk).unwrap();
 
     let exit_flag = Arc::new(AtomicBool::new(false));

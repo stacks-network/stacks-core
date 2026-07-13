@@ -176,7 +176,7 @@ impl StackerDBListener {
         let signer_set =
             u32::try_from(reward_cycle_id % 2).expect("FATAL: reward cycle id % 2 exceeds u32");
 
-        let Some(ref reward_set_signers) = reward_set.signers else {
+        let Some(reward_set_signers) = reward_set.signers() else {
             error!("Could not initialize signing coordinator for reward set without signer");
             debug!("reward set: {reward_set:?}");
             return Err(ChainstateError::NoRegisteredSigners(0));

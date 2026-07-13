@@ -1,0 +1,23 @@
+Updated the print event inside `register-for-bond` to include the transaction info for L1 lockups.
+
+For an L1 lockup, you'll see:
+
+```clar
+{
+  btc-lockup: {
+    type: "l1",
+    txs: (some { txid: (buff 32), output-index: uint })
+  }
+}
+```
+
+For an L2 lockup, you'll see:
+
+```clar
+{
+  btc-lockup: {
+    type: "l2",
+    txs: none,
+  }
+}
+```

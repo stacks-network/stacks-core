@@ -1,0 +1,1 @@
+Allow only the signer to call `grant-signer-key`. Without this check someone could grief the signer, by watching for their call to `register-self` in the mempool, grabbing the `signer-key`, and then frontrunning a call to `grant-signer-key`, causing the signer's call to fail with `ERR_SIGNER_KEY_GRANT_USED`.

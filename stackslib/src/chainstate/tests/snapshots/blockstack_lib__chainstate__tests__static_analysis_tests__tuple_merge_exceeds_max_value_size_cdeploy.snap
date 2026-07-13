@@ -1,0 +1,206 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result.get_expected_results()
+---
+[
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 7f3c5f96cb4f197ca68a7874be1540bd01101e075acb12133ec5d8911654ca4f: ClarityError(StaticCheck(StaticCheckError { err: Unreachable(\"Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\"), expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"ok\")), id: 172 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"merge\")), id: 174 }, SymbolicExpression { expr: Atom(ClarityName(\"ta\")), id: 175 }, SymbolicExpression { expr: Atom(ClarityName(\"tb\")), id: 176 }]), id: 173 }]), id: 171 }]), diagnostic: Diagnostic { level: Error, message: \"unexpected and unacceptable interpreter behavior: Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 8d410360f261cb58308107354ca0364cb97c5d3d013f09d6afc5e475d22cf883: ClarityError(StaticCheck(StaticCheckError { err: Unreachable(\"Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\"), expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"ok\")), id: 172 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"merge\")), id: 174 }, SymbolicExpression { expr: Atom(ClarityName(\"ta\")), id: 175 }, SymbolicExpression { expr: Atom(ClarityName(\"tb\")), id: 176 }]), id: 173 }]), id: 171 }]), diagnostic: Diagnostic { level: Error, message: \"unexpected and unacceptable interpreter behavior: Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 205cc88fab70caaad191752ff1be37eeac53efcec95d30434df0d6e0ca834036: ClarityError(StaticCheck(StaticCheckError { err: Unreachable(\"Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\"), expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"ok\")), id: 172 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"merge\")), id: 174 }, SymbolicExpression { expr: Atom(ClarityName(\"ta\")), id: 175 }, SymbolicExpression { expr: Atom(ClarityName(\"tb\")), id: 176 }]), id: 173 }]), id: 171 }]), diagnostic: Diagnostic { level: Error, message: \"unexpected and unacceptable interpreter behavior: Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 25bf074211108f1013927ee8ab8fcfc90f669aae3634317313d92a7b8f7af3e6: ClarityError(StaticCheck(StaticCheckError { err: Unreachable(\"Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\"), expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"ok\")), id: 172 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"merge\")), id: 174 }, SymbolicExpression { expr: Atom(ClarityName(\"ta\")), id: 175 }, SymbolicExpression { expr: Atom(ClarityName(\"tb\")), id: 176 }]), id: 173 }]), id: 171 }]), diagnostic: Diagnostic { level: Error, message: \"unexpected and unacceptable interpreter behavior: Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch34,
+    error: "Invalid Stacks block 3ccc7959909eb66e4071780c595ac12e8236872140cd9898fd3b3ddf4ddd118e: ClarityError(StaticCheck(StaticCheckError { err: Unreachable(\"Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\"), expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"ok\")), id: 172 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"merge\")), id: 174 }, SymbolicExpression { expr: Atom(ClarityName(\"ta\")), id: 175 }, SymbolicExpression { expr: Atom(ClarityName(\"tb\")), id: 176 }]), id: 173 }]), id: 171 }]), diagnostic: Diagnostic { level: Error, message: \"unexpected and unacceptable interpreter behavior: Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c3cb6ffa4b392cac63da6cf938ca01098875febd46b39efc067810280c080aae",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: tuple-merge-overflow-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 177,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 52162,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 177,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 52162,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "411bce021acf12a5dcd67d012a1545c96676910b327c3c3dae1f9e1cb1869a50",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: tuple-merge-overflow-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 177,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 52162,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 177,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 52162,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "db7415eaa975289668950b202d9a6160f8e6f94077aba49b2c5cb0c12508f851",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: tuple-merge-overflow-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 177,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 52162,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 177,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 52162,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ac9b94d79f0ed7a4806dc47191d9adeef9ca27b2df277e4381d17151c5dc3b16",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: tuple-merge-overflow-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 177,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 52162,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 177,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 52162,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "dafd367ffe49a2fff9ff44943379581af0ab0f9100699af4154077eb209fab30",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: tuple-merge-overflow-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 177,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 52162,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 177,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 52162,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "004bedff0046a7d214bde0afe817287397de87ee37205378ea5c0f785e0446f2",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: tuple-merge-overflow-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(:0:0: created a type which was greater than maximum allowed value size) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 177,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 52162,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 177,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 52162,
+    ),
+  )),
+]

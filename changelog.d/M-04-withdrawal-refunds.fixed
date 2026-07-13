@@ -1,0 +1,1 @@
+Return rejected sBTC withdrawal amounts to stakers and let admins sweep orphaned fee-refund dust in the pox-5 reference signer-manager. The admin sweep now subtracts outstanding withdrawal liability so it can never sweep funds owed to stakers, and accepted withdrawals are retired via the permissionless `settle-accepted-withdrawal` to release their liability.

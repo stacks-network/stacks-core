@@ -41,7 +41,7 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::{
     make_mem_abort_callback, MinerTenureInfoCause, NakamotoBlockBuilder,
 };
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxVersions;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
@@ -572,15 +572,6 @@ impl NakamotoBlockProposal {
             });
         }
 
-        // Check block version. If it's less than the compiled-in version, just emit a warning
-        // because there's a new version of the node / signer binary available that really ought to
-        // be used (hint, hint)
-        if self.block.header.version != NAKAMOTO_BLOCK_VERSION {
-            warn!("Proposed block has unexpected version. Upgrade your node and/or signer ASAP.";
-                  "block.header.version" => %self.block.header.version,
-                  "expected" => %NAKAMOTO_BLOCK_VERSION);
-        }
-
         // open sortition view to the current burn view.
         // If the block has a TenureChange with an Extend cause, then the burn view is whatever is
         // indicated in the TenureChange.
@@ -749,7 +740,7 @@ impl NakamotoBlockProposal {
         let per_tx_max_execution_time = Duration::from_secs(max_tx_execution_time_secs);
         // Bound the analysis phase during proposal validation by the
         // dedicated per-tx analysis budget, independently of the eval budget above.
-        builder.max_analysis_time = Some(Duration::from_secs(max_tx_analysis_time_secs));
+        let per_tx_max_analysis_time = Duration::from_secs(max_tx_analysis_time_secs);
         let mut receipts_total = 0u64;
         for (i, tx) in self.block.txs.iter().enumerate() {
             // Enforce the overall block validation budget between txs. A tx
@@ -798,6 +789,7 @@ impl NakamotoBlockProposal {
                         tx_len,
                         &BlockLimitFunction::NO_LIMIT_HIT,
                         Some(per_tx_max_execution_time),
+                        Some(per_tx_max_analysis_time),
                         &mut receipts_total,
                     ),
                     Err(e) => e,
@@ -1004,6 +996,7 @@ impl NakamotoBlockProposal {
                     replay_tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
                     None,
+                    None,
                     &mut total_receipts,
                 );
                 match tx_result {
@@ -1071,6 +1064,7 @@ impl NakamotoBlockProposal {
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
+                None,
                 &mut total_receipts,
             );
         }
@@ -1085,6 +1079,7 @@ impl NakamotoBlockProposal {
                     &tx,
                     tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
+                    None,
                     None,
                     &mut total_receipts,
                 );

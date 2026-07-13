@@ -829,6 +829,25 @@ impl Signer {
             ));
         }
 
+        // For this first version, reject any block that marks transactions as
+        // problematic. The criteria for what may legitimately appear in
+        // `problematic_txs` has not been decided yet, so signers reject all
+        // such blocks until that policy is established.
+        if !block_info.block.header.problematic_txs.is_empty() {
+            warn!(
+                "{self}: Block proposal marks transactions as problematic, which signers do not yet allow; rejecting";
+                "signer_signature_hash" => %block_info.block.header.signer_signature_hash(),
+                "block_id" => %block_info.block.block_id(),
+                "problematic_tx_count" => block_info.block.header.problematic_txs.len(),
+            );
+            return Some(
+                self.create_block_rejection(
+                    RejectReason::ProblematicTransactions,
+                    &block_info.block,
+                ),
+            );
+        }
+
         if state_version.uses_global_state() {
             self.check_block_against_global_state(stacks_client, &block_info.block)
         } else {
@@ -2338,7 +2357,8 @@ fn should_reevaluate_reject_reason(block_info: &BlockInfo) -> bool {
             | RejectReason::NotLatestSortitionWinner
             | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound
-            | RejectReason::IrrecoverablePubkeyHash => {
+            | RejectReason::IrrecoverablePubkeyHash
+            | RejectReason::ProblematicTransactions => {
                 // No need to re-validate these types of rejections.
                 false
             }

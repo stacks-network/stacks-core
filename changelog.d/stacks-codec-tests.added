@@ -1,1 +1,0 @@
-Moved transaction-codec tests from `stackslib` into the `stacks-codec` crate and added new tests for previously-untested wire-format edges.
