@@ -431,10 +431,19 @@ pub trait DbSnapshotSpec {
     /// to. [`NoBind`] for DBs whose specs carry no placeholders.
     type Bind: Copy + 'static;
 
+    /// The DB's canonical copy specs: the single source of truth for its table
+    /// set. Both [`Self::table_names`] and the default [`Self::copy_specs`] derive
+    /// from this. A DB whose executed specs vary with a runtime parameter (the
+    /// sortition boundary) returns the boundary-invariant list here and overrides
+    /// [`Self::copy_specs`] for the runtime variant.
+    fn copy_spec_list() -> &'static [TableCopySpec<Self::Bind>];
+
     /// Every table the snapshot accounts for (row-copied plus schema-only): the
     /// set whose schema must be cloned into the destination. Independent of any
     /// runtime parameter, hence an associated fn.
-    fn table_names() -> Vec<&'static str>;
+    fn table_names() -> Vec<&'static str> {
+        TableCopySpecs::new(Self::copy_spec_list()).table_names()
+    }
 
     /// Tables recognized by the source-schema guard beyond the copy specs --
     /// MARF infra (created by the squash engine) or deliberately-ignored tables.
@@ -469,9 +478,12 @@ pub trait DbSnapshotSpec {
         )
     }
 
-    /// The copy specs to execute. May pick a template from a runtime parameter
-    /// (e.g. the sortition boundary), but always over [`Self::table_names`].
-    fn copy_specs(&self) -> TableCopySpecs<'static, Self::Bind>;
+    /// The copy specs to execute. Defaults to [`Self::copy_spec_list`]; a DB
+    /// whose specs vary with a runtime parameter (the sortition boundary)
+    /// overrides this while keeping the same table set.
+    fn copy_specs(&self) -> TableCopySpecs<'static, Self::Bind> {
+        TableCopySpecs::new(Self::copy_spec_list())
+    }
 
     /// Positional bind values for a spec's `?N` placeholders. Called only for
     /// specs that carry a bind; DBs with [`NoBind`] specs never reach it, so

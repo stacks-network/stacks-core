@@ -22,7 +22,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 
 use super::common::{
     clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec,
-    TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
+    TableCopySpec, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 use crate::burnchains::PoxConstants;
@@ -47,8 +47,8 @@ pub(super) struct IndexDbSnapshotSpec {
 impl DbSnapshotSpec for IndexDbSnapshotSpec {
     type Bind = IndexBind;
 
-    fn table_names() -> Vec<&'static str> {
-        TableCopySpecs::new(index_copy_specs()).table_names()
+    fn copy_spec_list() -> &'static [TableCopySpec<IndexBind>] {
+        index_copy_specs()
     }
 
     fn extra_recognized_tables() -> Vec<&'static str> {
@@ -61,10 +61,6 @@ impl DbSnapshotSpec for IndexDbSnapshotSpec {
 
     fn classify_hint() -> &'static str {
         "index_copy_specs() in snapshot/index.rs"
-    }
-
-    fn copy_specs(&self) -> TableCopySpecs<'static, IndexBind> {
-        TableCopySpecs::new(index_copy_specs())
     }
 
     fn bind_params(&self, bind: IndexBind) -> Result<Vec<Value>, Error> {

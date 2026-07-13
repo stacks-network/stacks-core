@@ -23,7 +23,7 @@ use stacks_common::types::sqlite::NO_PARAMS;
 
 use super::common::{
     clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec, NoBind,
-    TableCopySpec, TableCopySpecs,
+    TableCopySpec,
 };
 use super::sortition::SortitionSnapshotExt;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -67,8 +67,8 @@ pub(super) struct BurnchainDbSnapshotSpec;
 impl DbSnapshotSpec for BurnchainDbSnapshotSpec {
     type Bind = NoBind;
 
-    fn table_names() -> Vec<&'static str> {
-        TableCopySpecs::new(burnchain_copy_specs()).table_names()
+    fn copy_spec_list() -> &'static [TableCopySpec<NoBind>] {
+        burnchain_copy_specs()
     }
 
     fn db_label() -> &'static str {
@@ -77,10 +77,6 @@ impl DbSnapshotSpec for BurnchainDbSnapshotSpec {
 
     fn classify_hint() -> &'static str {
         "burnchain_copy_specs() in snapshot/burnchain.rs"
-    }
-
-    fn copy_specs(&self) -> TableCopySpecs<'static, NoBind> {
-        TableCopySpecs::new(burnchain_copy_specs())
     }
 
     fn bind_params(&self, bind: NoBind) -> Result<Vec<Value>, Error> {

@@ -23,7 +23,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlo
 
 use super::common::{
     clone_schemas_from_source, copied_rows, execute_copy_specs, with_offline_write_session,
-    DbSnapshotSpec, NoBind, TableCopySpec, TableCopySpecs,
+    DbSnapshotSpec, NoBind, TableCopySpec,
 };
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::Error;
@@ -62,8 +62,8 @@ pub(super) struct NakamotoStagingDbSnapshotSpec;
 impl DbSnapshotSpec for NakamotoStagingDbSnapshotSpec {
     type Bind = NoBind;
 
-    fn table_names() -> Vec<&'static str> {
-        TableCopySpecs::new(nakamoto_copy_specs()).table_names()
+    fn copy_spec_list() -> &'static [TableCopySpec<NoBind>] {
+        nakamoto_copy_specs()
     }
 
     fn db_label() -> &'static str {
@@ -72,10 +72,6 @@ impl DbSnapshotSpec for NakamotoStagingDbSnapshotSpec {
 
     fn classify_hint() -> &'static str {
         "nakamoto_copy_specs() in snapshot/blocks.rs"
-    }
-
-    fn copy_specs(&self) -> TableCopySpecs<'static, NoBind> {
-        TableCopySpecs::new(nakamoto_copy_specs())
     }
 
     fn bind_params(&self, bind: NoBind) -> Result<Vec<Value>, Error> {

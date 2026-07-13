@@ -178,10 +178,12 @@ pub(super) enum SortitionBind {
 impl DbSnapshotSpec for SortitionDbSnapshotSpec {
     type Bind = SortitionBind;
 
-    fn table_names() -> Vec<&'static str> {
-        // Boundary-invariant: `has_boundary` only swaps memo SQL templates, not
-        // the table set (asserted by `test_sortition_copy_specs_boundary_invariant_table_set`).
-        TableCopySpecs::new(sortition_copy_specs(false)).table_names()
+    fn copy_spec_list() -> &'static [TableCopySpec<SortitionBind>] {
+        // Boundary-invariant list for classification/`table_names`: `has_boundary`
+        // only swaps the two memo SQL templates, not the table set (asserted by
+        // `test_sortition_copy_specs_boundary_invariant_table_set`). The executed
+        // specs are chosen by the `copy_specs` override below.
+        sortition_copy_specs(false)
     }
 
     fn extra_recognized_tables() -> Vec<&'static str> {
@@ -307,6 +309,23 @@ fn validate_tip_boundary(boundary: Option<&SortitionTipCopyBoundary>) -> Result<
     Ok(())
 }
 
+/// A `stacks_chain_tips*` memo-table spec. With a boundary the SQL is the
+/// anchor-rewrite template (its `?N` anchors bound via [`SortitionBind::TipMemo`]);
+/// without one it is the plain template, which has no placeholders and so carries
+/// no bind.
+const fn memo_spec(
+    table: &'static str,
+    include_burn_view: bool,
+    has_boundary: bool,
+) -> TableCopySpec<SortitionBind> {
+    let sql = stacks_tip_memo_copy_sql(include_burn_view, has_boundary);
+    if has_boundary {
+        TableCopySpec::sql_with_bind(table, sql, SortitionBind::TipMemo { include_burn_view })
+    } else {
+        TableCopySpec::sql(table, sql)
+    }
+}
+
 /// Build the copy specs for sortition side tables.
 ///
 /// Tables are grouped by their filter key:
@@ -352,20 +371,8 @@ pub(super) fn sortition_copy_specs(has_boundary: bool) -> &'static [TableCopySpe
                         "SELECT * FROM src.snapshot_transition_ops \
                          WHERE sortition_id IN (SELECT sortition_id FROM canonical_sortitions)",
                 ),
-                TableCopySpec::sql_with_bind(
-                    "stacks_chain_tips",
-                    stacks_tip_memo_copy_sql(false, $has_boundary),
-                    SortitionBind::TipMemo {
-                        include_burn_view: false,
-                    },
-                ),
-                TableCopySpec::sql_with_bind(
-                    "stacks_chain_tips_by_burn_view",
-                    stacks_tip_memo_copy_sql(true, $has_boundary),
-                    SortitionBind::TipMemo {
-                        include_burn_view: true,
-                    },
-                ),
+                memo_spec("stacks_chain_tips", false, $has_boundary),
+                memo_spec("stacks_chain_tips_by_burn_view", true, $has_boundary),
                 TableCopySpec::sql(
                     "preprocessed_reward_sets",
                         "SELECT * FROM src.preprocessed_reward_sets \
