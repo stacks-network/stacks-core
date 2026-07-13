@@ -21,8 +21,8 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use stacks_common::types::chainstate::StacksBlockId;
 
 use super::common::{
-    clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec,
-    TableCopySpec, MARF_INFRA_TABLES,
+    classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
+    DbSnapshotSpec, TableCopySpec, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 use crate::burnchains::PoxConstants;
@@ -60,7 +60,7 @@ impl DbSnapshotSpec for IndexDbSnapshotSpec {
     }
 
     fn classify_hint() -> &'static str {
-        "index_copy_specs() in snapshot/index.rs"
+        classify_hint!(index_copy_specs)
     }
 
     fn bind_params(&self, bind: IndexBind) -> Result<Vec<Value>, Error> {

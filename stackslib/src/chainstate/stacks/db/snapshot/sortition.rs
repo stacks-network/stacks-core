@@ -21,8 +21,8 @@ use stacks_common::types::chainstate::{BurnchainHeaderHash, SortitionId};
 use stacks_common::types::sqlite::NO_PARAMS;
 
 use super::common::{
-    clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec,
-    TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
+    classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
+    DbSnapshotSpec, TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 pub use crate::chainstate::burn::db::sortdb::SortitionTipCopyBoundary;
@@ -199,7 +199,10 @@ impl DbSnapshotSpec for SortitionDbSnapshotSpec {
     }
 
     fn classify_hint() -> &'static str {
-        "sortition_copy_specs() (to copy) or IGNORED_TABLES (to skip) in snapshot/sortition.rs"
+        classify_hint!(
+            sortition_copy_specs,
+            " (to copy) or IGNORED_TABLES (to skip)"
+        )
     }
 
     fn copy_specs(&self) -> TableCopySpecs<'static, SortitionBind> {

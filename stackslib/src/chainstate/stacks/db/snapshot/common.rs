@@ -21,6 +21,21 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 
 use crate::chainstate::stacks::index::Error;
 
+/// Build a [`DbSnapshotSpec::classify_hint`] string -- `"<fn>() in <file>"`,
+/// optionally with extra prose before the file -- from the spec function itself,
+/// so a rename or file move can't leave the guard message stale. `$f` is forced
+/// to resolve to a real item at compile time, and `file!()` reports the call
+/// site (the DB's own module), not this one.
+macro_rules! classify_hint {
+    ($f:path $(, $extra:expr)?) => {{
+        const _: () = {
+            let _ = $f;
+        };
+        concat!(stringify!($f), "()", $($extra,)? " in ", file!())
+    }};
+}
+pub(super) use classify_hint;
+
 /// How a table's destination rows are produced.
 pub enum TableCopySource {
     /// Row-copy via plain `INSERT INTO {table} {sql}` selecting from the

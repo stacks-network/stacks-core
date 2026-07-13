@@ -20,8 +20,8 @@ use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
 
 use super::common::{
-    clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec,
-    TableCopySpec,
+    classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
+    DbSnapshotSpec, TableCopySpec,
 };
 use crate::burnchains::bitcoin::spv::num_complete_chain_work_intervals;
 use crate::chainstate::stacks::index::Error;
@@ -55,7 +55,7 @@ impl DbSnapshotSpec for SpvDbSnapshotSpec {
     }
 
     fn classify_hint() -> &'static str {
-        "spv_copy_specs() in snapshot/spv.rs"
+        classify_hint!(spv_copy_specs)
     }
 
     fn bind_params(&self, bind: SpvBind) -> Result<Vec<Value>, Error> {

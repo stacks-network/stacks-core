@@ -22,8 +22,8 @@ use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
 
 use super::common::{
-    clone_schemas_from_source, copied_rows, with_offline_write_session, DbSnapshotSpec, NoBind,
-    TableCopySpec,
+    classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
+    DbSnapshotSpec, NoBind, TableCopySpec,
 };
 use super::sortition::SortitionSnapshotExt;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -76,7 +76,7 @@ impl DbSnapshotSpec for BurnchainDbSnapshotSpec {
     }
 
     fn classify_hint() -> &'static str {
-        "burnchain_copy_specs() in snapshot/burnchain.rs"
+        classify_hint!(burnchain_copy_specs)
     }
 
     fn bind_params(&self, bind: NoBind) -> Result<Vec<Value>, Error> {
