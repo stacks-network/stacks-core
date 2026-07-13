@@ -64,7 +64,7 @@ pub use crate::vm::contexts::{CallStack, ContractContext, LocalContext, MAX_CONT
 use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    CostErrors, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
+    CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
 };
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
@@ -492,12 +492,10 @@ fn check_interpreter_abort_condition(
     global_context: &GlobalContext,
 ) -> Result<(), VmExecutionError> {
     if global_context.execution_time_tracker.is_expired() {
-        return Err(CostErrors::ExecutionTimeExpired.into());
+        return Err(RuntimeCheckErrorKind::ExecutionTimeExpired.into());
     }
     if let Err(reason) = global_context.abort_callback.check() {
-        return Err(VmExecutionError::RuntimeCheck(
-            RuntimeCheckErrorKind::AbortedByExecutionHook(reason),
-        ));
+        return Err(RuntimeCheckErrorKind::AbortedByExecutionHook(reason).into());
     }
 
     Ok(())
