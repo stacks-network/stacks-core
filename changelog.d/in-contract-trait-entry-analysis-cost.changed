@@ -1,1 +1,0 @@
-Contract analysis now charges the runtime cost of `AnalysisUseTraitEntry` when a trait is resolved from the contract under analysis. This closes a metering asymmetry between the two lookup paths and applies starting with Epoch 4.0.
