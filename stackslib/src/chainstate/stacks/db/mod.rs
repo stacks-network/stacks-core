@@ -2936,6 +2936,7 @@ pub mod test {
     use super::*;
     use crate::chainstate::stacks::boot::{
         BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
+        BOOT_CODE_COSTS_5,
     };
     use crate::chainstate::stacks::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
@@ -3052,15 +3053,32 @@ pub mod test {
         }
     }
 
+    /// Assert that `contract_names` covers the default cost contract of every
+    /// epoch, so [`LimitedCostTracker`] can load costs for any epoch a test
+    /// targets. Panics naming any epoch whose cost contract is missing.
+    fn assert_cost_contracts_cover_all_epochs(contract_names: &[&str]) {
+        for epoch in StacksEpochId::ALL {
+            // Epoch 1.0 predates Clarity; Epoch 2.0 uses `costs` (v1), installed
+            // by the standard genesis boot sequence rather than `deploy_all_costs`.
+            if *epoch <= StacksEpochId::Epoch20 {
+                continue;
+            }
+            let contract = LimitedCostTracker::default_cost_contract_for_epoch(*epoch)
+                .expect("every post-2.0 epoch has a default cost contract");
+            assert!(
+                contract_names.contains(&contract.as_str()),
+                "epoch {epoch} uses cost contract `{contract}`, but it is not available. Add it to `deploy_all_costs`"
+            );
+        }
+    }
+
     /// Deploy the later `costs-N` boot contracts at genesis (used by
     /// [`TestChainstateBuilder::with_all_costs`]).
+    ///
+    /// Each contract is deployed under the epoch that introduces it, using that
+    /// epoch's default Clarity version (via [`ClarityVersion::default_for_epoch`]),
+    /// so that contracts can be properly analyzed and deployed.
     fn deploy_all_costs(clarity_tx: &mut ClarityTx, mainnet: bool) {
-        let conn = clarity_tx.connection();
-
-        // Temporarily set the epoch to Epoch33 so Clarity2 contracts
-        // (costs-3, costs-4) can be analyzed and deployed.
-        conn.set_epoch(StacksEpochId::Epoch33);
-
         // Match `initialize_epoch_2_05`: on testnet, load the testnet
         // variant of `costs-2`. Only `costs-2` has a testnet variant.
         let costs_2_code = if mainnet {
@@ -3069,21 +3087,30 @@ pub mod test {
             BOOT_CODE_COSTS_2_TESTNET
         };
 
-        let contracts: &[(&str, ClarityVersion, &str)] = &[
-            (COSTS_2_NAME, ClarityVersion::Clarity1, costs_2_code),
-            (COSTS_3_NAME, ClarityVersion::Clarity2, BOOT_CODE_COSTS_3),
-            (COSTS_4_NAME, ClarityVersion::Clarity2, BOOT_CODE_COSTS_4),
+        let contracts: &[(&str, &str, StacksEpochId)] = &[
+            (COSTS_2_NAME, costs_2_code, StacksEpochId::Epoch2_05),
+            (COSTS_3_NAME, BOOT_CODE_COSTS_3, StacksEpochId::Epoch21),
+            (COSTS_4_NAME, BOOT_CODE_COSTS_4, StacksEpochId::Epoch33),
+            (COSTS_5_NAME, BOOT_CODE_COSTS_5, StacksEpochId::Epoch40),
         ];
 
-        for (name, version, code) in contracts {
+        // Fail loudly if a new epoch's cost contract is missing from the list above.
+        let contract_names: Vec<&str> = contracts.iter().map(|(name, ..)| *name).collect();
+        assert_cost_contracts_cover_all_epochs(&contract_names);
+
+        let conn = clarity_tx.connection();
+
+        for (name, code, epoch) in contracts {
+            let version = ClarityVersion::default_for_epoch(*epoch);
+            conn.set_epoch(*epoch);
             conn.as_transaction(|clarity_db| {
                 let (ast, _) = clarity_db
-                    .analyze_smart_contract(&boot_code_id(name, mainnet), *version, code, None)
+                    .analyze_smart_contract(&boot_code_id(name, mainnet), version, code, None)
                     .unwrap();
                 clarity_db
                     .initialize_smart_contract(
                         &boot_code_id(name, mainnet),
-                        *version,
+                        version,
                         &ast,
                         code,
                         None,
