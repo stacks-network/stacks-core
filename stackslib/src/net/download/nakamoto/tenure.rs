@@ -145,12 +145,12 @@ impl TenureStartEnd {
         let mut last_tenure_ch = None;
         debug!("Find available tenures in inventory {:?} rc {}", invs, rc);
         for (i, wt) in wanted_tenures.iter().enumerate() {
-            debug!("consider wanted tenure which starts with i={} {:?}", i, &wt);
+            test_debug!("consider wanted tenure which starts with i={} {:?}", i, &wt);
 
             // advance to next tenure-start sortition
             let bit = u16::try_from(i).expect("FATAL: more sortitions than u16::MAX");
             if !invbits.get(bit).unwrap_or(false) {
-                debug!("i={} bit not set", i);
+                test_debug!("i={} bit not set", i);
                 continue;
             }
 
@@ -161,12 +161,12 @@ impl TenureStartEnd {
                 let bit = u16::try_from(*j).expect("FATAL: more sortitions than u16::MAX");
                 invbits.get(bit).unwrap_or(false)
             }) else {
-                debug!("i={} out of wanted_tenures", i);
+                test_debug!("i={} out of wanted_tenures", i);
                 break;
             };
 
             let Some(wt_start) = wanted_tenures.get(wt_start_idx) else {
-                debug!("i={} no start wanted tenure", i);
+                test_debug!("i={} no start wanted tenure", i);
                 break;
             };
 
@@ -174,12 +174,12 @@ impl TenureStartEnd {
                 let bit = u16::try_from(*j).expect("FATAL: more sortitions than u16::MAX");
                 invbits.get(bit).unwrap_or(false)
             }) else {
-                debug!("i={} out of wanted_tenures", i);
+                test_debug!("i={} out of wanted_tenures", i);
                 break;
             };
 
             let Some(wt_end) = wanted_tenures.get(wt_end_index) else {
-                debug!("i={} no end wanted tenure", i);
+                test_debug!("i={} no end wanted tenure", i);
                 break;
             };
 
@@ -194,7 +194,7 @@ impl TenureStartEnd {
                 rc,
                 wt.processed,
             );
-            debug!(
+            test_debug!(
                 "i={}, len={}; {:?}",
                 i,
                 wanted_tenures.len(),
@@ -206,7 +206,7 @@ impl TenureStartEnd {
 
         let Some(next_wanted_tenures) = next_wanted_tenures else {
             // nothing more to do
-            debug!("No next_wanted_tenures");
+            test_debug!("No next_wanted_tenures");
             return Some(tenure_block_ids);
         };
 
@@ -232,7 +232,7 @@ impl TenureStartEnd {
         let iter_start = last_tenure;
         let iterator = wanted_tenures.get(iter_start..).unwrap_or(&[]);
         for (i, wt) in iterator.iter().enumerate() {
-            debug!(
+            test_debug!(
                 "consider next wanted tenure which starts with i={} {:?}",
                 iter_start + i,
                 &wt
@@ -271,7 +271,7 @@ impl TenureStartEnd {
                     })
                 })
             else {
-                debug!(
+                test_debug!(
                     "i={} out of wanted_tenures and next_wanted_tenures",
                     iter_start + i
                 );
@@ -290,7 +290,7 @@ impl TenureStartEnd {
                     None
                 }
             }) else {
-                debug!("i={} out of next_wanted_tenures", iter_start + i);
+                test_debug!("i={} out of next_wanted_tenures", iter_start + i);
                 break;
             };
 
@@ -314,7 +314,7 @@ impl TenureStartEnd {
             );
             tenure_start_end.fetch_end_block = true;
 
-            debug!(
+            test_debug!(
                 "i={},len={},next_len={}; {:?}",
                 iter_start + i,
                 wanted_tenures.len(),

@@ -86,14 +86,14 @@ impl InvTenureInfo {
             tenure_id_consensus_hash,
         )?
         .map(|tenure| {
-            debug!("BlockFound tenure for {}", &tenure_id_consensus_hash);
+            test_debug!("BlockFound tenure for {}", &tenure_id_consensus_hash);
             Self {
                 tenure_id_consensus_hash: tenure.tenure_id_consensus_hash,
                 parent_tenure_id_consensus_hash: tenure.prev_tenure_id_consensus_hash,
             }
         })
         .or_else(|| {
-            debug!("No BlockFound tenure for {}", &tenure_id_consensus_hash);
+            test_debug!("No BlockFound tenure for {}", &tenure_id_consensus_hash);
             None
         }))
     }
@@ -489,7 +489,7 @@ impl NakamotoTenureInv {
     ) -> Self {
         Self {
             tenures_inv: BTreeMap::new(),
-            last_updated_at: 0,
+            last_updated_at: get_epoch_time_secs(),
             first_block_height,
             reward_cycle_len,
             neighbor_address,
@@ -745,6 +745,38 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     /// Remove state for a particular neighbor
     pub fn del_peer(&mut self, peer: &NeighborAddress) {
         self.inventories.remove(peer);
+    }
+
+    /// Remove all inventories that were last updated earlier than `min_age`,
+    /// and retain at most `max_invs` inventories.
+    pub fn garbage_collect(&mut self, min_age: u64, max_invs: usize) {
+        self.inventories.retain(|na, stats| {
+            if stats.last_updated_at < min_age {
+                debug!(
+                    "Remove stale inventory for peer {na:?} aged {}",
+                    stats.last_updated_at
+                );
+                false
+            } else {
+                true
+            }
+        });
+
+        // priority queue of block stats by last_updated_at.
+        // break ties by NeighborAddress
+        let mut pq: BTreeMap<_, _> = self
+            .inventories
+            .iter()
+            .map(|(na, stats)| (stats.last_updated_at, na.clone()))
+            .collect();
+
+        while pq.len() > max_invs {
+            let Some((_, na)) = pq.pop_first() else {
+                break;
+            };
+            debug!("Remove excessive inventory for peer {na:?}");
+            self.del_peer(&na);
+        }
     }
 
     /// Highest reward cycle learned

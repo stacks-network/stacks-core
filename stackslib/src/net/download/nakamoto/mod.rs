@@ -133,7 +133,9 @@ pub use crate::net::download::nakamoto::tenure::{AvailableTenures, TenureStartEn
 pub use crate::net::download::nakamoto::tenure_downloader::{
     NakamotoTenureDownloadState, NakamotoTenureDownloader,
 };
-pub use crate::net::download::nakamoto::tenure_downloader_set::NakamotoTenureDownloaderSet;
+pub use crate::net::download::nakamoto::tenure_downloader_set::{
+    CompletedTenure, NakamotoTenureDownloaderSet,
+};
 pub use crate::net::download::nakamoto::tenure_downloader_unconfirmed::{
     NakamotoUnconfirmedDownloadState, NakamotoUnconfirmedTenureDownloader,
 };
