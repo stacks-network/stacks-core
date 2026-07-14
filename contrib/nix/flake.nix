@@ -136,6 +136,8 @@
               (craneLib.fileset.commonCargoSources ../../stackslib)
               (craneLib.fileset.commonCargoSources ../../stx-genesis)
               (craneLib.fileset.commonCargoSources ../../stacks-node)
+              (craneLib.fileset.commonCargoSources ../../stacks-profiler)
+              (craneLib.fileset.commonCargoSources ../../stacks-profiler-macros)
               (craneLib.fileset.commonCargoSources ../tools/config-docs-generator)
               (craneLib.fileset.commonCargoSources ../../contrib/stacks-inspect)
               (craneLib.fileset.commonCargoSources ../../contrib/stacks-cli)
