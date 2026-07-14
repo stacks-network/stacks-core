@@ -1004,11 +1004,11 @@ pub fn lock_bhh_for_extension<T: MarfTrieId>(
 }
 
 pub fn count_blocks(conn: &Connection) -> Result<u32, Error> {
-    let result = conn.query_row(
-        "SELECT IFNULL(MAX(block_id), 0) AS count FROM marf_data WHERE unconfirmed = 0",
-        NO_PARAMS,
-        |row| row.get("count"),
-    )?;
+    let result = conn
+        .prepare_cached(
+            "SELECT IFNULL(MAX(block_id), 0) AS count FROM marf_data WHERE unconfirmed = 0",
+        )?
+        .query_row(NO_PARAMS, |row| row.get("count"))?;
     Ok(result)
 }
 
