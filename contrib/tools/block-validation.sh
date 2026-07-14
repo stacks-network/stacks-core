@@ -1,5 +1,6 @@
 #!/bin/bash
 set -Eeuo pipefail
+shopt -s extglob   # enable extended globs (used by strip_ansi)
 
 #
 # block-validation.sh — parallelizable block validation using stacks-inspect.
@@ -17,7 +18,7 @@ set -Eeuo pipefail
 #   ${WORK_DIR}/chain/                         chainstate used as the source of slices
 #   ${WORK_DIR}/downloads/                     downloaded Hiro snapshot archive (expanded in-place to chain/ if missing)
 #   ${WORK_DIR}/scratch/                       slice copies + .scratch_meta
-#   ${WORK_DIR}/logs/<timestamp>/              per-run logs: slice*.log + slice*.progress per slice, plus results.log
+#   ${WORK_DIR}/logs/<timestamp>/              per-run logs: slice*.log + slice*.progress per slice, results.log, plus run.log (plain-text info/warn/error log)
 #
 # ** Caching (each step skips work when a prior artifact is reusable)
 #   - stacks-core/     : reused if present (updated when rev tracking is enabled)
@@ -58,24 +59,38 @@ highlight()   { cyan "$*"; }
 
 # Logging helpers.
 # All accept a printf-style format string + args (wrapper around `printf`).
-# Output is written to stderr so stdout can remain for function results.
-eprintln() { 
+# Console output is written to stderr so stdout can remain for function results.
+#
+# eprintln/eprint just print to the console. info/warn/error are the log functions:
+# they print to the console AND, once setup_logs has set LOG_FILE, also append a
+# plain (ANSI-stripped) copy of each line to the run log.
+eprintln() {
     local fmt=${1:-}
     shift || true
     printf "${fmt}\n" "$@" >&2
 }
 
-eprint() { 
+eprint() {
     local fmt=${1:-}
     shift || true
     printf "${fmt}" "$@" >&2
 }
 
+# Echo $1 with ANSI SGR / clear-line escapes removed (needs extglob).
+strip_ansi() { printf '%s' "${1//$'\e'\[*([0-9;])[mK]/}"; }
+
 _log() {
     local prefix=$1 fmt=$2
     shift 2
-    local ts="$(date +%Y-%m-%dT%H:%M:%S%z)"
-    printf "[%s][%s] ${fmt}\n" "${prefix}" "${ts}" "$@" >&2
+    local ts msg
+    ts="$(date +%Y-%m-%dT%H:%M:%S%z)"
+    printf -v msg "[%s][%s] ${fmt}" "${prefix}" "${ts}" "$@"
+    printf '%s\n' "${msg}" >&2
+    # Mirror to the run log (plain text) if LOG_FILE is set-up.
+    # A log-file write failure must not abort the run.
+    if [ -n "${LOG_FILE:-}" ]; then
+        printf '%s\n' "$(strip_ansi "${msg}")" >> "${LOG_FILE}" || true
+    fi
 }
 
 info()  { _log "$(blue    'INFO')" "$@"; }
@@ -150,12 +165,20 @@ resolve_repo() {
         REPO_URL="${REPO_LABELS[${arg}]}"
         REPO_DIR="${WORK_DIR}/${arg}"
         TRACK_REV=1
-    # Git URL  
+    # Git URL
     elif [[ "${arg}" =~ ^(https?|git|ssh)://|^git@ ]]; then
         REPO_URL="${arg}"
-        local base
-        base=$(basename "${arg}")
-        REPO_DIR="${WORK_DIR}/${base%.git}"
+        # Derive REPO_DIR as <repo>, appending -<owner> for third-party forks, e.g.
+        # https://github.com/hello-stacks/stacks-core.git -> stacks-core-hello-stacks
+        # Owners stx-labs / stacks-network are treated as canonical and not appended.
+        local path="${arg%.git}"        # strip trailing .git
+        local repo="${path##*/}"        # last path component = repo name
+        local rest="${path%/*}"         # drop the repo name
+        local owner="${rest##*[/:]}"    # component after the last / or : = owner
+        case "${owner}" in
+            stx-labs|stacks-network) REPO_DIR="${WORK_DIR}/${repo}" ;;
+            *)                       REPO_DIR="${WORK_DIR}/${repo}-${owner}" ;;
+        esac
         TRACK_REV=1
     # Existing local directory
     elif [ -d "${arg}" ]; then
@@ -510,13 +533,19 @@ configure_validation_slices() {
     } > "${meta_file}"
 }
 
-# Create this run's log dir
+# Create this run's log dir and point the log helpers at run.log.
+#
+# Setting LOG_FILE switches info/warn/error into dual-write mode: each line is printed
+# to the console (colored when IS_TTY) and a plain, ANSI-stripped copy is appended to
+# run.log (see the logging helpers). eprintln/eprint stay console-only, so banners and
+# the live progress spinner never reach the file, keeping run.log clean and greppable.
 setup_logs() {
-    info "Creating logs dir ${LOG_DIR}"
     mkdir -p "${LOG_DIR}" || {
         error "creating logs dir ${LOG_DIR}"
         exit 1
     }
+    LOG_FILE="${LOG_DIR}/run.log"
+    info "Logging to $(highlight "${LOG_FILE}")"
 }
 
 # EXIT trap handler: kill the tmux session so worker processes don't outlive the
@@ -680,12 +709,11 @@ validate_block_range() {
     
     local range_label="${mode} validation"
     local range_start=$(phase_start "${range_label}")
-    eprintln "************************************************************************"
-    eprintln "Mode: $(highlight "${mode}")"
-    eprintln "Block range: $(highlight "${global_start}-${global_end}") (${block_diff} blocks)"
-    eprintln "Slices: $(highlight "${slices}") | Blocks/slice: $(highlight "${slice_blocks}")"
-    eprintln "************************************************************************"
-
+    info "************************************************************************"
+    info "Mode: $(highlight "${mode}")"
+    info "Block range: $(highlight "${global_start}-${global_end}") (${block_diff} blocks)"
+    info "Slices: $(highlight "${slices}") | Blocks/slice: $(highlight "${slice_blocks}")"
+    
     local end_block_count=$starting_block
     local slice_counter=0
     local slice_progress_files=()
@@ -728,7 +756,7 @@ validate_block_range() {
         # so quote the paths so spaces / shell metacharacters survive re-parsing.
         local inspect_cmd="\"${inspect_bin}\" --config \"${inspect_config}\" validate-block \"${slice_path}\" ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
         local cmd="${inspect_cmd} | ${tee_stage}stdbuf -oL tr '\\r' '\\n' | while IFS= read -r line; do if [[ \"\$line\" =~ ^Validating:[[:space:]]+[0-9]+% ]]; then printf '%s\\n' \"\$line\" > '${progress_file}'; elif [[ -n \"\$line\" ]]; then printf '%s\\n' \"\$line\" >> '${log_file}'; fi; done"
-        eprintln "  $(highlight "${TMUX_SESSION}:slice${slice_counter}") :: Blocks: $(highlight "${global_slice_start}-${global_slice_end}") :: Logging to: ${log_file}"
+        info "  $(highlight "${TMUX_SESSION}:slice${slice_counter}") :: Blocks: $(highlight "${global_slice_start}-${global_slice_end}") :: Logs: ${log_file}"
         echo "Command: ${inspect_cmd}" > "${log_file}"
         echo "Validating blocks: ${global_slice_start}-${global_slice_end} (out of ${global_end})" >> "${log_file}"
         echo "Progress updates will be written to: ${progress_file}" >> "${log_file}"
@@ -745,6 +773,7 @@ validate_block_range() {
         slice_counter=$((slice_counter + 1))
     done
     check_progress "${slice_progress_files[@]}"
+    info "************************************************************************"
     phase_end "${range_label}" "${range_start}"
 }
 
@@ -899,9 +928,9 @@ check_progress() {
         sleep 1 || true   # tolerate SIGINT so confirm_abort "no" can resume
     done
 
-    eprintln "************************************************************************"
+    eprintln
     eprintln "Checking Block Validation status"
-    eprintln ' '
+    eprintln
     while true; do
         count=$(pgrep -c "stacks-inspect" || true)
         elapsed=$(timer_elapsed "${timer}")
@@ -917,7 +946,6 @@ check_progress() {
         fi
         sleep 1 || true   # tolerate SIGINT so confirm_abort "no" can resume
     done
-    eprintln "************************************************************************"
 }
 
 # Aggregate per-slice return codes and "Failed processing block" lines into
@@ -999,7 +1027,7 @@ check_dependencies() {
     local has_sudo=1
     local cmd rp package find_path
     local -a required=(
-        apt-get sudo curl tmux git aria2c tar zstd grep cargo pgrep tput
+        apt-get sudo curl tmux git aria2c tar zstd grep cc cargo pgrep tput
         find xargs awk sed nproc stat stdbuf
     )
     for cmd in "${required[@]}"; do
@@ -1029,8 +1057,15 @@ check_dependencies() {
                     has_sudo=0
                     continue
                     ;;
+                "cc")
+                    # Rust uses the C compiler as its linker, and crates like
+                    # `libc`/`proc-macro2` build native code; `build-essential`
+                    # provides `cc` (via gcc), `make`, and the C headers.
+                    package="build-essential"
+                    ;;
                 "cargo")
                     install_cargo
+                    continue
                     ;;
                 "pgrep")
                     package="procps"
@@ -1087,8 +1122,9 @@ parse_input() {
                 case "${RANGE}" in
                     test|pre-nakamoto|nakamoto|full) ;;
                     *)
-                        if ! [[ "${RANGE}" =~ ^[0-9]+[:+][0-9]+$ ]]; then
-                            error "Invalid argument: ${1}"
+                        # <start>:<end>, <start>+<count>, or a bare <start>
+                        if ! [[ "${RANGE}" =~ ^[0-9]+([:+][0-9]+)?$ ]]; then
+                            error "Invalid value for: ${1}"
                             usage
                             exit 1
                         fi
@@ -1200,13 +1236,13 @@ main() {
     post_input_config
     check_dependencies
     ${IS_TTY} && tput reset
+    setup_logs
 
     # Validation preparation
     local prep_start=$(phase_start "Preparation")
     build_stacks_inspect
     configure_chainstate
     configure_validation_slices
-    setup_logs
     setup_tmux
     phase_end "Preparation" "${prep_start}"
 
