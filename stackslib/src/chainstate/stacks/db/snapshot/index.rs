@@ -40,8 +40,8 @@ pub(super) enum IndexBind {
 /// the `signer_stats` `?N` bind only -- the table-name set is independent of it.
 /// The MARF infra tables ([`MARF_INFRA_TABLES`]) are created by the squash
 /// engine, so they're recognized by the guard but not row-copied.
-pub(super) struct IndexDbSnapshotSpec {
-    pub max_reward_cycle: u64,
+struct IndexDbSnapshotSpec {
+    max_reward_cycle: u64,
 }
 
 impl DbSnapshotSpec for IndexDbSnapshotSpec {

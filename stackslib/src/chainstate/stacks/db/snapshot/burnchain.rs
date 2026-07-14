@@ -31,7 +31,7 @@ use crate::chainstate::stacks::index::Error;
 use crate::util_lib::db::{sqlite_open, Error as DBError};
 
 /// Snapshot-only reads over a burnchain DB connection.
-pub(crate) trait BurnchainSnapshotExt {
+trait BurnchainSnapshotExt {
     /// Count the burn header hashes yielded by `canonical_sql` that have no
     /// `burnchain_db_block_headers` row. Both arguments are interpolated
     /// into SQL; pass only trusted fixed fragments.
@@ -62,7 +62,7 @@ impl BurnchainSnapshotExt for Connection {
 }
 
 /// The burnchain (`burnchain.sqlite`) snapshot spec.
-pub(super) struct BurnchainDbSnapshotSpec;
+struct BurnchainDbSnapshotSpec;
 
 impl DbSnapshotSpec for BurnchainDbSnapshotSpec {
     type Bind = NoBind;

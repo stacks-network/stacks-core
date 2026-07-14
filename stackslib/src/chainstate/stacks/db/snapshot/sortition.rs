@@ -30,7 +30,7 @@ use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue};
 use crate::util_lib::db::{sqlite_open, u64_to_sql, Error as db_error};
 
 /// Snapshot-only reads over a sortition DB connection.
-pub(crate) trait SortitionSnapshotExt {
+pub(super) trait SortitionSnapshotExt {
     /// Distinct burn header hashes of all snapshots, forks included. Only on a
     /// squashed sortition DB is this exactly the canonical burnchain.
     fn get_all_snapshot_burn_header_hashes(&self) -> Result<Vec<BurnchainHeaderHash>, db_error>;
@@ -164,8 +164,8 @@ pub(super) const IGNORED_TABLES: &[&str] = &["snapshot_burn_distributions"];
 /// MARF infra ([`MARF_INFRA_TABLES`], created by the squash engine) and
 /// deliberately-skipped ([`IGNORED_TABLES`]) tables are recognized by the guard
 /// but not row-copied.
-pub(super) struct SortitionDbSnapshotSpec {
-    pub boundary: Option<SortitionTipCopyBoundary>,
+struct SortitionDbSnapshotSpec {
+    boundary: Option<SortitionTipCopyBoundary>,
 }
 
 /// The sortition snapshot's `?N` bind: the `stacks_chain_tips*` memo tables'

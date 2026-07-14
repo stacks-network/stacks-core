@@ -39,8 +39,8 @@ pub(super) enum SpvBind {
 /// The SPV headers (`headers.sqlite`) snapshot spec. The row-copied specs
 /// are the whole schema. `burn_height` only feeds the `?N` binds, not the
 /// table-name set.
-pub(super) struct SpvDbSnapshotSpec {
-    pub burn_height: u64,
+struct SpvDbSnapshotSpec {
+    burn_height: u64,
 }
 
 impl DbSnapshotSpec for SpvDbSnapshotSpec {

@@ -57,7 +57,7 @@ pub struct NakamotoBlockCopyStats {
 /// The Nakamoto staging (`nakamoto.sqlite`) snapshot spec. The index-side
 /// staging tables (`staging_microblocks*`) come from the index DB and are
 /// classified in `index.rs`.
-pub(super) struct NakamotoStagingDbSnapshotSpec;
+struct NakamotoStagingDbSnapshotSpec;
 
 impl DbSnapshotSpec for NakamotoStagingDbSnapshotSpec {
     type Bind = NoBind;
