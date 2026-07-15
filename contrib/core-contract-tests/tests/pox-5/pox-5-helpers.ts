@@ -68,7 +68,7 @@ export const RESERVE_RATIO = pox5.constants.RESERVE_RATIO;
 export const deployer = accounts.deployer.address;
 // With `override_boot_contracts_source`, pox-5 starts with the placeholder
 // mainnet admin principal baked into pox-5.clar for both admin roles.
-const POX5_BOOTSTRAP_ADMIN = 'SP000000000000000000002Q6VF78';
+const POX5_BOOTSTRAP_ADMIN = 'SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX';
 export const AUTH_PROXY_NAME = 'pox-5-auth-proxy';
 export const AUTH_PROXY_ID = `${deployer}.${AUTH_PROXY_NAME}`;
 
