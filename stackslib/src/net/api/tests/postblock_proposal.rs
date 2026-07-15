@@ -804,6 +804,7 @@ fn test_block_proposal_validation_execution_time_expired_blames_tx() {
                         deploy_tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
                         None,
+                        None,
                         &mut 0,
                     );
                     assert!(matches!(tx_result, TransactionResult::Success(_)));
