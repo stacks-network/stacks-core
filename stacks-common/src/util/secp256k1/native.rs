@@ -17,6 +17,7 @@
 use k256::ecdsa::{
     RecoveryId as K256RecoveryId, Signature as K256Signature, SigningKey, VerifyingKey,
 };
+use k256::elliptic_curve::scalar::IsHigh;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::{PublicKey as K256PublicKey, SecretKey as K256SecretKey};
 use serde::de::{Deserialize, Error as de_Error};
@@ -305,15 +306,7 @@ impl PublicKey for Secp256k1PublicKey {
 
 /// Returns true if the signature's S value is in the lower half of the secp256k1 group order.
 fn is_low_s(sig: &K256Signature) -> bool {
-    // secp256k1 group order n divided by 2 (big-endian)
-    const HALF_ORDER: [u8; 32] = [
-        0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0x5d, 0x57, 0x6e, 0x73, 0x57, 0xa4, 0x50, 0x1d, 0xdf, 0xe9, 0x2f, 0x46, 0x68, 0x1b,
-        0x20, 0xa0,
-    ];
-    // GenericArray<u8, U64> derefs to [u8]
-    let bytes = sig.to_bytes();
-    bytes[32..64] <= HALF_ORDER[..]
+    !bool::from(sig.s().is_high())
 }
 
 impl Secp256k1PrivateKey {
