@@ -18,6 +18,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use clarity::types::StacksEpochId;
 use rusqlite::{params, Connection};
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use tempfile::tempdir;
@@ -120,7 +121,7 @@ fn create_squashed_sortition(dir: &Path, hashes: &[BurnchainHeaderHash]) -> std:
         0,
         &GENESIS_BHH,
         0,
-        &StacksEpoch::unit_test_3_4(0),
+        &StacksEpoch::unit_test_epoch_only(0, StacksEpochId::Epoch34),
         PoxConstants::test_default(),
         None,
         true,

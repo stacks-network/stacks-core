@@ -4,127 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "4f81b06adf3cf262ac53176c53f9685847bf21cd3cf2becfff7b138edb1577c4",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: default-types-must-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: expression types passed in \'default-to\' must match (got \'bool\' and \'int\')) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 28,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 4991,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 28,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 4991,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "9da7c84592225fa72865278d11eca4fc4bf9c0a2de5bde3447bd80f0200f0191",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: default-types-must-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: expression types passed in \'default-to\' must match (got \'bool\' and \'int\')) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 28,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 4991,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 28,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 4991,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "9554dbef3c8a079985b251e95b631681ee28eb3af6becf6247a83bd3ffaabc6a",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: default-types-must-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: expression types passed in \'default-to\' must match (got \'bool\' and \'int\')) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 28,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 4991,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 28,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 4991,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6829611c2603da65210445ed41cbfb8153ef29659256cc88241212bc94b8b2a2",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: default-types-must-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: expression types passed in \'default-to\' must match (got \'bool\' and \'int\')) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 28,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 4991,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 28,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 4991,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "e99bae006499b89e50d415f580276be8788c46b0810bcfb6876b398fc0a54864",
+    marf_hash: "ad10a369db767d078bbfa10edc0e1de78f6dc8addab496f54c65848396ca7405",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b032093bfe4496873a28eb555de94892f12dd051f501950d75db996dbecb9ee5",
+    marf_hash: "8bea98937ca7afeecff14c84345beebd614ae0a830459f59b80afc928eb73814",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1f54f0eac4cf2881bcee27d023e726504d5848ae14079ae0c2b150d6342e7f15",
+    marf_hash: "bb60b6c60d94380cecf5951fda1a758fc158127e5a832d233d5be959a8830785",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -214,7 +94,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fa9c54c576edc5495290d718bbe40afab00db9bf9a1d0fcb66a260776ec88e79",
+    marf_hash: "61eb61e474051833f62bb64b5396215c958d16e3947f90da7996454843d3b66a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -244,7 +124,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "629623b1910c959b1092f0961ba2f0458268315e33a815931ecea13c9b26e689",
+    marf_hash: "ff0665016cb08e6f4eaaeff4e693fa1b5380e2fdd40234480fbde06c318e1452",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

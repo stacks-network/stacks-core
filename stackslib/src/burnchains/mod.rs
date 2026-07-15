@@ -36,7 +36,7 @@ use crate::chainstate::burn::operations::{
     BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::core::*;
 #[cfg(test)]
@@ -298,6 +298,11 @@ pub struct PoxConstants {
     pub pox_3_activation_height: u32,
     /// After this burn height, reward cycles use pox-4 for reward set data
     pub pox_4_activation_height: u32,
+    /// After this burn height, reward cycles use pox-5 for reward set data.
+    /// Placement is policed by `validate_nakamoto_transition_schedule`: must
+    /// equal Epoch 4.0 start, fall in a reward phase (not a prepare phase),
+    /// and sit at cycle offset > 1.
+    pub pox_5_activation_height: u32,
     _shadow: PhantomData<()>,
 }
 
@@ -314,6 +319,7 @@ impl PoxConstants {
         v2_unlock_height: u32,
         v3_unlock_height: u32,
         pox_3_activation_height: u32,
+        v4_unlock_height: u32,
     ) -> PoxConstants {
         assert!(anchor_threshold > (prepare_length / 2));
         assert!(prepare_length < reward_cycle_length);
@@ -335,6 +341,7 @@ impl PoxConstants {
             v3_unlock_height,
             pox_3_activation_height,
             pox_4_activation_height: v3_unlock_height,
+            pox_5_activation_height: v4_unlock_height,
             _shadow: PhantomData,
         }
     }
@@ -349,6 +356,7 @@ impl PoxConstants {
             5,
             5000,
             10000,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
@@ -373,17 +381,21 @@ impl PoxConstants {
             u32::MAX,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
         )
     }
 
     /// Returns the PoX contract that is "active" at the given burn block height
-    pub fn static_active_pox_contract(
+    fn static_active_pox_contract(
         v1_unlock_height: u64,
         pox_3_activation_height: u64,
         pox_4_activation_height: u64,
+        pox_5_activation_height: u64,
         burn_height: u64,
     ) -> &'static str {
-        if burn_height > pox_4_activation_height {
+        if burn_height > pox_5_activation_height {
+            POX_5_NAME
+        } else if burn_height > pox_4_activation_height {
             POX_4_NAME
         } else if burn_height > pox_3_activation_height {
             POX_3_NAME
@@ -400,10 +412,53 @@ impl PoxConstants {
             u64::from(self.v1_unlock_height),
             u64::from(self.pox_3_activation_height),
             u64::from(self.pox_4_activation_height),
+            u64::from(self.pox_5_activation_height),
             burn_height,
         )
     }
 
+    /// Returns the PoX contract controlling the signer set and reward set
+    /// for `reward_cycle`.
+    ///
+    /// Cycle-keyed counterpart to `active_pox_contract`.
+    ///
+    /// All cycle-scoped callers (signer-set computation, reward-address
+    /// resolution) must use this; only tip-scoped callers (RPC, "what's
+    /// live now") use the burn-height variant.
+    ///
+    /// The PoX-5 branch is derived from `first_pox_waterfall_block` so that
+    /// `active_pox_contract_for_cycle` and the waterfall block-commit /
+    /// nakamoto-cycle-start predicates agree on a single boundary.
+    ///
+    /// For pre-PoX-5 transitions the existing tip-keyed answer is preserved by
+    /// evaluating at the cycle's mod-1 (classic reward-phase start) block.
+    pub fn active_pox_contract_for_cycle(
+        &self,
+        first_block_height: u64,
+        reward_cycle: u64,
+    ) -> &'static str {
+        if let Some(wf) = self.first_pox_waterfall_block(first_block_height) {
+            if self.nakamoto_first_block_of_cycle(first_block_height, reward_cycle) >= wf {
+                return POX_5_NAME;
+            }
+        }
+        // PoX-5 already ruled out, now cascade through earlier
+        // activations using a tip-height inside the cycle.
+        let h = self.reward_cycle_to_block_height(first_block_height, reward_cycle);
+        if h > u64::from(self.pox_4_activation_height) {
+            POX_4_NAME
+        } else if h > u64::from(self.pox_3_activation_height) {
+            POX_3_NAME
+        } else if h > u64::from(self.v1_unlock_height) {
+            POX_2_NAME
+        } else {
+            POX_1_NAME
+        }
+    }
+
+    /// Note: even in PoX-waterfall, the number of reward slots is used to
+    ///  set signer-weights. Any future cleanup of `OUTPUTS_PER_COMMIT` or `reward_slots`
+    ///  will need to contend with this.
     pub fn reward_slots(&self) -> u32 {
         (self.reward_cycle_length - self.prepare_length)
             * u32::try_from(OUTPUTS_PER_COMMIT).expect("FATAL: > 2^32 outputs per commit")
@@ -434,6 +489,9 @@ impl PoxConstants {
             BITCOIN_MAINNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
+            BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT
+                .try_into()
+                .expect("Epoch transition height must be <= u32::MAX"),
         )
     }
 
@@ -453,11 +511,27 @@ impl PoxConstants {
             BITCOIN_TESTNET_STACKS_24_BURN_HEIGHT
                 .try_into()
                 .expect("Epoch transition height must be <= u32::MAX"),
+            BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT
+                .try_into()
+                .expect("Epoch transition height must be <= u32::MAX"),
         ) // total liquid supply is 40000000000000000 µSTX
     }
 
     pub fn nakamoto_testnet_default() -> PoxConstants {
-        PoxConstants::new(900, 100, 51, 100, 0, u64::MAX, u64::MAX, 242, 243, 246, 244)
+        PoxConstants::new(
+            900,
+            100,
+            51,
+            100,
+            0,
+            u64::MAX,
+            u64::MAX,
+            242,
+            243,
+            246,
+            244,
+            247,
+        )
     }
 
     // TODO: add tests from mutation testing results #4838
@@ -475,6 +549,7 @@ impl PoxConstants {
             2_000_000,
             4_000_000,
             3_000_000,
+            5_000_000,
         )
     }
 
@@ -547,6 +622,23 @@ impl PoxConstants {
     /// this is the modulo 0 block
     pub fn nakamoto_first_block_of_cycle(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         first_block_height + reward_cycle * u64::from(self.reward_cycle_length)
+    }
+
+    /// First burn block whose leader-block-commits use the PoX-5 waterfall
+    /// single-output format: the start of the first reward cycle whose start
+    /// is strictly after `self.pox_5_activation_height`.
+    ///
+    /// The reward cycle that *contains* `pox_5_activation_height` is the last
+    /// classic-PoX cycle; the next reward cycle is the first to follow
+    /// waterfall rules.
+    ///
+    /// Returns `None` if `pox_5_activation_height < first_block_height`
+    pub fn first_pox_waterfall_block(&self, first_block_height: u64) -> Option<u64> {
+        let initial_rc = self.block_height_to_reward_cycle(
+            first_block_height,
+            self.pox_5_activation_height.into(),
+        )?;
+        Some(self.nakamoto_first_block_of_cycle(first_block_height, initial_rc.saturating_add(1)))
     }
 
     pub fn reward_cycle_index(&self, first_block_height: u64, burn_height: u64) -> Option<u64> {

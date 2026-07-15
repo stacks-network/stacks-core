@@ -4,37 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "e742345ea2b41b2998e14306968db855d81f4f27dc053ac815e89251d7d0849e",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: allow-expr-not-allo-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 4,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 605,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 4,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 605,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "0dbe0f9ca42ac7874d3c8e9c7c5a3e75a7983d33268d3dc76051b094effb15c2",
+    marf_hash: "2bd82869ac0bc544e75b142789380ddbddfc860c2129b4796f162fa509698b44",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2dd04660562cc82e13fe1aecc0d6ab2a81efabb5a2f79ab4d35503f2cfd9cd4a",
+    marf_hash: "fa329644bc03413e423f4468431a857c14cb9cd2aa84928df6f3d86d6c7f4595",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

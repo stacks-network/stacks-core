@@ -77,6 +77,10 @@ pub struct NakamotoUnconfirmedTenureDownloader {
     pub confirmed_signer_keys: Option<RewardSet>,
     /// reward set of the unconfirmed (ongoing) tenure
     pub unconfirmed_signer_keys: Option<RewardSet>,
+    /// Epoch of the highest-complete (confirmed) tenure's sortition
+    pub confirmed_epoch_id: Option<StacksEpochId>,
+    /// Epoch of the unconfirmed (ongoing) tenure's sortition
+    pub unconfirmed_epoch_id: Option<StacksEpochId>,
     /// Block ID of this node's highest-processed block.
     /// We will not download any blocks lower than this, if it's set.
     pub highest_processed_block_id: Option<StacksBlockId>,
@@ -101,6 +105,8 @@ impl NakamotoUnconfirmedTenureDownloader {
             naddr,
             confirmed_signer_keys: None,
             unconfirmed_signer_keys: None,
+            confirmed_epoch_id: None,
+            unconfirmed_epoch_id: None,
             highest_processed_block_id,
             highest_processed_block_height: None,
             tenure_tip: None,
@@ -360,8 +366,19 @@ impl NakamotoUnconfirmedTenureDownloader {
             "Will validate unconfirmed blocks with reward sets in ({},{})",
             parent_tenure_rc, tenure_rc
         );
+        // Epochs of the confirmed (parent) and unconfirmed (ongoing) tenures'
+        // sortitions, used to select the signer-signature ordering rule.
+        let confirmed_epoch_id =
+            SortitionDB::get_stacks_epoch(sortdb.conn(), parent_local_tenure_sn.block_height)?
+                .map(|epoch| epoch.epoch_id);
+        let unconfirmed_epoch_id =
+            SortitionDB::get_stacks_epoch(sortdb.conn(), local_tenure_sn.block_height)?
+                .map(|epoch| epoch.epoch_id);
+
         self.confirmed_signer_keys = Some(confirmed_reward_set.clone());
         self.unconfirmed_signer_keys = Some(unconfirmed_reward_set.clone());
+        self.confirmed_epoch_id = confirmed_epoch_id;
+        self.unconfirmed_epoch_id = unconfirmed_epoch_id;
         self.tenure_tip = Some(remote_tenure_tip);
 
         Ok(())
@@ -390,11 +407,16 @@ impl NakamotoUnconfirmedTenureDownloader {
             warn!("unconfirmed_signer_keys is not set");
             return Err(NetError::InvalidState);
         };
+        // The unconfirmed tenure's epoch selects the signer-signature ordering
+        // rule (strict ordering is enforced from Epoch 4.0). If somehow unset,
+        // fall back to the lenient pre-4.0 rule, which can never drop a valid
+        // block.
+        let epoch_id = self.unconfirmed_epoch_id.unwrap_or(StacksEpochId::Epoch34);
 
         // stacker signature has to match the current reward set
         if let Err(e) = unconfirmed_tenure_start_block
             .header
-            .verify_signer_signatures(unconfirmed_signer_keys)
+            .verify_signer_signatures(unconfirmed_signer_keys, epoch_id)
         {
             warn!("Invalid tenure-start block: bad signer signature";
                   "tenure_start_block.header.consensus_hash" => %unconfirmed_tenure_start_block.header.consensus_hash,
@@ -456,6 +478,10 @@ impl NakamotoUnconfirmedTenureDownloader {
             warn!("unconfirmed_signer_keys is not set");
             return Err(NetError::InvalidState);
         };
+        // The unconfirmed tenure's epoch selects the signer-signature ordering
+        // rule (strict ordering is enforced from Epoch 4.0). Fall back to the
+        // lenient pre-4.0 rule if unset (which can never drop a valid block).
+        let epoch_id = self.unconfirmed_epoch_id.unwrap_or(StacksEpochId::Epoch34);
 
         if tenure_blocks.is_empty() {
             // nothing to do
@@ -477,7 +503,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             }
             if let Err(e) = block
                 .header
-                .verify_signer_signatures(unconfirmed_signer_keys)
+                .verify_signer_signatures(unconfirmed_signer_keys, epoch_id)
             {
                 warn!("Invalid block: bad signer signature";
                       "tenure_id" => %tenure_tip.consensus_hash,
@@ -709,6 +735,11 @@ impl NakamotoUnconfirmedTenureDownloader {
             "neighbor" => %self.naddr,
         );
 
+        // The highest-complete tenure downloader validates the parent
+        // (confirmed) tenure's blocks, so it uses that tenure's epoch. Fall back
+        // to the lenient pre-4.0 rule if unset, which can never drop a valid block.
+        let epoch_id = self.confirmed_epoch_id.unwrap_or(StacksEpochId::Epoch34);
+
         let ntd = NakamotoTenureDownloader::new(
             tenure_tip.parent_consensus_hash.clone(),
             tenure_tip.consensus_hash.clone(),
@@ -718,6 +749,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             self.naddr.clone(),
             confirmed_signer_keys.clone(),
             unconfirmed_signer_keys.clone(),
+            epoch_id,
             true,
         );
 

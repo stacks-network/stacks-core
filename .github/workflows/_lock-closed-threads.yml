@@ -1,0 +1,37 @@
+# Workflow to lock closed Issues, PRs, and Discussions
+
+name: "Lock Threads"
+
+on:
+  schedule:
+    # Run at 00:00 UTC daily
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+  discussions: write
+
+# Configure concurrency
+concurrency:
+  group: lock-threads
+
+jobs:
+  lock:
+    name: Lock Closed Issues, PRs, & Discussions
+    # Only execute if running in our core repo. The CRON schedule will run against `master` which is intended
+    if: |
+      github.repository == 'stacks-network/stacks-core' &&
+      github.ref_name == 'master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lock Threads
+        uses: dessant/lock-threads@89ae32b08ed1a541efecbab17912962a5e38981c # v6.0.2
+        with:
+          issue-inactive-days: 7
+          issue-comment: "Closed Issue has been locked after 7 days of inactivity."
+          pr-inactive-days: 14
+          pr-comment: "Closed PR has been locked after 14 days of inactivity."
+          discussion-inactive-days: 7
+          discussion-comment: "Closed Discussion has been locked after 7 days of inactivity."

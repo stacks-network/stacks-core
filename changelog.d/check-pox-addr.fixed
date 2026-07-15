@@ -1,0 +1,1 @@
+In `signer-manager.clar`, the function `check-pox-addr` wasn't used. Now, it is used to check when a staker has passed a `pox-addr` as part of their calldata.

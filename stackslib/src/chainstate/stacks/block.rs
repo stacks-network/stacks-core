@@ -590,6 +590,17 @@ impl StacksBlock {
                 }
             }
         }
+        if !epoch_id.supports_staking_post_conditions() {
+            for post_condition in tx.post_conditions.iter() {
+                if matches!(
+                    post_condition,
+                    TransactionPostCondition::Staking(..) | TransactionPostCondition::Pox(..)
+                ) {
+                    error!("Staking/Pox post-condition is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
+                    return false;
+                }
+            }
+        }
         if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
             if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
                 // not supported

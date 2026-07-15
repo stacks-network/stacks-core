@@ -185,19 +185,57 @@ impl StacksTransactionSigner {
 
 #[cfg(test)]
 mod test {
+    use std::io::{Read, Write};
+
     use clarity::types::StacksEpochId;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::Value;
-    use stacks_common::codec::StacksMessageCodec;
+    use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::*;
     use stacks_common::util::retry::LogReader;
 
     use crate::burnchains::Txid;
+    use crate::chainstate::stacks::*;
+
+    // Local helpers that mirror the private codec helpers in
+    // `stacks_codec::transaction`; kept here so the tests can construct
+    // expected byte streams directly.
+    #[allow(non_snake_case)]
+    fn ClarityVersion_consensus_serialize<W: Write>(
+        version: &ClarityVersion,
+        fd: &mut W,
+    ) -> Result<(), codec_error> {
+        match *version {
+            ClarityVersion::Clarity1 => write_next(fd, &1u8)?,
+            ClarityVersion::Clarity2 => write_next(fd, &2u8)?,
+            ClarityVersion::Clarity3 => write_next(fd, &3u8)?,
+            ClarityVersion::Clarity4 => write_next(fd, &4u8)?,
+            ClarityVersion::Clarity5 => write_next(fd, &5u8)?,
+            ClarityVersion::Clarity6 => write_next(fd, &6u8)?,
+        }
+        Ok(())
+    }
+
+    #[allow(non_snake_case)]
+    fn ClarityVersion_consensus_deserialize<R: Read>(
+        fd: &mut R,
+    ) -> Result<ClarityVersion, codec_error> {
+        let version_byte: u8 = read_next(fd)?;
+        match version_byte {
+            1u8 => Ok(ClarityVersion::Clarity1),
+            2u8 => Ok(ClarityVersion::Clarity2),
+            3u8 => Ok(ClarityVersion::Clarity3),
+            4u8 => Ok(ClarityVersion::Clarity4),
+            5u8 => Ok(ClarityVersion::Clarity5),
+            6u8 => Ok(ClarityVersion::Clarity6),
+            _ => Err(codec_error::DeserializeError(format!(
+                "Unrecognized ClarityVersion byte {}",
+                &version_byte
+            ))),
+        }
+    }
     use crate::chainstate::stacks::test::codec_all_transactions;
-    use crate::chainstate::stacks::{
-        C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, *,
-    };
     use crate::core::EMPTY_MICROBLOCK_PARENT_HASH;
     use crate::net::codec::test::check_codec_and_corruption;
 

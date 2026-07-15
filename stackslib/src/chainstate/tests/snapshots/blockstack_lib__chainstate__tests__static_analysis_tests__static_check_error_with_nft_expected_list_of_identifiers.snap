@@ -4,37 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "1cddf374eb1fa89df540fd5eef97307dd5efee4d127cccbc4b266c553e96d748",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: with-nft-exp-ident-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: with-nft allowance must include a list of asset identifiers) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 3293,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 3293,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "900f5f3fd661df07b686cf0b2731d7323411310e40682d0ce228682622714cc0",
+    marf_hash: "b98f56e35f84676478004a8dd22593ec9d95f46b4033b4b5bad8a6eb105b67f7",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f006968b8ca2ba3b9db04c217726d83854b89ff5ba911c8dc43cb42e2938dd7c",
+    marf_hash: "509d05a8fa4035cf314a29c4c35553ea4a4fac596ec96075f0f71615e2a99dea",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

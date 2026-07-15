@@ -1,1 +1,0 @@
-Signers now ignore StackerDB chunks whose payload type is not valid for the contract they were received in.

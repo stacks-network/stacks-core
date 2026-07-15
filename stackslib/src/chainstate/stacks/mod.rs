@@ -63,6 +63,7 @@ pub mod db;
 pub mod events;
 pub mod index;
 pub mod miner;
+pub mod sbtc;
 pub mod transaction;
 
 #[cfg(test)]
@@ -413,11 +414,11 @@ pub use stacks_codec::transaction::{
     AssetInfo, AssetInfoID, AuthError, CoinbasePayload, FungibleConditionCode, MultisigHashMode,
     MultisigSpendingCondition, NonfungibleConditionCode, OrderIndependentMultisigHashMode,
     OrderIndependentMultisigSpendingCondition, PostConditionPrincipal, PostConditionPrincipalID,
-    SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader, StacksTransaction,
-    TenureChangeCause, TenureChangeError, TenureChangePayload, TokenTransferMemo,
-    TransactionAnchorMode, TransactionAuth, TransactionAuthField, TransactionAuthFieldID,
-    TransactionAuthFlags, TransactionAuthVerificationMode, TransactionContractCall,
-    TransactionPayload, TransactionPayloadID, TransactionPostCondition,
+    PoxConditionCode, SinglesigHashMode, SinglesigSpendingCondition, StacksMicroblockHeader,
+    StacksTransaction, TenureChangeCause, TenureChangeError, TenureChangePayload,
+    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionAuthField,
+    TransactionAuthFieldID, TransactionAuthFlags, TransactionAuthVerificationMode,
+    TransactionContractCall, TransactionPayload, TransactionPayloadID, TransactionPostCondition,
     TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
     TransactionSpendingCondition, TransactionVersion,
 };
@@ -1057,6 +1058,7 @@ pub mod test {
             miner_signature: MessageSignature::empty(),
             signer_signature: Vec::new(),
             pox_treatment: BitVec::ones(8).unwrap(),
+            problematic_txs: vec![],
         };
 
         NakamotoBlock {

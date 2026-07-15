@@ -303,6 +303,7 @@ fn test_try_make_response() {
                         tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
                         None,
+                        None,
                         &mut 0,
                     );
                     let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
@@ -609,6 +610,7 @@ fn test_block_proposal_validation_timeout() {
                         deploy_tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
                         None,
+                        None,
                         &mut 0,
                     );
                     assert!(matches!(tx_result, TransactionResult::Success(_)));
@@ -617,6 +619,7 @@ fn test_block_proposal_validation_timeout() {
                         &call_tx,
                         call_tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
+                        None,
                         None,
                         &mut 0,
                     );
@@ -978,6 +981,7 @@ fn test_block_proposal_validation_analysis_time_expired_blames_tx() {
                         deploy_tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
                         None,
+                        None,
                         &mut 0,
                     );
                     assert!(matches!(tx_result, TransactionResult::Success(_)));
@@ -1124,6 +1128,7 @@ fn replay_validation_test(
                             &tx,
                             tx.tx_len(),
                             &BlockLimitFunction::NO_LIMIT_HIT,
+                            None,
                             None,
                             &mut 0,
                         );

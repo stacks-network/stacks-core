@@ -1,0 +1,1 @@
+In Epoch 4.0 (PoX-5), the Clarity asset map now sums concurrent stacking entries for the same principal within a transaction (both within a frame and when merging frames) instead of rejecting the block. The pre-Epoch-4.0 soft-fork behavior (rejecting PoX assetmap overwrites) is unchanged.
