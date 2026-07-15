@@ -21,7 +21,7 @@ use clarity::util::secp256k1::Secp256k1PrivateKey;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::{ClarityName, ContractName, Value};
-use libstackerdb::StackerDBChunkData;
+use libstackerdb::{StackerDBChunkData, STACKERDB_MAX_CHUNK_SIZE};
 use rand::distributions::Standard;
 use rand::{thread_rng, Rng, RngCore};
 use rusqlite::params;
@@ -57,7 +57,8 @@ use crate::chainstate::nakamoto::staging_blocks::{
 use crate::chainstate::nakamoto::tenure::NakamotoTenureEvent;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
-    query_row, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
+    query_row, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NAKAMOTO_BLOCK_VERSION,
+    NAKAMOTO_BLOCK_VERSION_EPOCH_4,
 };
 use crate::chainstate::stacks::boot::{
     NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
@@ -138,6 +139,8 @@ fn test_path(name: &str) -> String {
 }
 
 pub mod node;
+pub mod signer_set;
+pub mod transactions;
 
 #[test]
 fn codec_nakamoto_header() {
@@ -153,6 +156,7 @@ fn codec_nakamoto_header() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![MessageSignature::from_bytes(&[0x01; 65]).unwrap()],
         pox_treatment: BitVec::zeros(8).unwrap(),
+        problematic_txs: vec![],
     };
 
     let mut bytes = vec![
@@ -188,14 +192,31 @@ fn codec_nakamoto_header() {
     let signer_bitvec_serialization = "00080000000100";
     bytes.append(&mut hex_bytes(signer_bitvec_serialization).unwrap());
 
+    // problematic_txs: empty Vec serializes as a 4-byte length prefix of 0.
+    bytes.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+
     check_codec_and_corruption(&header, &bytes);
 }
 
 #[test]
-pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
-    let private_key = StacksPrivateKey::random();
+fn codec_problematic_tx_marker() {
+    use crate::chainstate::nakamoto::ProblematicTxMarker;
+
+    let marker = ProblematicTxMarker {
+        tx_index: 0x01020304,
+        category: 0x42,
+    };
+    // u32 BE + u8
+    let bytes = vec![0x01, 0x02, 0x03, 0x04, 0x42];
+    check_codec_and_corruption(&marker, &bytes);
+}
+
+#[test]
+fn codec_nakamoto_header_with_problematic_txs() {
+    use crate::chainstate::nakamoto::ProblematicTxMarker;
+
     let header = NakamotoBlockHeader {
-        version: 1,
+        version: NAKAMOTO_BLOCK_VERSION_EPOCH_4,
         chain_length: 2,
         burn_spent: 3,
         consensus_hash: ConsensusHash([0x04; 20]),
@@ -206,6 +227,70 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![
+            ProblematicTxMarker {
+                tx_index: 7,
+                category: 1,
+            },
+            ProblematicTxMarker {
+                tx_index: 9,
+                category: 2,
+            },
+        ],
+    };
+
+    // Round-trip: serialize then deserialize and ensure equality.
+    let mut buf = vec![];
+    header.consensus_serialize(&mut buf).unwrap();
+    let decoded = NakamotoBlockHeader::consensus_deserialize(&mut &buf[..]).unwrap();
+    assert_eq!(header, decoded);
+}
+
+#[test]
+fn signer_signature_hash_includes_problematic_txs() {
+    use crate::chainstate::nakamoto::ProblematicTxMarker;
+
+    let mut header = NakamotoBlockHeader {
+        version: NAKAMOTO_BLOCK_VERSION_EPOCH_4,
+        chain_length: 2,
+        burn_spent: 3,
+        consensus_hash: ConsensusHash([0x04; 20]),
+        parent_block_id: StacksBlockId([0x05; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
+        state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
+        miner_signature: MessageSignature::empty(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
+    };
+    let h_empty = header.signer_signature_hash();
+    let m_empty = header.miner_signature_hash();
+    header.problematic_txs.push(ProblematicTxMarker {
+        tx_index: 1,
+        category: 9,
+    });
+    assert_ne!(h_empty, header.signer_signature_hash());
+    assert_ne!(m_empty, header.miner_signature_hash());
+}
+
+#[test]
+pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
+    let private_key = StacksPrivateKey::random();
+    let header = NakamotoBlockHeader {
+        // validated below against Epoch 3.0, whose header version is 0
+        version: 0,
+        chain_length: 2,
+        burn_spent: 3,
+        consensus_hash: ConsensusHash([0x04; 20]),
+        parent_block_id: StacksBlockId([0x05; 32]),
+        tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
+        state_index_root: TrieHash([0x07; 32]),
+        timestamp: 8,
+        miner_signature: MessageSignature::empty(),
+        signer_signature: vec![],
+        pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     // sortition-inducing tenure change
@@ -484,6 +569,41 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_vrf_proof(), Some(&proof));
     assert!(block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
 
+    // The header version is the *last* static check, so the block above is
+    // otherwise-valid and isolates the version gate. The expected version is
+    // fixed per epoch (`NAKAMOTO_BLOCK_VERSION`), and the shadow-block high bit
+    // (0x80) is ignored when checking it.
+    let valid_txs = vec![tenure_change_tx.clone(), coinbase_tx.clone()];
+
+    // The correct version still validates with the shadow-block bit set.
+    let mut shadow_header = header.clone();
+    shadow_header.version = NAKAMOTO_BLOCK_VERSION | 0x80;
+    let block = NakamotoBlock {
+        header: shadow_header,
+        txs: valid_txs.clone(),
+    };
+    assert!(block.validate_header_static(StacksEpochId::Epoch30));
+
+    // Any other version is rejected, with or without the shadow-block bit. This
+    // includes version 1, which was the value used before the version field was
+    // enforced.
+    for bad_version in [
+        NAKAMOTO_BLOCK_VERSION.wrapping_add(1),
+        NAKAMOTO_BLOCK_VERSION.wrapping_add(2),
+        NAKAMOTO_BLOCK_VERSION.wrapping_add(2) | 0x80,
+    ] {
+        let mut bad_header = header.clone();
+        bad_header.version = bad_version;
+        let block = NakamotoBlock {
+            header: bad_header,
+            txs: valid_txs.clone(),
+        };
+        assert!(
+            !block.validate_header_static(StacksEpochId::Epoch30),
+            "header version {bad_version:#x} should be rejected"
+        );
+    }
+
     // syntactically valid non-tenure-start block only if we have a syntactically valid tenure change which is not sortition-induced,
     // or we don't have one at all.
     let block = NakamotoBlock {
@@ -593,8 +713,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
 pub fn test_load_store_update_nakamoto_blocks() {
     let test_name = function_name!();
     let path = test_path(test_name);
-    let pox_constants = PoxConstants::new(5, 3, 3, 25, 5, 0, 0, 0, 0, 0, 0);
-    let epochs = StacksEpoch::unit_test_3_0_only(1);
+    let pox_constants = PoxConstants::new(5, 3, 3, 25, 5, 0, 0, 0, 0, 0, 0, 0);
+    let epochs = StacksEpoch::unit_test_epoch_only(1, StacksEpochId::Epoch30);
     let _ = std::fs::remove_dir_all(&path);
     let burnchain_conf = get_burnchain(&path, Some(pox_constants.clone()));
 
@@ -789,6 +909,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         miner_signature: MessageSignature::empty(),
         signer_signature: header_signatures.clone(),
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let nakamoto_header_info = StacksHeaderInfo {
@@ -836,6 +957,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let nakamoto_header_info_2 = StacksHeaderInfo {
@@ -878,6 +1000,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let nakamoto_header_info_3 = StacksHeaderInfo {
@@ -912,6 +1035,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![MessageSignature::from_bytes(&[0x01; 65]).unwrap()],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let nakamoto_header_info_3_weight_2 = StacksHeaderInfo {
@@ -946,6 +1070,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let nakamoto_header_info_4 = StacksHeaderInfo {
@@ -1868,6 +1993,7 @@ fn test_nakamoto_block_static_verification() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
     nakamoto_header.sign_miner(&private_key).unwrap();
 
@@ -1888,6 +2014,7 @@ fn test_nakamoto_block_static_verification() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
     nakamoto_header_bad_ch.sign_miner(&private_key).unwrap();
 
@@ -1908,6 +2035,7 @@ fn test_nakamoto_block_static_verification() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
     nakamoto_header_bad_miner_sig
         .sign_miner(&private_key)
@@ -1930,6 +2058,7 @@ fn test_nakamoto_block_static_verification() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
     nakamoto_recipient_header.sign_miner(&private_key).unwrap();
 
@@ -1950,6 +2079,7 @@ fn test_nakamoto_block_static_verification() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
     nakamoto_shadow_recipient_header
         .sign_miner(&private_key)
@@ -2236,6 +2366,41 @@ fn test_make_miners_stackerdb_config() {
         let stackerdb_config = NakamotoChainState::make_miners_stackerdb_config(sort_db, &tip)
             .unwrap()
             .0;
+        assert_eq!(
+            stackerdb_config.chunk_size,
+            u64::from(STACKERDB_MAX_CHUNK_SIZE),
+            "chunk_size config matches the stackerdb wire cap"
+        );
+        assert_eq!(
+            stackerdb_config.write_freq, 0,
+            "write_freq config has no minimum write interval"
+        );
+        assert_eq!(
+            stackerdb_config.max_writes,
+            u32::MAX,
+            "max_writes config has no write-count limit"
+        );
+        assert_eq!(
+            stackerdb_config.max_neighbors, 200,
+            "max_neighbors config should be 200"
+        );
+        assert!(
+            stackerdb_config.hint_replicas.is_empty(),
+            "hint_replicas config must not provide hint"
+        );
+        assert_eq!(
+            2,
+            stackerdb_config.signers.len(),
+            "signers config must always have exactly two signers (latest and previous sortition winner)"
+        );
+        for (idx, (_addr, slot_count)) in stackerdb_config.signers.iter().enumerate() {
+            // note: addresses checked later in the test
+            assert_eq!(
+                *slot_count, MINER_SLOT_COUNT,
+                "signer at index {idx} must have exactly MINER_SLOT_COUNT slots"
+            );
+        }
+
         eprintln!(
             "stackerdb_config at i = {} (sorition? {}): {:?}",
             &i, sortition, &stackerdb_config
@@ -2256,6 +2421,7 @@ fn test_make_miners_stackerdb_config() {
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::zeros(1).unwrap(),
+            problematic_txs: vec![],
         };
         let block = NakamotoBlock {
             header,
@@ -3167,13 +3333,341 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     assert!(filtered_txs.contains(txs.first().expect("failed to get first tx")));
 }
 
+pub mod problematic_txs_validation {
+    use super::*;
+    use crate::chainstate::nakamoto::{
+        ProblematicTxMarker, MAX_PROBLEMATIC_TX_MARKERS, NAKAMOTO_BLOCK_VERSION_EPOCH_4,
+    };
+
+    /// Build a Nakamoto block whose `txs` are:
+    ///   index 0: tenure-change
+    ///   index 1: coinbase
+    ///   index 2..: STX-transfer
+    /// for `n_transfers` total transfers.
+    fn make_block(n_transfers: usize) -> NakamotoBlock {
+        let private_key = StacksPrivateKey::random();
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
+
+        let tenure_change_payload = TenureChangePayload {
+            tenure_consensus_hash: ConsensusHash([0x04; 20]),
+            prev_tenure_consensus_hash: ConsensusHash([0x03; 20]),
+            burn_view_consensus_hash: ConsensusHash([0x04; 20]),
+            previous_tenure_end: StacksBlockId([0x05; 32]),
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0x02; 20]),
+        };
+        let mut tenure_change_tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::from_p2pkh(&private_key).unwrap(),
+            TransactionPayload::TenureChange(tenure_change_payload),
+        );
+        tenure_change_tx.chain_id = 0x80000000;
+        tenure_change_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+
+        let mut coinbase_tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::from_p2pkh(&private_key).unwrap(),
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof)),
+        );
+        coinbase_tx.chain_id = 0x80000000;
+        coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+
+        let recipient_addr =
+            StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
+        let mut txs = vec![tenure_change_tx, coinbase_tx];
+        for i in 0..n_transfers {
+            let mut transfer = StacksTransaction::new(
+                TransactionVersion::Testnet,
+                TransactionAuth::from_p2pkh(&private_key).unwrap(),
+                TransactionPayload::TokenTransfer(
+                    recipient_addr.to_account_principal(),
+                    (i + 1) as u64,
+                    TokenTransferMemo([0x00; 34]),
+                ),
+            );
+            transfer.chain_id = 0x80000000;
+            transfer.anchor_mode = TransactionAnchorMode::OnChainOnly;
+            txs.push(transfer);
+        }
+
+        let header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 2,
+            burn_spent: 3,
+            consensus_hash: ConsensusHash([0x04; 20]),
+            parent_block_id: StacksBlockId([0x05; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
+            state_index_root: TrieHash([0x07; 32]),
+            timestamp: 8,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::zeros(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        NakamotoBlock { header, txs }
+    }
+
+    #[test]
+    fn pre_epoch_40_rejects_non_empty_markers() {
+        let mut block = make_block(2);
+        block.header.problematic_txs.push(ProblematicTxMarker {
+            tx_index: 2,
+            category: 1,
+        });
+        assert!(block
+            .validate_problematic_txs(StacksEpochId::Epoch34)
+            .is_err());
+        // A pre-4.0 (version 0) header with no markers is fine.
+        block.header.version = 0;
+        block.header.problematic_txs.clear();
+        block
+            .validate_problematic_txs(StacksEpochId::Epoch34)
+            .unwrap();
+    }
+
+    #[test]
+    fn rejects_version_epoch_mismatch() {
+        // A version-0 header in Epoch 4.0 is invalid: the markers would not be
+        // committed to the block hash.
+        let mut block = make_block(2);
+        block.header.version = 0;
+        assert!(block
+            .validate_problematic_txs(StacksEpochId::Epoch40)
+            .is_err());
+
+        // A version-1 header before Epoch 4.0 is invalid even with no markers.
+        let mut block = make_block(2);
+        block.header.version = NAKAMOTO_BLOCK_VERSION_EPOCH_4;
+        block.header.problematic_txs.clear();
+        assert!(block
+            .validate_problematic_txs(StacksEpochId::Epoch34)
+            .is_err());
+
+        // The shadow-block flag (high bit) does not change the version's epoch
+        // classification: a shadow v1 header is valid in Epoch 4.0...
+        let mut block = make_block(2);
+        block.header.version = NAKAMOTO_BLOCK_VERSION_EPOCH_4 | 0x80;
+        block.header.problematic_txs.clear();
+        block
+            .validate_problematic_txs(StacksEpochId::Epoch40)
+            .unwrap();
+
+        // ...and a shadow v0 header is valid before Epoch 4.0.
+        let mut block = make_block(2);
+        block.header.version = 0x80;
+        block.header.problematic_txs.clear();
+        block
+            .validate_problematic_txs(StacksEpochId::Epoch34)
+            .unwrap();
+
+        // The version must match the epoch *exactly* (masking the shadow bit):
+        // an unrecognized version is rejected in either epoch, even with no
+        // markers.
+        for bad_version in [2u8, 5u8, 0x82u8] {
+            let mut block = make_block(2);
+            block.header.version = bad_version;
+            block.header.problematic_txs.clear();
+            assert!(block
+                .validate_problematic_txs(StacksEpochId::Epoch34)
+                .is_err());
+            assert!(block
+                .validate_problematic_txs(StacksEpochId::Epoch40)
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn epoch_40_accepts_well_formed_markers() {
+        let mut block = make_block(4);
+        block.header.problematic_txs = vec![
+            ProblematicTxMarker {
+                tx_index: 2,
+                category: 1,
+            },
+            ProblematicTxMarker {
+                tx_index: 4,
+                category: 99,
+            },
+        ];
+        block
+            .validate_problematic_txs(StacksEpochId::Epoch40)
+            .unwrap();
+    }
+
+    #[test]
+    fn rejects_out_of_bounds_index() {
+        let mut block = make_block(2);
+        // 2 transfers => 4 txs (indices 0..=3). 7 is out of bounds.
+        block.header.problematic_txs.push(ProblematicTxMarker {
+            tx_index: 7,
+            category: 1,
+        });
+        assert!(block
+            .validate_problematic_txs(StacksEpochId::Epoch40)
+            .is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_index() {
+        let mut block = make_block(3);
+        block.header.problematic_txs = vec![
+            ProblematicTxMarker {
+                tx_index: 2,
+                category: 1,
+            },
+            ProblematicTxMarker {
+                tx_index: 2,
+                category: 2,
+            },
+        ];
+        assert!(block
+            .validate_problematic_txs(StacksEpochId::Epoch40)
+            .is_err());
+    }
+
+    #[test]
+    fn rejects_decreasing_index() {
+        let mut block = make_block(4);
+        block.header.problematic_txs = vec![
+            ProblematicTxMarker {
+                tx_index: 4,
+                category: 1,
+            },
+            ProblematicTxMarker {
+                tx_index: 3,
+                category: 1,
+            },
+        ];
+        assert!(block
+            .validate_problematic_txs(StacksEpochId::Epoch40)
+            .is_err());
+    }
+
+    #[test]
+    fn rejects_marker_on_coinbase() {
+        let mut block = make_block(2);
+        // index 1 is the coinbase
+        block.header.problematic_txs.push(ProblematicTxMarker {
+            tx_index: 1,
+            category: 1,
+        });
+        assert!(block
+            .validate_problematic_txs(StacksEpochId::Epoch40)
+            .is_err());
+    }
+
+    #[test]
+    fn rejects_marker_on_tenure_change() {
+        let mut block = make_block(2);
+        // index 0 is the tenure-change
+        block.header.problematic_txs.push(ProblematicTxMarker {
+            tx_index: 0,
+            category: 1,
+        });
+        assert!(block
+            .validate_problematic_txs(StacksEpochId::Epoch40)
+            .is_err());
+    }
+
+    #[test]
+    fn rejects_too_many_markers() {
+        // The cap is a fixed constant; we only need a block big enough to expose it
+        // and use the smallest possible n to avoid blowing up the test runtime.
+        let cap = MAX_PROBLEMATIC_TX_MARKERS;
+        // Build a block whose tx count is cap + 3 (tenure-change, coinbase, then transfers).
+        // Note that this block is not actually possible, because it's too big,
+        // but we just need it to test the validation logic.
+        let mut block = make_block(cap + 1);
+        let mut markers = Vec::with_capacity(cap + 1);
+        for i in 0..(cap + 1) {
+            markers.push(ProblematicTxMarker {
+                tx_index: (i + 2) as u32, // skip past tenure-change/coinbase
+                category: 0,
+            });
+        }
+        block.header.problematic_txs = markers;
+        assert!(block
+            .validate_problematic_txs(StacksEpochId::Epoch40)
+            .is_err());
+    }
+
+    /// Regression guard for the Epoch-4.0 header format change. A version-0
+    /// (pre-4.0) header must serialize and hash exactly as it did before the
+    /// `problematic_txs` field existed: the field is gated on the header's
+    /// `version` byte, so version-0 headers omit it entirely. If this ever
+    /// regresses, the block_hash of every historical Nakamoto block changes and
+    /// the node forks off mainnet.
+    #[test]
+    fn problematic_txs_serialization_is_version_gated() {
+        let block = make_block(2);
+        let marker = ProblematicTxMarker {
+            tx_index: 2,
+            category: 1,
+        };
+
+        // --- version 0: the field is invisible to serialization and hashing ---
+        let mut v0 = block.header.clone();
+        v0.version = 0;
+        let mut v0_with_markers = v0.clone();
+        v0_with_markers.problematic_txs = vec![marker];
+
+        // Serialized bytes do not depend on `problematic_txs`...
+        let v0_bytes = v0.serialize_to_vec();
+        assert_eq!(
+            v0_bytes,
+            v0_with_markers.serialize_to_vec(),
+            "version-0 header serialization must not depend on problematic_txs"
+        );
+        // ...nor do any of the signature / block hashes.
+        assert_eq!(v0.block_hash(), v0_with_markers.block_hash());
+        assert_eq!(
+            v0.signer_signature_hash(),
+            v0_with_markers.signer_signature_hash()
+        );
+        assert_eq!(
+            v0.miner_signature_hash(),
+            v0_with_markers.miner_signature_hash()
+        );
+
+        // Deserializing a version-0 header reads no marker bytes and yields an
+        // empty list.
+        let decoded = NakamotoBlockHeader::consensus_deserialize(&mut v0_bytes.as_slice()).unwrap();
+        assert!(decoded.problematic_txs.is_empty());
+        assert_eq!(decoded, v0);
+
+        // --- version 1: the field is part of the header ---
+        let mut v1 = block.header.clone();
+        v1.version = NAKAMOTO_BLOCK_VERSION_EPOCH_4;
+        v1.problematic_txs = vec![];
+        let mut v1_with_markers = v1.clone();
+        v1_with_markers.problematic_txs = vec![marker];
+
+        // Markers now change both the bytes and the hash.
+        assert_ne!(v1.serialize_to_vec(), v1_with_markers.serialize_to_vec());
+        assert_ne!(v1.block_hash(), v1_with_markers.block_hash());
+
+        // version-1 headers round-trip their markers.
+        let v1_bytes = v1_with_markers.serialize_to_vec();
+        let v1_decoded =
+            NakamotoBlockHeader::consensus_deserialize(&mut v1_bytes.as_slice()).unwrap();
+        assert_eq!(v1_decoded, v1_with_markers);
+
+        // The only byte-level difference between an otherwise-identical v0 and
+        // v1 header (both with empty markers) is the 4-byte length prefix that
+        // v1 writes for the empty vec and v0 omits.
+        assert_eq!(v0.serialize_to_vec().len() + 4, v1.serialize_to_vec().len());
+    }
+}
+
 pub mod nakamoto_block_signatures {
     use super::*;
 
     /// Helper function make a reward set with (PrivateKey, weight) tuples
     fn make_reward_set(signers: &[(Secp256k1PrivateKey, u32)]) -> RewardSet {
         let mut reward_set = RewardSet::empty();
-        reward_set.signers = Some(
+        reward_set.as_v0_mut().expect("empty() is V0").signers = Some(
             signers
                 .iter()
                 .map(|(s, w)| {
@@ -3217,7 +3711,7 @@ pub mod nakamoto_block_signatures {
         header.signer_signature = signer_signature;
 
         header
-            .verify_signer_signatures(&reward_set)
+            .verify_signer_signatures(&reward_set, StacksEpochId::latest())
             .expect("Failed to verify signatures");
     }
 
@@ -3243,7 +3737,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected insufficient signatures to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 assert!(msg.contains("Not enough signatures"));
@@ -3277,9 +3771,8 @@ pub mod nakamoto_block_signatures {
         header.signer_signature = signer_signature;
 
         header
-            .verify_signer_signatures(&reward_set)
+            .verify_signer_signatures(&reward_set, StacksEpochId::latest())
             .expect("Failed to verify signatures");
-        // assert!(&header.verify_signer_signatures(&reward_set).is_ok());
     }
 
     #[test]
@@ -3304,12 +3797,18 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
-            Ok(_) => panic!("Expected out of order signatures to fail"),
-            Err(ChainstateError::InvalidStacksBlock(msg)) => {
-                assert!(msg.contains("out of order"));
+        // A fully-reversed vector is rejected in every epoch: the second
+        // signature's index is already less than the first's, which both the
+        // legacy (pre-4.0) partial-ordering rule and the strict (4.0+) rule
+        // catch.
+        for epoch_id in [StacksEpochId::Epoch34, StacksEpochId::latest()] {
+            match header.verify_signer_signatures(&reward_set, epoch_id) {
+                Ok(_) => panic!("Expected out of order signatures to fail in {epoch_id}"),
+                Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                    assert!(msg.contains("out of order"));
+                }
+                _ => panic!("Expected InvalidStacksBlock error"),
             }
-            _ => panic!("Expected InvalidStacksBlock error"),
         }
     }
 
@@ -3335,7 +3834,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected insufficient signatures to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 assert!(msg.contains("Not enough signatures"));
@@ -3369,7 +3868,7 @@ pub mod nakamoto_block_signatures {
         header.signer_signature = signer_signature;
 
         header
-            .verify_signer_signatures(&reward_set)
+            .verify_signer_signatures(&reward_set, StacksEpochId::latest())
             .expect("Failed to verify signatures");
     }
 
@@ -3398,7 +3897,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected invalid signature to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 assert!(msg.contains("not found in the reward set"));
@@ -3437,7 +3936,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected duplicate signature to fail"),
             Err(ChainstateError::InvalidStacksBlock(_)) => {}
             _ => panic!("Expected InvalidStacksBlock error"),
@@ -3478,7 +3977,7 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected invalid message to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {}
             _ => panic!("Expected InvalidStacksBlock error"),
@@ -3512,12 +4011,83 @@ pub mod nakamoto_block_signatures {
 
         header.signer_signature = signer_signature;
 
-        match header.verify_signer_signatures(&reward_set) {
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
             Ok(_) => panic!("Expected invalid message to fail"),
             Err(ChainstateError::InvalidStacksBlock(msg)) => {
                 if !msg.contains("Unable to recover public key") {
                     panic!("Unexpected error msg: {}", msg);
                 }
+            }
+            _ => panic!("Expected InvalidStacksBlock error"),
+        }
+    }
+
+    #[test]
+    /// Test a secp256k1 signature with high S. Whether intentional or not,
+    /// this has always been allowed. We no longer allow it for transaction
+    /// signatures, but it's okay for signer signatures.
+    fn test_high_s_single_signature() {
+        let signers = [(Secp256k1PrivateKey::random(), 100)];
+        let reward_set = make_reward_set(&signers);
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        let message = header.signer_signature_hash().0;
+
+        header.signer_signature = vec![signers[0].0.sign(&message).unwrap().with_negated_s()];
+
+        header
+            .verify_signer_signatures(&reward_set, StacksEpochId::latest())
+            .expect("Failed to verify signature");
+    }
+
+    #[test]
+    /// Test that out-of-order signatures *after the first signature* are handled
+    /// according to the epoch.
+    ///
+    /// Before Epoch 4.0 a bug only set `last_index` on the first iteration
+    /// (inside an `else` branch), so subsequent signatures were compared against
+    /// the first signer's index instead of the previous one. With the sequence
+    /// of indices `[0, 2, 1]`, the buggy partial-ordering rule accepts the block
+    /// because index 1 > index 0 (the stale `last_index`), even though index
+    /// 1 < index 2 (the actual previous signer). From Epoch 4.0 onward the
+    /// strict total-ordering rule rejects it.
+    fn test_out_of_order_signer_signatures_after_first() {
+        // Three signers, signed in index order [0, 2, 1]: the first pair (0, 2)
+        // is in order, but the last pair (2, 1) is not.
+        let signers = [
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+            (Secp256k1PrivateKey::random(), 100),
+        ];
+        let reward_set = make_reward_set(&signers);
+
+        let mut header = NakamotoBlockHeader::empty();
+        let message = header.signer_signature_hash().0;
+
+        let signer_signature = [0, 2, 1]
+            .iter()
+            .map(|&i| {
+                signers[i]
+                    .0
+                    .sign(&message)
+                    .expect("Failed to sign block sighash")
+            })
+            .collect::<Vec<_>>();
+
+        header.signer_signature = signer_signature;
+
+        // Pre-4.0: the buggy partial-ordering rule accepts this sequence. The
+        // weight (3 * 100, all signers) easily clears the threshold.
+        header
+            .verify_signer_signatures(&reward_set, StacksEpochId::Epoch30)
+            .expect("Pre-4.0 must preserve the legacy (lenient) ordering behavior");
+
+        // Epoch 4.0+: the strict total-ordering rule rejects it.
+        match header.verify_signer_signatures(&reward_set, StacksEpochId::latest()) {
+            Ok(_) => panic!("Expected out of order signatures to fail in Epoch 4.0"),
+            Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                assert!(msg.contains("out of order"));
             }
             _ => panic!("Expected InvalidStacksBlock error"),
         }

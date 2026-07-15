@@ -54,6 +54,7 @@ use crate::strings::StacksString;
 /// Max size of a serialized Stacks transaction (consensus-encoded).
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
+pub const MIN_TRANSACTION_LEN: u32 = 180;
 use stacks_common::{
     define_u8_enum, impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
     impl_byte_array_newtype, impl_byte_array_serde, impl_index_newtype,
@@ -545,6 +546,8 @@ pub enum AssetInfoID {
     STX = 0,
     FungibleAsset = 1,
     NonfungibleAsset = 2,
+    Staking = 3,
+    Pox = 4,
 }
 
 impl AssetInfoID {
@@ -553,6 +556,8 @@ impl AssetInfoID {
             0 => Some(AssetInfoID::STX),
             1 => Some(AssetInfoID::FungibleAsset),
             2 => Some(AssetInfoID::NonfungibleAsset),
+            3 => Some(AssetInfoID::Staking),
+            4 => Some(AssetInfoID::Pox),
             _ => None,
         }
     }
@@ -623,6 +628,14 @@ pub enum AuthError {
     IncompatibleSpendingConditionError,
 }
 
+/// When validating transaction signatures, should low-S be enforced?
+/// (see https://docs.rs/secp256k1/latest/secp256k1/ecdsa/struct.Signature.html#method.normalize_s)
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum TransactionAuthVerificationMode {
+    EnforceLowS,
+    AllowHighS,
+}
+
 impl fmt::Display for AuthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -663,19 +676,6 @@ impl TransactionAuthField {
         match *self {
             TransactionAuthField::Signature(ref key_fmt, ref sig) => Some((*key_fmt, sig.clone())),
             _ => None,
-        }
-    }
-
-    // TODO: enforce u8; 32
-    pub fn get_public_key(&self, sighash_bytes: &[u8]) -> Result<StacksPublicKey, AuthError> {
-        match *self {
-            TransactionAuthField::PublicKey(ref pubk) => Ok(pubk.clone()),
-            TransactionAuthField::Signature(ref key_fmt, ref sig) => {
-                let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_bytes, sig)
-                    .map_err(|e| AuthError::VerifyingError(e.to_string()))?;
-                pubk.set_compressed(*key_fmt == TransactionPublicKeyEncoding::Compressed);
-                Ok(pubk)
-            }
         }
     }
 }
@@ -910,6 +910,7 @@ impl MultisigSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, AuthError> {
         let mut pubkeys = vec![];
         let mut cur_sighash = initial_sighash.clone();
@@ -935,6 +936,7 @@ impl MultisigSpendingCondition {
                         self.nonce,
                         pubkey_encoding,
                         sigbuf,
+                        mode,
                     )?;
                     cur_sighash = next_sighash;
                     num_sigs = num_sigs
@@ -1098,6 +1100,7 @@ impl OrderIndependentMultisigSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, AuthError> {
         let mut pubkeys = vec![];
         let mut num_sigs: u16 = 0;
@@ -1122,6 +1125,7 @@ impl OrderIndependentMultisigSpendingCondition {
                         self.nonce,
                         pubkey_encoding,
                         sigbuf,
+                        mode,
                     )?;
                     num_sigs = num_sigs
                         .checked_add(1)
@@ -1263,6 +1267,7 @@ impl SinglesigSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, AuthError> {
         let (pubkey, next_sighash) = TransactionSpendingCondition::next_verification(
             initial_sighash,
@@ -1271,6 +1276,7 @@ impl SinglesigSpendingCondition {
             self.nonce,
             &self.key_encoding,
             &self.signature,
+            mode,
         )?;
 
         let addr = StacksAddress::from_public_keys(
@@ -1735,6 +1741,7 @@ impl TransactionSpendingCondition {
         nonce: u64,
         key_encoding: &TransactionPublicKeyEncoding,
         sig: &MessageSignature,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<(StacksPublicKey, Txid), AuthError> {
         let sighash_presign = TransactionSpendingCondition::make_sighash_presign(
             cur_sighash,
@@ -1744,8 +1751,16 @@ impl TransactionSpendingCondition {
         );
 
         // verify the current signature
-        let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_presign.as_bytes(), sig)
-            .map_err(|ve| AuthError::VerifyingError(ve.to_string()))?;
+        let pubk = if mode == TransactionAuthVerificationMode::AllowHighS {
+            StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+                sighash_presign.as_bytes(),
+                sig,
+            )
+        } else {
+            StacksPublicKey::recover_to_pubkey(sighash_presign.as_bytes(), sig)
+        };
+
+        let mut pubk = pubk.map_err(|ve| AuthError::VerifyingError(ve.to_string()))?;
 
         match key_encoding {
             TransactionPublicKeyEncoding::Compressed => pubk.set_compressed(true),
@@ -1763,16 +1778,17 @@ impl TransactionSpendingCondition {
         &self,
         initial_sighash: &Txid,
         cond_code: &TransactionAuthFlags,
+        mode: TransactionAuthVerificationMode,
     ) -> Result<Txid, AuthError> {
         match *self {
             TransactionSpendingCondition::Singlesig(ref data) => {
-                data.verify(initial_sighash, cond_code)
+                data.verify(initial_sighash, cond_code, mode)
             }
             TransactionSpendingCondition::Multisig(ref data) => {
-                data.verify(initial_sighash, cond_code)
+                data.verify(initial_sighash, cond_code, mode)
             }
             TransactionSpendingCondition::OrderIndependentMultisig(ref data) => {
-                data.verify(initial_sighash, cond_code)
+                data.verify(initial_sighash, cond_code, mode)
             }
         }
     }
@@ -1992,23 +2008,31 @@ impl TransactionAuth {
         }
     }
 
-    pub fn verify_origin(&self, initial_sighash: &Txid) -> Result<Txid, AuthError> {
+    pub fn verify_origin(
+        &self,
+        initial_sighash: &Txid,
+        mode: TransactionAuthVerificationMode,
+    ) -> Result<Txid, AuthError> {
         match *self {
             TransactionAuth::Standard(ref origin_condition) => {
-                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard)
+                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard, mode)
             }
             TransactionAuth::Sponsored(ref origin_condition, _) => {
-                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard)
+                origin_condition.verify(initial_sighash, &TransactionAuthFlags::AuthStandard, mode)
             }
         }
     }
 
-    pub fn verify(&self, initial_sighash: &Txid) -> Result<(), AuthError> {
-        let origin_sighash = self.verify_origin(initial_sighash)?;
+    pub fn verify(
+        &self,
+        initial_sighash: &Txid,
+        mode: TransactionAuthVerificationMode,
+    ) -> Result<(), AuthError> {
+        let origin_sighash = self.verify_origin(initial_sighash, mode)?;
         match *self {
             TransactionAuth::Standard(_) => Ok(()),
             TransactionAuth::Sponsored(_, ref sponsor_condition) => sponsor_condition
-                .verify(&origin_sighash, &TransactionAuthFlags::AuthSponsored)
+                .verify(&origin_sighash, &TransactionAuthFlags::AuthSponsored, mode)
                 .map(|_sigh| ()),
         }
     }
@@ -2216,6 +2240,58 @@ impl NonfungibleConditionCode {
 const _: () =
     assert!(NonfungibleConditionCode::ALL.len() == NonfungibleConditionCode::VARIANT_COUNT);
 
+/// Condition code for a `Pox` post-condition. A `Pox` post-condition gates the
+/// position-altering PoX-5 operations (`unstake`, `unstake-sbtc`,
+/// `update-bond-registration`, `announce-l1-early-exit`) that act on a
+/// principal's existing stacking/bond position. An *attempt* counts, whether or
+/// not the call succeeded, so the owner can detect (and block) a contract that
+/// merely tries to touch their position. These are all-or-nothing, so the
+/// condition is presence-based rather than an amount comparison, mirroring
+/// `NonfungibleConditionCode`.
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize, VariantCount)]
+pub enum PoxConditionCode {
+    /// The principal must NOT have performed a gated PoX action (blocks an
+    /// unwanted position change).
+    NotPerformed = 0x30,
+    /// The principal may or may not have performed a gated PoX action (always
+    /// passes; used to opt in under `Deny`/`Originator` post-condition mode).
+    MaybePerformed = 0x31,
+    /// The principal must have performed a gated PoX action.
+    Performed = 0x32,
+}
+
+impl PoxConditionCode {
+    /// All variants of this enum, in declaration order. Kept in sync with the
+    /// enum definition by the `const _` assertion below.
+    pub const ALL: &'static [PoxConditionCode] = &[
+        PoxConditionCode::NotPerformed,
+        PoxConditionCode::MaybePerformed,
+        PoxConditionCode::Performed,
+    ];
+
+    pub fn from_u8(b: u8) -> Option<PoxConditionCode> {
+        match b {
+            0x30 => Some(PoxConditionCode::NotPerformed),
+            0x31 => Some(PoxConditionCode::MaybePerformed),
+            0x32 => Some(PoxConditionCode::Performed),
+            _ => None,
+        }
+    }
+
+    /// Evaluate the condition given whether the principal performed a gated PoX
+    /// action during the transaction.
+    pub fn check(&self, performed: bool) -> bool {
+        match *self {
+            PoxConditionCode::NotPerformed => !performed,
+            PoxConditionCode::MaybePerformed => true,
+            PoxConditionCode::Performed => performed,
+        }
+    }
+}
+
+const _: () = assert!(PoxConditionCode::ALL.len() == PoxConditionCode::VARIANT_COUNT);
+
 /// Post-condition principal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PostConditionPrincipal {
@@ -2287,19 +2363,32 @@ impl StacksMessageCodec for PostConditionPrincipal {
 /// Post-condition on a transaction
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPostCondition {
+    /// Constrains how much STX may be sent by the transaction.
     STX(PostConditionPrincipal, FungibleConditionCode, u64),
+    /// Constrains how much of a specific fungible asset may be sent by the
+    /// transaction.
     Fungible(
         PostConditionPrincipal,
         AssetInfo,
         FungibleConditionCode,
         u64,
     ),
+    /// Constrains whether a specific non-fungible token asset is sent or not
+    /// sent by the transaction.
     Nonfungible(
         PostConditionPrincipal,
         AssetInfo,
         Value,
         NonfungibleConditionCode,
     ),
+    /// Constrains how much STX the principal may stake (lock for PoX) during
+    /// the transaction. Only valid in Stacks epoch 4.0 and later.
+    Staking(PostConditionPrincipal, FungibleConditionCode, u64),
+    /// Constrains whether the principal may perform a position-altering PoX
+    /// operation (`unstake`, `unstake-sbtc`, `update-bond-registration`,
+    /// `announce-l1-early-exit`) during the transaction. Only valid in Stacks
+    /// epoch 4.0 and later.
+    Pox(PostConditionPrincipal, PoxConditionCode),
 }
 
 impl StacksMessageCodec for TransactionPostCondition {
@@ -2334,6 +2423,21 @@ impl StacksMessageCodec for TransactionPostCondition {
                 write_next(fd, asset_info)?;
                 write_next(fd, asset_value)?;
                 write_next(fd, &(*nonfungible_condition as u8))?;
+            }
+            TransactionPostCondition::Staking(
+                ref principal,
+                ref fungible_condition,
+                ref amount,
+            ) => {
+                write_next(fd, &(AssetInfoID::Staking as u8))?;
+                write_next(fd, principal)?;
+                write_next(fd, &(*fungible_condition as u8))?;
+                write_next(fd, amount)?;
+            }
+            TransactionPostCondition::Pox(ref principal, ref pox_condition) => {
+                write_next(fd, &(AssetInfoID::Pox as u8))?;
+                write_next(fd, principal)?;
+                write_next(fd, &(*pox_condition as u8))?;
             }
         };
         Ok(())
@@ -2382,9 +2486,36 @@ impl StacksMessageCodec for TransactionPostCondition {
 
                 TransactionPostCondition::Nonfungible(principal, asset, asset_value, condition_code)
             }
+            x if x == AssetInfoID::Staking as u8 => {
+                let principal: PostConditionPrincipal = read_next(fd)?;
+                let condition_u8: u8 = read_next(fd)?;
+                let amount: u64 = read_next(fd)?;
+
+                let condition_code = FungibleConditionCode::from_u8(condition_u8).ok_or(
+                    codec_error::DeserializeError(format!(
+                    "Failed to parse transaction: Failed to parse Staking fungible condition code {}",
+                    condition_u8
+                )),
+                )?;
+
+                TransactionPostCondition::Staking(principal, condition_code, amount)
+            }
+            x if x == AssetInfoID::Pox as u8 => {
+                let principal: PostConditionPrincipal = read_next(fd)?;
+                let condition_u8: u8 = read_next(fd)?;
+
+                let condition_code = PoxConditionCode::from_u8(condition_u8).ok_or(
+                    codec_error::DeserializeError(format!(
+                        "Failed to parse transaction: Failed to parse Pox condition code {}",
+                        condition_u8
+                    )),
+                )?;
+
+                TransactionPostCondition::Pox(principal, condition_code)
+            }
             _ => {
                 return Err(codec_error::DeserializeError(format!(
-                    "Failed to aprse transaction: unknown asset info ID {}",
+                    "Failed to parse transaction: unknown asset info ID {}",
                     asset_info_id
                 )));
             }
@@ -2471,12 +2602,15 @@ impl StacksMicroblockHeader {
             .expect("BUG: failed to serialize to a vec");
         let digest = Sha512Trunc256Sum::from_data(&bytes[..]);
 
-        let mut pubk = StacksPublicKey::recover_to_pubkey(digest.as_bytes(), &self.signature)
-            .map_err(|_ve| {
-                AuthError::VerifyingError(
-                    "Failed to verify signature: failed to recover public key".to_string(),
-                )
-            })?;
+        let mut pubk = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+            digest.as_bytes(),
+            &self.signature,
+        )
+        .map_err(|_ve| {
+            AuthError::VerifyingError(
+                "Failed to verify signature: failed to recover public key".to_string(),
+            )
+        })?;
 
         pubk.set_compressed(true);
         Ok(Hash160::from_node_public_key(&pubk))
@@ -2648,6 +2782,7 @@ fn clarity_version_consensus_serialize<W: Write>(
         ClarityVersion::Clarity3 => write_next(fd, &3u8)?,
         ClarityVersion::Clarity4 => write_next(fd, &4u8)?,
         ClarityVersion::Clarity5 => write_next(fd, &5u8)?,
+        ClarityVersion::Clarity6 => write_next(fd, &6u8)?,
     }
     Ok(())
 }
@@ -2662,6 +2797,7 @@ fn clarity_version_consensus_deserialize<R: Read>(
         3u8 => Ok(ClarityVersion::Clarity3),
         4u8 => Ok(ClarityVersion::Clarity4),
         5u8 => Ok(ClarityVersion::Clarity5),
+        6u8 => Ok(ClarityVersion::Clarity6),
         _ => Err(codec_error::DeserializeError(format!(
             "Unrecognized ClarityVersion byte {}",
             &version_byte
@@ -2944,20 +3080,20 @@ impl StacksTransaction {
         // Otherwise, if the offending leader is the next leader, they can just orphan their proof
         // of malfeasance.
         match payload {
-            TransactionPayload::PoisonMicroblock(_, _) => {
-                if anchor_mode != TransactionAnchorMode::OnChainOnly {
-                    return Err(codec_error::DeserializeError(
-                        "Failed to parse transaction: invalid anchor mode for PoisonMicroblock"
-                            .to_string(),
-                    ));
-                }
+            TransactionPayload::PoisonMicroblock(_, _)
+                if anchor_mode != TransactionAnchorMode::OnChainOnly =>
+            {
+                return Err(codec_error::DeserializeError(
+                    "Failed to parse transaction: invalid anchor mode for PoisonMicroblock"
+                        .to_string(),
+                ));
             }
-            TransactionPayload::Coinbase(..) => {
-                if anchor_mode != TransactionAnchorMode::OnChainOnly {
-                    return Err(codec_error::DeserializeError(
-                        "Failed to parse transaction: invalid anchor mode for Coinbase".to_string(),
-                    ));
-                }
+            TransactionPayload::Coinbase(..)
+                if anchor_mode != TransactionAnchorMode::OnChainOnly =>
+            {
+                return Err(codec_error::DeserializeError(
+                    "Failed to parse transaction: invalid anchor mode for Coinbase".to_string(),
+                ));
             }
             _ => {}
         }
@@ -3255,14 +3391,14 @@ impl StacksTransaction {
     }
 
     /// Verify this transaction's signatures
-    pub fn verify(&self) -> Result<(), AuthError> {
-        self.auth.verify(&self.verify_begin())
+    pub fn verify(&self, mode: TransactionAuthVerificationMode) -> Result<(), AuthError> {
+        self.auth.verify(&self.verify_begin(), mode)
     }
 
     /// Verify the transaction's origin signatures only.
     /// Used by sponsors to get the next sig-hash to sign.
-    pub fn verify_origin(&self) -> Result<Txid, AuthError> {
-        self.auth.verify_origin(&self.verify_begin())
+    pub fn verify_origin(&self, mode: TransactionAuthVerificationMode) -> Result<Txid, AuthError> {
+        self.auth.verify_origin(&self.verify_begin(), mode)
     }
 
     /// Get the origin account's address
@@ -3327,6 +3463,97 @@ impl StacksTransaction {
         } else {
             false
         }
+    }
+
+    /// Returns the identical transaction, but with the last signature
+    /// in the `auth` having its S negated mod n. Mathematically, that
+    /// is an equivalent signature, but we don't generally want to accept
+    /// them because this ambiguity means txid malleability.
+    ///
+    /// This function exists purely for testing the correct behavior for
+    /// such transactions; we never want to generate them in production.
+    ///
+    /// rust-secp256k1 always generates low-S signatures, so if `self` is
+    /// a transaction that was properly signed by our code, then
+    /// `self.with_negated_s_in_signature()` has high-S.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn with_negated_s_in_signature(&self) -> StacksTransaction {
+        high_s::tx_with_negated_s_in_signature(self)
+    }
+}
+
+/// Helpers to convert a transaction signature to its non-normal high-S
+/// equivalent, for testing purposes. See [`StacksTransaction::with_negated_s_in_signature`]
+/// for more info.
+#[cfg(any(test, feature = "testing"))]
+mod high_s {
+    use crate::transaction::{
+        StacksTransaction, TransactionAuth, TransactionAuthField, TransactionSpendingCondition,
+    };
+
+    /// Returns a copy of `fields` where the last field of type `Signature`
+    /// has been changed to its equivalent signature with S negated mod n.
+    fn auth_fields_with_negated_s_signature(
+        fields: Vec<TransactionAuthField>,
+    ) -> Vec<TransactionAuthField> {
+        let mut handled_one = false;
+        let mut result: Vec<_> = fields
+            .iter()
+            .rev()
+            .map(|f| {
+                if handled_one {
+                    return f.clone();
+                }
+                match f {
+                    TransactionAuthField::PublicKey(_) => f.clone(),
+                    TransactionAuthField::Signature(pubkey, sig) => {
+                        handled_one = true;
+                        TransactionAuthField::Signature(*pubkey, sig.with_negated_s())
+                    }
+                }
+            })
+            .collect();
+        result.reverse();
+        result
+    }
+
+    fn spending_condition_with_negated_s_signature(
+        condition: &TransactionSpendingCondition,
+    ) -> TransactionSpendingCondition {
+        match condition {
+            TransactionSpendingCondition::Singlesig(c) => {
+                let mut c = c.clone();
+                c.signature = c.signature.with_negated_s();
+                TransactionSpendingCondition::Singlesig(c)
+            }
+            TransactionSpendingCondition::Multisig(c) => {
+                let mut c = c.clone();
+                c.fields = auth_fields_with_negated_s_signature(c.fields);
+                TransactionSpendingCondition::Multisig(c)
+            }
+            TransactionSpendingCondition::OrderIndependentMultisig(c) => {
+                let mut c = c.clone();
+                c.fields = auth_fields_with_negated_s_signature(c.fields);
+                TransactionSpendingCondition::OrderIndependentMultisig(c)
+            }
+        }
+    }
+
+    pub fn tx_with_negated_s_in_signature(tx: &StacksTransaction) -> StacksTransaction {
+        let new_auth = match tx.auth() {
+            TransactionAuth::Standard(condition) => {
+                TransactionAuth::Standard(spending_condition_with_negated_s_signature(condition))
+            }
+            // Only modify the sponsor signature, because changing the origin signature would
+            // invalidate the sponsor's.
+            TransactionAuth::Sponsored(condition1, condition2) => TransactionAuth::Sponsored(
+                condition1.clone(),
+                spending_condition_with_negated_s_signature(condition2),
+            ),
+        };
+        let mut result = tx.clone();
+        result.auth = new_auth;
+        result
     }
 }
 
@@ -3759,6 +3986,15 @@ mod tests {
                 NonfungibleConditionCode::NotSent,
             );
 
+            let staking_pc = TransactionPostCondition::Staking(
+                tx_pcp.clone(),
+                FungibleConditionCode::SentLe,
+                31337,
+            );
+
+            let pox_pc =
+                TransactionPostCondition::Pox(tx_pcp.clone(), PoxConditionCode::NotPerformed);
+
             let mut stx_pc_bytes = vec![];
             (AssetInfoID::STX as u8)
                 .consensus_serialize(&mut stx_pc_bytes)
@@ -3802,9 +4038,44 @@ mod tests {
                 .unwrap();
             nonfungible_pc_bytes.push(NonfungibleConditionCode::NotSent as u8);
 
-            let pcs = [stx_pc, fungible_pc, nonfungible_pc];
-            let pc_bytes = [stx_pc_bytes, fungible_pc_bytes, nonfungible_pc_bytes];
-            for i in 0..3 {
+            let mut staking_pc_bytes = vec![];
+            (AssetInfoID::Staking as u8)
+                .consensus_serialize(&mut staking_pc_bytes)
+                .unwrap();
+            tx_pcp.consensus_serialize(&mut staking_pc_bytes).unwrap();
+            staking_pc_bytes.append(&mut vec![
+                // condition code
+                FungibleConditionCode::SentLe as u8,
+                // amount (31337 = 0x7a69)
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x7a,
+                0x69,
+            ]);
+
+            let mut pox_pc_bytes = vec![];
+            (AssetInfoID::Pox as u8)
+                .consensus_serialize(&mut pox_pc_bytes)
+                .unwrap();
+            tx_pcp.consensus_serialize(&mut pox_pc_bytes).unwrap();
+            pox_pc_bytes.append(&mut vec![
+                // condition code
+                PoxConditionCode::NotPerformed as u8,
+            ]);
+
+            let pcs = [stx_pc, fungible_pc, nonfungible_pc, staking_pc, pox_pc];
+            let pc_bytes = [
+                stx_pc_bytes,
+                fungible_pc_bytes,
+                nonfungible_pc_bytes,
+                staking_pc_bytes,
+                pox_pc_bytes,
+            ];
+            for i in 0..5 {
                 check_codec_and_corruption::<TransactionPostCondition>(&pcs[i], &pc_bytes[i]);
             }
         }

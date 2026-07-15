@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+mod nakamoto_transition_schedule;
+
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;

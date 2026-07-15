@@ -6,7 +6,7 @@
 #
 # Optional env vars:
 #   BATCH_SIZE       - Number of tests grouped into a single runner batch (default: 50)
-#   NEXTEST_ARCHIVE  - Nextest archive to use (default: ~/test_archive.tar.zst)
+#   NEXTEST_ARCHIVE  - Nextest archive to use (default: ./test_archive.tar.zst)
 #   TEST_TAG_CI_SKIP - Tag name used to exclude tests from CI (default: ci_skip)
 #
 # Outputs:
@@ -21,7 +21,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 # Set batch size for test grouping. default is 50
 batch_size="${BATCH_SIZE:-50}"
 # Set the nextest archive to use
-nextest_archive="${NEXTEST_ARCHIVE:-${HOME}/test_archive.tar.zst}"
+nextest_archive="${NEXTEST_ARCHIVE:-./test_archive.tar.zst}"
 # Safely replace a leading ~ with the actual absolute $HOME path if provided in the env var
 nextest_archive="${nextest_archive/#\~/$HOME}"
 # Exclude tests tagged with a skip tag
@@ -107,6 +107,8 @@ tests::nakamoto_integrations::large_mempool_next_random_fee
 tests::nakamoto_integrations::larger_mempool
 tests::nakamoto_integrations::check_block_info_rewards
 tests::signer::v0::larger_mempool
+# This test takes too long run in CI
+tests::pox_5_integrations::check_pox_5_register_for_second_bond_no_downtime
 EOF
 
 ## ── Append tests tagged with ci_skip to the exclude list ────────────────────

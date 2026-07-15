@@ -146,6 +146,23 @@ impl Display for MessageSlotID {
     }
 }
 
+impl SignerMessageTypePrefix {
+    /// The signer-message lane (`MessageSlotID`) this payload type is broadcast on, if any.
+    ///
+    /// Miner-only payloads (`BlockProposal`, `BlockPushed`, `MockProposal`, `MockBlock`) do
+    /// not broadcast over a `.signers-X-Y` contract and return `None`.
+    pub fn msg_id(self) -> Option<MessageSlotID> {
+        match self {
+            // Mock signature uses the same slot as block response since it's exclusively for
+            // epoch 2.5 testing.
+            Self::BlockResponse | Self::MockSignature => Some(MessageSlotID::BlockResponse),
+            Self::StateMachineUpdate => Some(MessageSlotID::StateMachineUpdate),
+            Self::BlockPreCommit => Some(MessageSlotID::BlockPreCommit),
+            Self::BlockProposal | Self::BlockPushed | Self::MockProposal | Self::MockBlock => None,
+        }
+    }
+}
+
 impl TryFrom<u8> for SignerMessageTypePrefix {
     type Error = CodecError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -198,15 +215,7 @@ impl SignerMessage {
     ///   broadcast over `.signers-0-X` contracts.
     #[cfg_attr(test, mutants::skip)]
     pub fn msg_id(&self) -> Option<MessageSlotID> {
-        match self {
-            Self::BlockProposal(_)
-            | Self::BlockPushed(_)
-            | Self::MockProposal(_)
-            | Self::MockBlock(_) => None,
-            Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), // Mock signature uses the same slot as block response since its exclusively for epoch 2.5 testing
-            Self::StateMachineUpdate(_) => Some(MessageSlotID::StateMachineUpdate),
-            Self::BlockPreCommit(_) => Some(MessageSlotID::BlockPreCommit),
-        }
+        SignerMessageTypePrefix::from(self).msg_id()
     }
 }
 
@@ -1062,6 +1071,7 @@ impl From<&RejectReason> for RejectReasonPrefix {
             RejectReason::IrrecoverablePubkeyHash => RejectReasonPrefix::IrrecoverablePubkeyHash,
             RejectReason::NoSignerConsensus => RejectReasonPrefix::NoSignerConsensus,
             RejectReason::ConsensusHashMismatch { .. } => RejectReasonPrefix::ConsensusHashMismatch,
+            RejectReason::ProblematicTransactions => RejectReasonPrefix::ProblematicTransactions,
             RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
             RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
@@ -1147,6 +1157,9 @@ pub enum RejectReason {
         /// The block proposal's corresponding miner's tenure id
         actual: ConsensusHash,
     },
+    /// The block marks one or more transactions as problematic, which signers
+    /// do not yet allow
+    ProblematicTransactions,
     /// The block was approved, no rejection details needed
     NotRejected,
     /// Handle unknown codes gracefully
@@ -1194,6 +1207,9 @@ pub enum RejectReasonPrefix {
     NoSignerConsensus = 15,
     /// The block consensus hash does not match the active miner's tenure id
     ConsensusHashMismatch = 16,
+    /// The block marks one or more transactions as problematic, which signers
+    /// do not yet allow
+    ProblematicTransactions = 17,
     /// Unknown reject code, for forward compatibility
     Unknown = 254,
     /// The block was approved, no rejection details needed
@@ -1221,6 +1237,7 @@ impl RejectReasonPrefix {
             Self::IrrecoverablePubkeyHash => 14,
             Self::NoSignerConsensus => 15,
             Self::ConsensusHashMismatch => 16,
+            Self::ProblematicTransactions => 17,
             Self::Unknown => 254,
             Self::NotRejected => 255,
         }
@@ -1247,6 +1264,7 @@ impl From<u8> for RejectReasonPrefix {
             14 => Self::IrrecoverablePubkeyHash,
             15 => Self::NoSignerConsensus,
             16 => Self::ConsensusHashMismatch,
+            17 => Self::ProblematicTransactions,
             255 => Self::NotRejected,
             // For forward compatibility, all other values are unknown
             _ => Self::Unknown,
@@ -1803,7 +1821,10 @@ impl BlockRejection {
             return Err("No signature to recover public key from");
         }
         let signature_hash = self.hash();
-        StacksPublicKey::recover_to_pubkey(signature_hash.as_bytes(), &self.signature)
+        StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+            signature_hash.as_bytes(),
+            &self.signature,
+        )
     }
 }
 
@@ -1908,6 +1929,7 @@ impl StacksMessageCodec for RejectReason {
             | RejectReason::InvalidTenureExtend
             | RejectReason::IrrecoverablePubkeyHash
             | RejectReason::NoSignerConsensus
+            | RejectReason::ProblematicTransactions
             | RejectReason::Unknown(_)
             | RejectReason::NotRejected => {
                 // No additional data to serialize / deserialize
@@ -1952,6 +1974,7 @@ impl StacksMessageCodec for RejectReason {
                 let actual = read_next::<ConsensusHash, _>(fd)?;
                 RejectReason::ConsensusHashMismatch { expected, actual }
             }
+            RejectReasonPrefix::ProblematicTransactions => RejectReason::ProblematicTransactions,
             RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
             RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
@@ -2065,6 +2088,12 @@ impl std::fmt::Display for RejectReason {
                 write!(
                     f,
                     "The block's consensus hash ({expected}) does not match the active miner's tenure id ({actual})",
+                )
+            }
+            RejectReason::ProblematicTransactions => {
+                write!(
+                    f,
+                    "The block marks one or more transactions as problematic, which signers do not yet allow."
                 )
             }
             RejectReason::Unknown(code) => {
@@ -2210,13 +2239,10 @@ mod test {
         assert_eq!(signer_message, deserialized_signer_message);
 
         let header = NakamotoBlockHeader::empty();
-        let mut block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let mut block = NakamotoBlock::new(header, vec![]);
         let tx_merkle_root = {
             let txid_vecs: Vec<_> = block
-                .txs
+                .executed_and_skipped_txs()
                 .iter()
                 .map(|tx| tx.txid().as_bytes().to_vec())
                 .collect();

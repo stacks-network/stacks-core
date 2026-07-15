@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
 use clarity::vm::analysis::RuntimeCheckErrorKind;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
@@ -27,10 +29,11 @@ use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 
+use crate::chainstate::nakamoto::miner::make_mem_abort_callback;
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
-    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
-    HttpResponsePreamble,
+    HttpRequestPreamble, HttpRequestTimeout, HttpResponse, HttpResponseContents,
+    HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
     request, HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest,
@@ -61,6 +64,8 @@ pub struct CallReadOnlyResponse {
 pub struct RPCCallReadOnlyRequestHandler {
     pub maximum_call_argument_size: u32,
     read_only_call_limit: ExecutionCost,
+    read_only_max_execution_time: Duration,
+    read_only_call_max_mem_bytes: u64,
 
     /// Runtime fields
     pub contract_identifier: Option<QualifiedContractIdentifier>,
@@ -71,10 +76,17 @@ pub struct RPCCallReadOnlyRequestHandler {
 }
 
 impl RPCCallReadOnlyRequestHandler {
-    pub fn new(maximum_call_argument_size: u32, read_only_call_limit: ExecutionCost) -> Self {
+    pub fn new(
+        maximum_call_argument_size: u32,
+        read_only_call_limit: ExecutionCost,
+        read_only_max_execution_time: Duration,
+        read_only_call_max_mem_bytes: u64,
+    ) -> Self {
         Self {
             maximum_call_argument_size,
             read_only_call_limit,
+            read_only_max_execution_time,
+            read_only_call_max_mem_bytes,
             contract_identifier: None,
             function: None,
             sender: None,
@@ -236,6 +248,13 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                             sponsor,
                             cost_track,
                             |exec_state, invoke_ctx| {
+                                exec_state.global_context.set_abort_callback(
+                                    make_mem_abort_callback(self.read_only_call_max_mem_bytes),
+                                );
+                                exec_state
+                                    .global_context
+                                    .set_max_execution_time(self.read_only_max_execution_time);
+
                                 // we want to execute any function as long as no actual writes are made as
                                 // opposed to be limited to purely calling `define-read-only` functions,
                                 // so use `read_only = false`.  This broadens the number of functions that
@@ -279,6 +298,14 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                     result: None,
                     cause: Some("NotReadOnly".to_string()),
                 },
+                ClarityEvalError::Vm(RuntimeCheck(RuntimeCheckErrorKind::ExecutionTimeExpired)) => {
+                    return StacksHttpResponse::new_error(
+                        &preamble,
+                        &HttpRequestTimeout::new("ExecutionTime expired".to_string()),
+                    )
+                    .try_into_contents()
+                    .map_err(NetError::from)
+                }
                 _ => CallReadOnlyResponse {
                     okay: false,
                     result: None,

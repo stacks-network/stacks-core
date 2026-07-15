@@ -1,0 +1,1 @@
+Added a private function, `transfer-from-reserve` to pox-5 to allow a consensus transfer of sBTC from the reserve.

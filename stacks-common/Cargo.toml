@@ -98,7 +98,7 @@ bech32_std = []
 bech32_strict = []
 
 # Wasm-specific features for easier configuration
-wasm-web = ["rand", "getrandom/js"]
+wasm-web = ["rand", "getrandom/js", "chrono/wasmbind"]
 wasm-deterministic = ["getrandom/custom"]
 
 [package.metadata.pinny]

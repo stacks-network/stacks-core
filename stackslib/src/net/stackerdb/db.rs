@@ -17,7 +17,7 @@ use std::path::Path;
 use std::{fs, io};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use libstackerdb::{SlotMetadata, STACKERDB_MAX_CHUNK_SIZE};
+use libstackerdb::SlotMetadata;
 use rusqlite::{params, OpenFlags, OptionalExtension, Row};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::sqlite::NO_PARAMS;
@@ -403,7 +403,8 @@ impl StackerDBTx<'_> {
         slot_desc: &SlotMetadata,
         chunk: &[u8],
     ) -> Result<(), net_error> {
-        if chunk.len() > STACKERDB_MAX_CHUNK_SIZE as usize {
+        // Check per-replica chunk-size cap.
+        if (chunk.len() as u64) > self.config.chunk_size {
             return Err(net_error::StackerDBChunkTooBig(chunk.len()));
         }
 

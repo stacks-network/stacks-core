@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -111,6 +111,23 @@ impl MessageSignature {
         MessageSignature(buf)
     }
 
+    // Returns the version of this message signature in which s has
+    // the opposite sign (mod n). This is only used in tests, to
+    // create invalid (or let's call them semi-valid) transaction
+    // signatures to test how the code handles them.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn with_negated_s(&self) -> Self {
+        let (sig, recid) = self
+            .to_secp256k1_recoverable()
+            .expect("MessageSignature should encode a well-formed recoverable signature");
+        let neg_s = -sig.s();
+        let neg_sig = K256Signature::from_scalars(sig.r(), neg_s)
+            .expect("negating a nonzero scalar yields a nonzero scalar");
+        let neg_recid = K256RecoveryId::from_byte(recid.to_byte() ^ 1)
+            .expect("XORing a valid recovery byte with 1 yields a valid recovery byte");
+        MessageSignature::from_secp256k1_recoverable(&neg_sig, neg_recid)
+    }
+
     pub fn from_secp256k1_recoverable(
         sig: &K256Signature,
         recid: K256RecoveryId,
@@ -139,6 +156,18 @@ impl MessageSignature {
         let (sig, _) = self.to_secp256k1_recoverable()?;
         let bytes: [u8; 64] = sig.to_bytes().into();
         Some(secp256k1_der_encode(&bytes))
+    }
+
+    /// Convert from RSV (what Clarity uses) to VSR (what we use here)
+    pub fn from_rsv(source: &[u8]) -> Option<Self> {
+        if source.len() != 65 {
+            return None;
+        }
+        let swapped: [u8; 65] = *[&source[64..], &source[0..64]]
+            .concat()
+            .as_array()
+            .expect("source has len 65, thus this is guaranteed to work");
+        Some(Self(swapped))
     }
 }
 
@@ -227,6 +256,17 @@ impl Secp256k1PublicKey {
         let secp256k1_sig = secp256k1_recover(msg, &sig.to_rsv())
             .map_err(|_e| "Invalid signature: failed to recover public key")?;
         Secp256k1PublicKey::from_slice(&secp256k1_sig)
+    }
+
+    /// Recover message and signature to public key (will be compressed), without
+    /// validating that the signature is normalized to low-S. Equivalent to
+    /// `recover_to_pubkey`, which already accepts both low-S and high-S signatures
+    /// (low-S is enforced separately, e.g. in `verify`, where it matters for consensus).
+    pub fn recover_to_pubkey_without_validating_low_s(
+        msg: &[u8],
+        sig: &MessageSignature,
+    ) -> Result<Secp256k1PublicKey, &'static str> {
+        Self::recover_to_pubkey(msg, sig)
     }
 }
 
@@ -532,6 +572,15 @@ pub fn secp256k1_verify(
     verifying_key
         .verify_prehash(message_arr, &sig)
         .map_err(|_| Error::InvalidSignature)
+}
+
+pub fn secp256k1_decompress(compressed_pubkey_arr: &[u8]) -> Result<[u8; 65], Error> {
+    let pubkey = K256PublicKey::from_sec1_bytes(compressed_pubkey_arr)
+        .map_err(|_| Error::InvalidPublicKey)?;
+    let encoded = pubkey.to_encoded_point(false);
+    let mut result = [0u8; 65];
+    result.copy_from_slice(encoded.as_bytes());
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -1341,6 +1390,74 @@ mod tests {
             map.get(&pubk1_uncomp),
             Some(&1),
             "different compressed flag changes the hash"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // secp256k1_decompress
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_decompress() {
+        let mut sk = Secp256k1PrivateKey::random();
+        sk.set_compress_public(true);
+        let pk = Secp256k1PublicKey::from_private(&sk);
+
+        assert_eq!(pk.to_bytes().len(), 33);
+
+        let decompressed_pk = secp256k1_decompress(pk.to_bytes().as_slice()).unwrap();
+        assert_eq!(decompressed_pk.len(), 65);
+
+        sk.set_compress_public(false);
+        let pk_uncompressed = Secp256k1PublicKey::from_private(&sk);
+
+        assert_eq!(pk_uncompressed.to_bytes(), decompressed_pk);
+    }
+
+    // -----------------------------------------------------------------------
+    // MessageSignature::with_negated_s
+    // -----------------------------------------------------------------------
+
+    #[cfg(not(feature = "wasm-deterministic"))]
+    #[test]
+    fn test_with_negated_s() {
+        let priv_key = Secp256k1PrivateKey::from_hex(
+            "7b48329a5126dad83fc583c309c2698ae2843acfb9a7023fb081d850386c6950",
+        )
+        .unwrap();
+        let pub_key = Secp256k1PublicKey::from_private(&priv_key);
+        let message =
+            &hex_bytes("77949dd27dabb40847564f40afcde8b91e0f7baf2cc710415a4ac8b777104866").unwrap()
+                [..];
+        let original_sig = priv_key.sign(message).unwrap();
+        let high_s_sig = original_sig.with_negated_s();
+
+        assert_ne!(
+            original_sig, high_s_sig,
+            "low-S and high-S signatures should not be the same"
+        );
+
+        assert_eq!(
+            original_sig,
+            high_s_sig.with_negated_s(),
+            "negating twice should bring back the original"
+        );
+
+        let recovered_from_orig =
+            Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(message, &original_sig)
+                .unwrap();
+        let recovered_from_high_s =
+            Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(message, &high_s_sig)
+                .unwrap();
+
+        assert_eq!(
+            recovered_from_orig, recovered_from_high_s,
+            "both signatures should recover to the same public key"
+        );
+
+        assert_eq!(
+            recovered_from_high_s.key, pub_key.key,
+            "the recovered key should be identical to the original key"
         );
     }
 }

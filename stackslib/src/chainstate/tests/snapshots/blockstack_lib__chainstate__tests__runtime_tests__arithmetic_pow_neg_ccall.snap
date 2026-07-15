@@ -1,11 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_tests.rs
-expression: result
-snapshot_kind: text
+expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "91f6ac9216b70a8c7f2d6a02244699dbeb149350bb97ad369d7cf039121a33aa",
+    marf_hash: "34dbdb8671d4c4144fa08a8426d40024a951ddfc6249cb35a94812a7e033ff82",
     evaluated_epoch: Epoch20,
     transactions: [
       ExpectedTransactionOutput(
@@ -33,7 +32,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dc290e83af6449a3ce3723a232682a4f7acb285a3fb2d4e88e832efd6ffc2a37",
+    marf_hash: "a1dc428f89f610ddec0809c5ca0b3f2936775fbf669c09f2befddc8c82085540",
     evaluated_epoch: Epoch2_05,
     transactions: [
       ExpectedTransactionOutput(
@@ -61,7 +60,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9333471be2aeb06ea2fa6bef439f6b28ce1f21345e6f32d2bb87887ab2631bc5",
+    marf_hash: "202fb1cacfcb843e4a5dd0ea136301c4f99687249feeb9e6b73b935932c469fc",
     evaluated_epoch: Epoch21,
     transactions: [
       ExpectedTransactionOutput(
@@ -89,7 +88,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a7e4019c52b7abc652ff00ff7576f3ec0fd6ae00ff41e856e84eb9138968d89c",
+    marf_hash: "a328aa5e05136382dd9b2612232fa3ac491916efe64c4b5f3cbe94efc421745d",
     evaluated_epoch: Epoch21,
     transactions: [
       ExpectedTransactionOutput(
@@ -117,7 +116,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0a525f30ffa04720c367e988e24b23e09c4dc0aa32ad78a479789fe6a4524f60",
+    marf_hash: "40f857143aa24b9514e27c43593bd9d1f0704cfcfb8bac0531e90113b0da355e",
     evaluated_epoch: Epoch22,
     transactions: [
       ExpectedTransactionOutput(
@@ -145,7 +144,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3f927c34296b4f4961dfd00b0506d7301f0cfad0dac408a9bcf55d213946478c",
+    marf_hash: "e6b94522b91525845dd6b8a7faaa14758a968c70125c7accb4125140225d0497",
     evaluated_epoch: Epoch22,
     transactions: [
       ExpectedTransactionOutput(
@@ -173,7 +172,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5c481aafef35d3baab953f134acba3e3241610b7dde42e67a4d6163c60760874",
+    marf_hash: "7f8b3b02c5af3dc6db26068737d5e1486dbc30241550ff2ac1a403bcc05fe930",
     evaluated_epoch: Epoch23,
     transactions: [
       ExpectedTransactionOutput(
@@ -201,7 +200,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "815abadb122540e6ecec698bc3514f6d5338eace907dc0b8e000efc7bcd7f99c",
+    marf_hash: "b5e124dcf835197820d9d9cd98034cf728e3e27215e95b9863d3cb018504aa41",
     evaluated_epoch: Epoch23,
     transactions: [
       ExpectedTransactionOutput(
@@ -229,7 +228,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fe4719701ead02b7600eeef4310f666d34e370b5fa366fc488a23f23eebeec46",
+    marf_hash: "d5303b45d19b633d06ae2507ca85d816c905141141f568869823863f2aa679c1",
     evaluated_epoch: Epoch24,
     transactions: [
       ExpectedTransactionOutput(
@@ -257,7 +256,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1d366a41d04196d7a2bdf589da31e251b8495ad2798df1a0d4b025ad28fc6a78",
+    marf_hash: "8ab4db2acae39663e2c25c11daa0a739e7e19a971b4a8b2600f405b41775b803",
     evaluated_epoch: Epoch24,
     transactions: [
       ExpectedTransactionOutput(
@@ -285,7 +284,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5c33489ab1f9029685b4b8977d21fa87ed4949f0d2ca2b08c1c52c038eee5f8f",
+    marf_hash: "e8fcc0eb4467b0fe2d13f0ebb38cce1a721541b41e4445d8ce5d37f8026cc345",
     evaluated_epoch: Epoch25,
     transactions: [
       ExpectedTransactionOutput(
@@ -313,7 +312,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "85ef2f3cb2e8b1a2c3bff0e0b14c4e51b35b666195613098693c778f4cbfdb41",
+    marf_hash: "d4970d9da53e46c6667ed75f41800673ff66085c1cf59cbbf1db0d116f3cdff3",
     evaluated_epoch: Epoch25,
     transactions: [
       ExpectedTransactionOutput(
@@ -341,7 +340,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1903d14ddfcf5145cb8a128333367c325df73aff57996e981e9c0e91614f16e1",
+    marf_hash: "13adbfbdb826eeb7598a1520ce5ce082de6836cdebb625eaed0e60eff2d47def",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -369,7 +368,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0fa9c2d9c9d4e3ff183d7b63d5c82540875f81d86f7d0c1511e5149d85432f04",
+    marf_hash: "e8fefe3917c8d80584fb55d51d25b34dfaefe3e1a4740ac24f303694972b7ea0",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -397,7 +396,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b6981a36d8ce303622b2299052bd3980093f3eef4dfb50d737590cd5a3c28e66",
+    marf_hash: "5103bb990a4c512e6b828b739f3e2e236dd357318312d5aa7a430eb186e51aea",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -425,7 +424,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "af6debe963dc73d9b354c53cd9fbe69bdc4c8e1eda723e7493be97953772bb43",
+    marf_hash: "e573d1c3410210d7dc4dc6738d67cbd9e5950c0e847f35bc95588d8fabf19677",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -453,7 +452,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a66cef1c85f213340413837a976f715bcd3d98e0cd20d532c4b35df07cfe48bd",
+    marf_hash: "e6ff82030caec3b1e563a5163e9b793a5b3dc4dbae5957992dcd910c6f90a96d",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -481,7 +480,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9b06169098a1cab10d2f81cfcb2b1cebe47839dc23582bba540325d4349dd944",
+    marf_hash: "cf7cda7623d8ffd67a536f2dedfefce99a1df7613954e7d148a49d2e2bf0fd4d",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -509,7 +508,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3ec8c47c476546cbf816c51a9030b477ba915a4b045e4619208557fc6744bd4d",
+    marf_hash: "769213112e5553c9a604adc03a4a0747c8bc586608623b3f4ff5911f456e3622",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -537,7 +536,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "217be9fc2a1e8fd1e7e2c830e30fd468ff0b8f1eb06dcec0064c2dd934d37789",
+    marf_hash: "7eefed30d62a04553e6507a5f114891421bf3e2b63a5e2e433927a008f79ec45",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -565,7 +564,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7fe8978d7f92e2eff2b9be82756784a87d6b383bf95cefcda299f0ef6c748387",
+    marf_hash: "2bdc6c9eb739cd10c7e74b3f3173a452f9348e33efee848ba730d2d691225f74",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -593,7 +592,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a5bf01bfc8a31750b13a761559d7b4822120880b5a62fbb5ec9ccb5fefca9099",
+    marf_hash: "ad6d60e995a3e82fd32d7bdb03402801e0e45620d9b8c595455fb9178b9ba093",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -621,7 +620,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b71ddb54913d27be9efe46abf0f77f9be4e8ec470acba41f5cbcdd4c14353070",
+    marf_hash: "e96935e208f0a9bbd24b359e8592b38a2f16b7ae313b3af234d3740c1586987c",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -649,7 +648,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "40a6c61091623d9c51c1683aa7576901e83f7430613604c3ce2d8834b1e6d714",
+    marf_hash: "a972646bb73a9983f2d7f0bff82b827fcb5cf77baf0b9e58bd2c39c775a1c1ac",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -677,7 +676,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "723cccdc99db0e1687d2587b2533f8eaa2428fec420fa3eb2d6d5dad0754b8b5",
+    marf_hash: "d1e55a1e816e8efbfea3b61ca12a43102429f8328acdc68a8e604f62edd2b509",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -705,757 +704,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "febbebe0695962ad539dd7599569bb2497095f50b26d6e301c02a5d1810cb2cb",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_0-Clarity1, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "90db7d2e834e4f07eeec8a4fb502a5cff7aa73ecad7c8036f195e7b8dc2f9936",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_05-Clarity1, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "9770b6c44623c80dd6df8c60b443827d2dc2e4c749b7e462f87c61d4b7aeb020",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_1-Clarity1, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "090fe78832be73c3be7c25d949170942cdc58620dc1d9f841dedc0eb9f960b0a",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_1-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "94250b5a5f1bfa00e73b7f6b68e50d375c52087a2538d3c9ca787bb952c7a2d5",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_2-Clarity1, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "d5b4626fdc23903db2380d9d60e89eb8dfe85838284ab289c6b12637623ddef3",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_2-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "37b78acbd88b9b01c9c71f8d737ab0fca73067f155431d909c2760301002bac3",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_3-Clarity1, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "49eac890dc6abd1c7c81df2fef0db080a08973e3a30bdcd96e27c05854098ebd",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_3-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6f007cfa80fd1ab6fd4401587fede9cc348b65bc5f494d1e19c9b3a4186726e6",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_4-Clarity1, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "fd4148779af677f8693714c5f998f1d6406d3f381d2f57e4d49f6ab94c6a3695",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_4-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8c1608980cf5b0620bc729bef447f4817a2554ab8783e4f440c89a5dfa9143ed",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_5-Clarity1, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "5d64f0eb0c1e518e7793fcf70672e8d3d11da99d051ab2b80899bff3d3eb6069",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch2_5-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8a8db50a6a30a48c8bc824857182c4e0f1c02c57d18fbb81882aaca4625a5145",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_0-Clarity1, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "4a06a1007ef6c1a38976241958986f4b833a232865cd6fd504be4cb4a73e15a6",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_0-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "1273a90163ecd21a6af4e771ae5535e8272dfb2a961f86775b381bae45c7d06e",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_0-Clarity3, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "68eab1a13c567b2a3beb3b08bc19caf1d6bc8b483607ecec713dce754821f196",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_1-Clarity1, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "fc4bfc689226ce056253ed3b6e77a35dc2399d55ede837bd6fe59e1666ae9fde",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_1-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "1965f0258ba203ea2cea27e4f8db42a7599d32732e2cf52748a0797aa7272496",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_1-Clarity3, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "05f3b290493a32bd54579c9682bc2a03337d3294d84384757dbbeb53abf4b332",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_2-Clarity1, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a41017ba3b801eeeb038adf532d909a44d212a7edaab6a7b95030b9ba2e40788",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_2-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "11992bb7a12fa1b8bdea299d7999aa38a2ff69eeeeacc03d9d0b662ee0666cc8",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_2-Clarity3, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "62a87a192ceb8175f66d7b999dda5ab6f57e242cdfdf895f3ef0cda8bb330d5c",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_3-Clarity1, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "dda570a83cff529dab1bf907dc5ff59d54664df500c3f8d53b87605bb3ae0fbf",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_3-Clarity2, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "707d0c1dd570b40b7240a7d8a5a83320b942ab4204f8b01b296fa35573d8e213",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_3-Clarity3, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2f2ab5e9cd1b16f7faa52c48832f923c86c7b2f93949f8ab2d274c8bfad9366e",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: pow-neg-Epoch3_3-Clarity4, function_name: trigger, function_args: [[]])",
-        vm_error: "Some(Arithmetic(\"Power argument to (pow ...) must be a u32 integer\")) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 47,
-          read_count: 3,
-          runtime: 442,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 47,
-      read_count: 3,
-      runtime: 442,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "5ff8643cdd0b25cf408e63b98448a2797759827912a504ffad22ec8feae25dab",
+    marf_hash: "64ff49dac304c5c56b6c9adc062f0db9acf3435ebea5a7983015b42aa68e743c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1483,7 +732,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4d0133db7aa8c2df2b20f7a0162703b410fa8ecd3d88f58b33d40802b774702e",
+    marf_hash: "2a43d8425b72ff7d17964b46ae1e9e5e6207c8a3ae537869f65666a94761b6f3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1511,7 +760,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dd1d54cda66c775229dc1336abbf55b68c927c143f6d7a4ccbb5e772f0788377",
+    marf_hash: "473d7e960350a702ff9195132ddffc22ed970b7542a3597c11e57dea3ce1fd38",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1539,7 +788,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7139a87212b044f9e1a2cc53f12c92fd3c264e95ea9bc721865939a73265236a",
+    marf_hash: "8fae940164944d0611437f48deb52564c3320132099d1be88012f3b879fba2f5",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1567,7 +816,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "81149c4a2d66bac5bd543f5cb8d8388262f7ea493a482e5fd2c7efca3d9322ed",
+    marf_hash: "cc4edbc5a2fd4c9e6f7d387bcd621fe8df048c0ee68b59afa338d8ae3fc67592",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1595,7 +844,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e0ef38bbc948430f89dfb832e36ff2640022b8ed8f4f8f86e4cd81ed568078b3",
+    marf_hash: "6945dfcbd60fd07165dc7abd4bdbb9f316b8b31f5872b867da8b5860d55745a9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1625,7 +874,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e1ed30392608eff8c79ebc58d097fa4800fba1a6c9336580f3e389881a3ccdee",
+    marf_hash: "073afbf58c49b505037b9c10527ad1d42ab8333321af81286bcbac463b247abb",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1655,7 +904,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4e6bd5ff4188db6955ae8f28e7f2715c7106d4d4f8edbc8fe1958e419317d403",
+    marf_hash: "ed052ca10d6e7958b63f8799c743bac320c2d144b84ae9b14d361bec49d3b33f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1685,7 +934,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1a73f7de33b2537c4aaf598fedd5af8ba6bb003901299d7a44ed8c437603c705",
+    marf_hash: "032e4e71b61f264e4af11695d6b65341326b961a76e9172948121f7587485c66",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1715,7 +964,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4e70d26978a86a6ce9127260a281f644743ccd1a095d067c47c49a930390964f",
+    marf_hash: "1ccf05e0f4da1353d4ad92a3250530a0be5a5c1059582a67020912ec1b1384a8",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1745,7 +994,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "50afc34a7b0103bc040ada45452b265f7ce9624aa03d900928b953017491c26e",
+    marf_hash: "23439dca0638610dff3fcb3b3af21701ebcfa230ab76276c4895f13af563a980",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1775,7 +1024,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9e6b8687347331b9aa0aa4c1d8bf0f12589309f8a74985f4b818839c3693aa53",
+    marf_hash: "ed2cf0e04bf3563830975747835665a3aca456a424e647d3a1b568577b828f21",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1805,7 +1054,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "217a5a31efbbca77f267b9dda87dd2e22227fe7a8078acc434f092b768f0e7a7",
+    marf_hash: "c53aae452e48b1c69e891412062b430799cdd71b59ba57527dc05a12a94921d1",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1835,7 +1084,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "90a8fb53f190f4dccb4cbc4d55a2deb7c7a237d4ac042d167c26b33d19a126b8",
+    marf_hash: "5540990f8293cebb2faa637588d9be8e151e199d37fa04da454657e74674df68",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1865,7 +1114,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b4c1dca72b65247a5b53e29ee3d5f8656928f0c70fe53939508444f2fde14a9f",
+    marf_hash: "a3df74db6980ba40d4ac78beca93e05b6ac26442fe52f58739ebe9db5bb8fd15",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1895,7 +1144,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4eee50f862af65b60742847a71a91838705710b490e41d9fda8d9e691b6f2bc2",
+    marf_hash: "6bb3d93ec6418ade882543213f759739a9d05dc21b55c97faa6eb3b39ffb8f87",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1925,7 +1174,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b22d21d34f1f6728795b069692bffd7ab0130d11aa51599cfa7e979927cb1bf4",
+    marf_hash: "1042ab092844c6b3d1cbb6a897852a6c8c6d7792249220ee5a3c4ca93ec379e3",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1955,7 +1204,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "34235704e05c5fc9c46ba15cbfce7ec9c7cb83644855d087917f12643f975642",
+    marf_hash: "281486f5c1069fb483d8ac98dc8bd3c6daa07aa32c6fb70c31a8456b023b457c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -1985,7 +1234,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6025e91e816a44871bf7ed28e4251d53043ccc791dc336e39ff9d3b4512f7c0d",
+    marf_hash: "352f0071de8b7172b3e8e8a931e801f15532cd8d24b8113e581c77f770152a07",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2015,7 +1264,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d2e02100ec9515a7762d82010b424d21f709e837e8d99ad06291e4abae96fa9c",
+    marf_hash: "4c20c39db44227ffab3c5ac151bd30fa2b276c531cefb2837186bdcb90e87034",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2045,7 +1294,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3a18b88dcf246c22b48b2d4292c0d7d8760f769f623ce62d17d46de40fb11bb6",
+    marf_hash: "fa576e408454113e0b5fd0a74bffd946213478f9878d9cc09221838622614c64",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2075,7 +1324,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7b98580b62624b348524b0695e2b4e43b9e810463bd7784026141c49f746c6dc",
+    marf_hash: "2adf158440b6808c2290d9791e4a7c3d7f041ba9abc844b90ca1cca89e6f8c8e",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2105,7 +1354,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2237fc2eeaa00baabfc2ae400b6c94673e6f38ae74a14629be111aec9865987f",
+    marf_hash: "e3e99cb2796a35a57d042ea4ca82d9ec747e44e86a7ffc492a1d56f3969ec58f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2135,7 +1384,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "35b09cf268255204766fc2851e494c9be78695355d6b709e282c46b61f90f47c",
+    marf_hash: "ea3849b64565db74b6f7ce923d7c999ee33be81bc9a4ad5776a12ed57a7e94ec",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2165,7 +1414,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b22f207a1a30eeea1195fc9375e401c8aedbf86c6858ee71e00b9418c58d667a",
+    marf_hash: "198bd95763982af5233d25e7794046424327b782ea50a3ac2f571a872c40f45d",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2195,7 +1444,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d4f10da68c3543e1ade89f63c114e9b88aff3fe7ed7e8505bba16ce6f16ba1e2",
+    marf_hash: "3015815c5b7d45403d870730506b04e43473840f213a3073a9f84a049c5b9582",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2225,7 +1474,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6ff3e408488cafcbc429c23e1eba19e4d167daa6743054237a2599d7be88d9f4",
+    marf_hash: "33ca758a2fe6315bac0c9fa630ff9e8321bb8fe4d627d8aa6cb46498ff83e3d6",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2255,7 +1504,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "65589f6aa682e45304e2bbde856d0ca36341af854e82f6380ba8342a91565a3f",
+    marf_hash: "286e706c97174e25a3d3396aad3421689ba3cd338c1b3ce5514c76a9bfccbc21",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2285,7 +1534,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "404d8a8172707d973c0e52e311034ae0f6426a124857ed1837d530b25340bafe",
+    marf_hash: "e15d3b8ff03e7ff982f5b3c6e289bdd2389c8d768e9f3b87227b8e7a89af55c0",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2315,7 +1564,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9b1ad105affda07045943ccf8916fc67bb261f79b24affb56c60be472d1aff58",
+    marf_hash: "157da6f9f0c881256d18d56d76b050ec9ff4779a1cf737ee46a57d39063c284f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2345,7 +1594,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c4ac8071d983079fc4951a7169bbb27255c3662a85640aeb42a9cc5b8f1ce601",
+    marf_hash: "0e0e6f32698b4af7cc88d544258dc07a0cc69d02736a3da8b64ffa01dfcd5a41",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2375,7 +1624,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9370de20fa73cf9241b646110f6136afd121f1dc296cef86cc533519446feb41",
+    marf_hash: "431fbaf1a7ff8714c6aba8aea42ee7cd16fdebe7d06737595f14aa8bf9b77024",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2405,7 +1654,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6c4e449a62dc614e0da2a6ef513271a237a2e9085e5774e60d2628e285cb2115",
+    marf_hash: "facf3057efde6093196da696f3d62153d1890fca00fa4dd0b28fc076b8448e02",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2435,7 +1684,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "01c9bdd60d8810ccdf7594d8429d6bb9e5731650b740cb5a8e4c390162bcb76f",
+    marf_hash: "8d487f41f9e65e54da5003290c2b54907b5ea10478c6abedd46a1e47ef5c6b01",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -2465,7 +1714,7 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9622d0d26a7e409ca0750a4475c6a7601e916cf482ff8c7c2e230aa72793d023",
+    marf_hash: "22d2401f9c1fb9f3646f18987f9283225e201494b9f5c2e4bcf49d907055e71c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

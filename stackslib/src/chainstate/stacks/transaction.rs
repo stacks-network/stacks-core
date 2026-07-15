@@ -16,7 +16,8 @@
 
 use crate::chainstate::stacks::{
     Error, StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
-    TransactionAuth, TransactionAuthField, TransactionSpendingCondition,
+    TransactionAuth, TransactionAuthField, TransactionAuthVerificationMode,
+    TransactionSpendingCondition,
 };
 use crate::net::Error as net_error;
 
@@ -51,7 +52,7 @@ impl StacksTransactionSigner {
         }
         let mut new_tx = tx.clone();
         new_tx.auth.set_sponsor(spending_condition)?;
-        let origin_sighash = new_tx.verify_origin()?;
+        let origin_sighash = new_tx.verify_origin(TransactionAuthVerificationMode::EnforceLowS)?;
 
         Ok(StacksTransactionSigner {
             tx: new_tx,
@@ -184,19 +185,57 @@ impl StacksTransactionSigner {
 
 #[cfg(test)]
 mod test {
+    use std::io::{Read, Write};
+
     use clarity::types::StacksEpochId;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::Value;
-    use stacks_common::codec::StacksMessageCodec;
+    use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
     use stacks_common::types::chainstate::StacksAddress;
     use stacks_common::util::hash::*;
     use stacks_common::util::retry::LogReader;
 
     use crate::burnchains::Txid;
+    use crate::chainstate::stacks::*;
+
+    // Local helpers that mirror the private codec helpers in
+    // `stacks_codec::transaction`; kept here so the tests can construct
+    // expected byte streams directly.
+    #[allow(non_snake_case)]
+    fn ClarityVersion_consensus_serialize<W: Write>(
+        version: &ClarityVersion,
+        fd: &mut W,
+    ) -> Result<(), codec_error> {
+        match *version {
+            ClarityVersion::Clarity1 => write_next(fd, &1u8)?,
+            ClarityVersion::Clarity2 => write_next(fd, &2u8)?,
+            ClarityVersion::Clarity3 => write_next(fd, &3u8)?,
+            ClarityVersion::Clarity4 => write_next(fd, &4u8)?,
+            ClarityVersion::Clarity5 => write_next(fd, &5u8)?,
+            ClarityVersion::Clarity6 => write_next(fd, &6u8)?,
+        }
+        Ok(())
+    }
+
+    #[allow(non_snake_case)]
+    fn ClarityVersion_consensus_deserialize<R: Read>(
+        fd: &mut R,
+    ) -> Result<ClarityVersion, codec_error> {
+        let version_byte: u8 = read_next(fd)?;
+        match version_byte {
+            1u8 => Ok(ClarityVersion::Clarity1),
+            2u8 => Ok(ClarityVersion::Clarity2),
+            3u8 => Ok(ClarityVersion::Clarity3),
+            4u8 => Ok(ClarityVersion::Clarity4),
+            5u8 => Ok(ClarityVersion::Clarity5),
+            6u8 => Ok(ClarityVersion::Clarity6),
+            _ => Err(codec_error::DeserializeError(format!(
+                "Unrecognized ClarityVersion byte {}",
+                &version_byte
+            ))),
+        }
+    }
     use crate::chainstate::stacks::test::codec_all_transactions;
-    use crate::chainstate::stacks::{
-        C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, *,
-    };
     use crate::core::EMPTY_MICROBLOCK_PARENT_HASH;
     use crate::net::codec::test::check_codec_and_corruption;
 
@@ -567,7 +606,21 @@ mod test {
         corrupt_sponsor: bool,
     ) {
         // signature is well-formed otherwise
-        signed_tx.verify().unwrap();
+        signed_tx
+            .verify(TransactionAuthVerificationMode::EnforceLowS)
+            .unwrap();
+
+        let tx_with_high_s = signed_tx.with_negated_s_in_signature();
+        let lenient_result = tx_with_high_s.verify(TransactionAuthVerificationMode::AllowHighS);
+        let strict_result = tx_with_high_s.verify(TransactionAuthVerificationMode::EnforceLowS);
+        assert!(
+            lenient_result.is_ok(),
+            "lenient verification result should be ok but was {lenient_result:?}",
+        );
+        assert!(
+            strict_result.is_err(),
+            "strict verification result should be error but was {strict_result:?}",
+        );
 
         // mess with the auth hash code
         let mut corrupt_tx_hash_mode = signed_tx.clone();
@@ -907,7 +960,10 @@ mod test {
         // make sure all corrupted transactions fail
         for corrupt_tx in corrupt_transactions.iter() {
             assert!(
-                matches!(corrupt_tx.verify(), Err(AuthError::VerifyingError(msg))),
+                matches!(
+                    corrupt_tx.verify(TransactionAuthVerificationMode::AllowHighS),
+                    Err(AuthError::VerifyingError(msg))
+                ),
                 "corrupt_tx: {corrupt_tx:#?}"
             );
         }
@@ -934,7 +990,10 @@ mod test {
                     continue;
                 }
                 assert!(
-                    corrupt_tx.verify().is_err() || corrupt_tx == *signed_tx,
+                    corrupt_tx
+                        .verify(TransactionAuthVerificationMode::AllowHighS)
+                        .is_err()
+                        || corrupt_tx == *signed_tx,
                     "corrupt tx: {corrupt_tx:#?}\n signed_tx: {signed_tx:#?}"
                 );
             }
@@ -1156,7 +1215,9 @@ mod test {
         tx_signer.sign_origin(&privk).unwrap();
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        let Err(AuthError::VerifyingError(msg)) = oversigned_tx.verify() else {
+        let Err(AuthError::VerifyingError(msg)) =
+            oversigned_tx.verify(TransactionAuthVerificationMode::AllowHighS)
+        else {
             panic!("Expected a verifying error");
         };
         if is_order_independent_multisig(&oversigned_tx) {
@@ -1192,7 +1253,9 @@ mod test {
 
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        let Err(AuthError::VerifyingError(msg)) = oversigned_tx.verify() else {
+        let Err(AuthError::VerifyingError(msg)) =
+            oversigned_tx.verify(TransactionAuthVerificationMode::AllowHighS)
+        else {
             panic!("Expected a verifying error");
         };
         assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");
@@ -1210,7 +1273,9 @@ mod test {
         tx_signer.sign_sponsor(&privk).unwrap();
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        let Err(AuthError::VerifyingError(msg)) = oversigned_tx.verify() else {
+        let Err(AuthError::VerifyingError(msg)) =
+            oversigned_tx.verify(TransactionAuthVerificationMode::AllowHighS)
+        else {
             panic!("Expected a verifying error");
         };
         if is_order_independent_multisig(&oversigned_tx) {
@@ -1246,7 +1311,9 @@ mod test {
 
         let oversigned_tx = tx_signer.get_tx().unwrap();
 
-        let Err(AuthError::VerifyingError(msg)) = oversigned_tx.verify() else {
+        let Err(AuthError::VerifyingError(msg)) =
+            oversigned_tx.verify(TransactionAuthVerificationMode::AllowHighS)
+        else {
             panic!("Expected a verifying error");
         };
         assert_eq!(&msg, "Uncompressed keys are not allowed in this hash mode");

@@ -393,8 +393,8 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
     // This block will just be the tenure change block which signers will approve without issue.
     let block = wait_for_block_pushed_by_miner_key(60, stacks_height_before + 1, &stacks_miner_pk)
         .expect("Timed out waiting for block pushed after fork");
-    assert!(!block.txs.iter().any(|tx| tx.txid().to_string() == txid));
-    assert!(!block.txs.iter().any(|tx| tx.txid().to_string() == txid_2));
+    assert!(!block.txs().any(|tx| tx.txid().to_string() == txid));
+    assert!(!block.txs().any(|tx| tx.txid().to_string() == txid_2));
     info!(
         "---- Wait for block proposal at stacks block height {} ----",
         stacks_height_before + 2
@@ -404,8 +404,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         wait_for_block_proposal_block(30, stacks_height_before + 2, &stacks_miner_pk)
             .expect("Timed out waiting for block proposal after fork");
     assert!(rejected_block
-        .txs
-        .iter()
+        .txs()
         .any(|tx| tx.txid().to_string() == txid_2));
     info!(
         "---- Ensure signers reject block {} due to an invalid transaction replay ----",
@@ -433,16 +432,12 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         stacks_height_before + 2
     );
     assert!(
-        accepted_block
-            .txs
-            .iter()
-            .any(|tx| tx.txid().to_string() == txid),
+        accepted_block.txs().any(|tx| tx.txid().to_string() == txid),
         "Block should contain a replay tx"
     );
     assert!(
         !accepted_block
-            .txs
-            .iter()
+            .txs()
             .any(|tx| tx.txid().to_string() == txid_2),
         "Block should not contain a non-replay tx"
     );

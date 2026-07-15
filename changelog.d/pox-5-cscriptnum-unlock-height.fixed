@@ -1,0 +1,1 @@
+Fixed PoX-5 L1 lockup CLTV height serialization so large unlock heights cannot truncate to lower Bitcoin script numbers.

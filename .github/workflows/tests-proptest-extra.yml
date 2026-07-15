@@ -13,7 +13,8 @@
 # It uses two gates: approval threshold first, then quick diff detection of
 # new proptest tests (tag based), to avoid expensive runs when not needed.
 #
-# Once the gates are passed, the test discovery strategy is:#   - HEAD: list tests from nextest archive (cache restore when available)
+# Once the gates are passed, the test discovery strategy is:#   
+#   - HEAD: list tests from nextest archive (cache restore when available)
 #   - BASE: compile/list tests in a temporary git worktree
 #   - New tests: tagged tests present in HEAD but not in BASE
 #
@@ -50,12 +51,13 @@ concurrency:
 # Set default env vars
 env:
   RUST_BACKTRACE: full
-  TEST_TIMEOUT: 30
+  TEST_TIMEOUT: 60
   # Minimum number of PR approvals required before running the tests
   REQUIRED_APPROVALS: 2
   # Number of generated cases to run per selected proptest.
   PROPTEST_CASES: 2500
-  TEST_ARCHIVE_FILE: "~/test_archive.tar.zst"
+  TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
+  DEBUG_BINARY_PATH: "./target/debug/"
   BTC_VERSION: "25.0"
 
 jobs:
@@ -182,6 +184,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
+      debug-binary-path: ${{ steps.set-env.outputs.debug_binary_path }}
       btc-version: ${{ steps.set-env.outputs.btc_version }}
     steps:
       - name: Export Env Variables
@@ -190,12 +193,18 @@ jobs:
           # Expand leading ~ to $HOME before saving to outputs
           FILE="${{ env.TEST_ARCHIVE_FILE }}"
   
-          echo "test_archive_file=${FILE/#\~/$HOME}" >> "$GITHUB_OUTPUT"
+          echo "test_archive_file=${FILE/#\~/$HOME}" >> $GITHUB_OUTPUT
+          echo "debug_binary_path=${{ env.DEBUG_BINARY_PATH }}" >> $GITHUB_OUTPUT
           echo "btc_version=${{ env.BTC_VERSION }}" >> $GITHUB_OUTPUT
 
-  # --- Setup reusable caches for tests ------------------------------------
-  setup-test-caches:
-    name: "Setup: Test Caches"
+  ############################################################################
+  ### Check Reusable Test Caches
+  ###
+  ### Caches can only be created from `master`. The workflow will fail 
+  ### if caches are missing, with instructions on how to manually seed them.
+  ############################################################################
+  check-test-caches:
+    name: "Check: Test Caches"
     needs:
       - check-approvals
       - check-changes
@@ -204,9 +213,6 @@ jobs:
       needs.check-approvals.outputs.ready == 'true' &&
       needs.check-changes.outputs.found == 'true'
     uses: ./.github/workflows/setup-test-caches.yml
-    with:
-      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      btc-version: ${{ needs.setup-env.outputs.btc-version }}
 
   proptests-run:
     # NOTE: This job name is used as a required Status Check in branch
@@ -218,7 +224,7 @@ jobs:
       - check-approvals
       - check-changes
       - setup-env
-      - setup-test-caches
+      - check-test-caches
     if: |
       needs.check-approvals.outputs.ready == 'true' &&
       needs.check-changes.outputs.found == 'true'
@@ -236,6 +242,14 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+     
+     # Create Nextest archive artifact
+      - name: Create Nextest Archive Artifact
+        uses: ./.github/actions/artifacts/nextest-archive
+        with:
+          action: create
+          archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+          debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
      
       # Setup rust toolchain with llvm-tools-preview
       - name: Setup Rust Toolchain
@@ -269,13 +283,13 @@ jobs:
         run: |
           sudo prlimit --nofile=4096:4096
         
-      # Restore nextest test archive cache data
-      - name: Restore Test Archive Cache
-        id: restore_test_cache
-        uses: ./.github/actions/cache/test-archive
+      # Restore Nextest archive artifact
+      - name: Restore Nextest Archive Artifact
+        uses: ./.github/actions/artifacts/nextest-archive
         with:
           action: restore
           archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+          debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
       ############################################################################
       ### Run proptests
@@ -283,7 +297,11 @@ jobs:
 
       # List every test present on the HEAD branch.
       - name: List HEAD branch tests
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
         run: |
+          echo "Head branch: $HEAD_REF"
+
           cargo nextest list \
             --archive-file ${{ needs.setup-env.outputs.test-archive-file }} \
             -Tjson 2>/dev/null \
@@ -296,56 +314,52 @@ jobs:
           | sort > /tmp/head-tests.txt
           echo "HEAD tests: $(wc -l < /tmp/head-tests.txt)"
 
-      # Check out the base branch into a temporary git worktree and compile
-      # it to list its tests.
+      # Check out the base branch into a temporary git worktree and compile it
+      # to list its tests, building in the worktree's own target/. The worktree
+      # (and its build output) is removed afterwards.
       #
-      # CARGO_TARGET_DIR is pointed at the HEAD workspace's target/ directory.
-      # Anything unchanged between HEAD and BASE (external deps and
-      # unmodified stacks-core crates) is reused, so only the crates
-      # that actually differ need recompiling.
-      #
-      # NOTE:
-      # Overwriting HEAD binaries in target/ is harmless — the test-run step
-      # uses --archive-file, which extracts HEAD binaries into a temp dir and
-      # never reads from target/.
-      #
-      # Reusing HEAD's target/ is only effective when testenv fell back to a local
-      # build (cache miss): that build uses no special RUSTFLAGS, so the artifacts
-      # are compatible and Rust only recompiles the crates that differ from BASE.
-      # When testenv succeeds (cache hit), target/ contains artifacts built with
-      # -Cinstrument-coverage (from manage-test-caches). The flag mismatch invalidates
-      # every fingerprint, forcing a full recompile regardless — no faster than
-      # using a fresh target directory (and it's not worth using same flag either).
+      # This is always a full compile: the ./target/debug/ restored by "Restore
+      # Test Archive Cache" was built with -C instrument-coverage by
+      # setup-test-caches, so its fingerprints never match this list-only build
+      # and there is nothing to reuse. RUSTFLAGS only allows warnings here — the
+      # job-wide `-D warnings` would otherwise turn a benign warning into a hard
+      # error and leave an empty list.
       - name: List BASE branch tests
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref || inputs.base_ref }}
+          RUSTFLAGS: "-A warnings"
+        shell: bash
         run: |
           echo "Base branch: $BASE_REF"
 
           git fetch --depth=1 origin "$BASE_REF"
           git worktree add --detach /tmp/base-worktree "origin/$BASE_REF"
 
-          # Capture HEAD workspace root before entering the worktree
-          head_target="$(pwd)/target"
-
+          # Build in the worktree's own target/ (no HEAD target/ reuse — see note).
           pushd /tmp/base-worktree
-          CARGO_TARGET_DIR="$head_target" \
-          cargo nextest list \
-            -Tjson 2>/dev/null \
-          | jq -r '
+          cargo nextest list -Tjson > /tmp/base-list.json
+          popd
+
+          # Remove the worktree along with its build output (--force because the
+          # compile above populated its target/).
+          git worktree remove --force /tmp/base-worktree
+          git worktree prune
+          
+          jq -r '
               .["rust-suites"]
               | to_entries[]
               | .value.testcases
               | keys[]
-            ' \
+            ' /tmp/base-list.json \
           | sort > /tmp/base-tests.txt
-          popd
+          
+          base_count=$(wc -l < /tmp/base-tests.txt)
+          echo "Base tests: $base_count"
 
-          # Worktree source files are clean (build output went to HEAD_TARGET)
-          git worktree remove /tmp/base-worktree
-          git worktree prune
-
-          echo "Base tests: $(wc -l < /tmp/base-tests.txt)"
+          if [ "$base_count" -eq 0 ]; then
+            echo "::error::BASE test listing is empty — aborting to avoid treating all HEAD tests as new."
+            exit 1
+          fi
 
       # Compare the HEAD and base test lists and keep only tests that are new in HEAD.
       # Then filter to only those tagged with :t::...:t_prop:, i.e. test names of the form:

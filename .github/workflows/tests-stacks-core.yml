@@ -9,6 +9,10 @@ on:
         description: "The test archive file"
         required: true
         type: string
+      debug-binary-path:
+        description: "Debug binary path"
+        required: true
+        type: string
 
 # Set default permissions
 permissions:
@@ -73,8 +77,9 @@ jobs:
         with:
           partition: ${{ matrix.partition }}
           total-partitions: ${{ strategy.job-total }}
-          codecov-test-name: ${{ github.job }}-${{ matrix.partition }}
           archive-file: ${{ inputs.archive-file }}
+          debug-binary-path: ${{ inputs.debug-binary-path }}
+          codecov-test-name: ${{ github.job }}-${{ matrix.partition }}
 
   # Generate and upload openapi html artifact
   open-api-validation:
@@ -128,8 +133,7 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 25.x
-          cache: "npm"
-          cache-dependency-path: "./contrib/core-contract-tests/package-lock.json"
+          package-manager-cache: false # cache is not reusable, do not save anything
       - run: npm ci
       - run: npm test
 
@@ -142,7 +146,10 @@ jobs:
       - open-api-validation
       - node-config-docsgen
       - core-contracts-clarinet-test
-    if: always() && !cancelled()
+    if: |
+      always() && 
+      !cancelled() &&
+      github.event_name != 'merge_group'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code

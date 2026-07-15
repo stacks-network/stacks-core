@@ -304,7 +304,7 @@ impl Signer {
                 "height" => block_proposal.block.header.chain_length,
                 "consensus_hash" => %block_proposal.block.header.consensus_hash,
                 "signer_sighash" => ?block_proposal.block.header.signer_signature_hash(),
-                "nmb_transactions" => block_proposal.block.txs.len(),
+                "nmb_transactions" => block_proposal.block.tx_count(),
             );
             let block_info = BlockInfo::from(block_proposal.clone());
             self.signer_db

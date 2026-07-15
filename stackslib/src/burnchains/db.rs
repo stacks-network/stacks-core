@@ -753,14 +753,11 @@ impl BurnchainDB {
             "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ? LIMIT 1";
         let block_ops_qry = "SELECT DISTINCT * FROM burnchain_db_block_ops WHERE block_hash = ?";
 
-        let block_header = query_row(conn, block_header_qry, params![block])?
+        let header = query_row(conn, block_header_qry, params![block])?
             .ok_or_else(|| BurnchainError::UnknownBlock(block.clone()))?;
-        let block_ops = query_rows(conn, block_ops_qry, params![block])?;
+        let ops = query_rows(conn, block_ops_qry, params![block])?;
 
-        Ok(BurnchainBlockData {
-            header: block_header,
-            ops: block_ops,
-        })
+        Ok(BurnchainBlockData { header, ops })
     }
 
     fn inner_get_burnchain_op(
@@ -815,6 +812,7 @@ impl BurnchainDB {
         block: &BurnchainBlock,
         block_header: &BurnchainBlockHeader,
         epoch_id: StacksEpochId,
+        first_pox_waterfall_block: u64,
     ) -> Vec<BlockstackOperationType> {
         debug!(
             "Extract Blockstack transactions from block {} {} ({} txs)",
@@ -833,6 +831,7 @@ impl BurnchainDB {
                 self,
                 block_header,
                 epoch_id,
+                first_pox_waterfall_block,
                 tx,
                 &pre_stx_ops,
             );
@@ -945,8 +944,117 @@ impl BurnchainDB {
         }
     }
 
+    /// Count the burn header hashes yielded by `canonical_sql` (a SELECT
+    /// producing one TEXT column) that have no `burnchain_db_block_headers`
+    /// row in `headers_schema`. Both arguments are interpolated into SQL;
+    /// pass only trusted fixed fragments.
+    pub(crate) fn count_canonical_burn_hashes_missing_from(
+        conn: &Connection,
+        headers_schema: &str,
+        canonical_sql: &str,
+    ) -> Result<u64, DBError> {
+        conn.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM ({canonical_sql}) \
+                 WHERE burn_header_hash NOT IN \
+                     (SELECT block_hash FROM {headers_schema}.burnchain_db_block_headers)"
+            ),
+            NO_PARAMS,
+            |row| row.get(0),
+        )
+        .map_err(DBError::from)
+    }
+}
+
+// Raw-row test fixture writers. Each helper owns its table's column
+// list so fixtures can't drift from the schema; values are raw
+// TEXT/ints because fixtures use readable labels, not valid hashes
+// (which the typed write paths would reject).
+#[cfg(test)]
+impl BurnchainDB {
+    /// Insert a `burnchain_db_block_headers` row with no transactions.
+    pub fn test_insert_block_header_row(
+        conn: &Connection,
+        block_height: u64,
+        block_hash: &str,
+        parent_block_hash: &str,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO burnchain_db_block_headers \
+             (block_height, block_hash, parent_block_hash, num_txs, timestamp) \
+             VALUES (?1, ?2, ?3, 0, 0)",
+            params![u64_to_sql(block_height)?, block_hash, parent_block_hash],
+        )?;
+        Ok(())
+    }
+
+    /// Insert a `burnchain_db_block_ops` row with an opaque op payload.
+    pub fn test_insert_block_ops_row(
+        conn: &Connection,
+        block_hash: &str,
+        op: &str,
+        txid: &str,
+    ) -> rusqlite::Result<()> {
+        conn.execute(
+            "INSERT INTO burnchain_db_block_ops (block_hash, op, txid) VALUES (?1, ?2, ?3)",
+            params![block_hash, op, txid],
+        )?;
+        Ok(())
+    }
+
+    /// Insert a minimal `block_commit_metadata` row.
+    pub fn test_insert_block_commit_metadata_row(
+        conn: &Connection,
+        burn_block_hash: &str,
+        txid: &str,
+        block_height: u64,
+        anchor_block: Option<u64>,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO block_commit_metadata \
+             (burn_block_hash, txid, block_height, vtxindex, anchor_block, \
+              anchor_block_descendant) \
+             VALUES (?1, ?2, ?3, 0, ?4, NULL)",
+            params![
+                burn_block_hash,
+                txid,
+                u64_to_sql(block_height)?,
+                opt_u64_to_sql(anchor_block)?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Insert an `anchor_blocks` row.
+    pub fn test_insert_anchor_block_row(
+        conn: &Connection,
+        reward_cycle: u64,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO anchor_blocks (reward_cycle) VALUES (?1)",
+            params![u64_to_sql(reward_cycle)?],
+        )?;
+        Ok(())
+    }
+
+    /// Insert an `overrides` row.
+    pub fn test_insert_override_row(
+        conn: &Connection,
+        reward_cycle: u64,
+        affirmation_map: &str,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO overrides (reward_cycle, affirmation_map) VALUES (?1, ?2)",
+            params![u64_to_sql(reward_cycle)?, affirmation_map],
+        )?;
+        Ok(())
+    }
+}
+
+impl BurnchainDB {
     // do NOT call directly; only call directly in tests.
     // This is only `pub` because the tests for it live in a different file.
+    #[cfg(test)]
     pub fn store_new_burnchain_block_ops_unchecked(
         &mut self,
         block_header: &BurnchainBlockHeader,
@@ -975,17 +1083,35 @@ impl BurnchainDB {
         indexer: &B,
         block: &BurnchainBlock,
         epoch_id: StacksEpochId,
+        first_pox_waterfall_block: u64,
     ) -> Result<Vec<BlockstackOperationType>, BurnchainError> {
         let header = block.header();
         debug!("Storing new burnchain block";
               "burn_block_hash" => %header.block_hash,
               "block_height" => header.block_height
         );
-        let mut blockstack_ops =
-            self.get_blockstack_transactions(burnchain, indexer, block, &header, epoch_id);
+        let mut blockstack_ops = self.get_blockstack_transactions(
+            burnchain,
+            indexer,
+            block,
+            &header,
+            epoch_id,
+            first_pox_waterfall_block,
+        );
         apply_blockstack_txs_safety_checks(header.block_height, &mut blockstack_ops);
 
-        self.store_new_burnchain_block_ops_unchecked(&header, &blockstack_ops)?;
+        // Store block header and blockstack ops in a single transaction
+        let db_tx = self.tx_begin()?;
+        test_debug!(
+            "Store block {},{} with {} ops",
+            &header.block_hash,
+            header.block_height,
+            blockstack_ops.len(),
+        );
+        db_tx.store_burnchain_db_entry(&header)?;
+        db_tx.store_blockstack_ops(&header, &blockstack_ops)?;
+        db_tx.commit()?;
+
         Ok(blockstack_ops)
     }
 

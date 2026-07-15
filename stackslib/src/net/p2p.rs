@@ -5617,7 +5617,7 @@ mod test {
     }
 
     fn make_test_p2p_network(initial_neighbors: &[Neighbor]) -> PeerNetwork {
-        let mut conn_opts = ConnectionOptions::default();
+        let mut conn_opts = ConnectionOptions::default().with_private_neighbors();
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
 
@@ -5678,7 +5678,7 @@ mod test {
             burnchain_view,
             conn_opts,
             HashMap::new(),
-            StacksEpoch::unit_test_pre_2_05(0),
+            StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
         );
         p2p
     }
