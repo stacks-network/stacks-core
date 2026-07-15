@@ -578,6 +578,7 @@ pub fn secp256k1_decompress(compressed_pubkey_arr: &[u8]) -> Result<[u8; 65], Er
 
 #[cfg(test)]
 mod tests {
+    use k256::NonZeroScalar;
     #[cfg(not(feature = "wasm-deterministic"))]
     use rand::RngCore as _;
 
@@ -585,20 +586,9 @@ mod tests {
     /// Negating S and flipping the recovery-id bit produces a valid signature for the same
     /// (message, key) pair that has the opposite S parity.
     fn negate_secp256k1_scalar(s: &[u8; 32]) -> [u8; 32] {
-        // secp256k1 group order n
-        const N: [u8; 32] = [
-            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-            0xFF, 0xFE, 0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C,
-            0xD0, 0x36, 0x41, 0x41,
-        ];
-        let mut result = [0u8; 32];
-        let mut borrow: i32 = 0;
-        for i in (0..32).rev() {
-            let diff = N[i] as i32 - s[i] as i32 - borrow;
-            result[i] = diff.rem_euclid(256) as u8;
-            borrow = if diff < 0 { 1 } else { 0 };
-        }
-        result
+        let s = NonZeroScalar::try_from(&s[..])
+            .expect("s must be a non-zero value from the secp256k1 field");
+        s.negate().to_bytes().into()
     }
 
     #[cfg(not(feature = "wasm-deterministic"))]
