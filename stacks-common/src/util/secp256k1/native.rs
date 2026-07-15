@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use k256::ecdsa::signature::SignatureEncoding;
 use k256::ecdsa::{
     RecoveryId as K256RecoveryId, Signature as K256Signature, SigningKey, VerifyingKey,
 };
@@ -155,8 +156,7 @@ impl MessageSignature {
     /// Returns None if the signature bytes are malformed.
     pub fn to_der_signature(&self) -> Option<Vec<u8>> {
         let (sig, _) = self.to_secp256k1_recoverable()?;
-        let bytes: [u8; 64] = sig.to_bytes().into();
-        Some(secp256k1_der_encode(&bytes))
+        Some(sig.to_der().to_vec())
     }
 
     /// Convert from RSV (what Clarity uses) to VSR (what we use here)
