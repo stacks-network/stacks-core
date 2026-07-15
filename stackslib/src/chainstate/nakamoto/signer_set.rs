@@ -139,7 +139,7 @@ pub fn pox_5_sbtc_registry_contract(is_mainnet: bool) -> QualifiedContractIdenti
 }
 
 /// The default mainnet PoX-5 bond admin principal.
-pub const POX_5_BOND_ADMIN_MAINNET: &str = "SP000000000000000000002Q6VF78";
+pub const POX_5_BOND_ADMIN_MAINNET: &str = "SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX";
 
 /// The default non-mainnet PoX-5 bond admin principal — the unsignable
 /// testnet boot principal. Used as the substitution target on non-mainnet
@@ -189,7 +189,7 @@ pub fn pox_5_bond_admin(is_mainnet: bool) -> PrincipalData {
     resolve_pox_5_bond_admin(is_mainnet, POX_5_BOND_ADMIN.read().unwrap().clone())
 }
 
-pub const POX_5_PAUSE_ADMIN_MAINNET: &str = "SP000000000000000000002Q6VF78";
+pub const POX_5_PAUSE_ADMIN_MAINNET: &str = "SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX";
 pub const POX_5_PAUSE_ADMIN_TESTNET: &str = "ST000000000000000000002AMW42H";
 
 static POX_5_PAUSE_ADMIN: RwLock<Option<PrincipalData>> = RwLock::new(None);
