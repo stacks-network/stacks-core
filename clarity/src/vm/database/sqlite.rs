@@ -357,10 +357,6 @@ impl SqliteConnection {
         conn.busy_handler(Some(tx_busy_handler))
             .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
 
-        // rusqlite's default statement cache holds only 16 entries; bump it so the
-        // per-read `prepare_cached` statements in this module are never LRU-evicted.
-        conn.set_prepared_statement_cache_capacity(32);
-
         Ok(conn)
     }
 }

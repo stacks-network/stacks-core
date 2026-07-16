@@ -697,9 +697,8 @@ where
         "block_headers"
     };
 
-    // `column_name`/`table_name` come from small fixed sets (7 as of this
-    // writing) times the two header tables, far below the connection's
-    // 200-entry statement-cache capacity.
+    // The distinct statements here are bounded (caller-passed column names ×
+    // two header tables), so they cannot crowd out the statement cache.
     conn.prepare_cached(&format!(
         "SELECT {column_name} FROM {table_name} WHERE index_block_hash = ?"
     ))

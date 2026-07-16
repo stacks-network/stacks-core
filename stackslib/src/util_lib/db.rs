@@ -45,6 +45,11 @@ pub const SQLITE_MMAP_SIZE: i64 = 256 * 1024 * 1024;
 // 32K
 pub const SQLITE_MARF_PAGE_SIZE: i64 = 32768;
 
+/// Statement-cache capacity for `sqlite_open` connections. The widest observed
+/// working set is ~120 distinct statements (the sortition MARF);
+/// rusqlite's default of 16 would LRU-thrash.
+pub const SQLITE_STATEMENT_CACHE_CAPACITY: usize = 200;
+
 #[derive(Debug)]
 pub enum Error {
     /// Not implemented
@@ -746,10 +751,7 @@ pub fn sqlite_open<P: AsRef<Path>>(
     flags.insert(OpenFlags::SQLITE_OPEN_NO_MUTEX);
     let db = inner_connection_open(path, flags)?;
     db.busy_handler(Some(tx_busy_handler))?;
-    // The node's long-lived connections run far more distinct statements than
-    // rusqlite's default cache of 16 holds (sortition, headers, staging, MARF, ...),
-    // so `prepare_cached` would LRU-thrash and re-parse anyway.
-    db.set_prepared_statement_cache_capacity(200);
+    db.set_prepared_statement_cache_capacity(SQLITE_STATEMENT_CACHE_CAPACITY);
     if !flags.contains(OpenFlags::SQLITE_OPEN_READ_ONLY) {
         inner_sql_pragma(&db, "journal_mode", &"WAL")?;
     }
