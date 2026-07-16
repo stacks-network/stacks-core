@@ -403,12 +403,17 @@ fn test_burnchain_db_anchor_blocks_filtered() {
         .query_row("SELECT reward_cycle FROM anchor_blocks", [], |r| r.get(0))
         .unwrap();
     assert_eq!(cycle, 1);
-    // `overrides` is schema-only: the table exists in the dst, but no rows are
-    // copied -- not even for a canonical reward cycle.
-    let override_rows: i64 = dst
-        .query_row("SELECT COUNT(*) FROM overrides", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(override_rows, 0, "overrides must not be row-copied");
+    // Every schema-only table (`overrides`) is cloned into the dst but receives
+    // no rows. The COUNT also fails if a table was never cloned.
+    for table in TableCopySpecs::new(burnchain_copy_specs()).schema_only() {
+        let rows: i64 = dst
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            rows, 0,
+            "schema-only table `{table}` must not be row-copied"
+        );
+    }
     let anchor99: i64 = dst
         .query_row(
             "SELECT COUNT(*) FROM anchor_blocks WHERE reward_cycle = 99",

@@ -144,11 +144,17 @@ fn test_copy_index_side_tables_round_trip() {
         .unwrap();
     assert_eq!(fork_storage_keys, 1);
     assert_eq!(count("SELECT COUNT(*) FROM __fork_storage"), 1);
-    // Schema-only compatibility table is present but empty.
-    assert_eq!(
-        count("SELECT COUNT(*) FROM invalidated_microblocks_data"),
-        0
-    );
+    // Every schema-only table is cloned into the dst but receives no rows
+    // from the index copy (`staging_microblocks*` are populated later by the
+    // block-preservation phase; the rest stay empty). The COUNT query also
+    // fails if a table was never cloned.
+    for table in TableCopySpecs::new(index_copy_specs()).schema_only() {
+        assert_eq!(
+            count(&format!("SELECT COUNT(*) FROM {table}")),
+            0,
+            "schema-only table `{table}` must be present but empty after the index copy"
+        );
+    }
     // db_config is copied verbatim (values set by `create_source_db`).
     let (version, mainnet, chain_id): (String, i64, i64) = dst
         .query_row(
