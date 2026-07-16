@@ -98,6 +98,8 @@ pub enum StackerDBErrorCodes {
     DataAlreadyExists,
     NoSuchSlot,
     BadSigner,
+    /// The chunk exceeds the replica's configured chunk size.
+    ChunkTooBig,
 }
 
 impl StackerDBErrorCodes {
@@ -106,6 +108,7 @@ impl StackerDBErrorCodes {
             Self::DataAlreadyExists => 0,
             Self::NoSuchSlot => 1,
             Self::BadSigner => 2,
+            Self::ChunkTooBig => 3,
         }
     }
 
@@ -115,6 +118,7 @@ impl StackerDBErrorCodes {
             Self::DataAlreadyExists => "Data for this slot and version already exist",
             Self::NoSuchSlot => "No such StackerDB slot",
             Self::BadSigner => "Signature does not match slot signer",
+            Self::ChunkTooBig => "Chunk exceeds the replica's configured chunk size",
         }
     }
 
@@ -132,6 +136,7 @@ impl StackerDBErrorCodes {
             0 => Some(Self::DataAlreadyExists),
             1 => Some(Self::NoSuchSlot),
             2 => Some(Self::BadSigner),
+            3 => Some(Self::ChunkTooBig),
             _ => None,
         }
     }
@@ -209,7 +214,9 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                             }
                         };
 
-                    let err_code = if slot_metadata_opt.is_some() {
+                    let err_code = if let NetError::StackerDBChunkTooBig(..) = e {
+                        StackerDBErrorCodes::ChunkTooBig
+                    } else if slot_metadata_opt.is_some() {
                         if let NetError::BadSlotSigner(..) = e {
                             StackerDBErrorCodes::BadSigner
                         } else {

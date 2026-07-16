@@ -266,3 +266,41 @@ fn test_try_make_response() {
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 404);
 }
+
+/// A chunk that exceeds the replica's configured `chunk_size` must be reported with the
+/// dedicated `ChunkTooBig` error code.
+#[test]
+fn test_response_chunk_too_big() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let rpc_test = TestRPC::setup(function_name!());
+
+    // The test StackerDB `TEST_CONTRACT` (named `hello-world`) configures `chunk-size: u4096` via its
+    // `stackerdb-get-config`. Build a validly-signed chunk whose data exceeds that so the
+    // write is rejected as too big before any slot/version validation.
+    let data = vec![0x01; 8192];
+    let data_hash = Sha512Trunc256Sum::from_data(&data);
+    let mut slot_metadata = SlotMetadata::new_unsigned(1, 1, data_hash);
+    slot_metadata.sign(&rpc_test.privk1).unwrap();
+
+    let request = StacksHttpRequest::new_post_stackerdb_chunk(
+        addr.into(),
+        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
+            .unwrap(),
+        slot_metadata.slot_id,
+        slot_metadata.slot_version,
+        slot_metadata.signature.clone(),
+        data,
+    );
+
+    let mut responses = rpc_test.run(vec![request]);
+    let response = responses.remove(0);
+
+    let chunk_ack = response.decode_stackerdb_chunk_ack().unwrap();
+    assert!(!chunk_ack.accepted);
+    assert_eq!(
+        chunk_ack.code,
+        Some(poststackerdbchunk::StackerDBErrorCodes::ChunkTooBig.code())
+    );
+    assert!(chunk_ack.reason.is_some());
+}
