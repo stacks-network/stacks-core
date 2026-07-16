@@ -114,7 +114,6 @@ impl From<StaticCheckError> for ClarityError {
             StaticCheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            StaticCheckErrorKind::ExecutionTimeExpired => ClarityError::ExecutionTimeExpired,
             StaticCheckErrorKind::AnalysisTimeExpired => ClarityError::AnalysisTimeExpired,
             _ => ClarityError::StaticCheck(e),
         }
@@ -179,7 +178,6 @@ impl From<ParseError> for ClarityError {
             ParseErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            ParseErrorKind::ExecutionTimeExpired => ClarityError::ExecutionTimeExpired,
             _ => ClarityError::Parse(e),
         }
     }
