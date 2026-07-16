@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::LazyLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -109,6 +110,12 @@ mod postmempoolquery;
 mod postmicroblock;
 mod poststackerdbchunk;
 mod posttransaction;
+
+/// Contract identifier of `TEST_CONTRACT`, deployed as `hello-world` by `TestRPC::setup`.
+static TEST_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> = LazyLock::new(|| {
+    QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
+        .unwrap()
+});
 
 const TEST_CONTRACT: &str = "
     (define-trait test-trait
@@ -838,10 +845,7 @@ impl<'a> TestRPC<'a> {
         slot_metadata.sign(&privk1).unwrap();
 
         for peer_server in [&mut peer_1, &mut peer_2] {
-            let contract_id = QualifiedContractIdentifier::parse(
-                "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
-            )
-            .unwrap();
+            let contract_id = TEST_CONTRACT_ID.clone();
             let tx = peer_server
                 .network
                 .stackerdbs

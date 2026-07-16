@@ -21,8 +21,10 @@ use libstackerdb::{SlotMetadata, StackerDBChunkData};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
-use super::TestRPC;
-use crate::net::api::*;
+use super::{TestRPC, TEST_CONTRACT_ID};
+use crate::net::api::poststackerdbchunk::{
+    RPCPostStackerDBChunkRequestHandler, StackerDBErrorCodes,
+};
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
 use crate::net::ProtocolFamily;
@@ -48,7 +50,7 @@ fn test_try_parse_request() {
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-    let mut handler = poststackerdbchunk::RPCPostStackerDBChunkRequestHandler::new();
+    let mut handler = RPCPostStackerDBChunkRequestHandler::new();
     let mut parsed_request = http
         .handle_try_parse_request(
             &mut handler,
@@ -102,8 +104,7 @@ fn test_try_make_response() {
 
     let request = StacksHttpRequest::new_post_stackerdb_chunk(
         addr.into(),
-        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-            .unwrap(),
+        TEST_CONTRACT_ID.clone(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
         slot_metadata.signature.clone(),
@@ -119,8 +120,7 @@ fn test_try_make_response() {
 
     let request = StacksHttpRequest::new_post_stackerdb_chunk(
         addr.into(),
-        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-            .unwrap(),
+        TEST_CONTRACT_ID.clone(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
         slot_metadata.signature.clone(),
@@ -136,8 +136,7 @@ fn test_try_make_response() {
 
     let request = StacksHttpRequest::new_post_stackerdb_chunk(
         addr.into(),
-        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-            .unwrap(),
+        TEST_CONTRACT_ID.clone(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
         slot_metadata.signature.clone(),
@@ -153,8 +152,7 @@ fn test_try_make_response() {
 
     let request = StacksHttpRequest::new_post_stackerdb_chunk(
         addr.into(),
-        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-            .unwrap(),
+        TEST_CONTRACT_ID.clone(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
         slot_metadata.signature.clone(),
@@ -170,8 +168,7 @@ fn test_try_make_response() {
 
     let request = StacksHttpRequest::new_post_stackerdb_chunk(
         addr.into(),
-        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-            .unwrap(),
+        TEST_CONTRACT_ID.clone(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
         slot_metadata.signature.clone(),
@@ -275,9 +272,8 @@ fn test_response_chunk_too_big() {
 
     let rpc_test = TestRPC::setup(function_name!());
 
-    // The test StackerDB `TEST_CONTRACT` (named `hello-world`) configures `chunk-size: u4096` via its
-    // `stackerdb-get-config`. Build a validly-signed chunk whose data exceeds that so the
-    // write is rejected as too big before any slot/version validation.
+    // The test StackerDB `TEST_CONTRACT` configures `chunk-size: u4096`.
+    // Build a validly-signed chunk whose data exceeds that so the write is rejected as too big.
     let data = vec![0x01; 8192];
     let data_hash = Sha512Trunc256Sum::from_data(&data);
     let mut slot_metadata = SlotMetadata::new_unsigned(1, 1, data_hash);
@@ -285,8 +281,7 @@ fn test_response_chunk_too_big() {
 
     let request = StacksHttpRequest::new_post_stackerdb_chunk(
         addr.into(),
-        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world")
-            .unwrap(),
+        TEST_CONTRACT_ID.clone(),
         slot_metadata.slot_id,
         slot_metadata.slot_version,
         slot_metadata.signature.clone(),
@@ -300,7 +295,7 @@ fn test_response_chunk_too_big() {
     assert!(!chunk_ack.accepted);
     assert_eq!(
         chunk_ack.code,
-        Some(poststackerdbchunk::StackerDBErrorCodes::ChunkTooBig.code())
+        Some(StackerDBErrorCodes::ChunkTooBig.code())
     );
     assert!(chunk_ack.reason.is_some());
 }
