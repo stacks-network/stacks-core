@@ -25,7 +25,7 @@ use crate::vm::analysis::contract_interface_builder::ContractInterface;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::time_tracker::TimeTracker;
+use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::FunctionType;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::{ClarityVersion, SymbolicExpression};
@@ -42,8 +42,8 @@ pub trait AnalysisPass {
         analysis_db: &mut AnalysisDatabase,
         // Wall-clock deadline for this pass. `MaxTime` only on the non-consensus voting
         // paths; `NoTracking` on deterministic replay/commit (so consensus stays
-        // deterministic — see `check_analysis_timeout`).
-        time_tracker: TimeTracker,
+        // deterministic — see `check_analysis_timeout`).FIXME
+        resource_limiter: ResourceLimiter,
     ) -> Result<(), StaticCheckError>;
 }
 

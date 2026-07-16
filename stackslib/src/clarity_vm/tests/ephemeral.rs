@@ -35,7 +35,9 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use crate::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
+};
 use crate::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -369,8 +371,7 @@ fn replay_block(
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            None,
-            None,
+            &TransactionResourceBudgets::unlimited(),
             &mut total_receipts,
         );
         let err = match &tx_result {

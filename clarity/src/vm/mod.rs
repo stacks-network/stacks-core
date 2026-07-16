@@ -30,7 +30,7 @@ pub mod representations;
 
 pub mod callables;
 pub mod functions;
-pub mod time_tracker;
+pub mod resource_limiter;
 pub mod variables;
 
 pub mod analysis;
@@ -77,6 +77,9 @@ pub use crate::vm::functions::stx_transfer_consolidated;
 pub use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
+#[cfg(any(test, feature = "testing"))]
+use crate::vm::resource_limiter::ResourceBudget;
+use crate::vm::resource_limiter::ResourceLimitExceeded;
 pub use crate::vm::types::Value;
 use crate::vm::types::{PrincipalData, TypeSignature};
 pub use crate::vm::version::ClarityVersion;
@@ -491,14 +494,20 @@ pub fn apply_evaluated(
 fn check_interpreter_abort_condition(
     global_context: &GlobalContext,
 ) -> Result<(), VmExecutionError> {
-    if global_context.execution_time_tracker.is_expired() {
-        return Err(RuntimeCheckErrorKind::ExecutionTimeExpired.into());
-    }
+    // WIP: memory is still handled by the abort_callback, not the resource limiter
     if let Err(reason) = global_context.abort_callback.check() {
         return Err(RuntimeCheckErrorKind::AbortedByExecutionHook(reason).into());
     }
 
-    Ok(())
+    global_context
+        .execution_resource_limiter
+        .check_not_exceeded()
+        .map_err(|err| match err {
+            ResourceLimitExceeded::MaxDurationExceeded(s)
+            | ResourceLimitExceeded::MaxAllocationExceeded(s) => {
+                RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(s).into()
+            }
+        })
 }
 
 pub fn eval<'a>(
@@ -826,7 +835,8 @@ pub fn execute_with_limited_execution_time(
         false,
         clarity_types::types::StandardPrincipalData::transient(),
         |g| {
-            g.set_max_execution_time(max_execution_time);
+            let budget = ResourceBudget::new().with_max_duration(Some(max_execution_time));
+            g.set_execution_resource_limiter(budget.start_tracking());
             Ok(())
         },
         |_| Ok(()),

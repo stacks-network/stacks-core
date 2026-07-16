@@ -44,7 +44,7 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::time_tracker::TimeTracker;
+use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::QualifiedContractIdentifier;
 #[cfg(feature = "rusqlite")]
 use crate::vm::types::TypeSignature;
@@ -56,8 +56,11 @@ use crate::vm::types::TypeSignature;
 /// validation); on the deterministic replay/commit path it is `TimeTracker::NoTracking`,
 /// so this never fires during consensus and the surfaced `AnalysisTimeExpired` cannot
 /// affect block validity.
-pub(crate) fn check_analysis_timeout(time_tracker: &TimeTracker) -> Result<(), StaticCheckError> {
-    if time_tracker.is_expired() {
+pub(crate) fn check_analysis_timeout(
+    resource_limiter: &ResourceLimiter,
+) -> Result<(), StaticCheckError> {
+    //FIXME
+    if resource_limiter.check_not_exceeded().is_err() {
         return Err(StaticCheckErrorKind::AnalysisTimeExpired.into());
     }
     Ok(())
@@ -87,7 +90,7 @@ pub fn mem_type_check(
         epoch,
         version,
         true,
-        TimeTracker::unlimited(),
+        ResourceLimiter::unlimited(),
     ) {
         Ok(x) => {
             // return the first type result of the type checker
@@ -128,7 +131,7 @@ pub fn type_check(
         *epoch,
         *version,
         true,
-        TimeTracker::unlimited(),
+        ResourceLimiter::unlimited(),
     )
     .map_err(|e| e.0)
 }
@@ -175,7 +178,7 @@ pub fn run_analysis(
     epoch: StacksEpochId,
     version: ClarityVersion,
     build_type_map: bool,
-    time_tracker: TimeTracker,
+    resource_limiter: ResourceLimiter,
 ) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
@@ -185,23 +188,23 @@ pub fn run_analysis(
         version,
     );
     let result = analysis_db.execute(|db| {
-        ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, time_tracker)?;
+        ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
         if epoch >= StacksEpochId::Epoch21 {
             TypeChecker2_1::run_pass(
                 &epoch,
                 &mut contract_analysis,
                 db,
                 build_type_map,
-                time_tracker,
+                resource_limiter,
             )?;
         } else {
             TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, build_type_map)?;
         }
-        TraitChecker::run_pass(&epoch, &mut contract_analysis, db, time_tracker)?;
+        TraitChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 
         // Final boundary check on the analysis passes
-        check_analysis_timeout(&time_tracker)?;
+        check_analysis_timeout(&resource_limiter)?;
 
         if STORE_CONTRACT_SRC_INTERFACE {
             let interface = build_contract_interface(&contract_analysis)?;

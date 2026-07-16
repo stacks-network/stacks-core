@@ -322,7 +322,7 @@ fn test_try_make_response_free_cost_tracker() {
     let response = responses.remove(0);
     let (preamble, contents) = response.destruct();
 
-    assert_eq!(preamble.status_code, 408);
+    assert_eq!(preamble.status_code, 400);
 
     let body: String = contents.try_into().unwrap();
     assert_eq!(body, "ExecutionTime expired");

@@ -132,10 +132,10 @@ pub enum Error {
     TxWouldNotFitError,
     /// This error indicates an internal state or condition that should never actually happen
     Expects(String),
-    /// This error indicates that a transaction execution was aborted because it exceeded the maximum allowed execution time.
-    ExecutionTimeExpired,
+    /// This error indicates that a transaction execution was aborted because it exceeded the maximum allowed execution time or memory use.
+    ExecutionResourceBudgetExceeded(String),
     /// This error indicates that contract analysis was aborted because it exceeded the maximum allowed analysis time.
-    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable in logs/metrics and in `is_problematic`.
+    /// Distinct from `ExecutionResourceBudgetExceeded` so an analysis-phase timeout is separable in logs/metrics and in `is_problematic`.
     AnalysisTimeExpired,
 }
 
@@ -252,7 +252,9 @@ impl fmt::Display for Error {
             }
             Error::TenureTooBigError => write!(f, "Too much data in tenure"),
             Error::TxWouldNotFitError => write!(f, "Transaction would not fit in this block"),
-            Error::ExecutionTimeExpired => write!(f, "Transaction execution time expired"),
+            Error::ExecutionResourceBudgetExceeded(ref s) => {
+                write!(f, "Transaction execution resource budget exceeded: {s}")
+            }
             Error::AnalysisTimeExpired => write!(f, "Transaction analysis time expired"),
             Error::Expects(ref msg) => write!(f, "Unexpected state: {msg}"),
         }
@@ -303,7 +305,7 @@ impl error::Error for Error {
             Error::NotInSameFork => None,
             Error::TenureTooBigError => None,
             Error::TxWouldNotFitError => None,
-            Error::ExecutionTimeExpired => None,
+            Error::ExecutionResourceBudgetExceeded(_) => None,
             Error::AnalysisTimeExpired => None,
             Error::Expects(ref _msg) => None,
         }
@@ -354,7 +356,7 @@ impl Error {
             Error::NotInSameFork => "NotInSameFork",
             Error::TenureTooBigError => "TenureTooBigError",
             Error::TxWouldNotFitError => "TxWouldNotFitError",
-            Error::ExecutionTimeExpired => "ExecutionTimeExpired",
+            Error::ExecutionResourceBudgetExceeded(_) => "ExecutionResourceBudgetExceeded",
             Error::AnalysisTimeExpired => "AnalysisTimeExpired",
             Error::Expects(_) => "Expects",
         }

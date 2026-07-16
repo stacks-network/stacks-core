@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
-use std::time::Duration;
 
 use stacks_common::types::StacksEpochId;
 
@@ -28,7 +27,7 @@ use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
-use crate::vm::time_tracker::TimeTracker;
+use crate::vm::resource_limiter::ResourceBudget;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
 
@@ -63,10 +62,10 @@ pub enum ClarityError {
         /// A human-readable explanation for aborting the transaction
         reason: String,
     },
-    /// Transaction exceeded the maximum execution time allowed.
-    ExecutionTimeExpired,
+    /// Transaction exceeded the maximum execution time or heap usage allowed.
+    ExecutionResourceBudgetExceeded(String),
     /// Contract analysis exceeded the maximum analysis time allowed.
-    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable end-to-end.
+    /// Distinct from `ExecutionResourceBudgetExceeded` so an analysis-phase timeout is separable end-to-end.
     AnalysisTimeExpired,
 }
 
@@ -83,7 +82,9 @@ impl fmt::Display for ClarityError {
             }
             ClarityError::Interpreter(e) => fmt::Display::fmt(e, f),
             ClarityError::BadTransaction(s) => fmt::Display::fmt(s, f),
-            ClarityError::ExecutionTimeExpired => write!(f, "Execution time expired"),
+            ClarityError::ExecutionResourceBudgetExceeded(s) => {
+                write!(f, "Execution resource budget exceted: {s}")
+            }
             ClarityError::AnalysisTimeExpired => write!(f, "Analysis time expired"),
         }
     }
@@ -98,7 +99,7 @@ impl std::error::Error for ClarityError {
             ClarityError::Parse(ref e) => Some(e),
             ClarityError::Interpreter(ref e) => Some(e),
             ClarityError::BadTransaction(ref _s) => None,
-            ClarityError::ExecutionTimeExpired => None,
+            ClarityError::ExecutionResourceBudgetExceeded(_) => None,
             ClarityError::AnalysisTimeExpired => None,
         }
     }
@@ -160,9 +161,9 @@ impl From<VmExecutionError> for ClarityError {
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CostOverflow) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExecutionTimeExpired) => {
-                ClarityError::ExecutionTimeExpired
-            }
+            VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(s),
+            ) => ClarityError::ExecutionResourceBudgetExceeded(s.clone()),
             _ => ClarityError::Interpreter(e),
         }
     }
@@ -287,13 +288,13 @@ pub trait TransactionConnection: ClarityConnection {
         identifier: &QualifiedContractIdentifier,
         clarity_version: ClarityVersion,
         contract_content: &str,
-        max_time: Option<Duration>,
+        analysis_resource_budget: &ResourceBudget,
     ) -> Result<(ContractAST, ContractAnalysis), ClarityError> {
         let epoch_id = self.get_epoch();
 
         self.with_analysis_db(|db, mut cost_track| {
-            // Start the analysis clock here and take into account AST building.
-            let time_tracker = TimeTracker::from_opt_max_duration(max_time);
+            // Start the analysis baseline here and take into account AST building.
+            let resource_limiter = analysis_resource_budget.start_tracking();
 
             let ast_result = ast::build_ast(
                 identifier,
@@ -317,7 +318,7 @@ pub trait TransactionConnection: ClarityConnection {
                 epoch_id,
                 clarity_version,
                 false,
-                time_tracker,
+                resource_limiter,
             );
 
             match result {
@@ -396,7 +397,7 @@ pub trait TransactionConnection: ClarityConnection {
         public_function: &str,
         args: &[Value],
         abort_call_back: F,
-        max_execution_time: Option<std::time::Duration>,
+        resource_budget: &ResourceBudget,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
@@ -408,11 +409,9 @@ pub trait TransactionConnection: ClarityConnection {
 
         self.with_abort_callback(
             |vm_env| {
-                if let Some(max_execution_time_duration) = max_execution_time {
-                    vm_env
-                        .context
-                        .set_max_execution_time(max_execution_time_duration);
-                }
+                vm_env
+                    .context
+                    .set_execution_resource_limiter(resource_budget.start_tracking());
                 vm_env
                     .execute_transaction(
                         sender.clone(),
@@ -453,18 +452,17 @@ pub trait TransactionConnection: ClarityConnection {
         contract_str: &str,
         sponsor: Option<PrincipalData>,
         abort_call_back: F,
-        max_execution_time: Option<std::time::Duration>,
+        execution_resource_budget: &ResourceBudget,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
         let (_, assets_modified, tx_events, reason) = self.with_abort_callback(
             |vm_env| {
-                if let Some(max_execution_time_duration) = max_execution_time {
-                    vm_env
-                        .context
-                        .set_max_execution_time(max_execution_time_duration);
-                }
+                vm_env
+                    .context
+                    .set_execution_resource_limiter(execution_resource_budget.start_tracking());
+
                 vm_env
                     .initialize_contract_from_ast(
                         identifier.clone(),

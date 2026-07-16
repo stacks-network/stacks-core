@@ -71,8 +71,8 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
             arithmetic_zero_n_log_n_cdeploy,
             arithmetic_zero_n_log_n_ccall,
         ]),
-        ExecutionTimeExpired => Unreachable_Functionally(
-            "All consensus-critical code paths (block validation and transaction processing)
+        ExecutionResourceBudgetExceeded(_) => Unreachable_Functionally(
+            "FIXME All consensus-critical code paths (block validation and transaction processing)
              pass `None` for max_execution_time to StacksChainState::process_transaction,
              causing GlobalContext::execution_time_tracker to remain ExecutionTimeTracker::NoTracking.
              The check_max_execution_time_expired function always returns Ok(()) when tracker

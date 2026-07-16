@@ -18,7 +18,6 @@ use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::mem::replace;
-use std::time::Duration;
 
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
@@ -45,7 +44,7 @@ use crate::vm::errors::{
 };
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::time_tracker::TimeTracker;
+use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     AssetIdentifier, BuffData, CallableData, PrincipalData, QualifiedContractIdentifier,
@@ -350,7 +349,7 @@ pub struct GlobalContext<'a, 'hooks> {
     /// This is the chain ID of the transaction
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
-    pub execution_time_tracker: TimeTracker,
+    pub execution_resource_limiter: ResourceLimiter,
     /// Callback checked at every `eval` call. When `check()` returns
     /// `Err(reason)`, execution is aborted with
     /// `VmExecutionError::RuntimeCheck(AbortedByExecutionHook)`. The
@@ -1877,7 +1876,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             epoch_id,
             chain_id,
             eval_hooks: None,
-            execution_time_tracker: TimeTracker::unlimited(),
+            execution_resource_limiter: ResourceLimiter::unlimited(),
             abort_callback: AbortCallback::None,
         }
     }
@@ -1886,8 +1885,8 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         self.asset_maps.is_empty()
     }
 
-    pub fn set_max_execution_time(&mut self, max_execution_time: Duration) {
-        self.execution_time_tracker = TimeTracker::from_max_duration(max_execution_time);
+    pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
+        self.execution_resource_limiter = resource_limiter;
     }
 
     pub fn set_abort_callback(&mut self, callback: AbortCallback) {

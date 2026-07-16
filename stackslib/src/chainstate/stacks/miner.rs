@@ -25,6 +25,7 @@ use std::time::Instant;
 use clarity::vm::contexts::AbortCallback;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::VmExecutionError;
+use clarity::vm::resource_limiter::ResourceBudget;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -708,14 +709,15 @@ impl TransactionResult {
                     tx_events,
                     reason,
                 }),
-                ClarityRuntimeTxError::ExecutionTimeExpired => {
-                    // This transaction took too long to execute. Consider it problematic.
-                    info!("Problematic transaction caused ExecutionTimeExpired";
+                ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
+                    // This transaction took too long to execute or used too much heap memory. Consider it problematic.
+                    info!("Problematic transaction caused ExecutionResourceBudgetExceeded";
+                          "error" => s.clone(),
                           "txid" => %tx.txid(),
                           "origin" => %tx.get_origin().get_address(false),
                           "payload" => ?tx.payload,
                     );
-                    return (true, Error::ExecutionTimeExpired);
+                    return (true, Error::ExecutionResourceBudgetExceeded(s));
                 }
             },
             Error::InvalidFee => {
@@ -731,14 +733,15 @@ impl TransactionResult {
                 );
                 return (true, Error::InvalidFee);
             }
-            Error::ExecutionTimeExpired => {
-                // The transaction took too long to execute. Consider it problematic.
-                info!("Problematic transaction caused ExecutionTimeExpired";
+            Error::ExecutionResourceBudgetExceeded(s) => {
+                // The transaction took too long to execute or used too much heap memory. Consider it problematic.
+                info!("Problematic transaction caused ExecutionResourceBudgetExceeded";
+                      "error" => s.clone(),
                       "txid" => %tx.txid(),
                       "origin" => %tx.get_origin().get_address(false),
                       "payload" => ?tx.payload,
                 );
-                return (true, Error::ExecutionTimeExpired);
+                return (true, Error::ExecutionResourceBudgetExceeded(s));
             }
             Error::AnalysisTimeExpired => {
                 // The transaction's contract analysis took too long. Consider it problematic so the
@@ -756,6 +759,49 @@ impl TransactionResult {
     }
 }
 
+pub struct TransactionResourceBudgets {
+    execution_budget: ResourceBudget,
+    analysis_budget: ResourceBudget,
+}
+
+impl TransactionResourceBudgets {
+    pub fn new() -> Self {
+        Self {
+            execution_budget: ResourceBudget::unlimited(),
+            analysis_budget: ResourceBudget::unlimited(),
+        }
+    }
+
+    pub fn unlimited() -> Self {
+        Self::new()
+    }
+
+    pub fn from_settings(settings: &BlockBuilderSettings) -> Self {
+        Self {
+            execution_budget: ResourceBudget::new().with_max_duration(settings.max_execution_time),
+            analysis_budget: ResourceBudget::new().with_max_duration(settings.max_analysis_time),
+        }
+    }
+
+    pub fn with_execution_budget(mut self, execution_budget: ResourceBudget) -> Self {
+        self.execution_budget = execution_budget;
+        self
+    }
+
+    pub fn with_analysis_budget(mut self, analysis_budget: ResourceBudget) -> Self {
+        self.analysis_budget = analysis_budget;
+        self
+    }
+
+    pub fn get_execution_budget(&self) -> &ResourceBudget {
+        &self.execution_budget
+    }
+
+    pub fn get_analysis_budget(&self) -> &ResourceBudget {
+        &self.analysis_budget
+    }
+}
+
 /// Trait that defines what it means to be a block builder
 pub trait BlockBuilder {
     fn try_mine_tx_with_len(
@@ -764,8 +810,7 @@ pub trait BlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        max_execution_time: Option<std::time::Duration>,
-        max_analysis_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> TransactionResult;
 
@@ -775,8 +820,7 @@ pub trait BlockBuilder {
         &mut self,
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
-        max_execution_time: Option<std::time::Duration>,
-        max_analysis_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
@@ -785,8 +829,7 @@ pub trait BlockBuilder {
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            max_execution_time,
-            max_analysis_time,
+            resource_budgets,
             total_receipts_size,
         ) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
@@ -2088,7 +2131,12 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.into_iter() {
-            match builder.try_mine_tx(&mut epoch_tx, &tx, None, None, &mut 0) {
+            match builder.try_mine_tx(
+                &mut epoch_tx,
+                &tx,
+                &TransactionResourceBudgets::unlimited(),
+                &mut 0,
+            ) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -2255,8 +2303,7 @@ impl StacksBlockBuilder {
                     .try_mine_tx(
                         epoch_tx,
                         initial_tx,
-                        settings.max_execution_time,
-                        settings.max_analysis_time,
+                        &TransactionResourceBudgets::from_settings(&settings),
                         &mut receipts_total,
                     )?
                     .convert_to_event(),
@@ -2463,8 +2510,7 @@ impl BlockBuilder for StacksBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        _max_execution_time: Option<std::time::Duration>,
-        _max_analysis_time: Option<std::time::Duration>,
+        _resource_budgets: &TransactionResourceBudgets,
         _total_receipt_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
@@ -2739,8 +2785,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                     &txinfo.tx,
                     txinfo.metadata.len,
                     &block_limit_hit,
-                    settings.max_execution_time,
-                    settings.max_analysis_time,
+                    &TransactionResourceBudgets::from_settings(&settings),
                     &mut receipts_total,
                 );
 
@@ -2916,8 +2961,7 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
             replay_tx,
             replay_tx.tx_len(),
             &BlockLimitFunction::NO_LIMIT_HIT,
-            None,
-            None,
+            &TransactionResourceBudgets::unlimited(),
             &mut receipts_total,
         );
         let tx_event = tx_result.convert_to_event();

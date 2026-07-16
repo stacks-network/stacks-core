@@ -22,6 +22,7 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::errors::VmExecutionError::RuntimeCheck;
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
 use regex::{Captures, Regex};
@@ -33,8 +34,8 @@ use crate::net::api::callreadonly::{
     CallReadOnlyRequestBody, CallReadOnlyResponse, RPCCallReadOnlyRequestHandler,
 };
 use crate::net::http::{
-    parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
-    HttpRequestPreamble, HttpRequestTimeout, HttpResponse, HttpResponseContents,
+    parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
+    HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
     HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
@@ -241,9 +242,11 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                                 exec_state.global_context.set_abort_callback(
                                     make_mem_abort_callback(self.read_only_call_max_mem_bytes),
                                 );
+                                let budget = ResourceBudget::new()
+                                    .with_max_duration(Some(self.read_only_max_execution_time));
                                 exec_state
                                     .global_context
-                                    .set_max_execution_time(self.read_only_max_execution_time);
+                                    .set_execution_resource_limiter(budget.start_tracking());
 
                                 // we want to execute any function as long as no actual writes are made as
                                 // opposed to be limited to purely calling `define-read-only` functions,
@@ -288,10 +291,12 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                     result: None,
                     cause: Some("NotReadOnly".to_string()),
                 },
-                ClarityEvalError::Vm(RuntimeCheck(RuntimeCheckErrorKind::ExecutionTimeExpired)) => {
+                ClarityEvalError::Vm(RuntimeCheck(
+                    RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(_),
+                )) => {
                     return StacksHttpResponse::new_error(
                         &preamble,
-                        &HttpRequestTimeout::new("ExecutionTime expired".to_string()),
+                        &HttpBadRequest::new("ExecutionTime expired".to_string()),
                     )
                     .try_into_contents()
                     .map_err(NetError::from)

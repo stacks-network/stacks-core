@@ -553,9 +553,8 @@ pub enum RuntimeCheckErrorKind {
     /// Failure in cost-tracking due to an unexpected condition or invalid state.
     /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
-    // Time checker errors
-    /// Runtime (eval) execution time exceeds the allowed budget, halting execution to ensure responsiveness.
-    ExecutionTimeExpired,
+    /// Runtime (eval) execution time or memory use exceeds the allowed budget, halting execution to ensure responsiveness.
+    ExecutionResourceBudgetExceeded(String),
 
     /// Value exceeds the maximum allowed size for type-checking or serialization.
     ValueTooLarge,

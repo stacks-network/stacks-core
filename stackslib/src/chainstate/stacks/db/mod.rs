@@ -31,6 +31,7 @@ use clarity::vm::database::{
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::events::*;
 use clarity::vm::representations::ContractName;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -64,6 +65,7 @@ use crate::chainstate::stacks::index::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::{
     Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
@@ -1399,8 +1401,7 @@ impl StacksChainState {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                 })?;
                 receipts.push(tx_receipt);
@@ -1745,7 +1746,7 @@ impl StacksChainState {
                     "set-burnchain-parameters",
                     &params,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
