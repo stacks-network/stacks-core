@@ -487,25 +487,26 @@ pub fn apply_evaluated(
     )
 }
 
-/// Check for interpreter-level abort conditions.
-///
-/// Currently, this is either the AbortCallback or the execution
-///  time limit.
-fn check_interpreter_abort_condition(
+/// Check for interpreter-level violations of the resource limits
+/// (execution time limit or excessive heap allocations).
+fn check_interpreter_resource_usage(
     global_context: &GlobalContext,
 ) -> Result<(), VmExecutionError> {
-    // WIP: memory is still handled by the abort_callback, not the resource limiter
-    if let Err(reason) = global_context.abort_callback.check() {
-        return Err(RuntimeCheckErrorKind::AbortedByExecutionHook(reason).into());
-    }
-
     global_context
         .execution_resource_limiter
         .check_not_exceeded()
         .map_err(|err| match err {
-            ResourceLimitExceeded::MaxDurationExceeded(s)
-            | ResourceLimitExceeded::MaxAllocationExceeded(s) => {
-                RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(s).into()
+            ResourceLimitExceeded::MaxDurationExceeded(s) => {
+                RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(format!(
+                    "Evaluation took too much time: {s}"
+                ))
+                .into()
+            }
+            ResourceLimitExceeded::MaxAllocationExceeded(s) => {
+                RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(format!(
+                    "Evaluation used too much memory: {s}"
+                ))
+                .into()
             }
         })
 }
@@ -520,7 +521,7 @@ pub fn eval<'a>(
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
-    check_interpreter_abort_condition(exec_state.global_context)?;
+    check_interpreter_resource_usage(exec_state.global_context)?;
 
     if let Some(mut eval_hooks) = exec_state.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {

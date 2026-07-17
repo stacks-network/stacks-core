@@ -22,7 +22,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
 
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::resource_limiter::ResourceBudget;
@@ -41,7 +40,6 @@ use stacks_common::util::vrf::*;
 use crate::burnchains::{Burnchain, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::*;
-use crate::chainstate::nakamoto::miner::make_mem_abort_callback;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
@@ -759,8 +757,24 @@ impl TransactionResult {
     }
 }
 
+/// Defines limits on computing resources (heap allocation and wallclock time)
+/// during processing of contract deploy and call transaction. These are
+/// independent of cost tracking and MUST be [`ResourceBudget::unlimited`]
+/// during consensus-critical processing, because that must remain deterministic.
+///
+/// The budgets are limited during the miner's block construction and the
+/// signer node's proposal validation to ensure that a smart contract that
+/// triggers excessive memory usage or delays is not included in the chain.
+/// This is a defense-in-depth measure -- if these budgets are exceeded, that
+/// probably means there's an underlying bug in the VM or analysis engine that
+/// should be fixed.
 pub struct TransactionResourceBudgets {
+    /// The budget that applies during clarity evalution, used both during
+    /// contract deploy and contract call transactions.
     execution_budget: ResourceBudget,
+
+    /// The budget that applies during contract analysis, only used during
+    /// contract deploy transactions.
     analysis_budget: ResourceBudget,
 }
 
@@ -777,8 +791,15 @@ impl TransactionResourceBudgets {
     }
 
     pub fn from_settings(settings: &BlockBuilderSettings) -> Self {
+        let memory_limit = if settings.max_assembly_mem_bytes > 0 {
+            Some(settings.max_assembly_mem_bytes)
+        } else {
+            None
+        };
         Self {
-            execution_budget: ResourceBudget::new().with_max_duration(settings.max_execution_time),
+            execution_budget: ResourceBudget::new()
+                .with_max_duration(settings.max_execution_time)
+                .with_max_memory_use(memory_limit),
             analysis_budget: ResourceBudget::new().with_max_duration(settings.max_analysis_time),
         }
     }
@@ -2774,12 +2795,6 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
 
                 fault_injection_stall_tx();
 
-                if settings.max_assembly_mem_bytes > 0 {
-                    epoch_tx.set_abort_callback(make_mem_abort_callback(
-                        settings.max_assembly_mem_bytes,
-                    ));
-                }
-
                 let tx_result = builder.try_mine_tx_with_len(
                     epoch_tx,
                     &txinfo.tx,
@@ -2788,8 +2803,6 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                     &TransactionResourceBudgets::from_settings(&settings),
                     &mut receipts_total,
                 );
-
-                epoch_tx.set_abort_callback(AbortCallback::None);
 
                 let result_event = tx_result.convert_to_event();
                 match tx_result {

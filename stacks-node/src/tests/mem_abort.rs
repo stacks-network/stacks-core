@@ -14,17 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Tests for the per-transaction memory-limit abort callback
-//! (`make_mem_abort_callback`). These live in the stacks-node crate because
-//! it sets a `TrackingAllocator` as the `#[global_allocator]`, which is
-//! required for the thread-local counters to reflect actual allocations.
+//! Tests for the per-transaction memory-limit ResourceBudgets. These live
+//! in the stacks-node crate because it sets a `TrackingAllocator` as the
+//! `#[global_allocator]`, which is required for the thread-local counters
+//! to reflect actual allocations.
 
-use clarity::vm::contexts::{AbortCallback, GlobalContext};
+use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::MemoryBackingStore;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::{ast, eval_all, ClarityVersion, ContractContext};
-use stacks::chainstate::nakamoto::miner::make_mem_abort_callback;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 
@@ -40,11 +40,11 @@ fn big_alloc_program() -> String {
     format!("(list\n{}\n)", lines.join("\n"))
 }
 
-/// Helper: run a Clarity program with an abort callback (use
-/// `AbortCallback::None` for "no callback").
-fn run_with_abort_callback(
+/// Helper: run a Clarity program with a memory resource budget
+/// (use `None` for no limit).
+fn run_with_memory_limit(
     program: &str,
-    abort_cb: AbortCallback,
+    mem_limit: Option<u64>,
 ) -> Result<Option<clarity::vm::Value>, clarity::vm::errors::VmExecutionError> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut marf = MemoryBackingStore::new();
@@ -58,7 +58,6 @@ fn run_with_abort_callback(
         LimitedCostTracker::new_free(),
         epoch,
     );
-    global_context.abort_callback = abort_cb;
 
     let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
     let parsed = ast::build_ast(
@@ -71,17 +70,23 @@ fn run_with_abort_callback(
     .expect("Failed to parse program")
     .expressions;
 
-    global_context.execute(|g| eval_all(&parsed, &mut contract_context, g, None))
+    global_context.execute(|g| {
+        g.set_execution_resource_limiter(
+            ResourceBudget::new()
+                .with_max_memory_use(mem_limit)
+                .start_tracking(),
+        );
+
+        eval_all(&parsed, &mut contract_context, g, None)
+    })
 }
 
 #[test]
-fn test_mem_abort_callback_aborts_on_exceeded_limit() {
+fn test_mem_budget_aborts_on_exceeded_limit() {
     let program = big_alloc_program();
 
     // 1 byte limit => any real execution will exceed this.
-    let abort_cb = make_mem_abort_callback(1);
-
-    let result = run_with_abort_callback(&program, abort_cb);
+    let result = run_with_memory_limit(&program, Some(1));
 
     assert!(
         result.is_err(),
@@ -89,19 +94,17 @@ fn test_mem_abort_callback_aborts_on_exceeded_limit() {
     );
     let err_string = format!("{:?}", result.unwrap_err());
     assert!(
-        err_string.contains("exceeded limit"),
-        "Expected 'exceeded limit' in error, got: {err_string}"
+        err_string.contains("too much memory"),
+        "Expected 'too much memory' in error, got: {err_string}"
     );
 }
 
 #[test]
-fn test_mem_abort_callback_allows_execution_under_limit() {
+fn test_mem_budget_allows_execution_under_limit() {
     let program = big_alloc_program();
 
     // 100 MB limit => the large list program should not exceed this.
-    let abort_cb = make_mem_abort_callback(100 * 1024 * 1024);
-
-    let result = run_with_abort_callback(&program, abort_cb);
+    let result = run_with_memory_limit(&program, Some(100 * 1024 * 1024));
 
     assert!(
         result.is_ok(),
@@ -110,20 +113,11 @@ fn test_mem_abort_callback_allows_execution_under_limit() {
 }
 
 #[test]
-fn test_mem_abort_callback_disabled_when_zero() {
-    // Limit of 0 means disabled => should return AbortCallback::None.
-    assert!(
-        matches!(make_mem_abort_callback(0), AbortCallback::None),
-        "Expected AbortCallback::None for limit_bytes=0"
-    );
-}
-
-#[test]
-fn test_no_abort_callback_allows_large_allocation() {
+fn test_no_mem_budget_allows_large_allocation() {
     let program = big_alloc_program();
 
     // No abort callback at all => should succeed regardless of allocations.
-    let result = run_with_abort_callback(&program, AbortCallback::None);
+    let result = run_with_memory_limit(&program, None);
 
     assert!(
         result.is_ok(),

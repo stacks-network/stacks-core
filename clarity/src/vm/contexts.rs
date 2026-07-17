@@ -22,7 +22,6 @@ use std::mem::replace;
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
-use stacks_common::alloc_tracker::{AllocationCounter, thread_allocated};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 
@@ -279,60 +278,8 @@ pub struct EventBatch {
     pub events: Vec<StacksTransactionEvent>,
 }
 
-/// Per-`eval` abort check. This operates alongside the execution time
-/// tracker.
-///
-/// The `None` variant is a no-op (the common case during
-/// block append/replay); other variants encode specific abort
-/// conditions and are dispatched statically via match.
-#[derive(Clone)]
-pub enum AbortCallback {
-    /// No abort check.
-    None,
-    /// Abort when net heap allocation since `baseline` exceeds
-    /// `limit_bytes` (per-thread).
-    ///
-    /// Used by miner block assembly and proposal validation.
-    MemAbort {
-        baseline: AllocationCounter,
-        limit_bytes: u64,
-    },
-    /// Test fixture: always aborts with the given reason.
-    #[cfg(test)]
-    AlwaysAbort(String),
-}
-
-impl AbortCallback {
-    /// Run the abort check.
-    ///
-    /// Returns:
-    ///   * `Ok(())` to continue
-    ///   * `Err(reason)` to abort execution with
-    ///     `RuntimeCheckErrorKind::AbortedByExecutionHook`.
-    pub fn check(&self) -> Result<(), String> {
-        match self {
-            Self::None => Ok(()),
-            Self::MemAbort {
-                baseline,
-                limit_bytes,
-            } => {
-                let net_alloc = thread_allocated().net_allocated(baseline);
-                if net_alloc > *limit_bytes {
-                    Err(format!(
-                        "Transaction heap usage ({net_alloc} bytes) exceeded limit ({limit_bytes} bytes)"
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-            #[cfg(test)]
-            Self::AlwaysAbort(reason) => Err(reason.clone()),
-        }
-    }
-}
-
 /** GlobalContext represents the outermost context for a single transaction's
-     execution. It tracks an asset changes that occurred during the
+     execution. It tracks any asset changes that occurred during the
      processing of the transaction, whether or not the current context is read_only,
      and is responsible for committing/rolling-back transactions as they error or
      abort.
@@ -349,12 +296,9 @@ pub struct GlobalContext<'a, 'hooks> {
     /// This is the chain ID of the transaction
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
+    /// A resource limiter that will be polled on every `eval` to check that execution
+    /// time and heap allocation don't exceed configured maximums
     pub execution_resource_limiter: ResourceLimiter,
-    /// Callback checked at every `eval` call. When `check()` returns
-    /// `Err(reason)`, execution is aborted with
-    /// `VmExecutionError::RuntimeCheck(AbortedByExecutionHook)`. The
-    /// default `AbortCallback::None` is a no-op.
-    pub abort_callback: AbortCallback,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -905,9 +849,9 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         }
     }
 
-    /// Set an abort callback that will be checked at every `eval` call.
-    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
-        self.context.abort_callback = callback;
+    pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
+        self.context
+            .set_execution_resource_limiter(resource_limiter);
     }
 
     pub fn get_exec_environment<'b>(
@@ -1877,7 +1821,6 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_resource_limiter: ResourceLimiter::unlimited(),
-            abort_callback: AbortCallback::None,
         }
     }
 
@@ -1887,10 +1830,6 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
 
     pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
         self.execution_resource_limiter = resource_limiter;
-    }
-
-    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
-        self.abort_callback = callback;
     }
 
     fn get_asset_map(&mut self) -> Result<&mut AssetMap, VmExecutionError> {

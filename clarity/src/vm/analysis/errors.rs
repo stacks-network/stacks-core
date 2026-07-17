@@ -566,11 +566,6 @@ pub enum RuntimeCheckErrorKind {
     /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
     Unreachable(String),
 
-    /// Execution was deliberately aborted by the per-`eval` abort callback.
-    /// (e.g., by the memory limit enforcement in block proposal validation or
-    ///  miner block assembly)
-    AbortedByExecutionHook(String),
-
     /// Block rejection: a `pox-4` call would overwrite
     /// an existing asset-map stacking entry for its sender.
     PoxStxAssetMapOverwrite,
@@ -681,7 +676,6 @@ impl RuntimeCheckErrorKind {
             self,
             RuntimeCheckErrorKind::Unreachable(_)
                 | RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(_, _)
-                | RuntimeCheckErrorKind::AbortedByExecutionHook(_)
                 | RuntimeCheckErrorKind::PoxStxAssetMapOverwrite
         )
     }

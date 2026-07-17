@@ -1949,7 +1949,7 @@ impl StacksChainState {
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
         quiet: bool,
-        resource_limits: &TransactionResourceBudgets,
+        resource_budgets: &TransactionResourceBudgets,
         mut check: F,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
@@ -1977,7 +1977,7 @@ impl StacksChainState {
                 &mut transaction,
                 tx,
                 &origin_account,
-                resource_limits,
+                resource_budgets,
             )?;
 
             // update the account nonces

@@ -30,7 +30,6 @@ use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 
-use crate::chainstate::nakamoto::miner::make_mem_abort_callback;
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
     HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
@@ -249,11 +248,9 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                             sponsor,
                             cost_track,
                             |exec_state, invoke_ctx| {
-                                exec_state.global_context.set_abort_callback(
-                                    make_mem_abort_callback(self.read_only_call_max_mem_bytes),
-                                );
                                 let budget = ResourceBudget::new()
-                                    .with_max_duration(Some(self.read_only_max_execution_time));
+                                    .with_max_duration(Some(self.read_only_max_execution_time))
+                                    .with_max_memory_use(Some(self.read_only_call_max_mem_bytes));
                                 exec_state
                                     .global_context
                                     .set_execution_resource_limiter(budget.start_tracking());
