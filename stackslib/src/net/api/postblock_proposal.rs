@@ -748,7 +748,9 @@ impl NakamotoBlockProposal {
         };
         let resource_budgets = TransactionResourceBudgets::new()
             .with_analysis_budget(
-                ResourceBudget::new().with_max_duration(Some(per_tx_max_analysis_time)),
+                ResourceBudget::new()
+                    .with_max_duration(Some(per_tx_max_analysis_time))
+                    .with_max_memory_use(max_tx_mem_bytes_opt),
             )
             .with_execution_budget(
                 ResourceBudget::new()

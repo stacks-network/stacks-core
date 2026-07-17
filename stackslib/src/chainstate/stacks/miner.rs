@@ -248,8 +248,9 @@ pub struct BlockBuilderSettings {
     /// Transaction IDs to temporarily exclude from block building (e.g., signer-rejected txs)
     pub temporarily_excluded_txids: HashSet<Txid>,
     /// Sets a limit for the bytes that the miner thread may have
-    /// allocated at any one time during block assembly. 0 means no
-    /// limit.
+    /// allocated at any one time during block assembly. Measured separately
+    /// during analysis phase and execution phase of a contract deploy tx.
+    /// 0 means no limit.
     pub max_assembly_mem_bytes: u64,
 }
 
@@ -741,15 +742,16 @@ impl TransactionResult {
                 );
                 return (true, Error::ExecutionResourceBudgetExceeded(s));
             }
-            Error::AnalysisTimeExpired => {
-                // The transaction's contract analysis took too long. Consider it problematic so the
-                // contract-publish is dropped and blacklisted instead of being re-mined.
-                info!("Problematic transaction caused AnalysisTimeExpired";
+            Error::AnalysisResourceBudgetExceeded(s) => {
+                // The transaction's contract analysis took too long or used too much memory. Consider it problematic
+                // so the contract-publish is dropped and blacklisted instead of being re-mined.
+                info!("Problematic transaction caused AnalysisResourceBudgetExceeded";
+                      "error" => s.clone(),
                       "txid" => %tx.txid(),
                       "origin" => %tx.get_origin().get_address(false),
                       "payload" => ?tx.payload,
                 );
-                return (true, Error::AnalysisTimeExpired);
+                return (true, Error::AnalysisResourceBudgetExceeded(s));
             }
             e => e,
         };
@@ -796,11 +798,14 @@ impl TransactionResourceBudgets {
         } else {
             None
         };
+
         Self {
             execution_budget: ResourceBudget::new()
                 .with_max_duration(settings.max_execution_time)
                 .with_max_memory_use(memory_limit),
-            analysis_budget: ResourceBudget::new().with_max_duration(settings.max_analysis_time),
+            analysis_budget: ResourceBudget::new()
+                .with_max_duration(settings.max_analysis_time)
+                .with_max_memory_use(memory_limit),
         }
     }
 

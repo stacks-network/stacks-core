@@ -17,7 +17,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
-use crate::vm::analysis::{AnalysisDatabase, check_analysis_timeout};
+use crate::vm::analysis::{AnalysisDatabase, check_analysis_resource_limits};
 use crate::vm::resource_limiter::ResourceLimiter;
 
 pub struct TraitChecker {
@@ -53,7 +53,7 @@ impl TraitChecker {
     ) -> Result<(), StaticCheckError> {
         for trait_identifier in &contract_analysis.implemented_traits {
             // per-trait analysis deadline check
-            check_analysis_timeout(&self.resource_limiter)?;
+            check_analysis_resource_limits(&self.resource_limiter)?;
 
             let trait_name = trait_identifier.name.to_string();
             let contract_defining_trait = analysis_db

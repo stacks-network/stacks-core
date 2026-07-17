@@ -1562,13 +1562,14 @@ impl StacksChainState {
                                     budget.clone(),
                                 ));
                             }
-                            ClarityError::AnalysisTimeExpired => {
-                                // The analysis phase exceeded its wall-clock deadline (on a voting path only).
-                                warn!("Contract analysis exceeded the analysis time limit; tx will be dropped from the mempool";
+                            ClarityError::AnalysisResourceBudgetExceeded(s) => {
+                                // The analysis phase exceeded its wall-clock deadline or allocation limit (on a voting path only).
+                                warn!("Contract analysis exceeded the analysis recource budget; tx will be dropped from the mempool";
+                                      "error" => s.clone(),
                                       "txid" => %tx.txid(),
                                       "contract_name" => %contract_id,
                                 );
-                                return Err(Error::AnalysisTimeExpired);
+                                return Err(Error::AnalysisResourceBudgetExceeded(s));
                             }
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {

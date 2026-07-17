@@ -452,7 +452,7 @@ fn test_write_attempt_in_readonly() {
 
 /// An already-elapsed deadline trips the per-node analysis check on the
 /// very first `type_check` node, so even a trivial contract is rejected with
-/// [`StaticCheckErrorKind::AnalysisTimeExpired`].
+/// [`StaticCheckErrorKind::AnalysisResourceBudgetExceeded`].
 #[test]
 fn test_run_analysis_aborts_when_deadline_already_elapsed() {
     let err = utils::run_analysis_with_resource_limiter(
@@ -464,8 +464,11 @@ fn test_run_analysis_aborts_when_deadline_already_elapsed() {
     .expect_err("a zero-duration analysis deadline must abort");
 
     assert!(
-        matches!(*err.err, StaticCheckErrorKind::AnalysisTimeExpired),
-        "expected AnalysisTimeExpired, got {:?}",
+        matches!(
+            *err.err,
+            StaticCheckErrorKind::AnalysisResourceBudgetExceeded(_)
+        ),
+        "expected AnalysisResourceBudgetExceeded, got {:?}",
         err.err
     );
 }

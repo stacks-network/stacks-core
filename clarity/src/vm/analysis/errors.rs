@@ -235,8 +235,8 @@ pub enum StaticCheckErrorKind {
     /// Failure in cost-tracking due to an unexpected condition or invalid state.
     /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
-    /// Contract-analysis time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    AnalysisTimeExpired,
+    /// Contract-analysis time or memory usage exceeds the allowed budget, halting analysis to ensure responsiveness.
+    AnalysisResourceBudgetExceeded(String),
     /// The read-only checker recursed too deeply while checking native function calls.
     ReadOnlyCheckerRecursionLimitExceeded,
     /// Value exceeds the maximum allowed size for type-checking or serialization.
@@ -1169,7 +1169,7 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
-            StaticCheckErrorKind::AnalysisTimeExpired => "analysis time expired".into(),
+            StaticCheckErrorKind::AnalysisResourceBudgetExceeded(s) => format!("analysis resource budget exceeded: {s}"),
             StaticCheckErrorKind::ReadOnlyCheckerRecursionLimitExceeded => "read-only checker exceeded maximum allowed recursion depth".into(),
             StaticCheckErrorKind::InvalidTypeDescription => "supplied type description is invalid".into(),
             StaticCheckErrorKind::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),

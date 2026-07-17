@@ -4533,8 +4533,8 @@ fn test_clarity2_inner_type_check_type_aborts_when_deadline_elapsed() {
     );
 
     assert!(
-        matches!(result, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::AnalysisTimeExpired)),
-        "expected AnalysisTimeExpired, got {result:?}"
+        matches!(result, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::AnalysisResourceBudgetExceeded(_))),
+        "expected AnalysisResourceBudgetExceeded, got {result:?}"
     );
 }
 

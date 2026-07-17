@@ -44,26 +44,37 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::resource_limiter::ResourceLimiter;
+use crate::vm::resource_limiter::{ResourceLimitExceeded, ResourceLimiter};
 use crate::vm::types::QualifiedContractIdentifier;
 #[cfg(feature = "rusqlite")]
 use crate::vm::types::TypeSignature;
 
-/// Cooperative analysis-deadline check shared by analysis passes
+/// Cooperative analysis resource limit check shared by analysis passes
 ///
-/// This is the single place the analysis-timeout error is constructed. The deadline is
-/// `TimeTracker::MaxTime` only on the non-consensus voting paths (mining / block-proposal
-/// validation); on the deterministic replay/commit path it is `TimeTracker::NoTracking`,
-/// so this never fires during consensus and the surfaced `AnalysisTimeExpired` cannot
-/// affect block validity.
-pub(crate) fn check_analysis_timeout(
+/// This is the single place the analysis resource error is constructed. The budget is
+/// limited only on the non-consensus voting paths (mining / block-proposal
+/// validation); on the deterministic replay/commit path it is unlimited,
+/// so this never fires during consensus and the surfaced `AnalysisResourceBudgetExceeded`
+/// cannot affect block validity.
+pub(crate) fn check_analysis_resource_limits(
     resource_limiter: &ResourceLimiter,
 ) -> Result<(), StaticCheckError> {
-    //FIXME
-    if resource_limiter.check_not_exceeded().is_err() {
-        return Err(StaticCheckErrorKind::AnalysisTimeExpired.into());
-    }
-    Ok(())
+    resource_limiter
+        .check_not_exceeded()
+        .map_err(|err| match err {
+            ResourceLimitExceeded::MaxDurationExceeded(s) => {
+                StaticCheckErrorKind::AnalysisResourceBudgetExceeded(format!(
+                    "Analysis took too much time: {s}"
+                ))
+                .into()
+            }
+            ResourceLimitExceeded::MaxAllocationExceeded(s) => {
+                StaticCheckErrorKind::AnalysisResourceBudgetExceeded(format!(
+                    "Analysis used too much memory: {s}"
+                ))
+                .into()
+            }
+        })
 }
 
 /// Used by CLI tools like the docs generator. Not used in production
@@ -204,7 +215,7 @@ pub fn run_analysis(
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 
         // Final boundary check on the analysis passes
-        check_analysis_timeout(&resource_limiter)?;
+        check_analysis_resource_limits(&resource_limiter)?;
 
         if STORE_CONTRACT_SRC_INTERFACE {
             let interface = build_contract_interface(&contract_analysis)?;

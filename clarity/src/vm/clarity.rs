@@ -64,9 +64,9 @@ pub enum ClarityError {
     },
     /// Transaction exceeded the maximum execution time or heap usage allowed.
     ExecutionResourceBudgetExceeded(String),
-    /// Contract analysis exceeded the maximum analysis time allowed.
-    /// Distinct from `ExecutionResourceBudgetExceeded` so an analysis-phase timeout is separable end-to-end.
-    AnalysisTimeExpired,
+    /// Contract analysis exceeded the maximum analysis time or heap usage allowed.
+    /// Distinct from `ExecutionResourceBudgetExceeded` so an analysis-phase issue is separable end-to-end.
+    AnalysisResourceBudgetExceeded(String),
 }
 
 impl fmt::Display for ClarityError {
@@ -83,9 +83,11 @@ impl fmt::Display for ClarityError {
             ClarityError::Interpreter(e) => fmt::Display::fmt(e, f),
             ClarityError::BadTransaction(s) => fmt::Display::fmt(s, f),
             ClarityError::ExecutionResourceBudgetExceeded(s) => {
-                write!(f, "Execution resource budget exceted: {s}")
+                write!(f, "Execution resource budget exceeded: {s}")
             }
-            ClarityError::AnalysisTimeExpired => write!(f, "Analysis time expired"),
+            ClarityError::AnalysisResourceBudgetExceeded(s) => {
+                write!(f, "Execution resource budget exceeded: {s}")
+            }
         }
     }
 }
@@ -100,7 +102,7 @@ impl std::error::Error for ClarityError {
             ClarityError::Interpreter(ref e) => Some(e),
             ClarityError::BadTransaction(ref _s) => None,
             ClarityError::ExecutionResourceBudgetExceeded(_) => None,
-            ClarityError::AnalysisTimeExpired => None,
+            ClarityError::AnalysisResourceBudgetExceeded(_) => None,
         }
     }
 }
@@ -115,7 +117,9 @@ impl From<StaticCheckError> for ClarityError {
             StaticCheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            StaticCheckErrorKind::AnalysisTimeExpired => ClarityError::AnalysisTimeExpired,
+            StaticCheckErrorKind::AnalysisResourceBudgetExceeded(s) => {
+                ClarityError::AnalysisResourceBudgetExceeded(s)
+            }
             _ => ClarityError::StaticCheck(e),
         }
     }
@@ -271,18 +275,19 @@ pub trait TransactionConnection: ClarityConnection {
     where
         F: FnOnce(&mut AnalysisDatabase, LimitedCostTracker) -> (LimitedCostTracker, R);
 
-    /// Analyze a provided smart contract with an optional wall-clock deadline covering
-    /// AST building and static analysis, but do not write the analysis to the
-    /// AnalysisDatabase.
+    /// Analyze a provided smart contract with an optional resource budget (wall-clock
+    /// deadline and allocation limit) covering AST building and static analysis, but do
+    /// not write the analysis to the AnalysisDatabase.
     ///
-    /// `max_time` must be `Some` only on the non-consensus voting paths
-    /// (block assembly / block-proposal validation) and `None` on deterministic
-    /// replay/commit, so consensus stays deterministic. When the deadline elapses
-    /// the analysis aborts with [`ClarityError::AnalysisTimeExpired`].
+    /// `analysis_resource_budget` must be limited only on the non-consensus voting paths
+    /// (block assembly / block-proposal validation) and [`ResourceBudget::unlimited`]
+    /// on deterministic replay/commit, so consensus stays deterministic. When the deadline
+    /// elapses or allocations exceed the limit, the analysis aborts with
+    /// [`ClarityError::AnalysisResourceBudgetExceeded`].
     ///
     /// The clock starts before AST building so that time counts against the budget;
     /// the deadline itself is only enforced at the cooperative checkpoints inside the
-    /// analysis passes.
+    /// analysis passes. The same goes for mesasuring the baseline memory usage.
     fn analyze_smart_contract(
         &mut self,
         identifier: &QualifiedContractIdentifier,

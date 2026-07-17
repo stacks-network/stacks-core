@@ -26,7 +26,7 @@ pub use super::errors::{
     check_argument_count, check_arguments_at_least,
 };
 use crate::vm::ClarityVersion;
-use crate::vm::analysis::check_analysis_timeout;
+use crate::vm::analysis::check_analysis_resource_limits;
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::errors::StaticCheckErrorKind::ReadOnlyCheckerRecursionLimitExceeded;
 use crate::vm::functions::NativeFunctions;
@@ -243,7 +243,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         expr: &SymbolicExpression,
         recursion_depth: u64,
     ) -> Result<bool, StaticCheckError> {
-        check_analysis_timeout(&self.resource_limiter)?;
+        check_analysis_resource_limits(&self.resource_limiter)?;
 
         match expr.expr {
             AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),

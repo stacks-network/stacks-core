@@ -134,9 +134,9 @@ pub enum Error {
     Expects(String),
     /// This error indicates that a transaction execution was aborted because it exceeded the maximum allowed execution time or memory use.
     ExecutionResourceBudgetExceeded(String),
-    /// This error indicates that contract analysis was aborted because it exceeded the maximum allowed analysis time.
-    /// Distinct from `ExecutionResourceBudgetExceeded` so an analysis-phase timeout is separable in logs/metrics and in `is_problematic`.
-    AnalysisTimeExpired,
+    /// This error indicates that contract analysis was aborted because it exceeded the maximum allowed analysis time or memory use.
+    /// Distinct from `ExecutionResourceBudgetExceeded` so an analysis-phase issue is separable in logs/metrics and in `is_problematic`.
+    AnalysisResourceBudgetExceeded(String),
 }
 
 impl From<marf_error> for Error {
@@ -255,7 +255,9 @@ impl fmt::Display for Error {
             Error::ExecutionResourceBudgetExceeded(ref s) => {
                 write!(f, "Transaction execution resource budget exceeded: {s}")
             }
-            Error::AnalysisTimeExpired => write!(f, "Transaction analysis time expired"),
+            Error::AnalysisResourceBudgetExceeded(ref s) => {
+                write!(f, "Transaction analysis resource budget exceeded: {s}")
+            }
             Error::Expects(ref msg) => write!(f, "Unexpected state: {msg}"),
         }
     }
@@ -306,7 +308,7 @@ impl error::Error for Error {
             Error::TenureTooBigError => None,
             Error::TxWouldNotFitError => None,
             Error::ExecutionResourceBudgetExceeded(_) => None,
-            Error::AnalysisTimeExpired => None,
+            Error::AnalysisResourceBudgetExceeded(_) => None,
             Error::Expects(ref _msg) => None,
         }
     }
@@ -357,7 +359,7 @@ impl Error {
             Error::TenureTooBigError => "TenureTooBigError",
             Error::TxWouldNotFitError => "TxWouldNotFitError",
             Error::ExecutionResourceBudgetExceeded(_) => "ExecutionResourceBudgetExceeded",
-            Error::AnalysisTimeExpired => "AnalysisTimeExpired",
+            Error::AnalysisResourceBudgetExceeded(_) => "AnalysisResourceBudgetExceeded",
             Error::Expects(_) => "Expects",
         }
     }

@@ -30,7 +30,7 @@ pub use crate::vm::analysis::errors::{
     StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, check_argument_count,
     check_arguments_at_least, check_arguments_at_most,
 };
-use crate::vm::analysis::{AnalysisDatabase, check_analysis_timeout};
+use crate::vm::analysis::{AnalysisDatabase, check_analysis_resource_limits};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
@@ -696,9 +696,9 @@ fn check_function_arg_signature<T: CostTracker>(
 /// caller turns that into `IncompatibleTrait`). Which errors propagate depends on
 /// the epoch:
 ///
-/// - `AnalysisTimeExpired` **always** propagates, in every epoch. The analysis
-///   deadline is configured only on the non-consensus voting paths (mining
-///   assembly / block-proposal validation) and is `NoTracking` on replay/commit,
+/// - `AnalysisResourceBudgetExceeded` **always** propagates, in every epoch. The
+///   analysis resource budget is limited only on the non-consensus voting paths (mining
+///   assembly / block-proposal validation) and is unlimited on replay/commit,
 ///   so it can never arise during consensus — propagating it changes no
 ///   deterministic outcome, which is why it needs no epoch gate.
 ///
@@ -723,7 +723,7 @@ fn mask_incompatible_or_propagate_error(
         StaticCheckErrorKind::TypeSignatureTooDeep => {
             Err(StaticCheckErrorKind::TraitReferenceChainTooDeep.into())
         }
-        StaticCheckErrorKind::AnalysisTimeExpired => Err(e),
+        StaticCheckErrorKind::AnalysisResourceBudgetExceeded(_) => Err(e),
         // Cost-tracking errors: propagate only from the gated epoch.
         StaticCheckErrorKind::CostOverflow
         | StaticCheckErrorKind::CostBalanceExceeded(..)
@@ -865,7 +865,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
     // `type_check` node visit, so the per-node deadline check never fires while it
     // runs. Re-check the analysis deadline here: every cycle iteration passes
     // through this function, so one check bounds the whole trait-compliance graph.
-    check_analysis_timeout(resource_limiter)?;
+    check_analysis_resource_limits(resource_limiter)?;
 
     // Recurse into values to check embedded traits properly
     match (actual_type, expected_type) {
@@ -1317,7 +1317,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
     ) -> Result<TypeSignature, StaticCheckError> {
         // Per-node analysis deadline and memory use check (independent of cost accounting).
-        check_analysis_timeout(&self.resource_limiter)?;
+        check_analysis_resource_limits(&self.resource_limiter)?;
 
         runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
 
