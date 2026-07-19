@@ -109,6 +109,7 @@ pre_input_config() {
     CHAIN_DIR=""                               # path to local chainstate to use instead of snapshot download
     REPO="stacks-core"                         # --repo value: known label, git URL, or path to an existing checkout.
     REPO_REV="develop"                         # default git revision (branch, tag, or commit) to build stacks-inspect from
+    PR=""                                      # optional pull request to validate: number (repo-relative) or full PR URL
     CORES=""                                   # cores to use for validation; resolved in post_input_config
     NETWORK="mainnet"                          # network to validate
     RANGE="full"                               # block range to validate: scenario or numeric range
@@ -152,6 +153,9 @@ post_input_config() {
     # Resolve --repo (label / git URL / local path) into REPO_URL, REPO_DIR, and TRACK_REV.
     resolve_repo "${REPO}"
 
+    # Resolve --pr (number or URL) into PR_NUMBER; a URL re-resolves REPO from itself.
+    resolve_pr
+
     # Internal configurations
     SLICE_DIR="${SCRATCH_DIR}/slice"                  # location of slice dirs
     TMUX_SESSION="validation"                         # tmux session name to run the validation
@@ -191,6 +195,42 @@ resolve_repo() {
     fi
 }
 
+# Resolve the --pr argument into PR_NUMBER. Accepts:
+#   - a number   : PR relative to the already-resolved --repo
+#   - a PR URL    : https://<host>/<owner>/<repo>/pull/<n> — derives the repo and
+#                  re-resolves REPO_URL/REPO_DIR from it (so --repo becomes optional)
+# Sets PR_NUMBER="" when --pr is not given. A PR fetch needs a remote, so --pr is
+# rejected when --repo resolved to a local path (TRACK_REV=0).
+# Call after resolve_repo.
+resolve_pr() {
+    if [ -z "${PR}" ]; then
+        PR_NUMBER=""
+        return 0
+    fi
+
+    if [[ "${PR}" =~ ^[0-9]+$ ]]; then
+        # Bare number: relative to the repo resolved from --repo.
+        PR_NUMBER="${PR}"
+    elif [[ "${PR}" =~ ^https?://([^/]+)/([^/]+)/([^/]+)/pull/([0-9]+) ]]; then
+        # Full PR URL: derive host/owner/repo/number and re-resolve the repo.
+        local host="${BASH_REMATCH[1]}"
+        local owner="${BASH_REMATCH[2]}"
+        local repo="${BASH_REMATCH[3]}"
+        PR_NUMBER="${BASH_REMATCH[4]}"
+        REPO="https://${host}/${owner}/${repo}.git"
+        info "Derived repo from PR URL: $(highlight "${REPO}") (PR #${PR_NUMBER})"
+        resolve_repo "${REPO}"
+    else
+        error "--pr '${PR}' is not a number or a valid PR URL (https://<host>/<owner>/<repo>/pull/<n>)"
+        exit 1
+    fi
+
+    if [ "${TRACK_REV}" -eq 0 ]; then
+        error "--pr requires --repo to be a known label or a git URL, not a local path"
+        exit 1
+    fi
+}
+
 # Show usage and exit
 usage() {
     cat <<EOF
@@ -206,14 +246,19 @@ Options:
         Default: $(cyan "${WORK_DIR}/chain")
     $(yellow "--repo <label>|<url>|<path>")
         stacks-core source. Accepts:
-          $(cyan "<label>") - known shortcut. Choices: $(cyan "stacks-core"), $(cyan "stacks-core-p") (--rev is applied).
+          $(cyan "<label>") - known shortcut. Choices: $(cyan "stacks-core"), $(cyan "stacks-core-p") ($(yellow "--rev") is applied).
           $(cyan "<url>")   - a valid git URL (--rev is applied).
-          $(cyan "<path>")  - existing local repository, used as-is (--rev is ignored).
+          $(cyan "<path>")  - existing local repository, used as-is ($(yellow "--rev") is ignored).
         Default: $(cyan "stacks-core")
     $(yellow "--rev <branch>|<tag>|<sha>")
-        git revision to build. 
+        git revision to build.
         Branches are pulled to the latest; tags/commits land on detached HEAD.
         Default: $(cyan "develop")
+    $(yellow "--pr <number>|<url>")
+        Validate a pull request. Fetches $(cyan "refs/pull/<n>/head").
+          $(cyan "<number>") - PR number, relative to $(yellow "--repo") ($(yellow "--rev") is ignored).
+          $(cyan "<url>")    - full PR URL, e.g. $(cyan "https://github.com/owner/repo/pull/123"); ($(yellow "--repo") and $(yellow "--rev") are ignored).
+        Default: $(cyan "[NONE]")
     $(yellow "--proc <n>")
         CPU cores for validation, capped at nproc.
         Default: $(cyan "max(1, nproc/4)")
@@ -278,8 +323,38 @@ checkout_rev() {
     fi
 }
 
+# Fetch a pull request's head commit into REPO_DIR and detach onto it.
+# Fetches refs/pull/${PR_NUMBER}/head from REPO_URL — that ref lives in the base
+# repo, so fork PRs work without cloning the fork or knowing its branch.
+# Always re-fetches (a PR head moves as the contributor pushes).
+fetch_pull_request() {
+    local pull_ref="refs/pull/${PR_NUMBER}/head"
+    if [ -d "${REPO_DIR}/.git" ]; then
+        info "Fetching PR #$(highlight "${PR_NUMBER}") into existing $(highlight "${REPO_DIR}")"
+        cd "${REPO_DIR}"
+    else
+        info "Initializing $(highlight "${REPO_DIR}") for PR #$(highlight "${PR_NUMBER}") fetch"
+        mkdir -p "${REPO_DIR}"
+        cd "${REPO_DIR}"
+        git init -q || {
+            error "initializing git repo in ${REPO_DIR}"
+            exit 1
+        }
+    fi
+    info "Fetching $(highlight "${pull_ref}") from $(highlight "${REPO_URL}")"
+    git fetch --depth 1 "${REPO_URL}" "${pull_ref}" || {
+        error "fetching ${pull_ref} from ${REPO_URL}"
+        exit 1
+    }
+    git checkout -q --detach FETCH_HEAD || {
+        error "checking out FETCH_HEAD for PR #${PR_NUMBER}"
+        exit 1
+    }
+}
+
 # Build release stacks-inspect binary.
 # When TRACK_REV=1 (default): clone if missing, otherwise check out ${REPO_REV}.
+#   When --pr is set: fetch the PR head commit instead (overrides ${REPO_REV}).
 # When TRACK_REV=0 (set by --repo <path>): treat REPO_DIR as a pre-existing checkout.
 build_stacks_inspect() {
     if [ "${TRACK_REV}" -eq 0 ]; then
@@ -288,6 +363,9 @@ build_stacks_inspect() {
             exit 1
         fi
         info "Using existing checkout at $(highlight "${REPO_DIR}") as-is (rev tracking disabled)"
+    elif [ -n "${PR_NUMBER}" ]; then
+        # PR mode: fetch refs/pull/<n>/head (overrides --rev).
+        fetch_pull_request
     elif [ -d "${REPO_DIR}" ]; then
         info "Found $(highlight "${REPO_DIR}"). Updating to $(highlight "${REPO_REV}")"
         cd "${REPO_DIR}"
@@ -1148,6 +1226,12 @@ parse_input() {
                 # stacks-core repo source: known label, git URL, or existing local path.
                 require_value "${1}" "${2:-}"
                 REPO="${2}"
+                shift
+                ;;
+            --pr)
+                # Validate a pull request: a number (repo-relative) or a full PR URL.
+                require_value "${1}" "${2:-}"
+                PR="${2}"
                 shift
                 ;;
             --chaindir)
