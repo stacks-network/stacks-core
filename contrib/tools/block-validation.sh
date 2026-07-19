@@ -110,6 +110,7 @@ pre_input_config() {
     REPO="stacks-core"                         # --repo value: known label, git URL, or path to an existing checkout.
     REPO_REV="develop"                         # default git revision (branch, tag, or commit) to build stacks-inspect from
     PR=""                                      # optional pull request to validate: number (repo-relative) or full PR URL
+    GH_TOKEN="${GH_TOKEN:-}"                    # optional token for authenticated PR fetches (env-provided value is preserved)
     CORES=""                                   # cores to use for validation; resolved in post_input_config
     NETWORK="mainnet"                          # network to validate
     RANGE="full"                               # block range to validate: scenario or numeric range
@@ -154,7 +155,7 @@ post_input_config() {
     resolve_repo "${REPO}"
 
     # Resolve --pr (number or URL) into PR_NUMBER; a URL re-resolves REPO from itself.
-    resolve_pr
+    resolve_pr "${PR}"
 
     # Internal configurations
     SLICE_DIR="${SCRATCH_DIR}/slice"                  # location of slice dirs
@@ -201,17 +202,24 @@ resolve_repo() {
 #                  re-resolves REPO_URL/REPO_DIR from it (so --repo becomes optional)
 # Sets PR_NUMBER="" when --pr is not given. A PR fetch needs a remote, so --pr is
 # rejected when --repo resolved to a local path (TRACK_REV=0).
-# Call after resolve_repo.
 resolve_pr() {
-    if [ -z "${PR}" ]; then
+    local arg=$1
+    # No pr given: nothing todo.
+    if [ -z "${arg}" ]; then
         PR_NUMBER=""
         return 0
     fi
 
-    if [[ "${PR}" =~ ^[0-9]+$ ]]; then
+    if [[ "${arg}" =~ ^[0-9]+$ ]]; then
+        # from the initial `resolve_repo` invocation, in `post_input_config`.
+        if [ "${TRACK_REV}" -eq 0 ]; then
+            error "--pr <number> requires --repo not to be a local path"
+            exit 1
+        fi
+
         # Bare number: relative to the repo resolved from --repo.
-        PR_NUMBER="${PR}"
-    elif [[ "${PR}" =~ ^https?://([^/]+)/([^/]+)/([^/]+)/pull/([0-9]+) ]]; then
+        PR_NUMBER="${arg}"
+    elif [[ "${arg}" =~ ^https?://([^/]+)/([^/]+)/([^/]+)/pull/([0-9]+) ]]; then
         # Full PR URL: derive host/owner/repo/number and re-resolve the repo.
         local host="${BASH_REMATCH[1]}"
         local owner="${BASH_REMATCH[2]}"
@@ -221,12 +229,7 @@ resolve_pr() {
         info "Derived repo from PR URL: $(highlight "${REPO}") (PR #${PR_NUMBER})"
         resolve_repo "${REPO}"
     else
-        error "--pr '${PR}' is not a number or a valid PR URL (https://<host>/<owner>/<repo>/pull/<n>)"
-        exit 1
-    fi
-
-    if [ "${TRACK_REV}" -eq 0 ]; then
-        error "--pr requires --repo to be a known label or a git URL, not a local path"
+        error "--pr '${arg}' is not a number or a valid PR URL (https://<host>/<owner>/<repo>/pull/<n>)"
         exit 1
     fi
 }
@@ -259,6 +262,11 @@ Options:
           $(cyan "<number>") - PR number, relative to $(yellow "--repo") ($(yellow "--rev") is ignored).
           $(cyan "<url>")    - full PR URL, e.g. $(cyan "https://github.com/owner/repo/pull/123"); ($(yellow "--repo") and $(yellow "--rev") are ignored).
         Default: $(cyan "[NONE]")
+    $(yellow "--ghtoken <token>")
+        Token for authenticated git network operations (e.g. private repos). Sent as an HTTP auth
+        header on the $(yellow "--pr") fetch only. Alternatively $(cyan "GH_TOKEN") env var can be used, 
+        which keeps the token out of the process list.
+        Default: $(cyan "\$GH_TOKEN")
     $(yellow "--proc <n>")
         CPU cores for validation, capped at nproc.
         Default: $(cyan "max(1, nproc/4)")
@@ -323,10 +331,29 @@ checkout_rev() {
     fi
 }
 
+# When GH_TOKEN is set and REPO_URL is an https URL, publish a host-scoped
+# Authorization header via git's native env config (GIT_CONFIG_*). Every git
+# network op that follows (clone, update-fetch, PR fetch) then authenticates,
+# while scoping to REPO_URL's host keeps cargo's fetches to other hosts from
+# ever seeing the token. The token never appears in a URL, in .git/config, in
+# the process argv (ps), or in the logs. The exported vars live only in this
+# script process and its children, so nothing leaks back to the caller.
+setup_git_auth() {
+    [ -n "${GH_TOKEN}" ] && [[ "${REPO_URL}" =~ ^https:// ]] || return 0
+    local base="${REPO_URL#https://}"; base="https://${base%%/*}/"   # https://host/
+    local b64
+    b64=$(printf '%s' "x-access-token:${GH_TOKEN}" | base64 | tr -d '\n')
+    export GIT_CONFIG_COUNT=1
+    export GIT_CONFIG_KEY_0="http.${base}.extraheader"
+    export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${b64}"
+    info "Enabled token authentication for git operations on $(highlight "${base}")"
+}
+
 # Fetch a pull request's head commit into REPO_DIR and detach onto it.
 # Fetches refs/pull/${PR_NUMBER}/head from REPO_URL — that ref lives in the base
 # repo, so fork PRs work without cloning the fork or knowing its branch.
-# Always re-fetches (a PR head moves as the contributor pushes).
+# Always re-fetches (a PR head moves as the contributor pushes). Aupthentication,
+# if any, is inherited from the environment (see setup_git_auth).
 fetch_pull_request() {
     local pull_ref="refs/pull/${PR_NUMBER}/head"
     if [ -d "${REPO_DIR}/.git" ]; then
@@ -357,6 +384,9 @@ fetch_pull_request() {
 #   When --pr is set: fetch the PR head commit instead (overrides ${REPO_REV}).
 # When TRACK_REV=0 (set by --repo <path>): treat REPO_DIR as a pre-existing checkout.
 build_stacks_inspect() {
+    # Publish token auth (if any) so every git network op below authenticates.
+    setup_git_auth
+
     if [ "${TRACK_REV}" -eq 0 ]; then
         if [ ! -d "${REPO_DIR}" ]; then
             error "repo dir not found: ${REPO_DIR}"
@@ -1232,6 +1262,12 @@ parse_input() {
                 # Validate a pull request: a number (repo-relative) or a full PR URL.
                 require_value "${1}" "${2:-}"
                 PR="${2}"
+                shift
+                ;;
+            --ghtoken)
+                # Token for authenticated git network ops. 
+                require_value "${1}" "${2:-}"
+                GH_TOKEN="${2}"
                 shift
                 ;;
             --chaindir)
