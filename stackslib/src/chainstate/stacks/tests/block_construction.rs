@@ -49,7 +49,7 @@ use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
-use crate::core::mempool::MemPoolWalkSettings;
+use crate::core::mempool::{MemPoolWalkSettings, MAXIMUM_MEMPOOL_TX_CHAINING};
 use crate::core::tests::make_block;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, *};
 use crate::cost_estimates::metrics::UnitMetric;
@@ -437,6 +437,227 @@ fn test_build_anchored_blocks_release_nonce_gap() {
     let sender_account = get_stacks_account(&mut peer, &sender_addr.into());
     assert_eq!(sender_account.nonce, 4);
     assert_eq!(sender_account.stx_balance.amount_unlocked(), 93_000);
+}
+
+#[test]
+fn test_build_anchored_blocks_contract_principal_lifecycle() {
+    const TRANSFER_FEE: u64 = 200;
+    const CONTRACT_FEE: u64 = 1_000;
+    const FAUCET_CONTRACT: &str = "
+        (define-public (spout)
+          (let ((recipient tx-sender))
+            (print (as-contract (stx-transfer? u1 .faucet recipient)))))
+    ";
+
+    let contract_key = StacksPrivateKey::random();
+    let caller_key = StacksPrivateKey::random();
+    let funder_key = StacksPrivateKey::random();
+    let contract_address =
+        StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&contract_key));
+    let caller_address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&caller_key));
+    let funder_address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&funder_key));
+    let contract_principal: PrincipalData = QualifiedContractIdentifier::new(
+        contract_address.clone().into(),
+        ContractName::try_from("faucet").unwrap(),
+    )
+    .into();
+
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2056, 2057);
+    peer_config.chain_config.initial_balances = vec![
+        (funder_address.clone().into(), 100_000),
+        (caller_address.clone().into(), 1_000),
+        (contract_address.clone().into(), 1_000),
+    ];
+    let mut peer = TestPeer::new(peer_config);
+
+    let initial_transfer =
+        make_user_stacks_transfer(&funder_key, 0, TRANSFER_FEE, &contract_principal, 1_000);
+    let (transfer_block, _, _) =
+        mine_mempool_tenure(&mut peer, 0, |chainstate, sortdb, parent_tip, mempool| {
+            mempool
+                .submit(
+                    chainstate,
+                    sortdb,
+                    &parent_tip.consensus_hash,
+                    &parent_tip.anchored_header.block_hash(),
+                    &initial_transfer,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch20,
+                )
+                .unwrap();
+        });
+    assert_eq!(transfer_block.txs.len(), 2);
+    assert_eq!(transfer_block.txs[1].txid(), initial_transfer.txid());
+    assert_eq!(
+        get_stacks_account(&mut peer, &contract_principal)
+            .stx_balance
+            .amount_unlocked(),
+        1_000
+    );
+    assert_eq!(
+        get_stacks_account(&mut peer, &funder_address.clone().into())
+            .stx_balance
+            .amount_unlocked(),
+        98_800
+    );
+
+    let publish =
+        make_user_contract_publish(&contract_key, 0, CONTRACT_FEE, "faucet", FAUCET_CONTRACT);
+    let mut pre_deploy_tip = None;
+    let (publish_block, _, _) =
+        mine_mempool_tenure(&mut peer, 1, |chainstate, sortdb, parent_tip, mempool| {
+            pre_deploy_tip = Some((
+                parent_tip.consensus_hash.clone(),
+                parent_tip.anchored_header.block_hash(),
+            ));
+            mempool
+                .submit(
+                    chainstate,
+                    sortdb,
+                    &parent_tip.consensus_hash,
+                    &parent_tip.anchored_header.block_hash(),
+                    &publish,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch20,
+                )
+                .unwrap();
+        });
+    assert_eq!(publish_block.txs.len(), 2);
+    assert_eq!(publish_block.txs[1].txid(), publish.txid());
+
+    let duplicate_publish =
+        make_user_contract_publish(&contract_key, 1, CONTRACT_FEE, "faucet", FAUCET_CONTRACT);
+    let contract_call = make_user_contract_call(
+        &caller_key,
+        0,
+        CONTRACT_FEE,
+        &contract_address,
+        "faucet",
+        "spout",
+        vec![],
+    );
+    let pre_deploy_tip = pre_deploy_tip.unwrap();
+    let (call_block, _, _) =
+        mine_mempool_tenure(&mut peer, 2, |chainstate, sortdb, parent_tip, mempool| {
+            // Admit the duplicate against the pre-deploy state so block assembly,
+            // rather than mempool admission, has to reject it.
+            mempool
+                .submit(
+                    chainstate,
+                    sortdb,
+                    &pre_deploy_tip.0,
+                    &pre_deploy_tip.1,
+                    &duplicate_publish,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch20,
+                )
+                .unwrap();
+            mempool
+                .submit(
+                    chainstate,
+                    sortdb,
+                    &parent_tip.consensus_hash,
+                    &parent_tip.anchored_header.block_hash(),
+                    &contract_call,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch20,
+                )
+                .unwrap();
+        });
+    assert_eq!(call_block.txs.len(), 2);
+    assert_eq!(call_block.txs[1].txid(), contract_call.txid());
+    assert!(call_block
+        .txs
+        .iter()
+        .all(|tx| tx.txid() != duplicate_publish.txid()));
+    assert_eq!(
+        get_stacks_account(&mut peer, &caller_address.clone().into())
+            .stx_balance
+            .amount_unlocked(),
+        1
+    );
+    assert_eq!(
+        get_stacks_account(&mut peer, &contract_principal)
+            .stx_balance
+            .amount_unlocked(),
+        999
+    );
+    assert_eq!(
+        get_stacks_account(&mut peer, &contract_address.clone().into()).nonce,
+        1
+    );
+
+    let chained_transfers = (0..MAXIMUM_MEMPOOL_TX_CHAINING)
+        .map(|offset| {
+            make_user_stacks_transfer(
+                &funder_key,
+                1 + offset,
+                TRANSFER_FEE,
+                &contract_principal,
+                1_000,
+            )
+        })
+        .collect::<Vec<_>>();
+    let conflicting_transfer =
+        make_user_stacks_transfer(&funder_key, 3, 190, &contract_principal, 1_000);
+    let (chaining_block, _, _) =
+        mine_mempool_tenure(&mut peer, 3, |chainstate, sortdb, parent_tip, mempool| {
+            for transfer in &chained_transfers {
+                mempool
+                    .submit(
+                        chainstate,
+                        sortdb,
+                        &parent_tip.consensus_hash,
+                        &parent_tip.anchored_header.block_hash(),
+                        transfer,
+                        None,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
+                    .unwrap();
+            }
+
+            assert!(matches!(
+                mempool.submit(
+                    chainstate,
+                    sortdb,
+                    &parent_tip.consensus_hash,
+                    &parent_tip.anchored_header.block_hash(),
+                    &conflicting_transfer,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch20,
+                ),
+                Err(MemPoolRejection::ConflictingNonceInMempool)
+            ));
+        });
+    assert_eq!(
+        chaining_block.txs.len() as u64,
+        MAXIMUM_MEMPOOL_TX_CHAINING + 1
+    );
+    assert_eq!(
+        chaining_block.txs[1..]
+            .iter()
+            .map(StacksTransaction::txid)
+            .collect::<Vec<_>>(),
+        chained_transfers
+            .iter()
+            .map(StacksTransaction::txid)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        get_stacks_account(&mut peer, &contract_principal)
+            .stx_balance
+            .amount_unlocked(),
+        25_999
+    );
+    let funder_account = get_stacks_account(&mut peer, &funder_address.into());
+    assert_eq!(funder_account.nonce, 26);
+    assert_eq!(funder_account.stx_balance.amount_unlocked(), 68_800);
 }
 
 #[test]
