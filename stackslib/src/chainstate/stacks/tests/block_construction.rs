@@ -695,6 +695,156 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
 }
 
 #[test]
+fn test_build_anchored_blocks_skip_same_candidate_duplicate_contract() {
+    const FAUCET_CONTRACT: &str = "
+        (define-public (spout)
+          (let ((recipient tx-sender))
+            (print (as-contract (stx-transfer? u1 .faucet recipient)))))
+    ";
+
+    fn get_contract_source(
+        peer: &mut TestPeer,
+        contract_id: &QualifiedContractIdentifier,
+    ) -> String {
+        peer.with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {
+            let (consensus_hash, block_hash) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+            let block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
+            let source = chainstate
+                .with_read_only_clarity_tx(&sortdb.index_handle_at_tip(), &block_id, |clarity_tx| {
+                    clarity_tx
+                        .with_clarity_db_readonly(|db| db.get_contract_src(contract_id).unwrap())
+                })
+                .unwrap();
+            Ok(source)
+        })
+        .unwrap()
+    }
+
+    let publisher = StacksPrivateKey::random();
+    let sender = StacksPrivateKey::random();
+    let recipient = StacksPrivateKey::random();
+    let publisher_address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&publisher));
+    let sender_address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&sender));
+    let recipient_address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&recipient));
+    let contract_id = QualifiedContractIdentifier::new(
+        publisher_address.clone().into(),
+        ContractName::try_from("faucet").unwrap(),
+    );
+    let contract_principal = contract_id.clone().into();
+    let recipient_principal = recipient_address.clone().into();
+
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2062, 2063);
+    peer_config.chain_config.initial_balances = vec![
+        (sender_address.clone().into(), 100_000),
+        (publisher_address.clone().into(), 10_000),
+        (recipient_address.clone().into(), 1_000),
+    ];
+    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
+    let mut peer = TestPeer::new(peer_config);
+
+    let initial_transfer = make_user_stacks_transfer(&sender, 0, 200, &contract_principal, 1_000);
+    let (initial_block, _, _) =
+        mine_mempool_tenure(&mut peer, 0, |chainstate, sortdb, parent_tip, mempool| {
+            mempool
+                .submit(
+                    chainstate,
+                    sortdb,
+                    &parent_tip.consensus_hash,
+                    &parent_tip.anchored_header.block_hash(),
+                    &initial_transfer,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch21,
+                )
+                .unwrap();
+        });
+    assert_eq!(initial_block.txs.len(), 2);
+    assert_eq!(initial_block.txs[1].txid(), initial_transfer.txid());
+    assert_eq!(
+        get_stacks_account(&mut peer, &contract_principal)
+            .stx_balance
+            .amount_unlocked(),
+        1_000
+    );
+    assert_eq!(
+        get_stacks_account(&mut peer, &sender_address.clone().into())
+            .stx_balance
+            .amount_unlocked(),
+        98_800
+    );
+
+    let first_transfer = make_user_stacks_transfer(&sender, 1, 200, &recipient_principal, 1_000);
+    let second_transfer = make_user_stacks_transfer(&sender, 2, 200, &recipient_principal, 3_000);
+    let publish = make_user_contract_publish(&publisher, 0, 1_000, "faucet", FAUCET_CONTRACT);
+    let duplicate_publish =
+        make_user_contract_publish(&publisher, 1, 1_000, "faucet", FAUCET_CONTRACT);
+    let (rollback_block, _, _) =
+        mine_mempool_tenure(&mut peer, 1, |chainstate, sortdb, parent_tip, mempool| {
+            // Both publishes are valid against the parent. The second must become
+            // invalid only after the first is applied to the candidate state.
+            for tx in [
+                &first_transfer,
+                &second_transfer,
+                &publish,
+                &duplicate_publish,
+            ] {
+                mempool
+                    .submit(
+                        chainstate,
+                        sortdb,
+                        &parent_tip.consensus_hash,
+                        &parent_tip.anchored_header.block_hash(),
+                        tx,
+                        None,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch21,
+                    )
+                    .unwrap();
+            }
+        });
+    assert_eq!(rollback_block.txs.len(), 4);
+    let included_txids = rollback_block.txs[1..]
+        .iter()
+        .map(StacksTransaction::txid)
+        .collect::<Vec<_>>();
+    assert!(included_txids.contains(&first_transfer.txid()));
+    assert!(included_txids.contains(&second_transfer.txid()));
+    assert!(included_txids.contains(&publish.txid()));
+    assert!(!included_txids.contains(&duplicate_publish.txid()));
+
+    assert_eq!(
+        get_contract_source(&mut peer, &contract_id),
+        FAUCET_CONTRACT
+    );
+    assert_eq!(
+        get_stacks_account(&mut peer, &contract_principal)
+            .stx_balance
+            .amount_unlocked(),
+        1_000
+    );
+    let sender_account = get_stacks_account(&mut peer, &sender_address.into());
+    assert_eq!(sender_account.nonce, 3);
+    assert_eq!(sender_account.stx_balance.amount_unlocked(), 94_400);
+    assert_eq!(
+        get_stacks_account(&mut peer, &recipient_principal)
+            .stx_balance
+            .amount_unlocked(),
+        5_000
+    );
+    let publisher_account = get_stacks_account(&mut peer, &publisher_address.into());
+    assert_eq!(publisher_account.nonce, 1);
+    assert_eq!(publisher_account.stx_balance.amount_unlocked(), 9_000);
+
+    let (next_block, _, _) = mine_mempool_tenure(&mut peer, 2, |_, _, _, _| {});
+    assert_eq!(next_block.txs.len(), 1);
+    assert!(matches!(
+        next_block.txs[0].payload,
+        TransactionPayload::Coinbase(..)
+    ));
+}
+
+#[test]
 fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
     const STORE_CONTRACT: &str = r#"
         (define-map store
