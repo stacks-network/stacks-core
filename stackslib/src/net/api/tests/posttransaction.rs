@@ -16,7 +16,9 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::vm::types::PrincipalData;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 
 use super::TestRPC;
@@ -24,10 +26,31 @@ use crate::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAuth, TransactionPayload,
     TransactionVersion,
 };
+use crate::core::mempool::MAXIMUM_MEMPOOL_TX_CHAINING;
+use crate::core::test_util::{
+    make_sponsored_stacks_transfer_on_testnet, make_stacks_transfer_tx, to_addr,
+};
+use crate::core::CHAIN_ID_TESTNET;
 use crate::net::api::posttransaction;
 use crate::net::connection::ConnectionOptions;
-use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Attachment, ProtocolFamily};
+
+fn rejection_data(
+    response: StacksHttpResponse,
+    tx: &StacksTransaction,
+    reason: &str,
+) -> serde_json::Value {
+    let (preamble, body) = response.destruct();
+    let body: serde_json::Value = body.try_into().unwrap();
+
+    assert_eq!(preamble.status_code, 400);
+    assert_eq!(body["txid"], tx.txid().to_string());
+    assert_eq!(body["error"], "transaction rejected");
+    assert_eq!(body["reason"], reason);
+
+    body["reason_data"].clone()
+}
 
 #[test]
 fn test_try_parse_request() {
@@ -231,4 +254,100 @@ fn test_try_make_response() {
 
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 400);
+}
+
+#[test]
+fn test_rejection_responses_from_submitted_transactions() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 33333);
+
+    // A separate payer keeps the origin and sponsor balance checks independent
+    // from the transactions mined by the shared RPC fixture.
+    let low_funds_sk = StacksPrivateKey::random();
+    let low_funds_principal: PrincipalData = to_addr(&low_funds_sk).into();
+    let peer_1_low_funds = low_funds_principal.clone();
+    let peer_2_low_funds = low_funds_principal.clone();
+
+    let rpc_test = TestRPC::setup_ex_with_config(
+        function_name!(),
+        false,
+        None,
+        None,
+        move |config| {
+            config
+                .chain_config
+                .initial_balances
+                .push((peer_1_low_funds.clone(), 990));
+        },
+        move |config| {
+            config
+                .chain_config
+                .initial_balances
+                .push((peer_2_low_funds.clone(), 990));
+        },
+    );
+
+    let spender_sk = rpc_test.privk2.clone();
+    let spender_principal: PrincipalData = to_addr(&spender_sk).into();
+    let recipient: PrincipalData = to_addr(&StacksPrivateKey::random()).into();
+
+    let too_much_chaining =
+        make_stacks_transfer_tx(&spender_sk, 30, 200, CHAIN_ID_TESTNET, &recipient, 456);
+    let fee_too_low = make_stacks_transfer_tx(&spender_sk, 0, 1, CHAIN_ID_TESTNET, &recipient, 456);
+    let origin_cannot_pay =
+        make_stacks_transfer_tx(&low_funds_sk, 0, 2000, CHAIN_ID_TESTNET, &recipient, 456);
+    let sponsored_bytes = make_sponsored_stacks_transfer_on_testnet(
+        &spender_sk,
+        &low_funds_sk,
+        0,
+        0,
+        2000,
+        CHAIN_ID_TESTNET,
+        &recipient,
+        1000,
+    );
+    let sponsor_cannot_pay =
+        StacksTransaction::consensus_deserialize(&mut &sponsored_bytes[..]).unwrap();
+
+    let requests = [
+        too_much_chaining.clone(),
+        fee_too_low.clone(),
+        origin_cannot_pay.clone(),
+        sponsor_cannot_pay.clone(),
+    ]
+    .into_iter()
+    .map(|tx| StacksHttpRequest::new_post_transaction(addr.into(), tx))
+    .collect();
+    let mut responses = rpc_test.run(requests).into_iter();
+
+    let data = rejection_data(
+        responses.next().unwrap(),
+        &too_much_chaining,
+        "TooMuchChaining",
+    );
+    assert_eq!(data["is_origin"], true);
+    assert_eq!(data["principal"], spender_principal.to_string());
+    assert_eq!(data["expected"], 1 + MAXIMUM_MEMPOOL_TX_CHAINING);
+    assert_eq!(data["actual"], 30);
+
+    let data = rejection_data(responses.next().unwrap(), &fee_too_low, "FeeTooLow");
+    assert_eq!(data["expected"], 180);
+    assert_eq!(data["actual"], 1);
+
+    let data = rejection_data(
+        responses.next().unwrap(),
+        &origin_cannot_pay,
+        "NotEnoughFunds",
+    );
+    assert_eq!(data["expected"], format!("0x{:032x}", 2456u128));
+    assert_eq!(data["actual"], format!("0x{:032x}", 990u128));
+
+    let data = rejection_data(
+        responses.next().unwrap(),
+        &sponsor_cannot_pay,
+        "NotEnoughFunds",
+    );
+    assert_eq!(data["expected"], format!("0x{:032x}", 2000u128));
+    assert_eq!(data["actual"], format!("0x{:032x}", 990u128));
+
+    assert!(responses.next().is_none());
 }
