@@ -497,3 +497,58 @@ fn test_run_analysis_generous_deadline_succeeds() {
         result.map(|_| ())
     );
 }
+
+/// Test that up to epoch 4.0, the read-only checker runs first during contract
+/// analysis, then the type checker, and in epoch 4.1 and later, the order is
+/// reversed.
+#[test]
+fn test_order_of_readonly_check_and_type_check() {
+    // This contract contains a read-only error (can't use `stx-transfer?` inside a
+    // read-only function) and a type error (can't use the special function `stx-transfer?`
+    // as the mapping function).
+    // Which of the two errors is returned by the analysis depends on which of the
+    // two checks run first.
+    let snippet = r#"
+            (define-read-only (do-illegal-stuff)
+                (map stx-transfer? (list u100) (list tx-sender) (list 'S12XR70XVZ0ZXQ35GKDH2VJ3ZDJJGNMW8XCQRYE6F))
+            )
+        "#;
+
+    let expected_read_only_error = "WriteAttemptedInReadOnly";
+    let expected_type_error = "IllegalOrUnknownFunctionApplication";
+
+    let last_epoch_with_read_only_checker_first = StacksEpochId::Epoch40;
+
+    // In epoch 4.0, the read-only checker runs first, and thus its error should
+    // be the result that we get.
+    let err = mem_run_analysis(
+        snippet,
+        ClarityVersion::latest(),
+        last_epoch_with_read_only_checker_first,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains(expected_read_only_error),
+        "expected error to contain \"{expected_read_only_error}\" but got {}",
+        err
+    );
+
+    // Starting in epoch 4.1, the type checker runs first, and we should get
+    // a different error.
+
+    // At the time of writing this test, Epoch 4.0 was latest, so this new behavior could not
+    // be tested yet. Once Epoch 4.1 is added, this test will automatically assert the new
+    // behavior where [`StacksEpochId::performs_read_only_checks_before_type_checks`]
+    // starts returning `false`.
+    //
+    // At that point, feel free to remove the wrapping `if`.
+    let latest_epoch = StacksEpochId::latest();
+    if latest_epoch > last_epoch_with_read_only_checker_first {
+        let err = mem_run_analysis(snippet, ClarityVersion::latest(), latest_epoch).unwrap_err();
+        assert!(
+            err.to_string().contains(expected_type_error),
+            "expected error to contain \"{expected_type_error}\" but got {}",
+            err
+        );
+    }
+}

@@ -864,6 +864,16 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// During the contract analysis phase, which check runs first --
+    /// the read-only check or the type check? Until Epoch 4.0, the
+    /// read-only check ran first. But since the implementation of the
+    /// read-only checker makes some assumption about type correctness,
+    /// it is more appropriate for the type checker to run first, so
+    /// this behavior changes beginning with Epoch 4.1
+    pub fn performs_read_only_checks_before_type_checks(&self) -> bool {
+        self <= &StacksEpochId::Epoch40
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {

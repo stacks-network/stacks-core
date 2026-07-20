@@ -185,7 +185,12 @@ pub fn run_analysis(
         version,
     );
     let result = analysis_db.execute(|db| {
-        ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, time_tracker)?;
+        let read_only_before_types = epoch.performs_read_only_checks_before_type_checks();
+        let read_only_after_types = !read_only_before_types;
+
+        if read_only_before_types {
+            ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, time_tracker)?;
+        }
         if epoch >= StacksEpochId::Epoch21 {
             TypeChecker2_1::run_pass(
                 &epoch,
@@ -196,6 +201,9 @@ pub fn run_analysis(
             )?;
         } else {
             TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, build_type_map)?;
+        }
+        if read_only_after_types {
+            ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, time_tracker)?;
         }
         TraitChecker::run_pass(&epoch, &mut contract_analysis, db, time_tracker)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
