@@ -110,6 +110,17 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
+    let request = StacksHttpRequest::new_getmapentry(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        "test-map".try_into().unwrap(),
+        Value::UInt(1),
+        TipRequest::UseLatestAnchoredTip,
+        false,
+    );
+    requests.push(request);
+
     // query existing unconfirmed
     let request = StacksHttpRequest::new_getmapentry(
         addr.into(),
@@ -158,6 +169,16 @@ fn test_try_make_response() {
     let resp = response.decode_map_entry_response().unwrap();
     assert_eq!(resp.data, "0x0a0100000000000000000000000000000002");
     assert!(resp.marf_proof.is_some());
+
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let resp = response.decode_map_entry_response().unwrap();
+    assert_eq!(resp.data, "0x0a0100000000000000000000000000000002");
+    assert!(resp.marf_proof.is_none());
 
     // unconfirmed data
     let response = responses.remove(0);

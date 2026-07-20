@@ -21,7 +21,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 
-use super::test_rpc;
+use super::{test_rpc, TEST_CONTRACT, TEST_CONTRACT_UNCONFIRMED};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
@@ -98,6 +98,15 @@ fn test_try_make_response() {
     );
     requests.push(request);
 
+    let request = StacksHttpRequest::new_getcontractsrc(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        TipRequest::UseLatestAnchoredTip,
+        false,
+    );
+    requests.push(request);
+
     // query existing unconfirmed
     let request = StacksHttpRequest::new_getcontractsrc(
         addr.into(),
@@ -128,8 +137,20 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_contract_src_response().unwrap();
+    assert_eq!(resp.source, TEST_CONTRACT);
     assert_eq!(resp.publish_height, 1);
     assert!(resp.marf_proof.is_some());
+
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let resp = response.decode_contract_src_response().unwrap();
+    assert_eq!(resp.source, TEST_CONTRACT);
+    assert_eq!(resp.publish_height, 1);
+    assert!(resp.marf_proof.is_none());
 
     // unconfirmed data
     let response = responses.remove(0);
@@ -139,6 +160,7 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_contract_src_response().unwrap();
+    assert_eq!(resp.source, TEST_CONTRACT_UNCONFIRMED);
     assert_eq!(resp.publish_height, 2);
     assert!(resp.marf_proof.is_some());
 
