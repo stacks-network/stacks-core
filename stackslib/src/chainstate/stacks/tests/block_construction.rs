@@ -55,6 +55,75 @@ use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, *};
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
 
+fn mine_mempool_tenure<F>(
+    peer: &mut TestPeer,
+    tenure_id: usize,
+    mut prepare_mempool: F,
+) -> (StacksBlock, u64, ExecutionCost)
+where
+    F: FnMut(&mut StacksChainState, &mut SortitionDB, &StacksHeaderInfo, &mut MemPoolDB),
+{
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+        .unwrap();
+    let burnchain = peer.config.chain_config.burnchain.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
+    let mut block_size = 0;
+    let mut block_cost = ExecutionCost::ZERO;
+
+    let (burn_ops, stacks_block, _) = peer.make_tenure(
+        |ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
+            let parent_tip = match parent_opt {
+                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                Some(block) => {
+                    let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                        &sortdb.index_conn(),
+                        &tip.sortition_id,
+                        &block.block_hash(),
+                    )
+                    .unwrap()
+                    .unwrap();
+                    StacksChainState::get_anchored_block_header_info(
+                        chainstate.db(),
+                        &snapshot.consensus_hash,
+                        &snapshot.winning_stacks_block_hash,
+                    )
+                    .unwrap()
+                    .unwrap()
+                }
+            };
+
+            let mut mempool =
+                MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
+            prepare_mempool(chainstate, sortdb, &parent_tip, &mut mempool);
+
+            let coinbase_tx = make_coinbase(miner, tenure_id);
+            let (block, cost, size) = StacksBlockBuilder::build_anchored_block(
+                chainstate,
+                &sortdb.index_handle_at_tip(),
+                &mut mempool,
+                &parent_tip,
+                tip.total_burn,
+                vrf_proof,
+                &Hash160([tenure_id as u8; 20]),
+                &coinbase_tx,
+                BlockBuilderSettings::max_value(),
+                None,
+                &burnchain,
+            )
+            .unwrap();
+            block_size = size;
+            block_cost = cost;
+            (block, vec![])
+        },
+    );
+
+    peer.next_burnchain_block(burn_ops);
+    peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
+        .unwrap();
+
+    (stacks_block, block_size, block_cost)
+}
+
 #[test]
 fn test_build_anchored_blocks_empty() {
     let peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
@@ -309,39 +378,13 @@ fn test_build_anchored_blocks_release_nonce_gap() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2054, 2055);
     peer_config.chain_config.initial_balances = vec![(sender_addr.clone().into(), 100_000)];
-    let burnchain = peer_config.chain_config.burnchain.clone();
     let mut peer = TestPeer::new(peer_config);
-    let chainstate_path = peer.chain.chainstate_path.clone();
 
     for (tenure_id, tx_to_submit) in submitted_by_tenure.iter().cloned().enumerate() {
-        let tip =
-            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
-                .unwrap();
-
-        let (burn_ops, stacks_block, _) = peer.make_tenure(
-            |ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
-                let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
-                    Some(block) => {
-                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                            &sortdb.index_conn(),
-                            &tip.sortition_id,
-                            &block.block_hash(),
-                        )
-                        .unwrap()
-                        .unwrap();
-                        StacksChainState::get_anchored_block_header_info(
-                            chainstate.db(),
-                            &snapshot.consensus_hash,
-                            &snapshot.winning_stacks_block_hash,
-                        )
-                        .unwrap()
-                        .unwrap()
-                    }
-                };
-
-                let mut mempool =
-                    MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
+        let (stacks_block, _, _) = mine_mempool_tenure(
+            &mut peer,
+            tenure_id,
+            |chainstate, sortdb, parent_tip, mempool| {
                 mempool
                     .submit(
                         chainstate,
@@ -354,29 +397,8 @@ fn test_build_anchored_blocks_release_nonce_gap() {
                         &StacksEpochId::Epoch20,
                     )
                     .unwrap();
-
-                let coinbase_tx = make_coinbase(miner, tenure_id);
-                let (block, _, _) = StacksBlockBuilder::build_anchored_block(
-                    chainstate,
-                    &sortdb.index_handle_at_tip(),
-                    &mut mempool,
-                    &parent_tip,
-                    tip.total_burn,
-                    vrf_proof,
-                    &Hash160([tenure_id as u8; 20]),
-                    &coinbase_tx,
-                    BlockBuilderSettings::max_value(),
-                    None,
-                    &burnchain,
-                )
-                .unwrap();
-                (block, vec![])
             },
         );
-
-        peer.next_burnchain_block(burn_ops);
-        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
-            .unwrap();
 
         if tenure_id < 3 {
             assert_eq!(stacks_block.txs.len(), 1);
