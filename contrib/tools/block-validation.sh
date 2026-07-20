@@ -537,7 +537,7 @@ configure_validation_slices() {
         warn "  - filesystem does not support reflink (only supported on XFS, Btrfs, ZFS, or APFS)"
     fi
     # Remove the test file, silently failing if it doesn't exist
-    rm -f "${reflink_probe_dst}" 2>/dev/null
+    rm -f "${reflink_probe_dst}"
 
     local nakamoto_only=0
     if [[ ${reflink} -eq 0 ]] && is_range_nakamoto_only; then
@@ -795,7 +795,7 @@ get_total_blocks() {
         error_and_exit "retrieving total ${mode} blocks from chainstate (see ${errfile})"
     fi
     # Drop the error file if the command succeeded, so we don't leave stale files around.
-    rm -f "${errfile}" 2>/dev/null
+    rm -f "${errfile}"
 
     local total
     total=$(printf '%s\n' "${count_output}" | awk -F " " '{print $NF}')
@@ -1147,77 +1147,61 @@ check_progress() {
     done
 }
 
-# Aggregate per-slice return codes and "Failed processing block" lines into
-# ${LOG_DIR}/results.log, prefixed with a single "Failures: N" header.
+# Aggregate the run outcome into ${LOG_DIR}/:
+#   - failed_blocks.txt : every "Block <hash>: Failed to validate …" entry from
+#                         slices that ended with return code 1 (leading indent
+#                         stripped) — a clean list, one line per failed block, so
+#                         its line count is the failed-block count and it can be
+#                         dropped straight into a PR comment.
+#   - results.log       : a "Failed blocks: N (panicked slices: M)" summary header
+#                         plus one "sliceN.log return code: X" line per slice.
+# Sets the terminal status.json state: SUCCESS only when no block failed and no
+# slice panicked; otherwise FAILURE (with the failed-block count).
 store_results() {
-    # Text file to store results
     local results="${LOG_DIR}/results.log"
-    local failed=0;
-    local block_failure=0;
-    local failure_count=0;
-    local return_code=0;
-    local count_one=0
-    cd "${LOG_DIR}" || {
-        error_and_exit "Logdir $(highlight "${LOG_DIR}") doesn't exist"
-    }
-    # Retrieve the count of all lines with `Failed processing block`
-    # Check the return codes to see if we had a panic
+    local failed_blocks="${LOG_DIR}/failed_blocks.txt"
+    local panicked=0        # slices that crashed (return code neither 0 nor 1)
+    local return_code
+    cd "${LOG_DIR}" || error_and_exit "Logdir $(highlight "${LOG_DIR}") doesn't exist"
+
+    : > "${failed_blocks}"  # start clean; stays empty when nothing failed
+
+    # One pass over the slice logs: record each slice's return code, and collect
+    # the failed-block entries from slices that reported block failures (rc 1).
     for file in $(find . -name "slice*.log" -printf '%P\n' | sort); do
         info "Checking file: $(highlight "$file")"
         return_code=$(tail -1 "${file}")
         case ${return_code} in
             0)
-                # Block validation ran successfully
-                echo "$file return code: $return_code" >> "${results}" # ok to continue if this write fails
+                echo "${file} return code: ${return_code}" >> "${results}"
                 ;;
             1)
-                # Block validation had some block failures
-                block_failure=1
-                count_one=$((count_one + 1))
-                echo "$file return code: $return_code" >> "${results}" # ok to continue if this write fails
+                echo "${file} return code: ${return_code}" >> "${results}"
+                # stacks-inspect lists each failure as an indented "  Block ..." line. 
+                # Take just those, stripping the leading indent, and append to the global failed-blocks list.
+                grep -E '^[[:space:]]*Block ' "${file}" | sed 's/^[[:space:]]*//' >> "${failed_blocks}" || true
                 ;;
             *)
-                # Return code likely indicates a panic
-                ((failed=failed+1))
-                echo "$file return code: $return_code" >> "${results}" # ok to continue if this write fails
+                panicked=$((panicked + 1))
+                echo "${file} return code: ${return_code} (likely panic)" >> "${results}"
                 ;;
         esac
     done
 
-    if [ "${failed}" != "0" ]; then
-        failure_count=$failed
-        eprintln "Panic: $(red "$failure_count")"
-    fi
+    local block_failures
+    block_failures=$(wc -l < "${failed_blocks}" | tr -d '[:space:]')
 
-    # Use the $failed var here in case there is a panic, then $failure_count may show zero, but the validation was not successful
-    if [ ${block_failure} != "0" ];then
-        ## retrieve the count of all lines with `Failed processing block`
-        # grep exits 1 when no lines match; swallow it so pipefail+set -e
-        # don't abort before the no-match fallback below runs.
-        failure_count=$(grep -rc "Failed processing block" slice*.log | awk -F: '$NF >= 0 {x+=$NF; $NF=""} END{print x}' || true)
-        output=$(grep -r -h "Failed processing block" slice*.log || true)
-        local IFS=$'\n'
-        if [ "${failure_count}" -gt 0 ]; then
-            for line in ${output}; do
-                echo "${line}" >> "${results}" || {
-                    error "writing failure to: ${results}"
-                }
-            done
-        else
-            ## failures, but not block failures (binary panic for example)
-            failure_count=$count_one
-        fi
-    fi
-
-    sed  -i "1i Failures: ${failure_count}" "${results}"
+    sed -i "1i Failed blocks: ${block_failures} (panicked slices: ${panicked})" "${results}"
     info "Results: $(highlight "${results}")"
 
-    if [ "${failure_count}" -eq 0 ]; then
+    if [ "${block_failures}" -eq 0 ] && [ "${panicked}" -eq 0 ]; then
+        # No failurers, so clean up the failed-blocks file to avoid leaving a stale artifact around.
+        rm -f "${failed_blocks}"
         info "$(bold_green "Block Validation successful!")"
         status_write "${STATUS_STATE_SUCCESS}" "Block validation successful"
     else
-        error "Block validation failures detected: ${failure_count}"
-        status_write "${STATUS_STATE_FAILURE}" "Block validation failed: ${failure_count} failure(s)"
+        error "Block validation failed: ${block_failures} block(s), ${panicked} panicked slice(s) (see $(highlight "${failed_blocks}")"
+        status_write "${STATUS_STATE_FAILURE}" "Block validation failed: ${block_failures} failed block(s), ${panicked} panicked slice(s)"
     fi
 }
 
