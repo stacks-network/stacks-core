@@ -125,6 +125,39 @@ where
     (stacks_block, block_size, block_cost)
 }
 
+fn epoch_21_test_epochs(block_limit: ExecutionCost) -> EpochList {
+    EpochList::new(&[
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_1_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 0,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit,
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ])
+}
+
 #[test]
 fn test_build_anchored_blocks_empty() {
     let peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
@@ -744,36 +777,7 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
         (contract_address.clone().into(), 10_000),
         (transfer_address.clone().into(), 100_000),
     ];
-    peer_config.chain_config.epochs = Some(EpochList::new(&[
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch10,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_1_0,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch20,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_0,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_05,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch21,
-            start_height: 0,
-            end_height: STACKS_EPOCH_MAX,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_1,
-        },
-    ]));
+    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
     let observer = TestEventObserver::new();
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
 
@@ -2041,38 +2045,9 @@ fn test_build_anchored_blocks_stop_at_cumulative_runtime_limit() {
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2058, 2059);
     peer_config.chain_config.initial_balances = initial_balances;
-    peer_config.chain_config.epochs = Some(EpochList::new(&[
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch10,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_1_0,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch20,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_0,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_05,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch21,
-            start_height: 0,
-            end_height: STACKS_EPOCH_MAX,
-            // Keep storage limits out of the decision so only accumulated runtime
-            // can defer the fourth call.
-            block_limit: BLOCK_LIMIT,
-            network_epoch: PEER_VERSION_EPOCH_2_1,
-        },
-    ]));
+    // Keep storage limits out of the decision so only accumulated runtime
+    // can defer the fourth call.
+    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(BLOCK_LIMIT));
     let mut peer = TestPeer::new(peer_config);
 
     let publish = make_user_contract_publish(
