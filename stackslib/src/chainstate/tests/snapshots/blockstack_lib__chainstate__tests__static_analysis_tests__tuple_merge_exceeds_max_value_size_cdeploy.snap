@@ -24,7 +24,7 @@ expression: result.get_expected_results()
     error: "Invalid Stacks block 3ccc7959909eb66e4071780c595ac12e8236872140cd9898fd3b3ddf4ddd118e: ClarityError(StaticCheck(StaticCheckError { err: Unreachable(\"Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\"), expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"ok\")), id: 172 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"merge\")), id: 174 }, SymbolicExpression { expr: Atom(ClarityName(\"ta\")), id: 175 }, SymbolicExpression { expr: Atom(ClarityName(\"tb\")), id: 176 }]), id: 173 }]), id: 171 }]), diagnostic: Diagnostic { level: Error, message: \"unexpected and unacceptable interpreter behavior: Unexpected error type during static analysis: InvariantViolation(\\\"FAIL: .size() overflowed on too large of a type. Construction should have failed!\\\")\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4de68ebd27a6e679d0d56f244b17192805a85400ec7c02e60ee8ac8c4fc28779",
+    marf_hash: "0a2e12745ad690d390b6311e6377c8bd6a7707e3c62696c276b7aa0f11a54222",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -54,7 +54,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e0ed4ca0e3856797decdb8b7f6be6b9b743f97f9e81d56fea556e30d57e967c4",
+    marf_hash: "14fdc5c2ccd3c279f5ce04629c8cc5f494f71186ef5dff53d5896f1d360bad60",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -84,7 +84,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1f147258ca01704cc721f6dddd9d5305af147de3fcd871210b480f9d99820ab2",
+    marf_hash: "6ffe0443b459de8b3a5bba384919b01f18a33fa5c8115717121277834211776a",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -114,7 +114,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4c616ef731454d8f014dc33cd1b8fc774c3d705792906b6e8b29c87322fe5d4c",
+    marf_hash: "d6654be94990fa23925a0f6312772a229e04a1e4f888bcd6fe335fe316bf2630",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -144,7 +144,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9d25b7b02b45e22d73af5ea8d9b807a004e6b87db73d6ce32cc0fe29e01db2c3",
+    marf_hash: "af5987eddca16fbb5500b2fe288746f0dd6d2dfd32836055e0f06e9f3abec0b6",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -174,7 +174,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "767f695c40ae0004f8ab64397a58e49fe486da474cc62542157943d8805cac71",
+    marf_hash: "5d8f49d6e18ac4a0a521430f91b61afccc3c986f59bbe1dd29b7cfbaf01d9ed0",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
