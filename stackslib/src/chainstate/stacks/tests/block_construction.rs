@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use clarity::codec::StacksMessageCodec;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::events::STXEventType;
 use clarity::vm::test_util::TEST_BURN_STATE_DB;
 use clarity::vm::types::*;
 use mempool::MemPoolWalkStrategy;
@@ -44,7 +45,7 @@ use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::tests::*;
@@ -658,6 +659,226 @@ fn test_build_anchored_blocks_contract_principal_lifecycle() {
     let funder_account = get_stacks_account(&mut peer, &funder_address.into());
     assert_eq!(funder_account.nonce, 26);
     assert_eq!(funder_account.stx_balance.amount_unlocked(), 68_800);
+}
+
+#[test]
+fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
+    const STORE_CONTRACT: &str = r#"
+        (define-map store
+          { key: (string-ascii 32) }
+          { value: (string-ascii 32) })
+        (define-public (get-value (key (string-ascii 32)))
+          (begin
+            (print (concat "Getting key " key))
+            (match (map-get? store { key: key })
+              entry (ok (get value entry))
+              (err 0))))
+        (define-public (set-value
+          (key (string-ascii 32))
+          (value (string-ascii 32)))
+          (begin
+            (print (concat "Setting key " key))
+            (map-set store { key: key } { value: value })
+            (ok true)))
+    "#;
+
+    fn mine_transaction(
+        peer: &mut TestPeer,
+        tenure_id: usize,
+        tx: &StacksTransaction,
+    ) -> StacksBlock {
+        let (block, _, _) = mine_mempool_tenure(
+            peer,
+            tenure_id,
+            |chainstate, sortdb, parent_tip, mempool| {
+                mempool
+                    .submit(
+                        chainstate,
+                        sortdb,
+                        &parent_tip.consensus_hash,
+                        &parent_tip.anchored_header.block_hash(),
+                        tx,
+                        None,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch21,
+                    )
+                    .unwrap();
+            },
+        );
+        assert_eq!(block.txs.len(), 2);
+        assert_eq!(block.txs[1].txid(), tx.txid());
+        block
+    }
+
+    fn receipt_for(
+        observer: &TestEventObserver,
+        tx: &StacksTransaction,
+    ) -> StacksTransactionReceipt {
+        observer
+            .get_blocks()
+            .into_iter()
+            .rev()
+            .flat_map(|block| block.receipts)
+            .find(|receipt| receipt.transaction.txid() == tx.txid())
+            .unwrap()
+    }
+
+    let contract_key = StacksPrivateKey::random();
+    let transfer_key = StacksPrivateKey::random();
+    let recipient_key = StacksPrivateKey::random();
+    let contract_address =
+        StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&contract_key));
+    let transfer_address =
+        StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&transfer_key));
+    let recipient_address =
+        StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&recipient_key));
+    let contract_id = QualifiedContractIdentifier::new(
+        contract_address.clone().into(),
+        ContractName::try_from("store").unwrap(),
+    );
+    let foo = Value::string_ascii_from_bytes("foo".into()).unwrap();
+    let bar = Value::string_ascii_from_bytes("bar".into()).unwrap();
+
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2060, 2061);
+    peer_config.chain_config.initial_balances = vec![
+        (contract_address.clone().into(), 10_000),
+        (transfer_address.clone().into(), 100_000),
+    ];
+    peer_config.chain_config.epochs = Some(EpochList::new(&[
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_1_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 0,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ]));
+    let observer = TestEventObserver::new();
+    let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
+
+    let publish = make_user_contract_publish(&contract_key, 0, 1_000, "store", STORE_CONTRACT);
+    let publish_block = mine_transaction(&mut peer, 0, &publish);
+    assert!(matches!(
+        publish_block.txs[1].payload,
+        TransactionPayload::SmartContract(..)
+    ));
+    assert!(receipt_for(&observer, &publish).events.is_empty());
+
+    let missing_get = make_user_contract_call(
+        &contract_key,
+        1,
+        1_000,
+        &contract_address,
+        "store",
+        "get-value",
+        vec![foo.clone()],
+    );
+    let missing_get_block = mine_transaction(&mut peer, 1, &missing_get);
+    assert!(matches!(
+        missing_get_block.txs[1].payload,
+        TransactionPayload::ContractCall(..)
+    ));
+    let missing_get_receipt = receipt_for(&observer, &missing_get);
+    assert_eq!(
+        missing_get_receipt.result,
+        Value::error(Value::Int(0)).unwrap()
+    );
+    assert!(missing_get_receipt.events.is_empty());
+
+    let set_value = make_user_contract_call(
+        &contract_key,
+        2,
+        1_000,
+        &contract_address,
+        "store",
+        "set-value",
+        vec![foo.clone(), bar.clone()],
+    );
+    mine_transaction(&mut peer, 2, &set_value);
+    let set_receipt = receipt_for(&observer, &set_value);
+    assert_eq!(set_receipt.result, Value::okay_true());
+    assert_eq!(set_receipt.events.len(), 1);
+    assert!(matches!(
+        &set_receipt.events[0],
+        StacksTransactionEvent::SmartContractEvent(event)
+            if event.key.0 == contract_id
+                && event.key.1 == "print"
+                && event.value
+                    == Value::string_ascii_from_bytes("Setting key foo".into()).unwrap()
+    ));
+
+    let stored_get = make_user_contract_call(
+        &contract_key,
+        3,
+        1_000,
+        &contract_address,
+        "store",
+        "get-value",
+        vec![foo],
+    );
+    mine_transaction(&mut peer, 3, &stored_get);
+    let stored_get_receipt = receipt_for(&observer, &stored_get);
+    assert_eq!(stored_get_receipt.result, Value::okay(bar.clone()).unwrap());
+    assert_eq!(stored_get_receipt.events.len(), 1);
+    assert!(matches!(
+        &stored_get_receipt.events[0],
+        StacksTransactionEvent::SmartContractEvent(event)
+            if event.key.0 == contract_id
+                && event.key.1 == "print"
+                && event.value
+                    == Value::string_ascii_from_bytes("Getting key foo".into()).unwrap()
+    ));
+
+    let recipient_principal = recipient_address.clone().into();
+    let transfer = make_user_stacks_transfer(&transfer_key, 0, 200, &recipient_principal, 1_000);
+    let transfer_block = mine_transaction(&mut peer, 4, &transfer);
+    assert!(matches!(
+        transfer_block.txs[1].payload,
+        TransactionPayload::TokenTransfer(..)
+    ));
+    let transfer_receipt = receipt_for(&observer, &transfer);
+    assert_eq!(transfer_receipt.events.len(), 1);
+    assert!(matches!(
+        &transfer_receipt.events[0],
+        StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event))
+            if event.sender == transfer_address.clone().into()
+                && event.recipient == recipient_principal
+                && event.amount == 1_000
+    ));
+
+    let contract_account = get_stacks_account(&mut peer, &contract_address.into());
+    assert_eq!(contract_account.nonce, 4);
+    assert_eq!(contract_account.stx_balance.amount_unlocked(), 6_000);
+    let transfer_account = get_stacks_account(&mut peer, &transfer_address.into());
+    assert_eq!(transfer_account.nonce, 1);
+    assert_eq!(transfer_account.stx_balance.amount_unlocked(), 98_800);
+    assert_eq!(
+        get_stacks_account(&mut peer, &recipient_address.into())
+            .stx_balance
+            .amount_unlocked(),
+        1_000
+    );
 }
 
 #[test]
