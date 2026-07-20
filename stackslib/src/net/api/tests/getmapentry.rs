@@ -25,6 +25,7 @@ use stacks_common::types::Address;
 use super::test_rpc;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
+use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{
     HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
@@ -98,16 +99,18 @@ fn test_try_make_response() {
 
     let mut requests = vec![];
 
-    // query existing
-    let request = StacksHttpRequest::new_getmapentry(
+    // Proofs are returned unless the client opts out.
+    let request = StacksHttpRequest::new_for_peer(
         addr.into(),
-        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
-        "hello-world".try_into().unwrap(),
-        "test-map".try_into().unwrap(),
-        Value::UInt(1),
-        TipRequest::UseLatestAnchoredTip,
-        true,
-    );
+        "POST".into(),
+        "/v2/map_entry/ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R/hello-world/test-map".into(),
+        HttpRequestContents::new()
+            .for_tip(TipRequest::UseLatestAnchoredTip)
+            .payload_json(serde_json::Value::String(
+                Value::UInt(1).serialize_to_hex().unwrap(),
+            )),
+    )
+    .unwrap();
     requests.push(request);
 
     let request = StacksHttpRequest::new_getmapentry(
@@ -118,6 +121,18 @@ fn test_try_make_response() {
         Value::UInt(1),
         TipRequest::UseLatestAnchoredTip,
         false,
+    );
+    requests.push(request);
+
+    // A missing key must not be confused with a missing map.
+    let request = StacksHttpRequest::new_getmapentry(
+        addr.into(),
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
+        "hello-world".try_into().unwrap(),
+        "test-map".try_into().unwrap(),
+        Value::UInt(100),
+        TipRequest::UseLatestAnchoredTip,
+        true,
     );
     requests.push(request);
 
@@ -179,6 +194,11 @@ fn test_try_make_response() {
     let resp = response.decode_map_entry_response().unwrap();
     assert_eq!(resp.data, "0x0a0100000000000000000000000000000002");
     assert!(resp.marf_proof.is_none());
+
+    let response = responses.remove(0);
+    let resp = response.decode_map_entry_response().unwrap();
+    assert_eq!(resp.data, "0x09");
+    assert_eq!(resp.marf_proof, Some("".to_string()));
 
     // unconfirmed data
     let response = responses.remove(0);
