@@ -280,6 +280,144 @@ fn test_build_anchored_blocks_stx_transfers_single() {
 }
 
 #[test]
+fn test_build_anchored_blocks_release_nonce_gap() {
+    let sender = StacksPrivateKey::random();
+    let sender_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&sender));
+    let recipient_addr = StacksAddress::p2pkh(
+        false,
+        &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+    );
+    let recipient_principal: PrincipalData = QualifiedContractIdentifier::new(
+        recipient_addr.into(),
+        ContractName::try_from("faucet").unwrap(),
+    )
+    .into();
+
+    let fee = 1_000;
+    let submitted_by_tenure = [
+        make_user_stacks_transfer(&sender, 1, fee, &recipient_principal, 1_000),
+        make_user_contract_publish(
+            &sender,
+            2,
+            fee,
+            "nonce-gap",
+            "(define-public (noop) (ok true))",
+        ),
+        make_user_stacks_transfer(&sender, 3, fee, &recipient_principal, 1_000),
+        make_user_stacks_transfer(&sender, 0, fee, &recipient_principal, 1_000),
+    ];
+
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2054, 2055);
+    peer_config.chain_config.initial_balances = vec![(sender_addr.clone().into(), 100_000)];
+    let burnchain = peer_config.chain_config.burnchain.clone();
+    let mut peer = TestPeer::new(peer_config);
+    let chainstate_path = peer.chain.chainstate_path.clone();
+
+    for (tenure_id, tx_to_submit) in submitted_by_tenure.iter().cloned().enumerate() {
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
+
+        let (burn_ops, stacks_block, _) = peer.make_tenure(
+            |ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
+                let parent_tip = match parent_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(block) => {
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &sortdb.index_conn(),
+                            &tip.sortition_id,
+                            &block.block_hash(),
+                        )
+                        .unwrap()
+                        .unwrap();
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let mut mempool =
+                    MemPoolDB::open_test(false, CHAIN_ID_TESTNET, &chainstate_path).unwrap();
+                mempool
+                    .submit(
+                        chainstate,
+                        sortdb,
+                        &parent_tip.consensus_hash,
+                        &parent_tip.anchored_header.block_hash(),
+                        &tx_to_submit,
+                        None,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch20,
+                    )
+                    .unwrap();
+
+                let coinbase_tx = make_coinbase(miner, tenure_id);
+                let (block, _, _) = StacksBlockBuilder::build_anchored_block(
+                    chainstate,
+                    &sortdb.index_handle_at_tip(),
+                    &mut mempool,
+                    &parent_tip,
+                    tip.total_burn,
+                    vrf_proof,
+                    &Hash160([tenure_id as u8; 20]),
+                    &coinbase_tx,
+                    BlockBuilderSettings::max_value(),
+                    None,
+                    &burnchain,
+                )
+                .unwrap();
+                (block, vec![])
+            },
+        );
+
+        peer.next_burnchain_block(burn_ops);
+        peer.process_stacks_epoch_at_tip_checked(&stacks_block, &[])
+            .unwrap();
+
+        if tenure_id < 3 {
+            assert_eq!(stacks_block.txs.len(), 1);
+            assert!(matches!(
+                stacks_block.txs[0].payload,
+                TransactionPayload::Coinbase(..)
+            ));
+        } else {
+            assert_eq!(stacks_block.txs.len(), 5);
+            let mined = &stacks_block.txs[1..];
+            assert_eq!(
+                mined
+                    .iter()
+                    .map(StacksTransaction::get_origin_nonce)
+                    .collect::<Vec<_>>(),
+                vec![0, 1, 2, 3]
+            );
+            assert_eq!(
+                mined
+                    .iter()
+                    .map(StacksTransaction::txid)
+                    .collect::<Vec<_>>(),
+                vec![
+                    submitted_by_tenure[3].txid(),
+                    submitted_by_tenure[0].txid(),
+                    submitted_by_tenure[1].txid(),
+                    submitted_by_tenure[2].txid(),
+                ]
+            );
+        }
+    }
+
+    let recipient_account = get_stacks_account(&mut peer, &recipient_principal);
+    assert_eq!(recipient_account.stx_balance.amount_unlocked(), 3_000);
+
+    let sender_account = get_stacks_account(&mut peer, &sender_addr.into());
+    assert_eq!(sender_account.nonce, 4);
+    assert_eq!(sender_account.stx_balance.amount_unlocked(), 93_000);
+}
+
+#[test]
 fn test_build_anchored_blocks_empty_with_builder_timeout() {
     let privk = StacksPrivateKey::from_hex(
         "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
