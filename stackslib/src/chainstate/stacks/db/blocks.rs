@@ -11932,9 +11932,8 @@ pub mod test {
         }
     }
 
-    /// Build a stacks-transfer whose signature is from the wrong key (invalid).
-    /// Ported from the former `make_bad_stacks_transfer` helper in
-    /// `stacks-node/src/tests/mempool.rs`.
+    /// Keep every authorization field valid except the signing key so admission
+    /// reaches signature verification.
     fn make_bad_stacks_transfer(
         sender: &StacksPrivateKey,
         nonce: u64,
@@ -11960,33 +11959,16 @@ pub mod test {
         unsigned_tx.chain_id = 0x80000000;
 
         let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
-        // sign with a random key, NOT `sender` -- yields an invalid signature
         tx_signer.sign_origin(&StacksPrivateKey::random()).unwrap();
         tx_signer.get_tx().unwrap()
     }
 
-    /// Port of the former `mempool_setup_chainstate` integration test from
-    /// `stacks-node/src/tests/mempool.rs`.
+    /// All probes share one processed tip so calls, trait checks, nonces, and balances
+    /// are evaluated against the same state. The five publish fees deliberately leave
+    /// 99_500 uSTX for the insufficient-funds boundary.
     ///
-    /// It builds a chainstate that publishes the five contracts the original used
-    /// (`foo_contract`, `trait-contract`, `use-trait-contract`,
-    /// `implement-trait-contract`, `bad-trait-contract`) in a single anchored block,
-    /// then drives `StacksChainState::will_admit_mempool_tx` through the original's
-    /// rejection matrix and asserts the exact `MemPoolRejection` variants.
-    ///
-    /// The fixture runs in Epoch 2.0 (the default `unit_test_pre_2_05` epochs), the
-    /// same epoch the original published in. The publisher account starts at 100_000
-    /// uSTX and pays 5 * 100 uSTX in publish fees, leaving 99_500 -- matching the
-    /// `NotEnoughFunds(.., 99500)` expectations carried over verbatim.
-    ///
-    /// Dropped cases vs. the original: the four poison-microblock cases collapsed
-    /// into one. `will_admit_mempool_tx` now early-returns
-    /// `MemPoolRejection::Other("PoisonMicroblock transactions not accepted via mempool")`
-    /// for every poison-microblock payload before any microblock-key validation runs
-    /// (see the guard at the top of `will_admit_mempool_tx`). The original's
-    /// distinctions between poison variants (and the `Keychain`-derived microblock key
-    /// lookup they required) no longer affect the outcome, so a single poison case
-    /// covers the live behavior.
+    /// One poison payload is sufficient because admission rejects this payload type
+    /// before inspecting its microblock headers.
     #[test]
     fn mempool_will_admit_tx_rejection_matrix() {
         use clarity::vm::database::NULL_BURN_STATE_DB;
@@ -12113,7 +12095,8 @@ pub mod test {
                 _ => panic!("unexpected error {e:?} from high-S signature tx"),
             }
 
-            // the original low-S signature is fine
+            // The valid form must still pass, or the high-S probe above could be
+            // failing for an unrelated field.
             admit(chainstate, &tx).unwrap();
 
             // bad signature (signed by the wrong key)
@@ -12389,13 +12372,8 @@ pub mod test {
         .unwrap();
     }
 
-    /// Unit coverage for the mempool-rejection JSON returned by `/v2/transactions`.
-    ///
-    /// Ports the wire-format assertions of the former in-process `mempool_errors`
-    /// integration test (`stacks-node/src/tests/integrations.rs`). `into_json` is a
-    /// pure function, so the `reason` / `reason_data` contract clients depend on is
-    /// tested here directly instead of by booting a node + bitcoind. The mempool
-    /// *producing* these rejections is covered by `mempool_will_admit_tx_rejection_matrix`.
+    /// Lock the public rejection payload independently of the code that produces each
+    /// rejection, so a wire-format change fails at the serialization boundary.
     #[test]
     fn mempool_rejection_into_json() {
         let txid = Txid([0x12; 32]);

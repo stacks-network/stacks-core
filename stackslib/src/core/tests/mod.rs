@@ -1235,10 +1235,6 @@ fn test_iterate_candidates_concurrent_write_lock() {
 }
 
 #[test]
-/// Transactions with future nonces are held (never considered) while the account's
-/// next nonce is missing from the mempool, and filling the gap releases the whole
-/// chain in nonce order within a single walk. Ports the mempool behavior of the
-/// removed mocknet integration test `mine_transactions_out_of_order`.
 fn test_iterate_candidates_nonce_gap_hold_and_release() {
     let mut chainstate =
         instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), vec![]);
