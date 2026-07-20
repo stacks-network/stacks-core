@@ -1746,6 +1746,203 @@ fn test_build_anchored_blocks_skip_too_expensive() {
 }
 
 #[test]
+fn test_build_anchored_blocks_stop_at_cumulative_runtime_limit() {
+    const BLOCK_LIMIT: ExecutionCost = ExecutionCost {
+        write_length: 150_000_000,
+        write_count: 50_000,
+        read_length: 1_000_000_000,
+        read_count: 50_000,
+        runtime: 8_500_000,
+    };
+
+    fn get_call_count(peer: &mut TestPeer, contract_id: &QualifiedContractIdentifier) -> u128 {
+        let value = peer
+            .with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {
+                let (consensus_hash, block_hash) =
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+                let block_id =
+                    StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
+                let value = chainstate
+                    .with_read_only_clarity_tx(
+                        &sortdb.index_handle_at_tip(),
+                        &block_id,
+                        |clarity_tx| {
+                            StacksChainState::get_data_var(clarity_tx, contract_id, "calls")
+                                .unwrap()
+                                .unwrap()
+                        },
+                    )
+                    .unwrap();
+                Ok(value)
+            })
+            .unwrap();
+        value.expect_u128().unwrap()
+    }
+
+    let mut contract = "
+        (define-data-var calls uint u0)
+        (define-constant list-0 (list 0))
+    "
+    .to_owned();
+    for index in 0..10 {
+        contract.push_str(&format!(
+            "\n(define-constant list-{} (concat list-{index} list-{index}))",
+            index + 1
+        ));
+    }
+    contract.push_str(
+        "
+        (define-private (inner-loop (x int))
+          (begin (map sha256 list-9) 0))
+        (define-private (outer-loop) (map inner-loop list-5))
+        (define-public (do-it)
+          (begin
+            (outer-loop)
+            (var-set calls (+ (var-get calls) u1))
+            (ok (var-get calls))))
+        ",
+    );
+
+    let publisher = StacksPrivateKey::random();
+    let publisher_address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&publisher));
+    let contract_id = QualifiedContractIdentifier::new(
+        publisher_address.clone().into(),
+        ContractName::try_from("runtime-limit").unwrap(),
+    );
+    let callers = (0..4)
+        .map(|_| StacksPrivateKey::random())
+        .collect::<Vec<_>>();
+    let mut initial_balances = vec![(publisher_address.clone().into(), 100_000)];
+    initial_balances.extend(callers.iter().map(|caller| {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(caller));
+        (address.into(), 100_000)
+    }));
+
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2058, 2059);
+    peer_config.chain_config.initial_balances = initial_balances;
+    peer_config.chain_config.epochs = Some(EpochList::new(&[
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_1_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_0,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 0,
+            end_height: 0,
+            block_limit: ExecutionCost::max_value(),
+            network_epoch: PEER_VERSION_EPOCH_2_05,
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 0,
+            end_height: STACKS_EPOCH_MAX,
+            // Keep storage limits out of the decision so only accumulated runtime
+            // can defer the fourth call.
+            block_limit: BLOCK_LIMIT,
+            network_epoch: PEER_VERSION_EPOCH_2_1,
+        },
+    ]));
+    let mut peer = TestPeer::new(peer_config);
+
+    let publish = make_user_contract_publish(
+        &publisher,
+        0,
+        (2 * contract.len()) as u64,
+        "runtime-limit",
+        &contract,
+    );
+    let (publish_block, _, _) =
+        mine_mempool_tenure(&mut peer, 0, |chainstate, sortdb, parent_tip, mempool| {
+            mempool
+                .submit(
+                    chainstate,
+                    sortdb,
+                    &parent_tip.consensus_hash,
+                    &parent_tip.anchored_header.block_hash(),
+                    &publish,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch21,
+                )
+                .unwrap();
+        });
+    assert_eq!(publish_block.txs.len(), 2);
+    assert_eq!(publish_block.txs[1].txid(), publish.txid());
+
+    let calls = callers
+        .iter()
+        .map(|caller| {
+            make_user_contract_call(
+                caller,
+                0,
+                1_000,
+                &publisher_address,
+                "runtime-limit",
+                "do-it",
+                vec![],
+            )
+        })
+        .collect::<Vec<_>>();
+    let (limited_block, _, limited_cost) =
+        mine_mempool_tenure(&mut peer, 1, |chainstate, sortdb, parent_tip, mempool| {
+            for call in &calls {
+                mempool
+                    .submit(
+                        chainstate,
+                        sortdb,
+                        &parent_tip.consensus_hash,
+                        &parent_tip.anchored_header.block_hash(),
+                        call,
+                        None,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch21,
+                    )
+                    .unwrap();
+            }
+        });
+    assert_eq!(limited_block.txs.len(), 4);
+    let included_txids = limited_block.txs[1..]
+        .iter()
+        .map(StacksTransaction::txid)
+        .collect::<Vec<_>>();
+    assert!(included_txids
+        .iter()
+        .all(|txid| calls.iter().any(|call| call.txid() == *txid)));
+    assert!(limited_cost.runtime <= BLOCK_LIMIT.runtime);
+    assert_eq!(get_call_count(&mut peer, &contract_id), 3);
+
+    let deferred_call = calls
+        .iter()
+        .find(|call| !included_txids.contains(&call.txid()))
+        .unwrap();
+    let (deferred_block, _, deferred_cost) = mine_mempool_tenure(&mut peer, 2, |_, _, _, _| {});
+    assert_eq!(deferred_block.txs.len(), 2);
+    assert_eq!(deferred_block.txs[1].txid(), deferred_call.txid());
+    assert!(deferred_cost.runtime < BLOCK_LIMIT.runtime);
+    assert!(limited_cost.runtime + deferred_cost.runtime > BLOCK_LIMIT.runtime);
+    assert!(limited_cost.write_length + deferred_cost.write_length < BLOCK_LIMIT.write_length);
+    assert!(limited_cost.write_count + deferred_cost.write_count < BLOCK_LIMIT.write_count);
+    assert!(limited_cost.read_length + deferred_cost.read_length < BLOCK_LIMIT.read_length);
+    assert!(limited_cost.read_count + deferred_cost.read_count < BLOCK_LIMIT.read_count);
+    assert_eq!(get_call_count(&mut peer, &contract_id), 4);
+
+    for caller in callers {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&caller));
+        assert_eq!(get_stacks_account(&mut peer, &address.into()).nonce, 1);
+    }
+}
+
+#[test]
 fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
     let privk = StacksPrivateKey::from_hex(
         "42faca653724860da7a41bfcef7e6ba78db55146f6900de8cb2a9f760ffac70c01",
