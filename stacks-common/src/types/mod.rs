@@ -871,7 +871,7 @@ impl StacksEpochId {
     /// it is more appropriate for the type checker to run first, so
     /// this behavior changes beginning with Epoch 4.1
     pub fn performs_read_only_checks_before_type_checks(&self) -> bool {
-        self <= &StacksEpochId::Epoch40
+        self <= &StacksEpochId::Epoch34
     }
 
     /// Return the network epoch associated with the StacksEpochId
