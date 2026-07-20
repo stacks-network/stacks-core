@@ -24,6 +24,7 @@ use stacks_common::types::Address;
 use super::{test_rpc, TEST_CONTRACT, TEST_CONTRACT_UNCONFIRMED};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
+use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{
     HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
@@ -88,14 +89,14 @@ fn test_try_make_response() {
 
     let mut requests = vec![];
 
-    // query existing
-    let request = StacksHttpRequest::new_getcontractsrc(
+    // Proofs are returned unless the client opts out.
+    let request = StacksHttpRequest::new_for_peer(
         addr.into(),
-        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap(),
-        "hello-world".try_into().unwrap(),
-        TipRequest::UseLatestAnchoredTip,
-        true,
-    );
+        "GET".into(),
+        "/v2/contracts/source/ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R/hello-world".into(),
+        HttpRequestContents::new().for_tip(TipRequest::UseLatestAnchoredTip),
+    )
+    .unwrap();
     requests.push(request);
 
     let request = StacksHttpRequest::new_getcontractsrc(
