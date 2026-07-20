@@ -286,12 +286,26 @@ fn test_rejection_responses_from_submitted_transactions() {
         },
     );
 
+    let stale_spender_sk = rpc_test.privk1.clone();
+    let stale_spender_principal: PrincipalData = to_addr(&stale_spender_sk).into();
     let spender_sk = rpc_test.privk2.clone();
     let spender_principal: PrincipalData = to_addr(&spender_sk).into();
     let recipient: PrincipalData = to_addr(&StacksPrivateKey::random()).into();
 
     let too_much_chaining =
         make_stacks_transfer_tx(&spender_sk, 30, 200, CHAIN_ID_TESTNET, &recipient, 456);
+    // A valid transaction can still be rejected after decoding when its nonce is stale.
+    let mut stale_contract = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::from_p2pkh(&stale_spender_sk).unwrap(),
+        TransactionPayload::new_smart_contract("test", "(+ 1 1)", None).unwrap(),
+    );
+    stale_contract.chain_id = CHAIN_ID_TESTNET;
+    stale_contract.auth.set_origin_nonce(0);
+    stale_contract.set_tx_fee(1000);
+    let mut signer = StacksTransactionSigner::new(&stale_contract);
+    signer.sign_origin(&stale_spender_sk).unwrap();
+    let stale_contract = signer.get_tx().unwrap();
     let fee_too_low = make_stacks_transfer_tx(&spender_sk, 0, 1, CHAIN_ID_TESTNET, &recipient, 456);
     let origin_cannot_pay =
         make_stacks_transfer_tx(&low_funds_sk, 0, 2000, CHAIN_ID_TESTNET, &recipient, 456);
@@ -309,6 +323,7 @@ fn test_rejection_responses_from_submitted_transactions() {
         StacksTransaction::consensus_deserialize(&mut &sponsored_bytes[..]).unwrap();
 
     let requests = [
+        stale_contract.clone(),
         too_much_chaining.clone(),
         fee_too_low.clone(),
         origin_cannot_pay.clone(),
@@ -318,6 +333,12 @@ fn test_rejection_responses_from_submitted_transactions() {
     .map(|tx| StacksHttpRequest::new_post_transaction(addr.into(), tx))
     .collect();
     let mut responses = rpc_test.run(requests).into_iter();
+
+    let data = rejection_data(responses.next().unwrap(), &stale_contract, "BadNonce");
+    assert_eq!(data["is_origin"], true);
+    assert_eq!(data["principal"], stale_spender_principal.to_string());
+    assert_eq!(data["expected"], 2);
+    assert_eq!(data["actual"], 0);
 
     let data = rejection_data(
         responses.next().unwrap(),
