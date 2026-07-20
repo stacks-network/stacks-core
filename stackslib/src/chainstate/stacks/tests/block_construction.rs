@@ -33,6 +33,7 @@ use mempool::MemPoolWalkStrategy;
 use rand::{thread_rng, Rng};
 use rusqlite::params;
 use stacks_common::address::*;
+use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::{get_epoch_time_ms, sleep_ms};
@@ -1033,6 +1034,320 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
             .amount_unlocked(),
         1_000
     );
+}
+
+#[test]
+fn test_get_block_info_at_block_across_tenures() {
+    const BLOCK_INFO_CONTRACT: &str = r#"
+        (define-map block-data
+          { height: uint }
+          { stacks-hash: (buff 32),
+            id-hash: (buff 32),
+            btc-hash: (buff 32),
+            vrf-seed: (buff 32),
+            burn-block-time: uint,
+            stacks-miner: principal })
+
+        (define-private (get-block-id-hash (height uint))
+          (unwrap-panic (get id-hash (map-get? block-data { height: height }))))
+
+        (define-read-only (historical-height-matches (height uint))
+          (is-eq (at-block (get-block-id-hash height) block-height) height))
+
+        (define-read-only (historical-info-matches (height uint))
+          (let ((block-to-check
+                  (unwrap-panic (get-block-info? id-header-hash height)))
+                (block-info
+                  (unwrap-panic (map-get? block-data { height: (- height u1) }))))
+            (and
+              (is-eq
+                (unwrap-panic
+                  (at-block block-to-check
+                    (get-block-info? id-header-hash (- block-height u1))))
+                (get id-hash block-info))
+              (is-eq
+                (unwrap-panic
+                  (at-block block-to-check
+                    (get-block-info? header-hash (- block-height u1))))
+                (unwrap-panic (get-block-info? header-hash (- height u1)))
+                (get stacks-hash block-info))
+              (is-eq
+                (unwrap-panic
+                  (at-block block-to-check
+                    (get-block-info? vrf-seed (- block-height u1))))
+                (unwrap-panic (get-block-info? vrf-seed (- height u1)))
+                (get vrf-seed block-info))
+              (is-eq
+                (unwrap-panic
+                  (at-block block-to-check
+                    (get-block-info? burnchain-header-hash (- block-height u1))))
+                (unwrap-panic
+                  (get-block-info? burnchain-header-hash (- height u1)))
+                (get btc-hash block-info))
+              (is-eq
+                (unwrap-panic
+                  (at-block block-to-check
+                    (get-block-info? time (- block-height u1))))
+                (unwrap-panic (get-block-info? time (- height u1)))
+                (get burn-block-time block-info))
+              (is-eq
+                (unwrap-panic
+                  (at-block block-to-check
+                    (get-block-info? miner-address (- block-height u1))))
+                (unwrap-panic (get-block-info? miner-address (- height u1)))
+                (get stacks-miner block-info)))))
+
+        (define-private (store-info (height uint))
+          (ok (map-set block-data
+            { height: height }
+            { stacks-hash: (unwrap-panic (get-block-info? header-hash height)),
+              id-hash: (unwrap-panic (get-block-info? id-header-hash height)),
+              btc-hash:
+                (unwrap-panic (get-block-info? burnchain-header-hash height)),
+              vrf-seed: (unwrap-panic (get-block-info? vrf-seed height)),
+              burn-block-time: (unwrap-panic (get-block-info? time height)),
+              stacks-miner: (unwrap-panic (get-block-info? miner-address height)) })))
+
+        (define-public (update-info)
+          (begin
+            (unwrap-panic (store-info (- block-height u2)))
+            (store-info (- block-height u1))))
+    "#;
+
+    fn eval_at_tip(
+        peer: &mut TestPeer,
+        contract_id: &QualifiedContractIdentifier,
+        program: &str,
+    ) -> Value {
+        peer.with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {
+            let (consensus_hash, block_hash) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+            let block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_hash);
+            let value = chainstate.clarity_eval_read_only(
+                &sortdb.index_handle_at_tip(),
+                &block_id,
+                contract_id,
+                program,
+            );
+            Ok(value)
+        })
+        .unwrap()
+    }
+
+    let publisher = StacksPrivateKey::random();
+    let publisher_address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&publisher));
+    let contract_id = QualifiedContractIdentifier::new(
+        publisher_address.clone().into(),
+        ContractName::try_from("block-info").unwrap(),
+    );
+
+    let mut peer_config = TestPeerConfig::new(function_name!(), 2064, 2065);
+    peer_config.chain_config.initial_balances = vec![(publisher_address.clone().into(), 10_000)];
+    peer_config.chain_config.epochs = Some(epoch_21_test_epochs(ExecutionCost::max_value()));
+    let mut peer = TestPeer::new(peer_config);
+
+    let (first_block, _, _) = mine_mempool_tenure(&mut peer, 0, |_, _, _, _| {});
+    assert_eq!(first_block.txs.len(), 1);
+
+    let publish =
+        make_user_contract_publish(&publisher, 0, 4_000, "block-info", BLOCK_INFO_CONTRACT);
+    let (publish_block, _, _) =
+        mine_mempool_tenure(&mut peer, 1, |chainstate, sortdb, parent_tip, mempool| {
+            mempool
+                .submit(
+                    chainstate,
+                    sortdb,
+                    &parent_tip.consensus_hash,
+                    &parent_tip.anchored_header.block_hash(),
+                    &publish,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch21,
+                )
+                .unwrap();
+        });
+    assert_eq!(publish_block.txs.len(), 2);
+    assert_eq!(publish_block.txs[1].txid(), publish.txid());
+
+    let (third_block, _, _) = mine_mempool_tenure(&mut peer, 2, |_, _, _, _| {});
+    assert_eq!(third_block.txs.len(), 1);
+
+    let mut final_parent_burn_height = None;
+    for (tenure_id, nonce) in [(3, 1), (4, 2)] {
+        let update = make_user_contract_call(
+            &publisher,
+            nonce,
+            1_000,
+            &publisher_address,
+            "block-info",
+            "update-info",
+            vec![],
+        );
+        let (block, _, _) = mine_mempool_tenure(
+            &mut peer,
+            tenure_id,
+            |chainstate, sortdb, parent_tip, mempool| {
+                if tenure_id == 4 {
+                    // Clarity evaluates this block against the parent burn view, not
+                    // the burn header that will elect the completed block.
+                    final_parent_burn_height = Some(parent_tip.burn_header_height);
+                }
+                mempool
+                    .submit(
+                        chainstate,
+                        sortdb,
+                        &parent_tip.consensus_hash,
+                        &parent_tip.anchored_header.block_hash(),
+                        &update,
+                        None,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch21,
+                    )
+                    .unwrap();
+            },
+        );
+        assert_eq!(block.txs.len(), 2);
+        assert_eq!(block.txs[1].txid(), update.txid());
+    }
+
+    let (height_one_header, height_one_block, height_one_miner) = peer
+        .with_db_state(|_, ref mut chainstate, _, _| {
+            let (consensus_hash, block_hash) = StacksChainState::list_blocks(chainstate.db())?
+                .into_iter()
+                .find(|(consensus_hash, block_hash)| {
+                    StacksChainState::get_anchored_block_header_info(
+                        chainstate.db(),
+                        consensus_hash,
+                        block_hash,
+                    )
+                    .unwrap()
+                    .unwrap()
+                    .stacks_block_height
+                        == 1
+                })
+                .unwrap();
+            let header = StacksChainState::get_anchored_block_header_info(
+                chainstate.db(),
+                &consensus_hash,
+                &block_hash,
+            )?
+            .unwrap();
+            let block = StacksChainState::load_block(
+                &chainstate.blocks_path,
+                &consensus_hash,
+                &block_hash,
+            )?
+            .unwrap();
+            let miner =
+                StacksChainState::get_miner_info(chainstate.db(), &consensus_hash, &block_hash)?
+                    .unwrap();
+            Ok((header, block, miner))
+        })
+        .unwrap();
+
+    assert_eq!(
+        eval_at_tip(&mut peer, &contract_id, "(get-block-info? time u1)"),
+        Value::some(Value::UInt(height_one_header.burn_header_timestamp as u128)).unwrap()
+    );
+    assert_eq!(
+        eval_at_tip(&mut peer, &contract_id, "(get-block-info? header-hash u1)"),
+        Value::some(Value::buff_from(height_one_block.block_hash().0.to_vec()).unwrap()).unwrap()
+    );
+    assert_eq!(
+        eval_at_tip(
+            &mut peer,
+            &contract_id,
+            "(get-block-info? id-header-hash u1)"
+        ),
+        Value::some(
+            Value::buff_from(
+                StacksBlockHeader::make_index_block_hash(
+                    &height_one_header.consensus_hash,
+                    &height_one_block.block_hash(),
+                )
+                .0
+                .to_vec(),
+            )
+            .unwrap()
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        eval_at_tip(
+            &mut peer,
+            &contract_id,
+            "(get-block-info? burnchain-header-hash u1)"
+        ),
+        Value::some(Value::buff_from(height_one_header.burn_header_hash.0.to_vec()).unwrap())
+            .unwrap()
+    );
+    assert_eq!(
+        eval_at_tip(&mut peer, &contract_id, "(get-block-info? vrf-seed u1)"),
+        Value::some(
+            Value::buff_from(
+                VRFSeed::from_proof(&height_one_block.header.proof)
+                    .0
+                    .to_vec()
+            )
+            .unwrap()
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        eval_at_tip(
+            &mut peer,
+            &contract_id,
+            "(get-block-info? miner-address u1)"
+        ),
+        Value::some(Value::Principal(
+            height_one_miner.address.to_account_principal()
+        ))
+        .unwrap()
+    );
+    assert_eq!(
+        eval_at_tip(&mut peer, &contract_id, "burn-block-height"),
+        Value::UInt(final_parent_burn_height.unwrap() as u128)
+    );
+
+    for property in ["time", "header-hash", "miner-address"] {
+        assert_eq!(
+            eval_at_tip(
+                &mut peer,
+                &contract_id,
+                &format!("(get-block-info? {property} block-height)")
+            ),
+            Value::none()
+        );
+        assert_eq!(
+            eval_at_tip(
+                &mut peer,
+                &contract_id,
+                &format!("(get-block-info? {property} (+ block-height u1))")
+            ),
+            Value::none()
+        );
+    }
+
+    for height in 2..=4 {
+        assert_eq!(
+            eval_at_tip(
+                &mut peer,
+                &contract_id,
+                &format!("(historical-height-matches u{height})")
+            ),
+            Value::Bool(true)
+        );
+    }
+    for height in 3..=4 {
+        assert_eq!(
+            eval_at_tip(
+                &mut peer,
+                &contract_id,
+                &format!("(historical-info-matches u{height})")
+            ),
+            Value::Bool(true)
+        );
+    }
 }
 
 #[test]
