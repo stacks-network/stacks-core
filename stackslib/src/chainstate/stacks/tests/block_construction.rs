@@ -52,6 +52,7 @@ use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use crate::core::mempool::{MemPoolWalkSettings, MAXIMUM_MEMPOOL_TX_CHAINING};
+use crate::core::test_util::sign_standard_single_sig_tx_anchor_mode_version;
 use crate::core::tests::make_block;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, *};
 use crate::cost_estimates::metrics::UnitMetric;
@@ -970,7 +971,77 @@ fn test_build_anchored_blocks_preserve_state_and_receipts_across_tenures() {
         "set-value",
         vec![foo.clone(), bar.clone()],
     );
-    mine_transaction(&mut peer, 2, &set_value);
+    let wrong_version = sign_standard_single_sig_tx_anchor_mode_version(
+        set_value.payload.clone(),
+        &contract_key,
+        2,
+        1_000,
+        CHAIN_ID_TESTNET,
+        TransactionAnchorMode::OnChainOnly,
+        TransactionVersion::Mainnet,
+    );
+    let wrong_chain_id = sign_standard_single_sig_tx_anchor_mode_version(
+        set_value.payload.clone(),
+        &contract_key,
+        2,
+        1_000,
+        CHAIN_ID_TESTNET + 1,
+        TransactionAnchorMode::OnChainOnly,
+        TransactionVersion::Testnet,
+    );
+    let (set_block, _, _) =
+        mine_mempool_tenure(&mut peer, 2, |chainstate, sortdb, parent_tip, mempool| {
+            let rejection = mempool
+                .submit(
+                    chainstate,
+                    sortdb,
+                    &parent_tip.consensus_hash,
+                    &parent_tip.anchored_header.block_hash(),
+                    &wrong_version,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch21,
+                )
+                .unwrap_err();
+            assert!(matches!(rejection, MemPoolRejection::BadTransactionVersion));
+            assert!(!mempool.has_tx(&wrong_version.txid()));
+
+            let rejection = mempool
+                .submit(
+                    chainstate,
+                    sortdb,
+                    &parent_tip.consensus_hash,
+                    &parent_tip.anchored_header.block_hash(),
+                    &wrong_chain_id,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch21,
+                )
+                .unwrap_err();
+            assert!(matches!(
+                rejection,
+                MemPoolRejection::FailedToValidate(
+                    ChainstateError::InvalidStacksTransaction(ref message, false)
+                ) if message.contains("invalid chain ID")
+            ));
+            assert!(!mempool.has_tx(&wrong_chain_id.txid()));
+
+            mempool
+                .submit(
+                    chainstate,
+                    sortdb,
+                    &parent_tip.consensus_hash,
+                    &parent_tip.anchored_header.block_hash(),
+                    &set_value,
+                    None,
+                    &ExecutionCost::max_value(),
+                    &StacksEpochId::Epoch21,
+                )
+                .unwrap();
+            assert!(mempool.has_tx(&set_value.txid()));
+        });
+    assert_eq!(set_block.txs.len(), 2);
+    assert_eq!(set_block.txs[1].txid(), set_value.txid());
     let set_receipt = receipt_for(&observer, &set_value);
     assert_eq!(set_receipt.result, Value::okay_true());
     assert_eq!(set_receipt.events.len(), 1);
