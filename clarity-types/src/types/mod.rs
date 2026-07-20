@@ -244,7 +244,8 @@ pub struct ResponseData {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CallableData {
     pub contract_identifier: QualifiedContractIdentifier,
-    pub trait_identifier: Option<TraitIdentifier>,
+    /// Boxed to keep `size_of::<Value>()` at 64 bytes.
+    pub trait_identifier: Option<Box<TraitIdentifier>>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]

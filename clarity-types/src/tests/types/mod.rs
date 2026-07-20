@@ -902,3 +902,14 @@ fn test_sequence_try_retain_internal_error() {
     let err = seq.try_retain::<(), _>(utils::keep_all).unwrap_err();
     assert!(matches!(err, RetainValuesError::Internal(_)));
 }
+
+/// Every `Vec<Value>` in the VM scales with this size; a variant growing past
+/// 64 bytes doubles list memory. Box large payloads instead.
+#[test]
+fn test_value_size_regression() {
+    assert!(
+        size_of::<Value>() <= 64,
+        "size_of::<Value>() grew to {} bytes (must stay <= 64)",
+        size_of::<Value>()
+    );
+}
