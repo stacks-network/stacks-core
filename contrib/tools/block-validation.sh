@@ -18,7 +18,8 @@ shopt -s extglob   # enable extended globs (used by strip_ansi)
 #   ${WORK_DIR}/chain/                         chainstate used as the source of slices
 #   ${WORK_DIR}/downloads/                     downloaded Hiro snapshot archive (expanded in-place to chain/ if missing)
 #   ${WORK_DIR}/scratch/                       slice copies + .scratch_meta
-#   ${WORK_DIR}/logs/<timestamp>/              per-run logs: slice*.log + slice*.progress per slice, results.log, plus run.log (plain-text info/warn/error log)
+#   ${WORK_DIR}/logs/<timestamp>/              per-run logs: slice*.log + slice*.progress per slice, results.log, run.log (plain-text info/warn/error log), and status.json (machine-readable run status)
+#   ${WORK_DIR}/logs/latest                    symlink to the current run's <timestamp> log dir (for external pollers)
 #
 # ** Caching (each step skips work when a prior artifact is reusable)
 #   - stacks-core/     : reused if present (updated when rev tracking is enabled)
@@ -97,6 +98,15 @@ info()  { _log "$(blue    'INFO')" "$@"; }
 warn()  { _log "$(yellow  'WARN')" "$@"; }
 error() { _log "$(red     'ERRO')" "$@"; }
 
+# Log an error and abort (exit 1).
+# Also records the plain-text message in `LAST_ERROR`.
+error_and_exit() {
+    error "$@"
+    printf -v LAST_ERROR "$@"
+    LAST_ERROR="$(strip_ansi "${LAST_ERROR}")"
+    exit 1
+}
+
 # Known --repo label
 declare -rA REPO_LABELS=(
     [stacks-core]="https://github.com/stacks-network/stacks-core.git"
@@ -114,6 +124,7 @@ pre_input_config() {
     CORES=""                                   # cores to use for validation; resolved in post_input_config
     NETWORK="mainnet"                          # network to validate
     RANGE="full"                               # block range to validate: scenario or numeric range
+    LAST_ERROR=""                              # last error_and_exit message; surfaced by on_exit in status.json
 
     if [[ -t 1 ]]; then
         IS_TTY=true
@@ -129,6 +140,7 @@ post_input_config() {
     local log_root="${WORK_DIR}/logs"                 
     local timestamp=$(date +%Y-%m-%d-%s)              # year-month-day-epoch
     LOG_DIR="${log_root}/${timestamp}"                # logs folder
+    STATUS_FILE="${LOG_DIR}/status.json"              # machine-readable run status (see status_write)
 
     # Resolve CORES: number of validation workers to run in parallel.
     # Default: max(1, nproc/4) — leaves headroom for the system on large boxes.
@@ -147,8 +159,7 @@ post_input_config() {
         warn "using all ${system_cores} available cores; system may be unresponsive during validation"
     fi
     if [ "${CORES}" -lt 1 ]; then
-        error "cores (${CORES}) must be at least 1"
-        exit 1
+        error_and_exit "cores (${CORES}) must be at least 1"
     fi
 
     # Resolve --repo (label / git URL / local path) into REPO_URL, REPO_DIR, and TRACK_REV.
@@ -160,6 +171,21 @@ post_input_config() {
     # Internal configurations
     SLICE_DIR="${SCRATCH_DIR}/slice"                  # location of slice dirs
     TMUX_SESSION="validation"                         # tmux session name to run the validation
+
+    # status metadata (see status_write). They are filled in as they become known:
+    #   - repo  : REPO_URL, or "LOCAL" when --repo is a local path (no URL)
+    #   - ref   : the pr or rev requested
+    #   - commit: the resolved HEAD (set after checkout in build_stacks_inspect)
+    #   - range : left empty until the numeric block bounds are resolved
+    #             (set per phase in validate_block_range)
+    STATUS_REPO="${REPO_URL:-LOCAL}"
+    if [ -n "${PR_NUMBER}" ]; then
+        STATUS_REF="PR #${PR_NUMBER}"
+    else
+        STATUS_REF="${REPO_REV}"
+    fi
+    STATUS_COMMIT=""
+    STATUS_RANGE=""
 }
 
 # Resolve the --repo argument into REPO_URL, REPO_DIR, and TRACK_REV.
@@ -191,8 +217,7 @@ resolve_repo() {
         REPO_DIR="${arg}"
         TRACK_REV=0
     else
-        error "--repo '${arg}' is not a known label, a git URL, or an existing directory"
-        exit 1
+        error_and_exit "--repo '${arg}' is not a known label, a git URL, or an existing directory"
     fi
 }
 
@@ -213,8 +238,7 @@ resolve_pr() {
     if [[ "${arg}" =~ ^[0-9]+$ ]]; then
         # from the initial `resolve_repo` invocation, in `post_input_config`.
         if [ "${TRACK_REV}" -eq 0 ]; then
-            error "--pr <number> requires --repo not to be a local path"
-            exit 1
+            error_and_exit "--pr <number> requires --repo not to be a local path"
         fi
 
         # Bare number: relative to the repo resolved from --repo.
@@ -229,8 +253,7 @@ resolve_pr() {
         info "Derived repo from PR URL: $(highlight "${REPO}") (PR #${PR_NUMBER})"
         resolve_repo "${REPO}"
     else
-        error "--pr '${arg}' is not a number or a valid PR URL (https://<host>/<owner>/<repo>/pull/<n>)"
-        exit 1
+        error_and_exit "--pr '${arg}' is not a number or a valid PR URL (https://<host>/<owner>/<repo>/pull/<n>)"
     fi
 }
 
@@ -294,8 +317,7 @@ install_cargo() {
     command -v "${HOME}/.cargo/bin/cargo" >/dev/null 2>&1 || {
         eprintln "Installing Rust via rustup"
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || {
-            error "installing Rust"
-            exit 1
+            error_and_exit "installing Rust"
         }
     }
     eprintln "Exporting ${HOME}/.cargo/env"
@@ -315,19 +337,16 @@ checkout_rev() {
         # `checkout -B` is force-create + reset to the upstream tip in one step.
         eprintln "Checking out branch $(highlight "${REPO_REV}") (tracking origin/${REPO_REV})"
         git checkout -B "${REPO_REV}" "origin/${REPO_REV}" || {
-            error "checking out branch ${REPO_REV}"
-            exit 1
+            error_and_exit "checking out branch ${REPO_REV}"
         }
     elif git rev-parse --verify --quiet "${REPO_REV}^{commit}" >/dev/null; then
         # Tag or commit SHA (short/full): detach HEAD at the resolved commit.
         eprintln "Checking out $(highlight "${REPO_REV}") (detached HEAD — tag or commit)"
         git checkout --detach "${REPO_REV}" || {
-            error "checking out ${REPO_REV}"
-            exit 1
+            error_and_exit "checking out ${REPO_REV}"
         }
     else
-        error "revision '${REPO_REV}' not found in ${REPO_DIR} (not a branch, tag, or known commit)"
-        exit 1
+        error_and_exit "revision '${REPO_REV}' not found in ${REPO_DIR} (not a branch, tag, or known commit)"
     fi
 }
 
@@ -352,7 +371,7 @@ setup_git_auth() {
 # Fetch a pull request's head commit into REPO_DIR and detach onto it.
 # Fetches refs/pull/${PR_NUMBER}/head from REPO_URL — that ref lives in the base
 # repo, so fork PRs work without cloning the fork or knowing its branch.
-# Always re-fetches (a PR head moves as the contributor pushes). Aupthentication,
+# Always re-fetches (a PR head moves as the contributor pushes). Authentication,
 # if any, is inherited from the environment (see setup_git_auth).
 fetch_pull_request() {
     local pull_ref="refs/pull/${PR_NUMBER}/head"
@@ -364,18 +383,15 @@ fetch_pull_request() {
         mkdir -p "${REPO_DIR}"
         cd "${REPO_DIR}"
         git init -q || {
-            error "initializing git repo in ${REPO_DIR}"
-            exit 1
+            error_and_exit "initializing git repo in ${REPO_DIR}"
         }
     fi
     info "Fetching $(highlight "${pull_ref}") from $(highlight "${REPO_URL}")"
     git fetch --depth 1 "${REPO_URL}" "${pull_ref}" || {
-        error "fetching ${pull_ref} from ${REPO_URL}"
-        exit 1
+        error_and_exit "fetching ${pull_ref} from ${REPO_URL}"
     }
     git checkout -q --detach FETCH_HEAD || {
-        error "checking out FETCH_HEAD for PR #${PR_NUMBER}"
-        exit 1
+        error_and_exit "checking out FETCH_HEAD for PR #${PR_NUMBER}"
     }
 }
 
@@ -384,43 +400,50 @@ fetch_pull_request() {
 #   When --pr is set: fetch the PR head commit instead (overrides ${REPO_REV}).
 # When TRACK_REV=0 (set by --repo <path>): treat REPO_DIR as a pre-existing checkout.
 build_stacks_inspect() {
-    # Publish token auth (if any) so every git network op below authenticates.
-    setup_git_auth
-
-    if [ "${TRACK_REV}" -eq 0 ]; then
+    status_write "${STATUS_STATE_ONGOING}" "Fetching stacks-inspect"
+    
+    if [ "${TRACK_REV}" -eq 0 ]; then # local path mode
         if [ ! -d "${REPO_DIR}" ]; then
-            error "repo dir not found: ${REPO_DIR}"
-            exit 1
+            error_and_exit "repo dir not found: ${REPO_DIR}"
         fi
         info "Using existing checkout at $(highlight "${REPO_DIR}") as-is (rev tracking disabled)"
-    elif [ -n "${PR_NUMBER}" ]; then
-        # PR mode: fetch refs/pull/<n>/head (overrides --rev).
-        fetch_pull_request
-    elif [ -d "${REPO_DIR}" ]; then
-        info "Found $(highlight "${REPO_DIR}"). Updating to $(highlight "${REPO_REV}")"
-        cd "${REPO_DIR}"
-        # Stash local changes so checkout is clean; --tags pulls in new tags too.
-        git stash --include-untracked
-        git fetch --tags --prune origin || {
-            error "fetching from origin"
-            exit 1
+    else # git mode 
+        # Publish token auth (if any) so every git network op below authenticates.
+        setup_git_auth
+
+        if [ -n "${PR_NUMBER}" ]; then
+            # PR mode: fetch refs/pull/<n>/head (overrides --rev).
+            fetch_pull_request
+        elif [ -d "${REPO_DIR}" ]; then
+            info "Found $(highlight "${REPO_DIR}"). Updating to $(highlight "${REPO_REV}")"
+            cd "${REPO_DIR}"
+            # Stash local changes so checkout is clean; --tags pulls in new tags too.
+            git stash --include-untracked
+            git fetch --tags --prune origin || {
+                error_and_exit "fetching from origin"
+            }
+            checkout_rev
+        else
+            # Full clone (no --branch, since it rejects bare SHAs); resolve REPO_REV afterwards.
+            info "Cloning $(highlight "${REPO_URL}") into $(highlight "${REPO_DIR}")"
+            git clone "${REPO_URL}" "${REPO_DIR}" || {
+                error_and_exit "cloning ${REPO_URL} into ${REPO_DIR}"
+            }
+            cd "${REPO_DIR}"
+            checkout_rev
+        fi
+
+        # Record the resolved HEAD (used in status.json).
+        STATUS_COMMIT="$(git -C "${REPO_DIR}" rev-parse HEAD)" || {
+            error_and_exit "resolving HEAD commit in ${REPO_DIR}"
         }
-        checkout_rev
-    else
-        # Full clone (no --branch, since it rejects bare SHAs); resolve REPO_REV afterwards.
-        info "Cloning $(highlight "${REPO_URL}") into $(highlight "${REPO_DIR}")"
-        git clone "${REPO_URL}" "${REPO_DIR}" || {
-            error "cloning ${REPO_URL} into ${REPO_DIR}"
-            exit 1
-        }
-        cd "${REPO_DIR}"
-        checkout_rev
-    fi
+    fi 
+    
     # Build stacks-inspect to: ${REPO_DIR}/target/release/stacks-inspect
+    status_write "${STATUS_STATE_ONGOING}" "Building stacks-inspect"
     info "Building stacks-inspect binary"
     cd "${REPO_DIR}/contrib/stacks-inspect" && cargo build --bin=stacks-inspect --release || {
-        error "building stacks-inspect binary"
-        exit 1
+        error_and_exit "building stacks-inspect binary"
     }
     info "Done building. continuing"
 }
@@ -428,10 +451,11 @@ build_stacks_inspect() {
 # Resolve chain dir: use the user-provided path if set, otherwise reuse
 # ${WORK_DIR}/chain if present, or download+extract the Hiro snapshot for ${NETWORK}.
 configure_chainstate() {
+    status_write "${STATUS_STATE_ONGOING}" "Preparing chainstate"
+
     if [[ -n "${CHAIN_DIR}" ]]; then
         if [ ! -d "${CHAIN_DIR}" ]; then
-            error "Chainstate not found: ${CHAIN_DIR}"
-            exit 1
+            error_and_exit "Chainstate not found: ${CHAIN_DIR}"
         fi
         info "$(highlight "Using local chainstate: ${CHAIN_DIR}")"
     else
@@ -453,8 +477,7 @@ configure_chainstate() {
             info "Downloading latest ${NETWORK} chainstate archive $(highlight "https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst")"
             local url="https://archive.hiro.so/${NETWORK}/stacks-blockchain/${NETWORK}-stacks-blockchain-latest.tar.zst"
             aria2c -x 16 -s 16 -k 1M --summary-interval=0 -d "${download_dir}" "${url}"  || {
-                error "downloading latest ${NETWORK} chainstate archive"
-                exit 1
+                error_and_exit "downloading latest ${NETWORK} chainstate archive"
             }
         fi
 
@@ -462,12 +485,10 @@ configure_chainstate() {
         mkdir -p "${CHAIN_DIR}"
         info "Extracting downloaded archive: $(highlight "${archive_path}")"
         if [ ! -f "${archive_path}" ]; then
-            error "${archive_path} not found"
-            exit 1
+            error_and_exit "${archive_path} not found"
         fi
         tar --strip-components=1 --zstd -xvf "${archive_path}" -C "${CHAIN_DIR}" || {
-            error "extracting ${NETWORK} chainstate archive"
-            exit 1
+            error_and_exit "extracting ${NETWORK} chainstate archive"
         }
     fi
 }
@@ -483,6 +504,8 @@ configure_chainstate() {
 # of pre-nakamoto block subdirs. Gated on reflink because with reflink each
 # per-slice copy is metadata-only and skipping those subdirs barely helps.
 configure_validation_slices() {
+    status_write "${STATUS_STATE_ONGOING}" "Preparing chainstate slices"
+
     local meta_file="${SCRATCH_DIR}/.scratch_meta"
     local expected_slices="${CORES}"
 
@@ -494,8 +517,7 @@ configure_validation_slices() {
     if [ -f "${chainstate_sentinel}" ]; then
         chainstate_fp=$(stat -c '%Y:%s' "${chainstate_sentinel}")
     else
-        error "chainstate file not found: ${chainstate_sentinel}"
-        exit 1
+        error_and_exit "chainstate file not found: ${chainstate_sentinel}"
     fi
 
     # Probe reflink up-front so we can decide whether to apply the nakamoto-only
@@ -562,13 +584,11 @@ configure_validation_slices() {
     # First clean up any existing scratch dir contents since we're not reusing it.
     info "Deleting existing scratch dir contents: $(highlight "${SCRATCH_DIR}")"
     find "${SCRATCH_DIR}" -mindepth 1 -depth -print0 | xargs -0 -P "${expected_slices}" -n 500 rm -rf || {
-        error "deleting dir contents: ${SCRATCH_DIR}"
-        exit 1
+        error_and_exit "deleting dir contents: ${SCRATCH_DIR}"
     }
     info "Creating scratch and slice dirs"
     mkdir -p "${SLICE_DIR}0" || {
-        error "creating dir ${SLICE_DIR}0"
-        exit 1
+        error_and_exit "creating dir ${SLICE_DIR}0"
     }
 
     # Build slice0 from CHAIN_DIR. Split by reflink availability:
@@ -583,16 +603,14 @@ configure_validation_slices() {
         if [[ ${nakamoto_only} -eq 1 ]]; then
             info "Copying nakamoto-only subset of ${CHAIN_DIR} -> $(highlight "${SLICE_DIR}0")"
             mkdir -p "${SLICE_DIR}0/chainstate/blocks"
-            cp -r "${CHAIN_DIR}/burnchain"     "${SLICE_DIR}0/"           || { error "copying burnchain";    exit 1; }
-            cp -r "${CHAIN_DIR}/chainstate/vm" "${SLICE_DIR}0/chainstate/" || { error "copying chainstate/vm"; exit 1; }
+            cp -r "${CHAIN_DIR}/burnchain"     "${SLICE_DIR}0/"           || error_and_exit "copying burnchain"
+            cp -r "${CHAIN_DIR}/chainstate/vm" "${SLICE_DIR}0/chainstate/" || error_and_exit "copying chainstate/vm"
             # nakamoto.sqlite{,-wal,-shm} — glob covers all three; -shm is recreated by SQLite if missing.
             if ! compgen -G "${CHAIN_DIR}/chainstate/blocks/nakamoto.sqlite*" >/dev/null; then
-                error "nakamoto.sqlite not found in ${CHAIN_DIR}/chainstate/blocks (chainstate too old for naka-only run?)"
-                exit 1
+                error_and_exit "nakamoto.sqlite not found in ${CHAIN_DIR}/chainstate/blocks (chainstate too old for naka-only run?)"
             fi
             cp "${CHAIN_DIR}"/chainstate/blocks/nakamoto.sqlite* "${SLICE_DIR}0/chainstate/blocks/" || {
-                error "copying nakamoto.sqlite"
-                exit 1
+                error_and_exit "copying nakamoto.sqlite"
             }
         else
             info "Copying ${CHAIN_DIR} -> $(highlight "${SLICE_DIR}0")"
@@ -601,20 +619,17 @@ configure_validation_slices() {
 
         info "Moving marf database: ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs -> $(highlight "${SCRATCH_DIR}/marf.sqlite.blobs")"
         mv "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs "${SCRATCH_DIR}"/ || {
-            error "moving marf database"
-            exit 1
+            error_and_exit "moving marf database"
         }
         info "Symlinking marf database: ${SCRATCH_DIR}/marf.sqlite.blobs -> $(highlight "${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs")"
         ln -s "${SCRATCH_DIR}"/marf.sqlite.blobs "${SLICE_DIR}"0/chainstate/vm/clarity/marf.sqlite.blobs || {
-            error "creating symlink: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs"
-            exit 1
+            error_and_exit "creating symlink: ${SCRATCH_DIR}/marf.sqlite.blobs -> ${SLICE_DIR}0/chainstate/vm/clarity/marf.sqlite.blobs"
         }
     fi
 
     # Sanity check that the chainstate db exists in slice0 before copying
     if [ ! -f "${SLICE_DIR}0/chainstate/vm/index.sqlite" ]; then
-        error "chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
-        exit 1
+        error_and_exit "chainstate db not found (${SLICE_DIR}0/chainstate/vm/index.sqlite)"
     fi
 
     # Create one slice copy per worker core (decrement by 1 since slice0 exists).
@@ -627,8 +642,7 @@ configure_validation_slices() {
     for ((i=1;i<=$(( CORES - 1 ));i++)); do
         info "Copying ${SLICE_DIR}0 -> $(highlight "${SLICE_DIR}${i}")"
         cp "${slice_cp_args[@]}" "${SLICE_DIR}0" "${SLICE_DIR}${i}" || {
-            error "copying ${SLICE_DIR}0 -> ${SLICE_DIR}${i}"
-            exit 1
+            error_and_exit "copying ${SLICE_DIR}0 -> ${SLICE_DIR}${i}"
         }
     done
 
@@ -649,11 +663,77 @@ configure_validation_slices() {
 # the live progress spinner never reach the file, keeping run.log clean and greppable.
 setup_logs() {
     mkdir -p "${LOG_DIR}" || {
-        error "creating logs dir ${LOG_DIR}"
-        exit 1
+        error_and_exit "creating logs dir ${LOG_DIR}"
     }
     LOG_FILE="${LOG_DIR}/run.log"
     info "Logging to $(highlight "${LOG_FILE}")"
+    # Point logs/latest at this run so external pollers (e.g. the triage GitHub
+    # App) can find status.json without knowing the timestamp; then publish the
+    # initial status.
+    ln -sfn "${LOG_DIR}" "$(dirname "${LOG_DIR}")/latest" || {
+        error_and_exit "creating logs/latest symlink for ${LOG_DIR}"
+    }
+}
+
+# ------------------------------------------------------------------------
+# Run status file (status.json)
+#
+# The set of values the status "state" field can take. Defined as constants so
+# call sites and any external consumer share one source of truth.
+declare -r STATUS_STATE_ONGOING="ONGOING"   # validation is in progress (preparing/validating)
+declare -r STATUS_STATE_SUCCESS="SUCCESS"   # validation completed with success
+declare -r STATUS_STATE_FAILURE="FAILURE"   # validation completed with failures
+declare -r STATUS_STATE_ERROR="ERROR"       # unexpected abort (see LAST_ERROR / run.log)
+#
+# A tiny machine-readable status document maintained alongside the logs so
+# external tooling can poll a run to completion without parsing run.log. It is
+# written atomically (tmp + mv) so a reader never sees a half-written file.
+#
+#   { "state": <s>, "message": <str>,
+#     "repo": <url|LOCAL>, "commit": <sha>, "ref": <str>, "range": <str>,
+#     "started_at": <iso8601>, "updated_at": <iso8601> }
+#
+#   state    ONGOING (preparing/validating) | SUCCESS | FAILURE (validation
+#            failed; per-block detail in results.log) | ERROR (unexpected abort)
+#   message  human-readable current activity
+#   range    empty until the numeric block bounds are resolved
+#
+# status_write <state> <message>
+# Builds the JSON with jq (guaranteed valid + correctly escaped) and swaps it in
+# atomically. started_at is stamped once on the first write. The run metadata
+# (repo/commit/ref/range) is read from the STATUS_* globals, which are populated
+# as they become known.
+status_write() {
+    local state=$1 message=$2
+    : "${STATUS_STARTED_AT:=$(date +%Y-%m-%dT%H:%M:%S%z)}"
+    local tmp="${STATUS_FILE}.tmp"
+    jq -n \
+        --arg     state      "${state}" \
+        --arg     message    "${message}" \
+        --arg     repo       "${STATUS_REPO:-}" \
+        --arg     commit     "${STATUS_COMMIT:-}" \
+        --arg     ref        "${STATUS_REF:-}" \
+        --arg     range      "${STATUS_RANGE:-}" \
+        --arg     started_at "${STATUS_STARTED_AT}" \
+        --arg     updated_at "$(date +%Y-%m-%dT%H:%M:%S%z)" \
+        '{state: $state, message: $message, repo: $repo, commit: $commit, ref: $ref, range: $range, started_at: $started_at, updated_at: $updated_at}' \
+        > "${tmp}" || {
+        error_and_exit "writing status file ${tmp}"
+    }
+    mv -f "${tmp}" "${STATUS_FILE}" || {
+        error_and_exit "updating status file ${STATUS_FILE}"
+    }
+}
+
+# EXIT trap: runs on every exit — normal, an explicit `exit N`, or a `set -e`
+# abort, so it reports *all* failure paths, not just unguarded ones.
+on_exit() {
+    local rc=$?
+    cleanup_tmux
+        
+    if [ "${rc}" -ne 0 ]; then
+        status_write "${STATUS_STATE_ERROR}" "${LAST_ERROR:-Run aborted (exit ${rc}); see run.log}"
+    fi
 }
 
 # EXIT trap handler: kill the tmux session so worker processes don't outlive the
@@ -673,53 +753,56 @@ setup_tmux() {
         cleanup_tmux
     fi
     tmux new-session -d -s "${TMUX_SESSION}" -n "slice0" || {
-        error "creating tmux session $(highlight "${TMUX_SESSION}")"
-        exit 1
+        error_and_exit "creating tmux session $(highlight "${TMUX_SESSION}")"
     }
-    # Register cleanup as soon as the session exists, so a failure in the
-    # window-creation loop below still tears the session down.
-    trap cleanup_tmux EXIT
+
     local i
     for ((i=1; i<CORES; i++)); do
         tmux new-window -t "${TMUX_SESSION}" -d -n "slice${i}" || {
-            error "creating tmux window $(highlight "slice${i}")"
-            exit 1
+            error_and_exit "creating tmux window $(highlight "slice${i}")"
         }
     done
     return 0
 }
 
-# Query stacks-inspect for the total number of blocks in the given epoch.
-# Args: <mode>  (pre-nakamoto | nakamoto)
-# Prints the total to stdout; errors go to stderr.
+# Query stacks-inspect for the total number of blocks in the given epoch and
+# store it in the caller-named variable <out_var>.
+# Args: <mode> (pre-nakamoto | nakamoto)  <out_var>
+#
+# The result is returned by assignment, not on stdout, so callers invoke it
+# directly (not in $(...)). That keeps a failing error_and_exit in the caller's
+# shell.
+#
 # Always reads from CHAIN_DIR (the canonical chainstate) so callers don't need
 # slices to exist, and so the answer is consistent whether called during slice
 # prep or while workers are running.
 get_total_blocks() {
-    local mode=$1
+    local mode=$1 out_var=$2
     local range_command
     case "$mode" in
         nakamoto)     range_command="naka-index-range" ;;
         pre-nakamoto) range_command="index-range" ;;
         *)
-            error "get_total_blocks: invalid mode '${mode}'"
-            exit 1
+            error_and_exit "get_total_blocks: invalid mode '${mode}'"
             ;;
     esac
     local inspect_bin="${REPO_DIR}/target/release/stacks-inspect"
     local inspect_config="${REPO_DIR}/sample/conf/${NETWORK}-follower-conf.toml"
-    local count_output
-    if ! count_output=$("${inspect_bin}" --config "${inspect_config}" validate-block "${CHAIN_DIR}" "${range_command}" 2>/dev/null); then
-        error "retrieving total ${mode} blocks from chainstate"
-        exit 1
+    # Capture stderr to a file so the real stacks-inspect error
+    # (e.g. a chainstate permission/DB error) is preserved for post-mortem.
+    local count_output errfile="${LOG_DIR}/inspect-${mode}.err"
+    if ! count_output=$("${inspect_bin}" --config "${inspect_config}" validate-block "${CHAIN_DIR}" "${range_command}" 2>"${errfile}"); then
+        error_and_exit "retrieving total ${mode} blocks from chainstate (see ${errfile})"
     fi
+    # Drop the error file if the command succeeded, so we don't leave stale files around.
+    rm -f "${errfile}" 2>/dev/null
+
     local total
     total=$(printf '%s\n' "${count_output}" | awk -F " " '{print $NF}')
     if [ -z "${total}" ]; then
-        error "parsing block count for ${mode}"
-        exit 1
+        error_and_exit "parsing block count for ${mode}"
     fi
-    printf '%s' "${total}"
+    printf -v "${out_var}" '%s' "${total}"
 }
 
 # Returns 0 (true) if the current RANGE only validates Epoch 3+ (nakamoto) blocks,
@@ -742,7 +825,7 @@ is_range_nakamoto_only() {
                 return 1
             fi
             local pre_total
-            pre_total=$(get_total_blocks pre-nakamoto)
+            get_total_blocks pre-nakamoto pre_total
             # Range fully above the epoch2/3 boundary => nakamoto-only.
             # Straddling ranges still need pre-naka blocks (run_validation splits them).
             [ "${start}" -ge "${pre_total}" ] && [ "${end}" -ge "${pre_total}" ]
@@ -763,8 +846,7 @@ validate_block_range() {
         nakamoto)     range_command="naka-index-range"; log_append="_nakamoto" ;;
         pre-nakamoto) range_command="index-range";      log_append="" ;;
         *)
-            error "validate_block_range: invalid mode '${mode}'"
-            exit 1
+            error_and_exit "validate_block_range: invalid mode '${mode}'"
             ;;
     esac
     # Convert the inclusive global block range to the half-open epoch-local index
@@ -777,24 +859,22 @@ validate_block_range() {
     case "$mode" in
         nakamoto)
             local pre_total naka_total
-            pre_total=$(get_total_blocks pre-nakamoto)
-            naka_total=$(get_total_blocks nakamoto)
+            get_total_blocks pre-nakamoto pre_total
+            get_total_blocks nakamoto naka_total
             local epoch_min=${pre_total}
             local epoch_max=$((pre_total + naka_total - 1))
             if [ "${global_start}" -lt "${epoch_min}" ] || [ "${global_end}" -gt "${epoch_max}" ]; then
-                error "nakamoto range ${global_start}-${global_end} is outside the available epoch (${epoch_min}-${epoch_max})"
-                exit 1
+                error_and_exit "nakamoto range ${global_start}-${global_end} is outside the available epoch (${epoch_min}-${epoch_max})"
             fi
             starting_block=$((global_start - pre_total))
             total_blocks=$((global_end - pre_total + 1))
             ;;
         pre-nakamoto)
             local pre_total
-            pre_total=$(get_total_blocks pre-nakamoto)
+            get_total_blocks pre-nakamoto pre_total
             local epoch_max=$((pre_total - 1))
             if [ "${global_start}" -lt 0 ] || [ "${global_end}" -gt "${epoch_max}" ]; then
-                error "pre-nakamoto range ${global_start}-${global_end} is outside the available epoch (0-${epoch_max})"
-                exit 1
+                error_and_exit "pre-nakamoto range ${global_start}-${global_end} is outside the available epoch (0-${epoch_max})"
             fi
             starting_block=${global_start}
             total_blocks=$((global_end + 1))
@@ -869,18 +949,16 @@ validate_block_range() {
         echo "Validating blocks: ${global_slice_start}-${global_slice_end} (out of ${global_end})" >> "${log_file}"
         echo "Progress updates will be written to: ${progress_file}" >> "${log_file}"
         tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "${cmd}" Enter || {
-            error "sending stacks-inspect command to tmux window $(highlight "slice${slice_counter}")"
-            exit 1
+            error_and_exit "sending stacks-inspect command to tmux window $(highlight "slice${slice_counter}")"
         }
         # PIPESTATUS[0] is still stacks-inspect (first pipeline stage), so the
         # return-code capture continues to work unchanged.
         tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "echo \${PIPESTATUS[0]} >> ${log_file}" Enter || {
-            error "sending return status command to tmux window $(highlight "slice${slice_counter}")"
-            exit 1
+            error_and_exit "sending return status command to tmux window $(highlight "slice${slice_counter}")"
         }
         slice_counter=$((slice_counter + 1))
     done
-    check_progress "${slice_progress_files[@]}"
+    check_progress "${mode}" "${slice_progress_files[@]}"
     info "************************************************************************"
     phase_end "${range_label}" "${range_start}"
 }
@@ -892,6 +970,8 @@ validate_block_range() {
 #   pre-naka : globals 0..185629    (inclusive, pre_total blocks)
 #   naka     : globals 185630..N    (inclusive, naka_total blocks)
 run_validation() {
+    status_write "${STATUS_STATE_ONGOING}" "Starting block validation"
+
     case "${RANGE}" in
         test)
             local pre_start pre_end
@@ -904,25 +984,29 @@ run_validation() {
             fi
             local naka_start=300883 naka_end=301882
 
+            STATUS_RANGE="test"
             info "$(bold_yellow "Validating in test mode")"
             validate_block_range pre-nakamoto "${pre_start}" "${pre_end}"
             validate_block_range nakamoto "${naka_start}" "${naka_end}"
             ;;
         pre-nakamoto)
             local pre_total
-            pre_total=$(get_total_blocks pre-nakamoto)
+            get_total_blocks pre-nakamoto pre_total
+            STATUS_RANGE="0 - $((pre_total - 1))"
             validate_block_range pre-nakamoto 0 $((pre_total - 1))
             ;;
         nakamoto)
             local pre_total naka_total
-            pre_total=$(get_total_blocks pre-nakamoto)
-            naka_total=$(get_total_blocks nakamoto)
+            get_total_blocks pre-nakamoto pre_total
+            get_total_blocks nakamoto naka_total
+            STATUS_RANGE="${pre_total} - $((pre_total + naka_total - 1))"
             validate_block_range nakamoto "${pre_total}" $((pre_total + naka_total - 1))
             ;;
         full)
             local pre_total naka_total
-            pre_total=$(get_total_blocks pre-nakamoto)
-            naka_total=$(get_total_blocks nakamoto)
+            get_total_blocks pre-nakamoto pre_total
+            get_total_blocks nakamoto naka_total
+            STATUS_RANGE="0 - $((pre_total + naka_total - 1))"
             validate_block_range pre-nakamoto 0 $((pre_total - 1))
             validate_block_range nakamoto "${pre_total}" $((pre_total + naka_total - 1))
             ;;
@@ -933,25 +1017,23 @@ run_validation() {
                 start=${BASH_REMATCH[1]}
                 end=${BASH_REMATCH[2]}
                 if [ "${start}" -gt "${end}" ]; then
-                    error "Invalid range: start (${start}) > end (${end})"
-                    exit 1
+                    error_and_exit "Invalid range: start (${start}) > end (${end})"
                 fi
             elif [[ "${RANGE}" =~ ^([0-9]+)[+]([0-9]+)$ ]]; then
                 # <start>+<count>  -- N blocks starting at start (count must be > 0)
                 start=${BASH_REMATCH[1]}
                 local count=${BASH_REMATCH[2]}
                 if [ "${count}" -lt 1 ]; then
-                    error "Invalid count: must be at least 1 (got ${count})"
-                    exit 1
+                    error_and_exit "Invalid count: must be at least 1 (got ${count})"
                 fi
                 end=$((start + count - 1))
             else
-                error "Invalid --range value: '${RANGE}'"
-                exit 1
+                error_and_exit "Invalid --range value: '${RANGE}'"
             fi
             
+            STATUS_RANGE="${start} - ${end}"
             local pre_total
-            pre_total=$(get_total_blocks pre-nakamoto)
+            get_total_blocks pre-nakamoto pre_total
             if [ "${end}" -lt "${pre_total}" ]; then
                 validate_block_range pre-nakamoto "${start}" "${end}"
             elif [ "${start}" -ge "${pre_total}" ]; then
@@ -1020,10 +1102,13 @@ format_hms() {
 # Pretty print the status output (simple spinner while pids are active)
 # Args: <progress_file>...   slice .progress files for the current phase, used to estimate %.
 check_progress() {
+    local phase_label=$1
+    shift
     local slice_progress=("$@")
     local progress=1
     local symbols="/-\|"
     local count pct spinner elapsed
+    local last_pct=""   # last % published to status.json (throttles rewrites)
     local timer=$(timer_start)
     # Give the pids a while to show up in the process table before checking if they're running
     while true; do
@@ -1044,6 +1129,12 @@ check_progress() {
         elapsed=$(timer_elapsed "${timer}")
         if [ "${count}" -gt 0 ]; then
             pct=$(compute_progress_pct "${slice_progress[@]}")
+            # Publish to status.json only when the pct changes, to avoid rewriting
+            # the file every second.
+            if [ "${pct}" != "${last_pct}" ]; then
+                last_pct="${pct}"
+                status_write "${STATUS_STATE_ONGOING}" "Validating ${phase_label} blocks ${pct}"
+            fi
             spinner="${symbols:progress++%${#symbols}:1}"
             ${IS_TTY} && eprint "Processes: [ %s ] Progress: [ %s ] Elapsed: [ %s ] ...  \b%s  \033[0K\r" \
                             "$(bold_yellow "${count}")" "$(bold_yellow "${pct}")" "$(bold_yellow "$(format_hms "${elapsed}")")" "${spinner}"
@@ -1067,8 +1158,7 @@ store_results() {
     local return_code=0;
     local count_one=0
     cd "${LOG_DIR}" || {
-        error "Logdir $(highlight "${LOG_DIR}") doesn't exist"
-        exit 1
+        error_and_exit "Logdir $(highlight "${LOG_DIR}") doesn't exist"
     }
     # Retrieve the count of all lines with `Failed processing block`
     # Check the return codes to see if we had a panic
@@ -1124,8 +1214,10 @@ store_results() {
 
     if [ "${failure_count}" -eq 0 ]; then
         info "$(bold_green "Block Validation successful!")"
+        status_write "${STATUS_STATE_SUCCESS}" "Block validation successful"
     else
         error "Block validation failures detected: ${failure_count}"
+        status_write "${STATUS_STATE_FAILURE}" "Block validation failed: ${failure_count} failure(s)"
     fi
 }
 
@@ -1136,7 +1228,7 @@ check_dependencies() {
     local cmd rp package find_path
     local -a required=(
         apt-get sudo curl tmux git aria2c tar zstd grep cc cargo pgrep tput
-        find xargs awk sed nproc stat stdbuf
+        find xargs awk sed nproc stat stdbuf jq
     )
     for cmd in "${required[@]}"; do
         # In Alpine, `find` may be a symlink to busybox, whose `find` lacks flags we use.
@@ -1147,8 +1239,7 @@ check_dependencies() {
             if [ -L "${find_path}" ]; then
                 rp="$(readlink "${find_path}")"
                 if [[ "${rp}" == *busybox* ]]; then
-                    error "Busybox 'find' is not supported. Please install 'findutils' or similar."
-                    exit 1
+                    error_and_exit "Busybox 'find' is not supported. Please install 'findutils' or similar."
                 fi
             fi
         fi
@@ -1196,12 +1287,10 @@ check_dependencies() {
             esac
 
             if [[ ${has_apt} = 0 ]] || [[ ${has_sudo} = 0 ]]; then
-                error "Missing command '${cmd}'"
-                exit 1
+                error_and_exit "Missing command '${cmd}'"
             fi
             (sudo apt-get update && sudo apt-get install -y "${package}") || {
-                error "installing $package"
-                exit 1
+                error_and_exit "installing $package"
             }
         }
     done
@@ -1280,8 +1369,7 @@ parse_input() {
                 # Cores to use for validation
                 require_value "${1}" "${2:-}"
                 if ! [[ "$2" =~ ^[0-9]+$ ]]; then
-                    error "arg ($2) is not a number."
-                    exit 1
+                    error_and_exit "arg ($2) is not a number."
                 fi
                 CORES=${2}
                 shift
@@ -1357,6 +1445,7 @@ main() {
     check_dependencies
     ${IS_TTY} && tput reset
     setup_logs
+    trap on_exit EXIT
 
     # Validation preparation
     local prep_start=$(phase_start "Preparation")
