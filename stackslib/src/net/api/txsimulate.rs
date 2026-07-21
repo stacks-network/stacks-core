@@ -68,8 +68,9 @@ impl RPCTransactionSimulateRequestHandler {
         let tx_simulate_body: RPCTransactionSimulateBody = serde_json::from_slice(body)
             .map_err(|e| Error::DecodeError(format!("Failed to parse body: {e}")))?;
 
-        let tx_bytes = hex_bytes(&tx_simulate_body.transaction_hex)
-            .map_err(|_e| Error::DecodeError("Failed to parse tx".into()))?;
+        let tx_bytes = hex_bytes(&tx_simulate_body.transaction_hex).map_err(|e| {
+            Error::DecodeError(format!("Failed to parse `transaction_hex` as hex: {e}"))
+        })?;
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).map_err(|e| {
             if let CodecError::DeserializeError(msg) = e {
                 Error::DecodeError(format!("Failed to deserialize transaction: {}", msg))
@@ -149,7 +150,12 @@ impl RPCTransactionSimulateRequestHandler {
         // by the current tenure; reset it so the transaction gets the full
         // tenure execution budget
         tenure_tx.reset_cost(ExecutionCost::ZERO);
-        let execution_limit = tenure_tx.block_limit();
+        let Some(execution_limit) = tenure_tx.block_limit() else {
+            tenure_tx.rollback_block();
+            return Err(ChainError::InvalidStacksBlock(
+                "Cost tracker unavailable for simulated block".into(),
+            ));
+        };
 
         let block_height = builder.header.chain_length;
 
@@ -225,7 +231,7 @@ pub struct RPCSimulatedTransaction {
     /// execution cost consumed by the transaction
     pub execution_cost: ExecutionCost,
     /// the execution limit the simulation ran under (the full tenure budget)
-    pub execution_limit: Option<ExecutionCost>,
+    pub execution_limit: ExecutionCost,
     /// generated events
     pub events: Vec<serde_json::Value>,
     /// whether the tx was aborted by a post-condition
@@ -240,7 +246,7 @@ impl RPCSimulatedTransaction {
         tip_block_id: StacksBlockId,
         consensus_hash: ConsensusHash,
         block_height: u64,
-        execution_limit: Option<ExecutionCost>,
+        execution_limit: ExecutionCost,
     ) -> Result<Self, ChainError> {
         let txid = receipt.transaction.txid();
 

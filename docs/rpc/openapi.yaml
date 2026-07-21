@@ -2569,10 +2569,10 @@ paths:
                     type: integer
                     description: Amount of microSTX burned
                   execution_cost:
-                    type: object
+                    $ref: "#/components/schemas/ExecutionCost"
                     description: Execution cost consumed by the transaction
                   execution_limit:
-                    type: object
+                    $ref: "#/components/schemas/ExecutionCost"
                     description: The execution limit the simulation ran under (the full tenure budget)
                   events:
                     type: array

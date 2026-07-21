@@ -246,9 +246,8 @@ fn test_try_make_response() {
     // a contract-call must have consumed some of the execution budget, and
     // the reported limit is the full tenure budget
     assert!(resp.execution_cost.runtime > 0);
-    let execution_limit = resp.execution_limit.clone().unwrap();
     assert!(resp.execution_cost.exceeds(&ExecutionCost::ZERO));
-    assert!(!resp.execution_cost.exceeds(&execution_limit));
+    assert!(!resp.execution_cost.exceeds(&resp.execution_limit));
 
     // got a failure for the stale nonce (400)
     let response = responses.remove(0);
