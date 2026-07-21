@@ -4,7 +4,67 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "0a311df5a45cfb5e67beab4a8ec93cf43ef57501f4d9843d8ea1600231aaead8",
+    marf_hash: "2965551a637f75c6accf93a0d7b1c890a09b573191a976523221a91bc5ca3472",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: too-many-allowances-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: too many allowances specified, the maximum is 128, found 130) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 396,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 51150,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 396,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 51150,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c0a48526177feefc61648c150b16691df1acc4634075045c9b7ffe47a42f80e5",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: too-many-allowances-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: too many allowances specified, the maximum is 128, found 130) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 396,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 51150,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 396,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 51150,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "94e05ea0b778e23953f9120a891e67a4a779e05f686178b0b3a4acc756b1b64f",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +94,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6f2abc70a73c6deebf584ccbf2470f648030a667a88680a8214307f05616792c",
+    marf_hash: "08b8af599ec406af2730b3b1e0ffa459874f0310af4887238f51e58c3c0b2e35",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +124,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6cf7ed9663a5a9463e7df0da4cd48449c54b7fc62d4c9f43d2c7a5857a2df799",
+    marf_hash: "8d336804a62fd5ae90606ad3d30e4bc2504d0baf09db6b7b736d07337f7b1b17",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(

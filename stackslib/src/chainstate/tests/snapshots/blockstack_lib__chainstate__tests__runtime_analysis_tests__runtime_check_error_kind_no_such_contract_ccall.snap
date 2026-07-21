@@ -4,7 +4,37 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "0c1c9484e0926be8d9c89264304cd216a278c9acb23a64806764b07bbbdc6652",
+    marf_hash: "209eb956b14fb7bfb9170f3e4be7da2a0e7e0623c467dbe7b94e463e3cba5736",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: non-existent-contract, function_name: this-function-does-not-exist, function_args: [[]])",
+        vm_error: "Some(NoSuchContract(\"ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.non-existent-contract\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 0,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 0,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e087954220d59cedfc256fedd701a07f05cb6e967cc41c1578b79e098b1e2f6e",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(

@@ -4,7 +4,157 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "1df8da5e25dee9442dc2f981dc84752c804a18a43659ad3bd6cea2ab77d55f01",
+    marf_hash: "696d3650a28084571047d0878e785b30aeeff65fbd7b88a007ef287b64cc87b9",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: invalid tuple syntax: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 146,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 146,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12835,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7c9575bd8b1d9ba290dee34c3e322ff454a15765073f77d81e746e770269fc4e",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: invalid tuple syntax: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 146,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 146,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12835,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "83175b7e0d9298081835b198c14317d191676692d9e0bcc93dbbb2dfaedc0cd3",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: invalid tuple syntax: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 146,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 146,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12835,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "68eaa446de0b7f4a4f45227515091b1f5960275a3e04537e656f889209848f5e",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: invalid tuple syntax: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 146,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 146,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12835,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "00fdd1727a32ee6840ce893a05d0cbc5269215aaf8438df5f00758919c1ce2c9",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: invalid tuple syntax: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 146,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 146,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12835,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "26a1eaf142dc5aaa3f4f732e199fd7ddb1796466cd6f8d76b824aee929380c31",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +184,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0d9238561b418caeba69cba42d88b2a518a7501765bce9985f8a60c604a09186",
+    marf_hash: "264465633d25236ab0846e6be15be1e55c20d4f1d20c266f594b5e5a9d9e4481",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +214,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fdf4fcfd040d19ca29420e0ce17f85a26d15406b2b2ee8969df6ec85663e6cc5",
+    marf_hash: "28df8928e67464c0301d4f0a4fee0a4a8dd6b57e0ede1d209eac14753449d22e",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +244,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "93a06cc5a08fe4953246497ee6e7f7763e67fc5a3fc8994335924443be6dd0bc",
+    marf_hash: "3be49fb001b52fc1cd27c321b091b1d65571e506c2f1887ffa3c5f449dc31293",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +274,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0865e095acc7ee18c41974d8cf19e454dca0df01e46786ac6475160455ee1e74",
+    marf_hash: "7657c4d505b5e940c677389b04827e7806818e991d1b08a85d67b78d16d57f78",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +304,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "85d709ddbe58a38a867ff1b507526980455c0a7b788073e7261b3e3af1eaa154",
+    marf_hash: "d6a711ccaae50ffabcb36dc1154e9d25019ef6ade553b99b270baff5a0944c28",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(

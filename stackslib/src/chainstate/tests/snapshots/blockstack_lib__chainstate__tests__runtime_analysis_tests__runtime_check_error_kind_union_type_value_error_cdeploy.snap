@@ -4,7 +4,67 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "ce726adbcd230d4da5819cbd84404c952ca7b6856d6a807411a6429724957fd3",
+    marf_hash: "c5371199209203a6d68c0fc2e01dfebd9e6df55528950223be7e8ba8cc94fea5",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-2-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(UnionTypeValueError([IntType, UIntType, BoolType, PrincipalType, SequenceType(BufferType(BufferLength(524284))), SequenceType(StringType(UTF8(StringUTF8Length(262144))))], \"CallableContract(CallableData { contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-1\\\") }, trait_identifier: Some(TraitIdentifier { name: ClarityName(\\\"trait-1\\\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-2-Epoch3_4-Clarity4\\\") } }) })\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 287,
+          write_count: 2,
+          read_length: 3,
+          read_count: 2,
+          runtime: 24611,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 287,
+      write_count: 2,
+      read_length: 3,
+      read_count: 2,
+      runtime: 24611,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9b452eda2915a462a58ccd6e79370080ce2e833fad9e026e1cea850fc7f1ac01",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-2-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(UnionTypeValueError([IntType, UIntType, BoolType, PrincipalType, SequenceType(BufferType(BufferLength(524284))), SequenceType(StringType(UTF8(StringUTF8Length(262144))))], \"CallableContract(CallableData { contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-1\\\") }, trait_identifier: Some(TraitIdentifier { name: ClarityName(\\\"trait-1\\\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\\\"contract-2-Epoch3_4-Clarity5\\\") } }) })\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 287,
+          write_count: 2,
+          read_length: 3,
+          read_count: 2,
+          runtime: 24611,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 287,
+      write_count: 2,
+      read_length: 3,
+      read_count: 2,
+      runtime: 24611,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5c469c82d4b05389e80a323d0ed73950ff94da7f2f2aff229211bc28db0e14b7",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +94,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1b028c318b0fc7f90376fe9dc501b88c9171afcf81ea63532be90119b0f428ca",
+    marf_hash: "054f03c04913818d5346f411183c758d2dabebe027b6f8eccc6d8899fa6cf26d",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +124,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "064eebe98c29f306e770ef868309304ab4ac5e2d6109aef055edee6a42955731",
+    marf_hash: "7a727212e3a1a9411016e4325d7f63529660299b2b5d50ef53adcfbb4e1421e4",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
