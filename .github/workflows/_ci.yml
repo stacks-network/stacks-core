@@ -144,11 +144,8 @@ jobs:
       github.event.repository.visibility == 'public'
     runs-on: *shared_config
     outputs:
-      node_tag: ${{ steps.check-release.outputs.node_tag }}
-      signer_tag: ${{ steps.check-release.outputs.signer_tag }}
-      is_node_release: ${{ steps.check-release.outputs.is_node_release }}
-      is_signer_release: ${{ steps.check-release.outputs.is_signer_release }}
-      is_release: ${{ steps.check-release.outputs.is_node_release || steps.check-release.outputs.is_signer_release }}
+      tag: ${{ steps.check-release.outputs.tag }}
+      is_release: ${{ steps.check-release.outputs.is_release }}
     steps:
       # Checkout the code
       #   - only .github and versions.toml are required for this job
@@ -356,9 +353,7 @@ jobs:
       packages: write      # required for image push to ghcr
     uses: ./.github/workflows/release-github.yml
     with:
-      node_tag: ${{ needs.check-release.outputs.node_tag }} # 5 place version format like 3.3.0.0.3
-      signer_tag: ${{ needs.check-release.outputs.signer_tag }} # 6 place version format like 3.3.0.0.3.0
-      is_node_release: ${{ needs.check-release.outputs.is_node_release }} # boolean used in matrix conditional in .github/workflows/release-github.yml
+      tag: ${{ needs.check-release.outputs.tag }} # 3-part version shared by the node and signer, like 4.0.0
 
   ############################################################################
   ### Create Job Summary: Slow & Failed Tests
