@@ -185,13 +185,13 @@ impl RPCTransactionSimulateRequestHandler {
 
         tenure_tx.rollback_block();
 
-        Ok(RPCSimulatedTransaction::from_receipt(
+        RPCSimulatedTransaction::from_receipt(
             &receipt,
             tip_block_id.clone(),
             consensus_hash,
             block_height,
             execution_limit,
-        ))
+        )
     }
 }
 
@@ -229,7 +229,7 @@ impl RPCSimulatedTransaction {
         consensus_hash: ConsensusHash,
         block_height: u64,
         execution_limit: Option<ExecutionCost>,
-    ) -> Self {
+    ) -> Result<Self, ChainError> {
         let txid = receipt.transaction.txid();
 
         let events = if receipt.post_condition_aborted {
@@ -239,11 +239,17 @@ impl RPCSimulatedTransaction {
                 .events
                 .iter()
                 .enumerate()
-                .map(|(event_index, event)| event.json_serialize(event_index, &txid, true).unwrap())
-                .collect()
+                .map(|(event_index, event)| {
+                    event.json_serialize(event_index, &txid, true).map_err(|e| {
+                        ChainError::InvalidStacksBlock(format!(
+                            "Failed to serialize transaction event: {e}"
+                        ))
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?
         };
 
-        Self {
+        Ok(Self {
             txid,
             tip_block_id,
             consensus_hash,
@@ -255,7 +261,7 @@ impl RPCSimulatedTransaction {
             events,
             post_condition_aborted: receipt.post_condition_aborted,
             vm_error: receipt.vm_error.clone(),
-        }
+        })
     }
 }
 
