@@ -519,10 +519,15 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
     /// whole consensus transaction engine (`process_transaction`, `finish_block`,
     /// `seal`, …) against a custom [`WritableMarfStore`] backend rather than the
     /// datastore owned by a `ClarityInstance`.
-    pub fn from_block_connection(
-        block: ClarityBlockConnection<'a, 'b>,
-        config: DBConfig,
-    ) -> ClarityTx<'a, 'b> {
+    ///
+    /// `DBConfig` is derived from the block connection so mainnet/chain_id cannot
+    /// disagree with the store being driven.
+    pub fn from_block_connection(block: ClarityBlockConnection<'a, 'b>) -> ClarityTx<'a, 'b> {
+        let config = DBConfig {
+            mainnet: block.is_mainnet(),
+            chain_id: block.chain_id(),
+            version: CHAINSTATE_VERSION.to_string(),
+        };
         ClarityTx { block, config }
     }
 

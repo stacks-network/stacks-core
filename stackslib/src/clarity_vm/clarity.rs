@@ -425,6 +425,16 @@ impl ClarityBlockConnection<'_, '_> {
         }
     }
 
+    /// Whether this connection is for mainnet.
+    pub fn is_mainnet(&self) -> bool {
+        self.mainnet
+    }
+
+    /// Chain ID for this connection.
+    pub fn chain_id(&self) -> u32 {
+        self.chain_id
+    }
+
     /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
     /// Used by the miner to "undo" applying a transaction that exceeded the budget.
     pub fn reset_block_cost(&mut self, cost: ExecutionCost) {
