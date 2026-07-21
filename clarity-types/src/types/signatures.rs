@@ -1269,7 +1269,7 @@ impl TypeSignature {
             Value::Response(v) => v.type_signature()?,
             Value::CallableContract(v) => {
                 if let Some(trait_identifier) = &v.trait_identifier {
-                    CallableType(CallableSubtype::Trait(trait_identifier.clone()))
+                    CallableType(CallableSubtype::Trait(trait_identifier.as_ref().clone()))
                 } else {
                     CallableType(CallableSubtype::Principal(v.contract_identifier.clone()))
                 }
