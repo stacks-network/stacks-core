@@ -59,8 +59,7 @@ use crate::net::tests::NakamotoBootPlan;
 pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch34, StacksEpochId::Epoch40];
 
 /// The latest epoch exercised by the consensus snapshot tests, i.e. the maximum
-/// of [`EPOCHS_TO_TEST`]. Epochs beyond this are intentionally excluded (e.g.
-/// Epoch 4.0 while it is under active development).
+/// of [`EPOCHS_TO_TEST`]. Epochs beyond this are intentionally excluded.
 pub fn max_tested_epoch() -> StacksEpochId {
     *EPOCHS_TO_TEST
         .iter()
