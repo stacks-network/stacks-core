@@ -367,8 +367,8 @@ impl ClarityBlockConnection<'_, '_> {
     ///
     /// The store must already be positioned on the block being built (its
     /// `begin`/`extend_to_block` equivalent has run).
-    pub fn from_writable_store<'a, 'b, D: WritableMarfStore + 'a>(
-        mut datastore: D,
+    pub fn from_writable_store<'a, 'b>(
+        mut datastore: Box<dyn WritableMarfStore + 'a>,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
         mainnet: bool,
@@ -390,7 +390,7 @@ impl ClarityBlockConnection<'_, '_> {
         };
 
         ClarityBlockConnection {
-            datastore: Box::new(datastore),
+            datastore,
             header_db,
             burn_state_db,
             cost_track,
@@ -406,15 +406,15 @@ impl ClarityBlockConnection<'_, '_> {
     /// cost tracker and [`GENESIS_EPOCH`], because the cost-limit contract has not
     /// yet been installed at boot. The injection twin of
     /// [`ClarityInstance::begin_genesis_block`].
-    pub fn from_writable_store_genesis<'a, 'b, D: WritableMarfStore + 'a>(
-        datastore: D,
+    pub fn from_writable_store_genesis<'a, 'b>(
+        datastore: Box<dyn WritableMarfStore + 'a>,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
         mainnet: bool,
         chain_id: u32,
     ) -> ClarityBlockConnection<'a, 'b> {
         ClarityBlockConnection {
-            datastore: Box::new(datastore),
+            datastore,
             header_db,
             burn_state_db,
             cost_track: Some(LimitedCostTracker::new_free()),
@@ -533,7 +533,7 @@ impl ClarityInstance {
         let datastore = self.datastore.begin(current, next);
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
         ClarityBlockConnection::from_writable_store(
-            datastore,
+            Box::new(datastore),
             header_db,
             burn_state_db,
             self.mainnet,
@@ -551,7 +551,7 @@ impl ClarityInstance {
     ) -> ClarityBlockConnection<'a, 'b> {
         let datastore = self.datastore.begin(current, next);
         ClarityBlockConnection::from_writable_store_genesis(
-            datastore,
+            Box::new(datastore),
             header_db,
             burn_state_db,
             self.mainnet,
