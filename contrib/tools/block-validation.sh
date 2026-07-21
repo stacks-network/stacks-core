@@ -691,7 +691,7 @@ declare -r STATUS_STATE_ERROR="ERROR"       # unexpected abort (see LAST_ERROR /
 #
 #   { "state": <s>, "message": <str>,
 #     "repo": <url|LOCAL>, "commit": <sha>, "ref": <str>, "range": <str>,
-#     "started_at": <iso8601>, "updated_at": <iso8601> }
+#     "started_at": <iso8601 UTC>, "updated_at": <iso8601 UTC> }
 #
 #   state    ONGOING (preparing/validating) | SUCCESS | FAILURE (validation
 #            failed; per-block detail in results.log) | ERROR (unexpected abort)
@@ -700,12 +700,13 @@ declare -r STATUS_STATE_ERROR="ERROR"       # unexpected abort (see LAST_ERROR /
 #
 # status_write <state> <message>
 # Builds the JSON with jq (guaranteed valid + correctly escaped) and swaps it in
-# atomically. started_at is stamped once on the first write. The run metadata
-# (repo/commit/ref/range) is read from the STATUS_* globals, which are populated
-# as they become known.
+# atomically. started_at is stamped once on the first write. Timestamps are UTC
+# (Zulu, e.g. 2026-07-21T15:46:20Z). 
+# The run metadata (repo/commit/ref/range) is read from the
+# STATUS_* globals, which are populated as they become known.
 status_write() {
     local state=$1 message=$2
-    : "${STATUS_STARTED_AT:=$(date +%Y-%m-%dT%H:%M:%S%z)}"
+    : "${STATUS_STARTED_AT:=$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
     local tmp="${STATUS_FILE}.tmp"
     jq -n \
         --arg     state      "${state}" \
@@ -715,7 +716,7 @@ status_write() {
         --arg     ref        "${STATUS_REF:-}" \
         --arg     range      "${STATUS_RANGE:-}" \
         --arg     started_at "${STATUS_STARTED_AT}" \
-        --arg     updated_at "$(date +%Y-%m-%dT%H:%M:%S%z)" \
+        --arg     updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         '{state: $state, message: $message, repo: $repo, commit: $commit, ref: $ref, range: $range, started_at: $started_at, updated_at: $updated_at}' \
         > "${tmp}" || {
         error_and_exit "writing status file ${tmp}"
@@ -723,17 +724,6 @@ status_write() {
     mv -f "${tmp}" "${STATUS_FILE}" || {
         error_and_exit "updating status file ${STATUS_FILE}"
     }
-}
-
-# EXIT trap: runs on every exit — normal, an explicit `exit N`, or a `set -e`
-# abort, so it reports *all* failure paths, not just unguarded ones.
-on_exit() {
-    local rc=$?
-    cleanup_tmux
-        
-    if [ "${rc}" -ne 0 ]; then
-        status_write "${STATUS_STATE_ERROR}" "${LAST_ERROR:-Run aborted (exit ${rc}); see run.log}"
-    fi
 }
 
 # EXIT trap handler: kill the tmux session so worker processes don't outlive the
@@ -1403,6 +1393,22 @@ confirm_abort() {
     esac
 }
 
+# EXIT trap: runs on every exit — normal, an explicit `exit N`, or a `set -e`
+# abort, so it reports *all* failure paths, not just unguarded ones.
+on_exit() {
+    local rc=$?
+    cleanup_tmux
+        
+    if [ "${rc}" -ne 0 ]; then
+        status_write "${STATUS_STATE_ERROR}" "${LAST_ERROR:-Run aborted (exit ${rc}); see run.log}"
+    fi
+}
+
+# SIGTERM trap: a stop request from a non-interactive launcher 
+on_terminate() {
+    error_and_exit "Validation stopped by request (SIGTERM)"
+}
+
 # Print a "<label> started" timestamp line on stderr and return the start epoch on stdout.
 # Usage: local foo_start=$(phase_start "Foo")
 phase_start() {
@@ -1430,6 +1436,9 @@ main() {
     ${IS_TTY} && tput reset
     setup_logs
     trap on_exit EXIT
+    # A stop request from a non-interactive launcher arrives as SIGTERM; exit
+    # cleanly so on_exit tears down workers and records a terminal status.
+    trap on_terminate TERM
 
     # Validation preparation
     local prep_start=$(phase_start "Preparation")
@@ -1444,7 +1453,7 @@ main() {
     # - Not all parts of the script support safe Ctrl+C interruption.
     # - Validation is the longest-running phase and therefore the primary focus for interruption handling.
     # - At present, only the validation progress display is safely interruptible.
-    ${IS_TTY} && trap 'confirm_abort' INT
+    ${IS_TTY} && trap confirm_abort INT
     local val_start=$(phase_start "Validation")
     run_validation
     store_results
