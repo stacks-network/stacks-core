@@ -2541,6 +2541,8 @@ paths:
               properties:
                 transaction_hex:
                   type: string
+                  minLength: 2
+                  pattern: "^([0-9a-fA-F]{2})+$"
                   description: SIP-005-encoded transaction in hex format
       responses:
         "200":
@@ -2564,7 +2566,8 @@ paths:
                     description: Height of the ephemeral block the transaction was simulated in
                   result_hex:
                     type: string
-                    description: Clarity value returned by the transaction, hex-encoded
+                    pattern: "^0x([0-9a-fA-F]{2})+$"
+                    description: Clarity value returned by the transaction, encoded as a 0x-prefixed hex string
                   stx_burned:
                     type: integer
                     description: Amount of microSTX burned
