@@ -93,7 +93,7 @@ impl RPCTransactionSimulateRequestHandler {
     /// connection options), so a transaction which fails to simulate within
     /// them would also be rejected from a proposed block.
     pub fn transaction_simulate(
-        &self,
+        tx: &StacksTransaction,
         tip_block_id: &StacksBlockId,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
@@ -101,13 +101,6 @@ impl RPCTransactionSimulateRequestHandler {
         max_tx_analysis_time: Duration,
         max_tx_mem_bytes: u64,
     ) -> Result<RPCSimulatedTransaction, ChainError> {
-        let Some(tx) = &self.transaction else {
-            return Err(ChainError::InvalidStacksTransaction(
-                "transaction is None".into(),
-                false,
-            ));
-        };
-
         let tip_header = NakamotoChainState::get_block_header(chainstate.db(), tip_block_id)?
             .ok_or(ChainError::NoSuchBlockError)?;
 
@@ -361,6 +354,11 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        let tx = self
+            .transaction
+            .take()
+            .ok_or(NetError::SendError("Missing `transaction`".into()))?;
+
         let simulated_tx_res =
             node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
                 let tip_block_id = network.stacks_tip.block_id();
@@ -377,7 +375,8 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
                         .block_proposal_max_tx_analysis_time_secs,
                 );
                 let max_tx_mem_bytes = network.connection_opts.block_proposal_max_tx_mem_bytes;
-                self.transaction_simulate(
+                Self::transaction_simulate(
+                    &tx,
                     &tip_block_id,
                     sortdb,
                     chainstate,

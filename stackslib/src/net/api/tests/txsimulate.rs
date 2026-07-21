@@ -82,34 +82,14 @@ fn test_try_parse_request() {
 
 #[test]
 fn test_transaction_simulate_errors() {
-    let mut handler =
-        txsimulate::RPCTransactionSimulateRequestHandler::new(Some("password".into()));
-
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
     let sort_db = rpc_test.peer_1.chain.sortdb.take().unwrap();
     let chainstate = rpc_test.peer_1.chainstate();
 
-    let tip = rpc_test.canonical_tip.clone();
-
-    let err = handler
-        .transaction_simulate(
-            &tip,
-            &sort_db,
-            chainstate,
-            Duration::from_secs(30),
-            Duration::from_secs(30),
-            0,
-        )
-        .err()
-        .unwrap();
-
-    assert!(matches!(err, ChainError::InvalidStacksTransaction(..)));
-    assert_eq!(err.to_string(), "transaction is None");
-
     let private_key = StacksPrivateKey::from_seed("txsimulate".as_bytes());
-    handler.transaction = Some(make_contract_publish_tx(
+    let tx = make_contract_publish_tx(
         &private_key,
         0,
         1000,
@@ -117,20 +97,20 @@ fn test_transaction_simulate_errors() {
         &"print-contract",
         &"(print u1)",
         Some(clarity::vm::ClarityVersion::Clarity1),
-    ));
+    );
 
     // non-existent tip
-    let err = handler
-        .transaction_simulate(
-            &StacksBlockId([0x01; 32]),
-            &sort_db,
-            chainstate,
-            Duration::from_secs(30),
-            Duration::from_secs(30),
-            0,
-        )
-        .err()
-        .unwrap();
+    let err = txsimulate::RPCTransactionSimulateRequestHandler::transaction_simulate(
+        &tx,
+        &StacksBlockId([0x01; 32]),
+        &sort_db,
+        chainstate,
+        Duration::from_secs(30),
+        Duration::from_secs(30),
+        0,
+    )
+    .err()
+    .unwrap();
 
     assert!(matches!(err, ChainError::NoSuchBlockError));
 }
