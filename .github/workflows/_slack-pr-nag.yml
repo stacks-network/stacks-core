@@ -122,13 +122,10 @@ jobs:
             });
 
             const filteredSortedPrs = prs
-              .filter(pr => {
-                if (ignoreDrafts && pr.draft) return false;
-                return allowedUsers.has(pr.user.login.toLowerCase());
-              });
+              .filter(pr => !(ignoreDrafts && pr.draft));
 
             if (filteredSortedPrs.length === 0) {
-              console.log('No matching team PRs found.');
+              console.log('No open PRs found.');
               return;
             }
 
@@ -253,7 +250,20 @@ jobs:
                 .some(r => r.state === 'CHANGES_REQUESTED');
               const resolveCount = unresolvedComments.length;
 
-              if (changesRequested) {
+              // External PRs (author not in the registry) with no assignee need
+              // a team member to triage them. Pick one deterministically from the
+              // PR number so the same person is nagged on every run. Once someone
+              // is assigned, the PR flows through the normal classification below.
+              const isExternal = !allowedUsers.has(pr.user.login.toLowerCase());
+              const needsTriage = isExternal && (pr.assignees || []).length === 0;
+
+              if (needsTriage) {
+                const teamLogins = Object.keys(userMap).sort();
+                const triager = teamLogins[pr.number % teamLogins.length];
+                explanation = `External PR — ${getSlackMention(triager)} to triage (assign yourself/someone + request reviewers)`;
+                sortWeight = 0;
+                statusIcon = '🆕';
+              } else if (changesRequested) {
                 explanation = `Changes requested`;
                 sortWeight = 1;
                 statusIcon = '🛑';
