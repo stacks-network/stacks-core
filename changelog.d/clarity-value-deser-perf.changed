@@ -1,1 +1,1 @@
-Reduced Clarity `Value` deserialization cost: ~40% lower peak memory for untyped reads of large lists and 10–38% less CPU across deserialization paths.
+Reduced Clarity `Value` deserialization cost: ~57% lower peak memory for untyped reads of large lists and 15-55% less CPU across deserialization paths.
