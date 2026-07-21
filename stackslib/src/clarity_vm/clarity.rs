@@ -3794,4 +3794,61 @@ mod tests {
 
         conn.commit_block();
     }
+
+    /// Exercise the public `WritableMarfStore` injection constructors and the
+    /// mainnet/chain_id getters.
+    #[test]
+    fn test_from_writable_store_constructors() {
+        // Genesis injection: free cost tracker + GENESIS_EPOCH.
+        {
+            let mut marf = MarfedKV::temporary();
+            let store = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0; 32]));
+            let conn = ClarityBlockConnection::from_writable_store_genesis(
+                Box::new(store),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+                false,
+                CHAIN_ID_TESTNET,
+            );
+            assert!(!conn.is_mainnet());
+            assert_eq!(conn.chain_id(), CHAIN_ID_TESTNET);
+            assert_eq!(conn.get_epoch(), GENESIS_EPOCH);
+            assert_eq!(conn.cost_so_far(), ExecutionCost::ZERO);
+            conn.commit_block();
+        }
+
+        // Metered injection: install costs via the test-genesis helper, then
+        // open the next block through `from_writable_store` directly.
+        {
+            let marf = MarfedKV::temporary();
+            let mut clarity = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
+            clarity
+                .begin_test_genesis_block(
+                    &StacksBlockId::sentinel(),
+                    &StacksBlockId([0; 32]),
+                    &TEST_HEADER_DB,
+                    &TEST_BURN_STATE_DB,
+                )
+                .commit_block();
+            let mut marf = clarity.destroy();
+
+            let store = marf.begin(&StacksBlockId([0; 32]), &StacksBlockId([1; 32]));
+            let epoch = TEST_BURN_STATE_DB
+                .get_stacks_epoch_by_epoch_id(&StacksEpochId::Epoch20)
+                .expect("test burn DB should know Epoch20");
+            let conn = ClarityBlockConnection::from_writable_store(
+                Box::new(store),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+                false,
+                CHAIN_ID_TESTNET,
+                epoch,
+            );
+            assert!(!conn.is_mainnet());
+            assert_eq!(conn.chain_id(), CHAIN_ID_TESTNET);
+            assert_eq!(conn.get_epoch(), StacksEpochId::Epoch20);
+            assert!(conn.block_limit().is_some());
+            conn.commit_block();
+        }
+    }
 }

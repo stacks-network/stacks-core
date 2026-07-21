@@ -3050,6 +3050,79 @@ pub mod test {
         }
     }
 
+    /// Drive genesis boot through the public pluggable-store path:
+    /// `from_writable_store_genesis` → `ClarityTx::from_block_connection` →
+    /// `instantiate_boot_code`. Config/mainnet are derived from the connection
+    /// rather than passed in separately.
+    #[test]
+    fn test_pluggable_store_instantiate_boot_code() {
+        use clarity::vm::database::NULL_HEADER_DB;
+        use stacks_common::consts::CHAIN_ID_TESTNET;
+
+        let mut marf = MarfedKV::temporary();
+        let parent = StacksBlockId::sentinel();
+        let genesis = StacksBlockHeader::make_index_block_hash(
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+        );
+        let store = marf.begin(&parent, &genesis);
+        let block = ClarityBlockConnection::from_writable_store_genesis(
+            Box::new(store),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+            false,
+            CHAIN_ID_TESTNET,
+        );
+        assert!(!block.is_mainnet());
+        assert_eq!(block.chain_id(), CHAIN_ID_TESTNET);
+
+        let mut clarity_tx = ClarityTx::from_block_connection(block);
+        assert_eq!(
+            clarity_tx.config,
+            DBConfig {
+                mainnet: false,
+                chain_id: CHAIN_ID_TESTNET,
+                version: CHAINSTATE_VERSION.to_string(),
+            }
+        );
+
+        let mut boot_data = ChainStateBootData {
+            initial_balances: vec![],
+            post_flight_callback: None,
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            pox_constants: PoxConstants::testnet_default(),
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+            get_bulk_initial_names: None,
+            get_bulk_initial_namespaces: None,
+        };
+
+        let receipts =
+            StacksChainState::instantiate_boot_code(&mut clarity_tx, &mut boot_data).unwrap();
+        assert!(
+            !receipts.is_empty(),
+            "boot should produce at least the contract-deploy receipts"
+        );
+
+        // Boot contracts should be present on the open connection before commit.
+        for (boot_contract_name, _) in STACKS_BOOT_CODE_TESTNET.iter() {
+            let boot_contract_id = QualifiedContractIdentifier::new(
+                boot_code_test_addr().into(),
+                ContractName::try_from(boot_contract_name.to_string()).unwrap(),
+            );
+            let contract_res =
+                StacksChainState::get_contract(&mut clarity_tx, &boot_contract_id).unwrap();
+            assert!(
+                contract_res.is_some(),
+                "missing boot contract {boot_contract_name}"
+            );
+        }
+
+        clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
+    }
+
     #[test]
     fn test_chainstate_sampled_genesis_consistency() {
         // Test root hash for the test chainstate data set
