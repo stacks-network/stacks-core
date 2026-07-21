@@ -45,6 +45,11 @@ pub const SQLITE_MMAP_SIZE: i64 = 256 * 1024 * 1024;
 // 32K
 pub const SQLITE_MARF_PAGE_SIZE: i64 = 32768;
 
+/// Statement-cache capacity for `sqlite_open` connections. The widest observed
+/// working set is ~120 distinct statements (the sortition MARF);
+/// rusqlite's default of 16 would LRU-thrash.
+pub const SQLITE_STATEMENT_CACHE_CAPACITY: usize = 200;
+
 #[derive(Debug)]
 pub enum Error {
     /// Not implemented
@@ -398,7 +403,7 @@ where
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
 
     result.collect()
@@ -412,11 +417,11 @@ where
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
-    let query_result = conn.query_row_and_then(sql_query, sql_args, |row| T::from_row(row));
-    match query_result {
-        Ok(x) => Ok(Some(x)),
-        Err(Error::SqliteError(sqlite_error::QueryReturnedNoRows)) => Ok(None),
-        Err(e) => Err(e),
+    let mut stmt = conn.prepare_cached(sql_query)?;
+    let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
+    match result.next() {
+        Some(value) => Ok(Some(value?)),
+        None => Ok(None),
     }
 }
 
@@ -432,7 +437,7 @@ where
     T: FromRow<T>,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
     let mut return_value = None;
     if let Some(value) = result.next() {
@@ -458,7 +463,7 @@ where
     F: FnOnce() -> String,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let mut result = stmt.query_and_then(sql_args, |row| T::from_row(row))?;
     let mut return_value = None;
     if let Some(value) = result.next() {
@@ -482,7 +487,7 @@ where
     T: FromColumn<T>,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let mut rows = stmt.query(sql_args)?;
 
     // gather
@@ -509,7 +514,7 @@ where
     T: FromColumn<T>,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let mut rows = stmt.query(sql_args)?;
 
     // gather
@@ -531,7 +536,7 @@ where
     P: Params,
 {
     log_sql_eqp(conn, sql_query);
-    let mut stmt = conn.prepare(sql_query)?;
+    let mut stmt = conn.prepare_cached(sql_query)?;
     let mut rows = stmt.query(sql_args)?;
     let mut row_data = None;
     while let Some(row) = rows.next().map_err(Error::SqliteError)? {
@@ -746,6 +751,7 @@ pub fn sqlite_open<P: AsRef<Path>>(
     flags.insert(OpenFlags::SQLITE_OPEN_NO_MUTEX);
     let db = inner_connection_open(path, flags)?;
     db.busy_handler(Some(tx_busy_handler))?;
+    db.set_prepared_statement_cache_capacity(SQLITE_STATEMENT_CACHE_CAPACITY);
     if !flags.contains(OpenFlags::SQLITE_OPEN_READ_ONLY) {
         inner_sql_pragma(&db, "journal_mode", &"WAL")?;
     }
@@ -786,7 +792,7 @@ pub fn get_ancestor_block_height<T: MarfTrieId>(
 /// Load some index data
 fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>, Error> {
     let mut stmt = conn
-        .prepare("SELECT value FROM __fork_storage WHERE value_hash = ?1 LIMIT 2")
+        .prepare_cached("SELECT value FROM __fork_storage WHERE value_hash = ?1 LIMIT 2")
         .map_err(Error::SqliteError)?;
     let mut rows = stmt
         .query(params![marf_value.to_hex()])
