@@ -62,7 +62,7 @@ use crate::net::tests::NakamotoBootPlan;
 /// constant churn in the `.snap` files. Re-add `StacksEpochId::Epoch40` here
 /// once 4.0 stabilizes (the supporting infra in `clarity_versions_for_epoch`
 /// and the epoch height calculation is left in place for that purpose).
-pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch34];
+pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch40];
 
 /// The latest epoch exercised by the consensus snapshot tests, i.e. the maximum
 /// of [`EPOCHS_TO_TEST`]. Epochs beyond this are intentionally excluded (e.g.

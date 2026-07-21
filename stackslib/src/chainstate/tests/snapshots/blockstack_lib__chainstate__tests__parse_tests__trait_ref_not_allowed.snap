@@ -4,11 +4,11 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "7fa3ef26f42cc50410a9afeb8c0044670ce7b5f872f664f2d12fc4e36b7c40e2",
-    evaluated_epoch: Epoch34,
+    marf_hash: "e0846011a1c106ba90c1a02e1e24ef34d135ec735fb0702e1003bd9cc4dde67b",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -34,11 +34,11 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "effcb80bab66f974bd137c579ba254f2c6aa566e4eed6911ecbf7d4696e9e1b7",
-    evaluated_epoch: Epoch34,
+    marf_hash: "be4f57b7b5110dda4bc8695cd4abfc04ed2b95e0cb69b46609cf4744765e8d70",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -64,11 +64,11 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0cc8d9887b8f4a43fb9e9b1d6b9ec41b701b1dd7749f1c100dad3beff7ac5aae",
-    evaluated_epoch: Epoch34,
+    marf_hash: "e7a59f4a502586052efb176e53dbb7c8545b3b4e15be35389e7bad1a91972fa2",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
         vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -94,11 +94,11 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "26895d573808421310593aafb3d21999bf14900a0fe57621bd2b4260a8335a83",
-    evaluated_epoch: Epoch34,
+    marf_hash: "71f42edd66fb4c2c5fe2eb15103872eab75f6681f39aa41d1a0d8d595527d1a0",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
         vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
@@ -124,11 +124,41 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1ad5a70c9750be3451d9afd3bb2a0bdae8cc1f2cd668caf6e22b3e430e6a4e5e",
-    evaluated_epoch: Epoch34,
+    marf_hash: "94dbc3bf3e1be16afef43c7f7973db4ce6ce88073c49b4e0165eb4d246e64df2",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 4857,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 4857,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b25b301a6bc0962811438faebebe313643098683f2e8339eca7bfc1cea7dec94",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

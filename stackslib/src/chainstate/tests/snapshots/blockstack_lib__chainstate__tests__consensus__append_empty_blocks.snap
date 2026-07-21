@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Failure(ExpectedFailureOutput(
-    evaluated_epoch: Epoch34,
+    evaluated_epoch: Epoch40,
     error: "Invalid Nakamoto block: failed static checks",
   )),
 ]

@@ -29,7 +29,7 @@ use crate::chainstate::tests::consensus::{
     FAUCET_PRIV_KEY,
 };
 use crate::core::test_util::to_addr;
-use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::core::BLOCK_LIMIT_MAINNET_40;
 
 /// Generates a coverage classification report for a specific [`RuntimeCheckErrorKind`] variant.
 ///
@@ -152,7 +152,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
 /// Caused by: exceeding the cost analysis budget during contract initialization.
 ///   The contract repeatedly performs `var-get` lookups on a data variable,
 ///   forcing the type checker to fetch the variable enough times to exceed
-///   the read-count limit in [`BLOCK_LIMIT_MAINNET_21`].
+///   the read-count limit in [`BLOCK_LIMIT_MAINNET_40`].
 /// Outcome: block rejected.
 #[test]
 fn runtime_check_error_cost_balance_exceeded_cdeploy() {
@@ -163,7 +163,7 @@ fn runtime_check_error_cost_balance_exceeded_cdeploy() {
         (begin
             {}
         )",
-            "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_21.read_count as usize + 1)
+            "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_40.read_count as usize + 1)
         ),
     );
 }
@@ -263,7 +263,7 @@ fn runtime_check_error_cost_balance_exceeded_ccall() {
             (ok (begin
                 {}
                 u0)))",
-            "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_21.read_count as usize + 1)
+            "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_40.read_count as usize + 1)
         ),
         function_name: "trigger-error",
         function_args: &[],
