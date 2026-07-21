@@ -16,6 +16,7 @@
 use std::time::Duration;
 
 use clarity::util::hash::bytes_to_hex;
+use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
 use regex::{Captures, Regex};
@@ -27,7 +28,9 @@ use stacks_common::util::serde_serializers::prefix_hex_codec;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
+use crate::chainstate::nakamoto::miner::{
+    make_mem_abort_callback, MinerTenureInfoCause, NakamotoBlockBuilder,
+};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
@@ -50,18 +53,13 @@ pub struct RPCTransactionSimulateBody {
 #[derive(Clone)]
 pub struct RPCTransactionSimulateRequestHandler {
     pub auth: Option<String>,
-    /// Wall-clock cap applied to both the analysis and execution phases of
-    /// the simulated transaction, so that a pathological transaction cannot
-    /// stall the node
-    pub max_execution_time: Duration,
     pub transaction: Option<StacksTransaction>,
 }
 
 impl RPCTransactionSimulateRequestHandler {
-    pub fn new(auth: Option<String>, max_execution_time: Duration) -> Self {
+    pub fn new(auth: Option<String>) -> Self {
         Self {
             auth,
-            max_execution_time,
             transaction: None,
         }
     }
@@ -88,11 +86,19 @@ impl RPCTransactionSimulateRequestHandler {
     /// is reset to the full tenure limit, so the result is independent of how
     /// much of the current tenure's budget has already been consumed.  All
     /// state changes are discarded.
+    ///
+    /// The wall-clock and memory limits mirror the ones the signers enforce
+    /// during block proposal validation (the `block_proposal_max_tx_*`
+    /// connection options), so a transaction which fails to simulate within
+    /// them would also be rejected from a proposed block.
     pub fn transaction_simulate(
         &self,
         tip_block_id: &StacksBlockId,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
+        max_tx_execution_time: Duration,
+        max_tx_analysis_time: Duration,
+        max_tx_mem_bytes: u64,
     ) -> Result<RPCSimulatedTransaction, ChainError> {
         let Some(tx) = &self.transaction else {
             return Err(ChainError::InvalidStacksTransaction(
@@ -147,16 +153,22 @@ impl RPCTransactionSimulateRequestHandler {
 
         let block_height = builder.header.chain_length;
 
+        if max_tx_mem_bytes > 0 {
+            tenure_tx.set_abort_callback(make_mem_abort_callback(max_tx_mem_bytes));
+        }
+
         let mut total_receipts = 0;
         let tx_result = builder.try_mine_tx_with_len(
             &mut tenure_tx,
             tx,
             tx.tx_len(),
             &BlockLimitFunction::NO_LIMIT_HIT,
-            Some(self.max_execution_time),
-            Some(self.max_execution_time),
+            Some(max_tx_execution_time),
+            Some(max_tx_analysis_time),
             &mut total_receipts,
         );
+
+        tenure_tx.set_abort_callback(AbortCallback::None);
 
         let receipt = match tx_result {
             TransactionResult::Success(tx_result) => tx_result.receipt,
@@ -346,7 +358,27 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
         let simulated_tx_res =
             node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
                 let tip_block_id = network.stacks_tip.block_id();
-                self.transaction_simulate(&tip_block_id, sortdb, chainstate)
+                // apply the same per-transaction limits the signers enforce
+                // during block proposal validation
+                let max_tx_execution_time = Duration::from_secs(
+                    network
+                        .connection_opts
+                        .block_proposal_max_tx_execution_time_secs,
+                );
+                let max_tx_analysis_time = Duration::from_secs(
+                    network
+                        .connection_opts
+                        .block_proposal_max_tx_analysis_time_secs,
+                );
+                let max_tx_mem_bytes = network.connection_opts.block_proposal_max_tx_mem_bytes;
+                self.transaction_simulate(
+                    &tip_block_id,
+                    sortdb,
+                    chainstate,
+                    max_tx_execution_time,
+                    max_tx_analysis_time,
+                    max_tx_mem_bytes,
+                )
             });
 
         let simulated_tx = match simulated_tx_res {

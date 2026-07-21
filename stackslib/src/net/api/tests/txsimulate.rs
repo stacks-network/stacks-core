@@ -59,10 +59,8 @@ fn test_try_parse_request() {
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
 
-    let mut handler = txsimulate::RPCTransactionSimulateRequestHandler::new(
-        Some("password".into()),
-        Duration::from_secs(30),
-    );
+    let mut handler =
+        txsimulate::RPCTransactionSimulateRequestHandler::new(Some("password".into()));
 
     let mut parsed_request = http
         .handle_try_parse_request(
@@ -84,10 +82,8 @@ fn test_try_parse_request() {
 
 #[test]
 fn test_transaction_simulate_errors() {
-    let mut handler = txsimulate::RPCTransactionSimulateRequestHandler::new(
-        Some("password".into()),
-        Duration::from_secs(30),
-    );
+    let mut handler =
+        txsimulate::RPCTransactionSimulateRequestHandler::new(Some("password".into()));
 
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
@@ -98,7 +94,14 @@ fn test_transaction_simulate_errors() {
     let tip = rpc_test.canonical_tip.clone();
 
     let err = handler
-        .transaction_simulate(&tip, &sort_db, chainstate)
+        .transaction_simulate(
+            &tip,
+            &sort_db,
+            chainstate,
+            Duration::from_secs(30),
+            Duration::from_secs(30),
+            0,
+        )
         .err()
         .unwrap();
 
@@ -118,7 +121,14 @@ fn test_transaction_simulate_errors() {
 
     // non-existent tip
     let err = handler
-        .transaction_simulate(&StacksBlockId([0x01; 32]), &sort_db, chainstate)
+        .transaction_simulate(
+            &StacksBlockId([0x01; 32]),
+            &sort_db,
+            chainstate,
+            Duration::from_secs(30),
+            Duration::from_secs(30),
+            0,
+        )
         .err()
         .unwrap();
 

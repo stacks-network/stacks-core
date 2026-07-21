@@ -86,7 +86,6 @@ impl StacksHttp {
         ));
         self.register_rpc_endpoint(txsimulate::RPCTransactionSimulateRequestHandler::new(
             self.auth_token.clone(),
-            self.read_only_max_execution_time,
         ));
         self.register_rpc_endpoint(callreadonly::RPCCallReadOnlyRequestHandler::new(
             self.maximum_call_argument_size,

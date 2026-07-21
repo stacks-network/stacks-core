@@ -2523,10 +2523,13 @@ paths:
         result, events, and execution cost. The simulation runs with the full
         tenure execution budget, independent of the cost already consumed in
         the current tenure. The transaction must be fully signed and valid
-        (correct nonce, sufficient balance for the fee). Analysis and
-        execution are each bounded by the node's
-        `connection_options.read_only_max_execution_time_secs` wall-clock
-        limit; a transaction exceeding it fails to simulate.
+        (correct nonce, sufficient balance for the fee). The simulation
+        enforces the same per-transaction wall-clock and memory limits the
+        signers apply during block proposal validation (the
+        `connection_options.block_proposal_max_tx_execution_time_secs`,
+        `block_proposal_max_tx_analysis_time_secs`, and
+        `block_proposal_max_tx_mem_bytes` options), so a transaction which
+        exceeds them fails to simulate.
       requestBody:
         required: true
         content:
