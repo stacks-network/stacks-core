@@ -1,0 +1,2 @@
+Accept a replacement tenure-start block when the previous proposal in the tenure was only pre-committed (never signed), instead of rejecting it with `DuplicateBlockFound`. This prevents a stall that occasionally shows up on mainnet.
+Refuse to sign a block at the pre-commit threshold if a different block at the same or higher height in the tenure has already been signed.

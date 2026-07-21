@@ -1156,6 +1156,34 @@ impl Signer {
             );
             return;
         }
+        // A pre-commit may be superseded by a competing proposal at the same height (e.g. a
+        // re-proposed tenure-start block after the first failed to reach consensus), but a
+        // signature must never be. Refuse to sign if we have already signed a different block
+        // at this height or above in this tenure.
+        let last_signed = match self
+            .signer_db
+            .get_last_signed_block(&block_info.block.header.consensus_hash)
+        {
+            Ok(last_signed) => last_signed,
+            Err(e) => {
+                warn!("{self}: Failed to query the last signed block in the tenure. Refusing to sign block {block_hash}: {e:?}");
+                return;
+            }
+        };
+        if let Some(last_signed) = last_signed {
+            if last_signed.block.header.chain_length >= block_info.block.header.chain_length
+                && last_signed.block.header.signer_signature_hash() != block_hash
+            {
+                warn!(
+                    "{self}: Reached the pre-commit threshold for a block, but we have already signed a different block at the same or higher height in this tenure. Refusing to sign.";
+                    "signer_signature_hash" => %block_hash,
+                    "block_height" => block_info.block.header.chain_length,
+                    "signed_signer_signature_hash" => %last_signed.block.header.signer_signature_hash(),
+                    "signed_block_height" => last_signed.block.header.chain_length,
+                );
+                return;
+            }
+        }
         // It is only considered globally accepted IFF we receive a new block event confirming it OR see the chain tip of the node advance to it.
         if let Err(e) = block_info.mark_locally_accepted(false) {
             if !block_info.has_reached_consensus() {

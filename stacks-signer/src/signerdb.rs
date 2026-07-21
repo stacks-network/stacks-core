@@ -1496,6 +1496,25 @@ impl SignerDb {
         try_deserialize(result)
     }
 
+    /// Return the last signed block in a tenure (identified by its consensus hash).
+    /// A block is considered signed if it is locally or globally accepted. Blocks that
+    /// have only been pre-committed are excluded, because a pre-commit does not put a
+    /// signature over the block and may be safely superseded by a competing proposal.
+    pub fn get_last_signed_block(
+        &self,
+        tenure: &ConsensusHash,
+    ) -> Result<Option<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3) ORDER BY stacks_height DESC LIMIT 1";
+        let args = params![
+            tenure,
+            &BlockState::GloballyAccepted.to_string(),
+            &BlockState::LocallyAccepted.to_string(),
+        ];
+        let result: Option<String> = query_row(&self.db, query, args)?;
+
+        try_deserialize(result)
+    }
+
     /// Return the last globally accepted block in a tenure (identified by its consensus hash).
     pub fn get_last_globally_accepted_block(
         &self,
@@ -3284,19 +3303,32 @@ pub mod tests {
             b.block.header.chain_length = 3;
             b.burn_height = 4;
         });
+        let (mut block_info_5, _block_proposal) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1.clone();
+            b.block.header.miner_signature = MessageSignature([0x04; 65]);
+            b.block.header.chain_length = 4;
+            b.burn_height = 3;
+        });
         block_info_1.mark_globally_accepted().unwrap();
         block_info_2.mark_locally_accepted(false).unwrap();
         block_info_3.mark_locally_accepted(false).unwrap();
         block_info_4.mark_globally_accepted().unwrap();
+        block_info_5.mark_pre_committed().unwrap();
 
         db.insert_block(&block_info_1).unwrap();
         db.insert_block(&block_info_2).unwrap();
         db.insert_block(&block_info_3).unwrap();
         db.insert_block(&block_info_4).unwrap();
+        db.insert_block(&block_info_5).unwrap();
 
         // Verify tenure consensus_hash_1
         let block_info = db
             .get_last_accepted_block(&consensus_hash_1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(block_info, block_info_5);
+        let block_info = db
+            .get_last_signed_block(&consensus_hash_1)
             .unwrap()
             .unwrap();
         assert_eq!(block_info, block_info_3);
@@ -3313,6 +3345,11 @@ pub mod tests {
             .unwrap();
         assert_eq!(block_info, block_info_4);
         let block_info = db
+            .get_last_signed_block(&consensus_hash_2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(block_info, block_info_4);
+        let block_info = db
             .get_last_globally_accepted_block(&consensus_hash_2)
             .unwrap()
             .unwrap();
@@ -3321,6 +3358,10 @@ pub mod tests {
         // Verify tenure consensus_hash_3
         assert!(db
             .get_last_accepted_block(&consensus_hash_3)
+            .unwrap()
+            .is_none());
+        assert!(db
+            .get_last_signed_block(&consensus_hash_3)
             .unwrap()
             .is_none());
         assert!(db
