@@ -248,4 +248,11 @@ fn test_try_make_response() {
 
     let (preamble, _body) = response.destruct();
     assert_eq!(preamble.status_code, 401);
+
+    // ensure simulation is stateless: running again should still succeed with the same nonce
+    let mut request = StacksHttpRequest::new_transaction_simulate(addr.into(), &contract_call);
+    request.add_header("authorization".into(), "password".into());
+    let mut responses = rpc_test.run(vec![request]);
+    let resp = responses.remove(0).decode_simulated_transaction().unwrap();
+    assert_eq!(resp.result_hex, Value::okay_true());
 }
