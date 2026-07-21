@@ -511,6 +511,21 @@ impl ClarityConnection for ClarityTx<'_, '_> {
 }
 
 impl<'a, 'b> ClarityTx<'a, 'b> {
+    /// Wrap an externally-constructed [`ClarityBlockConnection`] into a `ClarityTx`.
+    ///
+    /// Public twin of the internal `ClarityTx { block, config }` construction used
+    /// by `inner_clarity_tx_begin`. Paired with
+    /// [`ClarityBlockConnection::from_writable_store`], it lets a caller run the
+    /// whole consensus transaction engine (`process_transaction`, `finish_block`,
+    /// `seal`, …) against a custom [`WritableMarfStore`] backend rather than the
+    /// datastore owned by a `ClarityInstance`.
+    pub fn from_block_connection(
+        block: ClarityBlockConnection<'a, 'b>,
+        config: DBConfig,
+    ) -> ClarityTx<'a, 'b> {
+        ClarityTx { block, config }
+    }
+
     pub fn cost_so_far(&self) -> ExecutionCost {
         self.block.cost_so_far()
     }
@@ -1338,14 +1353,21 @@ impl StacksChainState {
         return principal;
     }
 
-    /// Install the boot code into the chain history.
-    fn install_boot_code(
-        chainstate: &mut StacksChainState,
+    /// Instantiate the boot code and genesis state into a given [`ClarityTx`].
+    ///
+    /// This is the genesis (boot) block body: instantiate the boot contracts,
+    /// import the Stacks 1.0 genesis balances/lockups/BNS state, set the PoX
+    /// burnchain params, and credit the initial liquid uSTX — everything except the
+    /// final `commit_to_block`. Extracted from [`Self::install_boot_code`] (which
+    /// now calls it against a `MarfedKV`-backed tx) so the same boot can be run
+    /// against *any* [`ClarityTx`] — e.g. one built over a custom
+    /// [`WritableMarfStore`] via [`ClarityBlockConnection::from_writable_store_genesis`]
+    /// — yielding a byte-identical genesis state root regardless of backend.
+    pub fn instantiate_boot_code(
+        clarity_tx: &mut ClarityTx,
         mainnet: bool,
         boot_data: &mut ChainStateBootData,
     ) -> Result<Vec<StacksTransactionReceipt>, Error> {
-        info!("Building genesis block");
-
         let tx_version = if mainnet {
             TransactionVersion::Mainnet
         } else {
@@ -1360,15 +1382,6 @@ impl StacksChainState {
 
         let mut initial_liquid_ustx = 0u128;
         let mut receipts = vec![];
-
-        {
-            let mut clarity_tx = chainstate.genesis_block_begin(
-                &NULL_BURN_STATE_DB,
-                &BURNCHAIN_BOOT_CONSENSUS_HASH,
-                &BOOT_BLOCK_HASH,
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            );
             let boot_code = if mainnet {
                 *boot::STACKS_BOOT_CODE_MAINNET
             } else {
@@ -1724,7 +1737,7 @@ impl StacksChainState {
             receipts.push(allocations_receipt);
 
             if let Some(callback) = boot_data.post_flight_callback.take() {
-                callback(&mut clarity_tx);
+                callback(&mut *clarity_tx);
             }
 
             // Setup burnchain parameters for pox contract
@@ -1759,9 +1772,29 @@ impl StacksChainState {
                     })
                 })
                 .expect("FATAL: `ustx-liquid-supply` overflowed");
+        Ok(receipts)
+    }
 
+    fn install_boot_code(
+        chainstate: &mut StacksChainState,
+        mainnet: bool,
+        boot_data: &mut ChainStateBootData,
+    ) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        info!("Building genesis block");
+
+        let receipts = {
+            let mut clarity_tx = chainstate.genesis_block_begin(
+                &NULL_BURN_STATE_DB,
+                &BURNCHAIN_BOOT_CONSENSUS_HASH,
+                &BOOT_BLOCK_HASH,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            );
+            let receipts =
+                StacksChainState::instantiate_boot_code(&mut clarity_tx, mainnet, boot_data)?;
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-        }
+            receipts
+        };
 
         // verify that genesis root hash is as expected
         {
