@@ -167,12 +167,12 @@ pub fn type_check(
 /// * `build_type_map` - When `true`, the type checker records a full expression →
 ///   type map on the resulting analysis (needed by tooling/tests); when `false`, the
 ///   map is skipped to save work.
-/// * `time_tracker` - Wall-clock deadline enforced across the analysis passes. The
-///   clock may already have elapsed time on it from AST building by the time it
-///   reaches here. `TimeTracker::MaxTime` is used only on the non-consensus voting
-///   paths (mining / block-proposal validation); `TimeTracker::NoTracking` is used on
-///   the deterministic replay/commit path so consensus stays deterministic, meaning
-///   the deadline never fires there.
+/// * `resource_limiter` - Wall-clock deadline and heap allocation limit enforced across
+///   the analysis passes. The budget may already have been exceeded from AST building
+///   by the time it reaches here. Limits are used only on the non-consensus voting
+///   paths (mining / block-proposal validation); it is unlimited on the deterministic
+///   replay/commit path so consensus stays deterministic, meaning the limiter never
+///   fires there.
 ///
 /// # Returns
 ///

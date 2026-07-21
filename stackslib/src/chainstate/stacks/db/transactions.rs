@@ -1564,7 +1564,7 @@ impl StacksChainState {
                             }
                             ClarityError::AnalysisResourceBudgetExceeded(s) => {
                                 // The analysis phase exceeded its wall-clock deadline or allocation limit (on a voting path only).
-                                warn!("Contract analysis exceeded the analysis recource budget; tx will be dropped from the mempool";
+                                warn!("Contract analysis exceeded the analysis resource budget; tx will be dropped from the mempool";
                                       "error" => s.clone(),
                                       "txid" => %tx.txid(),
                                       "contract_name" => %contract_id,

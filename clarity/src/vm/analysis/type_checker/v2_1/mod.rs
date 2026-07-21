@@ -89,11 +89,11 @@ pub struct TypeChecker<'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
     pub cost_track: LimitedCostTracker,
     clarity_version: ClarityVersion,
-    /// Wall-clock deadline for the analysis phase. `NoTracking` on the
-    /// deterministic-replay/commit path (so consensus stays deterministic);
-    /// `MaxTime` only on the non-consensus voting paths (mining / block-proposal
-    /// validation). Checked per node in `type_check` via
-    /// `check_analysis_abort_condition`, independent of cost charging. FIXME
+    /// Resource limits (wallclock deadline and max memory allocation) for the
+    /// analysis phase. Unlimited on the deterministic-replay/commit path (so
+    /// consensus stays deterministic); limited only on the non-consensus voting
+    /// paths (mining / block-proposal validation). Checked per node in `type_check` via
+    /// `check_analysis_resource_limits`, independent of cost charging.
     resource_limiter: ResourceLimiter,
 }
 

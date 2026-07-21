@@ -879,7 +879,7 @@ fn test_block_proposal_validation_execution_time_expired_blames_tx() {
                 "Rejection should blame the tx whose execution timed out"
             );
             assert!(
-                reason.contains("execution time expired"),
+                reason.contains("Evaluation took too much time"),
                 "Expected rejection reason to mention execution time, got: {reason}"
             );
         }

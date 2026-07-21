@@ -325,7 +325,7 @@ fn test_try_make_response_free_cost_tracker() {
     assert_eq!(preamble.status_code, 400);
 
     let body: String = contents.try_into().unwrap();
-    assert_eq!(body, "ExecutionTime expired");
+    assert_eq!(body, "Execution resource budget exceeded");
 }
 
 #[test]

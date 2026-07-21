@@ -293,7 +293,7 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                 )) => {
                     return StacksHttpResponse::new_error(
                         &preamble,
-                        &HttpBadRequest::new("ExecutionTime expired".to_string()),
+                        &HttpBadRequest::new("Execution resource budget expired".to_string()),
                     )
                     .try_into_contents()
                     .map_err(NetError::from)

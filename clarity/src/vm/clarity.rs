@@ -86,7 +86,7 @@ impl fmt::Display for ClarityError {
                 write!(f, "Execution resource budget exceeded: {s}")
             }
             ClarityError::AnalysisResourceBudgetExceeded(s) => {
-                write!(f, "Execution resource budget exceeded: {s}")
+                write!(f, "Analysis resource budget exceeded: {s}")
             }
         }
     }
@@ -287,7 +287,7 @@ pub trait TransactionConnection: ClarityConnection {
     ///
     /// The clock starts before AST building so that time counts against the budget;
     /// the deadline itself is only enforced at the cooperative checkpoints inside the
-    /// analysis passes. The same goes for mesasuring the baseline memory usage.
+    /// analysis passes. The same goes for measuring the baseline memory usage.
     fn analyze_smart_contract(
         &mut self,
         identifier: &QualifiedContractIdentifier,

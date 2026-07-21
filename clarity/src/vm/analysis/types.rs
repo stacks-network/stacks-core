@@ -40,9 +40,10 @@ pub trait AnalysisPass {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
-        // Wall-clock deadline for this pass. `MaxTime` only on the non-consensus voting
-        // paths; `NoTracking` on deterministic replay/commit (so consensus stays
-        // deterministic — see `check_analysis_timeout`).FIXME
+        // Resource limits (wallclock deadline and max memory allocation) for this
+        // pass. This is limited only on the non-consensus voting paths; it is unlimited
+        // on deterministic replay/commit (so consensus stays deterministic — see
+        // `check_analysis_resource_limits`).
         resource_limiter: ResourceLimiter,
     ) -> Result<(), StaticCheckError>;
 }

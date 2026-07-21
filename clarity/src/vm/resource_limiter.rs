@@ -74,7 +74,7 @@ impl TimeTracker {
         Self::NoTracking
     }
 
-    /// Returns and errpr if a deadline is configured and has elapsed. Always
+    /// Returns and error if a deadline is configured and has elapsed. Always
     /// Ok(()) for `NoTracking`.
     pub fn check_not_expired(&self) -> Result<(), String> {
         match self {
