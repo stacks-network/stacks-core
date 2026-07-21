@@ -15,7 +15,6 @@
 use std::collections::BTreeSet;
 
 use rstest::rstest;
-
 use stacks_common::types::StacksEpochId;
 
 use crate::errors::ClarityTypeError;
