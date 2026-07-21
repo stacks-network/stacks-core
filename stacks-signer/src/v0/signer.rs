@@ -1158,8 +1158,8 @@ impl Signer {
         }
         // A pre-commit may be superseded by a competing proposal at the same height (e.g. a
         // re-proposed tenure-start block after the first failed to reach consensus), but a
-        // signature must never be. Refuse to sign if we have already signed a different block
-        // at this height or above in this tenure.
+        // signature must not be while it is still fresh. Refuse to sign if we have recently
+        // signed a different block at this height or above in this tenure.
         let last_signed = match self
             .signer_db
             .get_last_signed_block(&block_info.block.header.consensus_hash)
@@ -1174,14 +1174,35 @@ impl Signer {
             if last_signed.block.header.chain_length >= block_info.block.header.chain_length
                 && last_signed.block.header.signer_signature_hash() != block_hash
             {
-                warn!(
-                    "{self}: Reached the pre-commit threshold for a block, but we have already signed a different block at the same or higher height in this tenure. Refusing to sign.";
+                // Only refuse while our signature on the conflicting block is fresh. If
+                // `tenure_last_block_proposal_timeout` has passed without that block reaching
+                // consensus, proposal evaluation already allows blocks that do not confirm it,
+                // so allow signing the replacement too -- otherwise the tenure stalls until the
+                // next sortition.
+                let signature_is_fresh = last_signed.signed_self.is_some_and(|signed_time| {
+                    signed_time.saturating_add(
+                        self.proposal_config
+                            .tenure_last_block_proposal_timeout
+                            .as_secs(),
+                    ) > get_epoch_time_secs()
+                });
+                if signature_is_fresh {
+                    warn!(
+                        "{self}: Reached the pre-commit threshold for a block, but we have already signed a different block at the same or higher height in this tenure. Refusing to sign.";
+                        "signer_signature_hash" => %block_hash,
+                        "block_height" => block_info.block.header.chain_length,
+                        "signed_signer_signature_hash" => %last_signed.block.header.signer_signature_hash(),
+                        "signed_block_height" => last_signed.block.header.chain_length,
+                    );
+                    return;
+                }
+                info!(
+                    "{self}: Reached the pre-commit threshold for a block that conflicts with a previously signed block, but that block has timed out without reaching consensus. Signing the replacement.";
                     "signer_signature_hash" => %block_hash,
                     "block_height" => block_info.block.header.chain_length,
                     "signed_signer_signature_hash" => %last_signed.block.header.signer_signature_hash(),
                     "signed_block_height" => last_signed.block.header.chain_length,
                 );
-                return;
             }
         }
         // It is only considered globally accepted IFF we receive a new block event confirming it OR see the chain tip of the node advance to it.
