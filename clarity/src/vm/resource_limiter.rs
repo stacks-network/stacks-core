@@ -32,7 +32,7 @@ use crate::vm::resource_limiter::MemoryTracker::{MaxAllocated, NoTracking};
 /// block assembly (mining) and block-proposal validation (signers) to bound the time
 /// a single transaction can spend.
 #[derive(Clone, Copy)]
-pub enum TimeTracker {
+enum TimeTracker {
     NoTracking,
     MaxTime {
         start_time: Instant,
@@ -102,7 +102,7 @@ impl TimeTracker {
 }
 
 #[derive(Clone, Copy)]
-pub enum MemoryTracker {
+enum MemoryTracker {
     NoTracking,
     MaxAllocated {
         baseline: AllocationCounter,
