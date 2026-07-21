@@ -851,7 +851,7 @@ fn test_sequence_try_retain_utf8_keep_none() {
 
 #[test]
 fn test_sequence_try_retain_utf8_multibyte_filter() {
-    let dog = vec![0xF0, 0x9F, 0x90, 0xB6]; // 🐶 
+    let dog = vec![0xF0, 0x9F, 0x90, 0xB6]; // 🐶
     let cat = vec![0xF0, 0x9F, 0x90, 0xB1]; // 🐱
     let seq = SequenceData::String(CharType::UTF8(UTF8Data {
         data: vec![dog.clone(), cat.clone(), dog.clone()],
@@ -907,9 +907,6 @@ fn test_sequence_try_retain_internal_error() {
 /// 64 bytes doubles list memory. Box large payloads instead.
 #[test]
 fn test_value_size_regression() {
-    assert!(
-        size_of::<Value>() <= 64,
-        "size_of::<Value>() grew to {} bytes (must stay <= 64)",
-        size_of::<Value>()
-    );
+    // exact on 64-bit so any layout change must update this test deliberately;
+    assert_eq!(size_of::<Value>(), 64);
 }
