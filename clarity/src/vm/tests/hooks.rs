@@ -46,15 +46,15 @@ fn print_trace(events: &[TraceEvent]) {
 /// follows the call/argument nesting depth recorded on each event, producing a tree:
 ///
 /// ```text
-/// ▶ "trace-test.entry" [public] (1 arg)
-///   𝑎₁ (seed) = u0
-///   ▶ "trace-test.foo" [private] (2 args)
-///     ↳ eval 𝑎₁ (a)
-///       ▶ "+" [builtin] (2 args)
-///       ◀ "+" ⇒ u42
-///     𝑎₁ (a) = u42
-///   ◀ "trace-test.foo" ⇒ u84
-/// ◀ "trace-test.entry" ⇒ (ok u84)
+/// 𝑓(𝑥) "trace-test.entry" [public] (1 arg)
+///   𝑎₁ "seed" = u0
+///   𝑓(𝑥) "trace-test.foo" [private] (2 args)
+///     𝑓(𝑎₁) "a"
+///       𝑓(𝑥) "+" [builtin] (2 args)
+///       ⏎ "+" ⇒ u42
+///     𝑎₁ "a" = u42
+///   ⏎ "trace-test.foo" ⇒ u84
+/// ⏎ "trace-test.entry" ⇒ (ok u84)
 /// ```
 fn render_trace_event(event: &TraceEvent) -> String {
     match event {

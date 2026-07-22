@@ -57,10 +57,10 @@ pub trait EvalHook {
     ) {
     }
 
-    /// Called when top-level execution completes.
+    /// Completion callback available to external consumers.
     ///
-    /// **Note:** This is never called by the Clarity VM itself, however `clarinet` currently
-    /// implements it internally as part of its REPL interpreter.
+    /// **Note:** The Clarity VM itself never calls this method; `clarinet` invokes it
+    /// internally as part of its REPL interpreter.
     fn did_complete(&mut self, _result: Result<&mut ExecutionResult, String>) {}
 
     /// Called before a callable starts evaluating or consuming its arguments.
