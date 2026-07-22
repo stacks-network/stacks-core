@@ -248,8 +248,27 @@ impl Secp256k1PublicKey {
         self.compressed = value;
     }
 
-    /// recover message and signature to public key (will be compressed)
+    /// Recover message and signature to public key (will be compressed).
+    /// Rejects signatures whose S value is not low-S, since consensus code
+    /// must not accept malleable (high-S) signatures.
     pub fn recover_to_pubkey(
+        msg: &[u8],
+        sig: &MessageSignature,
+    ) -> Result<Secp256k1PublicKey, &'static str> {
+        let (standard_sig, _) = sig
+            .to_secp256k1_recoverable()
+            .ok_or("Invalid signature: failed to decode recoverable signature")?;
+        if !is_low_s(&standard_sig) {
+            return Err("Invalid signature: high-S");
+        }
+        Self::recover_to_pubkey_without_validating_low_s(msg, sig)
+    }
+
+    /// Recover message and signature to public key (will be compressed), without
+    /// validating that the signature is normalized to low-S. You shouldn't use this
+    /// in new code; it exists for the handful of consensus-critical paths that must
+    /// still accept pre-existing high-S signatures.
+    pub fn recover_to_pubkey_without_validating_low_s(
         msg: &[u8],
         sig: &MessageSignature,
     ) -> Result<Secp256k1PublicKey, &'static str> {
@@ -257,17 +276,6 @@ impl Secp256k1PublicKey {
         let secp256k1_sig = secp256k1_recover(msg, &sig.to_rsv())
             .map_err(|_e| "Invalid signature: failed to recover public key")?;
         Secp256k1PublicKey::from_slice(&secp256k1_sig)
-    }
-
-    /// Recover message and signature to public key (will be compressed), without
-    /// validating that the signature is normalized to low-S. Equivalent to
-    /// `recover_to_pubkey`, which already accepts both low-S and high-S signatures
-    /// (low-S is enforced separately, e.g. in `verify`, where it matters for consensus).
-    pub fn recover_to_pubkey_without_validating_low_s(
-        msg: &[u8],
-        sig: &MessageSignature,
-    ) -> Result<Secp256k1PublicKey, &'static str> {
-        Self::recover_to_pubkey(msg, sig)
     }
 }
 
@@ -286,18 +294,11 @@ impl PublicKey for Secp256k1PublicKey {
 
     #[cfg(not(feature = "wasm-deterministic"))]
     fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str> {
+        // recover_to_pubkey rejects high-S signatures, so malleability is covered here.
         let recovered = Secp256k1PublicKey::recover_to_pubkey(data_hash, sig)?;
         if recovered.key != self.key {
             test_debug!("{:?} != {:?}", &recovered.key, &self.key);
             return Ok(false);
-        }
-
-        // Ensure S is low to prevent malleability.
-        let (standard_sig, _) = sig
-            .to_secp256k1_recoverable()
-            .ok_or("Invalid signature: failed to decode recoverable signature")?;
-        if !is_low_s(&standard_sig) {
-            return Err("Invalid signature: high-S");
         }
 
         Ok(true)
