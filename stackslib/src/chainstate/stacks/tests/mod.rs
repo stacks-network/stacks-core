@@ -179,6 +179,7 @@ pub struct TestMinerTrace {
     pub points: Vec<TestMinerTracePoint>,
     pub burn_node: TestBurnchainNode,
     pub miners: Vec<TestMiner>,
+    pub chainstates: HashMap<String, StacksChainState<SharedMemoryChainStateBackend>>,
 }
 
 impl TestMinerTrace {
@@ -186,12 +187,20 @@ impl TestMinerTrace {
         burn_node: TestBurnchainNode,
         miners: Vec<TestMiner>,
         points: Vec<TestMinerTracePoint>,
+        chainstates: HashMap<String, StacksChainState<SharedMemoryChainStateBackend>>,
     ) -> TestMinerTrace {
         TestMinerTrace {
             points,
             burn_node,
             miners,
+            chainstates,
         }
+    }
+
+    pub fn chainstate(&self, test_name: &str) -> &StacksChainState<SharedMemoryChainStateBackend> {
+        self.chainstates
+            .get(test_name)
+            .unwrap_or_else(|| panic!("No chainstate retained for {test_name}"))
     }
 
     /// how many blocks represented here?
@@ -225,7 +234,7 @@ impl TestMinerTrace {
         self.points.len()
     }
 
-    /// what are the chainstate directories?
+    /// What logical chainstates contributed blocks to this trace?
     pub fn get_test_names(&self) -> Vec<String> {
         let mut all_test_names = HashSet::new();
         for p in self.points.iter() {
@@ -322,18 +331,7 @@ impl TestStacksNode<DiskChainStateBackend> {
             self.chainstate.chain_id,
             new_test_name,
         );
-        Self {
-            chainstate,
-            prev_keys: self.prev_keys.clone(),
-            key_ops: self.key_ops.clone(),
-            anchored_blocks: self.anchored_blocks.clone(),
-            microblocks: self.microblocks.clone(),
-            nakamoto_blocks: self.nakamoto_blocks.clone(),
-            commit_ops: self.commit_ops.clone(),
-            nakamoto_commit_ops: self.nakamoto_commit_ops.clone(),
-            test_name: new_test_name.to_string(),
-            forkable: true,
-        }
+        self.with_forked_chainstate(chainstate, new_test_name)
     }
 }
 
@@ -376,12 +374,36 @@ impl TestStacksNode<SharedMemoryChainStateBackend> {
             commit_ops: HashMap::new(),
             nakamoto_commit_ops: HashMap::new(),
             test_name: test_name.to_string(),
-            forkable: false,
+            forkable: true,
         }
+    }
+
+    pub fn fork(&self, new_test_name: &str) -> Self {
+        let chainstate = self.chainstate.fork_shared_ephemeral().unwrap();
+        self.with_forked_chainstate(chainstate, new_test_name)
     }
 }
 
 impl<CSP: ChainStatePersistence> TestStacksNode<CSP> {
+    fn with_forked_chainstate<NextCSP: ChainStatePersistence>(
+        &self,
+        chainstate: StacksChainState<NextCSP>,
+        test_name: &str,
+    ) -> TestStacksNode<NextCSP> {
+        TestStacksNode {
+            chainstate,
+            prev_keys: self.prev_keys.clone(),
+            key_ops: self.key_ops.clone(),
+            anchored_blocks: self.anchored_blocks.clone(),
+            microblocks: self.microblocks.clone(),
+            nakamoto_blocks: self.nakamoto_blocks.clone(),
+            commit_ops: self.commit_ops.clone(),
+            nakamoto_commit_ops: self.nakamoto_commit_ops.clone(),
+            test_name: test_name.to_string(),
+            forkable: true,
+        }
+    }
+
     pub fn from_chainstate(chainstate: StacksChainState<CSP>) -> Self {
         Self {
             chainstate,

@@ -403,8 +403,17 @@ impl ClarityInstance {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn try_clone_ephemeral(&self) -> Result<ClarityInstance, VmExecutionError> {
+        self.try_clone_ephemeral_at(":memory:")
+    }
+
+    /// Clone this Clarity instance into another in-memory SQLite database.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn try_clone_ephemeral_at(
+        &self,
+        db_path: &str,
+    ) -> Result<ClarityInstance, VmExecutionError> {
         Ok(ClarityInstance {
-            datastore: self.datastore.try_clone_ephemeral()?,
+            datastore: self.datastore.try_clone_ephemeral_at(db_path)?,
             mainnet: self.mainnet,
             chain_id: self.chain_id,
         })

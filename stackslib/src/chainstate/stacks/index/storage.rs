@@ -1976,14 +1976,26 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn try_clone_ephemeral(&self) -> Result<TrieFileStorage<T>, Error> {
+        self.try_clone_ephemeral_at(":memory:")
+    }
+
+    /// Clone an in-memory MARF into another in-memory SQLite database.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn try_clone_ephemeral_at(&self, db_path: &str) -> Result<TrieFileStorage<T>, Error> {
         if !is_sqlite_memory_path(&self.db_path) || self.blobs.is_some() {
             return Err(Error::CorruptionError(
                 "only in-memory MARFs without external blobs can be cloned in memory".into(),
             ));
         }
 
+        if !is_sqlite_memory_path(db_path) {
+            return Err(Error::CorruptionError(
+                "an in-memory MARF can only be cloned to in-memory storage".into(),
+            ));
+        }
+
         let mut db = marf_sqlite_open(
-            ":memory:",
+            db_path,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
             false,
         )?;
@@ -1993,7 +2005,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         }
 
         let mut ret = TrieFileStorage {
-            db_path: ":memory:".to_string(),
+            db_path: db_path.to_string(),
             db,
             blobs: None,
             cache: TrieCache::default(),

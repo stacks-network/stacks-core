@@ -830,6 +830,39 @@ impl SharedMemoryChainStateBackend {
                 .build(),
         }
     }
+
+    /// Snapshot an existing in-memory chainstate into this backend's namespace.
+    pub(crate) fn snapshot_parts<SourceBackend: ChainStatePersistence>(
+        &self,
+        config: &ChainStateOpenConfig,
+        source: &StacksChainState<SourceBackend>,
+    ) -> Result<ChainStateOpenParts, Error> {
+        let state_index = source
+            .state_index
+            .try_clone_ephemeral_at(&self.inner.index.path)?;
+        let clarity_state = source
+            .clarity_state
+            .try_clone_ephemeral_at(&self.inner.clarity.path)
+            .map_err(|e| Error::ClarityError(e.into()))?;
+        let blocks_path = self
+            .inner
+            .blocks
+            .reopen_blocks_path(config, &source.blocks_path)?;
+        let nakamoto_staging_blocks_conn = source
+            .nakamoto_staging_blocks_conn
+            .try_clone_ephemeral_at(&self.inner.staging_blocks.path)?;
+
+        Ok(ChainStateOpenParts {
+            clarity_state,
+            nakamoto_staging_blocks_conn,
+            state_index,
+            blocks_path,
+            clarity_state_index_path: self.inner.clarity.path.clone(),
+            clarity_state_index_root: self.inner.clarity.path.clone(),
+            root_path: config.root_path.clone(),
+            marf_opts: config.marf_opts.clone(),
+        })
+    }
 }
 
 #[cfg(any(test, feature = "testing"))]

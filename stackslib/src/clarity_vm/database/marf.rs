@@ -238,6 +238,12 @@ impl MarfedKV {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn try_clone_ephemeral(&self) -> Result<MarfedKV, VmExecutionError> {
+        self.try_clone_ephemeral_at(":memory:")
+    }
+
+    /// Clone this in-memory Clarity MARF into another in-memory SQLite database.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn try_clone_ephemeral_at(&self, db_path: &str) -> Result<MarfedKV, VmExecutionError> {
         if self.ephemeral_marf.is_some() {
             return Err(VmInternalError::MarfFailure(
                 "cannot clone MarfedKV while an ephemeral block is open".into(),
@@ -247,7 +253,7 @@ impl MarfedKV {
 
         let marf = self
             .marf
-            .try_clone_ephemeral()
+            .try_clone_ephemeral_at(db_path)
             .map_err(|err| VmInternalError::MarfFailure(err.to_string()))?;
 
         Ok(MarfedKV {

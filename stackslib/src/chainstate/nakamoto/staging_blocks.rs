@@ -192,7 +192,26 @@ impl NakamotoStagingBlocksConn {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn try_clone_ephemeral(&self) -> Result<NakamotoStagingBlocksConn, ChainstateError> {
-        let mut conn = Connection::open_in_memory()?;
+        self.try_clone_ephemeral_at(":memory:")
+    }
+
+    /// Clone this in-memory staging database into another in-memory SQLite database.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn try_clone_ephemeral_at(
+        &self,
+        db_path: &str,
+    ) -> Result<NakamotoStagingBlocksConn, ChainstateError> {
+        if !is_sqlite_memory_path(db_path) {
+            return Err(ChainstateError::DBError(DBError::Other(
+                "an in-memory staging database can only be cloned to in-memory storage".into(),
+            )));
+        }
+
+        let mut conn = sqlite_open(
+            db_path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+            false,
+        )?;
         {
             let backup = rusqlite::backup::Backup::new(&self.0, &mut conn)?;
             backup.run_to_completion(100, std::time::Duration::from_millis(0), None)?;

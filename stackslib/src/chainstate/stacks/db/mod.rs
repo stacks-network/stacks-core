@@ -1587,6 +1587,25 @@ impl<B: ChainStatePersistence> StacksChainState<B> {
         ))
     }
 
+    /// Open an independent handle suitable for constructing a mining candidate against this
+    /// chainstate's current storage.
+    pub fn open_mining_candidate(&self) -> Result<Self, Error> {
+        let config = ChainStateOpenConfig {
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            root_path: self.root_path.clone(),
+            marf_opts: self.marf_opts.clone(),
+        };
+        let backend = self.backend.clone();
+        let parts = backend.open_mining_candidate_parts(&config, self)?;
+        Ok(Self::from_open_parts(
+            self.mainnet,
+            self.chain_id,
+            backend,
+            parts,
+        ))
+    }
+
     /// Re-open the Nakamoto staging blocks DB through this chainstate's backend.
     pub fn reopen_nakamoto_staging_blocks(&self) -> Result<NakamotoStagingBlocksConn, Error> {
         let config = ChainStateOpenConfig {
@@ -1689,6 +1708,25 @@ impl StacksChainState<SharedMemoryChainStateBackend> {
         Self::new_ephemeral_with_backend(mainnet, chain_id, boot_data, marf_opts, |namespace| {
             SharedMemoryChainStateBackend::for_namespace(namespace)
         })
+    }
+
+    /// Snapshot this chainstate into an isolated shared-memory backend.
+    pub fn fork_shared_ephemeral(&self) -> Result<Self, Error> {
+        let root_path = DiskChainStateLayout::ephemeral_root_path()?;
+        let config = ChainStateOpenConfig {
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            root_path: root_path.clone(),
+            marf_opts: self.marf_opts.clone(),
+        };
+        let backend = SharedMemoryChainStateBackend::for_namespace(&root_path);
+        let parts = backend.snapshot_parts(&config, self)?;
+        Ok(Self::from_open_parts(
+            self.mainnet,
+            self.chain_id,
+            backend,
+            parts,
+        ))
     }
 }
 
