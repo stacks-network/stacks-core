@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// You are going to need `ulimit -n` to be 4096 for these tests.
-/// In Linux, the default is 1024.
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
@@ -24,26 +22,12 @@ use clarity::vm::ContractName;
 use rand::prelude::*;
 use rand::thread_rng;
 
+use super::setup_rlimit_nofiles;
 use crate::core::PEER_VERSION_TESTNET;
 use crate::net::db::*;
 use crate::net::test::*;
 use crate::net::*;
 use crate::util_lib::test::*;
-
-#[cfg(unix)]
-fn setup_rlimit_nofiles() {
-    use rlimit;
-    info!("Attempt to set nofile rlimit to 4096 (required for these tests to run)");
-    assert!(rlimit::Resource::NOFILE.get().is_ok());
-    let (slimit, hlimit) = rlimit::getrlimit(rlimit::Resource::NOFILE).unwrap();
-    rlimit::setrlimit(rlimit::Resource::NOFILE, 4096.max(slimit), hlimit).unwrap();
-    info!("Successfully set nofile rlimit to 4096");
-}
-
-#[cfg(windows)]
-fn setup_rlimit_nofiles() {
-    // rlimit empty stub, since windows hasn't a hard file descriptor limit
-}
 
 fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
     QualifiedContractIdentifier::new(

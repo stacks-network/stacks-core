@@ -85,11 +85,10 @@ where
         0,
     );
 
-    let mut first_burn_block =
-        TestStacksNode::<SharedMemoryChainStateBackend>::next_burn_block(
-            &mut burn_node.sortdb,
-            &mut fork,
-        );
+    let mut first_burn_block = TestStacksNode::<SharedMemoryChainStateBackend>::next_burn_block(
+        &mut burn_node.sortdb,
+        &mut fork,
+    );
 
     // first, register a VRF key
     node.add_key_register(&mut first_burn_block, &mut miner);
@@ -277,11 +276,10 @@ where
         0,
     );
 
-    let mut first_burn_block =
-        TestStacksNode::<SharedMemoryChainStateBackend>::next_burn_block(
-            &mut burn_node.sortdb,
-            &mut fork,
-        );
+    let mut first_burn_block = TestStacksNode::<SharedMemoryChainStateBackend>::next_burn_block(
+        &mut burn_node.sortdb,
+        &mut fork,
+    );
 
     // first, register a VRF key
     node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -733,11 +731,10 @@ where
         0,
     );
 
-    let mut first_burn_block =
-        TestStacksNode::<SharedMemoryChainStateBackend>::next_burn_block(
-            &mut burn_node.sortdb,
-            &mut fork,
-        );
+    let mut first_burn_block = TestStacksNode::<SharedMemoryChainStateBackend>::next_burn_block(
+        &mut burn_node.sortdb,
+        &mut fork,
+    );
 
     // first, register a VRF key
     node.add_key_register(&mut first_burn_block, &mut miner_1);

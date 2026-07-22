@@ -25,6 +25,34 @@ pub mod relay;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+#[cfg(unix)]
+/// Raise the descriptor limit for integration tests that run many network peers.
+pub(super) fn setup_rlimit_nofiles() {
+    const REQUIRED_NOFILE_LIMIT: u64 = 4096;
+
+    let (soft_limit, hard_limit) =
+        rlimit::getrlimit(rlimit::Resource::NOFILE).expect("failed to read nofile rlimit");
+    let requested_soft_limit = soft_limit.max(REQUIRED_NOFILE_LIMIT.min(hard_limit));
+
+    if requested_soft_limit == soft_limit {
+        return;
+    }
+
+    info!(
+        "Raising nofile rlimit from {soft_limit} to {requested_soft_limit} for network tests"
+    );
+    rlimit::setrlimit(
+        rlimit::Resource::NOFILE,
+        requested_soft_limit,
+        hard_limit,
+    )
+    .expect("failed to raise nofile rlimit");
+}
+
+#[cfg(windows)]
+/// Windows does not impose the Unix per-process descriptor limit.
+pub(super) fn setup_rlimit_nofiles() {}
+
 use clarity::types::{EpochList, StacksEpochId};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};

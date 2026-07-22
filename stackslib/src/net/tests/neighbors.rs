@@ -716,6 +716,7 @@ fn test_step_walk_1_neighbor_behind() {
 
 #[test]
 fn test_step_walk_10_neighbors_of_neighbor_plain() {
+    super::setup_rlimit_nofiles();
     with_timeout(600, || {
         // peer 1 has peer 2 as its neighbor.
         // peer 2 has 10 other neighbors.
@@ -856,6 +857,7 @@ fn test_step_walk_10_neighbors_of_neighbor_plain() {
 
 #[test]
 fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
+    super::setup_rlimit_nofiles();
     with_timeout(600, || {
         // peer 1 has peer 2 as its neighbor.
         // peer 2 has 10 other neighbors, 5 of which are too far behind peer 1.
