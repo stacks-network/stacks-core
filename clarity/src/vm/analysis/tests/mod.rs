@@ -19,7 +19,10 @@ use std::time::Duration;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
+use crate::vm::analysis::read_only_checker::ReadOnlyChecker;
+use crate::vm::analysis::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
+use crate::vm::analysis::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use crate::vm::analysis::{
     ContractAnalysis, StaticCheckError, StaticCheckErrorKind, mem_type_check as mem_run_analysis,
     run_analysis,
@@ -30,8 +33,9 @@ use crate::vm::database::MemoryBackingStore;
 use crate::vm::time_tracker::TimeTracker;
 use crate::vm::types::QualifiedContractIdentifier;
 
-mod utils {
+pub mod utils {
     use super::*;
+    use crate::vm::analysis::AnalysisPass;
 
     /// Run the full analysis pipeline on `snippet` at the latest epoch / Clarity
     /// version with the given `time_tracker`, returning the analysis error (if any).
@@ -62,6 +66,56 @@ mod utils {
             time_tracker,
         )
         .map_err(|e| e.0)
+    }
+
+    pub enum SingleAnalysisPass {
+        ReadOnlyChecker,
+        TypeChecker2_05,
+        TypeChecker2_1,
+    }
+
+    /// Given a Clarity snippet (which is assumed to be syntactically correct), parse it and
+    /// hand it to the given analysis pass.
+    pub fn run_single_analysis_pass(
+        pass: SingleAnalysisPass,
+        snippet: &str,
+        version: ClarityVersion,
+        epoch: StacksEpochId,
+    ) -> Result<ContractAnalysis, StaticCheckError> {
+        let contract_identifier = QualifiedContractIdentifier::transient();
+        let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
+            .unwrap()
+            .expressions;
+
+        let mut marf = MemoryBackingStore::new();
+        let mut analysis_db = marf.as_analysis_db();
+        let cost_tracker = LimitedCostTracker::new_free();
+        let mut contract_analysis = ContractAnalysis::new(
+            contract_identifier.clone(),
+            contract,
+            cost_tracker,
+            epoch,
+            version,
+        );
+        let result = analysis_db.execute(|db| match pass {
+            SingleAnalysisPass::ReadOnlyChecker => ReadOnlyChecker::run_pass(
+                &epoch,
+                &mut contract_analysis,
+                db,
+                TimeTracker::unlimited(),
+            ),
+            SingleAnalysisPass::TypeChecker2_1 => TypeChecker2_1::run_pass(
+                &epoch,
+                &mut contract_analysis,
+                db,
+                true,
+                TimeTracker::unlimited(),
+            ),
+            SingleAnalysisPass::TypeChecker2_05 => {
+                TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, true)
+            }
+        });
+        result.map(|_| contract_analysis)
     }
 }
 

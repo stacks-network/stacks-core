@@ -21,10 +21,11 @@ use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
+use crate::vm::analysis::tests::utils::{SingleAnalysisPass, run_single_analysis_pass};
 use crate::vm::analysis::{mem_type_check as mem_run_analysis, type_check};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::StaticCheckErrorKind;
+use crate::vm::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::functions::NativeFunctions;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::QualifiedContractIdentifier;
@@ -34,11 +35,20 @@ fn has_at_block(version: &ClarityVersion) -> bool {
     NativeFunctions::lookup_by_name_at_version("at-block", version).is_some()
 }
 
+fn run_read_only_checker(
+    snippet: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> Result<(), StaticCheckError> {
+    run_single_analysis_pass(SingleAnalysisPass::ReadOnlyChecker, snippet, version, epoch)
+        .map(|_| ())
+}
+
 #[apply(test_clarity_versions)]
 fn test_argument_count_violations(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     // map-get? is available in all versions
     let err =
-        mem_run_analysis("(define-private (foo-bar) (map-get?))", version, epoch).unwrap_err();
+        run_read_only_checker("(define-private (foo-bar) (map-get?))", version, epoch).unwrap_err();
     assert_eq!(*err.err, StaticCheckErrorKind::IncorrectArgumentCount(2, 0));
 
     // at-block is removed in Clarity 5
@@ -77,7 +87,7 @@ fn test_at_block_violations(#[case] version: ClarityVersion, #[case] epoch: Stac
     ];
 
     for contract in examples.iter() {
-        let err = mem_run_analysis(contract, version, epoch).unwrap_err();
+        let err = run_read_only_checker(contract, version, epoch).unwrap_err();
         if has_at_block(&version) {
             assert_eq!(
                 *err.err,
@@ -185,7 +195,7 @@ fn test_simple_read_only_violations(#[case] version: ClarityVersion, #[case] epo
     ];
 
     for contract in bad_contracts.iter() {
-        let err = mem_run_analysis(contract, version, epoch).unwrap_err();
+        let err = run_read_only_checker(contract, version, epoch).unwrap_err();
         assert_eq!(*err.err, StaticCheckErrorKind::WriteAttemptedInReadOnly)
     }
 }
@@ -202,7 +212,7 @@ fn test_nested_writing_closure(#[case] version: ClarityVersion, #[case] epoch: S
                 (ok 1)))"];
 
     for contract in bad_contracts.iter() {
-        let err = mem_run_analysis(contract, version, epoch).unwrap_err();
+        let err = run_read_only_checker(contract, version, epoch).unwrap_err();
         if has_at_block(&version) {
             assert_eq!(
                 *err.err,

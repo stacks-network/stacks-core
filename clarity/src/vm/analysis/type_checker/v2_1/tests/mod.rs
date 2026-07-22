@@ -25,6 +25,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
+use crate::vm::analysis::tests::utils::{SingleAnalysisPass, run_single_analysis_pass};
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
@@ -73,7 +74,7 @@ pub fn mem_type_check(
 
 /// NOTE: runs at latest Clarity version
 fn type_check_helper(exp: &str) -> Result<TypeSignature, StaticCheckError> {
-    mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+    type_check_helper_version(exp, ClarityVersion::latest(), StacksEpochId::latest())
 }
 
 fn type_check_helper_version(
@@ -81,7 +82,28 @@ fn type_check_helper_version(
     version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> Result<TypeSignature, StaticCheckError> {
-    mem_run_analysis(exp, version, epoch).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+    let pass = if epoch < StacksEpochId::Epoch21 {
+        SingleAnalysisPass::TypeChecker2_05
+    } else {
+        SingleAnalysisPass::TypeChecker2_1
+    };
+    match run_single_analysis_pass(pass, exp, version, epoch) {
+        Ok(x) => {
+            // return the first type result of the type checker
+
+            let first_type = x
+                .type_map
+                .as_ref()
+                .ok_or_else(|| StaticCheckErrorKind::Unreachable("Should be non-empty".into()))?
+                .get_type_expected(x.expressions.last().ok_or_else(|| {
+                    StaticCheckErrorKind::Unreachable("Should be non-empty".into())
+                })?)
+                .cloned();
+
+            Ok(first_type.unwrap())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn type_check_helper_v1(exp: &str) -> Result<TypeSignature, StaticCheckError> {
@@ -1539,7 +1561,7 @@ fn test_lists() {
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(buff_type(20))),
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(IntType)),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 3),
-        StaticCheckErrorKind::UnknownFunction("ynot".to_string()),
+        StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("ynot".to_string()),
         StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("if".to_string()),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
         StaticCheckErrorKind::UnionTypeError(vec![IntType, UIntType], Box::new(BoolType)),
@@ -1594,7 +1616,7 @@ fn test_buff() {
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(buff_type(20))),
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(IntType)),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 3),
-        StaticCheckErrorKind::UnknownFunction("ynot".to_string()),
+        StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("ynot".to_string()),
         StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("if".to_string()),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
         StaticCheckErrorKind::UnionTypeError(vec![IntType, UIntType], Box::new(BoolType)),
