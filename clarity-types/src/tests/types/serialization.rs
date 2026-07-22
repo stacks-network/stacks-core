@@ -442,3 +442,36 @@ fn test_serialize_to_hex_returns_serialization_failure() {
         err
     );
 }
+
+/// Truncating after the first entry's value makes the unwind loop hit EOF
+/// while reading the next key of a partially-filled tuple frame.
+#[test]
+fn test_tuple_truncated_at_next_key_errors() {
+    let tuple = Value::from(
+        TupleData::from_data(vec![
+            (
+                ClarityName::try_from("a".to_string()).unwrap(),
+                Value::Bool(true),
+            ),
+            (
+                ClarityName::try_from("b".to_string()).unwrap(),
+                Value::Bool(false),
+            ),
+        ])
+        .unwrap(),
+    );
+    let mut bytes = vec![];
+    tuple.serialize_write(&mut bytes).unwrap();
+
+    // tuple prefix (1) + entry count (4) + key "a" (1-byte len + 1) +
+    // BoolTrue prefix (1) = 8 bytes; cut right before key "b".
+    bytes.truncate(8);
+
+    match Value::deserialize_read(&mut bytes.as_slice(), None, false) {
+        Ok(value) => panic!("accidentally parsed truncated tuple: {value}"),
+        Err(SerializationError::IOError(e)) => {
+            assert_eq!(e.err.kind(), std::io::ErrorKind::UnexpectedEof);
+        }
+        Err(other) => panic!("expected IOError(UnexpectedEof), got {other:?}"),
+    }
+}

@@ -304,7 +304,9 @@ macro_rules! check_match {
         match $item {
             None => Ok(()),
             Some($Pattern) => Ok(()),
-            Some(x) => Err(SerializationError::DeserializeExpected(Box::new(x.clone()))),
+            Some(x) => Err(SerializationError::DeserializeExpected(Box::new(
+                (*x).clone(),
+            ))),
         }
     };
 }
@@ -346,12 +348,13 @@ impl DeserializeStackItem {
     ///
     /// Returns `None` if this stack item either doesn't have an expected type, or the
     ///   next child is going to be sanitized/elided.
-    fn next_expected_type(&self) -> Result<Option<TypeSignature>, SerializationError> {
+    ///
+    /// Returns a reference.
+    fn next_expected_type(&self) -> Result<Option<&TypeSignature>, SerializationError> {
         match self {
-            DeserializeStackItem::List { expected_type, .. } => Ok(expected_type
-                .as_ref()
-                .map(|lt| lt.get_list_item_type())
-                .cloned()),
+            DeserializeStackItem::List { expected_type, .. } => {
+                Ok(expected_type.as_ref().map(|lt| lt.get_list_item_type()))
+            }
             DeserializeStackItem::Tuple {
                 expected_type,
                 next_name,
@@ -370,19 +373,19 @@ impl DeserializeStackItem {
                             some_tuple.clone(),
                         )))
                     })?;
-                    Ok(Some(field_type.clone()))
+                    Ok(Some(field_type))
                 }
             },
             DeserializeStackItem::OptionSome {
                 inner_expected_type,
-            } => Ok(inner_expected_type.clone()),
+            } => Ok(inner_expected_type.as_ref()),
             DeserializeStackItem::ResponseOk {
                 inner_expected_type,
-            } => Ok(inner_expected_type.clone()),
+            } => Ok(inner_expected_type.as_ref()),
             DeserializeStackItem::ResponseErr {
                 inner_expected_type,
-            } => Ok(inner_expected_type.clone()),
-            DeserializeStackItem::TopLevel { expected_type } => Ok(expected_type.clone()),
+            } => Ok(inner_expected_type.as_ref()),
+            DeserializeStackItem::TopLevel { expected_type } => Ok(expected_type.as_ref()),
         }
     }
 }
@@ -613,7 +616,7 @@ impl Value {
                     let mut buffer_len = [0; 4];
                     r.read_exact(&mut buffer_len)?;
                     let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))?;
-                    if let Some(x) = &expected_type {
+                    if let Some(x) = expected_type {
                         let passed_test = match x {
                             TypeSignature::SequenceType(SequenceSubtype::BufferType(
                                 expected_len,
@@ -654,7 +657,7 @@ impl Value {
                 TypePrefix::ResponseOk | TypePrefix::ResponseErr => {
                     let committed = prefix == TypePrefix::ResponseOk;
 
-                    let expect_contained_type = match &expected_type {
+                    let expect_contained_type = match expected_type {
                         None => None,
                         Some(x) => {
                             let contained_type = match (committed, x) {
@@ -686,7 +689,7 @@ impl Value {
                     Ok(Value::none())
                 }
                 TypePrefix::OptionalSome => {
-                    let expect_contained_type = match &expected_type {
+                    let expect_contained_type = match expected_type {
                         None => None,
                         Some(x) => {
                             let contained_type = match x {
@@ -715,14 +718,14 @@ impl Value {
                         return Err("Illegal list type".into());
                     }
 
-                    let (list_type, _entry_type) = match expected_type.as_ref() {
+                    let (list_type, _entry_type) = match expected_type {
                         None => (None, None),
                         Some(TypeSignature::SequenceType(SequenceSubtype::ListType(list_type))) => {
                             if len > list_type.get_max_len() {
                                 // unwrap is safe because of the match condition
                                 #[allow(clippy::unwrap_used)]
                                 return Err(SerializationError::DeserializeExpected(Box::new(
-                                    expected_type.unwrap(),
+                                    expected_type.cloned().unwrap(),
                                 )));
                             }
                             (Some(list_type), Some(list_type.get_list_item_type()))
@@ -771,7 +774,7 @@ impl Value {
                         ));
                     }
 
-                    let tuple_type = match expected_type.as_ref() {
+                    let tuple_type = match expected_type {
                         None => None,
                         Some(TypeSignature::TupleType(tuple_type)) => {
                             if sanitize {
@@ -779,14 +782,14 @@ impl Value {
                                     // unwrap is safe because of the match condition
                                     #[allow(clippy::unwrap_used)]
                                     return Err(SerializationError::DeserializeExpected(Box::new(
-                                        expected_type.unwrap(),
+                                        expected_type.cloned().unwrap(),
                                     )));
                                 }
                             } else if u64::from(len) != tuple_type.len() {
                                 // unwrap is safe because of the match condition
                                 #[allow(clippy::unwrap_used)]
                                 return Err(SerializationError::DeserializeExpected(Box::new(
-                                    expected_type.unwrap(),
+                                    expected_type.cloned().unwrap(),
                                 )));
                             }
                             Some(tuple_type)
@@ -845,7 +848,7 @@ impl Value {
                     r.read_exact(&mut buffer_len)?;
                     let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))?;
 
-                    if let Some(x) = &expected_type {
+                    if let Some(x) = expected_type {
                         let passed_test = match x {
                             TypeSignature::SequenceType(SequenceSubtype::StringType(
                                 StringSubtype::ASCII(expected_len),
@@ -877,7 +880,7 @@ impl Value {
                     let value = Value::string_utf8_from_bytes(data)
                         .map_err(|_| "Illegal string_utf8 type".into());
 
-                    if let Some(x) = &expected_type {
+                    if let Some(x) = expected_type {
                         let passed_test = match (x, &value) {
                             (
                                 TypeSignature::SequenceType(SequenceSubtype::StringType(
@@ -900,9 +903,7 @@ impl Value {
 
             let mut finished_item = Some(item);
             while let Some(item) = finished_item.take() {
-                let stack_bottom = if let Some(stack_item) = stack.pop() {
-                    stack_item
-                } else {
+                let Some(stack_frame) = stack.last_mut() else {
                     // this should be unreachable!
                     warn!(
                         "Deserializer reached unexpected path: item processed, but deserializer stack does not expect another value";
@@ -910,21 +911,34 @@ impl Value {
                     );
                     return Err("Deserializer processed item, but deserializer stack does not expect another value".into());
                 };
-                match stack_bottom {
+                // Pop frames only on completion: pop/re-push per element
+                // would memcpy the whole frame twice each time.
+                match stack_frame {
                     DeserializeStackItem::TopLevel { .. } => return Ok(item),
                     DeserializeStackItem::List {
-                        mut items,
+                        items,
                         expected_len,
-                        expected_type,
+                        ..
                     } => {
                         items.push(item);
-                        if expected_len as usize <= items.len() {
+                        if (*expected_len as usize) <= items.len() {
                             // list is finished!
+                            let Some(DeserializeStackItem::List {
+                                items,
+                                expected_type,
+                                ..
+                            }) = stack.pop()
+                            else {
+                                return Err(
+                                    "BUG: deserializer stack should have a List frame on top"
+                                        .into(),
+                                );
+                            };
                             let finished_list = if let Some(list_type) = expected_type {
                                 Value::list_with_type(
                                     &DESERIALIZATION_TYPE_CHECK_EPOCH,
                                     items,
-                                    list_type.clone(),
+                                    list_type,
                                 )
                                 .map_err(|_| "Illegal list type")?
                             } else {
@@ -933,28 +947,22 @@ impl Value {
                             };
 
                             finished_item.replace(finished_list);
-                        } else {
-                            // list is not finished, reinsert on stack
-                            stack.push(DeserializeStackItem::List {
-                                items,
-                                expected_len,
-                                expected_type,
-                            });
                         }
+                        // else: not finished; keep the frame for the next element
                     }
                     DeserializeStackItem::Tuple {
-                        mut items,
+                        items,
                         expected_len,
                         expected_type,
                         next_name,
                         next_sanitize,
-                        mut processed_entries,
+                        processed_entries,
                     } => {
                         let push_entry = if sanitize {
                             if expected_type.is_some() {
                                 // if performing tuple sanitization, don't include a field
                                 //  if it was sanitized
-                                !next_sanitize
+                                !*next_sanitize
                             } else {
                                 // always push the entry if there's no type expectation
                                 true
@@ -962,13 +970,24 @@ impl Value {
                         } else {
                             true
                         };
-                        let tuple_entry = (next_name, item);
-                        if push_entry {
-                            items.push(tuple_entry);
-                        }
-                        processed_entries += 1;
-                        if expected_len <= processed_entries {
+                        *processed_entries += 1;
+                        if *expected_len <= *processed_entries {
                             // tuple is finished!
+                            let Some(DeserializeStackItem::Tuple {
+                                mut items,
+                                expected_type,
+                                next_name,
+                                ..
+                            }) = stack.pop()
+                            else {
+                                return Err(
+                                    "BUG: deserializer stack should have a Tuple frame on top"
+                                        .into(),
+                                );
+                            };
+                            if push_entry {
+                                items.push((next_name, item));
+                            }
                             let finished_tuple = if let Some(tuple_type) = expected_type {
                                 if items.len() != tuple_type.len() as usize {
                                     return Err(SerializationError::DeserializeExpected(Box::new(
@@ -990,8 +1009,8 @@ impl Value {
 
                             finished_item.replace(finished_tuple);
                         } else {
-                            // tuple is not finished, read the next key name and reinsert on stack
-                            let key = ClarityName::deserialize_read(r)?;
+                            // tuple is not finished: the new key swaps into
+                            //  the frame, releasing the current name for the entry.
                             // figure out if the next (key, value) pair for this
                             //  tuple will be elided (or sanitized) from the tuple.
                             // the logic here is that the next pair should be elided if:
@@ -999,30 +1018,30 @@ impl Value {
                             //    * `tuple_type` is some (i.e., there is an expected type for the
                             //       tuple)
                             //    * `tuple_type` does not contain an entry for `key`
-                            let next_sanitize = sanitize
+                            let key = ClarityName::deserialize_read(r)?;
+                            *next_sanitize = sanitize
                                 && expected_type
                                     .as_ref()
                                     .map(|tt| tt.field_type(&key).is_none())
                                     .unwrap_or(false);
-                            stack.push(DeserializeStackItem::Tuple {
-                                items,
-                                expected_type,
-                                expected_len,
-                                next_name: key,
-                                next_sanitize,
-                                processed_entries,
-                            });
+                            let name = std::mem::replace(next_name, key);
+                            if push_entry {
+                                items.push((name, item));
+                            }
                         }
                     }
                     DeserializeStackItem::OptionSome { .. } => {
+                        stack.pop();
                         let finished_some = Value::some(item).map_err(|_x| "Value too large")?;
                         finished_item.replace(finished_some);
                     }
                     DeserializeStackItem::ResponseOk { .. } => {
+                        stack.pop();
                         let finished_some = Value::okay(item).map_err(|_x| "Value too large")?;
                         finished_item.replace(finished_some);
                     }
                     DeserializeStackItem::ResponseErr { .. } => {
+                        stack.pop();
                         let finished_some = Value::error(item).map_err(|_x| "Value too large")?;
                         finished_item.replace(finished_some);
                     }

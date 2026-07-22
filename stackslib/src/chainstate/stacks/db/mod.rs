@@ -2936,7 +2936,6 @@ pub mod test {
     use super::*;
     use crate::chainstate::stacks::boot::{
         BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
-        BOOT_CODE_COSTS_5,
     };
     use crate::chainstate::stacks::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
@@ -2944,22 +2943,24 @@ pub mod test {
     /// Builder for a fresh test [`StacksChainState`] created under `test_name`,
     /// wiping any existing state at that path. Genesis deploys the standard boot
     /// contracts (e.g. `pox`, `costs`, ...); of the cost
-    /// contracts, only `costs` (v1) is present by default. The later `costs-N`
-    /// contracts are normally installed by the real epoch transitions as the
-    /// chain advances; use [`with_all_costs`](Self::with_all_costs) to deploy
-    /// them at genesis instead.
+    /// contracts, only `costs` (v1) is present by default. The later boot cost
+    /// contracts (`costs-2`, `costs-3`, `costs-4`) are normally installed by the
+    /// real epoch transitions as the chain advances; use
+    /// [`with_all_boot_costs`](Self::with_all_boot_costs) to deploy them at
+    /// genesis instead. (`costs-5` and later are native Rust cost functions, not
+    /// deployed contracts, so they are never installed this way.)
     ///
     /// Required (via [`new`](Self::new)): `mainnet`, `test_name`.
     /// Optional knobs:
     /// - [`with_chain_id`](Self::with_chain_id),
     /// - [`with_balances`](Self::with_balances),
-    /// - [`with_all_costs`](Self::with_all_costs).
+    /// - [`with_all_boot_costs`](Self::with_all_boot_costs).
     pub struct TestChainstateBuilder {
         mainnet: bool,
         chain_id: u32,
         test_name: String,
         balances: Vec<(StacksAddress, u64)>,
-        all_costs: bool,
+        all_boot_costs: bool,
     }
 
     impl TestChainstateBuilder {
@@ -2978,7 +2979,7 @@ pub mod test {
                 chain_id,
                 test_name: test_name.to_string(),
                 balances: vec![],
-                all_costs: false,
+                all_boot_costs: false,
             }
         }
 
@@ -2994,11 +2995,12 @@ pub mod test {
             self
         }
 
-        /// Deploy the later `costs-N` contracts (e.g. `costs-2`, `costs-3`, ...)
-        /// during genesis so that [`LimitedCostTracker`] can load cost contracts
-        /// for any epoch.
-        pub fn with_all_costs(mut self) -> Self {
-            self.all_costs = true;
+        /// Deploy the later boot cost contracts (`costs-2`, `costs-3`, `costs-4`)
+        /// during genesis so that [`LimitedCostTracker`] can load the deployed
+        /// cost contract for any epoch up to `costs-4`. (`costs-5` and later are
+        /// native Rust cost functions, resolved by epoch without deployment.)
+        pub fn with_all_boot_costs(mut self) -> Self {
+            self.all_boot_costs = true;
             self
         }
 
@@ -3016,9 +3018,9 @@ pub mod test {
 
             let mainnet = self.mainnet;
             let post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>> =
-                self.all_costs.then(|| {
+                self.all_boot_costs.then(|| {
                     Box::new(move |clarity_tx: &mut ClarityTx| {
-                        deploy_all_costs(clarity_tx, mainnet)
+                        deploy_all_boot_costs(clarity_tx, mainnet)
                     }) as Box<dyn FnOnce(&mut ClarityTx)>
                 });
 
@@ -3053,32 +3055,13 @@ pub mod test {
         }
     }
 
-    /// Assert that `contract_names` covers the default cost contract of every
-    /// epoch, so [`LimitedCostTracker`] can load costs for any epoch a test
-    /// targets. Panics naming any epoch whose cost contract is missing.
-    fn assert_cost_contracts_cover_all_epochs(contract_names: &[&str]) {
-        for epoch in StacksEpochId::ALL {
-            // Epoch 1.0 predates Clarity; Epoch 2.0 uses `costs` (v1), installed
-            // by the standard genesis boot sequence rather than `deploy_all_costs`.
-            if *epoch <= StacksEpochId::Epoch20 {
-                continue;
-            }
-            let contract = LimitedCostTracker::default_cost_contract_for_epoch(*epoch)
-                .expect("every post-2.0 epoch has a default cost contract");
-            assert!(
-                contract_names.contains(&contract.as_str()),
-                "epoch {epoch} uses cost contract `{contract}`, but it is not available. Add it to `deploy_all_costs`"
-            );
-        }
-    }
-
-    /// Deploy the later `costs-N` boot contracts at genesis (used by
-    /// [`TestChainstateBuilder::with_all_costs`]).
+    /// Deploy the later boot cost contracts (`costs-2`, `costs-3`, `costs-4`) at
+    /// genesis (used by [`TestChainstateBuilder::with_all_boot_costs`]).
     ///
     /// Each contract is deployed under the epoch that introduces it, using that
     /// epoch's default Clarity version (via [`ClarityVersion::default_for_epoch`]),
     /// so that contracts can be properly analyzed and deployed.
-    fn deploy_all_costs(clarity_tx: &mut ClarityTx, mainnet: bool) {
+    fn deploy_all_boot_costs(clarity_tx: &mut ClarityTx, mainnet: bool) {
         // Match `initialize_epoch_2_05`: on testnet, load the testnet
         // variant of `costs-2`. Only `costs-2` has a testnet variant.
         let costs_2_code = if mainnet {
@@ -3087,16 +3070,15 @@ pub mod test {
             BOOT_CODE_COSTS_2_TESTNET
         };
 
+        // This is the complete, closed set of deployable `costs-N` boot
+        // contracts. `costs-5` (Epoch 4.0) and every later cost function are
+        // native (Rust) — resolved by epoch and never deployed — so there is
+        // no further contract to add here.
         let contracts: &[(&str, &str, StacksEpochId)] = &[
             (COSTS_2_NAME, costs_2_code, StacksEpochId::Epoch2_05),
             (COSTS_3_NAME, BOOT_CODE_COSTS_3, StacksEpochId::Epoch21),
             (COSTS_4_NAME, BOOT_CODE_COSTS_4, StacksEpochId::Epoch33),
-            (COSTS_5_NAME, BOOT_CODE_COSTS_5, StacksEpochId::Epoch40),
         ];
-
-        // Fail loudly if a new epoch's cost contract is missing from the list above.
-        let contract_names: Vec<&str> = contracts.iter().map(|(name, ..)| *name).collect();
-        assert_cost_contracts_cover_all_epochs(&contract_names);
 
         let conn = clarity_tx.connection();
 
@@ -3151,24 +3133,26 @@ pub mod test {
             .build()
     }
 
-    /// Like [`instantiate_chainstate`] but also deploys the later `costs-N`
-    /// contracts (e.g. `costs-2`, `costs-3`, ...) during genesis so that
-    /// [`LimitedCostTracker`] can load cost contracts for any epoch.
-    pub fn instantiate_chainstate_with_all_costs(
+    /// Like [`instantiate_chainstate`] but also deploys the later boot cost
+    /// contracts (`costs-2`, `costs-3`, `costs-4`) during genesis so that
+    /// [`LimitedCostTracker`] can load the deployed cost contract for any epoch
+    /// up to `costs-4`. (`costs-5` and later are native, so nothing to deploy.)
+    pub fn instantiate_chainstate_with_all_boot_costs(
         mainnet: bool,
         chain_id: u32,
         test_name: &str,
     ) -> StacksChainState {
         TestChainstateBuilder::new(mainnet, test_name)
             .with_chain_id(chain_id)
-            .with_all_costs()
+            .with_all_boot_costs()
             .build()
     }
 
     /// Like [`instantiate_chainstate_with_balances`] but also deploys the later
-    /// `costs-N` contracts (e.g. `costs-2`, `costs-3`, ...) during genesis so that
-    /// [`LimitedCostTracker`] can load cost contracts for any epoch.
-    pub fn instantiate_chainstate_with_all_costs_and_balances(
+    /// boot cost contracts (`costs-2`, `costs-3`, `costs-4`) during genesis so
+    /// that [`LimitedCostTracker`] can load the deployed cost contract for any
+    /// epoch up to `costs-4`. (`costs-5` and later are native, nothing to deploy.)
+    pub fn instantiate_chainstate_with_all_boot_costs_and_balances(
         mainnet: bool,
         chain_id: u32,
         test_name: &str,
@@ -3177,7 +3161,7 @@ pub mod test {
         TestChainstateBuilder::new(mainnet, test_name)
             .with_chain_id(chain_id)
             .with_balances(balances)
-            .with_all_costs()
+            .with_all_boot_costs()
             .build()
     }
 
