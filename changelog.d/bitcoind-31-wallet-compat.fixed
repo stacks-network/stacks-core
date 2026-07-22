@@ -1,0 +1,1 @@
+Fixed bitcoind wallet setup for Bitcoin Core >= 31, which no longer allows unnamed wallets: with an empty `wallet_name` config, wallet RPCs now use node-level routing and a wallet named "default" is created when none is loaded; wallets are also re-loaded after a bitcoind restart instead of failing on creation.

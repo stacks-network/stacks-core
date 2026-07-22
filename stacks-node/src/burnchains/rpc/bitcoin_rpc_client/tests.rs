@@ -266,6 +266,75 @@ fn test_create_wallet_ok() {
 }
 
 #[test]
+fn test_load_wallet_ok() {
+    let expected_request = json!({
+        "jsonrpc": "2.0",
+        "id": "stacks",
+        "method": "loadwallet",
+        "params": ["testwallet"]
+    });
+
+    let mock_response = json!({
+        "id": "stacks",
+        "result": {
+            "name": "testwallet",
+            "warning": null
+        },
+        "error": null
+    });
+
+    let mut server: mockito::ServerGuard = mockito::Server::new();
+    let _m = server
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(mock_response.to_string())
+        .create();
+
+    let client = utils::setup_client(&server);
+    client
+        .load_wallet("testwallet")
+        .expect("load wallet should be ok!");
+}
+
+#[test]
+fn test_list_wallet_dir_ok() {
+    let expected_request = json!({
+        "jsonrpc": "2.0",
+        "id": "stacks",
+        "method": "listwalletdir",
+        "params": []
+    });
+
+    let mock_response = json!({
+        "id": "stacks",
+        "result": {
+            "wallets": [
+                { "name": "wallet1" },
+                { "name": "wallet2" }
+            ]
+        },
+        "error": null
+    });
+
+    let mut server: mockito::ServerGuard = mockito::Server::new();
+    let _m = server
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(mock_response.to_string())
+        .create();
+
+    let client = utils::setup_client(&server);
+    let wallets = client
+        .list_wallet_dir()
+        .expect("list wallet dir should be ok!");
+    assert_eq!(vec!["wallet1".to_owned(), "wallet2".to_owned()], wallets);
+}
+
+#[test]
 fn test_list_wallets_ok() {
     let expected_request = json!({
         "jsonrpc": "2.0",
@@ -365,6 +434,39 @@ fn test_list_unspent_ok() {
     assert_eq!(6, utxo.confirmations);
     assert_eq!(expected_txid_str, utxo.txid.to_hex(),);
     assert_eq!(expected_script_hex, format!("{:x}", utxo.script_pub_key),);
+}
+
+#[test]
+fn test_list_unspent_with_empty_wallet_name_uses_node_endpoint() {
+    let expected_request = json!({
+        "jsonrpc": "2.0",
+        "id": "stacks",
+        "method": "listunspent",
+    });
+
+    let mock_response = json!({
+        "id": "stacks",
+        "result": [],
+        "error": null
+    });
+
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::PartialJson(expected_request))
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(mock_response.to_string())
+        .create();
+
+    let client = utils::setup_client(&server);
+
+    let result = client
+        .list_unspent("", None, None, None, None, None, None)
+        .expect("Should route to the node-level endpoint and parse the response");
+
+    assert!(result.is_empty());
+    mock.assert();
 }
 
 #[test]

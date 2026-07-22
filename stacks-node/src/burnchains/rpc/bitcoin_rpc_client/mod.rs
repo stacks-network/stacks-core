@@ -276,6 +276,24 @@ pub struct ImportDescriptorsErrorMessage {
     pub message: String,
 }
 
+/// Response for the `listwalletdir` RPC call.
+///
+/// # Notes
+/// This struct supports a subset of available fields to match current usage.
+/// Additional fields can be added in the future as needed.
+#[derive(Debug, Clone, Deserialize)]
+struct ListWalletDirResponse {
+    /// The wallets present in the wallet directory.
+    wallets: Vec<WalletDirEntry>,
+}
+
+/// A single wallet entry returned by the `listwalletdir` RPC call.
+#[derive(Debug, Clone, Deserialize)]
+struct WalletDirEntry {
+    /// The wallet name.
+    name: String,
+}
+
 /// Response for `generatetoaddress` rpc, mainly used as deserialization wrapper for `BurnchainHeaderHash`
 struct GenerateToAddressResponse(pub Vec<BurnchainHeaderHash>);
 
@@ -420,8 +438,14 @@ impl BitcoinRpcClient {
     }
 
     /// create a wallet rpc path based on the given wallet name.
-    fn wallet_path(wallet: &str) -> String {
-        format!("wallet/{wallet}")
+    /// An empty name maps to the node-level endpoint, so wallet RPCs reach the
+    /// only loaded wallet regardless of what it is named.
+    fn wallet_path(wallet: &str) -> Option<String> {
+        if wallet.is_empty() {
+            None
+        } else {
+            Some(format!("wallet/{wallet}"))
+        }
     }
 
     /// Creates and loads a new wallet into the Bitcoin Core node.
@@ -458,6 +482,26 @@ impl BitcoinRpcClient {
         Ok(())
     }
 
+    /// Loads an existing wallet from the Bitcoin Core wallet directory.
+    ///
+    /// # Arguments
+    /// * `wallet_name` - Name of the wallet to load.
+    ///
+    /// # Returns
+    /// Returns `Ok(())` if the wallet is loaded successfully.
+    ///
+    /// # Availability
+    /// - **Since**: Bitcoin Core **v0.17.0**.
+    pub fn load_wallet(&self, wallet_name: &str) -> BitcoinRpcClientResult<()> {
+        self.endpoint.send::<Value>(
+            &self.client_id,
+            None,
+            "loadwallet",
+            vec![wallet_name.into()],
+        )?;
+        Ok(())
+    }
+
     /// Returns a list of currently loaded wallets by the Bitcoin Core node.
     ///
     /// # Returns
@@ -469,6 +513,21 @@ impl BitcoinRpcClient {
         Ok(self
             .endpoint
             .send(&self.client_id, None, "listwallets", vec![])?)
+    }
+
+    /// Returns the names of the wallets in the Bitcoin Core wallet directory,
+    /// whether they are loaded or not.
+    ///
+    /// # Returns
+    /// A vector of wallet names as strings.
+    ///
+    /// # Availability
+    /// - **Since**: Bitcoin Core **v0.18.0**.
+    pub fn list_wallet_dir(&self) -> BitcoinRpcClientResult<Vec<String>> {
+        let response: ListWalletDirResponse =
+            self.endpoint
+                .send(&self.client_id, None, "listwalletdir", vec![])?;
+        Ok(response.wallets.into_iter().map(|w| w.name).collect())
     }
 
     /// Retrieve a list of unspent transaction outputs (UTXOs) that meet the specified criteria.
@@ -513,7 +572,7 @@ impl BitcoinRpcClient {
 
         Ok(self.endpoint.send(
             &self.client_id,
-            Some(&Self::wallet_path(wallet)),
+            Self::wallet_path(wallet).as_deref(),
             "listunspent",
             vec![
                 min_confirmations.into(),
@@ -577,7 +636,7 @@ impl BitcoinRpcClient {
     ) -> BitcoinRpcClientResult<GetTransactionResponse> {
         Ok(self.endpoint.send(
             &self.client_id,
-            Some(&Self::wallet_path(wallet)),
+            Self::wallet_path(wallet).as_deref(),
             "gettransaction",
             vec![txid.to_hex().into()],
         )?)
@@ -670,7 +729,7 @@ impl BitcoinRpcClient {
 
         Ok(self.endpoint.send(
             &self.client_id,
-            Some(&Self::wallet_path(wallet)),
+            Self::wallet_path(wallet).as_deref(),
             "importdescriptors",
             vec![descriptor_values.into()],
         )?)

@@ -160,6 +160,23 @@ impl BitcoinRpcClient {
         Ok(deserialize_hex(&raw_hex)?)
     }
 
+    /// Unloads a currently loaded wallet.
+    ///
+    /// # Arguments
+    /// * `wallet_name` - Name of the wallet to unload.
+    ///
+    /// # Availability
+    /// - **Since**: Bitcoin Core **v0.17.0**.
+    pub fn unload_wallet(&self, wallet_name: &str) -> BitcoinRpcClientResult<()> {
+        self.endpoint.send::<Value>(
+            &self.client_id,
+            None,
+            "unloadwallet",
+            vec![wallet_name.into()],
+        )?;
+        Ok(())
+    }
+
     /// Mines a new block including the given transactions to a specified address.
     ///
     /// # Arguments
@@ -270,7 +287,7 @@ impl BitcoinRpcClient {
 
         let response = self.endpoint.send::<GetNewAddressResponse>(
             &self.client_id,
-            Some(&Self::wallet_path(wallet)),
+            Self::wallet_path(wallet).as_deref(),
             "getnewaddress",
             params,
         )?;
@@ -298,7 +315,7 @@ impl BitcoinRpcClient {
     ) -> BitcoinRpcClientResult<Txid> {
         let response = self.endpoint.send::<TxidWrapperResponse>(
             &self.client_id,
-            Some(&Self::wallet_path(wallet)),
+            Self::wallet_path(wallet).as_deref(),
             "sendtoaddress",
             vec![address.to_string().into(), amount.into()],
         )?;

@@ -27,14 +27,21 @@
 use pinny::tag;
 use stacks::burnchains::bitcoin::address::LegacyBitcoinAddressType;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::config::Config;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::get_epoch_time_nanos;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
+use crate::burnchains::bitcoin::core_controller::BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
+use crate::burnchains::bitcoin_regtest_controller::FALLBACK_WALLET_NAME;
 use crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType;
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
 };
 use crate::burnchains::rpc::rpc_transport::RpcError;
+use crate::tests::bitcoin::core_container::{BITCOIN_RPC_PASSWORD, BITCOIN_RPC_USERNAME};
+use crate::BitcoinRegtestController;
 
 mod utils {
     use std::env;
@@ -744,4 +751,57 @@ fn test_send_raw_transaction_rebroadcast_ok() {
         .expect("send raw transaction (rebroadcast) ok!");
 
     assert_eq!(txid.to_hex(), raw_tx.txid().to_string());
+}
+
+/// Compatibility probe for the miner wallet bootstrap used at node startup,
+/// with the default (empty) `wallet_name` config: it must keep working across
+/// Bitcoin Core versions (e.g. v31 removed unnamed wallets).
+#[tag(ci_skip)]
+#[ignore]
+#[test]
+fn test_default_wallet_bootstrap_ok() {
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
+
+    let mut config = Config::default();
+    config.node.miner = true;
+    config.burnchain.peer_host = "127.0.0.1".to_string();
+    config.burnchain.peer_port = BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
+    config.burnchain.rpc_port = btc_container.get_host_rpc_port();
+    config.burnchain.username = Some(BITCOIN_RPC_USERNAME.to_string());
+    config.burnchain.password = Some(BITCOIN_RPC_PASSWORD.to_string());
+    config.node.working_dir = format!(
+        "/tmp/rpc-integrations-wallet-bootstrap-{}-{}",
+        config.burnchain.rpc_port,
+        get_epoch_time_nanos()
+    );
+    assert!(
+        config.burnchain.wallet_name.is_empty(),
+        "This test covers the default (empty) wallet_name"
+    );
+
+    let controller = BitcoinRegtestController::new(config, None);
+    controller
+        .ensure_wallet_loaded()
+        .expect("Wallet bootstrap should succeed");
+
+    let client = utils::create_client_from_container(&btc_container);
+    assert_eq!(
+        vec![FALLBACK_WALLET_NAME.to_string()],
+        client.list_wallets().expect("Should list wallets")
+    );
+
+    let miner_pubkey = Secp256k1PublicKey::from_hex(
+        "03dc62fe0b8964d01fc9ca9a5eec0e22e557a12cc656919e648f04e0b26fea5faa",
+    )
+    .expect("Valid public key");
+    controller
+        .import_public_key(&miner_pubkey)
+        .expect("Watch-only import should succeed");
+
+    // wallet RPC round-trip through node-level routing (empty wallet name)
+    let utxos = client
+        .list_unspent("", None, None, None, None, None, None)
+        .expect("listunspent should reach the single loaded wallet");
+    assert!(utxos.is_empty());
 }

@@ -183,7 +183,7 @@ impl RunLoop {
             }
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
-            if let Err(e) = burnchain.create_wallet_if_dne() {
+            if let Err(e) = burnchain.ensure_wallet_loaded() {
                 warn!("Error when creating wallet: {e:?}");
             }
             let mut btc_addrs = vec![(

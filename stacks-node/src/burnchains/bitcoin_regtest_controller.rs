@@ -78,6 +78,8 @@ use crate::burnchains::rpc::bitcoin_rpc_client::{
 ///  the cache is force-reset.
 const UTXO_CACHE_STALENESS_LIMIT: u64 = 6;
 const DUST_UTXO_LIMIT: u64 = 5500;
+/// Used when no wallet name is configured: Bitcoin Core >= 31 forbids creating unnamed wallets.
+pub const FALLBACK_WALLET_NAME: &str = "default";
 
 #[cfg(test)]
 // Used to inject invalid block commits during testing.
@@ -307,6 +309,12 @@ pub enum BitcoinRegtestControllerError {
     /// Error related to invalid or malformed [`Secp256k1PublicKey`].
     #[error("Invalid public key: {0}")]
     InvalidPublicKey(btc_error),
+    /// A descriptor import was rejected by the bitcoin node.
+    #[error("Importing descriptor failed: {0}")]
+    ImportDescriptors(String),
+    /// Wallet RPCs cannot be routed to a single wallet.
+    #[error("Multiple bitcoin wallets are loaded ({0:?}) but no wallet_name is configured; set `burnchain.wallet_name` to select one")]
+    AmbiguousWallet(Vec<String>),
 }
 
 /// Alias for results returned from [`BitcoinRegtestController`] operations.
@@ -716,13 +724,39 @@ impl BitcoinRegtestController {
         Ok(self.get_rpc_client().list_wallets()?)
     }
 
-    /// Checks if the config-supplied wallet exists.
-    /// If it does not exist, this function creates it.
-    pub fn create_wallet_if_dne(&self) -> BitcoinRegtestControllerResult<()> {
-        let wallets = self.list_wallets()?;
-        let wallet = self.get_wallet_name();
-        if !wallets.contains(wallet) {
-            self.get_rpc_client().create_wallet(wallet, Some(true))?
+    /// Ensures a usable wallet is loaded in the connected bitcoin node: the
+    /// configured one, or any single loaded wallet when no name is configured.
+    /// Loads the wallet from disk, creating it first if needed.
+    pub fn ensure_wallet_loaded(&self) -> BitcoinRegtestControllerResult<()> {
+        let loaded_wallets = self.list_wallets()?;
+        let configured_name = self.get_wallet_name();
+
+        // an empty configured name uses node-level RPC routing, which reaches
+        // the wallet only when exactly one is loaded
+        let wallet_to_load = if configured_name.is_empty() {
+            match loaded_wallets.len() {
+                0 => FALLBACK_WALLET_NAME,
+                1 => return Ok(()),
+                _ => {
+                    return Err(BitcoinRegtestControllerError::AmbiguousWallet(
+                        loaded_wallets,
+                    ));
+                }
+            }
+        } else {
+            if loaded_wallets.contains(configured_name) {
+                return Ok(());
+            }
+            configured_name.as_str()
+        };
+
+        // wallets do not stay loaded across bitcoind restarts
+        let on_disk_wallets = self.get_rpc_client().list_wallet_dir()?;
+        if on_disk_wallets.iter().any(|name| name == wallet_to_load) {
+            self.get_rpc_client().load_wallet(wallet_to_load)?;
+        } else {
+            self.get_rpc_client()
+                .create_wallet(wallet_to_load, Some(true))?;
         }
         Ok(())
     }
@@ -2158,7 +2192,7 @@ impl BitcoinRegtestController {
     #[cfg(test)]
     pub fn bootstrap_chain_to_pks(&self, num_blocks: u64, pks: &[Secp256k1PublicKey]) {
         info!("Creating wallet if it does not exist");
-        if let Err(e) = self.create_wallet_if_dne() {
+        if let Err(e) = self.ensure_wallet_loaded() {
             error!("Error when creating wallet: {e:?}");
         }
 
@@ -2273,8 +2307,21 @@ impl BitcoinRegtestController {
                 internal: Some(true),
             };
 
-            self.get_rpc_client()
+            let results = self
+                .get_rpc_client()
                 .import_descriptors(self.get_wallet_name(), &[&descr_req])?;
+            // the RPC reports per-descriptor failures in the response body,
+            // e.g. when the target wallet has private keys enabled
+            for result in results {
+                if !result.success {
+                    return Err(BitcoinRegtestControllerError::ImportDescriptors(
+                        result.error.map_or_else(
+                            || format!("importing addr({address}) failed with no error message"),
+                            |e| format!("importing addr({address}) failed: {}", e.message),
+                        ),
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -3164,12 +3211,148 @@ mod tests {
         assert_eq!(0, wallets.len());
 
         btc_controller
-            .create_wallet_if_dne()
+            .ensure_wallet_loaded()
             .expect("Wallet should now exists!");
 
         let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(1, wallets.len());
-        assert_eq!("".to_owned(), wallets[0]);
+        assert_eq!(FALLBACK_WALLET_NAME.to_owned(), wallets[0]);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_ensure_wallet_loaded_fails_with_multiple_wallets_and_empty_name() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let config = utils::create_miner_config();
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        let rpc_client = btc_controller.get_rpc_client();
+        rpc_client
+            .create_wallet("wallet1", Some(true))
+            .expect("wallet1 should be created!");
+        rpc_client
+            .create_wallet("wallet2", Some(true))
+            .expect("wallet2 should be created!");
+
+        let result = btc_controller.ensure_wallet_loaded();
+        assert!(
+            matches!(
+                result,
+                Err(BitcoinRegtestControllerError::AmbiguousWallet(ref wallets))
+                    if wallets.len() == 2
+            ),
+            "Expected AmbiguousWallet error, got: {result:?}"
+        );
+
+        let mut wallets = btc_controller.list_wallets().unwrap();
+        wallets.sort();
+        assert_eq!(vec!["wallet1".to_owned(), "wallet2".to_owned()], wallets);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_ensure_wallet_loaded_reloads_unloaded_wallet() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let config = utils::create_miner_config();
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .ensure_wallet_loaded()
+            .expect("Wallet should be created!");
+
+        // simulate a bitcoind restart, after which no wallet is loaded
+        btc_controller
+            .get_rpc_client()
+            .unload_wallet(FALLBACK_WALLET_NAME)
+            .expect("Wallet should be unloaded!");
+        assert_eq!(0, btc_controller.list_wallets().unwrap().len());
+
+        btc_controller
+            .ensure_wallet_loaded()
+            .expect("Wallet should be loaded from disk, not re-created!");
+
+        let wallets = btc_controller.list_wallets().unwrap();
+        assert_eq!(vec![FALLBACK_WALLET_NAME.to_owned()], wallets);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_ensure_wallet_loaded_adopts_single_loaded_wallet() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let config = utils::create_miner_config();
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .get_rpc_client()
+            .create_wallet("solo", Some(true))
+            .expect("solo wallet should be created!");
+
+        btc_controller
+            .ensure_wallet_loaded()
+            .expect("Should adopt the single loaded wallet!");
+
+        let wallets = btc_controller.list_wallets().unwrap();
+        assert_eq!(vec!["solo".to_owned()], wallets);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_import_public_key_fails_on_wallet_with_private_keys() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let config = utils::create_miner_config();
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .get_rpc_client()
+            .create_wallet("keyed", Some(false))
+            .expect("keyed wallet should be created!");
+
+        btc_controller
+            .ensure_wallet_loaded()
+            .expect("Should adopt the single loaded wallet!");
+
+        let result = btc_controller.import_public_key(&miner_pubkey);
+        assert!(
+            matches!(
+                result,
+                Err(BitcoinRegtestControllerError::ImportDescriptors(_))
+            ),
+            "Watch-only import into a wallet with private keys should fail, got: {result:?}"
+        );
     }
 
     #[test]
@@ -3190,7 +3373,7 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
         btc_controller
-            .create_wallet_if_dne()
+            .ensure_wallet_loaded()
             .expect("Wallet should now exists!");
 
         let wallets = btc_controller.list_wallets().unwrap();
@@ -3561,7 +3744,7 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
-            .create_wallet_if_dne()
+            .ensure_wallet_loaded()
             .expect("Wallet should be created!");
 
         let result = btc_controller.import_public_key(&miner_pubkey);
@@ -3590,7 +3773,7 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
-            .create_wallet_if_dne()
+            .ensure_wallet_loaded()
             .expect("Wallet should be created!");
 
         btc_controller
@@ -3625,7 +3808,7 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
-            .create_wallet_if_dne()
+            .ensure_wallet_loaded()
             .expect("Wallet should be created!");
 
         let result = btc_controller.import_public_key(&miner_pubkey);

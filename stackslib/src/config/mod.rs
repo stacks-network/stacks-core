@@ -1644,11 +1644,14 @@ pub struct BurnchainConfig {
     /// node. Used to interact with a specific named wallet if the bitcoin node
     /// manages multiple wallets.
     ///
-    /// If the specified wallet doesn't exist, the node will attempt to create it via
-    /// the `createwallet` RPC call. This is particularly useful for miners who need
-    /// to manage separate wallets.
+    /// If the specified wallet is not loaded, the node will attempt to load it via
+    /// the `loadwallet` RPC call, creating it first (`createwallet`) if it does not
+    /// exist. When empty, wallet RPCs use bitcoin's node-level routing, which
+    /// reaches the wallet only when exactly one is loaded; if none is loaded, a
+    /// wallet named "default" is loaded or created. Bitcoin nodes with multiple
+    /// loaded wallets require a non-empty `wallet_name`.
     /// ---
-    /// @default: `""` (empty string, implying the default wallet or no specific wallet needed)
+    /// @default: `""` (empty string, targeting the node's single loaded wallet)
     /// @notes:
     ///   - Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
     pub wallet_name: String,
