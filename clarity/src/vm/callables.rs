@@ -234,7 +234,7 @@ impl DefinedFunction {
                             name.clone(),
                             CallableData {
                                 contract_identifier: callee_contract_id.clone(),
-                                trait_identifier: Some(trait_identifier.clone()),
+                                trait_identifier: Some(Box::new(trait_identifier.clone())),
                             },
                         );
                     }
@@ -250,7 +250,7 @@ impl DefinedFunction {
                             name.clone(),
                             CallableData {
                                 contract_identifier: callee_contract_id.clone(),
-                                trait_identifier: Some(trait_identifier.clone()),
+                                trait_identifier: Some(Box::new(trait_identifier.clone())),
                             },
                         );
                     }
@@ -543,7 +543,7 @@ fn clarity2_implicit_cast(
             Value::CallableContract(callable_data),
         ) => Value::CallableContract(CallableData {
             contract_identifier: callable_data.contract_identifier.clone(),
-            trait_identifier: Some(trait_identifier.clone()),
+            trait_identifier: Some(Box::new(trait_identifier.clone())),
         }),
         // N.B. it seems like this should be illegal, since it is converting a
         // principal to a callable trait, and only principal literals should be
@@ -558,7 +558,7 @@ fn clarity2_implicit_cast(
             Value::Principal(PrincipalData::Contract(contract_identifier)),
         ) => Value::CallableContract(CallableData {
             contract_identifier: contract_identifier.clone(),
-            trait_identifier: Some(trait_identifier.clone()),
+            trait_identifier: Some(Box::new(trait_identifier.clone())),
         }),
         _ => value.clone(),
     })
@@ -601,7 +601,10 @@ mod test {
         let cast_contract = clarity2_implicit_cast(&trait_ty, &contract).unwrap();
         let cast_trait = cast_contract.expect_callable().unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (optional principal) -> (optional <trait>)
         let optional_ty = TypeSignature::new_option(trait_ty.clone()).unwrap();
@@ -613,7 +616,7 @@ mod test {
                 trait_identifier: trait_id,
             }) => {
                 assert_eq!(contract_id, &contract_identifier);
-                assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
+                assert_eq!(trait_id.as_deref().unwrap(), &trait_identifier);
             }
             other => panic!("expected Value::CallableContract, got {other:?}"),
         }
@@ -629,7 +632,10 @@ mod test {
             .expect_callable()
             .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (err principal) -> (err <trait>)
         let response_err_ty =
@@ -642,7 +648,10 @@ mod test {
             .expect_callable()
             .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (list principal) -> (list <trait>)
         let list_ty = TypeSignature::list_of(trait_ty.clone(), 4).unwrap();
@@ -651,7 +660,10 @@ mod test {
         let items = cast_list.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // {a: principal} -> {a: <trait>}
@@ -683,7 +695,10 @@ mod test {
             .expect_callable()
             .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (list (optional principal)) -> (list (optional <trait>))
         let list_opt_ty = TypeSignature::list_of(optional_ty.clone(), 4).unwrap();
@@ -698,7 +713,10 @@ mod test {
         for item in items {
             if let Some(cast_opt) = item.expect_optional().unwrap() {
                 let cast_trait = cast_opt.expect_callable().unwrap();
-                assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+                assert_eq!(
+                    cast_trait.trait_identifier.unwrap().as_ref(),
+                    &trait_identifier
+                );
             }
         }
 
@@ -714,7 +732,10 @@ mod test {
         let items = cast_list.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_result_ok().unwrap().expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // (list (response uint principal)) -> (list (response uint <trait>))
@@ -729,7 +750,10 @@ mod test {
         let items = cast_list.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_result_err().unwrap().expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // (optional (list (response uint principal))) -> (optional (list (response uint <trait>)))
@@ -747,7 +771,10 @@ mod test {
         let items = inner.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_result_err().unwrap().expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // (optional (optional principal)) -> (optional (optional <trait>))
@@ -770,7 +797,7 @@ mod test {
                 trait_identifier: trait_id,
             }) => {
                 assert_eq!(contract_id, &contract_identifier);
-                assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
+                assert_eq!(trait_id.as_deref().unwrap(), &trait_identifier);
             }
             other => panic!("expected Value::CallableContract, got {other:?}"),
         }

@@ -189,7 +189,7 @@ pub struct CoinbaseInterval {
 pub const BITCOIN_MAINNET_GENESIS_BURN_HEIGHT: u64 = 666_050;
 
 /// Burnchain height at which the Stacks 4.0 epoch activates (mainnet).
-pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 1_012_860;
+pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 960_230;
 
 /// Burnchain height of the Stacks genesis block (testnet).
 pub const BITCOIN_TESTNET_GENESIS_BURN_HEIGHT: u64 = 2_000_000;
@@ -788,6 +788,13 @@ impl StacksEpochId {
     /// in function definitions and the number of methods in trait definitions.
     pub fn limits_parameter_and_method_count(&self) -> bool {
         self >= &StacksEpochId::Epoch33
+    }
+
+    /// Whether contract analysis charges `AnalysisUseTraitEntry` for traits
+    /// resolved from the in-memory type-checking context, not only for those
+    /// fetched from the datastore.
+    pub fn meters_in_contract_trait_entry(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
     }
 
     pub fn handles_with_stx_combined_check(&self) -> bool {

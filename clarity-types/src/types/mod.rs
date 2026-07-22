@@ -244,7 +244,7 @@ pub struct ResponseData {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CallableData {
     pub contract_identifier: QualifiedContractIdentifier,
-    pub trait_identifier: Option<TraitIdentifier>,
+    pub trait_identifier: Option<Box<TraitIdentifier>>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
