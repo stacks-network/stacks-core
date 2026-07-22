@@ -189,6 +189,40 @@ impl BitcoinRpcClient {
         Ok(response.hash)
     }
 
+    /// Fetches the 80-byte serialized block header for the given block hash,
+    /// as a hex-encoded string. The caller decodes (e.g. via `hex_bytes`)
+    /// once it knows how it wants to consume the result.
+    pub fn get_block_header_hex(
+        &self,
+        hash: &BurnchainHeaderHash,
+    ) -> BitcoinRpcClientResult<String> {
+        Ok(self.endpoint.send(
+            &self.client_id,
+            None,
+            "getblockheader",
+            vec![hash.to_hex().into(), Value::Bool(false)],
+        )?)
+    }
+
+    /// Lists the (display-order) txids in a block. The Bitcoin Core
+    /// convention is that block-explorer / RPC txids are the *reverse* of
+    /// the internal-byte-order hash that the merkle tree commits to —
+    /// callers building merkle proofs need to reverse each entry before
+    /// feeding it to `verify-merkle-proof`.
+    pub fn get_block_txids(&self, hash: &BurnchainHeaderHash) -> BitcoinRpcClientResult<Vec<Txid>> {
+        #[derive(Deserialize)]
+        struct GetBlockTxidsResponse {
+            tx: Vec<TxidWrapperResponse>,
+        }
+        let response: GetBlockTxidsResponse = self.endpoint.send(
+            &self.client_id,
+            None,
+            "getblock",
+            vec![hash.to_hex().into(), 1.into()],
+        )?;
+        Ok(response.tx.into_iter().map(|w| w.0).collect())
+    }
+
     /// Gracefully shuts down the Bitcoin Core node.
     ///
     /// Sends the shutdown command to safely terminate `bitcoind`. This ensures all state is written

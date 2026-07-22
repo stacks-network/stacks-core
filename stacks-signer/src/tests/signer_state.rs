@@ -264,6 +264,7 @@ fn check_capitulate_miner_view() {
         miner_signature: MessageSignature([0u8; 65]),
         signer_signature: vec![],
         pox_treatment: BitVec::ones(1).unwrap(),
+        problematic_txs: vec![],
     });
 
     let expected_result = BlockHeaderWithMetadata {
@@ -485,6 +486,7 @@ fn check_capitulate_with_local_timeout() {
         miner_signature: MessageSignature([0u8; 65]),
         signer_signature: vec![],
         pox_treatment: BitVec::ones(1).unwrap(),
+        problematic_txs: vec![],
     });
 
     let node_response = BlockHeaderWithMetadata {
@@ -664,6 +666,7 @@ fn check_capitulate_split_view_node_at_lower_height() {
         miner_signature: MessageSignature([0u8; 65]),
         signer_signature: vec![],
         pox_treatment: BitVec::ones(1).unwrap(),
+        problematic_txs: vec![],
     });
 
     let expected_result = BlockHeaderWithMetadata {
@@ -846,6 +849,7 @@ fn check_capitulate_split_view_node_at_higher_height() {
         miner_signature: MessageSignature([0u8; 65]),
         signer_signature: vec![],
         pox_treatment: BitVec::ones(1).unwrap(),
+        problematic_txs: vec![],
     });
 
     let expected_result = BlockHeaderWithMetadata {

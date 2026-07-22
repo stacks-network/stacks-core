@@ -61,8 +61,8 @@ fn variant_coverage_report(variant: ParseErrorKind) {
         CostBalanceExceeded(_, _) => Tested(vec![test_cost_balance_exceeded]),
         MemoryBalanceExceeded(_, _) => Unreachable_NotUsed,
         CostComputationFailed(_) => Unreachable_ExpectLike,
-        ExecutionTimeExpired => Unreachable_NotUsed,
 
+        // Parse
         TooManyExpressions => Unreachable_ExpectLike,
         ExpressionStackDepthTooDeep { .. } => Tested(vec![
             test_stack_depth_too_deep_case_1_tuple_only_parsing,

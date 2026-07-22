@@ -1,0 +1,57 @@
+name: Generate Cache Keys
+description: |
+    Generates Bitcoin and Cargo cache keys used in CI.
+
+inputs:
+  btc-version:
+    description: "The Bitcoin binary version"
+    required: false
+    default: "25.0"
+
+outputs:
+  bitcoin-binary-version:
+    description: "Bitcoin Binary Version"
+    value: ${{ steps.bitcoin-cache-key.outputs.binary-version }}
+  bitcoin-cache-key:
+    description: "Bitcoin Cache Key"
+    value: ${{ steps.bitcoin-cache-key.outputs.cache-key }}
+  bitcoin-restore-key:
+    description: "Bitcoin restore-key prefix (to match latest)"
+    value: ${{ steps.bitcoin-cache-key.outputs.restore-key }}
+  cargo-cache-key:
+    description: "Cargo Cache Key"
+    value: ${{ steps.cargo-cache-key.outputs.cache-key }}
+  cargo-restore-key:
+    description: "Cargo restore-key prefix (to match latest)"
+    value: ${{ steps.cargo-cache-key.outputs.restore-key }}
+
+runs:
+  using: "composite"
+  steps:
+    # Do this once, first, so  both have the same timestamp
+    - name: Generate UTC Timestamp
+      id: timestamp
+      shell: bash
+      run: |
+        # %Y%m%d%H%M%S maps exactly to yyyyMMddhhmmss in UTC
+        echo "now=$(date -u +'%Y%m%d%H%M%S')" >> "$GITHUB_OUTPUT"
+    
+    - name: Generate Bitcoin Cache Key
+      id: bitcoin-cache-key
+      shell: bash
+      env:
+        BITCOIN_BINARY_VERSION: ${{ inputs.btc-version }}
+        TIMESTAMP: ${{ steps.timestamp.outputs.now }}
+      run: |
+        echo "cache-key=bitcoin-binary--${{ env.BITCOIN_BINARY_VERSION }}--${{ env.TIMESTAMP }}" >> "$GITHUB_OUTPUT"
+        echo "restore-key=bitcoin-binary--${{ env.BITCOIN_BINARY_VERSION }}" >> "$GITHUB_OUTPUT"
+        echo "binary-version=${{ env.BITCOIN_BINARY_VERSION }}" >> "$GITHUB_OUTPUT"
+
+    - name: Generate Cargo Cache Key
+      id: cargo-cache-key
+      shell: bash
+      env:
+        TIMESTAMP: ${{ steps.timestamp.outputs.now }}
+      run: |
+        echo "cache-key=cargo-crates--${{ runner.os }}--${{ env.TIMESTAMP }}" >> "$GITHUB_OUTPUT"
+        echo "restore-key=cargo-crates--${{ runner.os }}" >> "$GITHUB_OUTPUT"

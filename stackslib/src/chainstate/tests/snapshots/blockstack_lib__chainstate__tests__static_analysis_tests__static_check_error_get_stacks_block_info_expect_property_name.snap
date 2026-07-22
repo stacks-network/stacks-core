@@ -4,67 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "ad5175278b460dec520b56becc80c0032f78f520bf6706be8e934a00938ecbe9",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: stacks-exp-prop-name-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: missing property name for stacks block info introspection) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 5,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1066,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 5,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1066,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b5338e7521291645e19e6dd73a0770a1d54a89bb7cbf53872f411b1eb078760b",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: stacks-exp-prop-name-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: missing property name for stacks block info introspection) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 5,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1066,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 5,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1066,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "bf316eb91210f18681216abac14a4a1f0f986a220347a79100d8d2d3956ec576",
+    marf_hash: "cd9e54528f240e35a842393dcbdd28a7c4de1aa0e9e922a1b20a98f2edca2462",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3183582029265311f6cba38a49057adee0b652343a3491a81b8da403c3be4c4b",
+    marf_hash: "96b180734262a0ba8aedb5cd8523bff198fbf7ab332063df70ec6e8fe82dc739",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c0781b93885f2b64bcf6d7e7640a81cd6aa85743d19759be3c7c2b922c596bc1",
+    marf_hash: "9f44303f916e3796285f6239ad9f12fedf84ed2af32d7feb8fb2087f26c75a44",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

@@ -4,37 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "ce2d5a874ba9d1eee15eda2eb7b39e33d1db117048af19dfc76ec4fa375a7384",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: max-ident-len-excd-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: with-nft allowance identifiers list must not exceed 128 elements, got 130) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 142,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 16108,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 142,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 16108,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "bc8c7b19265be9b1fef7547d1a5fdd9d95a11ce2164291fdc304f154f7fee890",
+    marf_hash: "f12abdc0c35aed9967e1417115ee7b4389f002b2b87527ed99dc826ccb783df1",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "85923ecdd715671348afae1541181905da2d0eaffc3fdaa223724d774a85f972",
+    marf_hash: "62e3d4fd208f8296d46b18e641ac1febfa418bb110aeafcbcf58a6c44f0e251a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

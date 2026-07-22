@@ -495,7 +495,7 @@ fn test_type_min_size_callable_trait_matches_minimum_value_kind() {
     let declared_type = TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()));
     let min_value = Value::CallableContract(CallableData {
         contract_identifier: QualifiedContractIdentifier::local("a").unwrap(),
-        trait_identifier: Some(trait_id.clone()),
+        trait_identifier: Some(Box::new(trait_id.clone())),
     });
     let min_value_type = TypeSignature::type_of(&min_value).unwrap();
 

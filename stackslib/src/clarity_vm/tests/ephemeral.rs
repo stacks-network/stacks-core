@@ -366,6 +366,7 @@ fn replay_block(
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
             None,
+            None,
             &mut total_receipts,
         );
         let err = match &tx_result {

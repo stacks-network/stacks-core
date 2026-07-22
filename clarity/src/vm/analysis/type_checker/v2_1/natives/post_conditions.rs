@@ -183,9 +183,10 @@ pub fn check_allowance(
         NativeFunctions::AllowanceWithStx => check_allowance_with_stx(checker, args, context),
         NativeFunctions::AllowanceWithFt => check_allowance_with_ft(checker, args, context),
         NativeFunctions::AllowanceWithNft => check_allowance_with_nft(checker, args, context),
-        NativeFunctions::AllowanceWithStacking => {
+        NativeFunctions::AllowanceWithStacking | NativeFunctions::AllowanceWithStaking => {
             check_allowance_with_stacking(checker, args, context)
         }
+        NativeFunctions::AllowanceWithPox => check_allowance_with_pox(checker, args, context),
         NativeFunctions::AllowanceAll => check_allowance_all(checker, args, context),
         _ => Err(StaticCheckErrorKind::ExpectedAllowanceExpr(function_name.to_string()).into()),
     }
@@ -298,6 +299,18 @@ fn check_allowance_with_stacking(
         context,
         &TypeSignature::UIntType,
     )?;
+
+    Ok(false)
+}
+
+/// Type check a `with-pox` allowance expression.
+/// `(with-pox)`
+fn check_allowance_with_pox(
+    _checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    _context: &TypingContext,
+) -> Result<bool, StaticCheckError> {
+    check_argument_count(0, args)?;
 
     Ok(false)
 }
