@@ -1054,8 +1054,7 @@ impl TestStacksNode {
                 &tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                None,
-                None,
+                &TransactionResourceBudgets::unlimited(),
                 &mut total,
             ) {
                 TransactionResult::Success(..) => {
