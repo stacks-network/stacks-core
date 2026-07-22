@@ -190,7 +190,7 @@ fn test_wallet_listing_and_creation_ok() {
     assert_eq!(0, wallets.len());
 
     client
-        .create_wallet("mywallet1", Some(false))
+        .create_wallet("mywallet1", Some(false), None)
         .expect("mywallet1 creation should be ok!");
 
     let wallets = client.list_wallets().unwrap();
@@ -198,7 +198,7 @@ fn test_wallet_listing_and_creation_ok() {
     assert_eq!("mywallet1", wallets[0]);
 
     client
-        .create_wallet("mywallet2", Some(false))
+        .create_wallet("mywallet2", Some(false), None)
         .expect("mywallet2 creation should be ok!");
 
     let wallets = client.list_wallets().unwrap();
@@ -217,11 +217,11 @@ fn test_wallet_creation_fails_if_already_exists() {
     let client = utils::create_client_from_container(&btc_container);
 
     client
-        .create_wallet("mywallet1", Some(false))
+        .create_wallet("mywallet1", Some(false), None)
         .expect("mywallet1 creation should be ok!");
 
     let err = client
-        .create_wallet("mywallet1", Some(false))
+        .create_wallet("mywallet1", Some(false), None)
         .expect_err("mywallet1 creation should fail now!");
 
     match &err {
@@ -245,7 +245,9 @@ fn test_get_new_address_for_each_address_type() {
     let client = utils::create_client_from_container(&btc_container);
 
     let wallet = "mywallet";
-    client.create_wallet(&wallet, Some(false)).expect("OK");
+    client
+        .create_wallet(&wallet, Some(false), None)
+        .expect("OK");
 
     // Check Legacy p2pkh type OK
     let p2pkh = client
@@ -294,7 +296,7 @@ fn test_generate_to_address_ok() {
     let client = utils::create_client_from_container(&btc_container);
 
     let wallet = "mywallet";
-    client.create_wallet(wallet, Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false), None).expect("OK");
     let address = client
         .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("Should work!");
@@ -315,7 +317,7 @@ fn test_list_unspent_empty_with_empty_wallet() {
     let client = utils::create_client_from_container(&btc_container);
 
     let wallet = "mywallet";
-    client.create_wallet(wallet, Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false), None).expect("OK");
 
     let utxos = client
         .list_unspent(wallet, None, None, None, None, None, None)
@@ -333,7 +335,7 @@ fn test_list_unspent_with_defaults() {
     let client = utils::create_client_from_container(&btc_container);
 
     let wallet = "mywallet";
-    client.create_wallet(wallet, Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false), None).expect("OK");
 
     let address = client
         .get_new_address(wallet, None, Some(AddressType::Legacy))
@@ -359,7 +361,7 @@ fn test_list_unspent_one_address_ok() {
     let client = utils::create_client_from_container(&btc_container);
 
     let wallet = "mywallet";
-    client.create_wallet(wallet, Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false), None).expect("OK");
     let address = client
         .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("Should work!");
@@ -407,7 +409,7 @@ fn test_list_unspent_two_addresses_ok() {
     let client = utils::create_client_from_container(&btc_container);
 
     let wallet = "mywallet";
-    client.create_wallet(wallet, Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false), None).expect("OK");
 
     let address1 = client
         .get_new_address(wallet, None, Some(AddressType::Legacy))
@@ -482,7 +484,7 @@ fn test_generate_block_ok() {
 
     let wallet = "mywallet";
     client
-        .create_wallet(wallet, Some(false))
+        .create_wallet(wallet, Some(false), None)
         .expect("create wallet ok!");
     let address = client
         .get_new_address(wallet, None, Some(AddressType::Legacy))
@@ -505,7 +507,7 @@ fn test_get_raw_transaction_ok() {
 
     let wallet = "mywallet";
     client
-        .create_wallet(wallet, Some(false))
+        .create_wallet(wallet, Some(false), None)
         .expect("create wallet ok!");
 
     let address = client
@@ -540,7 +542,7 @@ fn test_get_transaction_ok() {
 
     let wallet = "mywallet";
     client
-        .create_wallet(wallet, Some(false))
+        .create_wallet(wallet, Some(false), None)
         .expect("create wallet ok!");
     let address = client
         .get_new_address(wallet, None, Some(AddressType::Legacy))
@@ -573,7 +575,7 @@ fn test_get_descriptor_ok() {
 
     let wallet = "mywallet";
     client
-        .create_wallet(wallet, None)
+        .create_wallet(wallet, None, None)
         .expect("create wallet ok!");
 
     let address = "mqqxPdP1dsGk75S7ta2nwyU8ujDnB2Yxvu";
@@ -597,7 +599,7 @@ fn test_import_descriptor_ok() {
 
     let wallet = "mywallet";
     client
-        .create_wallet(wallet, Some(true))
+        .create_wallet(wallet, Some(true), None)
         .expect("create wallet ok!");
 
     let address = "mqqxPdP1dsGk75S7ta2nwyU8ujDnB2Yxvu";
@@ -629,7 +631,7 @@ fn test_import_descriptor_twice_ok() {
 
     let wallet = "mywallet";
     client
-        .create_wallet(wallet, Some(true))
+        .create_wallet(wallet, Some(true), None)
         .expect("create wallet ok!");
 
     let address = "mqqxPdP1dsGk75S7ta2nwyU8ujDnB2Yxvu";
@@ -677,7 +679,7 @@ fn test_invalidate_block_ok() {
 
     let wallet = "mywallet";
     client
-        .create_wallet(wallet, Some(false))
+        .create_wallet(wallet, Some(false), None)
         .expect("create wallet ok!");
     let address = client
         .get_new_address(&wallet, None, Some(AddressType::Legacy))
@@ -725,7 +727,7 @@ fn test_send_raw_transaction_rebroadcast_ok() {
 
     let wallet = "mywallet";
     client
-        .create_wallet(wallet, Some(false))
+        .create_wallet(wallet, Some(false), None)
         .expect("create wallet ok!");
 
     let address = client

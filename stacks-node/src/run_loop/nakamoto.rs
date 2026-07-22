@@ -36,6 +36,7 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
+use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestControllerError;
 use crate::burnchains::make_bitcoin_indexer;
 use crate::globals::Globals as GenericGlobals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
@@ -183,9 +184,32 @@ impl RunLoop {
             }
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
-            if let Err(e) = burnchain.ensure_wallet_loaded() {
-                warn!("Error when creating wallet: {e:?}");
+
+            // a miner cannot operate without a wallet; retry: bitcoind may
+            // still be starting up
+            let mut resolved_wallet = None;
+            for _ in 0..Self::UTXO_RETRY_COUNT {
+                match burnchain.ensure_wallet_loaded() {
+                    Ok(wallet) => {
+                        resolved_wallet = Some(wallet);
+                        break;
+                    }
+                    // configuration error: retrying cannot fix it
+                    Err(e @ BitcoinRegtestControllerError::AmbiguousWallet(_)) => {
+                        panic!("FATAL: {e}");
+                    }
+                    Err(e) => {
+                        warn!("Error ensuring bitcoin wallet is loaded, will retry: {e:?}");
+                        thread::sleep(std::time::Duration::from_secs(Self::UTXO_RETRY_INTERVAL));
+                    }
+                }
             }
+            let Some(wallet_name) = resolved_wallet else {
+                panic!("FATAL: unable to load a bitcoin wallet, exiting");
+            };
+            // miner and relayer threads build their own controllers from this
+            // config: they must route to the resolved wallet too
+            self.config.burnchain.wallet_name = wallet_name;
             let mut btc_addrs = vec![(
                 StacksEpochId::Epoch2_05,
                 // legacy
