@@ -1782,7 +1782,6 @@ impl StacksChainState {
 
     fn install_boot_code(
         chainstate: &mut StacksChainState,
-        mainnet: bool,
         boot_data: &mut ChainStateBootData,
     ) -> Result<Vec<StacksTransactionReceipt>, Error> {
         info!("Building genesis block");
@@ -1812,7 +1811,7 @@ impl StacksChainState {
 
             info!("Computed Clarity state genesis"; "root_hash" => %genesis_root_hash);
 
-            if mainnet {
+            if chainstate.mainnet {
                 assert_eq!(
                     &genesis_root_hash.to_string(),
                     MAINNET_2_0_GENESIS_ROOT_HASH,
@@ -2020,7 +2019,7 @@ impl StacksChainState {
         match (init_required, boot_data) {
             (true, Some(boot_data)) => {
                 let mut res =
-                    StacksChainState::install_boot_code(&mut chainstate, mainnet, boot_data)?;
+                    StacksChainState::install_boot_code(&mut chainstate, boot_data)?;
                 receipts.append(&mut res);
             }
             (true, None) => {
