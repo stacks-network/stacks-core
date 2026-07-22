@@ -837,7 +837,11 @@ impl BlockMinerThread {
                     return Err(e);
                 }
                 NakamotoNodeError::StackerDBUploadError(ref ack) => {
-                    if ack.code == Some(StackerDBErrorCodes::BadSigner.code()) {
+                    // These failures are permanent for an identical payload: re-uploading the
+                    // same chunk can never succeed, so abort instead of retrying.
+                    if ack.code == Some(StackerDBErrorCodes::BadSigner.code())
+                        || ack.code == Some(StackerDBErrorCodes::ChunkTooBig.code())
+                    {
                         error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
                             "signer_signature_hash" => %new_block.header.signer_signature_hash(),
                             "block_height" => new_block.header.chain_length,
