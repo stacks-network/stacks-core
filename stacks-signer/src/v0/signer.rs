@@ -1156,51 +1156,56 @@ impl Signer {
             );
             return;
         }
+
         // A pre-commit may be superseded by a competing proposal at the same height (e.g. a
         // re-proposed tenure-start block after the first failed to reach consensus), but a
         // signature must not be superseded while it's still "fresh". Refuse to sign if we have
         // recently signed, or recently observed the signer set accept, a different block at
         // this height or above in this tenure.
-        let signed_blocks = match self.signer_db.get_signed_blocks_at_or_above(
+
+        // First: is any conflict endorsed after the freshness cutoff?
+        let endorsed_after = get_epoch_time_secs().saturating_sub(
+            self.proposal_config
+                .tenure_last_block_proposal_timeout
+                .as_secs(),
+        );
+        let fresh_conflict = match self.signer_db.get_fresh_signed_conflict(
             &block_info.block.header.consensus_hash,
             block_info.block.header.chain_length,
+            &block_hash,
+            endorsed_after,
         ) {
-            Ok(signed_blocks) => signed_blocks,
+            Ok(fresh_conflict) => fresh_conflict,
             Err(e) => {
                 warn!("{self}: Failed to query the signed blocks in the tenure. Refusing to sign block {block_hash}: {e:?}");
                 return;
             }
         };
-        // Find the freshest conflicting block (i.e. the one with the most recent endorsement) and
-        // check if it is still fresh. This list could contain the block we are about to sign, so
-        // we filter that out (it can't conflict with itself).
-        let freshest_conflict = signed_blocks
-            .iter()
-            .filter(|info| info.block.header.signer_signature_hash() != block_hash)
-            .max_by_key(|info| info.last_endorsed_time());
-        if let Some(conflict) = freshest_conflict {
-            let endorsement_is_fresh = conflict.last_endorsed_time().is_some_and(|endorsed_time| {
-                endorsed_time.saturating_add(
-                    self.proposal_config
-                        .tenure_last_block_proposal_timeout
-                        .as_secs(),
-                ) > get_epoch_time_secs()
-            });
-            if endorsement_is_fresh {
-                warn!(
-                    "{self}: Reached the pre-commit threshold for a block, but we have recently signed or accepted a different block at the same or higher height in this tenure. Refusing to sign.";
-                    "signer_signature_hash" => %block_hash,
-                    "block_height" => block_info.block.header.chain_length,
-                    "conflicting_signer_signature_hash" => %conflict.block.header.signer_signature_hash(),
-                    "conflicting_block_height" => conflict.block.header.chain_length,
-                );
+        if let Some(conflict) = fresh_conflict {
+            warn!(
+                "{self}: Reached the pre-commit threshold for a block, but we have recently signed or accepted a different block at the same or higher height in this tenure. Refusing to sign.";
+                "signer_signature_hash" => %block_hash,
+                "block_height" => block_info.block.header.chain_length,
+                "conflicting_signer_signature_hash" => %conflict.signer_signature_hash,
+                "conflicting_block_height" => conflict.stacks_height,
+            );
+            return;
+        }
+
+        // No fresh conflict. Is there any conflict at all?
+        let stale_conflict = match self.signer_db.get_any_signed_conflict(
+            &block_info.block.header.consensus_hash,
+            block_info.block.header.chain_length,
+            &block_hash,
+        ) {
+            Ok(stale_conflict) => stale_conflict,
+            Err(e) => {
+                warn!("{self}: Failed to query the signed blocks in the tenure. Refusing to sign block {block_hash}: {e:?}");
                 return;
             }
-
-            // The freshest conflict has timed out, but if it was globally accepted, we still
-            // cannot sign the replacement unless it is no longer considered canonical by the node
-            // (a Bitcoin reorg may have orphaned it). If the node cannot be reached, assume the
-            // proposed block is higher, as proposal evaluation does.
+        };
+        if let Some(conflict) = stale_conflict {
+            // The conflicts have all timed out, ask the node if it is canonical.
             match stacks_client.get_tenure_tip(&block_info.block.header.consensus_hash) {
                 Ok(tip) => {
                     let tip_height = tip.anchored_header.height();
@@ -1209,8 +1214,8 @@ impl Signer {
                             "{self}: Reached the pre-commit threshold for a block that conflicts with previously signed or accepted blocks, and the canonical tip of this tenure is at or above the proposed height. Refusing to sign.";
                             "signer_signature_hash" => %block_hash,
                             "block_height" => block_info.block.header.chain_length,
-                            "conflicting_signer_signature_hash" => %conflict.block.header.signer_signature_hash(),
-                            "conflicting_block_height" => conflict.block.header.chain_length,
+                            "conflicting_signer_signature_hash" => %conflict.signer_signature_hash,
+                            "conflicting_block_height" => conflict.stacks_height,
                             "canonical_tip_height" => tip_height,
                         );
                         return;
@@ -1228,8 +1233,8 @@ impl Signer {
                 "{self}: Reached the pre-commit threshold for a block that conflicts with previously signed or accepted blocks, but none of those were confirmed on the canonical chain within the timeout. Signing the replacement.";
                 "signer_signature_hash" => %block_hash,
                 "block_height" => block_info.block.header.chain_length,
-                "conflicting_signer_signature_hash" => %conflict.block.header.signer_signature_hash(),
-                "conflicting_block_height" => conflict.block.header.chain_length,
+                "conflicting_signer_signature_hash" => %conflict.signer_signature_hash,
+                "conflicting_block_height" => conflict.stacks_height,
             );
         }
         // It is only considered globally accepted IFF we receive a new block event confirming it OR see the chain tip of the node advance to it.
