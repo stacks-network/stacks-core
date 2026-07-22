@@ -36,7 +36,9 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use crate::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
+};
 use crate::chainstate::stacks::test::make_codec_test_nakamoto_block;
 use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
 use crate::config::DEFAULT_MAX_TENURE_BYTES;
@@ -302,8 +304,7 @@ fn test_try_make_response() {
                         &tx,
                         tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                         &mut 0,
                     );
                     let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
@@ -609,8 +610,7 @@ fn test_block_proposal_validation_timeout() {
                         &deploy_tx,
                         deploy_tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                         &mut 0,
                     );
                     assert!(matches!(tx_result, TransactionResult::Success(_)));
@@ -619,8 +619,7 @@ fn test_block_proposal_validation_timeout() {
                         &call_tx,
                         call_tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                         &mut 0,
                     );
                     assert!(matches!(tx_result, TransactionResult::Success(_)));
@@ -803,8 +802,7 @@ fn test_block_proposal_validation_execution_time_expired_blames_tx() {
                         &deploy_tx,
                         deploy_tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                         &mut 0,
                     );
                     assert!(matches!(tx_result, TransactionResult::Success(_)));
@@ -881,7 +879,7 @@ fn test_block_proposal_validation_execution_time_expired_blames_tx() {
                 "Rejection should blame the tx whose execution timed out"
             );
             assert!(
-                reason.contains("execution time expired"),
+                reason.contains("Evaluation took too much time"),
                 "Expected rejection reason to mention execution time, got: {reason}"
             );
         }
@@ -981,8 +979,7 @@ fn test_block_proposal_validation_analysis_time_expired_blames_tx() {
                         &deploy_tx,
                         deploy_tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                         &mut 0,
                     );
                     assert!(matches!(tx_result, TransactionResult::Success(_)));
@@ -1059,7 +1056,7 @@ fn test_block_proposal_validation_analysis_time_expired_blames_tx() {
                 "Rejection should blame the contract-publish tx whose analysis timed out"
             );
             assert!(
-                reason.contains("analysis time expired"),
+                reason.contains("Analysis took too much time"),
                 "Expected rejection reason to mention analysis time, got: {reason}"
             );
         }
@@ -1129,8 +1126,7 @@ fn replay_validation_test(
                             &tx,
                             tx.tx_len(),
                             &BlockLimitFunction::NO_LIMIT_HIT,
-                            None,
-                            None,
+                            &TransactionResourceBudgets::unlimited(),
                             &mut 0,
                         );
                     }

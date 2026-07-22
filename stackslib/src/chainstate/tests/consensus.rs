@@ -37,7 +37,7 @@ use crate::chainstate::nakamoto::{
 };
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksEpochReceipt};
 use crate::chainstate::stacks::events::TransactionOrigin;
-use crate::chainstate::stacks::miner::BlockBuilder;
+use crate::chainstate::stacks::miner::{BlockBuilder, TransactionResourceBudgets};
 use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksTransaction,
@@ -777,8 +777,7 @@ impl ConsensusChain<'_> {
                 .try_mine_tx(
                     &mut epoch_tx,
                     &coinbase_tx,
-                    None,
-                    None,
+                    &TransactionResourceBudgets::unlimited(),
                     &mut total_receipt_size,
                 )
                 .unwrap();
@@ -786,7 +785,12 @@ impl ConsensusChain<'_> {
             // We attempt to mine each transaction to build the hash
             for tx in &test_block.transactions {
                 // NOTE: It is expected to fail when trying computing the marf for invalid block/transactions.
-                let _ = builder.try_mine_tx(&mut epoch_tx, tx, None, None, &mut total_receipt_size);
+                let _ = builder.try_mine_tx(
+                    &mut epoch_tx,
+                    tx,
+                    &TransactionResourceBudgets::unlimited(),
+                    &mut total_receipt_size,
+                );
             }
 
             let stacks_block = builder.mine_anchored_block(&mut epoch_tx);

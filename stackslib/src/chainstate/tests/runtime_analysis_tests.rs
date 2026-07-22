@@ -61,89 +61,86 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         CostOverflow => Unreachable_ExpectLike, // Should exceed u64
         CostBalanceExceeded(_, _) => Tested(vec![
             runtime_check_error_cost_balance_exceeded_cdeploy,
-            runtime_check_error_cost_balance_exceeded_ccall
+            runtime_check_error_cost_balance_exceeded_ccall,
         ]),
         MemoryBalanceExceeded(_, _) => Tested(vec![
             runtime_check_error_memory_balance_exceeded_cdeploy,
-            runtime_check_error_memory_balance_exceeded_ccall
+            runtime_check_error_memory_balance_exceeded_ccall,
         ]),
         CostComputationFailed(_) => Tested(vec![
             arithmetic_zero_n_log_n_cdeploy,
             arithmetic_zero_n_log_n_ccall,
         ]),
-        ExecutionTimeExpired => Unreachable_Functionally(
+        ExecutionResourceBudgetExceeded(_) => Unreachable_Functionally(
             "All consensus-critical code paths (block validation and transaction processing)
-             pass `None` for max_execution_time to StacksChainState::process_transaction,
-             causing GlobalContext::execution_time_tracker to remain ExecutionTimeTracker::NoTracking.
-             The check_max_execution_time_expired function always returns Ok(()) when tracker
-             is NoTracking. Execution time limits are only enforced in RPC API calls
-             and miner-local transaction filtering."),
+             pass `ResourceBudget::unlimited()` to StacksChainState::process_transaction,
+             causing GlobalContext::execution_resource_limiter to remain unlimited (i.e. no-op).
+             The check_interpreter_resource_usage function always returns Ok(()) when there are
+             no limits. Execution time limits are only enforced in RPC API calls and miner-local
+             transaction filtering.",
+        ),
         ValueTooLarge => Tested(vec![
             runtime_check_error_kind_value_too_large_cdeploy,
-            runtime_check_error_kind_value_too_large_ccall
+            runtime_check_error_kind_value_too_large_ccall,
         ]),
         ValueOutOfBounds => todo!(),
         TypeSignatureTooDeep => Tested(vec![
             runtime_check_error_kind_type_signature_too_deep_cdeploy,
-            runtime_check_error_kind_type_signature_too_deep_ccall
+            runtime_check_error_kind_type_signature_too_deep_ccall,
         ]),
-        TraitReferenceUnknown(_) => Tested(vec![
-            trait_reference_unknown_transitive_use_trait_ccall,
-        ]),
-        TraitMethodUnknown(_, _) => Tested(vec![
-            trait_method_unknown_transitive_use_trait_ccall,
-        ]),
+        TraitReferenceUnknown(_) => {
+            Tested(vec![trait_reference_unknown_transitive_use_trait_ccall])
+        }
+        TraitMethodUnknown(_, _) => Tested(vec![trait_method_unknown_transitive_use_trait_ccall]),
         Unreachable(_) => Unreachable_ExpectLike, // This error is used in places where we expect the code to be unreachable, so if we hit it, it indicates a bug.
-        AbortedByExecutionHook(_) => Unreachable_Functionally(
-            "All consensus-critical code paths (block validation and transaction processing)
-             leave GlobalContext::abort_callback as None. The callback is only installed
-             by the miner during block assembly and by proposal validation, never during
-             normal block append or block replay, so this variant is unreachable in
-             consensus-critical execution."),
         ListTypesMustMatch => Tested(vec![runtime_check_error_kind_list_types_must_match_cdeploy]),
         TypeError(_, _) => Tested(vec![
             runtime_check_error_kind_type_error_cdeploy,
-            runtime_check_error_kind_type_error_ccall
+            runtime_check_error_kind_type_error_ccall,
         ]),
         TypeValueError(_, _) => Tested(vec![
             runtime_check_error_kind_type_value_error_cdeploy,
-            runtime_check_error_kind_type_value_error_ccall
+            runtime_check_error_kind_type_value_error_ccall,
         ]),
         UnionTypeValueError(_, _) => Tested(vec![
             runtime_check_error_kind_union_type_value_error_cdeploy,
-            runtime_check_error_kind_union_type_value_error_ccall
+            runtime_check_error_kind_union_type_value_error_ccall,
         ]),
         ExpectedContractPrincipalValue(_) => Tested(vec![
             runtime_check_error_kind_expected_contract_principal_value_cdeploy,
-            runtime_check_error_kind_expected_contract_principal_value_ccall
+            runtime_check_error_kind_expected_contract_principal_value_ccall,
         ]),
-        CouldNotDetermineType => Tested(vec![runtime_check_error_kind_could_not_determine_type_ccall]),
-        ReturnTypesMustMatch(_, _) => Tested(vec![runtime_check_error_kind_return_types_must_match_ccall]),
+        CouldNotDetermineType => Tested(vec![
+            runtime_check_error_kind_could_not_determine_type_ccall,
+        ]),
+        ReturnTypesMustMatch(_, _) => {
+            Tested(vec![runtime_check_error_kind_return_types_must_match_ccall])
+        }
         CircularReference(_) => Tested(vec![runtime_check_error_kind_circular_reference_ccall]), // Possible only during contract call. On contract deploy checked during parsing.
         NoSuchContract(_) => Tested(vec![runtime_check_error_kind_no_such_contract_ccall]),
-        NoSuchPublicFunction(_, _) => Tested(vec![runtime_check_error_kind_no_such_public_function_ccall]),
+        NoSuchPublicFunction(_, _) => {
+            Tested(vec![runtime_check_error_kind_no_such_public_function_ccall])
+        }
         ContractCallExpectName => Tested(vec![
             runtime_check_error_kind_contract_call_expect_name_cdeploy,
-            runtime_check_error_kind_contract_call_expect_name_ccall
+            runtime_check_error_kind_contract_call_expect_name_ccall,
         ]),
         NameAlreadyUsed(_) => Tested(vec![
             runtime_check_error_kind_name_already_used_cdeploy,
-            runtime_check_error_kind_name_already_used_ccall
+            runtime_check_error_kind_name_already_used_ccall,
         ]),
         UndefinedFunction(_) => Tested(vec![runtime_check_error_kind_undefined_function_ccall]),
         AtBlockUnavailable => Tested(vec![runtime_check_error_kind_at_block_unavailable_ccall]),
-        IncorrectArgumentCount(_, _) => {
-            Tested(vec![runtime_check_error_kind_incorrect_argument_count_ccall])
-        }
+        IncorrectArgumentCount(_, _) => Tested(vec![
+            runtime_check_error_kind_incorrect_argument_count_ccall,
+        ]),
         BadTraitImplementation(_, _) => Tested(vec![bad_trait_implementation_mismatched_args]),
         InvalidCharactersDetected => Tested(vec![
             invalid_characters_detected_invalid_ascii,
-            invalid_characters_detected_invalid_utf8
+            invalid_characters_detected_invalid_utf8,
         ]),
         RestrictAssetsMemoryExceeded(_, _) => todo!(),
-        InvalidUTF8Encoding => {
-            Ignored("Only reachable via legacy v1 parsing paths")
-        },
+        InvalidUTF8Encoding => Ignored("Only reachable via legacy v1 parsing paths"),
         PoxStxAssetMapOverwrite => todo!(),
     };
 }
