@@ -296,6 +296,12 @@ impl BlockInfo {
         self.move_to(BlockState::GloballyAccepted)
     }
 
+    /// The most recent time at which this signer signed this block or observed the signer
+    /// set reach the acceptance threshold for it, if either has happened.
+    pub fn last_endorsed_time(&self) -> Option<u64> {
+        self.signed_self.max(self.signed_group)
+    }
+
     /// Mark this block as invalid and attempt to mark it as locally rejected
     pub fn mark_locally_rejected(&mut self) -> Result<(), String> {
         self.valid = Some(false);
@@ -1513,6 +1519,30 @@ impl SignerDb {
         let result: Option<String> = query_row(&self.db, query, args)?;
 
         try_deserialize(result)
+    }
+
+    /// Return all signed blocks in a tenure (identified by its consensus hash) at or above
+    /// the given Stacks height. A block is considered signed if it is locally or globally
+    /// accepted. Blocks that have only been pre-committed are excluded, because a pre-commit
+    /// does not put a signature over the block and may be safely superseded by a competing
+    /// proposal.
+    pub fn get_signed_blocks_at_or_above(
+        &self,
+        tenure: &ConsensusHash,
+        height: u64,
+    ) -> Result<Vec<BlockInfo>, DBError> {
+        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3) AND stacks_height >= ?4";
+        let args = params![
+            tenure,
+            &BlockState::GloballyAccepted.to_string(),
+            &BlockState::LocallyAccepted.to_string(),
+            u64_to_sql(height)?,
+        ];
+        let result: Vec<String> = query_rows(&self.db, query, args)?;
+        result
+            .iter()
+            .map(|info| serde_json::from_str(info).map_err(DBError::SerializationError))
+            .collect()
     }
 
     /// Return the last globally accepted block in a tenure (identified by its consensus hash).
@@ -3368,6 +3398,29 @@ pub mod tests {
             .get_last_globally_accepted_block(&consensus_hash_3)
             .unwrap()
             .is_none());
+
+        // Verify signed blocks at or above a height. Note that block_info_5 (height 4) is
+        // only pre-committed, so it must never be included.
+        let mut signed_blocks = db
+            .get_signed_blocks_at_or_above(&consensus_hash_1, 2)
+            .unwrap();
+        signed_blocks.sort_by_key(|info| info.block.header.chain_length);
+        assert_eq!(
+            signed_blocks,
+            vec![block_info_2.clone(), block_info_3.clone()]
+        );
+        let signed_blocks = db
+            .get_signed_blocks_at_or_above(&consensus_hash_1, 3)
+            .unwrap();
+        assert_eq!(signed_blocks, vec![block_info_3.clone()]);
+        let signed_blocks = db
+            .get_signed_blocks_at_or_above(&consensus_hash_1, 4)
+            .unwrap();
+        assert!(signed_blocks.is_empty());
+        let signed_blocks = db
+            .get_signed_blocks_at_or_above(&consensus_hash_3, 1)
+            .unwrap();
+        assert!(signed_blocks.is_empty());
     }
 
     fn generate_tenure_blocks() -> Vec<BlockInfo> {
