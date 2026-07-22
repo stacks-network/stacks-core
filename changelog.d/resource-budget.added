@@ -1,0 +1,1 @@
+Refactored and expanded the defense-in-depth memory allocation limiter during non-consensus-critical transaction processing. Also, the  `/v2/contracts/call-read` and `/v3/contracts/fast-call-read` RPC endpoints no longer return the incorrect 408 status code when a contract call exceeds the limits, but a 400.

@@ -15,9 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::clarity::ClarityError;
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
-use stacks_common::alloc_tracker::{thread_allocated, tracking_allocator_installed};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
 };
@@ -36,7 +34,8 @@ use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent, TransactionResult,
+    BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionEvent,
+    TransactionResourceBudgets, TransactionResult,
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
 use crate::clarity_vm::clarity::ClarityInstance;
@@ -47,34 +46,6 @@ use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
 use crate::net::relay::Relayer;
-
-/// Build an [`AbortCallback`] that aborts when per-thread net heap
-/// allocation exceeds `limit_bytes`. Should be called once per
-/// transaction so each transaction gets a fresh baseline.
-///
-/// Returns `AbortCallback::None` when `limit_bytes` is 0 (disabled).
-///
-/// This is only called from block assembly and proposal validation contexts,
-/// and *not* during normal block append or block replay.
-///
-/// Requires a [`TrackingAllocator`](stacks_common::alloc_tracker::TrackingAllocator)
-/// to be set as the `#[global_allocator]` in the binary crate. If no
-/// tracking allocator is active the counters remain at 0 and the callback
-/// will never trigger (safe degradation).
-pub fn make_mem_abort_callback(limit_bytes: u64) -> AbortCallback {
-    if limit_bytes == 0 {
-        return AbortCallback::None;
-    }
-    if !tracking_allocator_installed() {
-        error!(
-            "TrackingAllocator is not installed as the global allocator; any miner or signer configured memory limits will never trigger"
-        );
-    }
-    AbortCallback::MemAbort {
-        baseline: thread_allocated(),
-        limit_bytes,
-    }
-}
 
 /// Nakamoto tenure information
 #[derive(Debug, Default)]
@@ -844,8 +815,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        max_execution_time: Option<std::time::Duration>,
-        max_analysis_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
@@ -910,8 +880,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 clarity_tx,
                 tx,
                 quiet,
-                max_execution_time,
-                max_analysis_time,
+                resource_budgets,
                 |receipt| {
                     if !receipt.post_condition_aborted {
                         let all_events_valid = receipt.events.iter().all(|event| {
