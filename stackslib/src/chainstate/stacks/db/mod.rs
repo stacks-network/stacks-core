@@ -2018,8 +2018,7 @@ impl StacksChainState {
         let mut receipts = vec![];
         match (init_required, boot_data) {
             (true, Some(boot_data)) => {
-                let mut res =
-                    StacksChainState::install_boot_code(&mut chainstate, boot_data)?;
+                let mut res = StacksChainState::install_boot_code(&mut chainstate, boot_data)?;
                 receipts.append(&mut res);
             }
             (true, None) => {
