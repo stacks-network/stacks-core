@@ -1646,14 +1646,20 @@ pub struct BurnchainConfig {
     ///
     /// If the specified wallet is not loaded, the node will attempt to load it via
     /// the `loadwallet` RPC call, creating it first (`createwallet`) if it does not
-    /// exist. When empty, wallet RPCs use bitcoin's node-level routing, which
-    /// reaches the wallet only when exactly one is loaded; if none is loaded, a
-    /// wallet named "default" is loaded or created. Bitcoin nodes with multiple
-    /// loaded wallets require a non-empty `wallet_name`.
+    /// exist. When empty, the miner resolves a wallet at startup: it adopts the
+    /// bitcoin node's single loaded wallet, or loads/creates a wallet named
+    /// "default" when none is loaded, then routes all wallet RPCs explicitly to
+    /// the resolved wallet. If multiple wallets are loaded and no name is
+    /// configured, the miner fails at startup; set a non-empty `wallet_name` to
+    /// select one.
     /// ---
-    /// @default: `""` (empty string, targeting the node's single loaded wallet)
+    /// @default: `""` (empty string, resolving to the node's single loaded wallet
+    ///   or to one named "default")
     /// @notes:
     ///   - Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
+    ///   - On Bitcoin Core >= 31 `migratewallet` may split a legacy wallet into a
+    ///     primary and a `<name>_watchonly` wallet; set `wallet_name` to the one
+    ///     holding the miner's watched addresses.
     pub wallet_name: String,
     /// Fault injection setting for testing. Introduces an artificial delay (in
     /// milliseconds) before processing each burnchain block download. Simulates a

@@ -17,7 +17,7 @@
 use std::cmp;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use stacks::burnchains::bitcoin::address::{
@@ -99,6 +99,10 @@ pub struct BitcoinRegtestController {
     /// - For **miner** node this field must be always `Some`.
     /// - For **other** node (e.g. follower node), this field is `None`.
     rpc_client: Option<BitcoinRpcClient>,
+    /// Wallet name resolved by [`Self::ensure_wallet_loaded`]. Wallet RPCs
+    /// route explicitly to it: node-level routing breaks as soon as a second
+    /// wallet is loaded.
+    resolved_wallet: OnceLock<String>,
 }
 
 #[derive(Clone)]
@@ -395,6 +399,7 @@ impl BitcoinRegtestController {
             ongoing_block_commit: None,
             should_keep_running,
             rpc_client,
+            resolved_wallet: OnceLock::new(),
         }
     }
 
@@ -444,6 +449,7 @@ impl BitcoinRegtestController {
             ongoing_block_commit: None,
             should_keep_running: None,
             rpc_client,
+            resolved_wallet: OnceLock::new(),
         }
     }
 
@@ -727,16 +733,19 @@ impl BitcoinRegtestController {
     /// Ensures a usable wallet is loaded in the connected bitcoin node: the
     /// configured one, or any single loaded wallet when no name is configured.
     /// Loads the wallet from disk, creating it first if needed.
-    pub fn ensure_wallet_loaded(&self) -> BitcoinRegtestControllerResult<()> {
+    ///
+    /// Returns the resolved wallet name and records it on this controller, so
+    /// that later wallet RPCs stay unaffected by other wallets being loaded.
+    pub fn ensure_wallet_loaded(&self) -> BitcoinRegtestControllerResult<String> {
         let loaded_wallets = self.list_wallets()?;
         let configured_name = self.get_wallet_name();
 
-        // an empty configured name uses node-level RPC routing, which reaches
-        // the wallet only when exactly one is loaded
+        // no configured identity: adopt the single loaded wallet, or fall
+        // back to a well-known name
         let wallet_to_load = if configured_name.is_empty() {
-            match loaded_wallets.len() {
-                0 => FALLBACK_WALLET_NAME,
-                1 => return Ok(()),
+            match loaded_wallets.as_slice() {
+                [] => FALLBACK_WALLET_NAME.to_string(),
+                [single] => return Ok(self.record_resolved_wallet(single.clone())),
                 _ => {
                     return Err(BitcoinRegtestControllerError::AmbiguousWallet(
                         loaded_wallets,
@@ -745,20 +754,31 @@ impl BitcoinRegtestController {
             }
         } else {
             if loaded_wallets.contains(configured_name) {
-                return Ok(());
+                return Ok(self.record_resolved_wallet(configured_name.clone()));
             }
-            configured_name.as_str()
+            configured_name.clone()
         };
 
-        // wallets do not stay loaded across bitcoind restarts
+        // load_on_startup, or the wallet is gone after a bitcoind restart
         let on_disk_wallets = self.get_rpc_client().list_wallet_dir()?;
-        if on_disk_wallets.iter().any(|name| name == wallet_to_load) {
-            self.get_rpc_client().load_wallet(wallet_to_load)?;
+        if on_disk_wallets.contains(&wallet_to_load) {
+            self.get_rpc_client()
+                .load_wallet(&wallet_to_load, Some(true))?;
         } else {
             self.get_rpc_client()
-                .create_wallet(wallet_to_load, Some(true))?;
+                .create_wallet(&wallet_to_load, Some(true), Some(true))?;
         }
-        Ok(())
+        Ok(self.record_resolved_wallet(wallet_to_load))
+    }
+
+    /// Records the wallet name resolved by [`Self::ensure_wallet_loaded`] for
+    /// explicit RPC routing and returns it. The first recorded name wins.
+    fn record_resolved_wallet(&self, name: String) -> String {
+        let _ = self.resolved_wallet.set(name);
+        self.resolved_wallet
+            .get()
+            .expect("resolved_wallet is set just above")
+            .clone()
     }
 
     pub fn get_utxos(
@@ -2257,9 +2277,13 @@ impl BitcoinRegtestController {
         }
     }
 
-    /// Returns the configured wallet name from [`Config`].
+    /// Returns the wallet name used for wallet RPC routing: the name resolved
+    /// by [`Self::ensure_wallet_loaded`] if it ran on this controller,
+    /// otherwise the configured name from [`Config`].
     fn get_wallet_name(&self) -> &String {
-        &self.config.burnchain.wallet_name
+        self.resolved_wallet
+            .get()
+            .unwrap_or(&self.config.burnchain.wallet_name)
     }
 
     /// Imports a public key into configured wallet by registering its
@@ -3236,10 +3260,10 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         let rpc_client = btc_controller.get_rpc_client();
         rpc_client
-            .create_wallet("wallet1", Some(true))
+            .create_wallet("wallet1", Some(true), None)
             .expect("wallet1 should be created!");
         rpc_client
-            .create_wallet("wallet2", Some(true))
+            .create_wallet("wallet2", Some(true), None)
             .expect("wallet2 should be created!");
 
         let result = btc_controller.ensure_wallet_loaded();
@@ -3308,15 +3332,50 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
             .get_rpc_client()
-            .create_wallet("solo", Some(true))
+            .create_wallet("solo", Some(true), None)
             .expect("solo wallet should be created!");
 
-        btc_controller
+        let resolved = btc_controller
             .ensure_wallet_loaded()
             .expect("Should adopt the single loaded wallet!");
+        assert_eq!("solo", resolved);
 
         let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(vec!["solo".to_owned()], wallets);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_wallet_rpcs_route_explicitly_after_resolution() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let config = utils::create_miner_config();
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        let resolved = btc_controller
+            .ensure_wallet_loaded()
+            .expect("Wallet should be created!");
+        assert_eq!(FALLBACK_WALLET_NAME, resolved);
+
+        // a second loaded wallet breaks node-level routing: RPCs must keep
+        // working via the resolved wallet
+        btc_controller
+            .get_rpc_client()
+            .create_wallet("other_wallet", Some(true), None)
+            .expect("other_wallet should be created!");
+
+        btc_controller
+            .import_public_key(&miner_pubkey)
+            .expect("Import should succeed via explicit routing to the resolved wallet!");
     }
 
     #[test]
@@ -3338,7 +3397,7 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
             .get_rpc_client()
-            .create_wallet("keyed", Some(false))
+            .create_wallet("keyed", Some(false), None)
             .expect("keyed wallet should be created!");
 
         btc_controller
@@ -3526,15 +3585,14 @@ mod tests {
 
         let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner1_pubkey.to_hex());
-        // both miners need explicit wallet names: with two wallets loaded,
-        // node-level RPC routing (empty wallet_name) is rejected as ambiguous
-        config.burnchain.wallet_name = "miner1_wallet".to_string();
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
 
+        // miner1 keeps the default (empty) wallet_name: routing must survive
+        // miner2's wallet being loaded alongside
         let miner1_btc_controller = BitcoinRegtestController::new(config.clone(), None);
         miner1_btc_controller.bootstrap_chain(1); // one utxo for miner_pubkey related address
 
