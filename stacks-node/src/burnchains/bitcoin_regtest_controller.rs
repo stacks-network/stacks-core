@@ -2191,9 +2191,9 @@ impl BitcoinRegtestController {
     ///  to the bitcoin single sig addresses corresponding to `pks` in a round robin fashion.
     #[cfg(test)]
     pub fn bootstrap_chain_to_pks(&self, num_blocks: u64, pks: &[Secp256k1PublicKey]) {
-        info!("Creating wallet if it does not exist");
+        info!("Ensuring wallet is loaded, creating it if needed");
         if let Err(e) = self.ensure_wallet_loaded() {
-            error!("Error when creating wallet: {e:?}");
+            error!("Error ensuring wallet is loaded: {e:?}");
         }
 
         for pk in pks {
@@ -3526,6 +3526,9 @@ mod tests {
 
         let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner1_pubkey.to_hex());
+        // both miners need explicit wallet names: with two wallets loaded,
+        // node-level RPC routing (empty wallet_name) is rejected as ambiguous
+        config.burnchain.wallet_name = "miner1_wallet".to_string();
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller

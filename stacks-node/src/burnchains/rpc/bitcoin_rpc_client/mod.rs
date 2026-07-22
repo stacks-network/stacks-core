@@ -438,8 +438,10 @@ impl BitcoinRpcClient {
     }
 
     /// create a wallet rpc path based on the given wallet name.
-    /// An empty name maps to the node-level endpoint, so wallet RPCs reach the
-    /// only loaded wallet regardless of what it is named.
+    /// An empty name maps to the node-level endpoint: wallet RPCs then reach
+    /// the loaded wallet, regardless of its name, only when exactly one wallet
+    /// is loaded; with multiple loaded wallets bitcoind rejects the call as
+    /// ambiguous.
     fn wallet_path(wallet: &str) -> Option<String> {
         if wallet.is_empty() {
             None
