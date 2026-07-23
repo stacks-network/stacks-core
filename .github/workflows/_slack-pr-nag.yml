@@ -261,7 +261,7 @@ jobs:
                 const teamLogins = Object.keys(userMap).sort();
                 const triager = teamLogins[pr.number % teamLogins.length];
                 explanation = `External PR — ${getSlackMention(triager)} to triage (assign yourself/someone + request reviewers)`;
-                sortWeight = 0;
+                sortWeight = -1;
                 statusIcon = '🆕';
               } else if (changesRequested) {
                 explanation = `Changes requested`;
