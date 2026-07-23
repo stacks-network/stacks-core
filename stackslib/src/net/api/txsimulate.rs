@@ -42,8 +42,10 @@ use crate::net::http::{
     HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
     HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{RPCRequestHandler, StacksHttpResponse};
-use crate::net::{Error as NetError, StacksHttpRequest, StacksNodeState};
+use crate::net::httpcore::{
+    HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpResponse,
+};
+use crate::net::{Error as NetError, StacksHttpRequest, StacksNodeState, TipRequest};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct RPCTransactionSimulateBody {
@@ -83,7 +85,7 @@ impl RPCTransactionSimulateRequestHandler {
     }
 
     /// Simulate the transaction in an ephemeral block built on top of the
-    /// canonical chain tip, extending the tip's tenure.  The execution budget
+    /// given chain tip, extending the tip's tenure.  The execution budget
     /// is reset to the full tenure limit, so the result is independent of how
     /// much of the current tenure's budget has already been consumed.  All
     /// state changes are discarded.
@@ -351,7 +353,7 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
     fn try_handle_request(
         &mut self,
         preamble: HttpRequestPreamble,
-        _contents: HttpRequestContents,
+        contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tx = self
@@ -359,9 +361,15 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
             .take()
             .ok_or(NetError::SendError("Missing `transaction`".into()))?;
 
+        let tip_block_id = match node.load_stacks_chain_tip(&preamble, &contents) {
+            Ok(tip) => tip,
+            Err(error_resp) => {
+                return error_resp.try_into_contents().map_err(NetError::from);
+            }
+        };
+
         let simulated_tx_res =
             node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
-                let tip_block_id = network.stacks_tip.block_id();
                 // apply the same per-transaction limits the signers enforce
                 // during block proposal validation
                 let max_tx_execution_time = Duration::from_secs(
@@ -425,6 +433,7 @@ impl StacksHttpRequest {
     pub fn new_transaction_simulate(
         host: PeerHost,
         transaction: &StacksTransaction,
+        tip_req: TipRequest,
     ) -> StacksHttpRequest {
         let tx_simulate_body = RPCTransactionSimulateBody {
             transaction_hex: bytes_to_hex(&transaction.serialize_to_vec()),
@@ -434,7 +443,7 @@ impl StacksHttpRequest {
             host,
             "POST".into(),
             "/v3/transactions/simulate".into(),
-            HttpRequestContents::new().payload_json(
+            HttpRequestContents::new().for_tip(tip_req).payload_json(
                 serde_json::to_value(tx_simulate_body)
                     .expect("FATAL: failed to encode RPCTransactionSimulateBody"),
             ),

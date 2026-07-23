@@ -30,7 +30,7 @@ use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{StacksHttp, StacksHttpRequest};
 use crate::net::test::TestEventObserver;
 use crate::net::tests::{NakamotoBootStep, NakamotoBootTenure};
-use crate::net::ProtocolFamily;
+use crate::net::{ProtocolFamily, TipRequest};
 
 #[test]
 fn test_try_parse_request() {
@@ -48,7 +48,11 @@ fn test_try_parse_request() {
         Some(clarity::vm::ClarityVersion::Clarity1),
     );
 
-    let mut request = StacksHttpRequest::new_transaction_simulate(addr.into(), &tx);
+    let mut request = StacksHttpRequest::new_transaction_simulate(
+        addr.into(),
+        &tx,
+        TipRequest::UseLatestAnchoredTip,
+    );
 
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
@@ -171,7 +175,11 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // simulate the contract-call at the tip
-    let mut request = StacksHttpRequest::new_transaction_simulate(addr.into(), &contract_call);
+    let mut request = StacksHttpRequest::new_transaction_simulate(
+        addr.into(),
+        &contract_call,
+        TipRequest::UseLatestAnchoredTip,
+    );
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
@@ -186,17 +194,47 @@ fn test_try_make_response() {
         function_name.clone(),
         &[],
     );
-    let mut request = StacksHttpRequest::new_transaction_simulate(addr.into(), &bad_nonce_call);
+    let mut request = StacksHttpRequest::new_transaction_simulate(
+        addr.into(),
+        &bad_nonce_call,
+        TipRequest::UseLatestAnchoredTip,
+    );
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
     // unauthenticated request
-    let request = StacksHttpRequest::new_transaction_simulate(addr.into(), &contract_call);
+    let request = StacksHttpRequest::new_transaction_simulate(
+        addr.into(),
+        &contract_call,
+        TipRequest::UseLatestAnchoredTip,
+    );
     requests.push(request);
 
     // simulation is stateless: simulating the same transaction again should
     // still succeed with the same nonce
-    let mut request = StacksHttpRequest::new_transaction_simulate(addr.into(), &contract_call);
+    let mut request = StacksHttpRequest::new_transaction_simulate(
+        addr.into(),
+        &contract_call,
+        TipRequest::UseLatestAnchoredTip,
+    );
+    request.add_header("authorization".into(), "password".into());
+    requests.push(request);
+
+    // simulate explicitly at the canonical tip via the `tip` query parameter
+    let mut request = StacksHttpRequest::new_transaction_simulate(
+        addr.into(),
+        &contract_call,
+        TipRequest::SpecificTip(canonical_tip.clone()),
+    );
+    request.add_header("authorization".into(), "password".into());
+    requests.push(request);
+
+    // a non-existent `tip` yields a 404
+    let mut request = StacksHttpRequest::new_transaction_simulate(
+        addr.into(),
+        &contract_call,
+        TipRequest::SpecificTip(StacksBlockId([0x01; 32])),
+    );
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
@@ -259,4 +297,19 @@ fn test_try_make_response() {
     // the earlier simulation did not mutate state
     let resp = responses.remove(0).decode_simulated_transaction().unwrap();
     assert_eq!(resp.result_hex, Value::okay_true());
+
+    // simulating at an explicit `tip` equal to the canonical tip matches the
+    // default behavior
+    let resp = responses.remove(0).decode_simulated_transaction().unwrap();
+    assert_eq!(resp.tip_block_id, canonical_tip);
+    assert_eq!(resp.result_hex, Value::okay_true());
+
+    // a non-existent `tip` yields a 404
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+    let (preamble, _body) = response.destruct();
+    assert_eq!(preamble.status_code, 404);
 }

@@ -2511,15 +2511,18 @@ paths:
 
   /v3/transactions/simulate:
     post:
-      summary: Simulate a single transaction on top of the canonical chain tip
+      summary: Simulate a single transaction on top of a chain tip
       tags:
         - Transactions
       security:
         - rpcAuth: []
       operationId: transactionSimulate
+      parameters:
+        - $ref: ./components/parameters/tip.yaml
       description: |
-        Simulate a single transaction in an ephemeral block built on top of the
-        canonical chain tip (no data is written in the MARF) and return its
+        Simulate a single transaction in an ephemeral block built on top of
+        the given chain tip, or the canonical chain tip if the `tip` query
+        parameter is omitted (no data is written in the MARF), and return its
         result, events, and execution cost. The simulation runs with the full
         tenure execution budget, independent of the cost already consumed in
         the current tenure. The transaction must be fully signed and valid
