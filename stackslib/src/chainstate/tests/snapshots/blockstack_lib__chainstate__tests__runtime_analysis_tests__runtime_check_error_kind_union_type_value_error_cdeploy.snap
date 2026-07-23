@@ -64,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5c469c82d4b05389e80a323d0ed73950ff94da7f2f2aff229211bc28db0e14b7",
+    marf_hash: "90599470fdf82d8caf2c2a1e6454eeecae57d8a47605c90f8e2cc031bd9f6c61",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -81,7 +81,7 @@ expression: result.get_expected_results()
           write_count: 2,
           read_length: 3,
           read_count: 2,
-          runtime: 24611,
+          runtime: 20806,
         ),
       ),
     ],
@@ -90,11 +90,11 @@ expression: result.get_expected_results()
       write_count: 2,
       read_length: 3,
       read_count: 2,
-      runtime: 24611,
+      runtime: 20806,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "054f03c04913818d5346f411183c758d2dabebe027b6f8eccc6d8899fa6cf26d",
+    marf_hash: "c1cbe8225949246a27480e668482feab6959beacc08ed690ceb9c836d045dc7e",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -111,7 +111,7 @@ expression: result.get_expected_results()
           write_count: 2,
           read_length: 3,
           read_count: 2,
-          runtime: 24611,
+          runtime: 20806,
         ),
       ),
     ],
@@ -120,11 +120,11 @@ expression: result.get_expected_results()
       write_count: 2,
       read_length: 3,
       read_count: 2,
-      runtime: 24611,
+      runtime: 20806,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7a727212e3a1a9411016e4325d7f63529660299b2b5d50ef53adcfbb4e1421e4",
+    marf_hash: "2e92c37ddb1b9b63d4f158a9f80b01652c776f87b09429815a083d47d87119ab",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -141,7 +141,7 @@ expression: result.get_expected_results()
           write_count: 2,
           read_length: 3,
           read_count: 2,
-          runtime: 24611,
+          runtime: 20806,
         ),
       ),
     ],
@@ -150,7 +150,7 @@ expression: result.get_expected_results()
       write_count: 2,
       read_length: 3,
       read_count: 2,
-      runtime: 24611,
+      runtime: 20806,
     ),
   )),
 ]

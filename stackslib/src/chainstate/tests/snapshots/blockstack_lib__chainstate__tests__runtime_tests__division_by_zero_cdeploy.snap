@@ -154,7 +154,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "19c8c0defd67ee069c848ebed06ad4620c793475a5463bfcf6932611008fcffc",
+    marf_hash: "504b050012a43a91fa79317931e38ffb47705f07258d48adaf2f98fe71c43f91",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -171,7 +171,7 @@ expression: result.get_expected_results()
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 9244,
+          runtime: 9125,
         ),
       ),
     ],
@@ -180,11 +180,11 @@ expression: result.get_expected_results()
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 9244,
+      runtime: 9125,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "941b351964762a5a2b54953000eba1eb9de5d0e979b82cd3fb533709edb377d8",
+    marf_hash: "d3343f83ffb71b37474289ed5d1c4b8a0c83692fe9ab06742355dddb42a7dd39",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -201,7 +201,7 @@ expression: result.get_expected_results()
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 9244,
+          runtime: 9125,
         ),
       ),
     ],
@@ -210,11 +210,11 @@ expression: result.get_expected_results()
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 9244,
+      runtime: 9125,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4f9a4e35915dad24817f34c14fafc974f7c9c4e105e4db1b799c7db544531b29",
+    marf_hash: "4d30e2ebdb6c4c50196c52b4d1ec6b571a986cb046d5343143217034aa5c903b",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -231,7 +231,7 @@ expression: result.get_expected_results()
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 9244,
+          runtime: 9125,
         ),
       ),
     ],
@@ -240,11 +240,11 @@ expression: result.get_expected_results()
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 9244,
+      runtime: 9125,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3bbd505d31f1b93574a8e3131c456c82fb63ab15f4f66c7bb241a1adff11d44f",
+    marf_hash: "cd0b6955cda69ac2ebc65349fba45ac78209d174667c8a97073ee51d1cefea7f",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -261,7 +261,7 @@ expression: result.get_expected_results()
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 9244,
+          runtime: 9125,
         ),
       ),
     ],
@@ -270,11 +270,11 @@ expression: result.get_expected_results()
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 9244,
+      runtime: 9125,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1ffb74309fa05c5b76775de2a86c934b86005be10028b6a299acc89886995d6f",
+    marf_hash: "9a9a576a0676fd7ea80bba298647e33a840c650a4e922a98f4f99957b4db8380",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -291,7 +291,7 @@ expression: result.get_expected_results()
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 9244,
+          runtime: 9125,
         ),
       ),
     ],
@@ -300,11 +300,11 @@ expression: result.get_expected_results()
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 9244,
+      runtime: 9125,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9b8f74110d42e2f31c2775b3092cfad2f8d62d127362ca95b3e7f9467c0c2ede",
+    marf_hash: "964295417725b4975e981d2045ec38d5f9ec70e5df9cd114310938b724d402fd",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -321,7 +321,7 @@ expression: result.get_expected_results()
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 9244,
+          runtime: 9125,
         ),
       ),
     ],
@@ -330,7 +330,7 @@ expression: result.get_expected_results()
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 9244,
+      runtime: 9125,
     ),
   )),
 ]

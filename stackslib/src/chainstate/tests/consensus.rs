@@ -136,6 +136,16 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
     }
 }
 
+/// Block execution limit the consensus tests use for the given epoch, mirroring the
+/// production `STACKS_EPOCHS_MAINNET`/`STACKS_EPOCHS_TESTNET` tables.
+pub fn block_limit_for_epoch(epoch_id: StacksEpochId) -> ExecutionCost {
+    if epoch_id >= StacksEpochId::Epoch40 {
+        BLOCK_LIMIT_MAINNET_40.clone()
+    } else {
+        BLOCK_LIMIT_MAINNET_21.clone()
+    }
+}
+
 /// Custom serializer for `Option<TransactionPayload>` to improve snapshot readability.
 /// This avoids large diffs in snapshots due to code body changes and focuses on key fields.
 fn serialize_opt_tx_payload<S>(
@@ -500,16 +510,7 @@ impl ConsensusChain<'_> {
                 end_height = epoch_30_start; // Epoch 2.5 ends where Epoch 3.0 starts
             }
             // Create epoch
-            let block_limit = if *epoch_id == StacksEpochId::Epoch10 {
-                ExecutionCost::max_value()
-            } else if *epoch_id == StacksEpochId::Epoch40 {
-                // Epoch 4.0 doubles the read budget relative to 2.1's limit; mirror
-                // the real `STACKS_EPOCHS_MAINNET`/`STACKS_EPOCHS_TESTNET` tables so
-                // consensus tests actually exercise the production block limit.
-                BLOCK_LIMIT_MAINNET_40.clone()
-            } else {
-                BLOCK_LIMIT_MAINNET_21.clone()
-            };
+            let block_limit = block_limit_for_epoch(*epoch_id);
             let network_epoch = StacksEpochId::network_epoch(*epoch_id);
             epochs.push(StacksEpoch {
                 epoch_id: *epoch_id,
