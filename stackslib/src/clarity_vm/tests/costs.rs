@@ -27,6 +27,7 @@ use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::test_util::{
     execute, execute_on_network, generate_test_burn_state_db, symbols_from_values,
     TEST_BURN_STATE_DB, TEST_BURN_STATE_DB_21, TEST_HEADER_DB,
@@ -270,10 +271,7 @@ fn setup_cost_test_epoch(
             clarity_conn.initialize_epoch_3_3().unwrap();
         }
         StacksEpochId::Epoch40 => {
-            // `initialize_epoch_4_0()` also deploys PoX-5, which requires the chainstate
-            // test harness's sBTC stubs. Cost tests only need the costs-5 contract.
             clarity_conn.set_epoch_for_testing(StacksEpochId::Epoch40);
-            clarity_conn.instantiate_epoch_4_0_cost_contract().unwrap();
         }
         _ => unreachable!(
             "COST_TEST_SETUP_EPOCHS only contains epochs which instantiate boot contracts needed for costs tests"
@@ -423,7 +421,7 @@ fn deploy_cost_voting_test_cost_definer(
                 &cost_definer,
                 ClarityVersion::Clarity1,
                 cost_definer_src,
-                None,
+                &ResourceBudget::unlimited(),
             )
             .unwrap();
         tx.initialize_smart_contract(
@@ -433,7 +431,7 @@ fn deploy_cost_voting_test_cost_definer(
             cost_definer_src,
             None,
             |_, _| None,
-            None,
+            &ResourceBudget::unlimited(),
         )
         .unwrap();
         tx.save_analysis(&cost_definer, &analysis).unwrap();
@@ -1568,7 +1566,12 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
         {
             block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, clarity_version, contract_src, None)
+                    .analyze_smart_contract(
+                        contract_name,
+                        clarity_version,
+                        contract_src,
+                        &ResourceBudget::unlimited(),
+                    )
                     .unwrap();
                 tx.initialize_smart_contract(
                     contract_name,
@@ -1577,7 +1580,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
                     contract_src,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();
@@ -1860,7 +1863,12 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         {
             block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(contract_name, clarity_version, contract_src, None)
+                    .analyze_smart_contract(
+                        contract_name,
+                        clarity_version,
+                        contract_src,
+                        &ResourceBudget::unlimited(),
+                    )
                     .unwrap();
                 tx.initialize_smart_contract(
                     contract_name,
@@ -1869,7 +1877,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                     contract_src,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
                 tx.save_analysis(contract_name, &analysis).unwrap();

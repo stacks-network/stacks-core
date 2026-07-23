@@ -67,6 +67,7 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::make_pox_4_lockup_chain_id;
 use crate::chainstate::stacks::boot::{POX_5_NAME, POX_5_SIGNER_SET_MIN_USTX};
 use crate::chainstate::stacks::db::{StacksChainState, *};
+use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksMicroblockHeader, *};
 use crate::core::{
@@ -340,8 +341,7 @@ impl<'a> TestChainstate<'a> {
                         clarity,
                         &smart_contract_tx,
                         &boot_code_account,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                     .expect("FATAL: failed to deploy sbtc stub")
                 })
@@ -406,8 +406,7 @@ impl<'a> TestChainstate<'a> {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                     .unwrap()
                 });

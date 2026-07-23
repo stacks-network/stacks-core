@@ -1269,7 +1269,7 @@ impl TypeSignature {
             Value::Response(v) => v.type_signature()?,
             Value::CallableContract(v) => {
                 if let Some(trait_identifier) = &v.trait_identifier {
-                    CallableType(CallableSubtype::Trait(trait_identifier.clone()))
+                    CallableType(CallableSubtype::Trait(trait_identifier.as_ref().clone()))
                 } else {
                     CallableType(CallableSubtype::Principal(v.contract_identifier.clone()))
                 }
@@ -1290,21 +1290,37 @@ impl TypeSignature {
 
     // Checks if resulting type signature is of valid size.
     pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData, ClarityTypeError> {
-        let children_types: Result<Vec<_>, ClarityTypeError> =
-            args.iter().map(TypeSignature::type_of).collect();
-        TypeSignature::parent_list_type(&children_types?)
+        Self::parent_list_type_from_iter(args.len(), args.iter().map(TypeSignature::type_of))
     }
 
     pub fn parent_list_type(children: &[TypeSignature]) -> Result<ListTypeData, ClarityTypeError> {
-        if let Some((first, rest)) = children.split_first() {
-            let mut current_entry_type = first.clone();
-            for next_entry in rest.iter() {
-                current_entry_type = Self::least_supertype_v2_1(&current_entry_type, next_entry)?;
+        Self::parent_list_type_from_iter(children.len(), children.iter().cloned().map(Ok))
+    }
+
+    /// Left-to-right `least_supertype_v2_1` fold, shared so
+    /// `construct_parent_list_type` and `parent_list_type` cannot drift.
+    /// Deliberately not epoch-gated: this matches shipped behavior, and
+    /// pre-2.1 values cannot produce the types where v2_0 differs.
+    fn parent_list_type_from_iter(
+        len: usize,
+        entry_types: impl Iterator<Item = Result<TypeSignature, ClarityTypeError>>,
+    ) -> Result<ListTypeData, ClarityTypeError> {
+        let mut entry_type: Option<TypeSignature> = None;
+        for next in entry_types {
+            let next = next?;
+            entry_type = Some(match entry_type {
+                None => next,
+                // Idempotent so equal types skip the fold.
+                Some(current) if current == next => current,
+                Some(current) => Self::least_supertype_v2_1(&current, &next)?,
+            });
+        }
+        match entry_type {
+            Some(entry_type) => {
+                let len = u32::try_from(len).map_err(|_| ClarityTypeError::ValueTooLarge)?;
+                ListTypeData::new_list(entry_type, len)
             }
-            let len = u32::try_from(children.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?;
-            ListTypeData::new_list(current_entry_type, len)
-        } else {
-            Ok(TypeSignature::empty_list())
+            None => Ok(TypeSignature::empty_list()),
         }
     }
 }

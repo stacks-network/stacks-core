@@ -751,7 +751,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         // Destination requires `external_blobs = true` and `compress = false`;
         // the rest is unused because we bypass the normal MARF write path.
-        let dst_open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+        let dst_open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, true);
         let mut dst = MARF::from_path(dst_path, dst_open_opts)?;
         apply_offline_squash_pragmas(dst.sqlite_conn())?;
 

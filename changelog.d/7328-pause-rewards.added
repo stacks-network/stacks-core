@@ -1,1 +1,0 @@
-Adds the ability to pause claiming of rewards in pox-5. This is an irreversable action, which can only be taken by the "pause admin", which is set initially at 4.0 activation.
