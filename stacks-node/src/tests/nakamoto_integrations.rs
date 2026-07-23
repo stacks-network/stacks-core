@@ -59,8 +59,8 @@ use stacks::chainstate::stacks::boot::{
 };
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
-    BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResult, TransactionSuccessEvent,
-    TEST_TX_STALL,
+    BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResourceBudgets,
+    TransactionResult, TransactionSuccessEvent, TEST_TX_STALL,
 };
 use stacks::chainstate::stacks::{
     AssetInfo, FungibleConditionCode, NonfungibleConditionCode, PostConditionPrincipal,
@@ -3500,8 +3500,7 @@ fn block_proposal_api_endpoint() {
             &tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            None,
-            None,
+            &TransactionResourceBudgets::unlimited(),
             &mut 0,
         );
         assert!(

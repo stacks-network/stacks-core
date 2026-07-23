@@ -27,17 +27,17 @@ use crate::vm::analysis::{
 use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::time_tracker::TimeTracker;
+use crate::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
 use crate::vm::types::QualifiedContractIdentifier;
 
 mod utils {
     use super::*;
 
     /// Run the full analysis pipeline on `snippet` at the latest epoch / Clarity
-    /// version with the given `time_tracker`, returning the analysis error (if any).
-    pub fn run_analysis_with_time_tracker(
+    /// version with the given `resource_limiter`, returning the analysis error (if any).
+    pub fn run_analysis_with_resource_limiter(
         snippet: &str,
-        time_tracker: TimeTracker,
+        resource_limiter: ResourceLimiter,
     ) -> Result<ContractAnalysis, StaticCheckError> {
         let contract_id = QualifiedContractIdentifier::transient();
         let version = ClarityVersion::latest();
@@ -59,7 +59,7 @@ mod utils {
             epoch,
             version,
             false, // build_type_map
-            time_tracker,
+            resource_limiter,
         )
         .map_err(|e| e.0)
     }
@@ -452,29 +452,34 @@ fn test_write_attempt_in_readonly() {
 
 /// An already-elapsed deadline trips the per-node analysis check on the
 /// very first `type_check` node, so even a trivial contract is rejected with
-/// [`StaticCheckErrorKind::AnalysisTimeExpired`].
+/// [`StaticCheckErrorKind::AnalysisResourceBudgetExceeded`].
 #[test]
 fn test_run_analysis_aborts_when_deadline_already_elapsed() {
-    let err = utils::run_analysis_with_time_tracker(
+    let err = utils::run_analysis_with_resource_limiter(
         "(define-read-only (foo) (+ 1 1))",
-        TimeTracker::from_max_duration(Duration::ZERO),
+        ResourceBudget::new()
+            .with_max_duration(Some(Duration::ZERO))
+            .start_tracking(),
     )
     .expect_err("a zero-duration analysis deadline must abort");
 
     assert!(
-        matches!(*err.err, StaticCheckErrorKind::AnalysisTimeExpired),
-        "expected AnalysisTimeExpired, got {:?}",
+        matches!(
+            *err.err,
+            StaticCheckErrorKind::AnalysisResourceBudgetExceeded(_)
+        ),
+        "expected AnalysisResourceBudgetExceeded, got {:?}",
         err.err
     );
 }
 
-/// An unlimited [`TimeTracker`] (the deterministic replay/commit path) imposes no
+/// An unlimited [`ResourceLimiter`] (the deterministic replay/commit path) imposes no
 /// analysis deadline, so a valid contract type-checks successfully.
 #[test]
 fn test_run_analysis_no_tracking_is_not_time_limited() {
-    let result = utils::run_analysis_with_time_tracker(
+    let result = utils::run_analysis_with_resource_limiter(
         "(define-read-only (foo) (+ 1 1))",
-        TimeTracker::unlimited(),
+        ResourceLimiter::unlimited(),
     );
     assert!(
         result.is_ok(),
@@ -487,9 +492,11 @@ fn test_run_analysis_no_tracking_is_not_time_limited() {
 /// guards against the per-node check firing spuriously when a deadline is configured.
 #[test]
 fn test_run_analysis_generous_deadline_succeeds() {
-    let result = utils::run_analysis_with_time_tracker(
+    let result = utils::run_analysis_with_resource_limiter(
         "(define-read-only (foo) (+ 1 1))",
-        TimeTracker::from_max_duration(Duration::from_secs(300)),
+        ResourceBudget::new()
+            .with_max_duration(Some(Duration::from_secs(300)))
+            .start_tracking(),
     );
     assert!(
         result.is_ok(),

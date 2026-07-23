@@ -23,7 +23,6 @@ use std::{fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
@@ -31,6 +30,7 @@ use clarity::vm::database::{
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::events::*;
 use clarity::vm::representations::ContractName;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -64,6 +64,7 @@ use crate::chainstate::stacks::index::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::{
     Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
@@ -513,11 +514,6 @@ impl ClarityConnection for ClarityTx<'_, '_> {
 impl<'a, 'b> ClarityTx<'a, 'b> {
     pub fn cost_so_far(&self) -> ExecutionCost {
         self.block.cost_so_far()
-    }
-
-    /// Set an abort callback that will be checked at every Clarity `eval` call.
-    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
-        self.block.set_abort_callback(callback);
     }
 
     pub fn get_epoch(&self) -> StacksEpochId {
@@ -1399,8 +1395,7 @@ impl StacksChainState {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                 })?;
                 receipts.push(tx_receipt);
@@ -1745,7 +1740,7 @@ impl StacksChainState {
                     "set-burnchain-parameters",
                     &params,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
