@@ -472,39 +472,6 @@ fn test_list_unspent_ok() {
 }
 
 #[test]
-fn test_list_unspent_with_empty_wallet_name_uses_node_endpoint() {
-    let expected_request = json!({
-        "jsonrpc": "2.0",
-        "id": "stacks",
-        "method": "listunspent",
-    });
-
-    let mock_response = json!({
-        "id": "stacks",
-        "result": [],
-        "error": null
-    });
-
-    let mut server = mockito::Server::new();
-    let mock = server
-        .mock("POST", "/")
-        .match_body(mockito::Matcher::PartialJson(expected_request))
-        .with_status(200)
-        .with_header("Content-Type", "application/json")
-        .with_body(mock_response.to_string())
-        .create();
-
-    let client = utils::setup_client(&server);
-
-    let result = client
-        .list_unspent("", None, None, None, None, None, None)
-        .expect("Should route to the node-level endpoint and parse the response");
-
-    assert!(result.is_empty());
-    mock.assert();
-}
-
-#[test]
 fn test_generate_to_address_ok() {
     let num_blocks = 1;
     let addr_str = utils::BITCOIN_ADDRESS_LEGACY_STR;

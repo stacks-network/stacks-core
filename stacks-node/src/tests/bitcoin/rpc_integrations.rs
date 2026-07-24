@@ -34,7 +34,6 @@ use stacks_common::util::get_epoch_time_nanos;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::burnchains::bitcoin::core_controller::BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
-use crate::burnchains::bitcoin_regtest_controller::FALLBACK_WALLET_NAME;
 use crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType;
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
@@ -755,13 +754,13 @@ fn test_send_raw_transaction_rebroadcast_ok() {
     assert_eq!(txid.to_hex(), raw_tx.txid().to_string());
 }
 
-/// Compatibility probe for the miner wallet bootstrap used at node startup,
-/// with the default (empty) `wallet_name` config: it must keep working across
-/// Bitcoin Core versions (e.g. v31 removed unnamed wallets).
+/// Compatibility probe for the named miner wallet bootstrap used at node
+/// startup. It must keep working across Bitcoin Core versions (e.g. v31
+/// removed unnamed wallets).
 #[tag(ci_skip)]
 #[ignore]
 #[test]
-fn test_default_wallet_bootstrap_ok() {
+fn test_named_wallet_bootstrap_ok() {
     let mut btc_container = utils::create_container_from_env();
     btc_container.start();
 
@@ -772,24 +771,24 @@ fn test_default_wallet_bootstrap_ok() {
     config.burnchain.rpc_port = btc_container.get_host_rpc_port();
     config.burnchain.username = Some(BITCOIN_RPC_USERNAME.to_string());
     config.burnchain.password = Some(BITCOIN_RPC_PASSWORD.to_string());
+    config.burnchain.wallet_name = "miner-wallet".to_string();
     config.node.working_dir = format!(
         "/tmp/rpc-integrations-wallet-bootstrap-{}-{}",
         config.burnchain.rpc_port,
         get_epoch_time_nanos()
     );
-    assert!(
-        config.burnchain.wallet_name.is_empty(),
-        "This test covers the default (empty) wallet_name"
-    );
+    let client = utils::create_client_from_container(&btc_container);
+    client
+        .create_wallet("miner-wallet", Some(true), Some(true))
+        .expect("Test setup should create the configured wallet");
 
     let controller = BitcoinRegtestController::new(config, None);
     controller
         .ensure_wallet_loaded()
         .expect("Wallet bootstrap should succeed");
 
-    let client = utils::create_client_from_container(&btc_container);
     assert_eq!(
-        vec![FALLBACK_WALLET_NAME.to_string()],
+        vec!["miner-wallet".to_string()],
         client.list_wallets().expect("Should list wallets")
     );
 
@@ -801,9 +800,8 @@ fn test_default_wallet_bootstrap_ok() {
         .import_public_key(&miner_pubkey)
         .expect("Watch-only import should succeed");
 
-    // wallet RPC round-trip through node-level routing (empty wallet name)
     let utxos = client
-        .list_unspent("", None, None, None, None, None, None)
-        .expect("listunspent should reach the single loaded wallet");
+        .list_unspent("miner-wallet", None, None, None, None, None, None)
+        .expect("listunspent should reach the configured wallet");
     assert!(utxos.is_empty());
 }

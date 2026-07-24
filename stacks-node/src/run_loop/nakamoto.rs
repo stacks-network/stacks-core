@@ -173,6 +173,25 @@ impl RunLoop {
     /// Number of times to retry UTXO check during startup
     const UTXO_RETRY_COUNT: u64 = 6;
 
+    /// Block until the miner's bitcoin wallet is loaded, retrying while
+    /// bitcoind may still be starting up. Fatal on misconfiguration or timeout.
+    fn ensure_miner_wallet_loaded(burnchain: &mut BitcoinRegtestController) {
+        for _ in 0..Self::UTXO_RETRY_COUNT {
+            match burnchain.ensure_wallet_loaded() {
+                Ok(()) => return,
+                Err(
+                    e @ (BitcoinRegtestControllerError::MissingWalletName
+                    | BitcoinRegtestControllerError::WalletNotFound(_)),
+                ) => panic!("FATAL: {e}"),
+                Err(e) => {
+                    warn!("Error ensuring bitcoin wallet is loaded, will retry: {e:?}");
+                    thread::sleep(std::time::Duration::from_secs(Self::UTXO_RETRY_INTERVAL));
+                }
+            }
+        }
+        panic!("FATAL: unable to load a bitcoin wallet, exiting");
+    }
+
     /// Determine if we're the miner.
     /// If there's a network error, then assume that we're not a miner.
     fn check_is_miner(&mut self, burnchain: &mut BitcoinRegtestController) -> bool {
@@ -187,29 +206,7 @@ impl RunLoop {
 
             // a miner cannot operate without a wallet; retry: bitcoind may
             // still be starting up
-            let mut resolved_wallet = None;
-            for _ in 0..Self::UTXO_RETRY_COUNT {
-                match burnchain.ensure_wallet_loaded() {
-                    Ok(wallet) => {
-                        resolved_wallet = Some(wallet);
-                        break;
-                    }
-                    // configuration error: retrying cannot fix it
-                    Err(e @ BitcoinRegtestControllerError::AmbiguousWallet(_)) => {
-                        panic!("FATAL: {e}");
-                    }
-                    Err(e) => {
-                        warn!("Error ensuring bitcoin wallet is loaded, will retry: {e:?}");
-                        thread::sleep(std::time::Duration::from_secs(Self::UTXO_RETRY_INTERVAL));
-                    }
-                }
-            }
-            let Some(wallet_name) = resolved_wallet else {
-                panic!("FATAL: unable to load a bitcoin wallet, exiting");
-            };
-            // miner and relayer threads build their own controllers from this
-            // config: they must route to the resolved wallet too
-            self.config.burnchain.wallet_name = wallet_name;
+            Self::ensure_miner_wallet_loaded(burnchain);
             let mut btc_addrs = vec![(
                 StacksEpochId::Epoch2_05,
                 // legacy

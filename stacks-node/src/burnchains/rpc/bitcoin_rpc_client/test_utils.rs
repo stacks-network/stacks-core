@@ -287,7 +287,7 @@ impl BitcoinRpcClient {
 
         let response = self.endpoint.send::<GetNewAddressResponse>(
             &self.client_id,
-            Self::wallet_path(wallet).as_deref(),
+            Some(&Self::wallet_path(wallet)),
             "getnewaddress",
             params,
         )?;
@@ -315,7 +315,7 @@ impl BitcoinRpcClient {
     ) -> BitcoinRpcClientResult<Txid> {
         let response = self.endpoint.send::<TxidWrapperResponse>(
             &self.client_id,
-            Self::wallet_path(wallet).as_deref(),
+            Some(&Self::wallet_path(wallet)),
             "sendtoaddress",
             vec![address.to_string().into(), amount.into()],
         )?;

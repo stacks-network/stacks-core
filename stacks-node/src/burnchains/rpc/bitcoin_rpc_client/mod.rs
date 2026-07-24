@@ -438,14 +438,8 @@ impl BitcoinRpcClient {
     }
 
     /// create a wallet rpc path based on the given wallet name.
-    /// An empty name maps to the node-level endpoint, which bitcoind resolves
-    /// only when exactly one wallet is loaded (ambiguous otherwise).
-    fn wallet_path(wallet: &str) -> Option<String> {
-        if wallet.is_empty() {
-            None
-        } else {
-            Some(format!("wallet/{wallet}"))
-        }
+    fn wallet_path(wallet: &str) -> String {
+        format!("wallet/{wallet}")
     }
 
     /// Creates and loads a new wallet into the Bitcoin Core node.
@@ -590,7 +584,7 @@ impl BitcoinRpcClient {
 
         Ok(self.endpoint.send(
             &self.client_id,
-            Self::wallet_path(wallet).as_deref(),
+            Some(&Self::wallet_path(wallet)),
             "listunspent",
             vec![
                 min_confirmations.into(),
@@ -654,7 +648,7 @@ impl BitcoinRpcClient {
     ) -> BitcoinRpcClientResult<GetTransactionResponse> {
         Ok(self.endpoint.send(
             &self.client_id,
-            Self::wallet_path(wallet).as_deref(),
+            Some(&Self::wallet_path(wallet)),
             "gettransaction",
             vec![txid.to_hex().into()],
         )?)
@@ -747,7 +741,7 @@ impl BitcoinRpcClient {
 
         Ok(self.endpoint.send(
             &self.client_id,
-            Self::wallet_path(wallet).as_deref(),
+            Some(&Self::wallet_path(wallet)),
             "importdescriptors",
             vec![descriptor_values.into()],
         )?)

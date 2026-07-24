@@ -17,6 +17,8 @@ stacker = true
 nakamoto_attempt_time_ms = 20000
 
 [burnchain]
+# Required name of an existing Bitcoin wallet used for mining operations
+wallet_name = "stacks-miner"
 # Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
 burn_fee_cap = 20000
 # Amount in sats per byte used to calculate the Bitcoin transaction fee (default: 50)

@@ -844,6 +844,21 @@ impl Config {
         Self::from_config_default(config_file, Config::default(), resolve_bootstrap_nodes)
     }
 
+    /// A real (non-mock) miner needs a named bitcoin wallet: Bitcoin Core >= 31
+    /// removed the default unnamed wallet, so RPCs must target one explicitly.
+    fn validate_miner_wallet_name(
+        node: &NodeConfig,
+        burnchain: &BurnchainConfig,
+    ) -> Result<(), String> {
+        let miner_needs_wallet = node.miner && !node.mock_mining;
+        if miner_needs_wallet && burnchain.wallet_name.trim().is_empty() {
+            return Err("Config is missing the setting `burnchain.wallet_name` \
+                 (mandatory and non-empty for miners)"
+                .into());
+        }
+        Ok(())
+    }
+
     fn from_config_default(
         config_file: ConfigFile,
         default: Config,
@@ -950,6 +965,8 @@ impl Config {
                     .into(),
             );
         }
+
+        Self::validate_miner_wallet_name(&node, &burnchain)?;
 
         if node.stacker || node.miner {
             node.add_miner_stackerdb(is_mainnet);
@@ -1644,19 +1661,16 @@ pub struct BurnchainConfig {
     /// node. Used to interact with a specific named wallet if the bitcoin node
     /// manages multiple wallets.
     ///
-    /// If the specified wallet is not loaded, the node will attempt to load it via
-    /// the `loadwallet` RPC call, creating it first (`createwallet`) if it does not
-    /// exist. When empty, the miner resolves a wallet at startup: it adopts the
-    /// bitcoin node's single loaded wallet, or loads/creates a wallet named
-    /// "default" when none is loaded, then routes all wallet RPCs explicitly to
-    /// the resolved wallet. If multiple wallets are loaded and no name is
-    /// configured, the miner fails at startup; set a non-empty `wallet_name` to
-    /// select one.
+    /// If the specified wallet exists but is not loaded, the node will attempt to
+    /// load it via the `loadwallet` RPC call. Miner startup fails if the wallet
+    /// does not exist. A non-empty name is required for mining nodes so wallet
+    /// RPCs can always be routed explicitly. Followers and mock miners do not use
+    /// wallet RPCs and may leave this empty.
     /// ---
-    /// @default: `""` (empty string, resolving to the node's single loaded wallet
-    ///   or to one named "default")
+    /// @default: `""` (valid only for followers and mock miners)
     /// @notes:
-    ///   - Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
+    ///   - Required when [`NodeConfig::miner`] is `true`, unless
+    ///     [`NodeConfig::mock_mining`] is also `true`.
     ///   - On Bitcoin Core >= 31 `migratewallet` may split a legacy wallet into a
     ///     primary and a `<name>_watchonly` wallet; set `wallet_name` to the one
     ///     holding the miner's watched addresses.
@@ -4952,6 +4966,60 @@ mod tests {
         );
 
         assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
+    }
+
+    #[test]
+    fn test_wallet_name_is_required_for_real_miners() {
+        for wallet_setting in ["", "wallet_name = \"   \""] {
+            let config = format!(
+                r#"
+                [node]
+                miner = true
+
+                [burnchain]
+                {wallet_setting}
+                "#
+            );
+            let err = Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false)
+                .unwrap_err();
+            assert_eq!(
+                err,
+                "Config is missing the setting `burnchain.wallet_name` \
+                 (mandatory and non-empty for miners)"
+            );
+        }
+
+        let named_miner = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                miner = true
+
+                [burnchain]
+                wallet_name = "miner-wallet"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("A real miner with a named wallet should be valid");
+        assert_eq!(named_miner.burnchain.wallet_name, "miner-wallet");
+
+        Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                miner = true
+                mock_mining = true
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("A mock miner does not use wallet RPCs");
+
+        Config::from_config_file(ConfigFile::from_str("").unwrap(), false)
+            .expect("A follower does not need a wallet");
     }
 
     #[test]
