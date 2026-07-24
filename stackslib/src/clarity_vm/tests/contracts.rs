@@ -303,6 +303,36 @@ fn publish_contract(
     })
 }
 
+/// Publish a contract with a compiled Wasm module, as the transaction deploy
+/// path does, so that the contract executes on the Wasm runtime.
+#[cfg(feature = "clarity-wasm")]
+fn publish_wasm_contract(
+    bc: &mut ClarityBlockConnection,
+    contract_id: &QualifiedContractIdentifier,
+    contract: &str,
+    version: ClarityVersion,
+) {
+    bc.as_transaction(|tx| {
+        let (mut ast, analysis) = tx
+            .analyze_smart_contract(contract_id, version, contract)
+            .unwrap();
+        let mut module = clar2wasm::compile_contract(analysis.clone()).unwrap();
+        ast.wasm_module = Some(module.emit_wasm());
+        tx.initialize_smart_contract(
+            contract_id,
+            version,
+            &mut ast,
+            &analysis,
+            contract,
+            None,
+            |_, _| None,
+            None,
+        )
+        .unwrap();
+        tx.save_analysis(contract_id, &analysis).unwrap();
+    });
+}
+
 /// Test that you cannot invoke a 2.05 contract
 ///  with a trait parameter using a stored principal.
 #[test]
@@ -1760,5 +1790,133 @@ fn test_get_block_info_time() {
             tx.eval_read_only(&contract_identifier3_3, "(get-time)")
                 .unwrap()
         );
+    });
+}
+
+/// Verify that a dynamic (trait-based) `contract-call?` under the Wasm
+/// runtime enforces the same runtime checks as the interpreter's
+/// `special_contract_call`: a valid implementation dispatches successfully,
+/// dispatching back into the calling contract fails with
+/// `CircularReference`, and dispatching to a contract that does not
+/// implement the trait method fails with `BadTraitImplementation`.
+#[test]
+#[cfg(feature = "clarity-wasm")]
+fn test_wasm_dynamic_dispatch_validation() {
+    use clarity::vm::types::{CallableData, TraitIdentifier};
+
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2, 3, 4, 5, 6, 7];
+
+    let trait_def_id = QualifiedContractIdentifier::local("simple-trait").unwrap();
+    let dispatch_id = QualifiedContractIdentifier::local("dispatch").unwrap();
+    let good_impl_id = QualifiedContractIdentifier::local("good-impl").unwrap();
+    let bad_impl_id = QualifiedContractIdentifier::local("bad-impl").unwrap();
+    let sender: PrincipalData = StacksAddress::burn_address(false).into();
+
+    let trait_def_src = "(define-trait simple ((do-it () (response bool uint))))";
+    let dispatch_src = "
+        (use-trait simple-trait .simple-trait.simple)
+        (define-public (call-it (t <simple-trait>))
+          (contract-call? t do-it))
+        (define-public (do-it)
+          (if true (ok true) (err u1)))
+    ";
+    let good_impl_src = "(define-public (do-it) (if true (ok true) (err u1)))";
+    let bad_impl_src = "(define-public (other-fn) (if true (ok true) (err u1)))";
+
+    // Advance to epoch 3.0
+    while sim.block_height <= 7 {
+        sim.execute_next_block(|_env| {});
+    }
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        for (id, src) in [
+            (&trait_def_id, trait_def_src),
+            (&dispatch_id, dispatch_src),
+            (&good_impl_id, good_impl_src),
+            (&bad_impl_id, bad_impl_src),
+        ] {
+            publish_wasm_contract(conn, id, src, clarity_version);
+        }
+    });
+
+    let trait_arg = |impl_id: &QualifiedContractIdentifier| {
+        Value::CallableContract(CallableData {
+            contract_identifier: impl_id.clone(),
+            trait_identifier: Some(TraitIdentifier {
+                name: ClarityName::from_literal("simple"),
+                contract_identifier: trait_def_id.clone(),
+            }),
+        })
+    };
+
+    sim.execute_next_block_as_conn(|conn| {
+        // A valid implementation dispatches successfully.
+        conn.as_transaction(|clarity_db| {
+            let (value, ..) = clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &dispatch_id,
+                    "call-it",
+                    &[trait_arg(&good_impl_id)],
+                    |_, _| None,
+                    None,
+                )
+                .unwrap();
+            assert_eq!(Value::okay(Value::Bool(true)).unwrap(), value);
+        });
+
+        // Dispatching back into the calling contract itself is a circular
+        // reference, as in the interpreter.
+        conn.as_transaction(|clarity_db| {
+            let err = clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &dispatch_id,
+                    "call-it",
+                    &[trait_arg(&dispatch_id)],
+                    |_, _| None,
+                    None,
+                )
+                .unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
+                        RuntimeCheckErrorKind::CircularReference(_)
+                    ))
+                ),
+                "expected CircularReference, got: {err:?}"
+            );
+        });
+
+        // Dispatching to a contract that does not implement the trait method
+        // fails with BadTraitImplementation, as in the interpreter.
+        conn.as_transaction(|clarity_db| {
+            let err = clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &dispatch_id,
+                    "call-it",
+                    &[trait_arg(&bad_impl_id)],
+                    |_, _| None,
+                    None,
+                )
+                .unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
+                        RuntimeCheckErrorKind::BadTraitImplementation(_, _)
+                    ))
+                ),
+                "expected BadTraitImplementation, got: {err:?}"
+            );
+        });
     });
 }

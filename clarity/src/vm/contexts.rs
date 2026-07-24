@@ -1469,13 +1469,34 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
                 return Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string())));
             }
 
+            // sanitize contract-call inputs in epochs >= 2.4, exactly as
+            // `inner_execute_contract` does on the interpreter path
+            let args: Result<Vec<Value>, VmExecutionError> = args.iter()
+                .map(|value| {
+                    let expected_type = TypeSignature::type_of(value)?;
+                    let (sanitized_value, _) = Value::sanitize_value(
+                        self.epoch(),
+                        &expected_type,
+                        value.clone(),
+                    ).ok_or_else(|| RuntimeCheckErrorKind::TypeValueError(
+                            Box::new(expected_type),
+                            value.to_error_string(),
+                        )
+                    )?;
+
+                    Ok(sanitized_value)
+                })
+                .collect();
+
+            let args = args?;
+
             let func_identifier = func.get_identifier();
             if self.call_stack.contains(&func_identifier) {
                 return Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CircularReference(vec![func_identifier.to_string()])))
             }
             self.call_stack.insert(&func_identifier, true);
 
-            let res = self.execute_function_as_transaction(invoke_ctx,&func, args, Some(&contract), false);
+            let res = self.execute_function_as_transaction(invoke_ctx,&func, &args, Some(&contract), false);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1487,7 +1508,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
                             invoke_ctx.sponsor.as_ref(),
                             contract_identifier,
                             tx_name,
-                            args,
+                            &args,
                             &value
                         )?;
                     }
