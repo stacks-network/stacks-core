@@ -23,6 +23,7 @@ use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
 use clarity::vm::errors::{VmExecutionError, VmInternalError};
 use clarity::vm::representations::ClarityName;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
@@ -31,7 +32,7 @@ use clarity::vm::types::{
 
 use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::miner::TransactionResult;
+use crate::chainstate::stacks::miner::{TransactionResourceBudgets, TransactionResult};
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityError, ClarityTransactionConnection};
 use crate::monitoring::increment_unreachable_errors_counter;
@@ -404,7 +405,7 @@ pub enum ClarityRuntimeTxError {
     },
     CostError(ExecutionCost, ExecutionCost),
     AnalysisError(RuntimeCheckErrorKind),
-    ExecutionTimeExpired,
+    ExecutionResourceBudgetExceeded(String),
     Rejectable(ClarityError),
 }
 
@@ -444,7 +445,9 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
             reason,
         },
         ClarityError::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
-        ClarityError::ExecutionTimeExpired => ClarityRuntimeTxError::ExecutionTimeExpired,
+        ClarityError::ExecutionResourceBudgetExceeded(s) => {
+            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s)
+        }
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
 }
@@ -1285,8 +1288,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTransactionConnection,
         tx: &StacksTransaction,
         origin_account: &StacksAccount,
-        max_execution_time: Option<std::time::Duration>,
-        max_analysis_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
     ) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
@@ -1358,7 +1360,7 @@ impl StacksChainState {
                         )
                         .expect("FATAL: error while evaluating post-conditions")
                     },
-                    max_execution_time,
+                    resource_budgets.get_execution_budget(),
                 );
 
                 let mut total_cost = clarity_tx.cost_so_far();
@@ -1464,15 +1466,16 @@ impl StacksChainState {
                                     )));
                                 }
                             }
-                            ClarityRuntimeTxError::ExecutionTimeExpired => {
-                                warn!("Transaction exceeded miner execution time limit; will be dropped from mempool";
+                            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
+                                warn!("Transaction exceeded miner execution resource limit; will be dropped from mempool";
+                                              "error" => s.clone(),
                                               "txid" => %tx.txid(),
                                               "origin" => %origin_account.principal,
                                               "origin_nonce" => %origin_account.nonce,
                                                "contract_name" => %contract_id,
                                                "function_name" => %contract_call.function_name,
                                                "function_args" => %VecDisplay(&contract_call.function_args));
-                                return Err(Error::ExecutionTimeExpired);
+                                return Err(Error::ExecutionResourceBudgetExceeded(s));
                             }
                             ClarityRuntimeTxError::Rejectable(e) => {
                                 error!("Unexpected error in validating transaction: if included, this will invalidate a block";
@@ -1538,7 +1541,7 @@ impl StacksChainState {
                     &contract_id,
                     clarity_version,
                     &contract_code_str,
-                    max_analysis_time,
+                    resource_budgets.get_analysis_budget(),
                 );
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
@@ -1559,13 +1562,14 @@ impl StacksChainState {
                                     budget.clone(),
                                 ));
                             }
-                            ClarityError::AnalysisTimeExpired => {
-                                // The analysis phase exceeded its wall-clock deadline (on a voting path only).
-                                warn!("Contract analysis exceeded the analysis time limit; tx will be dropped from the mempool";
+                            ClarityError::AnalysisResourceBudgetExceeded(s) => {
+                                // The analysis phase exceeded its wall-clock deadline or allocation limit (on a voting path only).
+                                warn!("Contract analysis exceeded the analysis resource budget; tx will be dropped from the mempool";
+                                      "error" => s.clone(),
                                       "txid" => %tx.txid(),
                                       "contract_name" => %contract_id,
                                 );
-                                return Err(Error::AnalysisTimeExpired);
+                                return Err(Error::AnalysisResourceBudgetExceeded(s));
                             }
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {
@@ -1634,7 +1638,7 @@ impl StacksChainState {
                         )
                         .expect("FATAL: error while evaluating post-conditions")
                     },
-                    max_execution_time,
+                    resource_budgets.get_execution_budget(),
                 );
 
                 let mut total_cost = clarity_tx.cost_so_far();
@@ -1733,11 +1737,12 @@ impl StacksChainState {
                                     )));
                                 }
                             }
-                            ClarityRuntimeTxError::ExecutionTimeExpired => {
-                                warn!("Transaction exceeded miner execution time limit; will be dropped from mempool";
+                            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
+                                warn!("Transaction exceeded miner execution resource limit; will be dropped from mempool";
+                                              "error" => s.clone(),
                                               "txid" => %tx.txid(),
                                               "contract" => %contract_id);
-                                return Err(Error::ExecutionTimeExpired);
+                                return Err(Error::ExecutionResourceBudgetExceeded(s));
                             }
                             ClarityRuntimeTxError::Rejectable(e) => {
                                 error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
@@ -1853,15 +1858,17 @@ impl StacksChainState {
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        // The generic/replay entry point imposes no analysis deadline (`None`): only the
+        // The generic/replay entry point imposes no analysis deadline: only the
         // miner assembly and block-proposal validation paths (which call
         // `process_transaction_with_check` directly) bound the analysis phase.
+        let resource_budgets = TransactionResourceBudgets::new()
+            .with_execution_budget(ResourceBudget::new().with_max_duration(max_execution_time));
+
         Self::process_transaction_with_check(
             clarity_block,
             tx,
             quiet,
-            max_execution_time,
-            None,
+            &resource_budgets,
             |_| Ok(()),
         )
     }
@@ -1943,8 +1950,7 @@ impl StacksChainState {
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
         quiet: bool,
-        max_execution_time: Option<std::time::Duration>,
-        max_analysis_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         mut check: F,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
@@ -1972,8 +1978,7 @@ impl StacksChainState {
                 &mut transaction,
                 tx,
                 &origin_account,
-                max_execution_time,
-                max_analysis_time,
+                resource_budgets,
             )?;
 
             // update the account nonces
@@ -2001,8 +2006,7 @@ impl StacksChainState {
                 &mut transaction,
                 tx,
                 &origin_account,
-                None,
-                None,
+                &TransactionResourceBudgets::unlimited(),
             )?;
 
             let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
@@ -2187,8 +2191,7 @@ pub mod test {
                 nonce: 0,
                 stx_balance: STXBalance::Unlocked { amount: 100 },
             },
-            None,
-            None,
+            &TransactionResourceBudgets::unlimited(),
         )
         .unwrap();
 
@@ -12889,8 +12892,8 @@ pub mod test {
         .unwrap_err();
 
         assert!(
-            matches!(err, Error::ExecutionTimeExpired),
-            "expected Error::ExecutionTimeExpired, got {err:?}",
+            matches!(err, Error::ExecutionResourceBudgetExceeded(_)),
+            "expected Error::ExecutionResourceBudgetExceeded, got {err:?}",
         );
 
         // Exercise the miner-level wrapper: it should classify as Problematic and reset the cost.
@@ -12944,8 +12947,8 @@ pub mod test {
         .unwrap_err();
 
         assert!(
-            matches!(err, Error::ExecutionTimeExpired),
-            "expected Error::ExecutionTimeExpired, got {err:?}",
+            matches!(err, Error::ExecutionResourceBudgetExceeded(_)),
+            "expected Error::ExecutionResourceBudgetExceeded, got {err:?}",
         );
 
         // Exercise the miner-level wrapper for the contract-call path too.

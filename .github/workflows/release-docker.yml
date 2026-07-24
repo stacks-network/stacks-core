@@ -6,12 +6,8 @@ name: Docker Release Images
 on:
   workflow_call:
     inputs:
-      node_tag:
-        description: "Node Docker Release Tag"
-        required: true
-        type: string
-      signer_tag:
-        description: "Signer Docker Release Tag"
+      tag:
+        description: "Docker Release Tag (shared by the node and signer)"
         required: true
         type: string
       release_type:
@@ -34,7 +30,7 @@ concurrency:
   # Always cancel duplicate jobs
   cancel-in-progress: true
 
-run-name: ${{ inputs.node_tag || inputs.signer_tag }}
+run-name: ${{ inputs.tag }}
 
 # Set default env vars
 env:
@@ -50,7 +46,7 @@ jobs:
     name: Docker Image (${{ inputs.release_type }}, ${{ matrix.dist }})
     if: |
       ( inputs.release_type == 'stacks-core' || inputs.release_type == 'stacks-signer') &&
-      ( inputs.signer_tag != '' || inputs.node_tag != '' )
+      inputs.tag != ''
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -87,17 +83,19 @@ jobs:
           fi
           # set a default docker image: registry/repo/release_type
           var_default_image="${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/${{ inputs.release_type }}"
-          var_artifact_pattern="${{ github.sha }}-${{ inputs.release_type }}-linux-${var_build_arch}*"
+          # both image types are built from the stacks-core binary archives,
+          # which contain the stacks-node and stacks-signer binaries
+          var_artifact_pattern="${{ github.sha }}-stacks-core-linux-${var_build_arch}*"
+          # the node and signer share a version, so both image types use the same tag
+          var_docker_tag=${{ inputs.tag }}
           if [ "${{ inputs.release_type }}" == "stacks-signer" ]; then
             # stacks-signer
             var_dockerfile_name="Dockerfile.signer"
             var_images="${var_default_image}" # use default, set in conditional to allow for individual changes based on release type
-            var_docker_tag=${{ inputs.signer_tag }} # use the input signer_tag if this is the stacks-signer build
             var_annotation_pattern="Stacks Signer"
           else
             # stacks-core
             var_images="${var_default_image}" # use default, set in conditional to allow for individual changes based on release type
-            var_docker_tag=${{ inputs.node_tag }} # use the input node_tag if this is the stacks-node build
             var_annotation_pattern="Stacks Core"
           fi
           # Set docker rc tag if branch is named `..-rc[0-9]`
@@ -118,7 +116,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -144,7 +142,7 @@ jobs:
       # Set docker metatdata
       - name: Docker Metadata ( ${{ matrix.dist }} )
         id: docker-metadata
-        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf #v6.0.0
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
@@ -178,7 +176,7 @@ jobs:
       # Build docker image for release
       - name: Build and Push ( ${{matrix.dist}} )
         id: docker-build
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           sbom: false
           provenance: ${{ env.PROVENANCE }}
@@ -195,7 +193,7 @@ jobs:
       - name: Attest Image (${{ github.event.repository.name }})
         if: |
           env.PROVENANCE != true
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-name: ${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/${{ inputs.release_type }}
           subject-digest: ${{ steps.docker-build.outputs.digest }}
@@ -204,7 +202,7 @@ jobs:
       # Sign the images with GitHub OIDC Token
       #   - https://github.blog/security/supply-chain-security/safeguard-container-signing-capability-actions/
       - name: Install Cosign
-        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       # Sign the images with Github OIDC token
       - name: Sign the images with OIDC Token

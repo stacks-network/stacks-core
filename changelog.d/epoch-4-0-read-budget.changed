@@ -1,1 +1,0 @@
-Doubled the Clarity read budget (`read_length` and `read_count`) for Stacks Epoch 4.0 blocks, via a new `BLOCK_LIMIT_MAINNET_40` cost limit. All other block limit dimensions (write and runtime) remain unchanged from Epoch 2.1 onward.

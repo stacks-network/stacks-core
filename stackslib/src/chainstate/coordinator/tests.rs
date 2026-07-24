@@ -24,6 +24,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::ClarityEvalError;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value};
 use lazy_static::lazy_static;
@@ -58,7 +59,7 @@ use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{
     ChainStateBootData, ClarityTx, StacksChainState, StacksHeaderInfo,
 };
-use crate::chainstate::stacks::miner::BlockBuilder;
+use crate::chainstate::stacks::miner::{BlockBuilder, TransactionResourceBudgets};
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core::*;
@@ -362,7 +363,7 @@ pub fn setup_states_with_epochs(
                         Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
                     ],
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
             });
@@ -655,7 +656,12 @@ fn make_genesis_block_with_recipients(
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, None, None, &mut 0)
+        .try_mine_tx(
+            &mut epoch_tx,
+            &coinbase_op,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -927,12 +933,22 @@ fn make_stacks_block_with_input(
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, None, None, &mut 0)
+        .try_mine_tx(
+            &mut epoch_tx,
+            &coinbase_op,
+            &TransactionResourceBudgets::unlimited(),
+            &mut 0,
+        )
         .unwrap();
 
     for tx in txs {
         builder
-            .try_mine_tx(&mut epoch_tx, tx, None, None, &mut 0)
+            .try_mine_tx(
+                &mut epoch_tx,
+                tx,
+                &TransactionResourceBudgets::unlimited(),
+                &mut 0,
+            )
             .unwrap();
     }
 

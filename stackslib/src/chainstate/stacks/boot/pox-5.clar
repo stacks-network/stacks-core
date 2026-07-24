@@ -350,12 +350,12 @@
 ;; On non-mainnet networks `make_pox_5_body` rewrites the literal to the
 ;; configured admin before deploy.
 ;; TODO: this should be set to some predefined multisig for mainnet.
-(define-data-var bond-admin principal 'SP000000000000000000002Q6VF78)
+(define-data-var bond-admin principal 'SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX)
 
 ;; The role that can permanently pause signer reward claims.
 ;; On non-mainnet networks `make_pox_5_body` rewrites the literal to the
 ;; configured admin before deploy.
-(define-data-var pause-admin principal 'SP000000000000000000002Q6VF78)
+(define-data-var pause-admin principal 'SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX)
 (define-data-var rewards-paused bool false)
 
 ;; Data vars that store a copy of the burnchain configuration.

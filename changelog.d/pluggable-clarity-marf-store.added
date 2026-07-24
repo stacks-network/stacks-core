@@ -1,0 +1,1 @@
+Added public constructors to run Clarity block processing (`ClarityBlockConnection` / `ClarityTx`) and genesis boot (`instantiate_boot_code`) against an arbitrary `WritableMarfStore`, so alternative storage backends can drive the consensus transaction engine without forking chainstate code ([#7428](https://github.com/stacks-network/stacks-core/pull/7428)).
