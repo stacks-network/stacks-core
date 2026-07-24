@@ -47,7 +47,7 @@ use crate::chainstate::tests::consensus::{
 use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityError, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
-use crate::clarity_vm::tests::test_utils::{
+use crate::clarity_vm::tests::utils::{
     new_cost_test_clarity_instance, next_test_block_id, setup_cost_test_epochs_through,
 };
 use crate::util_lib::boot::boot_code_id;
