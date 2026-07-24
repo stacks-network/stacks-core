@@ -1370,6 +1370,140 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
 }
 
 #[test]
+fn eval_hook_balances_trait_dispatched_contract_call_after_failure() {
+    let mut marf = MemoryBackingStore::new();
+    let mut env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::Epoch21);
+    let trait_contract_id = QualifiedContractIdentifier::local("trace-failure-trait").unwrap();
+    let impl_contract_id = QualifiedContractIdentifier::local("trace-failure-impl").unwrap();
+    let caller_contract_id = QualifiedContractIdentifier::local("trace-failure-caller").unwrap();
+
+    env.initialize_versioned_contract(
+        trait_contract_id,
+        ClarityVersion::Clarity2,
+        r#"
+            (define-trait divider
+              ((divide (uint) (response uint uint))))
+        "#,
+        None,
+    )
+    .unwrap();
+    env.initialize_versioned_contract(
+        impl_contract_id,
+        ClarityVersion::Clarity2,
+        r#"
+            (impl-trait .trace-failure-trait.divider)
+
+            (define-public (divide (divisor uint))
+              (ok (/ u12 divisor)))
+        "#,
+        None,
+    )
+    .unwrap();
+    env.initialize_versioned_contract(
+        caller_contract_id.clone(),
+        ClarityVersion::Clarity2,
+        r#"
+            (use-trait divider .trace-failure-trait.divider)
+            (define-data-var divider-contract principal .trace-failure-impl)
+
+            (define-private (call-divider (target <divider>) (divisor uint))
+              (contract-call? target divide divisor))
+
+            (define-public (entry (divisor uint))
+              (call-divider (var-get divider-contract) divisor))
+        "#,
+        None,
+    )
+    .unwrap();
+
+    let mut hook = CallStackCheckingHook::default();
+    env.add_eval_hook(&mut hook);
+
+    let sender = caller_contract_id.issuer.clone().into();
+    let failing_args = vec![SymbolicExpression::atom_value(Value::UInt(0))];
+    env.execute_transaction(
+        sender,
+        None,
+        caller_contract_id.clone(),
+        "entry",
+        &failing_args,
+    )
+    .unwrap_err();
+
+    // Retry the same trait-dispatched contract call with a valid divisor. This ensures
+    // that crossing the failed callee's transaction boundary left no stale hook frames.
+    let sender = caller_contract_id.issuer.clone().into();
+    let successful_args = vec![SymbolicExpression::atom_value(Value::UInt(1))];
+    let (value, _, _) = env
+        .execute_transaction(sender, None, caller_contract_id, "entry", &successful_args)
+        .unwrap();
+
+    assert_eq!(value, Value::okay(Value::UInt(12)).unwrap());
+    assert!(
+        hook.max_depth >= 5,
+        "the fixture must cross a genuinely nested contract-call chain"
+    );
+    assert_eq!(hook.executions.len(), 2);
+
+    let failed = &hook.executions[0];
+    assert_eq!(failed.outcome, ExecutionOutcome::Failure);
+    let first_failed = failed
+        .calls
+        .iter()
+        .position(|call| call.failed)
+        .expect("the callee's runtime error must reach the hook");
+    assert!(
+        failed.calls[..first_failed]
+            .iter()
+            .any(|call| call.label == "builtin:var-get"),
+        "`var-get` must complete successfully before the runtime error: {:?}",
+        failed.calls
+    );
+    assert!(
+        failed.calls[first_failed..].iter().all(|call| call.failed),
+        "every active frame must receive the propagated runtime error: {:?}",
+        failed.calls
+    );
+    for expected in [
+        "builtin:/",
+        "user-public:divide",
+        "builtin:contract-call?",
+        "user-private:call-divider",
+        "user-public:entry",
+    ] {
+        assert!(
+            failed
+                .calls
+                .iter()
+                .any(|call| call.failed && call.label == expected),
+            "missing failed call frame {expected}: {:?}",
+            failed.calls
+        );
+    }
+
+    let succeeded = &hook.executions[1];
+    assert_eq!(succeeded.outcome, ExecutionOutcome::Success);
+    assert!(
+        succeeded.calls.iter().all(|call| !call.failed),
+        "the retry should close every frame successfully: {:?}",
+        succeeded.calls
+    );
+    assert_eq!(
+        failed
+            .calls
+            .iter()
+            .map(|call| &call.label)
+            .collect::<Vec<_>>(),
+        succeeded
+            .calls
+            .iter()
+            .map(|call| &call.label)
+            .collect::<Vec<_>>(),
+        "the retry should traverse the same dynamic call chain without stale frames"
+    );
+}
+
+#[test]
 fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
     let mut marf = MemoryBackingStore::new();
     let mut env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::Epoch21);
