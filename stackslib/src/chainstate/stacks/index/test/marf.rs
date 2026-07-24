@@ -37,7 +37,7 @@ use crate::chainstate::stacks::index::{ClarityMarfTrieId, Error, MARFValue, Trie
 #[test]
 fn marf_insert_different_leaf_same_block_100() {
     let mut last_root_hashes = None;
-    for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
+    for marf_opts in opts::ALL_OPTS.clone().into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
 
@@ -96,7 +96,7 @@ fn marf_insert_different_leaf_same_block_100() {
 #[test]
 fn marf_insert_different_leaf_different_path_different_block_100() {
     let mut last_root_hashes = None;
-    for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
+    for marf_opts in opts::ALL_OPTS.clone().into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
 
@@ -176,7 +176,7 @@ fn marf_insert_different_leaf_different_path_different_block_100() {
 #[test]
 fn marf_insert_same_leaf_different_block_100() {
     let mut last_root_hashes = None;
-    for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
+    for marf_opts in opts::ALL_OPTS.clone().into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -258,7 +258,7 @@ fn marf_insert_same_leaf_different_block_100() {
 #[test]
 fn marf_insert_leaf_sequence_2() {
     let mut last_root_hashes = None;
-    for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
+    for marf_opts in opts::ALL_OPTS.clone().into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -335,7 +335,7 @@ fn marf_insert_leaf_sequence_2() {
 #[test]
 fn marf_insert_leaf_sequence_100() {
     let mut last_root_hashes = None;
-    for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
+    for marf_opts in opts::ALL_OPTS.clone().into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
         let block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -542,7 +542,7 @@ where
     ) -> (Vec<TrieNodeType>, Vec<TriePtr>, Vec<TrieHash>),
 {
     let mut last_root_hashes = None;
-    for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
+    for marf_opts in opts::ALL_OPTS.clone().into_iter() {
         let mut f_store = TrieFileStorage::new_memory(marf_opts).unwrap();
         let path = [
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
@@ -810,7 +810,7 @@ fn marf_merkle_verify_backptrs() {
     .iter()
     {
         let mut last_root_hashes = None;
-        for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
+        for marf_opts in opts::ALL_OPTS.clone().into_iter() {
             let mut f_store = TrieFileStorage::new_memory(marf_opts.clone()).unwrap();
 
             let path_segments = vec![
@@ -928,7 +928,7 @@ where
     F: FnMut(u32) -> ([u8; 32], Option<BlockHeaderHash>),
 {
     let mut last_root_hashes = None;
-    for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
+    for marf_opts in opts::ALL_OPTS.clone().into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
         let mut block_header = BlockHeaderHash::from_bytes(&[0u8; 32]).unwrap();
@@ -1304,7 +1304,7 @@ fn marf_insert_random_65536_2048() {
 #[ignore]
 fn marf_insert_random_4096_128_merkle_proof() {
     let mut last_root_hashes = None;
-    for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
+    for marf_opts in opts::ALL_OPTS.clone().into_iter() {
         let f = TrieFileStorage::new_memory(marf_opts).unwrap();
 
         let mut marf = MARF::from_storage(f);
@@ -2225,7 +2225,7 @@ pub(super) fn setup_marf(
     Vec<StacksBlockId>,
     HashMap<String, String>,
 ) {
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, true);
     let mut marf = MARF::<StacksBlockId>::from_path(path, open_opts).unwrap();
 
     assert!(num_blocks > 0, "num_blocks must be > 0");
@@ -2402,7 +2402,7 @@ fn test_for_each_leaf_large_scale_resolves_backpointers_and_values() {
 
 #[test]
 fn test_for_each_leaf_single_block() {
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, true);
     let mut marf = MARF::<StacksBlockId>::from_path(":memory:", open_opts).unwrap();
 
     let b1 = StacksBlockId::from_bytes(&[1u8; 32]).unwrap();

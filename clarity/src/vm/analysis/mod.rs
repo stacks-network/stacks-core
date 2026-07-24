@@ -44,23 +44,37 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::time_tracker::TimeTracker;
+use crate::vm::resource_limiter::{ResourceLimitExceeded, ResourceLimiter};
 use crate::vm::types::QualifiedContractIdentifier;
 #[cfg(feature = "rusqlite")]
 use crate::vm::types::TypeSignature;
 
-/// Cooperative analysis-deadline check shared by analysis passes
+/// Cooperative analysis resource limit check shared by analysis passes
 ///
-/// This is the single place the analysis-timeout error is constructed. The deadline is
-/// `TimeTracker::MaxTime` only on the non-consensus voting paths (mining / block-proposal
-/// validation); on the deterministic replay/commit path it is `TimeTracker::NoTracking`,
-/// so this never fires during consensus and the surfaced `AnalysisTimeExpired` cannot
-/// affect block validity.
-pub(crate) fn check_analysis_timeout(time_tracker: &TimeTracker) -> Result<(), StaticCheckError> {
-    if time_tracker.is_expired() {
-        return Err(StaticCheckErrorKind::AnalysisTimeExpired.into());
-    }
-    Ok(())
+/// This is the single place the analysis resource error is constructed. The budget is
+/// limited only on the non-consensus voting paths (mining / block-proposal
+/// validation); on the deterministic replay/commit path it is unlimited,
+/// so this never fires during consensus and the surfaced `AnalysisResourceBudgetExceeded`
+/// cannot affect block validity.
+pub(crate) fn check_analysis_resource_limits(
+    resource_limiter: &ResourceLimiter,
+) -> Result<(), StaticCheckError> {
+    resource_limiter
+        .check_not_exceeded()
+        .map_err(|err| match err {
+            ResourceLimitExceeded::MaxDurationExceeded(s) => {
+                StaticCheckErrorKind::AnalysisResourceBudgetExceeded(format!(
+                    "Analysis took too much time: {s}"
+                ))
+                .into()
+            }
+            ResourceLimitExceeded::MaxAllocationExceeded(s) => {
+                StaticCheckErrorKind::AnalysisResourceBudgetExceeded(format!(
+                    "Analysis used too much memory: {s}"
+                ))
+                .into()
+            }
+        })
 }
 
 /// Used by CLI tools like the docs generator. Not used in production
@@ -87,7 +101,7 @@ pub fn mem_type_check(
         epoch,
         version,
         true,
-        TimeTracker::unlimited(),
+        ResourceLimiter::unlimited(),
     ) {
         Ok(x) => {
             // return the first type result of the type checker
@@ -128,7 +142,7 @@ pub fn type_check(
         *epoch,
         *version,
         true,
-        TimeTracker::unlimited(),
+        ResourceLimiter::unlimited(),
     )
     .map_err(|e| e.0)
 }
@@ -153,12 +167,12 @@ pub fn type_check(
 /// * `build_type_map` - When `true`, the type checker records a full expression →
 ///   type map on the resulting analysis (needed by tooling/tests); when `false`, the
 ///   map is skipped to save work.
-/// * `time_tracker` - Wall-clock deadline enforced across the analysis passes. The
-///   clock may already have elapsed time on it from AST building by the time it
-///   reaches here. `TimeTracker::MaxTime` is used only on the non-consensus voting
-///   paths (mining / block-proposal validation); `TimeTracker::NoTracking` is used on
-///   the deterministic replay/commit path so consensus stays deterministic, meaning
-///   the deadline never fires there.
+/// * `resource_limiter` - Wall-clock deadline and heap allocation limit enforced across
+///   the analysis passes. The budget may already have been exceeded from AST building
+///   by the time it reaches here. Limits are used only on the non-consensus voting
+///   paths (mining / block-proposal validation); it is unlimited on the deterministic
+///   replay/commit path so consensus stays deterministic, meaning the limiter never
+///   fires there.
 ///
 /// # Returns
 ///
@@ -175,7 +189,7 @@ pub fn run_analysis(
     epoch: StacksEpochId,
     version: ClarityVersion,
     build_type_map: bool,
-    time_tracker: TimeTracker,
+    resource_limiter: ResourceLimiter,
 ) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
@@ -185,23 +199,23 @@ pub fn run_analysis(
         version,
     );
     let result = analysis_db.execute(|db| {
-        ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, time_tracker)?;
+        ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
         if epoch >= StacksEpochId::Epoch21 {
             TypeChecker2_1::run_pass(
                 &epoch,
                 &mut contract_analysis,
                 db,
                 build_type_map,
-                time_tracker,
+                resource_limiter,
             )?;
         } else {
             TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, build_type_map)?;
         }
-        TraitChecker::run_pass(&epoch, &mut contract_analysis, db, time_tracker)?;
+        TraitChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 
         // Final boundary check on the analysis passes
-        check_analysis_timeout(&time_tracker)?;
+        check_analysis_resource_limits(&resource_limiter)?;
 
         if STORE_CONTRACT_SRC_INTERFACE {
             let interface = build_contract_interface(&contract_analysis)?;

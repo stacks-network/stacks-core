@@ -116,7 +116,6 @@ mod utils {
         let test_file = if test_name == ":memory:" {
             test_name.to_string()
         } else {
-            let cache_str = &marf_opts.cache_strategy;
             let hash_str = match marf_opts.hash_calculation_mode {
                 TrieHashCalculationMode::Immediate => "imm",
                 TrieHashCalculationMode::Deferred => "def",
@@ -125,8 +124,8 @@ mod utils {
             let compress_str = if marf_opts.compress { "com" } else { "unc" };
 
             let test_dir = format!(
-                "/tmp/stacks-marf-tests/{}-{}-{}-{}-{}",
-                test_name, cache_str, hash_str, compress_str, batch_size
+                "/tmp/stacks-marf-tests/{}-{}-{}-{}",
+                test_name, hash_str, compress_str, batch_size
             );
 
             if fs::metadata(&test_dir).is_ok() {
@@ -189,38 +188,22 @@ mod utils {
     }
 }
 
-/// Tests MARF cache behavior (no compression) using 128 inserts across 128 blocks,
+/// Tests MARF behavior (no compression) using 128 inserts across 128 blocks.
 ///
-/// The test is executed across a wide range of MARF configurations and insert
-/// batch sizes to exercise all cache strategies.
+/// The test is executed across hash calculation modes and insert batch sizes.
 /// For all configurations, the resulting root hash must remain stable.
 #[rstest]
-#[case::noop_immediate_batch_0(&opts::OPTS_NOOP_IMM_EXT, 0)]
-#[case::noop_immediate_batch_13(&opts::OPTS_NOOP_IMM_EXT, 13)]
-#[case::noop_immediate_batch_64(&opts::OPTS_NOOP_IMM_EXT, 64)]
-#[case::noop_immediate_batch_67(&opts::OPTS_NOOP_IMM_EXT, 67)]
-#[case::noop_immediate_batch_128(&opts::OPTS_NOOP_IMM_EXT, 128)]
-#[case::noop_deferred_batch_0(&opts::OPTS_NOOP_DEF_EXT, 0)]
-#[case::noop_deferred_batch_13(&opts::OPTS_NOOP_DEF_EXT, 13)]
-#[case::noop_deferred_batch_64(&opts::OPTS_NOOP_DEF_EXT, 64)]
-#[case::noop_deferred_batch_67(&opts::OPTS_NOOP_DEF_EXT, 67)]
-#[case::noop_deferred_batch_128(&opts::OPTS_NOOP_DEF_EXT, 128)]
-#[case::node256_immediate_batch_0(&opts::OPTS_N256_IMM_EXT, 0)]
-#[case::node256_immediate_batch_13(&opts::OPTS_N256_IMM_EXT, 13)]
-#[case::node256_immediate_batch_64(&opts::OPTS_N256_IMM_EXT, 64)]
-#[case::node256_immediate_batch_67(&opts::OPTS_N256_IMM_EXT, 67)]
-#[case::node256_immediate_batch_128(&opts::OPTS_N256_IMM_EXT, 128)]
-#[case::all_immediate_batch_0(&opts::OPTS_EVER_IMM_EXT, 0)]
-#[case::all_immediate_batch_13(&opts::OPTS_EVER_IMM_EXT, 13)]
-#[case::all_immediate_batch_64(&opts::OPTS_EVER_IMM_EXT, 64)]
-#[case::all_immediate_batch_67(&opts::OPTS_EVER_IMM_EXT, 67)]
-#[case::all_immediate_batch_128(&opts::OPTS_EVER_IMM_EXT, 128)]
-#[case::all_deferred_batch_0(&opts::OPTS_EVER_DEF_EXT, 0)]
-#[case::all_deferred_batch_13(&opts::OPTS_EVER_DEF_EXT, 13)]
-#[case::all_deferred_batch_64(&opts::OPTS_EVER_DEF_EXT, 64)]
-#[case::all_deferred_batch_67(&opts::OPTS_EVER_DEF_EXT, 67)]
-#[case::all_deferred_batch_128(&opts::OPTS_EVER_DEF_EXT, 128)]
-fn test_marf_cache_128_128(#[case] marf_opts: &MARFOpenOpts, #[case] batch_size: usize) {
+#[case::immediate_batch_0(&opts::OPTS_IMM_EXT, 0)]
+#[case::immediate_batch_13(&opts::OPTS_IMM_EXT, 13)]
+#[case::immediate_batch_64(&opts::OPTS_IMM_EXT, 64)]
+#[case::immediate_batch_67(&opts::OPTS_IMM_EXT, 67)]
+#[case::immediate_batch_128(&opts::OPTS_IMM_EXT, 128)]
+#[case::deferred_batch_0(&opts::OPTS_DEF_EXT, 0)]
+#[case::deferred_batch_13(&opts::OPTS_DEF_EXT, 13)]
+#[case::deferred_batch_64(&opts::OPTS_DEF_EXT, 64)]
+#[case::deferred_batch_67(&opts::OPTS_DEF_EXT, 67)]
+#[case::deferred_batch_128(&opts::OPTS_DEF_EXT, 128)]
+fn test_marf_128_128(#[case] marf_opts: &MARFOpenOpts, #[case] batch_size: usize) {
     let test_data = make_test_insert_data(128, 128);
     let root_hash =
         utils::run_test_with_string_keys(function_name_no_ns!(), &test_data, marf_opts, batch_size);
@@ -230,34 +213,15 @@ fn test_marf_cache_128_128(#[case] marf_opts: &MARFOpenOpts, #[case] batch_size:
     );
 }
 
-/// Tests MARF cache behavior using 15.500 inserts across 10 blocks.
-///
-/// The batch size is intentionally set above 10.000 to force batched insertion
-/// and exercise the `eta` batching logic.
-/// For all configurations, the resulting root hash must remain stable.
-#[rstest]
-#[case::noop_immediate_batch_15500(&opts::OPTS_NOOP_IMM_EXT, 15500)]
-#[case::node256_deferred_batch_15500(&opts::OPTS_N256_DEF_EXT, 15500)]
-#[case::ever_deferred_compress_batch_15500(&opts::OPTS_EVER_DEF_EXT_COMP, 15500)]
-fn test_marf_cache_15500_10(#[case] marf_opts: &MARFOpenOpts, #[case] batch_size: usize) {
-    let test_data = make_test_insert_data(15500, 10);
-    let root_hash =
-        utils::run_test_with_string_keys(function_name_no_ns!(), &test_data, marf_opts, batch_size);
-    assert_eq!(
-        "d579b5f6ac46ee7ac40376cf88dd4b1fef93e1963ccf82bd7c8b0aeb08d52bf9",
-        root_hash.to_hex()
-    );
-}
-
-/// Tests MARF cache behavior with compression using 1 insert across 256 blocks.
+/// Tests MARF behavior with compression using 1 insert across 256 blocks.
 ///
 /// The purpose of this test is to verify that enabling compression produces
 /// the same root hash as running without compression.
 /// For all configurations, the resulting root hash must remain stable.
 #[rstest]
-#[case::noop_immediate(&opts::OPTS_NOOP_IMM_EXT)]
-#[case::noop_immediate_compress(&opts::OPTS_NOOP_IMM_EXT_COMP)]
-#[case::noop_deferred_compress(&opts::OPTS_NOOP_DEF_EXT_COMP)]
+#[case::immediate(&opts::OPTS_IMM_EXT)]
+#[case::immediate_compress(&opts::OPTS_IMM_EXT_COMP)]
+#[case::deferred_compress(&opts::OPTS_DEF_EXT_COMP)]
 fn test_marf_compress_1_256(#[case] marf_opts: &MARFOpenOpts) {
     let test_data = make_test_insert_data(1, 256);
     let root_hash =
@@ -268,15 +232,15 @@ fn test_marf_compress_1_256(#[case] marf_opts: &MARFOpenOpts) {
     );
 }
 
-/// Tests MARF cache behavior with compression using 2048 insert within 1 block.
+/// Tests MARF behavior with compression using 2048 insert within 1 block.
 ///
 /// The purpose of this test is to verify that enabling compression produces
 /// the same root hash as running without compression.
 /// For all configurations, the resulting root hash must remain stable.
 #[rstest]
-#[case::noop_immediate(&opts::OPTS_NOOP_IMM_EXT)]
-#[case::noop_immediate_compress(&opts::OPTS_NOOP_IMM_EXT_COMP)]
-#[case::noop_deferred_compress(&opts::OPTS_NOOP_DEF_EXT_COMP)]
+#[case::immediate(&opts::OPTS_IMM_EXT)]
+#[case::immediate_compress(&opts::OPTS_IMM_EXT_COMP)]
+#[case::deferred_compress(&opts::OPTS_DEF_EXT_COMP)]
 fn test_marf_compressed_2048_1(#[case] marf_opts: &MARFOpenOpts) {
     let test_data = make_test_insert_data(2048, 1);
     let root_hash =
@@ -287,15 +251,15 @@ fn test_marf_compressed_2048_1(#[case] marf_opts: &MARFOpenOpts) {
     );
 }
 
-/// Tests MARF cache behavior with compression using 8 insert across 256 blocks.
+/// Tests MARF behavior with compression using 8 insert across 256 blocks.
 ///
 /// The purpose of this test is to verify that enabling compression produces
 /// the same root hash as running without compression.
 /// For all configurations, the resulting root hash must remain stable.
 #[rstest]
-#[case::noop_immediate_batch_8(&opts::OPTS_NOOP_IMM_EXT, 8)]
-#[case::noop_immediate_compress_batch_8(&opts::OPTS_NOOP_IMM_EXT_COMP, 8)]
-#[case::noop_immediate_compress_batch_5(&opts::OPTS_NOOP_IMM_EXT_COMP, 5)]
+#[case::immediate_batch_8(&opts::OPTS_IMM_EXT, 8)]
+#[case::immediate_compress_batch_8(&opts::OPTS_IMM_EXT_COMP, 8)]
+#[case::immediate_compress_batch_5(&opts::OPTS_IMM_EXT_COMP, 5)]
 fn test_marf_compress_8_256(#[case] marf_opts: &MARFOpenOpts, #[case] batch_size: usize) {
     let test_data = make_test_insert_data(8, 256);
     let root_hash =
@@ -306,15 +270,15 @@ fn test_marf_compress_8_256(#[case] marf_opts: &MARFOpenOpts, #[case] batch_size
     );
 }
 
-/// Tests MARF cache behavior with compression during repeated path expansion.
+/// Tests MARF behavior with compression during repeated path expansion.
 ///
 /// This test exercises the expansion of a single trie path through successive
 /// node types (leaf, node4, node16, node48, and then node256), ensuring that the
 /// resulting patch nodes are correctly produced and can be read back.
 /// For all configurations, the resulting root hash must remain stable.
 #[rstest]
-#[case::noop_immediate_compress(&opts::OPTS_NOOP_IMM_EXT_COMP)]
-#[case::noop_deferred_compress(&opts::OPTS_NOOP_DEF_EXT_COMP)]
+#[case::immediate_compress(&opts::OPTS_IMM_EXT_COMP)]
+#[case::deferred_compress(&opts::OPTS_DEF_EXT_COMP)]
 fn test_marf_patch_expansion(#[case] marf_opts: &MARFOpenOpts) {
     let test_data: Vec<_> = (0u8..=255u8)
         .map(|i| {

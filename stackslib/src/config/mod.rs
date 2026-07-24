@@ -686,7 +686,8 @@ impl Config {
 
         assert!(
             v1_unlock_height > epoch21.start_height,
-            "FATAL: v1 unlock height occurs at or before pox-2 activation: {v1_unlock_height} <= {}\nburnchain: {burnchain:?}", epoch21.start_height
+            "FATAL: v1 unlock height occurs at or before pox-2 activation: {v1_unlock_height} <= {}\nburnchain: {burnchain:?}",
+            epoch21.start_height
         );
 
         let epoch21_rc = burnchain
@@ -774,7 +775,9 @@ impl Config {
             .zip(matched_epochs.iter().map(|(epoch_id, _)| epoch_id))
         {
             if expected_epoch != configured_epoch {
-                return Err(format!("Configured epochs may not skip an epoch. Expected epoch = {expected_epoch}, Found epoch = {configured_epoch}"));
+                return Err(format!(
+                    "Configured epochs may not skip an epoch. Expected epoch = {expected_epoch}, Found epoch = {configured_epoch}"
+                ));
             }
         }
 
@@ -802,9 +805,10 @@ impl Config {
             matched_epochs.iter().zip(out_epochs.iter_mut()).enumerate()
         {
             if epoch_id != &out_epoch.epoch_id {
-                return Err(
-                    format!("Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
-                            &out_epoch.epoch_id));
+                return Err(format!(
+                    "Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
+                    &out_epoch.epoch_id
+                ));
             }
             // end_height = next epoch's start height || i64::max if last epoch
             let end_height = if let Some(next_epoch) = matched_epochs.get(i + 1) {
@@ -830,7 +834,10 @@ impl Config {
                 .find(|&e| e.epoch_id == StacksEpochId::Epoch21)
                 .ok_or("Cannot configure pox_2_activation if epoch 2.1 is not configured")?;
             if last_epoch.start_height > pox_2_activation as u64 {
-                Err(format!("Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {pox_2_activation}, epoch 2.1 start height = {}", last_epoch.start_height))?;
+                Err(format!(
+                    "Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {pox_2_activation}, epoch 2.1 start height = {}",
+                    last_epoch.start_height
+                ))?;
             }
         }
 
@@ -2173,18 +2180,6 @@ pub struct NodeConfig {
     /// ---
     /// @default: `None` (Prometheus server disabled)
     pub prometheus_bind: Option<String>,
-    /// The strategy to use for MARF trie node caching in memory.
-    /// Controls the trade-off between memory usage and performance for state access.
-    ///
-    /// Possible values:
-    /// - `"noop"`: No caching (least memory).
-    /// - `"everything"`: Cache all nodes (most memory, potentially fastest).
-    /// - `"node256"`: Cache only larger `TrieNode256` nodes.
-    ///
-    /// If the value is `None` or an unrecognized string, it defaults to `"noop"`.
-    /// ---
-    /// @default: `None` (effectively `"noop"`)
-    pub marf_cache_strategy: Option<String>,
     /// Controls the timing of hash calculations for MARF trie nodes.
     /// - If `true`, hashes are calculated only when the MARF is flushed to disk
     ///   (deferred hashing).
@@ -2573,7 +2568,6 @@ impl Default for NodeConfig {
             wait_time_for_blocks: 30_000,
             next_initiative_delay: 10_000,
             prometheus_bind: None,
-            marf_cache_strategy: None,
             marf_defer_hashing: true,
             marf_compress: true,
             pox_sync_sample_secs: 30,
@@ -2742,12 +2736,7 @@ impl NodeConfig {
             TrieHashCalculationMode::Immediate
         };
 
-        MARFOpenOpts::new(
-            hash_mode,
-            self.marf_cache_strategy.as_deref().unwrap_or("noop"),
-            false,
-        )
-        .with_compression(self.marf_compress)
+        MARFOpenOpts::new(hash_mode, false).with_compression(self.marf_compress)
     }
 
     pub fn effective_event_dispatcher_queue_size(&self) -> usize {
@@ -4102,6 +4091,7 @@ pub struct NodeConfigFile {
     pub wait_time_for_blocks: Option<u64>,
     pub next_initiative_delay: Option<u64>,
     pub prometheus_bind: Option<String>,
+    /// @deprecated: MARF node caching has been removed. This setting is ignored.
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
     pub marf_compress: Option<bool>,
@@ -4138,6 +4128,12 @@ pub struct NodeConfigFile {
 
 impl NodeConfigFile {
     fn into_config_default(self, default_node_config: NodeConfig) -> Result<NodeConfig, String> {
+        if let Some(marf_cache_strategy) = self.marf_cache_strategy.as_deref() {
+            warn!(
+                "node.marf_cache_strategy is deprecated and ignored; MARF node caching has been removed (configured value: {marf_cache_strategy})"
+            );
+        }
+
         let rpc_bind = self.rpc_bind.unwrap_or(default_node_config.rpc_bind);
         let miner = self.miner.unwrap_or(default_node_config.miner);
         let stacker = self.stacker.unwrap_or(default_node_config.stacker);
@@ -4194,7 +4190,6 @@ impl NodeConfigFile {
                 .next_initiative_delay
                 .unwrap_or(default_node_config.next_initiative_delay),
             prometheus_bind: self.prometheus_bind,
-            marf_cache_strategy: self.marf_cache_strategy,
             marf_defer_hashing: self
                 .marf_defer_hashing
                 .unwrap_or(default_node_config.marf_defer_hashing),
@@ -5357,7 +5352,6 @@ mod tests {
                 "#,
         );
 
-        assert_eq!(None, config.node.marf_cache_strategy, "default cache");
         assert_eq!(
             true, config.node.marf_defer_hashing,
             "default defer hashing"
@@ -5365,7 +5359,6 @@ mod tests {
         assert_eq!(true, config.node.marf_compress, "default compress");
 
         let cfg_opts = config.node.get_marf_opts();
-        assert_eq!("noop", cfg_opts.cache_strategy, "default cache opt");
         assert_eq!(
             TrieHashCalculationMode::Deferred,
             cfg_opts.hash_calculation_mode,
@@ -5392,21 +5385,12 @@ mod tests {
         );
 
         assert_eq!(
-            Some("everything".to_string()),
-            config.node.marf_cache_strategy,
-            "configured cache"
-        );
-        assert_eq!(
             false, config.node.marf_defer_hashing,
             "configured defer hashing"
         );
         assert_eq!(false, config.node.marf_compress, "configured compress");
 
         let cfg_opts = config.node.get_marf_opts();
-        assert_eq!(
-            "everything", cfg_opts.cache_strategy,
-            "configured cache opt"
-        );
         assert_eq!(
             TrieHashCalculationMode::Immediate,
             cfg_opts.hash_calculation_mode,
