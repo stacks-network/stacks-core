@@ -270,8 +270,15 @@ impl TestStacksNode {
             .into_iter()
             .map(|addr| (addr, 10_000_000_000))
             .collect();
-        let chainstate =
-            instantiate_chainstate_with_balances(mainnet, chain_id, test_name, initial_balances);
+        let builder = if mainnet {
+            TestChainstateBuilder::new_mainnet(test_name)
+        } else {
+            TestChainstateBuilder::new_testnet(test_name)
+        };
+        let chainstate = builder
+            .with_chain_id(chain_id)
+            .with_balances(initial_balances)
+            .build();
         TestStacksNode {
             chainstate,
             prev_keys: vec![],

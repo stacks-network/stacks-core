@@ -3118,64 +3118,6 @@ pub mod test {
         conn.set_epoch(GENESIS_EPOCH);
     }
 
-    /// Create a fresh chainstate for testing under `test_name`. Thin shim over
-    /// [`TestChainstateBuilder`]; see its docs for what genesis deploys.
-    pub fn instantiate_chainstate(
-        mainnet: bool,
-        chain_id: u32,
-        test_name: &str,
-    ) -> StacksChainState {
-        TestChainstateBuilder::new(mainnet, test_name)
-            .with_chain_id(chain_id)
-            .build()
-    }
-
-    /// Like [`instantiate_chainstate`] but seeds the given accounts with initial
-    /// STX balances at genesis.
-    pub fn instantiate_chainstate_with_balances(
-        mainnet: bool,
-        chain_id: u32,
-        test_name: &str,
-        balances: Vec<(StacksAddress, u64)>,
-    ) -> StacksChainState {
-        TestChainstateBuilder::new(mainnet, test_name)
-            .with_chain_id(chain_id)
-            .with_balances(balances)
-            .build()
-    }
-
-    /// Like [`instantiate_chainstate`] but also deploys the later boot cost
-    /// contracts (`costs-2`, `costs-3`, `costs-4`) during genesis so that
-    /// [`LimitedCostTracker`] can load the deployed cost contract for any epoch
-    /// up to `costs-4`. (`costs-5` and later are native, so nothing to deploy.)
-    pub fn instantiate_chainstate_with_all_boot_costs(
-        mainnet: bool,
-        chain_id: u32,
-        test_name: &str,
-    ) -> StacksChainState {
-        TestChainstateBuilder::new(mainnet, test_name)
-            .with_chain_id(chain_id)
-            .with_all_boot_costs()
-            .build()
-    }
-
-    /// Like [`instantiate_chainstate_with_balances`] but also deploys the later
-    /// boot cost contracts (`costs-2`, `costs-3`, `costs-4`) during genesis so
-    /// that [`LimitedCostTracker`] can load the deployed cost contract for any
-    /// epoch up to `costs-4`. (`costs-5` and later are native, nothing to deploy.)
-    pub fn instantiate_chainstate_with_all_boot_costs_and_balances(
-        mainnet: bool,
-        chain_id: u32,
-        test_name: &str,
-        balances: Vec<(StacksAddress, u64)>,
-    ) -> StacksChainState {
-        TestChainstateBuilder::new(mainnet, test_name)
-            .with_chain_id(chain_id)
-            .with_balances(balances)
-            .with_all_boot_costs()
-            .build()
-    }
-
     pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
         let path = chainstate_path(test_name);
         StacksChainState::open(mainnet, chain_id, &path, None)
@@ -3190,7 +3132,7 @@ pub mod test {
 
     #[test]
     fn test_instantiate_chainstate() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // verify that the boot code is there
         let mut conn = chainstate.block_begin(
@@ -3391,7 +3333,7 @@ pub mod test {
 
     #[test]
     fn test_sqlite_version() {
-        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         assert_eq!(
             query_row(chainstate.db(), "SELECT sqlite_version()", NO_PARAMS).unwrap(),
             Some("3.45.0".to_string())

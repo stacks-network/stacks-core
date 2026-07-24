@@ -21,7 +21,7 @@ use stacks_common::types::chainstate::ConsensusHash;
 
 use super::TestRPC;
 use crate::chainstate::stacks::db::blocks::test::*;
-use crate::chainstate::stacks::db::test::instantiate_chainstate;
+use crate::chainstate::stacks::db::test::TestChainstateBuilder;
 use crate::chainstate::stacks::db::ExtendedStacksHeader;
 use crate::chainstate::stacks::{StacksBlock, StacksBlockHeader};
 use crate::net::api::getheaders::StacksHeaderStream;
@@ -171,7 +171,7 @@ fn stream_headers_to_vec(stream: &mut StacksHeaderStream) -> Vec<u8> {
 
 #[test]
 fn test_stream_getheaders() {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let privk = StacksPrivateKey::from_hex(
         "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
     )
