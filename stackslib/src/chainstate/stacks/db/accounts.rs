@@ -1086,7 +1086,7 @@ mod test {
 
     use super::*;
     use crate::burnchains::*;
-    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::testing::*;
     use crate::core::StacksEpochId;
 
     fn make_dummy_miner_payment_schedule(

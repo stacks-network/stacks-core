@@ -22,7 +22,7 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, StacksPriva
 
 use super::TestRPC;
 use crate::chainstate::stacks::db::blocks::test::*;
-use crate::chainstate::stacks::db::test::TestChainstateBuilder;
+use crate::chainstate::stacks::db::testing::TestChainstateBuilder;
 use crate::chainstate::stacks::{Error as chainstate_error, StacksBlockHeader, StacksMicroblock};
 use crate::net::api::getmicroblocks_unconfirmed::StacksUnconfirmedMicroblockStream;
 use crate::net::api::*;

@@ -21,7 +21,7 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, StacksPriva
 
 use super::TestRPC;
 use crate::chainstate::stacks::db::blocks::test::*;
-use crate::chainstate::stacks::db::test::TestChainstateBuilder;
+use crate::chainstate::stacks::db::testing::TestChainstateBuilder;
 use crate::chainstate::stacks::{StacksBlock, StacksBlockHeader};
 use crate::net::api::getblock::StacksBlockStream;
 use crate::net::api::*;

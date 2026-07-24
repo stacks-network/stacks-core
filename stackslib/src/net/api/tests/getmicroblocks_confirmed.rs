@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::TestRPC;
 use crate::chainstate::stacks::db::blocks::test::*;
-use crate::chainstate::stacks::db::test::TestChainstateBuilder;
+use crate::chainstate::stacks::db::testing::TestChainstateBuilder;
 use crate::chainstate::stacks::test::make_codec_test_block;
 use crate::chainstate::stacks::{StacksBlockHeader, StacksMicroblock};
 use crate::net::api::getmicroblocks_indexed::StacksIndexedMicroblockStream;

@@ -28,7 +28,7 @@ use stacks_common::util::hash::{to_hex, Hash160};
 
 use super::TestRPC;
 use crate::burnchains::Txid;
-use crate::chainstate::stacks::db::test::{chainstate_path, TestChainstateBuilder};
+use crate::chainstate::stacks::db::testing::{chainstate_path, TestChainstateBuilder};
 use crate::chainstate::stacks::{
     StacksTransaction, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
     TransactionPayload, TransactionPostConditionMode, TransactionVersion,

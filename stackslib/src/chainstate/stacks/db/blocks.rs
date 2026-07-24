@@ -6887,7 +6887,7 @@ pub mod test {
     use super::*;
     use crate::burnchains::*;
     use crate::chainstate::stacks::boot::test::eval_at_tip;
-    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::testing::*;
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::*;

@@ -42,7 +42,7 @@ use super::MemPoolDB;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
-use crate::chainstate::stacks::db::test::{chainstate_path, TestChainstateBuilder};
+use crate::chainstate::stacks::db::testing::{chainstate_path, TestChainstateBuilder};
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::miner::TransactionResult;
