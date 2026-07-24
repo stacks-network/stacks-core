@@ -168,6 +168,14 @@ pub trait ClarityMarfStore: ClarityBackingStore {
 
 /// A MARF store which can be written to is both a ClarityMarfStore and a
 /// ClarityMarfStoreTransaction (and thus also a ClarityBackingStore).
+///
+/// This is the storage-backend abstraction for Clarity block processing: any type
+/// implementing it can drive a full block (`process_transaction`, `finish_block`,
+/// `seal`, …). Feed a custom implementation in via
+/// [`ClarityBlockConnection::from_writable_store`] (or
+/// [`ClarityBlockConnection::from_writable_store_genesis`] for the boot block);
+/// the built-in [`MarfedKV`] backend reaches the same path through
+/// [`ClarityInstance::begin_block`].
 pub trait WritableMarfStore:
     ClarityMarfStore + ClarityMarfStoreTransaction + BoxedClarityMarfStoreTransaction
 {
@@ -328,6 +336,94 @@ impl ClarityBlockConnection<'_, '_> {
         }
     }
 
+    /// Begin a Clarity block on top of an **externally supplied** storage backend.
+    ///
+    /// `ClarityBlockConnection` — and therefore the whole consensus block-processing
+    /// pipeline built on it (`process_transaction`, `finish_block`, `seal`, …) — is
+    /// generic over the [`WritableMarfStore`] trait: it holds a
+    /// `Box<dyn WritableMarfStore>` and never names a concrete store type. This
+    /// constructor is the public injection point for that abstraction. It lets a
+    /// caller run block processing against any `WritableMarfStore` implementation —
+    /// the built-in [`MarfedKV`], an in-memory store, a remote/disaggregated
+    /// backend, a snapshotting store, and so on — instead of only the datastore
+    /// owned by a [`ClarityInstance`].
+    ///
+    /// The built-in path, [`ClarityInstance::begin_block`], is itself a thin wrapper
+    /// around this function that supplies a `MarfedKV`-backed store, so behaviour is
+    /// identical to a normal block regardless of the backend.
+    ///
+    /// The cost tracker is instantiated from `epoch`'s block limit. For the
+    /// genesis/boot block — whose cost-limit contract is not yet installed — use
+    /// [`Self::from_writable_store_genesis`] instead.
+    ///
+    /// The store must already be positioned on the block being built (its
+    /// `begin`/`extend_to_block` equivalent has run).
+    pub fn from_writable_store<'a, 'b>(
+        mut datastore: Box<dyn WritableMarfStore + 'a>,
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+        mainnet: bool,
+        chain_id: u32,
+        epoch: StacksEpoch,
+    ) -> ClarityBlockConnection<'a, 'b> {
+        let cost_track = {
+            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            Some(
+                LimitedCostTracker::new(
+                    mainnet,
+                    chain_id,
+                    epoch.block_limit.clone(),
+                    &mut clarity_db,
+                    epoch.epoch_id,
+                )
+                .expect("FAIL: problem instantiating cost tracking"),
+            )
+        };
+
+        ClarityBlockConnection {
+            datastore,
+            header_db,
+            burn_state_db,
+            cost_track,
+            mainnet,
+            chain_id,
+            epoch: epoch.epoch_id,
+        }
+    }
+
+    /// Genesis/boot twin of [`Self::from_writable_store`]: begins the genesis block
+    /// over an externally-supplied [`WritableMarfStore`] using a free (unmetered)
+    /// cost tracker and [`GENESIS_EPOCH`], because the cost-limit contract has not
+    /// yet been installed at boot. The injection twin of
+    /// [`ClarityInstance::begin_genesis_block`].
+    pub fn from_writable_store_genesis<'a, 'b>(
+        datastore: Box<dyn WritableMarfStore + 'a>,
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+        mainnet: bool,
+        chain_id: u32,
+    ) -> ClarityBlockConnection<'a, 'b> {
+        ClarityBlockConnection {
+            datastore,
+            header_db,
+            burn_state_db,
+            cost_track: Some(LimitedCostTracker::new_free()),
+            mainnet,
+            chain_id,
+            epoch: GENESIS_EPOCH,
+        }
+    }
+
+    /// Whether this connection is for mainnet.
+    pub fn is_mainnet(&self) -> bool {
+        self.mainnet
+    }
+
+    /// Chain ID for this connection.
+    pub fn chain_id(&self) -> u32 {
+        self.chain_id
+    }
+
     /// Reset the block's total execution to the given cost, if there is a cost tracker at all.
     /// Used by the miner to "undo" applying a transaction that exceeded the budget.
     pub fn reset_block_cost(&mut self, cost: ExecutionCost) {
@@ -426,32 +522,18 @@ impl ClarityInstance {
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a, 'b> {
-        let mut datastore = self.datastore.begin(current, next);
-
+        // The built-in datastore (`MarfedKV`) is just one `WritableMarfStore`; this
+        // funnels through the same generic injection point external backends use.
+        let datastore = self.datastore.begin(current, next);
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
-        let cost_track = {
-            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
-            Some(
-                LimitedCostTracker::new(
-                    self.mainnet,
-                    self.chain_id,
-                    epoch.block_limit.clone(),
-                    &mut clarity_db,
-                    epoch.epoch_id,
-                )
-                .expect("FAIL: problem instantiating cost tracking"),
-            )
-        };
-
-        ClarityBlockConnection {
-            datastore: Box::new(datastore),
+        ClarityBlockConnection::from_writable_store(
+            Box::new(datastore),
             header_db,
             burn_state_db,
-            cost_track,
-            mainnet: self.mainnet,
-            chain_id: self.chain_id,
-            epoch: epoch.epoch_id,
-        }
+            self.mainnet,
+            self.chain_id,
+            epoch,
+        )
     }
 
     pub fn begin_genesis_block<'a, 'b>(
@@ -462,20 +544,13 @@ impl ClarityInstance {
         burn_state_db: &'b dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a, 'b> {
         let datastore = self.datastore.begin(current, next);
-
-        let epoch = GENESIS_EPOCH;
-
-        let cost_track = Some(LimitedCostTracker::new_free());
-
-        ClarityBlockConnection {
-            datastore: Box::new(datastore),
+        ClarityBlockConnection::from_writable_store_genesis(
+            Box::new(datastore),
             header_db,
             burn_state_db,
-            cost_track,
-            mainnet: self.mainnet,
-            chain_id: self.chain_id,
-            epoch,
-        }
+            self.mainnet,
+            self.chain_id,
+        )
     }
 
     /// begin a genesis block with the default cost contract
@@ -3694,5 +3769,62 @@ mod tests {
         });
 
         conn.commit_block();
+    }
+
+    /// Exercise the public `WritableMarfStore` injection constructors and the
+    /// mainnet/chain_id getters.
+    #[test]
+    fn test_from_writable_store_constructors() {
+        // Genesis injection: free cost tracker + GENESIS_EPOCH.
+        {
+            let mut marf = MarfedKV::temporary();
+            let store = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0; 32]));
+            let conn = ClarityBlockConnection::from_writable_store_genesis(
+                Box::new(store),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+                false,
+                CHAIN_ID_TESTNET,
+            );
+            assert!(!conn.is_mainnet());
+            assert_eq!(conn.chain_id(), CHAIN_ID_TESTNET);
+            assert_eq!(conn.get_epoch(), GENESIS_EPOCH);
+            assert_eq!(conn.cost_so_far(), ExecutionCost::ZERO);
+            conn.commit_block();
+        }
+
+        // Metered injection: install costs via the test-genesis helper, then
+        // open the next block through `from_writable_store` directly.
+        {
+            let marf = MarfedKV::temporary();
+            let mut clarity = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
+            clarity
+                .begin_test_genesis_block(
+                    &StacksBlockId::sentinel(),
+                    &StacksBlockId([0; 32]),
+                    &TEST_HEADER_DB,
+                    &TEST_BURN_STATE_DB,
+                )
+                .commit_block();
+            let mut marf = clarity.destroy();
+
+            let store = marf.begin(&StacksBlockId([0; 32]), &StacksBlockId([1; 32]));
+            let epoch = TEST_BURN_STATE_DB
+                .get_stacks_epoch_by_epoch_id(&StacksEpochId::Epoch20)
+                .expect("test burn DB should know Epoch20");
+            let conn = ClarityBlockConnection::from_writable_store(
+                Box::new(store),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+                false,
+                CHAIN_ID_TESTNET,
+                epoch,
+            );
+            assert!(!conn.is_mainnet());
+            assert_eq!(conn.chain_id(), CHAIN_ID_TESTNET);
+            assert_eq!(conn.get_epoch(), StacksEpochId::Epoch20);
+            assert!(conn.block_limit().is_some());
+            conn.commit_block();
+        }
     }
 }
