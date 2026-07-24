@@ -13,7 +13,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#![deny(missing_docs)]
+
+//! Evaluation hooks and call-tracing support for observing Clarity VM execution.
+
 mod internals;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 pub mod trace;
 
 pub(crate) use internals::{CallTraceFrame, EvalHookNotifier};
@@ -25,9 +31,9 @@ use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{QualifiedContractIdentifier, Value};
 use crate::vm::{ExecutionResult, ValueRef};
 
+// NOTE: Used in the Clarinet repo.
 /// Defines the contract for receiving notifications about Clarity evaluation and callable
 /// invocation.
-// NOTE: Used in the Clarinet repo.
 pub trait EvalHook {
     /// Called before a top-level execution begins.
     fn will_begin_execution(&mut self) {}
@@ -119,6 +125,7 @@ pub enum CallHook<'a> {
 }
 
 impl<'a> CallHook<'a> {
+    /// Creates a hook descriptor for a built-in or special-form callable.
     pub fn builtin(clarity_name: &'static str, rust_name: &'static str) -> Self {
         CallHook::Builtin {
             clarity_name,
@@ -126,6 +133,7 @@ impl<'a> CallHook<'a> {
         }
     }
 
+    /// Creates a hook descriptor for a user-defined contract function.
     pub fn user_defined(
         contract_identifier: &'a QualifiedContractIdentifier,
         function: &'a DefinedFunction,

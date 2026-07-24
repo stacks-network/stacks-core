@@ -13,6 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//! Call-trace collection for Clarity evaluation hooks.
+//!
+//! This module records resolved call arguments, results, costs, timing, and nested calls.
+
 use std::time::{Duration, Instant};
 
 use super::{CallArguments, CallHook, EvalHook};
@@ -48,9 +52,9 @@ pub enum TracedCallee {
 /// How a traced argument's value was produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArgOrigin {
-    /// A source atom: usually a variable/keyword reference, but also a name used by a
-    /// special form (a map name, a `fold` step-function name, a trait identifier, ...).
-    /// The string is the atom's source text.
+    /// A source atom: usually a variable/keyword reference, but also a name used by a special form
+    /// (a map name, a `fold` step-function name, a trait identifier, ...). The string is the atom's
+    /// source text.
     Atom(String),
     /// An inline literal.
     Literal,
@@ -69,8 +73,8 @@ pub struct TracedArg {
     pub origin: ArgOrigin,
     /// The argument's rendered source expression.
     pub source: String,
-    /// The resolved argument value. Present for evaluated arguments; may be `None` for
-    /// arguments a special form never evaluates (e.g. a map name).
+    /// The resolved argument value. Present for evaluated arguments; may be `None` for arguments a
+    /// special form never evaluates (e.g. a map name).
     pub value: Option<Value>,
 }
 
@@ -83,12 +87,12 @@ pub enum TracedResult {
     Err(String),
 }
 
-/// A fully reconstructed call: its identity, resolved arguments, result, cost, timing,
-/// and the nested calls that produced its arguments and body.
+/// A fully reconstructed call: its identity, resolved arguments, result, cost, timing, and the
+/// nested calls that produced its arguments and body.
 ///
-/// This is the unit of a resolved call trace — a self-contained record of what ran,
-/// with what values, at what cost. It captures the Clarity-level values observed by
-/// the traced execution, which can help reconstruct an equivalent scenario.
+/// This is the unit of a resolved call trace — a self-contained record of what ran, with what
+/// values, at what cost. It captures the Clarity-level values observed by the traced execution,
+/// which can help reconstruct an equivalent scenario.
 #[derive(Debug, Clone)]
 pub struct TracedCall {
     /// The callable that was invoked.
@@ -111,8 +115,8 @@ pub struct TracedCall {
 struct PendingCall {
     callee: TracedCallee,
     args: Vec<TracedArg>,
-    /// Source-expression ids of the arguments, used to resolve values for special-form
-    /// arguments via [`EvalHook::did_finish_eval`]. Empty for pre-evaluated call paths.
+    /// Source-expression ids of the arguments, used to resolve values for special-form arguments
+    /// via [`EvalHook::did_finish_eval`]. Empty for pre-evaluated call paths.
     arg_ids: Vec<u64>,
     cost_at_begin: ExecutionCost,
     time_at_begin: Instant,
@@ -120,11 +124,13 @@ struct PendingCall {
 }
 
 /// An [`EvalHook`] that reconstructs a resolved call tree from the VM's call and eval
-/// notifications, annotating each call with its resolved arguments, result, execution
-/// cost (inclusive and exclusive of children), and wall-clock time.
+/// notifications, annotating each call with its resolved arguments, result, execution cost
+/// (inclusive and exclusive of children), and wall-clock time.
 ///
-/// Register it with `OwnedEnvironment::add_eval_hook`, run a transaction, then read the
-/// collected roots with [`CallTraceHook::calls`] / [`CallTraceHook::into_calls`].
+/// Register it with
+/// [`OwnedEnvironment::add_eval_hook`](crate::vm::contexts::OwnedEnvironment::add_eval_hook), run a
+/// transaction, then read the collected roots with [`CallTraceHook::calls`] /
+/// [`CallTraceHook::into_calls`].
 #[derive(Default)]
 pub struct CallTraceHook {
     stack: Vec<PendingCall>,
@@ -147,8 +153,8 @@ impl CallTraceHook {
         self.roots
     }
 
-    /// Removes and returns the collected top-level calls, leaving the collector empty so it
-    /// can be reused for a subsequent execution (e.g. the next transaction in a block).
+    /// Removes and returns the collected top-level calls, leaving the collector empty so it can be
+    /// reused for a subsequent execution (e.g. the next transaction in a block).
     pub fn take_calls(&mut self) -> Vec<TracedCall> {
         std::mem::take(&mut self.roots)
     }
@@ -293,10 +299,10 @@ impl EvalHook for CallTraceHook {
         res: &Result<ValueRef<'a>, VmExecutionError>,
     ) {
         // Resolve any as-yet-unresolved source argument of the current call by matching the
-        // finished expression against its argument ids. This is the only source of values
-        // for special-form arguments (e.g. a `map-get?` key), which never fire
-        // `did_evaluate_call_argument`; for normal calls it may fill the slot just before
-        // that hook reports the same value, so we only write when the slot is empty.
+        // finished expression against its argument ids. This is the only source of values for
+        // special-form arguments (e.g. a `map-get?` key), which never fire
+        // `did_evaluate_call_argument`; for normal calls it may fill the slot just before that hook
+        // reports the same value, so we only write when the slot is empty.
         let Ok(value_ref) = res else {
             return;
         };

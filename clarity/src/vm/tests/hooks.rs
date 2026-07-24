@@ -15,881 +15,20 @@
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::contexts::{ExecutionState, InvocationContext, OwnedEnvironment};
+use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::VmExecutionError;
-use crate::vm::hooks::trace::{CallTraceHook, TracedCall, TracedCallee, TracedResult};
-use crate::vm::hooks::{CallArguments, CallHook, EvalHook, ExecutionOutcome};
-use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use crate::vm::{
-    ClarityVersion, ContractContext, SymbolicExpression, SymbolicExpressionType, Value, eval_all,
+use crate::vm::hooks::ExecutionOutcome;
+use crate::vm::hooks::testing::render::print_trace;
+use crate::vm::hooks::testing::{
+    CallStackCheckingHook, ExecutionLifecycleEvent, ExecutionLifecycleHook, TraceCallKind,
+    TraceHook, flatten_calls,
 };
+use crate::vm::hooks::trace::{CallTraceHook, TracedCallee, TracedResult};
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, eval_all};
 
-fn print_trace(events: &[TraceEvent]) {
-    let current_thread = std::thread::current();
-    let test_name = current_thread
-        .name()
-        .and_then(|name| name.split("::").last())
-        .unwrap_or("unknown test");
-    println!();
-    println!("=== {test_name} trace ===");
-    for event in events {
-        println!("{}", render_trace_event(event));
-    }
-    println!();
-    println!("=== {test_name} call tree ===");
-    print!("{}", render_clarity_call_tree(events));
-}
-
-/// Renders a single [`TraceEvent`] as one indented, human-readable line. Indentation
-/// follows the call/argument nesting depth recorded on each event, producing a tree:
-///
-/// ```text
-/// 𝑓(𝑥) "trace-test.entry" [public] (1 arg)
-///   𝑎₁ "seed" = u0
-///   𝑓(𝑥) "trace-test.foo" [private] (2 args)
-///     𝑓(𝑎₁) "a"
-///       𝑓(𝑥) "+" [builtin] (2 args)
-///       ⏎ "+" ⇒ u42
-///     𝑎₁ "a" = u42
-///   ⏎ "trace-test.foo" ⇒ u84
-/// ⏎ "trace-test.entry" ⇒ (ok u84)
-/// ```
-fn render_trace_event(event: &TraceEvent) -> String {
-    match event {
-        TraceEvent::BeginCall {
-            depth,
-            kind,
-            target,
-            arg_count,
-            ..
-        } => format!(
-            "{}𝑓(𝑥) {} [{}] ({})",
-            indent(*depth),
-            render_target(target),
-            render_kind(*kind),
-            arg_count_label(*arg_count),
-        ),
-        TraceEvent::BeginArgumentEval {
-            depth,
-            arg_index,
-            arg_name,
-        } => format!(
-            "{}𝑓(𝑎{}) \"{arg_name}\"",
-            indent(*depth),
-            subscript(arg_index + 1),
-        ),
-        TraceEvent::ArgumentValue {
-            depth,
-            arg_index,
-            arg_name,
-            value,
-            ..
-        } => format!(
-            "{}𝑎{} \"{arg_name}\" = {value}",
-            indent(*depth),
-            subscript(arg_index + 1),
-        ),
-        TraceEvent::FinishCall {
-            depth,
-            target,
-            result,
-            ..
-        } => format!(
-            "{}⏎ {} ⇒ {}",
-            indent(*depth),
-            render_target(target),
-            render_result(result),
-        ),
-    }
-}
-
-fn indent(depth: usize) -> String {
-    "  ".repeat(depth)
-}
-
-fn render_kind(kind: TraceCallKind) -> &'static str {
-    match kind {
-        TraceCallKind::Builtin => "builtin",
-        TraceCallKind::UserPublic => "public",
-        TraceCallKind::UserPrivate => "private",
-        TraceCallKind::UserReadOnly => "read-only",
-    }
-}
-
-fn render_target(target: &TraceCallTarget) -> String {
-    match target {
-        TraceCallTarget::Builtin(name) => format!("\"{name}\""),
-        TraceCallTarget::UserDefined {
-            contract_name,
-            function_name,
-        } => format!("\"{contract_name}.{function_name}\""),
-    }
-}
-
-fn render_result(result: &TraceResult) -> String {
-    match result {
-        TraceResult::Ok(value) => value.to_string(),
-        TraceResult::Err(err) => format!("ERR {err}"),
-    }
-}
-
-fn arg_count_label(arg_count: usize) -> String {
-    if arg_count == 1 {
-        "1 arg".to_string()
-    } else {
-        format!("{arg_count} args")
-    }
-}
-
-/// Renders `n` using Unicode subscript digits (e.g. `12` -> `₁₂`).
-fn subscript(n: usize) -> String {
-    n.to_string()
-        .chars()
-        .map(|digit| match digit {
-            '0' => '₀',
-            '1' => '₁',
-            '2' => '₂',
-            '3' => '₃',
-            '4' => '₄',
-            '5' => '₅',
-            '6' => '₆',
-            '7' => '₇',
-            '8' => '₈',
-            '9' => '₉',
-            other => other,
-        })
-        .collect()
-}
-
-/// How an argument's value was produced, captured from its source expression at call time.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ArgKind {
-    /// A variable/keyword reference, e.g. `acc` — the value is a resolved lookup.
-    Variable(String),
-    /// An inline literal, e.g. `u2`.
-    Literal,
-    /// A nested call expression, e.g. `(* item u2)` — produced by a child call.
-    Call,
-    /// The argument arrived already evaluated (no source expression, e.g. `fold` step
-    /// functions and transaction entry points).
-    ValueOnly,
-}
-
-/// An argument's begin-time source classification plus its rendered source text (used
-/// for special forms, which report source but no evaluated values).
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ArgSource {
-    kind: ArgKind,
-    text: String,
-}
-
-/// Classifies an argument's source expression as a variable reference, a literal, or a
-/// nested call, and records its rendered source text.
-fn classify_arg_source(expr: &SymbolicExpression) -> ArgSource {
-    let kind = match &expr.expr {
-        SymbolicExpressionType::Atom(_) => ArgKind::Variable(expr.to_string()),
-        SymbolicExpressionType::List(_) => ArgKind::Call,
-        _ => ArgKind::Literal,
-    };
-    ArgSource {
-        kind,
-        text: expr.to_string(),
-    }
-}
-
-/// A call reconstructed from the flat [`TraceEvent`] stream: its resolved argument
-/// values, its result, and the nested calls that produced those arguments.
-struct CallNode {
-    kind: TraceCallKind,
-    target: TraceCallTarget,
-    /// `(arg_name, evaluated_value)` pairs, in evaluation order. Empty for special
-    /// forms (`if`, `and`, ...) that evaluate their own arguments and report none.
-    args: Vec<(String, Value)>,
-    /// Per-argument source classification, captured when the call opened.
-    arg_sources: Vec<ArgSource>,
-    result: Option<TraceResult>,
-    children: Vec<CallNode>,
-    /// The argument index of the *parent* that this call produces, if it was invoked
-    /// while evaluating one of the parent's arguments (vs. inside the parent's body).
-    producing_arg: Option<usize>,
-    /// Cross-reference label (`𝑓ₙ`) assigned when this call produces a parent call-argument.
-    label: Option<usize>,
-}
-
-/// Reconstructs the call forest from the linear event stream using begin/finish as
-/// push/pop. Argument values attach to the call on top of the stack — which is always
-/// the consuming call, since a callable's `did_evaluate_call_argument` fires only after
-/// the nested calls that produced that argument have finished and been popped.
-///
-/// Each child records `producing_arg`: the count of the parent's arguments reported so
-/// far when the child opened. If that index is within the parent's argument list, the
-/// child produced that argument (left-to-right arg evaluation); otherwise it ran in the
-/// parent's body.
-fn build_call_forest(events: &[TraceEvent]) -> Vec<CallNode> {
-    let mut roots = Vec::new();
-    let mut stack: Vec<CallNode> = Vec::new();
-    for event in events {
-        match event {
-            TraceEvent::BeginCall {
-                kind,
-                target,
-                arg_sources,
-                ..
-            } => {
-                let producing_arg = stack.last().map(|parent| parent.args.len());
-                stack.push(CallNode {
-                    kind: *kind,
-                    target: target.clone(),
-                    args: Vec::new(),
-                    arg_sources: arg_sources.clone(),
-                    result: None,
-                    children: Vec::new(),
-                    producing_arg,
-                    label: None,
-                });
-            }
-            TraceEvent::ArgumentValue {
-                arg_name, value, ..
-            } => {
-                if let Some(node) = stack.last_mut() {
-                    node.args.push((arg_name.clone(), value.clone()));
-                }
-            }
-            TraceEvent::FinishCall { result, .. } => {
-                if let Some(mut node) = stack.pop() {
-                    node.result = Some(result.clone());
-                    match stack.last_mut() {
-                        Some(parent) => parent.children.push(node),
-                        None => roots.push(node),
-                    }
-                }
-            }
-            TraceEvent::BeginArgumentEval { .. } => {}
-        }
-    }
-    roots
-}
-
-/// Assigns a fresh, globally-unique `𝑓ₙ` label (in reading order) to every call that
-/// produces one of its parent's call-typed arguments.
-fn assign_labels(node: &mut CallNode, next_label: &mut usize) {
-    for child in &mut node.children {
-        if child.producing_arg.is_some_and(|index| {
-            node.arg_sources
-                .get(index)
-                .is_some_and(|source| source.kind == ArgKind::Call)
-        }) {
-            child.label = Some(*next_label);
-            *next_label += 1;
-        }
-        assign_labels(child, next_label);
-    }
-}
-
-/// Renders the call tree as executed Clarity-ish call notation. Arguments are annotated
-/// with their origin: `𝑥(name)=value` for variable references, `𝑓ₙ=value` for values
-/// produced by a nested call (cross-referenced to that child's trailing `(𝑓ₙ)` tag),
-/// and bare `value` for literals.
-///
-/// ```text
-/// (trace-fold.accumulate item=u1 acc=u0) ⇒ u2
-///     (+ 𝑥(acc)=u0 𝑓₁=u2) ⇒ u2
-///         (* 𝑥(item)=u1 u2) ⇒ u2  (𝑓₁)
-/// ```
-fn render_clarity_call_tree(events: &[TraceEvent]) -> String {
-    let mut roots = build_call_forest(events);
-    let mut next_label = 1;
-    for root in &mut roots {
-        assign_labels(root, &mut next_label);
-    }
-    let mut out = String::new();
-    for root in &roots {
-        render_call_node(root, 0, &mut out);
-    }
-    out
-}
-
-fn render_call_node(node: &CallNode, depth: usize, out: &mut String) {
-    let result = node
-        .result
-        .as_ref()
-        .map(render_result)
-        .unwrap_or_else(|| "<unfinished>".to_string());
-    let head = clarity_call_name(&node.target);
-    let args = render_call_args(node);
-    // s-expression head notation, per node: `(head args)`. Nested calls stay on their
-    // own indented lines (we do NOT inline children into the parent expression, which
-    // is what would collapse the whole trace onto one line).
-    let call = if args.is_empty() {
-        format!("({head})")
-    } else {
-        format!("({head} {args})")
-    };
-    // Trailing cross-reference tag: this call produces its parent's `𝑓ₙ` argument.
-    let rendered_result = match node.label {
-        Some(label) => format!("𝑓{}={result}", subscript(label)),
-        None => result,
-    };
-    out.push_str(&format!(
-        "{}{call} ⇒ {rendered_result}\n",
-        "    ".repeat(depth)
-    ));
-    for child in &node.children {
-        render_call_node(child, depth + 1, out);
-    }
-}
-
-fn clarity_call_name(target: &TraceCallTarget) -> String {
-    match target {
-        TraceCallTarget::Builtin(name) => name.clone(),
-        TraceCallTarget::UserDefined {
-            contract_name,
-            function_name,
-        } => format!("{contract_name}.{function_name}"),
-    }
-}
-
-/// Looks up the `𝑓ₙ` label of the child call that produced argument `index`.
-fn child_label_for_arg(node: &CallNode, index: usize) -> Option<usize> {
-    node.children
-        .iter()
-        .find(|child| child.producing_arg == Some(index))
-        .and_then(|child| child.label)
-}
-
-fn render_call_args(node: &CallNode) -> String {
-    // Special forms report no evaluated arguments; fall back to raw source expressions.
-    if node.args.is_empty() {
-        return node
-            .arg_sources
-            .iter()
-            .map(|source| source.text.clone())
-            .collect::<Vec<_>>()
-            .join(" ");
-    }
-    node.args
-        .iter()
-        .enumerate()
-        .map(|(index, (arg_name, value))| {
-            match node.arg_sources.get(index).map(|source| &source.kind) {
-                Some(ArgKind::Variable(name)) => format!("𝑥({name})={value}"),
-                Some(ArgKind::Call) => match child_label_for_arg(node, index) {
-                    Some(label) => format!("𝑓{}={value}", subscript(label)),
-                    None => value.to_string(),
-                },
-                Some(ArgKind::Literal) => value.to_string(),
-                // Pre-evaluated args: keep the user-function parameter name where we have
-                // one; builtins have only synthetic names, so render positionally.
-                _ => match node.kind {
-                    TraceCallKind::Builtin => value.to_string(),
-                    _ => format!("{arg_name}={value}"),
-                },
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-#[derive(Default)]
-struct TraceHook {
-    depth: usize,
-    events: Vec<TraceEvent>,
-    frames: Vec<TraceFrame>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum TraceEvent {
-    BeginArgumentEval {
-        depth: usize,
-        arg_index: usize,
-        arg_name: String,
-    },
-    BeginCall {
-        depth: usize,
-        kind: TraceCallKind,
-        target: TraceCallTarget,
-        arg_count: usize,
-        /// Per-argument source classification captured when the call opened: unevaluated
-        /// expressions for source-level calls (special forms included), or `ValueOnly` for
-        /// pre-evaluated call paths.
-        arg_sources: Vec<ArgSource>,
-    },
-    ArgumentValue {
-        depth: usize,
-        kind: TraceCallKind,
-        target: TraceCallTarget,
-        arg_index: usize,
-        arg_name: String,
-        value: Value,
-    },
-    FinishCall {
-        depth: usize,
-        kind: TraceCallKind,
-        target: TraceCallTarget,
-        result: TraceResult,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TraceCallKind {
-    Builtin,
-    UserPublic,
-    UserPrivate,
-    UserReadOnly,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum TraceCallTarget {
-    Builtin(String),
-    UserDefined {
-        contract_name: String,
-        function_name: String,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum TraceResult {
-    Ok(Value),
-    Err(String),
-}
-
-struct TraceFrame {
-    group_arg_evals: bool,
-    arg_labels: Vec<String>,
-    next_arg_index: usize,
-    active_arg_index: Option<usize>,
-}
-
-impl TraceHook {
-    fn call_kind(call: &CallHook) -> TraceCallKind {
-        match call.kind() {
-            "builtin" => TraceCallKind::Builtin,
-            "user-public" => TraceCallKind::UserPublic,
-            "user-private" => TraceCallKind::UserPrivate,
-            "user-read-only" => TraceCallKind::UserReadOnly,
-            other => panic!("unexpected call hook kind: {other}"),
-        }
-    }
-
-    fn call_target(call: &CallHook) -> TraceCallTarget {
-        match call {
-            CallHook::Builtin { .. } => TraceCallTarget::Builtin(call.clarity_name().to_string()),
-            CallHook::UserDefined {
-                contract_identifier,
-                ..
-            } => TraceCallTarget::UserDefined {
-                contract_name: contract_identifier.name.to_string(),
-                function_name: call.clarity_name().to_string(),
-            },
-        }
-    }
-
-    fn arg_name(call: &CallHook, arg_index: usize) -> String {
-        match call {
-            CallHook::UserDefined { function, .. } => function
-                .argument_names()
-                .get(arg_index)
-                .map(ToString::to_string)
-                .unwrap_or_else(|| format!("arg{arg_index}")),
-            _ => format!("arg{arg_index}"),
-        }
-    }
-
-    fn open_parent_arg_eval_if_needed(&mut self) {
-        let Some(parent) = self.frames.last_mut() else {
-            return;
-        };
-        if !parent.group_arg_evals
-            || parent.active_arg_index.is_some()
-            || parent.next_arg_index >= parent.arg_labels.len()
-        {
-            return;
-        }
-
-        let arg_index = parent.next_arg_index;
-        self.events.push(TraceEvent::BeginArgumentEval {
-            depth: self.depth,
-            arg_index,
-            arg_name: parent.arg_labels[arg_index].clone(),
-        });
-        parent.active_arg_index = Some(arg_index);
-        self.depth += 1;
-    }
-
-    fn close_current_arg_eval_if_needed(&mut self, arg_index: usize) {
-        let Some(current) = self.frames.last_mut() else {
-            return;
-        };
-        current.next_arg_index = current.next_arg_index.max(arg_index + 1);
-
-        if current.active_arg_index == Some(arg_index) {
-            current.active_arg_index = None;
-            self.depth = self.depth.saturating_sub(1);
-        }
-    }
-}
-
-fn user_target(contract_name: &str, function_name: &str) -> TraceCallTarget {
-    TraceCallTarget::UserDefined {
-        contract_name: contract_name.into(),
-        function_name: function_name.into(),
-    }
-}
-
-fn assert_begin_call(
-    hook: &TraceHook,
-    kind: TraceCallKind,
-    target: TraceCallTarget,
-    arg_count: usize,
-) {
-    assert!(
-        hook.events.iter().any(|event| matches!(
-            event,
-            TraceEvent::BeginCall {
-                kind: event_kind,
-                target: event_target,
-                arg_count: event_arg_count,
-                ..
-            } if *event_kind == kind
-                && event_target == &target
-                && *event_arg_count == arg_count
-        )),
-        "missing begin-call event for {kind:#?} {target:#?} with {arg_count} args\n{:#?}",
-        hook.events
-    );
-}
-
-fn assert_user_begin(
-    hook: &TraceHook,
-    kind: TraceCallKind,
-    contract_name: &str,
-    function_name: &str,
-    arg_count: usize,
-) {
-    assert_begin_call(
-        hook,
-        kind,
-        user_target(contract_name, function_name),
-        arg_count,
-    );
-}
-
-fn assert_builtin_begin(hook: &TraceHook, function_name: &'static str, arg_count: usize) {
-    assert_begin_call(
-        hook,
-        TraceCallKind::Builtin,
-        TraceCallTarget::Builtin(function_name.into()),
-        arg_count,
-    );
-}
-
-fn assert_no_begin_call(hook: &TraceHook, kind: TraceCallKind, target: TraceCallTarget) {
-    assert!(
-        !hook.events.iter().any(|event| matches!(
-            event,
-            TraceEvent::BeginCall {
-                kind: event_kind,
-                target: event_target,
-                ..
-            } if *event_kind == kind && event_target == &target
-        )),
-        "unexpected begin-call event for {kind:#?} {target:#?}\n{:#?}",
-        hook.events
-    );
-}
-
-fn assert_no_builtin_begin(hook: &TraceHook, function_name: &'static str) {
-    assert_no_begin_call(
-        hook,
-        TraceCallKind::Builtin,
-        TraceCallTarget::Builtin(function_name.into()),
-    );
-}
-
-fn assert_argument_value(
-    hook: &TraceHook,
-    kind: TraceCallKind,
-    target: TraceCallTarget,
-    arg_index: usize,
-    arg_name: &str,
-    value: Value,
-) {
-    assert!(
-        hook.events.iter().any(|event| matches!(
-            event,
-            TraceEvent::ArgumentValue {
-                kind: event_kind,
-                target: event_target,
-                arg_index: event_arg_index,
-                arg_name: event_arg_name,
-                value: event_value,
-                ..
-            } if *event_kind == kind
-                && event_target == &target
-                && *event_arg_index == arg_index
-                && event_arg_name == arg_name
-                && event_value == &value
-        )),
-        "missing argument-value event for {kind:#?} {target:#?} arg {arg_index} {arg_name}={value:#?}\n{:#?}",
-        hook.events
-    );
-}
-
-fn assert_user_argument_value(
-    hook: &TraceHook,
-    kind: TraceCallKind,
-    contract_name: &str,
-    function_name: &str,
-    arg_index: usize,
-    arg_name: &str,
-    value: Value,
-) {
-    assert_argument_value(
-        hook,
-        kind,
-        user_target(contract_name, function_name),
-        arg_index,
-        arg_name,
-        value,
-    );
-}
-
-fn assert_builtin_argument_value(
-    hook: &TraceHook,
-    function_name: &'static str,
-    arg_index: usize,
-    value: Value,
-) {
-    assert_argument_value(
-        hook,
-        TraceCallKind::Builtin,
-        TraceCallTarget::Builtin(function_name.into()),
-        arg_index,
-        &format!("arg{arg_index}"),
-        value,
-    );
-}
-
-fn assert_user_finish_value(
-    hook: &TraceHook,
-    kind: TraceCallKind,
-    contract_name: &str,
-    function_name: &str,
-    value: Value,
-) {
-    let target = user_target(contract_name, function_name);
-    assert!(
-        hook.events.iter().any(|event| matches!(
-            event,
-            TraceEvent::FinishCall {
-                kind: event_kind,
-                target: event_target,
-                result: TraceResult::Ok(event_value),
-                ..
-            } if *event_kind == kind
-                && event_target == &target
-                && event_value == &value
-        )),
-        "missing finish-call event for {kind:#?} {target:#?} -> {value:#?}\n{:#?}",
-        hook.events
-    );
-}
-
-impl EvalHook for TraceHook {
-    fn will_begin_call(
-        &mut self,
-        _env: &mut ExecutionState,
-        _invoke_ctx: &InvocationContext,
-        call: &CallHook,
-        args: CallArguments,
-    ) {
-        self.open_parent_arg_eval_if_needed();
-
-        let arg_len = args.len();
-        // Classify each begin-time argument. Source-level calls (special forms like
-        // `if`/`fold`/`contract-call?` included) carry unevaluated expressions we can
-        // classify as variable/literal/call; pre-evaluated call paths carry only values.
-        let arg_sources = match args {
-            CallArguments::Expressions(exprs) => exprs.iter().map(classify_arg_source).collect(),
-            CallArguments::Values(values) => values
-                .iter()
-                .map(|value| ArgSource {
-                    kind: ArgKind::ValueOnly,
-                    text: value.to_string(),
-                })
-                .collect(),
-        };
-        self.events.push(TraceEvent::BeginCall {
-            depth: self.depth,
-            kind: Self::call_kind(call),
-            target: Self::call_target(call),
-            arg_count: arg_len,
-            arg_sources,
-        });
-        self.frames.push(TraceFrame {
-            group_arg_evals: matches!(call, CallHook::UserDefined { .. }),
-            arg_labels: (0..arg_len)
-                .map(|arg_index| Self::arg_name(call, arg_index))
-                .collect(),
-            next_arg_index: 0,
-            active_arg_index: None,
-        });
-        self.depth += 1;
-    }
-
-    fn did_evaluate_call_argument(
-        &mut self,
-        _env: &mut ExecutionState,
-        _invoke_ctx: &InvocationContext,
-        call: &CallHook,
-        arg_index: usize,
-        value: &Value,
-    ) {
-        self.close_current_arg_eval_if_needed(arg_index);
-
-        self.events.push(TraceEvent::ArgumentValue {
-            depth: self.depth,
-            kind: Self::call_kind(call),
-            target: Self::call_target(call),
-            arg_index,
-            arg_name: Self::arg_name(call, arg_index),
-            value: value.clone(),
-        });
-    }
-
-    fn did_finish_call(
-        &mut self,
-        _env: &mut ExecutionState,
-        _invoke_ctx: &InvocationContext,
-        call: &CallHook,
-        res: &Result<Value, VmExecutionError>,
-    ) {
-        if let Some(frame) = self.frames.pop()
-            && frame.active_arg_index.is_some()
-        {
-            self.depth = self.depth.saturating_sub(1);
-        }
-        self.depth = self.depth.saturating_sub(1);
-        self.events.push(TraceEvent::FinishCall {
-            depth: self.depth,
-            kind: Self::call_kind(call),
-            target: Self::call_target(call),
-            result: match res {
-                Ok(value) => TraceResult::Ok(value.clone()),
-                Err(err) => TraceResult::Err(format!("{err:?}")),
-            },
-        });
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ExecutionLifecycleEvent {
-    Begin,
-    Finish(ExecutionOutcome),
-}
-
-#[derive(Default)]
-struct ExecutionLifecycleHook {
-    events: Vec<ExecutionLifecycleEvent>,
-}
-
-impl EvalHook for ExecutionLifecycleHook {
-    fn will_begin_execution(&mut self) {
-        self.events.push(ExecutionLifecycleEvent::Begin);
-    }
-
-    fn did_finish_execution(&mut self, outcome: ExecutionOutcome) {
-        self.events.push(ExecutionLifecycleEvent::Finish(outcome));
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct CompletedCall {
-    label: String,
-    failed: bool,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct CompletedExecution {
-    outcome: ExecutionOutcome,
-    calls: Vec<CompletedCall>,
-}
-
-#[derive(Default)]
-struct CallStackCheckingHook {
-    stack: Vec<String>,
-    current_calls: Vec<CompletedCall>,
-    executions: Vec<CompletedExecution>,
-    max_depth: usize,
-}
-
-impl CallStackCheckingHook {
-    fn call_label(call: &CallHook) -> String {
-        format!("{}:{}", call.kind(), call.clarity_name())
-    }
-}
-
-impl EvalHook for CallStackCheckingHook {
-    fn will_begin_execution(&mut self) {
-        assert!(
-            self.stack.is_empty(),
-            "a new execution started with stale call frames: {:?}",
-            self.stack
-        );
-        assert!(
-            self.current_calls.is_empty(),
-            "a new execution started with uncommitted call results: {:?}",
-            self.current_calls
-        );
-    }
-
-    fn did_finish_execution(&mut self, outcome: ExecutionOutcome) {
-        assert!(
-            self.stack.is_empty(),
-            "execution finished with unclosed call frames: {:?}",
-            self.stack
-        );
-        self.executions.push(CompletedExecution {
-            outcome,
-            calls: std::mem::take(&mut self.current_calls),
-        });
-    }
-
-    fn will_begin_call(
-        &mut self,
-        _env: &mut ExecutionState,
-        _invoke_ctx: &InvocationContext,
-        call: &CallHook,
-        _args: CallArguments,
-    ) {
-        self.stack.push(Self::call_label(call));
-        self.max_depth = self.max_depth.max(self.stack.len());
-    }
-
-    fn did_finish_call(
-        &mut self,
-        _env: &mut ExecutionState,
-        _invoke_ctx: &InvocationContext,
-        call: &CallHook,
-        res: &Result<Value, VmExecutionError>,
-    ) {
-        let actual = Self::call_label(call);
-        let expected = self
-            .stack
-            .pop()
-            .expect("received a finish notification without a matching begin");
-        assert_eq!(
-            actual, expected,
-            "call finish notifications must unwind in LIFO order"
-        );
-        self.current_calls.push(CompletedCall {
-            label: actual,
-            failed: res.is_err(),
-        });
-    }
-}
-
+/// Verifies that a successful top-level transaction emits one begin notification followed by a
+/// successful finish notification.
 #[test]
 fn eval_hook_captures_top_level_execution_lifecycle() {
     let mut marf = MemoryBackingStore::new();
@@ -921,6 +60,8 @@ fn eval_hook_captures_top_level_execution_lifecycle() {
     );
 }
 
+/// Verifies that a top-level VM error still emits a matching finish notification with a failure
+/// outcome.
 #[test]
 fn eval_hook_captures_failed_top_level_execution_lifecycle() {
     let mut marf = MemoryBackingStore::new();
@@ -950,6 +91,8 @@ fn eval_hook_captures_failed_top_level_execution_lifecycle() {
     );
 }
 
+/// Forces a VM error deep in a local call chain and verifies LIFO error unwinding, an empty hook
+/// stack at execution boundaries, and clean reuse of the same hook on retry.
 #[test]
 fn eval_hook_balances_nested_call_stack_after_deep_failure() {
     let mut marf = MemoryBackingStore::new();
@@ -980,8 +123,8 @@ fn eval_hook_balances_nested_call_stack_after_deep_failure() {
     env.execute_transaction(sender, None, contract_id.clone(), "entry", &failing_args)
         .unwrap_err();
 
-    // Reuse the same environment and hook after the deep failure. Any leaked call frame
-    // would either make this execution start with stale state or corrupt its LIFO pairing.
+    // Reuse the same environment and hook after the deep failure. Any leaked call frame would
+    // either make this execution start with stale state or corrupt its LIFO pairing.
     let sender = contract_id.issuer.clone().into();
     let successful_args = vec![SymbolicExpression::atom_value(Value::UInt(1))];
     let (value, _, _) = env
@@ -1038,6 +181,8 @@ fn eval_hook_balances_nested_call_stack_after_deep_failure() {
     );
 }
 
+/// Confirms that the lower-level `GlobalContext::execute` path does not emit the top-level
+/// transaction lifecycle notifications owned by `OwnedEnvironment`.
 #[test]
 fn eval_hook_lifecycle_is_not_emitted_by_global_context_execute() {
     let mut marf = MemoryBackingStore::new();
@@ -1056,6 +201,8 @@ fn eval_hook_lifecycle_is_not_emitted_by_global_context_execute() {
     assert!(hook.events.is_empty());
 }
 
+/// Exercises nested user calls and a fold to verify that trace hooks report each callable's
+/// effective argument values after their producing expressions have evaluated.
 #[test]
 fn eval_hook_captures_effective_call_arguments() {
     let mut marf = MemoryBackingStore::new();
@@ -1087,9 +234,8 @@ fn eval_hook_captures_effective_call_arguments() {
     print_trace(&hook.events);
 
     assert_eq!(value, Value::okay(Value::UInt(84)).unwrap());
-    assert_user_begin(&hook, TraceCallKind::UserPublic, "trace-test", "entry", 1);
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_begin(TraceCallKind::UserPublic, "trace-test", "entry", 1);
+    hook.assert_user_argument_value(
         TraceCallKind::UserPublic,
         "trace-test",
         "entry",
@@ -1097,9 +243,8 @@ fn eval_hook_captures_effective_call_arguments() {
         "seed",
         Value::UInt(0),
     );
-    assert_user_begin(&hook, TraceCallKind::UserPrivate, "trace-test", "foo", 2);
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_begin(TraceCallKind::UserPrivate, "trace-test", "foo", 2);
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-test",
         "foo",
@@ -1107,8 +252,7 @@ fn eval_hook_captures_effective_call_arguments() {
         "a",
         Value::UInt(1),
     );
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-test",
         "foo",
@@ -1116,8 +260,7 @@ fn eval_hook_captures_effective_call_arguments() {
         "b",
         Value::UInt(42),
     );
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-test",
         "scale",
@@ -1125,10 +268,12 @@ fn eval_hook_captures_effective_call_arguments() {
         "a",
         Value::UInt(1),
     );
-    assert_builtin_argument_value(&hook, "+", 0, Value::UInt(10));
-    assert_builtin_argument_value(&hook, "+", 1, Value::UInt(30));
+    hook.assert_builtin_argument_value("+", 0, Value::UInt(10));
+    hook.assert_builtin_argument_value("+", 1, Value::UInt(30));
 }
 
+/// Verifies lazy special-form tracing by asserting that `if` records only the selected branch and
+/// never opens a call frame for the unevaluated error branch.
 #[test]
 fn eval_hook_captures_lazy_special_form_call_tree() {
     let mut marf = MemoryBackingStore::new();
@@ -1153,11 +298,13 @@ fn eval_hook_captures_lazy_special_form_call_tree() {
     print_trace(&hook.events);
 
     assert_eq!(value, Value::okay(Value::UInt(3)).unwrap());
-    assert_builtin_begin(&hook, "if", 3);
-    assert_builtin_begin(&hook, "+", 2);
-    assert_no_builtin_begin(&hook, "/");
+    hook.assert_builtin_begin("if", 3);
+    hook.assert_builtin_begin("+", 2);
+    hook.assert_no_builtin_begin("/");
 }
 
+/// Verifies tracing through `fold`'s pre-evaluated step-function calls, including element values,
+/// the threaded accumulator, and the final step result.
 #[test]
 fn eval_hook_captures_fold_with_user_step_function() {
     let mut marf = MemoryBackingStore::new();
@@ -1187,10 +334,9 @@ fn eval_hook_captures_fold_with_user_step_function() {
     // fold applies `accumulate` left-to-right over (list u1 u2 u3) starting at u0:
     //   (+ u0 (* u1 u2)) = u2  ->  (+ u2 (* u2 u2)) = u6  ->  (+ u6 (* u3 u2)) = u12
     assert_eq!(value, Value::okay(Value::UInt(12)).unwrap());
-    assert_builtin_begin(&hook, "fold", 3);
+    hook.assert_builtin_begin("fold", 3);
     // First iteration: item is the first list element, acc is the seed.
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-fold",
         "accumulate",
@@ -1198,8 +344,7 @@ fn eval_hook_captures_fold_with_user_step_function() {
         "item",
         Value::UInt(1),
     );
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-fold",
         "accumulate",
@@ -1208,8 +353,7 @@ fn eval_hook_captures_fold_with_user_step_function() {
         Value::UInt(0),
     );
     // Final iteration threads the running accumulator: item=u3, acc=u6.
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-fold",
         "accumulate",
@@ -1217,8 +361,7 @@ fn eval_hook_captures_fold_with_user_step_function() {
         "item",
         Value::UInt(3),
     );
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-fold",
         "accumulate",
@@ -1226,8 +369,7 @@ fn eval_hook_captures_fold_with_user_step_function() {
         "acc",
         Value::UInt(6),
     );
-    assert_user_finish_value(
-        &hook,
+    hook.assert_user_finish_value(
         TraceCallKind::UserPrivate,
         "trace-fold",
         "accumulate",
@@ -1235,6 +377,8 @@ fn eval_hook_captures_fold_with_user_step_function() {
     );
 }
 
+/// Exercises trait-based dynamic `contract-call?` dispatch and verifies that resolved arguments are
+/// attributed to both the local helper and remote implementation call.
 #[test]
 fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
     let mut marf = MemoryBackingStore::new();
@@ -1294,9 +438,8 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
     print_trace(&hook.events);
 
     assert_eq!(value, Value::okay(Value::UInt(24)).unwrap());
-    assert_user_begin(&hook, TraceCallKind::UserPublic, "trace-caller", "entry", 1);
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_begin(TraceCallKind::UserPublic, "trace-caller", "entry", 1);
+    hook.assert_user_argument_value(
         TraceCallKind::UserPublic,
         "trace-caller",
         "entry",
@@ -1304,15 +447,8 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
         "seed",
         Value::UInt(7),
     );
-    assert_user_begin(
-        &hook,
-        TraceCallKind::UserPrivate,
-        "trace-caller",
-        "call-runner",
-        3,
-    );
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_begin(TraceCallKind::UserPrivate, "trace-caller", "call-runner", 3);
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-caller",
         "call-runner",
@@ -1322,8 +458,7 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
             QualifiedContractIdentifier::local("trace-impl").unwrap(),
         )),
     );
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-caller",
         "call-runner",
@@ -1331,8 +466,7 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
         "x",
         Value::UInt(7),
     );
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-caller",
         "call-runner",
@@ -1340,9 +474,8 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
         "y",
         Value::UInt(17),
     );
-    assert_user_begin(&hook, TraceCallKind::UserPublic, "trace-impl", "do-it", 2);
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_begin(TraceCallKind::UserPublic, "trace-impl", "do-it", 2);
+    hook.assert_user_argument_value(
         TraceCallKind::UserPublic,
         "trace-impl",
         "do-it",
@@ -1350,8 +483,7 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
         "x",
         Value::UInt(7),
     );
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPublic,
         "trace-impl",
         "do-it",
@@ -1359,8 +491,7 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
         "y",
         Value::UInt(17),
     );
-    assert_user_finish_value(
-        &hook,
+    hook.assert_user_finish_value(
         TraceCallKind::UserPublic,
         "trace-impl",
         "do-it",
@@ -1368,6 +499,8 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
     );
 }
 
+/// Propagates a real VM error across a trait-dispatched contract boundary and verifies ordered
+/// frame unwinding, preserved pre-error successes, and clean hook reuse on retry.
 #[test]
 fn eval_hook_balances_trait_dispatched_contract_call_after_failure() {
     let mut marf = MemoryBackingStore::new();
@@ -1502,6 +635,8 @@ fn eval_hook_balances_trait_dispatched_contract_call_after_failure() {
     );
 }
 
+/// Traces a three-contract flow where `fold` steps perform nested contract calls, verifying
+/// call-tree nesting, branch forms, resolved step arguments, and cross-contract results.
 #[test]
 fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
     let mut marf = MemoryBackingStore::new();
@@ -1577,29 +712,16 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
 
     // Nested contract-call chain: trace-top.entry -> trace-agg.sum-doubled -> (fold) ->
     // trace-math.double, with `if`/`match` branching in each fold step.
-    assert_user_begin(&hook, TraceCallKind::UserPublic, "trace-top", "entry", 1);
-    assert_user_begin(
-        &hook,
-        TraceCallKind::UserPublic,
-        "trace-agg",
-        "sum-doubled",
-        1,
-    );
-    assert_builtin_begin(&hook, "fold", 3);
-    assert_user_begin(
-        &hook,
-        TraceCallKind::UserPrivate,
-        "trace-agg",
-        "add-doubled",
-        2,
-    );
+    hook.assert_user_begin(TraceCallKind::UserPublic, "trace-top", "entry", 1);
+    hook.assert_user_begin(TraceCallKind::UserPublic, "trace-agg", "sum-doubled", 1);
+    hook.assert_builtin_begin("fold", 3);
+    hook.assert_user_begin(TraceCallKind::UserPrivate, "trace-agg", "add-doubled", 2);
     // Branching forms are captured as builtin calls.
-    assert_builtin_begin(&hook, "if", 3);
-    assert_builtin_begin(&hook, "match", 5);
+    hook.assert_builtin_begin("if", 3);
+    hook.assert_builtin_begin("match", 5);
 
     // First fold step: item=u2, acc=u0, contract-calling double(n=u2) ⇒ (ok u4).
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-agg",
         "add-doubled",
@@ -1607,8 +729,7 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
         "item",
         Value::UInt(2),
     );
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-agg",
         "add-doubled",
@@ -1616,9 +737,8 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
         "acc",
         Value::UInt(0),
     );
-    assert_user_begin(&hook, TraceCallKind::UserPublic, "trace-math", "double", 1);
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_begin(TraceCallKind::UserPublic, "trace-math", "double", 1);
+    hook.assert_user_argument_value(
         TraceCallKind::UserPublic,
         "trace-math",
         "double",
@@ -1626,18 +746,16 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
         "n",
         Value::UInt(2),
     );
-    assert_user_finish_value(
-        &hook,
+    hook.assert_user_finish_value(
         TraceCallKind::UserPublic,
         "trace-math",
         "double",
         Value::okay(Value::UInt(4)).unwrap(),
     );
 
-    // Final fold step takes the `if` skip branch: item=u0, acc=u10, and simply returns
-    // the accumulator (no contract-call is made for this element).
-    assert_user_argument_value(
-        &hook,
+    // Final fold step takes the `if` skip branch: item=u0, acc=u10, and simply returns the
+    // accumulator (no contract-call is made for this element).
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-agg",
         "add-doubled",
@@ -1645,8 +763,7 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
         "item",
         Value::UInt(0),
     );
-    assert_user_argument_value(
-        &hook,
+    hook.assert_user_argument_value(
         TraceCallKind::UserPrivate,
         "trace-agg",
         "add-doubled",
@@ -1654,8 +771,7 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
         "acc",
         Value::UInt(10),
     );
-    assert_user_finish_value(
-        &hook,
+    hook.assert_user_finish_value(
         TraceCallKind::UserPublic,
         "trace-agg",
         "sum-doubled",
@@ -1663,26 +779,15 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
     );
 }
 
-/// Flattens a call forest into a pre-order list of references.
-fn flatten_calls(calls: &[TracedCall]) -> Vec<&TracedCall> {
-    fn walk<'a>(calls: &'a [TracedCall], out: &mut Vec<&'a TracedCall>) {
-        for call in calls {
-            out.push(call);
-            walk(&call.children, out);
-        }
-    }
-    let mut out = Vec::new();
-    walk(calls, &mut out);
-    out
-}
-
+/// Validates the production `CallTraceHook` call tree, per-call cost accounting, and eval-merge
+/// resolution of state-read and state-write arguments.
 #[test]
 fn call_trace_hook_resolves_state_reads_and_captures_cost() {
     let mut marf = MemoryBackingStore::new();
-    // A memory-backed store has no boot cost contracts, so it runs with the free cost
-    // tracker and per-call cost deltas are zero here. This test validates the resolved
-    // tree, value resolution, and the eval-merge for special-form arguments; non-zero
-    // cost magnitude is exercised against a real cost tracker in the replay path.
+    // A memory-backed store has no boot cost contracts, so it runs with the free cost tracker and
+    // per-call cost deltas are zero here. This test validates the resolved tree, value resolution,
+    // and the eval-merge for special-form arguments; non-zero cost magnitude is exercised against a
+    // real cost tracker in the replay path.
     let mut env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::Epoch21);
     let contract_id = QualifiedContractIdentifier::local("trace-collector").unwrap();
     let source = r#"
@@ -1712,8 +817,8 @@ fn call_trace_hook_resolves_state_reads_and_captures_cost() {
         "root is the `run` entry point: {:?}",
         run.callee
     );
-    // The root carries the transaction's return value, confirming it finished and its
-    // children attached to it (rather than to a stray root).
+    // The root carries the transaction's return value, confirming it finished and its children
+    // attached to it (rather than to a stray root).
     assert_eq!(
         run.result,
         Some(TracedResult::Ok(
@@ -1725,9 +830,9 @@ fn call_trace_hook_resolves_state_reads_and_captures_cost() {
 
     let calls = flatten_calls(roots);
 
-    // (a) Cost is sampled per call, and the exclusive-of-children subtraction never yields
-    //     more than the inclusive cost in any dimension. (Trivially satisfied under the free
-    //     tracker where all costs are zero, but it exercises the sampling + subtraction path.)
+    // (a) Cost is sampled per call, and the exclusive-of-children subtraction never yields more
+    //     than the inclusive cost in any dimension. (Trivially satisfied under the free tracker
+    //     where all costs are zero, but it exercises the sampling + subtraction path.)
     for call in &calls {
         assert!(call.cost_inclusive.runtime >= call.cost_exclusive.runtime);
         assert!(call.cost_inclusive.read_count >= call.cost_exclusive.read_count);
