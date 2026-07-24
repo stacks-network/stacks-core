@@ -805,6 +805,92 @@ impl EvalHook for ExecutionLifecycleHook {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct CompletedCall {
+    label: String,
+    failed: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct CompletedExecution {
+    outcome: ExecutionOutcome,
+    calls: Vec<CompletedCall>,
+}
+
+#[derive(Default)]
+struct CallStackCheckingHook {
+    stack: Vec<String>,
+    current_calls: Vec<CompletedCall>,
+    executions: Vec<CompletedExecution>,
+    max_depth: usize,
+}
+
+impl CallStackCheckingHook {
+    fn call_label(call: &CallHook) -> String {
+        format!("{}:{}", call.kind(), call.clarity_name())
+    }
+}
+
+impl EvalHook for CallStackCheckingHook {
+    fn will_begin_execution(&mut self) {
+        assert!(
+            self.stack.is_empty(),
+            "a new execution started with stale call frames: {:?}",
+            self.stack
+        );
+        assert!(
+            self.current_calls.is_empty(),
+            "a new execution started with uncommitted call results: {:?}",
+            self.current_calls
+        );
+    }
+
+    fn did_finish_execution(&mut self, outcome: ExecutionOutcome) {
+        assert!(
+            self.stack.is_empty(),
+            "execution finished with unclosed call frames: {:?}",
+            self.stack
+        );
+        self.executions.push(CompletedExecution {
+            outcome,
+            calls: std::mem::take(&mut self.current_calls),
+        });
+    }
+
+    fn will_begin_call(
+        &mut self,
+        _env: &mut ExecutionState,
+        _invoke_ctx: &InvocationContext,
+        call: &CallHook,
+        _args: CallArguments,
+    ) {
+        self.stack.push(Self::call_label(call));
+        self.max_depth = self.max_depth.max(self.stack.len());
+    }
+
+    fn did_finish_call(
+        &mut self,
+        _env: &mut ExecutionState,
+        _invoke_ctx: &InvocationContext,
+        call: &CallHook,
+        res: &Result<Value, VmExecutionError>,
+    ) {
+        let actual = Self::call_label(call);
+        let expected = self
+            .stack
+            .pop()
+            .expect("received a finish notification without a matching begin");
+        assert_eq!(
+            actual, expected,
+            "call finish notifications must unwind in LIFO order"
+        );
+        self.current_calls.push(CompletedCall {
+            label: actual,
+            failed: res.is_err(),
+        });
+    }
+}
+
 #[test]
 fn eval_hook_captures_top_level_execution_lifecycle() {
     let mut marf = MemoryBackingStore::new();
@@ -862,6 +948,94 @@ fn eval_hook_captures_failed_top_level_execution_lifecycle() {
             ExecutionLifecycleEvent::Begin,
             ExecutionLifecycleEvent::Finish(ExecutionOutcome::Failure)
         ]
+    );
+}
+
+#[test]
+fn eval_hook_balances_nested_call_stack_after_deep_failure() {
+    let mut marf = MemoryBackingStore::new();
+    let mut env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::Epoch21);
+    let contract_id = QualifiedContractIdentifier::local("trace-nested-failure").unwrap();
+    let source = r#"
+        (define-private (leaf (divisor uint))
+          (/ u1 divisor))
+
+        (define-private (middle (divisor uint))
+          (+ u1 (leaf divisor)))
+
+        (define-private (outer (divisor uint))
+          (+ u1 (middle divisor)))
+
+        (define-public (entry (divisor uint))
+          (ok (outer divisor)))
+    "#;
+
+    env.initialize_versioned_contract(contract_id.clone(), ClarityVersion::Clarity2, source, None)
+        .unwrap();
+
+    let mut hook = CallStackCheckingHook::default();
+    env.add_eval_hook(&mut hook);
+
+    let sender = contract_id.issuer.clone().into();
+    let failing_args = vec![SymbolicExpression::atom_value(Value::UInt(0))];
+    env.execute_transaction(sender, None, contract_id.clone(), "entry", &failing_args)
+        .unwrap_err();
+
+    // Reuse the same environment and hook after the deep failure. Any leaked call frame
+    // would either make this execution start with stale state or corrupt its LIFO pairing.
+    let sender = contract_id.issuer.clone().into();
+    let successful_args = vec![SymbolicExpression::atom_value(Value::UInt(1))];
+    let (value, _, _) = env
+        .execute_transaction(sender, None, contract_id, "entry", &successful_args)
+        .unwrap();
+
+    assert_eq!(value, Value::okay(Value::UInt(3)).unwrap());
+    assert!(
+        hook.max_depth >= 5,
+        "the fixture must exercise a genuinely nested call chain"
+    );
+    assert_eq!(hook.executions.len(), 2);
+
+    let failed = &hook.executions[0];
+    assert_eq!(failed.outcome, ExecutionOutcome::Failure);
+    assert!(
+        failed.calls.iter().all(|call| call.failed),
+        "every frame unwound from the deep failure must receive the error: {:?}",
+        failed.calls
+    );
+    for expected in [
+        "builtin:/",
+        "user-private:leaf",
+        "user-private:middle",
+        "user-private:outer",
+        "user-public:entry",
+    ] {
+        assert!(
+            failed.calls.iter().any(|call| call.label == expected),
+            "missing failed call frame {expected}: {:?}",
+            failed.calls
+        );
+    }
+
+    let succeeded = &hook.executions[1];
+    assert_eq!(succeeded.outcome, ExecutionOutcome::Success);
+    assert!(
+        succeeded.calls.iter().all(|call| !call.failed),
+        "the follow-up execution should close every frame successfully: {:?}",
+        succeeded.calls
+    );
+    assert_eq!(
+        failed
+            .calls
+            .iter()
+            .map(|call| &call.label)
+            .collect::<Vec<_>>(),
+        succeeded
+            .calls
+            .iter()
+            .map(|call| &call.label)
+            .collect::<Vec<_>>(),
+        "the successful retry should traverse the same call chain without stale frames"
     );
 }
 
