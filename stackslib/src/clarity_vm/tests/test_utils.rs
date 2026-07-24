@@ -28,7 +28,7 @@ use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::ClarityMarfTrieId as _;
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
