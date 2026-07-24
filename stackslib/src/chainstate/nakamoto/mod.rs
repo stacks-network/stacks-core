@@ -20,6 +20,7 @@ use std::ops::{Deref, DerefMut, Range};
 use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{STXEventType, STXMintEventData, StacksTransactionEvent};
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, Value};
 use lazy_static::lazy_static;
@@ -5730,7 +5731,7 @@ impl NakamotoChainState {
                     &contract_id,
                     ClarityVersion::Clarity2,
                     &contract_content,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
             clarity
@@ -5741,7 +5742,7 @@ impl NakamotoChainState {
                     &contract_content,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
             clarity.save_analysis(&contract_id, &analysis).unwrap();

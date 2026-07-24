@@ -26,7 +26,7 @@ pub use super::errors::{
     check_argument_count, check_arguments_at_least,
 };
 use crate::vm::ClarityVersion;
-use crate::vm::analysis::check_analysis_timeout;
+use crate::vm::analysis::check_analysis_resource_limits;
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::errors::StaticCheckErrorKind::ReadOnlyCheckerRecursionLimitExceeded;
 use crate::vm::functions::NativeFunctions;
@@ -35,7 +35,7 @@ use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use crate::vm::time_tracker::TimeTracker;
+use crate::vm::resource_limiter::ResourceLimiter;
 
 #[cfg(test)]
 mod tests;
@@ -51,7 +51,7 @@ pub struct ReadOnlyChecker<'a, 'b> {
     defined_functions: HashMap<ClarityName, bool>,
     epoch: StacksEpochId,
     clarity_version: ClarityVersion,
-    time_tracker: TimeTracker,
+    resource_limiter: ResourceLimiter,
 }
 
 impl AnalysisPass for ReadOnlyChecker<'_, '_> {
@@ -59,13 +59,13 @@ impl AnalysisPass for ReadOnlyChecker<'_, '_> {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
-        time_tracker: TimeTracker,
+        resource_limiter: ResourceLimiter,
     ) -> Result<(), StaticCheckError> {
         let mut command = ReadOnlyChecker::new(
             analysis_db,
             epoch,
             &contract_analysis.clarity_version,
-            time_tracker,
+            resource_limiter,
         );
         command.run(contract_analysis)?;
         Ok(())
@@ -79,14 +79,14 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         db: &'a mut AnalysisDatabase<'b>,
         epoch: &StacksEpochId,
         version: &ClarityVersion,
-        time_tracker: TimeTracker,
+        resource_limiter: ResourceLimiter,
     ) -> ReadOnlyChecker<'a, 'b> {
         Self {
             db,
             defined_functions: HashMap::new(),
             epoch: *epoch,
             clarity_version: *version,
-            time_tracker,
+            resource_limiter,
         }
     }
 
@@ -243,7 +243,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         expr: &SymbolicExpression,
         recursion_depth: u64,
     ) -> Result<bool, StaticCheckError> {
-        check_analysis_timeout(&self.time_tracker)?;
+        check_analysis_resource_limits(&self.resource_limiter)?;
 
         match expr.expr {
             AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),

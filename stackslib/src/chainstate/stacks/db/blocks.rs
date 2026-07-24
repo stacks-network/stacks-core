@@ -24,6 +24,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::VmExecutionError;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{
     BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
@@ -4119,7 +4120,7 @@ impl StacksChainState {
                     "stack-stx",
                     &args,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
@@ -4330,7 +4331,7 @@ impl StacksChainState {
                         reward_addr_val,
                     ],
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
@@ -4438,7 +4439,7 @@ impl StacksChainState {
                         Value::UInt((*reward_cycle).into()),
                     ],
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
