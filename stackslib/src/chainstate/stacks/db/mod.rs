@@ -2964,11 +2964,22 @@ pub mod test {
     }
 
     impl TestChainstateBuilder {
-        /// Start a builder for `test_name`. `chain_id` defaults to the standard
-        /// constant for the network (`CHAIN_ID_MAINNET` / `CHAIN_ID_TESTNET`);
-        /// override it with [`with_chain_id`](Self::with_chain_id) for the rare
-        /// test that needs a non-standard value.
-        pub fn new(mainnet: bool, test_name: &str) -> Self {
+        /// Start a builder for a **mainnet** test chainstate named `test_name`.
+        /// `chain_id` defaults to [`CHAIN_ID_MAINNET`]; override it with
+        /// [`with_chain_id`](Self::with_chain_id).
+        pub fn new_mainnet(test_name: &str) -> Self {
+            Self::new(true, test_name)
+        }
+
+        /// Start a builder for a **testnet** test chainstate named `test_name`.
+        /// `chain_id` defaults to [`CHAIN_ID_TESTNET`]; override it with
+        /// [`with_chain_id`](Self::with_chain_id).
+        pub fn new_testnet(test_name: &str) -> Self {
+            Self::new(false, test_name)
+        }
+
+        /// Start a builder for `test_name` on the given network.
+        fn new(mainnet: bool, test_name: &str) -> Self {
             let chain_id = if mainnet {
                 CHAIN_ID_MAINNET
             } else {
