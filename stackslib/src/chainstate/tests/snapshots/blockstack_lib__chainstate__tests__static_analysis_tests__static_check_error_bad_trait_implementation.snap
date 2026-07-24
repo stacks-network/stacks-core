@@ -153,4 +153,184 @@ expression: result.get_expected_results()
       runtime: 3157,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d0f856df21a452776fd1f5956a8f8bf4ee5278903d30155645dc8f5b1727d0d8",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-name-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(invalid signature for method \'get-1\' regarding trait\'s specification <trait-1>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 17,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3157,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 17,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3157,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c4c16e262cf85c3f458075e8a683014a3be3140c8349effed5c7ddc0aeec47b9",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-name-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(invalid signature for method \'get-1\' regarding trait\'s specification <trait-1>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 17,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3157,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 17,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3157,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a78063b5292b0d2c38275653ed7c6a82995286e045928f2c67e88c309a84a5fa",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-name-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(invalid signature for method \'get-1\' regarding trait\'s specification <trait-1>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 17,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3157,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 17,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3157,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "42b4657a06413dad593e0f0ea074973593cc5f82d39e8f26b2be314fd6965691",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-name-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(invalid signature for method \'get-1\' regarding trait\'s specification <trait-1>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 17,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3157,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 17,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3157,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bcaa1901557ab077fb0f36316c89e5108710f2554900b7bee4ded460ece461f0",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-name-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(invalid signature for method \'get-1\' regarding trait\'s specification <trait-1>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 17,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3157,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 17,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3157,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "004debe67f1d9d7b1f299b663938432f0424b45411ce5dc890356de77623a12f",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-name-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(invalid signature for method \'get-1\' regarding trait\'s specification <trait-1>) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 17,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3157,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 17,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3157,
+    ),
+  )),
 ]

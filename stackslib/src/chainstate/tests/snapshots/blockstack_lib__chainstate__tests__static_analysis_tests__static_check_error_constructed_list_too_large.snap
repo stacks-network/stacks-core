@@ -153,4 +153,184 @@ expression: result.get_expected_results()
       runtime: 7436,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8a5d8ac9d2525fba976cbc22cccbac4fd50cdb0144fbe726ff9dae4b1e49eef9",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 29,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 7437,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 29,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 7437,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bd217bfe62e6837e3a54d12eee8fc09ca7d9dd67a162e6d6a3702d18d713f175",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 29,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 7436,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 29,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 7436,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "952a1ade81c394b68ad5d7e5fdba4cc6b70458a09f90fc7269ae0bb285bf56ad",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 29,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 7436,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 29,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 7436,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "0501ab2a172a5f40a9398d56609a67955cc19bff107ccbbadd6cdcd97b90fd26",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 29,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 7436,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 29,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 7436,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bb60159cbb93fb844bd298d17b4bfbccb7467e0720f9ccf6c871d7d55ecc3dd3",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 29,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 7436,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 29,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 7436,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a5844776d465a1e188415d9de267009fce373ed9376f30a92eb2ed6d611e6dfa",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: constructed-list-large-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(:0:0: reached limit of elements in a sequence) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 29,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 7436,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 29,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 7436,
+    ),
+  )),
 ]
