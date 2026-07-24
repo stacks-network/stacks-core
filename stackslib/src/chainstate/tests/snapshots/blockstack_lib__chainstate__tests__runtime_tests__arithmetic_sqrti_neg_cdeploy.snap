@@ -153,4 +153,184 @@ expression: result.get_expected_results()
       runtime: 9184,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "de21c7ac67c1f5cdbdab0a17804955881e36889c581c85835f2eb11a13bfb1ee",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: sqrti-neg-deploy-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 45,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9073,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 45,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9073,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1ed737dfdcbdd688154bdfc2b857198efc99ec69cb72c102b2e1e54c80d66202",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: sqrti-neg-deploy-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 45,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9073,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 45,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9073,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "302bae87f92325f4ebd6ec0161a295a8fc988bb3ad9eeb3962616b2af4366cb4",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: sqrti-neg-deploy-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 45,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9073,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 45,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9073,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "80bee77086ad85097fc97fb97843676116210bac62efa219e6d43b6e65875b9c",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: sqrti-neg-deploy-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 45,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9073,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 45,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9073,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d2708dd2ea66e5911f33e31fd93db0b82e346ae6344a9bce601e2086c7c16afd",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: sqrti-neg-deploy-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 45,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9073,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 45,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9073,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2b6b863abd3e0eb9c0cd232670f3b374993362fdc1dcc4a52344f2784fd70539",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: sqrti-neg-deploy-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(Arithmetic(\"sqrti must be passed a positive integer\")) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 45,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9073,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 45,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9073,
+    ),
+  )),
 ]

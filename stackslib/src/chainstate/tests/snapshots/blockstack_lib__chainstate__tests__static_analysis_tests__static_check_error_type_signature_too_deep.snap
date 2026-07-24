@@ -153,4 +153,184 @@ expression: result.get_expected_results()
       runtime: 12036,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "122dcb8678f0474b95a4feaf6ffc97cb807998e82be4769edbb83626e98c59a9",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: signature-too-deep-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 77,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12036,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 77,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12036,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "beb6075a24ded916e3754a66aa0f75cce77de5a6c814535819036e64c9681929",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: signature-too-deep-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 77,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12036,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 77,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12036,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "36ad2bfc28a47d17f9dba004349054f1ca1c48fe2663a4b601fb97d48ca97f2b",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: signature-too-deep-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 77,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12036,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 77,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12036,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6d431d223d430c0e97cf4f02de80bfe5b4fdfcd94b5e9cbdf13e3c80964a8f60",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: signature-too-deep-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 77,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12036,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 77,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12036,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9d6e8e501bc267f366d52e1009b5f7ff545ab72bd90d08dd709313d669927add",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: signature-too-deep-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 77,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12036,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 77,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12036,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4132d2a2f5108497402c5ca1200d4b0e79e2838ac296a8820035dc7baae4a102",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: signature-too-deep-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(:0:0: created a type which was deeper than maximum allowed type depth) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 77,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12036,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 77,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12036,
+    ),
+  )),
 ]
