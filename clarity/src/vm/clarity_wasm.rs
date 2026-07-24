@@ -7454,13 +7454,16 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     arg_offset += get_type_size(arg_ty);
                 }
 
+                // The calling contract becomes the `contract-caller` for the
+                // callee via the nested `Environment` below; the current
+                // context's `caller` must remain unchanged, matching the
+                // interpreter's scoping in `special_contract_call`.
                 let caller_contract: PrincipalData = caller
                     .data()
                     .contract_context()
                     .contract_identifier
                     .clone()
                     .into();
-                caller.data_mut().push_caller(caller_contract.clone());
 
                 let mut call_stack = caller.data().call_stack.clone();
                 let sender = caller.data().sender.clone();
