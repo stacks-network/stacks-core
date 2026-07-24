@@ -578,7 +578,7 @@ fn test_order_of_readonly_check_and_type_check() {
     let expected_read_only_error = "WriteAttemptedInReadOnly";
     let expected_type_error = "IllegalOrUnknownFunctionApplication";
 
-    let last_epoch_with_read_only_checker_first = StacksEpochId::Epoch34;
+    let last_epoch_with_read_only_checker_first = StacksEpochId::Epoch40;
 
     // In epoch 4.0, the read-only checker runs first, and thus its error should
     // be the result that we get.
