@@ -3008,6 +3008,13 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
              name_length: i32,
              mut value_offset: i32,
              mut value_length: i32| {
+                if caller.data().global_context.is_read_only() {
+                    return Err(VmExecutionError::Wasm(WasmError::Expect(
+                        "Tried to set a variable in read only context".into(),
+                    ))
+                    .into());
+                }
+
                 // Get the memory from the caller
                 let memory = caller
                     .get_export("memory")
