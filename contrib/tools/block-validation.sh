@@ -1202,7 +1202,7 @@ check_dependencies() {
     local cmd rp package find_path
     local -a required=(
         apt-get sudo curl tmux git aria2c tar zstd grep cc cargo pgrep tput
-        find xargs awk sed nproc stat stdbuf jq
+        find xargs awk sed nproc stat stdbuf jq base64
     )
     for cmd in "${required[@]}"; do
         # In Alpine, `find` may be a symlink to busybox, whose `find` lacks flags we use.
@@ -1252,7 +1252,7 @@ check_dependencies() {
                 "find"|"xargs")
                     package="findutils"
                     ;;
-                "nproc"|"stat"|"stdbuf")
+                "nproc"|"stat"|"stdbuf"|"base64")
                     package="coreutils"
                     ;;
                 *)
