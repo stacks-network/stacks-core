@@ -22,7 +22,8 @@
 # tests, with a link to the workflow run and the proptest-regression files
 # downloadable as a workflow artifact.
 
-name: Tests::Proptest Extra
+name: "Tests: Proptest Extra"
+run-name: "Tests: Proptest Extra [${{ github.ref_name }}]"
 
 on:
   pull_request_review:
