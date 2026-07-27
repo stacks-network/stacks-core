@@ -10454,7 +10454,7 @@ export const contracts = {
                 tuple: [
                   { name: 'earned', type: 'uint128' },
                   {
-                    name: 'withdrawal-request-id',
+                    name: 'withdrawal-request',
                     type: { optional: 'uint128' },
                   },
                 ],
@@ -10472,7 +10472,7 @@ export const contracts = {
         Response<
           {
             earned: bigint;
-            withdrawalRequestId: bigint | null;
+            withdrawalRequest: bigint | null;
           },
           bigint
         >

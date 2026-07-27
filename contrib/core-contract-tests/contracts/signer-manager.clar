@@ -221,9 +221,9 @@
 ;; rewards are withdrawn through sBTC to their L1 Bitcoin address. Otherwise,
 ;; the staker receives sBTC.
 ;;
-;; Returns `{ earned, withdrawal-request-id }` where `earned` is the net
+;; Returns `{ earned, withdrawal-request }` where `earned` is the net
 ;; amount claimed for the staker after signer-manager fees and
-;; `withdrawal-request-id` is `(some id)` when an L1 sBTC withdrawal was
+;; `withdrawal-request` is `(some id)` when an L1 sBTC withdrawal was
 ;; initiated, or `none` for a direct sBTC payout.
 (define-public (claim-staker-rewards
         (staker principal)
@@ -265,7 +265,7 @@
         ;; Bind the request-id surfaced when the payout was routed to L1 via
         ;; `initiate-withdrawal-request`, `none` when the staker was paid
         ;; directly in sBTC.
-        (let ((withdrawal-request-id (try! (as-contract?
+        (let ((withdrawal-request (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                 "sbtc-token" earned
             ))
@@ -322,7 +322,7 @@
 
             (ok {
                 earned: earned,
-                withdrawal-request-id: withdrawal-request-id,
+                withdrawal-request: withdrawal-request,
             })
         )
     )

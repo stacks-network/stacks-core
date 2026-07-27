@@ -340,7 +340,7 @@ test('claiming staker rewards transfers net rewards after fees', () => {
   // is initiated; the return carries `none` for the request-id.
   expect(claim.value).toStrictEqual({
     earned: netRewards,
-    withdrawalRequestId: null,
+    withdrawalRequest: null,
   });
   const [transfer] = filterEvents(
     claim.events,
@@ -667,7 +667,7 @@ test('claiming all rewards with pox-addr leaves room for withdrawal max-fee', ()
 
   // Since a pox-addr is set, the payout is routed to an sBTC withdrawal, and
   // the request-id starts at 1 in this test's simnet.
-  expect(claim.value).toStrictEqual({ earned, withdrawalRequestId: 1n });
+  expect(claim.value).toStrictEqual({ earned, withdrawalRequest: 1n });
 });
 
 test('claiming staker rewards with pox-addr errors when earned is less than max-fee', () => {
