@@ -200,7 +200,7 @@ jobs:
   ############################################################################
   ### Check Reusable Test Caches
   ###
-  ### Caches can only be created from `master`. The workflow will fail 
+  ### Caches can only be created from `main`. The workflow will fail 
   ### if caches are missing, with instructions on how to manually seed them.
   ############################################################################
   check-test-caches:

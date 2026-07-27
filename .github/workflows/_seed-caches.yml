@@ -5,10 +5,12 @@ name: Seed Caches
 #   1. A branch can only see caches created on that branch
 #   2. Failing that, a branch can opt-in to looking at the base branch cache
 #   3. Failing that, a branch can always access the default branch caches (`main` or `master`)
-# So we build caches on `master` nightly, since our branches typically target `develop` as base (and can fallback to `master`)
-# That allows PR branches to re-use these caches, via `restore-keys` fallback in the actions/cache GitHub action
-# The cache cache is intentionally broad: it will restore what `master` currently has.
+# So we build caches on `main` nightly, since our branches typically target `main` as base.
+# That allows PR branches to re-use these caches, via `restore-keys` fallback in the actions/cache GitHub action.
+# The cache restore is intentionally broad: it will restore what `main` currently has.
 # If the branch has updated dependencies, cargo will notice the mismatched versions (or new deps) and build them on-the-fly.
+#
+# NOTE: This job only runs on `main` branch of `stacks-network/stacks-core` OR if GitHub Action var is set: SEED_CACHES = true
 ################################################################################################################################
 
 on:
@@ -18,7 +20,7 @@ on:
   workflow_dispatch: # Allows manual triggering / seeding
   push:
     branches:
-      - master
+      - main
 
 permissions:
   contents: read
@@ -31,16 +33,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ############################################################################
+  ##############################################################################
   ### Create Reusable Caches for Tests
   ###
-  ### Caches can only be created from `master`. This workflow runs only 
-  ### from `master` and thus will create re-usable caches successfully.
-  ############################################################################
+  ### Caches can only be created from `main`. This workflow runs only from 
+  ### `main` and therefore will successfully create canoncial re-usable caches.
+  ##############################################################################
   setup-test-caches:
     name: "Create: Test Caches"
-    # Only execute if running in our core repo. The CRON schedule will run against `master` which is intended
+    # Execute if running in our core repo on `main` OR if SEED_CACHES GitHub Actions variable is 'true'
     if: |
-      github.repository == 'stacks-network/stacks-core' &&
-      github.ref_name == 'master'
+      (github.repository == 'stacks-network/stacks-core' && github.ref_name == 'main') ||
+      vars.SEED_CACHES == 'true'
     uses: ./.github/workflows/setup-test-caches.yml
