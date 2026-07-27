@@ -1504,11 +1504,8 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         let result = function.execute_apply(args, self, &callee_view);
 
         if make_read_only {
-            if let Err(e) = self.global_context.roll_back() {
-                Err(e)
-            } else {
-                result
-            }
+            self.global_context.roll_back()?;
+            result
         } else {
             self.global_context
                 .handle_tx_result(result, options.allow_private)
