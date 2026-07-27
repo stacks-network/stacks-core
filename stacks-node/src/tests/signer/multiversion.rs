@@ -20,22 +20,19 @@ use libsigner::v0::messages::{
     SignerMessageMetadata,
 };
 use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
-use libsigner_v3_3_0_0_5;
 use libsigner_v3_3_0_0_5::v0::messages::SignerMessage as OldSignerMessage;
-use signer_v3_3_0_0_5_0;
 use signer_v3_3_0_0_5_0::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION as OldSupportedVersion;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
-use stacks_common_v3_3_0_0_5;
 use stacks_common_v3_3_0_0_5::codec::StacksMessageCodec as OldStacksMessageCodec;
 use stacks_signer::runloop::{RewardCycleInfo, State, StateInfo};
 use stacks_signer::v0::signer_state::{
     LocalStateMachine, SUPPORTED_SIGNER_PROTOCOL_VERSION as NewSupportedVersion,
 };
 use stacks_signer::v0::SpawnedSigner;
-use stacks_v3_3_0_0_5;
+use {libsigner_v3_3_0_0_5, signer_v3_3_0_0_5_0, stacks_common_v3_3_0_0_5, stacks_v3_3_0_0_5};
 
 use super::SpawnedSignerTrait;
 use crate::stacks_common::codec::StacksMessageCodec;

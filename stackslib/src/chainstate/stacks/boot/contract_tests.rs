@@ -1405,7 +1405,6 @@ fn pox_2_delegate_extend_units() {
             "Delegate still does not have enough aggregate locked up for cycle 3",
         );
 
-        
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
