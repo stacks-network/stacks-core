@@ -262,8 +262,8 @@
         (var-set unclaimed-staker-rewards
             (- unclaimed-rewards gross)
         )
-        ;; Bind the request-id surfaced when the payout was routed to L1 via 
-        ;; `initiate-withdrawal-request`, `none` when the staker was paid 
+        ;; Bind the request-id surfaced when the payout was routed to L1 via
+        ;; `initiate-withdrawal-request`, `none` when the staker was paid
         ;; directly in sBTC.
         (let ((withdrawal-request-id (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token

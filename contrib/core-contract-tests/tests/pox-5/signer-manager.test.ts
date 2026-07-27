@@ -400,7 +400,10 @@ test('admins can withdraw accrued fees', () => {
   ).toBe(signerManagerErrors.ERR_UNAUTHORIZED_ADMIN);
   expect(
     txErr(
-      signerManager.withdrawFees({ amount: fee * 2n + 1n, recipient: deployer }),
+      signerManager.withdrawFees({
+        amount: fee * 2n + 1n,
+        recipient: deployer,
+      }),
       deployer,
     ).value,
   ).toBe(signerManagerErrors.ERR_INSUFFICIENT_FEES);
@@ -662,8 +665,8 @@ test('claiming all rewards with pox-addr leaves room for withdrawal max-fee', ()
 
   const claim = txOk(signerManager.claimStakerRewards(alice, 1n, null), bob);
 
-  // pox-addr is set, so the payout is routed to L1 and a withdrawal is
-  // initiated; the request-id starts at 1 in this test's isolated simnet.
+  // Since a pox-addr is set, the payout is routed to an sBTC withdrawal, and
+  // the request-id starts at 1 in this test's simnet.
   expect(claim.value).toStrictEqual({ earned, withdrawalRequestId: 1n });
 });
 
