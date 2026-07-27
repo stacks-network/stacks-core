@@ -2368,9 +2368,7 @@ pub mod test {
 
     #[test]
     fn process_token_transfer_stx_transaction() {
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2486,9 +2484,7 @@ pub mod test {
 
     #[test]
     fn process_token_transfer_stx_transaction_invalid() {
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2676,9 +2672,7 @@ pub mod test {
 
     #[test]
     fn process_token_transfer_stx_sponsored_transaction() {
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk_origin = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2982,9 +2976,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3056,9 +3048,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3161,9 +3151,7 @@ pub mod test {
         ];
         let expected_errors_2_1 = ["unexpected ')'", expected_line_num_error];
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3249,9 +3237,7 @@ pub mod test {
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (begin (set-bar 1 0) (ok 1))";
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3336,9 +3322,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk_origin = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3423,9 +3407,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3545,9 +3527,7 @@ pub mod test {
         (define-data-var savedContract principal tx-sender)
         (define-public (save (contract principal)) (ok (var-set savedContract contract)))";
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3677,9 +3657,7 @@ pub mod test {
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (define-public (return-error) (err 1))";
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3786,9 +3764,7 @@ pub mod test {
     fn process_smart_contract_user_aborts_2257() {
         let contract = "(asserts! false (err 1))";
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3839,9 +3815,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -4044,9 +4018,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -5671,9 +5643,7 @@ pub mod test {
         signer.sign_origin(&privk_origin).unwrap();
         let contract_call_tx = signer.get_tx().unwrap();
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
                 *burn_db,
@@ -9256,7 +9226,6 @@ pub mod test {
 
         let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
             .with_balances(balances)
-            .with_all_boot_costs()
             .build();
 
         let mut tx_contract_create = StacksTransaction::new(
@@ -9426,7 +9395,6 @@ pub mod test {
 
         let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
             .with_balances(balances)
-            .with_all_boot_costs()
             .build();
 
         let block_privk = StacksPrivateKey::from_hex(
@@ -9549,7 +9517,6 @@ pub mod test {
 
         let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
             .with_balances(balances)
-            .with_all_boot_costs()
             .build();
 
         let block_privk = StacksPrivateKey::from_hex(
@@ -9636,7 +9603,6 @@ pub mod test {
 
         let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
             .with_balances(balances)
-            .with_all_boot_costs()
             .build();
 
         let block_privk = StacksPrivateKey::from_hex(
@@ -9906,9 +9872,7 @@ pub mod test {
             }
         }
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -10120,9 +10084,7 @@ pub mod test {
             }
         }
 
-        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
-            .with_all_boot_costs()
-            .build();
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -10258,7 +10220,6 @@ pub mod test {
 
         let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
             .with_balances(balances)
-            .with_all_boot_costs()
             .build();
 
         let mut tx_contract_create = StacksTransaction::new(
@@ -10401,7 +10362,6 @@ pub mod test {
 
         let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
             .with_balances(balances)
-            .with_all_boot_costs()
             .build();
 
         let mut tx_contract_create = StacksTransaction::new(
@@ -10594,7 +10554,6 @@ pub mod test {
 
         let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
             .with_balances(balances)
-            .with_all_boot_costs()
             .build();
 
         let mut tx_runtime_checkerror_trait_no_version = StacksTransaction::new(
@@ -11246,7 +11205,6 @@ pub mod test {
 
         let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
             .with_balances(balances)
-            .with_all_boot_costs()
             .build();
 
         let mut tx_foo_trait = StacksTransaction::new(
@@ -11726,7 +11684,6 @@ pub mod test {
 
         let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
             .with_balances(balances)
-            .with_all_boot_costs()
             .build();
 
         let mut tx_foo_trait = StacksTransaction::new(
@@ -12823,7 +12780,6 @@ pub mod test {
 
         let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
             .with_balances(balances)
-            .with_all_boot_costs()
             .build();
 
         let sip034_causes = [
@@ -12898,7 +12854,6 @@ pub mod test {
 
         let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
             .with_balances(balances)
-            .with_all_boot_costs()
             .build();
 
         let mut conn = chainstate.block_begin(

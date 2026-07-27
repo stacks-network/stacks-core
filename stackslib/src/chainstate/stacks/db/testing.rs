@@ -17,36 +17,21 @@
 
 use std::fs;
 
-use clarity::vm::ClarityVersion;
-
 use super::*;
-use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
-};
-use crate::util_lib::boot::boot_code_id;
 
 /// Builder for a fresh test [`StacksChainState`] created under `test_name`,
-/// wiping any existing state at that path. Genesis deploys the standard boot
-/// contracts (e.g. `pox`, `costs`, ...); of the cost
-/// contracts, only `costs` (v1) is present by default. The later boot cost
-/// contracts (`costs-2`, `costs-3`, `costs-4`) are normally installed by the
-/// real epoch transitions as the chain advances; use
-/// [`with_all_boot_costs`](Self::with_all_boot_costs) to deploy them at
-/// genesis instead. (`costs-5` and later are native Rust cost functions, not
-/// deployed contracts, so they are never installed this way.)
+/// wiping any existing state at that path.
 ///
 /// Required (via [`new_mainnet`](Self::new_mainnet) / [`new_testnet`](Self::new_testnet)):
 /// the network and `test_name`.
 /// Optional knobs:
 /// - [`with_chain_id`](Self::with_chain_id),
-/// - [`with_balances`](Self::with_balances),
-/// - [`with_all_boot_costs`](Self::with_all_boot_costs).
+/// - [`with_balances`](Self::with_balances).
 pub struct TestChainstateBuilder {
     mainnet: bool,
     chain_id: u32,
     test_name: String,
     balances: Vec<(StacksAddress, u64)>,
-    all_boot_costs: bool,
 }
 
 impl TestChainstateBuilder {
@@ -81,7 +66,6 @@ impl TestChainstateBuilder {
             chain_id,
             test_name: test_name.to_string(),
             balances: vec![],
-            all_boot_costs: false,
         }
     }
 
@@ -97,15 +81,6 @@ impl TestChainstateBuilder {
         self
     }
 
-    /// Deploy the later boot cost contracts (`costs-2`, `costs-3`, `costs-4`)
-    /// during genesis so that [`LimitedCostTracker`] can load the deployed
-    /// cost contract for any epoch up to `costs-4`. (`costs-5` and later are
-    /// native Rust cost functions, resolved by epoch without deployment.)
-    pub fn with_all_boot_costs(mut self) -> Self {
-        self.all_boot_costs = true;
-        self
-    }
-
     pub fn build(self) -> StacksChainState {
         let path = chainstate_path(&self.test_name);
         if fs::metadata(&path).is_ok() {
@@ -118,14 +93,6 @@ impl TestChainstateBuilder {
             .map(|(addr, balance)| (PrincipalData::from(addr), balance))
             .collect();
 
-        let mainnet = self.mainnet;
-        let post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>> =
-            self.all_boot_costs.then(|| {
-                Box::new(move |clarity_tx: &mut ClarityTx| {
-                    deploy_all_boot_costs(clarity_tx, mainnet)
-                }) as Box<dyn FnOnce(&mut ClarityTx)>
-            });
-
         let pox_constants = if self.mainnet {
             PoxConstants::mainnet_default()
         } else {
@@ -134,7 +101,7 @@ impl TestChainstateBuilder {
 
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            post_flight_callback,
+            post_flight_callback: None,
             first_burnchain_block_hash: BurnchainHeaderHash::zero(),
             first_burnchain_block_height: 0,
             first_burnchain_block_timestamp: 0,
@@ -155,58 +122,6 @@ impl TestChainstateBuilder {
         .unwrap()
         .0
     }
-}
-
-/// Deploy the later boot cost contracts (`costs-2`, `costs-3`, `costs-4`) at
-/// genesis (used by [`TestChainstateBuilder::with_all_boot_costs`]).
-///
-/// Each contract is deployed under the epoch that introduces it, using that
-/// epoch's default Clarity version (via [`ClarityVersion::default_for_epoch`]),
-/// so that contracts can be properly analyzed and deployed.
-fn deploy_all_boot_costs(clarity_tx: &mut ClarityTx, mainnet: bool) {
-    // Match `initialize_epoch_2_05`: on testnet, load the testnet
-    // variant of `costs-2`. Only `costs-2` has a testnet variant.
-    let costs_2_code = if mainnet {
-        BOOT_CODE_COSTS_2
-    } else {
-        BOOT_CODE_COSTS_2_TESTNET
-    };
-
-    // This is the complete, closed set of deployable `costs-N` boot
-    // contracts. `costs-5` (Epoch 4.0) and every later cost function are
-    // native (Rust) — resolved by epoch and never deployed — so there is
-    // no further contract to add here.
-    let contracts: &[(&str, &str, StacksEpochId)] = &[
-        (COSTS_2_NAME, costs_2_code, StacksEpochId::Epoch2_05),
-        (COSTS_3_NAME, BOOT_CODE_COSTS_3, StacksEpochId::Epoch21),
-        (COSTS_4_NAME, BOOT_CODE_COSTS_4, StacksEpochId::Epoch33),
-    ];
-
-    let conn = clarity_tx.connection();
-
-    for (name, code, epoch) in contracts {
-        let version = ClarityVersion::default_for_epoch(*epoch);
-        conn.set_epoch(*epoch);
-        conn.as_transaction(|clarity_db| {
-            let (ast, _) = clarity_db
-                .analyze_smart_contract(&boot_code_id(name, mainnet), version, code, None)
-                .unwrap();
-            clarity_db
-                .initialize_smart_contract(
-                    &boot_code_id(name, mainnet),
-                    version,
-                    &ast,
-                    code,
-                    None,
-                    |_, _| None,
-                    None,
-                )
-                .unwrap();
-        });
-    }
-
-    // restore genesis epoch
-    conn.set_epoch(GENESIS_EPOCH);
 }
 
 pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
