@@ -57,18 +57,18 @@ jobs:
       branch: ${{ steps.set-vars.outputs.branch }}
     steps:
       # Set local env vars.
-      #     - If the event is a schedule, use develop branch; otherwise use ref_name
+      #     - If the event is a schedule, use main branch; otherwise use ref_name
       - name: Set Local Vars
         id: set-vars
         run: |
           var_branch="${{ github.ref_name }}"
           if [ "${{ github.event_name }}" == "schedule" ]; then
-            var_branch="develop"
+            var_branch="main"
           fi
           echo "branch=${var_branch}" >> "$GITHUB_OUTPUT"
 
       # Checkout the code
-      #   - Checkout a specified branch or develop for scheduled jobs
+      #   - Checkout a specified branch or main for scheduled jobs
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
