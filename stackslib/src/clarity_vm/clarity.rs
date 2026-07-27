@@ -2294,7 +2294,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         self.datastore
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn set_epoch(&mut self, epoch_id: StacksEpochId) {
         self.epoch = epoch_id;
     }

@@ -31,7 +31,7 @@ use stacks_common::types::chainstate::SortitionId;
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::tests::*;
 use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::stacks::db::test::*;
+use crate::chainstate::stacks::db::testing::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
