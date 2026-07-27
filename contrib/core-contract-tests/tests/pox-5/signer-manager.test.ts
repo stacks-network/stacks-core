@@ -335,6 +335,13 @@ test('claiming staker rewards transfers net rewards after fees', () => {
 
   const aliceBalance = sbtcBalance(alice);
   const claim = txOk(signerManager.claimStakerRewards(alice, 1n, null), alice);
+
+  // No pox-addr, so the staker is paid directly in sBTC and no L1 withdrawal
+  // is initiated; the return carries `none` for the request-id.
+  expect(claim.value).toStrictEqual({
+    earned: netRewards,
+    withdrawalRequestId: null,
+  });
   const [transfer] = filterEvents(
     claim.events,
     CoreNodeEventType.FtTransferEvent,
@@ -655,7 +662,9 @@ test('claiming all rewards with pox-addr leaves room for withdrawal max-fee', ()
 
   const claim = txOk(signerManager.claimStakerRewards(alice, 1n, null), bob);
 
-  expect(claim.value).toBe(earned);
+  // pox-addr is set, so the payout is routed to L1 and a withdrawal is
+  // initiated; the request-id starts at 1 in this test's isolated simnet.
+  expect(claim.value).toStrictEqual({ earned, withdrawalRequestId: 1n });
 });
 
 test('claiming staker rewards with pox-addr errors when earned is less than max-fee', () => {
