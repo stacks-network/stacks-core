@@ -319,9 +319,8 @@ jobs:
       # to list its tests, building in the worktree's own target/. The worktree
       # (and its build output) is removed afterwards.
       #
-      # This is always a full compile: the ./target/debug/ restored by "Restore
-      # Test Archive Cache" was built with -C instrument-coverage by
-      # setup-test-caches, so its fingerprints never match this list-only build
+      # This is always a full compile: the Cargo cache was built with 
+      # -C instrument-coverage so its fingerprints never match this list-only build
       # and there is nothing to reuse. RUSTFLAGS only allows warnings here — the
       # job-wide `-D warnings` would otherwise turn a benign warning into a hard
       # error and leave an empty list.
