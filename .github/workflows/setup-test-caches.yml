@@ -50,7 +50,7 @@ jobs:
       - name: Output GitHub Job Summary
         shell: bash
         env:
-          IS_MASTER: ${{ github.ref_name == 'master' }}
+          IS_MAIN: ${{ github.ref_name == 'main' }}
           BITCOIN_KEY: ${{ steps.bitcoin.outputs.cache-key }}
           BITCOIN_MATCHED_KEY: ${{ steps.bitcoin.outputs.cache-matched-key }}
           CARGO_KEY: ${{ steps.cargo.outputs.cache-key }}
@@ -63,24 +63,24 @@ jobs:
 
           echo "## Cache Status" >> $GITHUB_STEP_SUMMARY
           echo "This workflow is running from \`${{ github.ref_name }}\`." >> $GITHUB_STEP_SUMMARY
-          echo "Caches can only be created from \`master\`." >> $GITHUB_STEP_SUMMARY
+          echo "Caches can only be created from \`main\`." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Cache | Cache Key | Matched Cache Key | Exists? |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|--------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Bitcoin | $BITCOIN_KEY | ${BITCOIN_MATCHED_KEY:-❌} | $BITCOIN_EMOJI |" >> $GITHUB_STEP_SUMMARY
           echo "| Cargo | $CARGO_KEY | ${CARGO_MATCHED_KEY:-❌} | $CARGO_EMOJI |" >> $GITHUB_STEP_SUMMARY
 
-          # Fail the build gracefully if IS_MASTER == false and any cache is missing
-          if [ "$IS_MASTER" = "false" ]; then
+          # Fail the build gracefully if IS_MAIN == false and any cache is missing
+          if [ "$IS_MAIN" = "false" ]; then
             if [ -z "$BITCOIN_MATCHED_KEY" ] || [ -z "$CARGO_MATCHED_KEY" ]; then
               echo "" >> $GITHUB_STEP_SUMMARY
-              echo "❌ **Required Cache Missing:** A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER seeding the caches from master manually: https://github.com/stacks-network/stacks-core/actions/workflows/_seed-caches.yml" >> $GITHUB_STEP_SUMMARY
-              echo "::error title=Required Cache Missing::A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER seeding the caches from master manually: https://github.com/stacks-network/stacks-core/actions/workflows/_seed-caches.yml"
+              echo "❌ **Required Cache Missing:** A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER seeding the caches from main branch manually: https://github.com/stacks-network/stacks-core/actions/workflows/_seed-caches.yml" >> $GITHUB_STEP_SUMMARY
+              echo "::error title=Required Cache Missing::A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER seeding the caches from main branch manually: https://github.com/stacks-network/stacks-core/actions/workflows/_seed-caches.yml"
               exit 1
             fi
           fi
 
-  # Cache the bitcoin binary (if github.ref_name == 'master')
+  # Cache the bitcoin binary (if github.ref_name == 'main')
   cache-bitcoin-binary:
     name: Build & Cache Bitcoin Binary
     needs:
@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       !cancelled() && 
-      github.ref_name == 'master'
+      github.ref_name == 'main'
     steps:
       # Checkout the code
       #   - only .github is required for checking caches
@@ -104,7 +104,7 @@ jobs:
         with:
           action: create
 
-  # Cache the cargo crates (if github.ref_name == 'master')
+  # Cache the cargo crates (if github.ref_name == 'main')
   cache-cargo:
     name: Build & Cache Cargo Crates
     needs:
@@ -112,7 +112,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       !cancelled() && 
-      github.ref_name == 'master'
+      github.ref_name == 'main'
     steps:
       # Checkout the code
       #   - only .github is required for checking caches
