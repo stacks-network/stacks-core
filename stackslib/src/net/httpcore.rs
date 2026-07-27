@@ -1016,6 +1016,8 @@ pub struct StacksHttp<CSP: ChainStatePersistence> {
     allow_arbitrary_response: bool,
     /// Maximum execution time of a read-only call when in zero cost-tracking mode
     pub read_only_max_execution_time: Duration,
+    /// Maximum heap allocation for a single read-only call before it is aborted
+    pub read_only_call_max_mem_bytes: u64,
 }
 
 impl<CSP: ChainStatePersistence> StacksHttp<CSP> {
@@ -1038,6 +1040,7 @@ impl<CSP: ChainStatePersistence> StacksHttp<CSP> {
             read_only_max_execution_time: Duration::from_secs(
                 conn_opts.read_only_max_execution_time_secs,
             ),
+            read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
         };
         http.register_rpc_methods();
         http
@@ -1062,6 +1065,7 @@ impl<CSP: ChainStatePersistence> StacksHttp<CSP> {
             read_only_max_execution_time: Duration::from_secs(
                 conn_opts.read_only_max_execution_time_secs,
             ),
+            read_only_call_max_mem_bytes: conn_opts.read_only_call_max_mem_bytes,
         }
     }
 

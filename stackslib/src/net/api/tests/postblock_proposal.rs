@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -36,7 +36,9 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::{SharedMemoryChainStateBackend, StacksChainState};
-use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use crate::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
+};
 use crate::chainstate::stacks::test::make_codec_test_nakamoto_block;
 use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
 use crate::config::DEFAULT_MAX_TENURE_BYTES;
@@ -57,7 +59,6 @@ use crate::net::relay::Relayer;
 use crate::net::test::{TestEventObserver, TestPeer};
 use crate::net::ProtocolFamily;
 
-#[warn(unused)]
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
@@ -231,7 +232,6 @@ impl MemPoolEventDispatcher for ProposalTestObserver {
 }
 
 #[test]
-#[ignore]
 fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let test_observer = TestEventObserver::new();
@@ -305,7 +305,7 @@ fn test_try_make_response() {
                         &tx,
                         tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                         &mut 0,
                     );
                     let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
@@ -516,12 +516,11 @@ fn test_try_make_response() {
     }
 }
 
-/// Test that when block validation exceeds the deadline, the rejection
-/// includes the txid of the transaction at which the deadline was exceeded
-/// so the miner can exclude it from the next block proposal.
+/// Test that when block validation exceeds the overall block-level deadline
+/// (`block_proposal_validation_timeout_secs`), the block is rejected as an
+/// `InvalidBlock` without blaming any specific transaction.
 #[test]
-#[ignore]
-fn test_block_proposal_validation_timeout_blames_tx() {
+fn test_block_proposal_validation_timeout() {
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
@@ -613,7 +612,7 @@ fn test_block_proposal_validation_timeout_blames_tx() {
                         &deploy_tx,
                         deploy_tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                         &mut 0,
                     );
                     assert!(matches!(tx_result, TransactionResult::Success(_)));
@@ -622,7 +621,7 @@ fn test_block_proposal_validation_timeout_blames_tx() {
                         &call_tx,
                         call_tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                         &mut 0,
                     );
                     assert!(matches!(tx_result, TransactionResult::Success(_)));
@@ -697,14 +696,195 @@ fn test_block_proposal_validation_timeout_blames_tx() {
             failed_txid,
             ..
         }) => {
-            assert_eq!(reason_code, ValidateRejectCode::BadTransaction);
+            assert_eq!(reason_code, ValidateRejectCode::InvalidBlock);
             assert!(
-                failed_txid.is_some(),
-                "Timeout rejection should blame the tx at which the deadline was exceeded"
+                failed_txid.is_none(),
+                "Block-level timeout is the block's fault and must not blame any tx"
             );
             assert!(
-                reason.contains("exceeded deadline"),
-                "Expected rejection reason to mention deadline, got: {reason}"
+                reason.contains("timed out"),
+                "Expected rejection reason to mention the timeout, got: {reason}"
+            );
+        }
+    }
+}
+
+/// Test that when a transaction's execution phase exceeds the dedicated per-tx
+/// execution budget (`block_proposal_max_tx_execution_time_secs`) during
+/// block-proposal validation, the block is rejected as containing a problematic
+/// transaction, and the rejection blames the offending txid so the miner can
+/// drop it from the next proposal.
+#[test]
+fn test_block_proposal_validation_execution_time_expired_blames_tx() {
+    let test_observer = TestEventObserver::new();
+    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+
+    // Force every tx execution to exceed its budget: a 0s deadline is already
+    // elapsed at the first per-node check. The overall validation timeout and
+    // the per-tx analysis limit are left at their (non-zero) defaults, so the
+    // per-tx execution limit is what fires here, not the block-level deadline
+    // nor the analysis budget.
+    rpc_test
+        .peer_1
+        .network
+        .connection_opts
+        .block_proposal_max_tx_execution_time_secs = 0;
+    rpc_test
+        .peer_2
+        .network
+        .connection_opts
+        .block_proposal_max_tx_execution_time_secs = 0;
+
+    let (stacks_tip_ch, stacks_tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
+        rpc_test.peer_1.chain.sortdb.as_ref().unwrap().conn(),
+    )
+    .unwrap();
+    let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bhh);
+
+    let miner_privk = &rpc_test.peer_1.chain.miner.nakamoto_miner_key();
+    // A top-level initializer (`define-data-var`) forces work during the contract's
+    // initialization phase.
+    let contract_code = "(define-data-var counter uint (+ u1 u1)) (define-public (ping) (ok u0))";
+
+    let deploy_tx_bytes = make_contract_publish(
+        miner_privk,
+        36,
+        1000,
+        CHAIN_ID_TESTNET,
+        "execution-time-contract",
+        contract_code,
+    );
+    let deploy_tx =
+        StacksTransaction::consensus_deserialize(&mut deploy_tx_bytes.as_slice()).unwrap();
+
+    // Build a valid block containing the deploy. This builder has no execution
+    // limit, so the contract publishes cleanly; the execution budget is applied
+    // only later, by proposal validation.
+    let mut block = {
+        let chainstate = rpc_test.peer_1.chainstate();
+        let parent_stacks_header =
+            NakamotoChainState::get_block_header(chainstate.db(), &stacks_tip)
+                .unwrap()
+                .unwrap();
+
+        let mut builder = NakamotoBlockBuilder::new(
+            &parent_stacks_header,
+            &parent_stacks_header.consensus_hash,
+            26000,
+            None,
+            None,
+            8,
+            None,
+            None,
+            None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
+        )
+        .unwrap();
+
+        rpc_test
+            .peer_1
+            .with_db_state(
+                |sort_db: &mut SortitionDB,
+                 chainstate: &mut StacksChainState<SharedMemoryChainStateBackend>,
+                 _: &mut Relayer,
+                 _: &mut MemPoolDB| {
+                    let burn_dbconn = sort_db.index_handle_at_tip();
+                    let mut miner_tenure_info = builder
+                        .load_tenure_info(
+                            chainstate,
+                            &burn_dbconn,
+                            MinerTenureInfoCause::NoTenureChange,
+                        )
+                        .unwrap();
+                    let burn_chain_height = miner_tenure_info.burn_tip_height;
+                    let mut tenure_tx = builder
+                        .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
+                        .unwrap();
+                    let tx_result = builder.try_mine_tx_with_len(
+                        &mut tenure_tx,
+                        &deploy_tx,
+                        deploy_tx.tx_len(),
+                        &BlockLimitFunction::NO_LIMIT_HIT,
+                        &TransactionResourceBudgets::unlimited(),
+                        &mut 0,
+                    );
+                    assert!(matches!(tx_result, TransactionResult::Success(_)));
+                    let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
+                    Ok(block)
+                },
+            )
+            .unwrap()
+    };
+
+    block.header.timestamp += 1;
+    rpc_test.peer_1.chain.miner.sign_nakamoto_block(&mut block);
+
+    let proposal = NakamotoBlockProposal {
+        block,
+        chain_id: CHAIN_ID_TESTNET,
+        replay_txs: None,
+    };
+
+    let mut request = StacksHttpRequest::new_for_peer(
+        rpc_test.peer_1.to_peer_host(),
+        "POST".into(),
+        "/v3/block_proposal".into(),
+        HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
+    )
+    .expect("failed to construct request");
+    request.add_header("authorization".into(), "password".into());
+
+    let observer = ProposalTestObserver::new();
+    let proposal_observer = Arc::clone(&observer.proposal_observer);
+
+    let wait_for = |peer_1: &mut TestPeer<SharedMemoryChainStateBackend>,
+                    peer_2: &mut TestPeer<SharedMemoryChainStateBackend>| {
+        !peer_1.network.is_proposal_thread_running() && !peer_2.network.is_proposal_thread_running()
+    };
+
+    let responses = rpc_test.run_with_observer(vec![request], Some(&observer), wait_for);
+
+    assert_eq!(responses.len(), 1);
+    assert_eq!(responses[0].preamble().status_code, 202);
+
+    let start = Instant::now();
+    loop {
+        {
+            let observer_guard = proposal_observer.lock().unwrap();
+            if observer_guard.results.lock().unwrap().len() >= 1 {
+                break;
+            }
+        }
+        assert!(
+            start.elapsed().as_secs() < 60,
+            "Timed out waiting for proposal result"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    let observer_guard = proposal_observer.lock().unwrap();
+    let mut results = observer_guard.results.lock().unwrap();
+    let result = results.remove(0);
+    drop(results);
+    drop(observer_guard);
+
+    match result {
+        Ok(_) => panic!("expected execution-time-expired tx to reject block"),
+        Err(postblock_proposal::BlockValidateReject {
+            reason_code,
+            reason,
+            failed_txid,
+            ..
+        }) => {
+            assert_eq!(reason_code, ValidateRejectCode::ProblematicTransaction);
+            assert_eq!(
+                failed_txid,
+                Some(deploy_tx.txid()),
+                "Rejection should blame the tx whose execution timed out"
+            );
+            assert!(
+                reason.contains("Evaluation took too much time"),
+                "Expected rejection reason to mention execution time, got: {reason}"
             );
         }
     }
@@ -803,7 +983,7 @@ fn test_block_proposal_validation_analysis_time_expired_blames_tx() {
                         &deploy_tx,
                         deploy_tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                         &mut 0,
                     );
                     assert!(matches!(tx_result, TransactionResult::Success(_)));
@@ -881,7 +1061,7 @@ fn test_block_proposal_validation_analysis_time_expired_blames_tx() {
                 "Rejection should blame the contract-publish tx whose analysis timed out"
             );
             assert!(
-                reason.contains("analysis time expired"),
+                reason.contains("Analysis took too much time"),
                 "Expected rejection reason to mention analysis time, got: {reason}"
             );
         }
@@ -951,7 +1131,7 @@ fn replay_validation_test(
                             &tx,
                             tx.tx_len(),
                             &BlockLimitFunction::NO_LIMIT_HIT,
-                            None,
+                            &TransactionResourceBudgets::unlimited(),
                             &mut 0,
                         );
                     }
@@ -1034,7 +1214,6 @@ fn replay_validation_test(
 }
 
 #[test]
-#[ignore]
 /// Tx replay test with mismatching mineable transactions.
 fn replay_validation_test_transaction_mismatch() {
     let result = replay_validation_test(|rpc_test| {
@@ -1074,7 +1253,6 @@ fn replay_validation_test_transaction_mismatch() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has one unmineable tx, and one mineable tx.
 /// The block has the one mineable tx.
 fn replay_validation_test_transaction_unmineable_match() {
@@ -1114,7 +1292,6 @@ fn replay_validation_test_transaction_unmineable_match() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has [mineable, unmineable, mineable]
 /// The block has [mineable, mineable]
 fn replay_validation_test_transaction_unmineable_match_2() {
@@ -1170,7 +1347,6 @@ fn replay_validation_test_transaction_unmineable_match_2() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has [mineable, mineable, tx_a, mineable]
 /// The block has [mineable, mineable, tx_b, mineable]
 fn replay_validation_test_transaction_mineable_mismatch_series() {
@@ -1248,7 +1424,6 @@ fn replay_validation_test_transaction_mineable_mismatch_series() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has [mineable, tx_b, tx_a]
 /// The block has [mineable, tx_a, tx_b]
 fn replay_validation_test_transaction_mineable_mismatch_series_2() {
@@ -1306,7 +1481,6 @@ fn replay_validation_test_transaction_mineable_mismatch_series_2() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has [deploy, big_a, big_b, c]
 /// The block has [deploy, big_a, c]
 ///
@@ -1384,7 +1558,6 @@ fn replay_validation_test_budget_exceeded() {
 }
 
 #[test]
-#[ignore]
 /// Replay set has [deploy, big_a, big_b]
 /// The block has [deploy, big_a]
 ///

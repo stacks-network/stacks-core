@@ -20,6 +20,7 @@ use std::ops::{Deref, DerefMut, Range};
 use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{STXEventType, STXMintEventData, StacksTransactionEvent};
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, Value};
 use lazy_static::lazy_static;
@@ -27,9 +28,11 @@ use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest as Sha2Digest, Sha512_256};
+use stacks_codec::transaction::{MAX_BLOCK_LEN, MIN_TRANSACTION_LEN};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
-    read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
+    read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
+    MAX_MESSAGE_LEN,
 };
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
@@ -116,6 +119,10 @@ pub use self::staging_blocks::{
 };
 
 pub const NAKAMOTO_BLOCK_VERSION: u8 = 0;
+
+/// Nakamoto block header version introduced in Epoch 4.0. Headers at this
+/// version (or later) serialize and hash the `problematic_txs` marker list.
+pub const NAKAMOTO_BLOCK_VERSION_EPOCH_4: u8 = 1;
 
 define_named_enum!(HeaderTypeNames {
     Nakamoto("nakamoto"),
@@ -310,6 +317,17 @@ pub static NAKAMOTO_CHAINSTATE_SCHEMA_8: &[&str] = &[
     -- nodes booting from genesis sync will get the true tenure size
     ALTER TABLE nakamoto_block_headers
     ADD COLUMN total_tenure_size NOT NULL DEFAULT 0;
+    "#,
+];
+
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_9: &[&str] = &[
+    r#"UPDATE db_config SET version = "14";"#,
+    // Add a `problematic_txs` JSON column to record per-block problematic-tx
+    // markers (Epoch 4.0+). Default to '[]' so pre-existing rows decode as an
+    // empty marker list.
+    r#"
+    ALTER TABLE nakamoto_block_headers
+    ADD COLUMN problematic_txs TEXT NOT NULL DEFAULT '[]';
     "#,
 ];
 
@@ -632,6 +650,103 @@ pub struct SetupBlockResult<'a, 'b> {
     pub burn_vote_for_aggregate_key_ops: Vec<VoteForAggregateKeyOp>,
 }
 
+/// A marker on a transaction in a Nakamoto block declaring that the transaction
+/// is known-problematic and that its payload must not be executed during replay.
+///
+/// When a marker is present, replay still performs the static precheck, debits
+/// the fee, and bumps the origin (and sponsor) nonces — but skips
+/// `process_transaction_payload`. The `category` byte is opaque to consensus
+/// and conveys the reason the miner/signers flagged the transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProblematicTxMarker {
+    /// Index into `NakamotoBlock::txs` of the problematic transaction.
+    pub tx_index: u32,
+    /// Opaque-to-consensus category byte describing the type of problem.
+    pub category: u8,
+}
+
+impl StacksMessageCodec for ProblematicTxMarker {
+    fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.tx_index)?;
+        write_next(fd, &self.category)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
+        Ok(ProblematicTxMarker {
+            tx_index: read_next(fd)?,
+            category: read_next(fd)?,
+        })
+    }
+}
+
+/// Maximum number of `ProblematicTxMarker`s permitted in a single Nakamoto
+/// block header. This bounds the header serialization.
+pub const MAX_PROBLEMATIC_TX_MARKERS: usize = (MAX_BLOCK_LEN / MIN_TRANSACTION_LEN) as usize;
+
+/// A transaction paired with its problematic marker.
+///
+/// Block replay consumes a list of these rather than a bare
+/// `&[StacksTransaction]` plus a separate `problematic_txs` marker list. Fusing
+/// the two up front (see [`NakamotoBlock::txs`]) means the replay
+/// loop cannot execute a problematic transaction by forgetting to cross-
+/// reference the markers: the disposition travels with the transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TxToProcess<'a> {
+    /// Execute the transaction's payload normally.
+    Execute(&'a StacksTransaction),
+    /// Skip executing the transaction's payload because it was marked
+    /// problematic; the fee is still charged and nonces still bumped. Carries
+    /// the `category` byte from the marker.
+    Skip {
+        tx: &'a StacksTransaction,
+        category: u8,
+    },
+}
+
+impl<'a> TxToProcess<'a> {
+    /// Wrap a plain transaction list as all-to-execute, for blocks that carry
+    /// no problematic markers (every pre-Nakamoto block, and any Nakamoto block
+    /// with an empty marker list).
+    pub fn all_execute(txs: &'a [StacksTransaction]) -> impl Iterator<Item = TxToProcess<'a>> + 'a {
+        txs.iter().map(TxToProcess::Execute)
+    }
+
+    /// Get the transaction ID of this transaction, regardless of whether it's
+    /// marked problematic or not.
+    pub fn txid(&self) -> Txid {
+        match self {
+            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => tx.txid(),
+        }
+    }
+
+    /// Get the raw transaction, regardless of whether it's marked problematic
+    /// and should not be executed.
+    pub fn payload(&self) -> &'a TransactionPayload {
+        match self {
+            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => &tx.payload,
+        }
+    }
+
+    /// Is this transaction marked problematic?
+    pub fn is_problematic(&self) -> bool {
+        matches!(self, TxToProcess::Skip { .. })
+    }
+
+    /// Extract the underlying transaction, **deliberately ignoring** its
+    /// problematic state (whether it should be executed or skipped as
+    /// problematic).
+    ///
+    /// This is the one escape hatch out of [`TxToProcess`]. Call it only when
+    /// the raw transaction is genuinely all that is needed, never on the
+    /// replay execution path, where the problematic state must be honored.
+    pub fn tx_ignoring_problematic_state(&self) -> &'a StacksTransaction {
+        match self {
+            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => tx,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockHeader {
     pub version: u8,
@@ -668,6 +783,15 @@ pub struct NakamotoBlockHeader {
     ///
     /// The maximum number of entries in the bitvec is 4000.
     pub pox_treatment: BitVec<4000>,
+    /// Indices of transactions in `NakamotoBlock::txs` that the miner has
+    /// marked as problematic. Replay must skip executing these transactions'
+    /// payloads while still charging the fee and updating nonces.
+    ///
+    /// Only meaningful in Epoch 4.0 and later; must be empty in earlier
+    /// epochs. Validation rules: strictly increasing `tx_index`, every index
+    /// `< txs.len()`, count `<= MAX_PROBLEMATIC_TX_MARKERS`, and no marker may
+    /// point at a Coinbase or TenureChange transaction.
+    pub problematic_txs: Vec<ProblematicTxMarker>,
 }
 
 impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
@@ -690,6 +814,9 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
         let signer_signature_json: String = row.get("signer_signature")?;
         let signer_signature: Vec<MessageSignature> =
             serde_json::from_str(&signer_signature_json).map_err(|_e| DBError::ParseError)?;
+        let problematic_txs_json: String = row.get("problematic_txs")?;
+        let problematic_txs: Vec<ProblematicTxMarker> =
+            serde_json::from_str(&problematic_txs_json).map_err(|_e| DBError::ParseError)?;
 
         Ok(NakamotoBlockHeader {
             version,
@@ -703,6 +830,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             signer_signature,
             miner_signature,
             pox_treatment: signer_bitvec,
+            problematic_txs,
         })
     }
 }
@@ -710,7 +838,67 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlock {
     pub header: NakamotoBlockHeader,
-    pub txs: Vec<StacksTransaction>,
+    pub(crate) txs: Vec<StacksTransaction>,
+}
+
+impl NakamotoBlock {
+    /// Construct a block from a header and its final transaction list.
+    pub fn new(header: NakamotoBlockHeader, txs: Vec<StacksTransaction>) -> Self {
+        Self { header, txs }
+    }
+
+    /// Get the number of transactions in this block, including those marked
+    /// problematic.
+    pub fn tx_count(&self) -> usize {
+        self.txs.len()
+    }
+
+    /// The block's transactions, including all transactions in the problematic
+    /// list (that should not be executed). Use
+    /// [`NakamotoBlock::txs`] instead when replaying, so the
+    /// `problematic_txs` markers are considered.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn executed_and_skipped_txs(&self) -> &[StacksTransaction] {
+        &self.txs
+    }
+
+    /// Consume the block, yielding its transaction list, including all
+    /// transactions in the problematic list (that should not be executed).
+    #[cfg(any(test, feature = "testing"))]
+    pub fn into_executed_and_skipped_txs(self) -> Vec<StacksTransaction> {
+        self.txs
+    }
+
+    /// Mutable access to the block's transactions, including all transactions
+    /// in the problematic list (that should not be executed), for tests that
+    /// build or tamper with blocks. Not available outside test builds:
+    /// production code must construct a block with its final transaction list.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn executed_and_skipped_txs_mut(&mut self) -> &mut Vec<StacksTransaction> {
+        &mut self.txs
+    }
+
+    /// Get an iterator over the block's transactions, considering the
+    /// `problematic_txs` markers.
+    pub fn txs(&self) -> impl Iterator<Item = TxToProcess<'_>> {
+        // Index -> category. Empty (the common case) means every lookup misses,
+        // so every transaction is yielded as `Execute`.
+        let categories: HashMap<u32, u8> = self
+            .header
+            .problematic_txs
+            .iter()
+            .map(|m| (m.tx_index, m.category))
+            .collect();
+        self.txs.iter().enumerate().map(move |(i, tx)| {
+            match u32::try_from(i)
+                .ok()
+                .and_then(|i| categories.get(&i).copied())
+            {
+                Some(category) => TxToProcess::Skip { tx, category },
+                None => TxToProcess::Execute(tx),
+            }
+        })
+    }
 }
 
 pub struct NakamotoChainState;
@@ -728,28 +916,82 @@ impl StacksMessageCodec for NakamotoBlockHeader {
         write_next(fd, &self.miner_signature)?;
         write_next(fd, &self.signer_signature)?;
         write_next(fd, &self.pox_treatment)?;
+        // Only present in Epoch 4.0+ headers; omitting it for older versions
+        // keeps their serialization (and thus block hashes) byte-identical.
+        if Self::version_includes_problematic_txs(self.version) {
+            write_next(fd, &self.problematic_txs)?;
+        }
 
         Ok(())
     }
 
     fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
-        Ok(NakamotoBlockHeader {
-            version: read_next(fd)?,
-            chain_length: read_next(fd)?,
-            burn_spent: read_next(fd)?,
-            consensus_hash: read_next(fd)?,
-            parent_block_id: read_next(fd)?,
-            tx_merkle_root: read_next(fd)?,
-            state_index_root: read_next(fd)?,
-            timestamp: read_next(fd)?,
-            miner_signature: read_next(fd)?,
-            signer_signature: read_next(fd)?,
-            pox_treatment: read_next(fd)?,
-        })
+        let version = read_next(fd)?;
+        let chain_length = read_next(fd)?;
+        let burn_spent = read_next(fd)?;
+        let consensus_hash = read_next(fd)?;
+        let parent_block_id = read_next(fd)?;
+        let tx_merkle_root = read_next(fd)?;
+        let state_index_root = read_next(fd)?;
+        let timestamp = read_next(fd)?;
+        let miner_signature = read_next(fd)?;
+        let signer_signature = read_next(fd)?;
+        let pox_treatment = read_next(fd)?;
+        // Only read the marker list for versions that serialize it; older
+        // headers have no trailing bytes here and decode to an empty list.
+        let problematic_txs = if Self::version_includes_problematic_txs(version) {
+            read_next_at_most(fd, MAX_PROBLEMATIC_TX_MARKERS as u32)?
+        } else {
+            vec![]
+        };
+        let header = NakamotoBlockHeader {
+            version,
+            chain_length,
+            burn_spent,
+            consensus_hash,
+            parent_block_id,
+            tx_merkle_root,
+            state_index_root,
+            timestamp,
+            miner_signature,
+            signer_signature,
+            pox_treatment,
+            problematic_txs,
+        };
+        Ok(header)
     }
 }
 
 impl NakamotoBlockHeader {
+    /// Whether a header at the given `version` includes the `problematic_txs`
+    /// field in its serialization and signature/block-hash preimages.
+    ///
+    /// This is the single source of truth shared by `consensus_serialize`,
+    /// `consensus_deserialize`, and both signature-hash calculations, so the
+    /// field's presence can never diverge between them. The field was added in
+    /// Epoch 4.0; version-0 headers omit it entirely.
+    pub fn version_includes_problematic_txs(version: u8) -> bool {
+        // The high bit (0x80) of `version` is the shadow-block flag; the header
+        // version number is the low 7 bits. Mask it off before comparing so a
+        // pre-4.0 shadow block (version 0x80) isn't mistaken for a v1 header.
+        (version & 0x7f) >= NAKAMOTO_BLOCK_VERSION_EPOCH_4
+    }
+
+    /// The Nakamoto block header version required for blocks in `epoch_id`.
+    ///
+    /// The header format (and therefore the version number, ignoring the
+    /// shadow-block high bit) is fixed per epoch: Epoch 4.0+ uses
+    /// [`NAKAMOTO_BLOCK_VERSION_EPOCH_4`]; earlier Nakamoto epochs use
+    /// [`NAKAMOTO_BLOCK_VERSION`]. Used to reject blocks whose version does not
+    /// match their epoch.
+    pub fn expected_version_for_epoch(epoch_id: StacksEpochId) -> u8 {
+        if epoch_id >= StacksEpochId::Epoch40 {
+            NAKAMOTO_BLOCK_VERSION_EPOCH_4
+        } else {
+            NAKAMOTO_BLOCK_VERSION
+        }
+    }
+
     /// Calculate the message digest for miners to sign.
     /// This includes all fields _except_ the signatures.
     pub fn miner_signature_hash(&self) -> Sha512Trunc256Sum {
@@ -778,6 +1020,9 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.timestamp)?;
         write_next(fd, &self.pox_treatment)?;
+        if Self::version_includes_problematic_txs(self.version) {
+            write_next(fd, &self.problematic_txs)?;
+        }
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
@@ -796,6 +1041,9 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.timestamp)?;
         write_next(fd, &self.miner_signature)?;
         write_next(fd, &self.pox_treatment)?;
+        if Self::version_includes_problematic_txs(self.version) {
+            write_next(fd, &self.problematic_txs)?;
+        }
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
@@ -844,14 +1092,18 @@ impl NakamotoBlockHeader {
     /// - Any duplicate signatures
     /// - At least the minimum number of signatures (based on total signer weight
     /// and a 70% threshold)
-    /// - Order of signatures is maintained vs signer set
+    /// - Order of signatures vs the signer set.
     ///
     /// Returns the signing weight on success.
     /// Returns ChainstateError::InvalidStacksBlock on error
     #[cfg_attr(test, mutants::skip)]
-    pub fn verify_signer_signatures(&self, reward_set: &RewardSet) -> Result<u32, ChainstateError> {
+    pub fn verify_signer_signatures(
+        &self,
+        reward_set: &RewardSet,
+        epoch_id: StacksEpochId,
+    ) -> Result<u32, ChainstateError> {
         let message = self.signer_signature_hash();
-        let Some(signers) = &reward_set.signers else {
+        let Some(signers) = reward_set.signers() else {
             return Err(ChainstateError::InvalidStacksBlock(
                 "No signers in the reward set".to_string(),
             ));
@@ -866,6 +1118,9 @@ impl NakamotoBlockHeader {
         let mut total_weight_signed: u32 = 0;
         // `last_index` is used to prevent out-of-order signatures
         let mut last_index = None;
+        // Before Epoch 4.0, signature order check contained a bug, so gate the
+        // strict ordering behavior on the epoch.
+        let strict_order = epoch_id.enforces_strict_signature_order();
 
         let total_weight = reward_set
             .total_signing_weight()
@@ -912,6 +1167,9 @@ impl NakamotoBlockHeader {
                     return Err(ChainstateError::InvalidStacksBlock(
                         "Signatures are out of order".to_string(),
                     ));
+                }
+                if strict_order {
+                    last_index = Some(signer_index);
                 }
             } else {
                 last_index = Some(signer_index);
@@ -976,6 +1234,7 @@ impl NakamotoBlockHeader {
             signer_signature: vec![],
             pox_treatment: BitVec::ones(bitvec_len)
                 .expect("BUG: bitvec of length-1 failed to construct"),
+            problematic_txs: vec![],
         }
     }
 
@@ -993,6 +1252,7 @@ impl NakamotoBlockHeader {
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
+            problematic_txs: vec![],
         }
     }
 
@@ -1010,16 +1270,8 @@ impl NakamotoBlockHeader {
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
+            problematic_txs: vec![],
         }
-    }
-
-    /// The Nakamoto block header version required for blocks in `epoch_id`.
-    ///
-    /// The header format (and therefore the version number, ignoring the
-    /// shadow-block high bit) is fixed per epoch. Used to reject blocks whose
-    /// version does not match their epoch.
-    pub fn expected_version_for_epoch(_epoch_id: StacksEpochId) -> u8 {
-        NAKAMOTO_BLOCK_VERSION
     }
 }
 
@@ -1771,8 +2023,107 @@ impl NakamotoBlock {
             );
             return false;
         }
+        if let Err(e) = self.validate_problematic_txs(epoch_id) {
+            warn!("Block has invalid problematic_txs markers: {e}";
+                "consensus_hash" => %self.header.consensus_hash,
+                "stacks_block_hash" => %self.header.block_hash(),
+                "stacks_block_id" => %self.header.block_id(),
+                "epoch_id" => %epoch_id
+            );
+            return false;
+        }
         true
     }
+
+    /// Statically validate the `problematic_txs` marker list on this block:
+    ///
+    /// * The header version must agree with the epoch: Epoch 4.0+ blocks must
+    ///   use a header version that carries the `problematic_txs` field (so the
+    ///   markers participate in the block hash), and earlier epochs must use a
+    ///   pre-4.0 version that omits it.
+    /// * In Epochs earlier than 4.0 the list must be empty.
+    /// * The list size must be `<= MAX_PROBLEMATIC_TX_MARKERS`.
+    /// * `tx_index`s must be strictly increasing (which also forbids
+    ///   duplicates).
+    /// * Every `tx_index` must point at a transaction in `self.txs`.
+    /// * No marker may point at a `Coinbase` or `TenureChange` transaction.
+    ///
+    /// Returns a human-readable error string on failure.
+    pub fn validate_problematic_txs(&self, epoch_id: StacksEpochId) -> Result<(), String> {
+        let markers = &self.header.problematic_txs;
+        // This version is already checked in
+        // `validate_transactions_static_epoch()`, but we check it again here
+        // for completeness.
+        let expected_version = NakamotoBlockHeader::expected_version_for_epoch(epoch_id);
+        if self.header.version & 0x7f != expected_version {
+            return Err(format!(
+                "invalid header version {} for epoch {epoch_id}; expected {expected_version} (shadow bit ignored)",
+                self.header.version
+            ));
+        }
+        if epoch_id < StacksEpochId::Epoch40 {
+            if !markers.is_empty() {
+                return Err(format!(
+                    "problematic_txs is not allowed before Epoch 4.0 (got {} markers, epoch={epoch_id})",
+                    markers.len()
+                ));
+            }
+            return Ok(());
+        }
+        if markers.len() > MAX_PROBLEMATIC_TX_MARKERS {
+            return Err(format!(
+                "problematic_txs has {} markers, exceeds cap of {MAX_PROBLEMATIC_TX_MARKERS}",
+                markers.len()
+            ));
+        }
+        for (prev, marker) in with_prev(markers.iter()) {
+            if let Some(p) = prev {
+                if marker.tx_index <= p.tx_index {
+                    return Err(format!(
+                        "problematic_txs is not strictly increasing: {} >= {}",
+                        p.tx_index, marker.tx_index
+                    ));
+                }
+            }
+            let tx = self.txs.get(marker.tx_index as usize).ok_or_else(|| {
+                format!(
+                    "problematic_tx marker at index {} is out of bounds",
+                    marker.tx_index
+                )
+            })?;
+            match &tx.payload {
+                TransactionPayload::Coinbase(..) => {
+                    return Err(format!(
+                        "problematic_tx marker at index {} points at a Coinbase transaction",
+                        marker.tx_index
+                    ));
+                }
+                TransactionPayload::TenureChange(..) => {
+                    return Err(format!(
+                        "problematic_tx marker at index {} points at a TenureChange transaction",
+                        marker.tx_index
+                    ));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Iterate over contiguous (prev, current) pairs in `iter`.
+/// `prev` is None for the first element, and Some afterwards
+fn with_prev<T>(iter: impl IntoIterator<Item = T>) -> impl Iterator<Item = (Option<T>, T)>
+where
+    T: Copy,
+{
+    iter.into_iter().scan(None, |prev, cur| {
+        let output = (*prev, cur);
+        // set new "prev" value for the next iteration
+        *prev = Some(cur);
+        // output of the iterator is (old-prev, current)
+        Some(output)
+    })
 }
 
 impl NakamotoChainState {
@@ -2359,9 +2710,10 @@ impl NakamotoChainState {
         block: &NakamotoBlock,
         block_tenure_burn_height: u64,
     ) -> Result<(), ChainstateError> {
-        // check the _next_ block's tenure, since when Nakamoto's miner activates, the current chain tip
-        // will be in epoch 2.5 (the next block will be epoch 3.0)
-        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, block_tenure_burn_height + 1)?
+        // Look up the epoch at this tenure's burn height. A Nakamoto block is
+        // only ever valid in epoch 3.0 or later, so clamp the result up to
+        // epoch 3.0. This is needed to handle the 2.5 -> 3.0 transition.
+        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, block_tenure_burn_height)?
             .expect("FATAL: no epoch defined for current Stacks block");
         let cur_epoch_id = cur_epoch.epoch_id.max(StacksEpochId::Epoch30);
 
@@ -2544,9 +2896,28 @@ impl NakamotoChainState {
             );
         })?;
 
+        let block_sn = SortitionDB::get_block_snapshot_consensus(
+            db_handle.conn(),
+            &block.header.consensus_hash,
+        )?
+        .ok_or_else(|| {
+            ChainstateError::InvalidStacksBlock(format!(
+                "No sortition for block consensus hash {}",
+                &block.header.consensus_hash
+            ))
+        })?;
+        let epoch_id = SortitionDB::get_stacks_epoch(db_handle.conn(), block_sn.block_height)?
+            .ok_or_else(|| {
+                ChainstateError::InvalidStacksBlock(format!(
+                    "No epoch defined at burn height {}",
+                    block_sn.block_height
+                ))
+            })?
+            .epoch_id;
+
         let signing_weight = block
             .header
-            .verify_signer_signatures(reward_set)
+            .verify_signer_signatures(reward_set, epoch_id)
             .inspect_err(|e| {
                 warn!("Received block, but the signer signatures are invalid";
                     "block_id" => %block_id,
@@ -2630,7 +3001,7 @@ impl NakamotoChainState {
             return Self::get_block_header_nakamoto(conn.sqlite(), &block_id);
         }
 
-        // epcoh2 block?
+        // epoch2 block?
         let Some(ancestor_at_height) = conn
             .get_ancestor_block_id(coinbase_height, tip_index_hash)?
             .map(|ancestor| Self::get_block_header(conn.sqlite(), &ancestor))
@@ -3360,6 +3731,13 @@ impl NakamotoChainState {
             ))
         })?;
 
+        let problematic_txs = serde_json::to_string(&header.problematic_txs).map_err(|_| {
+            ChainstateError::InvalidStacksBlock(format!(
+                "Failed to serialize problematic_txs for block {}",
+                block_hash
+            ))
+        })?;
+
         let args = params![
             u64_to_sql(*stacks_block_height)?,
             index_root,
@@ -3396,7 +3774,8 @@ impl NakamotoChainState {
                     "Nakamoto block StacksHeaderInfo did not set burnchain view".into(),
                 ))
             })?,
-            total_tenure_size
+            total_tenure_size,
+            problematic_txs,
         ];
 
         chainstate_tx.execute(
@@ -3430,8 +3809,9 @@ impl NakamotoChainState {
                     signer_bitvec,
                     height_in_tenure,
                     burn_view,
-                    total_tenure_size)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)",
+                    total_tenure_size,
+                    problematic_txs)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)",
             args
         )?;
 
@@ -4510,14 +4890,20 @@ impl NakamotoChainState {
             return Ok(());
         }
 
-        let address_to_indeces: HashMap<_, Vec<_>> = active_reward_set
-            .rewarded_addresses
-            .iter()
-            .enumerate()
-            .fold(HashMap::new(), |mut map, (ix, addr)| {
-                map.entry(addr).or_default().push(ix);
-                map
-            });
+        let rewarded_addresses = match active_reward_set.rewarded_addresses() {
+            Some(addrs) => addrs,
+            // Waterfall cycles have no PoX reward addresses, so no bitvector to check
+            None => return Ok(()),
+        };
+
+        let address_to_indeces: HashMap<_, Vec<_>> =
+            rewarded_addresses
+                .iter()
+                .enumerate()
+                .fold(HashMap::new(), |mut map, (ix, addr)| {
+                    map.entry(addr).or_default().push(ix);
+                    map
+                });
 
         // our block commit issued a punishment, check the reward set and bitvector
         //  to ensure that this was valid.
@@ -4893,20 +5279,18 @@ impl NakamotoChainState {
         );
 
         // process anchored block
-        let (block_fees, txs_receipts) = match Epoch2BlockProcessor::process_block_transactions(
-            &mut clarity_tx,
-            &block.txs,
-            0,
-        ) {
-            Err(e) => {
-                let msg = format!("Invalid Stacks block {block_hash}: {e:?}");
-                warn!("{msg}");
+        let (block_fees, txs_receipts) =
+            match Epoch2BlockProcessor::process_block_transactions(&mut clarity_tx, block.txs(), 0)
+            {
+                Err(e) => {
+                    let msg = format!("Invalid Stacks block {block_hash}: {e:?}");
+                    warn!("{msg}");
 
-                clarity_tx.rollback_block();
-                return Err(ChainstateError::InvalidStacksBlock(msg));
-            }
-            Ok((block_fees, _block_burns, txs_receipts)) => (block_fees, txs_receipts),
-        };
+                    clarity_tx.rollback_block();
+                    return Err(ChainstateError::InvalidStacksBlock(msg));
+                }
+                Ok((block_fees, _block_burns, txs_receipts)) => (block_fees, txs_receipts),
+            };
 
         tx_receipts.extend(txs_receipts);
 
@@ -5351,7 +5735,7 @@ impl NakamotoChainState {
                     &contract_id,
                     ClarityVersion::Clarity2,
                     &contract_content,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
             clarity
@@ -5362,7 +5746,7 @@ impl NakamotoChainState {
                     &contract_content,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
             clarity.save_analysis(&contract_id, &analysis).unwrap();

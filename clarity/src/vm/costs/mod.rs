@@ -22,6 +22,7 @@ use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
 use costs_3::Costs3;
 use costs_4::Costs4;
+use costs_5::Costs5;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
@@ -55,6 +56,7 @@ pub mod costs_2_testnet;
 pub mod costs_3;
 #[allow(unused_variables)]
 pub mod costs_4;
+pub mod costs_5;
 pub mod errors;
 pub mod execution_cost;
 
@@ -65,6 +67,7 @@ pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
 pub const COSTS_4_NAME: &str = "costs-4";
+pub const COSTS_5_NAME: &str = "costs-5";
 
 lazy_static! {
     static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = {
@@ -212,6 +215,7 @@ pub enum DefaultVersion {
     Costs2Testnet,
     Costs3,
     Costs4,
+    Costs5,
 }
 
 impl DefaultVersion {
@@ -230,6 +234,7 @@ impl DefaultVersion {
             DefaultVersion::Costs2Testnet => f.eval::<Costs2Testnet>(*n),
             DefaultVersion::Costs3 => f.eval::<Costs3>(*n),
             DefaultVersion::Costs4 => f.eval::<Costs4>(*n),
+            DefaultVersion::Costs5 => f.eval::<Costs5>(*n),
         };
         r.map_err(|e| {
             let e = match e {
@@ -266,6 +271,8 @@ impl DefaultVersion {
             Ok(Self::Costs3)
         } else if value.name.as_str() == COSTS_4_NAME {
             Ok(Self::Costs4)
+        } else if value.name.as_str() == COSTS_5_NAME {
+            Ok(Self::Costs5)
         } else {
             Err(format!("Unknown default contract {}", &value.name))
         }
@@ -871,6 +878,7 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => COSTS_3_NAME.to_string(),
             StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => COSTS_4_NAME.to_string(),
+            StacksEpochId::Epoch40 => COSTS_5_NAME.to_string(),
         };
         Ok(result)
     }
@@ -945,18 +953,29 @@ impl TrackerData {
             ))
         })?;
 
+        // TODO(cost-voting): Remove after epoch 4.0 activation (when cost-voting deactivates), and
+        // use `CostStateSummary::empty()` directly instead.
+        let state_summary = if epoch_id.supports_cost_voting_contract() {
+            // If cost-voting is active, load and apply the current cost function configuration from
+            // the chain tip, applying any changes that have been voted on but not yet applied.
+            load_cost_functions(self.mainnet, clarity_db, apply_updates).map_err(|e| {
+                let result = clarity_db
+                    .roll_back()
+                    .map_err(|e| CostErrors::Expect(e.to_string()));
+                match result {
+                    Ok(_) => e,
+                    Err(rollback_err) => rollback_err,
+                }
+            })?
+        } else {
+            // Cost-voting is retired at Epoch 4.0: every cost function uses boot defaults.
+            CostStateSummary::empty()
+        };
+
         let CostStateSummary {
             contract_call_circuits,
             mut cost_function_references,
-        } = load_cost_functions(self.mainnet, clarity_db, apply_updates).map_err(|e| {
-            let result = clarity_db
-                .roll_back()
-                .map_err(|e| CostErrors::Expect(e.to_string()));
-            match result {
-                Ok(_) => e,
-                Err(rollback_err) => rollback_err,
-            }
-        })?;
+        } = state_summary;
 
         self.contract_call_circuits = contract_call_circuits;
 
@@ -969,7 +988,18 @@ impl TrackerData {
             let cost_function_ref = cost_function_references.remove(f).unwrap_or_else(|| {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
-            if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
+
+            let is_boot_default = cost_function_ref.contract_id == boot_costs_id;
+
+            // Beginning in epoch 4.0 the costs are implemented in Rust only,
+            // and not deployed on-chain in a contract. This is possible with
+            // the disabling of cost-voting.
+            let requires_contract_load =
+                !is_boot_default || epoch_id.supports_cost_voting_contract();
+
+            if requires_contract_load
+                && !cost_contracts.contains_key(&cost_function_ref.contract_id)
+            {
                 let contract = match clarity_db.get_contract(&cost_function_ref.contract_id) {
                     Ok(contract) => contract,
                     Err(e) => {
@@ -985,7 +1015,7 @@ impl TrackerData {
                 cost_contracts.insert(cost_function_ref.contract_id.clone(), contract);
             }
 
-            if cost_function_ref.contract_id == boot_costs_id {
+            if is_boot_default {
                 m.insert(
                     f,
                     ClarityCostFunctionEvaluator::Default(cost_function_ref, f.clone(), v),

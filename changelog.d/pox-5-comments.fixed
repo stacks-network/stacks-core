@@ -1,0 +1,1 @@
+Clarify PoX-5 naming and comments: add `BOND_LENGTH_PERIODS`, rename `stake-update`'s `prev-unlock-height` response field to `prev-unlock-cycle`, and fix outdated comments around signer grants, prepare-phase callers, and `stake-update` lock handling

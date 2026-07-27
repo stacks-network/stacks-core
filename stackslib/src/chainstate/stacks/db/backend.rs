@@ -347,6 +347,14 @@ impl ChainStateSchema {
                         tx.execute_batch(cmd)?;
                     }
                 }
+                "13" => {
+                    info!(
+                        "Migrating chainstate schema from version 13 to 14: add problematic_txs column to nakamoto_block_headers"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_9.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
                 _ => {
                     error!(
                         "Invalid chain state database: expected version = {}, got {}",

@@ -641,7 +641,15 @@ impl<T: MarfTrieId> TrieRAM<T> {
         let marf_root_hash = Trie::get_trie_root_hash(storage, root_hash)
             .expect("FATAL: unable to calculate MARF root hash from moved TrieRAM");
 
-        test_debug!("cur_block_hash = {}, cur_block_id = {:?}, self.block_header = {}, have last extended? {}, root_hash: {}, trie_root_hash = {}", &cur_block_hash, &cur_block_id, &self.block_header, storage.data.uncommitted_writes.is_some(), root_hash, &marf_root_hash);
+        test_debug!(
+            "cur_block_hash = {}, cur_block_id = {:?}, self.block_header = {}, have last extended? {}, root_hash: {}, trie_root_hash = {}",
+            &cur_block_hash,
+            &cur_block_id,
+            &self.block_header,
+            storage.data.uncommitted_writes.is_some(),
+            root_hash,
+            &marf_root_hash
+        );
 
         storage.data.set_block(cur_block_hash, cur_block_id);
 
@@ -1485,7 +1493,7 @@ pub struct TrieSqlCursor<'a> {
 
 pub struct TrieSqlHashMapCursor<'a, T: MarfTrieId> {
     db: &'a Connection,
-    cache: &'a mut TrieCache<T>,
+    cache: &'a mut BlockHashCache<T>,
     unconfirmed: bool,
 }
 
@@ -1554,7 +1562,7 @@ pub struct TrieStorageConnection<'a, T: MarfTrieId> {
     db: SqliteConnection<'a>,
     blobs: Option<&'a mut TrieFile>,
     data: &'a mut TrieStorageTransientData<T>,
-    cache: &'a mut TrieCache<T>,
+    cache: &'a mut BlockHashCache<T>,
     bench: &'a mut TrieBenchmark,
     pub hash_calculation_mode: TrieHashCalculationMode,
     compress: bool,
@@ -1636,7 +1644,7 @@ pub struct TrieFileStorage<T: MarfTrieId> {
     db: Connection,
     blobs: Option<TrieFile>,
     data: TrieStorageTransientData<T>,
-    cache: TrieCache<T>,
+    cache: BlockHashCache<T>,
     bench: TrieBenchmark,
     hash_calculation_mode: TrieHashCalculationMode,
     compress: bool,
@@ -1681,7 +1689,7 @@ pub struct ReopenedTrieStorageConnection<'a, T: MarfTrieId> {
     db: &'a Connection,
     blobs: Option<TrieFile>,
     data: TrieStorageTransientData<T>,
-    cache: TrieCache<T>,
+    cache: BlockHashCache<T>,
     bench: TrieBenchmark,
     pub hash_calculation_mode: TrieHashCalculationMode,
     compress: bool,
@@ -1787,7 +1795,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             squash_info: self.data.squash_info.clone(),
         };
         // perf note: should we attempt to clone the cache
-        let cache = TrieCache::default();
+        let cache = BlockHashCache::new();
         let blobs = if self.blobs.is_some() {
             Some(TrieFile::from_db_path(&self.db_path, true)?)
         } else {
@@ -1916,7 +1924,9 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
                 }
             }
             if trie_sql::detect_partial_migration(&db)? {
-                panic!("PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis.");
+                panic!(
+                    "PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis."
+                );
             }
         }
 
@@ -1926,7 +1936,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             blobs.is_some()
         );
 
-        let cache = TrieCache::new(&marf_opts.cache_strategy);
+        let cache = BlockHashCache::new();
 
         let mut ret = TrieFileStorage {
             db_path,
@@ -2008,7 +2018,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             db_path: db_path.to_string(),
             db,
             blobs: None,
-            cache: TrieCache::default(),
+            cache: BlockHashCache::new(),
             bench: TrieBenchmark::new(),
             hash_calculation_mode: self.hash_calculation_mode,
             compress: self.compress,
@@ -2056,10 +2066,8 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
     pub fn open_unconfirmed(
         db_path: &str,
-        mut marf_opts: MARFOpenOpts,
+        marf_opts: MARFOpenOpts,
     ) -> Result<TrieFileStorage<T>, Error> {
-        // no caching allowed for unconfirmed tries, since they can disappear
-        marf_opts.cache_strategy = "noop".to_string();
         TrieFileStorage::open_opts(db_path, false, true, marf_opts)
     }
 
@@ -2080,7 +2088,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     /// Returns Err if the underlying SQLite database connection cannot be created.
     pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
-        let cache = TrieCache::default();
+        let cache = BlockHashCache::new();
         let blobs = if self.blobs.is_some() {
             Some(TrieFile::from_db_path(&self.db_path, true)?)
         } else {
@@ -2160,7 +2168,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             &self.db_path
         );
 
-        let cache = TrieCache::default();
+        let cache = BlockHashCache::new();
 
         // TODO: borrow self.uncommitted_writes; don't copy them
         let mut ret = TrieFileStorage {
@@ -3245,16 +3253,9 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         match self.data.cur_block_id {
             Some(block_id) => {
                 self.bench.read_node_hash_start();
-                if let Some(node_hash) = self.cache.load_node_hash(block_id, ptr) {
-                    let res = node_hash;
-                    self.bench.read_node_hash_finish(true);
-                    Ok(res)
-                } else {
-                    let node_hash = self.inner_read_persisted_node_hash(block_id, ptr)?;
-                    self.cache.store_node_hash(block_id, *ptr, node_hash);
-                    self.bench.read_node_hash_finish(false);
-                    Ok(node_hash)
-                }
+                let node_hash = self.inner_read_persisted_node_hash(block_id, ptr)?;
+                self.bench.read_node_hash_finish(false);
+                Ok(node_hash)
             }
             None => {
                 error!("Not found (no file is open)");
@@ -3349,7 +3350,9 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                     return Ok((node, node_hash_opt.unwrap_or(hash)));
                 }
                 Err(Error::Patch(hash_opt, node_patch)) => {
-                    trace!("inner_read_patched_persisted_nodetype({block_id}): at {ptr:?} read patch {node_patch:?} (original hash is {hash_opt:?})");
+                    trace!(
+                        "inner_read_patched_persisted_nodetype({block_id}): at {ptr:?} read patch {node_patch:?} (original hash is {hash_opt:?})"
+                    );
                     let new_ptr = node_patch.ptr.from_backptr();
                     let new_block_id = node_patch.ptr.back_block();
 
@@ -3405,30 +3408,8 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         match self.data.cur_block_id {
             Some(id) => {
                 self.bench.read_nodetype_start();
-                let (node_inst, node_hash) = if read_hash {
-                    if let Some((node_inst, node_hash)) =
-                        self.cache.load_node_and_hash(id, &clear_ptr)
-                    {
-                        trace!("Cache hit: {:?} {} {:?}", ptr, node_hash, node_inst);
-                        (node_inst, node_hash)
-                    } else {
-                        trace!("Cache miss: {:?}", ptr);
-                        let (node_inst, node_hash) =
-                            self.inner_read_patched_persisted_nodetype(id, clear_ptr, read_hash)?;
-                        self.cache
-                            .store_node_and_hash(id, clear_ptr, node_inst.clone(), node_hash);
-                        (node_inst, node_hash)
-                    }
-                } else if let Some(node_inst) = self.cache.load_node(id, &clear_ptr) {
-                    trace!("Cache hit: {:?}", ptr);
-                    (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
-                } else {
-                    trace!("Cache miss: {:?}", ptr);
-                    let (node_inst, _) =
-                        self.inner_read_patched_persisted_nodetype(id, clear_ptr, read_hash)?;
-                    self.cache.store_node(id, clear_ptr, node_inst.clone());
-                    (node_inst, TrieHash([0u8; TRIEHASH_ENCODED_SIZE]))
-                };
+                let (node_inst, node_hash) =
+                    self.inner_read_patched_persisted_nodetype(id, clear_ptr, read_hash)?;
 
                 self.bench.read_nodetype_finish(false);
                 Ok((node_inst, node_hash))
@@ -3481,7 +3462,9 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
             }
         }
 
-        panic!("Tried to write to another Trie besides the currently-buffered one.  This should never happen -- only flush() can write to disk!");
+        panic!(
+            "Tried to write to another Trie besides the currently-buffered one.  This should never happen -- only flush() can write to disk!"
+        );
     }
 
     /// Store a node and its hash to uncommitted state at the given
@@ -3515,7 +3498,9 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
             }
         }
 
-        panic!("Tried to write to another Trie besides the currently-buffered one.  This should never happen -- only flush() can write to disk!");
+        panic!(
+            "Tried to write to another Trie besides the currently-buffered one.  This should never happen -- only flush() can write to disk!"
+        );
     }
 
     /// Get the next node index into which a node will be inserted in the

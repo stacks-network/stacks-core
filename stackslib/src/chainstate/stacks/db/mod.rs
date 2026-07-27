@@ -23,7 +23,6 @@ use std::path::PathBuf;
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
@@ -31,6 +30,7 @@ use clarity::vm::database::{
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::events::*;
 use clarity::vm::representations::ContractName;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -52,7 +52,7 @@ use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConn,
     NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2, NAKAMOTO_CHAINSTATE_SCHEMA_3,
     NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5, NAKAMOTO_CHAINSTATE_SCHEMA_6,
-    NAKAMOTO_CHAINSTATE_SCHEMA_7, NAKAMOTO_CHAINSTATE_SCHEMA_8,
+    NAKAMOTO_CHAINSTATE_SCHEMA_7, NAKAMOTO_CHAINSTATE_SCHEMA_8, NAKAMOTO_CHAINSTATE_SCHEMA_9,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -62,6 +62,7 @@ use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::events::*;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::{
     Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
@@ -310,20 +311,14 @@ impl DBConfig {
             error!("Failed to parse Stacks chainstate version as u32: {e}");
             0
         });
-        match epoch_id {
-            StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => (1..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
-            StacksEpochId::Epoch2_05 => (2..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
+        if epoch_id >= StacksEpochId::Epoch21 {
+            (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32)
+        } else if epoch_id == StacksEpochId::Epoch2_05 {
+            (2..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32)
+        } else if epoch_id == StacksEpochId::Epoch20 {
+            (1..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32)
+        } else {
+            true
         }
     }
 }
@@ -542,11 +537,6 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
         self.block.cost_so_far()
     }
 
-    /// Set an abort callback that will be checked at every Clarity `eval` call.
-    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
-        self.block.set_abort_callback(callback);
-    }
-
     pub fn get_epoch(&self) -> StacksEpochId {
         self.block.get_epoch()
     }
@@ -697,8 +687,8 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "13";
-pub const CHAINSTATE_VERSION_NUMBER: u32 = 13;
+pub const CHAINSTATE_VERSION: &str = "14";
+pub const CHAINSTATE_VERSION_NUMBER: u32 = 14;
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1125,8 +1115,7 @@ impl ChainStateBootInstaller {
                     clarity.process_transaction_payload(
                         &boot_code_smart_contract,
                         &boot_code_account,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                 })?;
                 receipts.push(tx_receipt);
@@ -1473,7 +1462,7 @@ impl ChainStateBootInstaller {
                     "set-burnchain-parameters",
                     &params,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .expect("Failed to set burnchain parameters in PoX contract");
             });

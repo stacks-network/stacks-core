@@ -15,6 +15,7 @@
 
 pub mod cli;
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::time::Instant;
 use std::{fs, io, process};
@@ -42,6 +43,7 @@ use stackslib::chainstate::nakamoto::miner::{
     BlockMetadata, NakamotoBlockBuilder, NakamotoTenureInfo,
 };
 use stackslib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stackslib::chainstate::stacks::boot::RewardSet;
 use stackslib::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stackslib::chainstate::stacks::db::{
     ChainstateTx, DiskChainStateBackend, Epoch2BlockProcessor, Epoch2StagingBlocksDb,
@@ -348,8 +350,12 @@ pub fn command_validate_block(args: &ValidateBlockArgs, conf: Option<&Config>) {
     let mut completed = 0;
     let mut errors: Vec<(StacksBlockId, String)> = Vec::new();
 
+    let (mut chainstate, mut sortdb) = open_validation_dbs(db_path, conf);
+    let mut reward_set_cache: HashMap<u64, CachedRewardSet> = HashMap::new();
+
     for entry in work_items {
-        if let Err(e) = validate_entry(db_path, conf, &entry) {
+        if let Err(e) = validate_entry(&mut chainstate, &mut sortdb, &mut reward_set_cache, &entry)
+        {
             if early_exit {
                 print!("\r");
                 io::stdout().flush().ok();
@@ -359,6 +365,14 @@ pub fn command_validate_block(args: &ValidateBlockArgs, conf: Option<&Config>) {
             print!("\r");
             io::stdout().flush().ok();
             errors.push((entry.index_block_hash.clone(), e));
+
+            // not every append_block error path rolls back the Clarity trie
+            // it opened, and a trie left open panics the next block's begin
+            chainstate.with_clarity_marf(|marf| {
+                if marf.get_open_chain_tip().is_some() {
+                    marf.drop_current();
+                }
+            });
         }
         completed += 1;
         let pct = ((completed as f32 / total_blocks as f32) * 100.0).floor() as usize;
@@ -386,10 +400,61 @@ pub fn command_validate_block(args: &ValidateBlockArgs, conf: Option<&Config>) {
     );
 }
 
-fn validate_entry(db_path: &str, conf: &Config, entry: &BlockScanEntry) -> Result<(), String> {
+/// Open the chainstate and sortition DBs used by block validation.
+/// Called once per run.
+fn open_validation_dbs(
+    db_path: &str,
+    conf: &Config,
+) -> (StacksChainState<DiskChainStateBackend>, SortitionDB) {
+    let chain_state_path = format!("{db_path}/chainstate/");
+    let sort_db_path = format!("{db_path}/burnchain/sortition");
+
+    let (chainstate, _) = StacksChainState::open(
+        conf.is_mainnet(),
+        conf.burnchain.chain_id,
+        &chain_state_path,
+        None,
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("Failed to open chainstate at {chain_state_path}: {e:?}");
+        process::exit(1);
+    });
+
+    let burnchain = conf.get_burnchain();
+    let epochs = conf.burnchain.get_epoch_list();
+    let sortdb = SortitionDB::connect(
+        &sort_db_path,
+        burnchain.first_block_height,
+        &burnchain.first_block_hash,
+        u64::from(burnchain.first_block_timestamp),
+        &epochs,
+        burnchain.pox_constants.clone(),
+        None,
+        true,
+        None,
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("Failed to open sortition DB at {sort_db_path}: {e:?}");
+        process::exit(1);
+    });
+
+    (chainstate, sortdb)
+}
+
+fn validate_entry(
+    chainstate: &mut StacksChainState<DiskChainStateBackend>,
+    sortdb: &mut SortitionDB,
+    reward_set_cache: &mut HashMap<u64, CachedRewardSet>,
+    entry: &BlockScanEntry,
+) -> Result<(), String> {
     match entry.source {
-        BlockSource::Nakamoto => replay_naka_staging_block(db_path, &entry.index_block_hash, conf),
-        BlockSource::Epoch2 => replay_staging_block(db_path, &entry.index_block_hash, conf),
+        BlockSource::Nakamoto => replay_naka_staging_block(
+            chainstate,
+            sortdb,
+            reward_set_cache,
+            &entry.index_block_hash,
+        ),
+        BlockSource::Epoch2 => replay_staging_block(chainstate, sortdb, &entry.index_block_hash),
     }
 }
 
@@ -568,7 +633,10 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
                 )
                 .unwrap_or_else(|e| panic!("Failed to instantiate burnchain: {e}")),
             )
-            .map(|(block, cost, size)| (block.block_hash(), block.txs, cost, size))
+            .map(|(block, cost, size)| {
+                let total_fees: u64 = block.txs.iter().map(|tx| tx.get_tx_fee()).sum();
+                (block.block_hash(), total_fees, cost, size)
+            })
         }
         StacksBlockHeaderTypes::Nakamoto(..) => {
             NakamotoBlockBuilder::build_nakamoto_block(
@@ -593,9 +661,15 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
                      tenure_size,
                      ..
                  }| {
+                    // Sum fees over every transaction in the block, including
+                    // any marked problematic.
+                    let total_fees: u64 = block
+                        .txs()
+                        .map(|tx| tx.tx_ignoring_problematic_state().get_tx_fee())
+                        .sum();
                     (
                         block.header.block_hash(),
-                        block.txs,
+                        total_fees,
                         tenure_consumed,
                         tenure_size,
                     )
@@ -615,9 +689,7 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
     );
 
     let code = match result {
-        Ok((block_hash, txs, cost, size)) => {
-            let total_fees: u64 = txs.iter().map(|tx| tx.get_tx_fee()).sum();
-
+        Ok((block_hash, total_fees, cost, size)) => {
             println!("Successfully mined {summary}");
             println!("Block {block_hash}: {total_fees} uSTX, {size} bytes, cost {cost:?}");
             0
@@ -654,36 +726,10 @@ pub fn command_contract_hash(args: &ContractHashArgs, _conf: Option<&Config>) {
 
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
 fn replay_staging_block(
-    db_path: &str,
+    chainstate: &mut StacksChainState<DiskChainStateBackend>,
+    sortdb: &mut SortitionDB,
     block_id: &StacksBlockId,
-    conf: &Config,
 ) -> Result<(), String> {
-    let chain_state_path = format!("{db_path}/chainstate/");
-    let sort_db_path = format!("{db_path}/burnchain/sortition");
-
-    let (mut chainstate, _) = StacksChainState::open(
-        conf.is_mainnet(),
-        conf.burnchain.chain_id,
-        &chain_state_path,
-        None,
-    )
-    .map_err(|e| format!("Failed to open chainstate at {chain_state_path}: {e:?}"))?;
-
-    let burnchain = conf.get_burnchain();
-    let epochs = conf.burnchain.get_epoch_list();
-    let mut sortdb = SortitionDB::connect(
-        &sort_db_path,
-        burnchain.first_block_height,
-        &burnchain.first_block_hash,
-        u64::from(burnchain.first_block_timestamp),
-        &epochs,
-        burnchain.pox_constants.clone(),
-        None,
-        true,
-        None,
-    )
-    .map_err(|e| format!("Failed to open sortition DB at {sort_db_path}: {e:?}"))?;
-
     let sort_tx = sortdb.tx_begin_at_tip();
 
     let blocks_path = chainstate.blocks_path.clone();
@@ -912,7 +958,10 @@ fn replay_block(
         block_sortition_burn,
         true,
     ) {
-        Ok((receipt, _, _)) => {
+        Ok((receipt, clarity_commit, _)) => {
+            // validation only: discard the block's uncommitted trie so the
+            // long-lived ClarityInstance can begin the next block
+            clarity_commit.rollback();
             if let Some(cost) = cost_opt {
                 if receipt.anchored_block_cost != cost {
                     return Err(format!(
@@ -934,50 +983,106 @@ fn replay_block(
 
 /// Fetch and process a NakamotoBlock from database and call `replay_block_nakamoto()` to validate
 fn replay_naka_staging_block(
-    db_path: &str,
+    chainstate: &mut StacksChainState<DiskChainStateBackend>,
+    sortdb: &mut SortitionDB,
+    reward_set_cache: &mut HashMap<u64, CachedRewardSet>,
     block_id: &StacksBlockId,
-    conf: &Config,
 ) -> Result<(), String> {
-    let chain_state_path = format!("{db_path}/chainstate/");
-    let sort_db_path = format!("{db_path}/burnchain/sortition");
-
-    let (mut chainstate, _) = StacksChainState::open(
-        conf.is_mainnet(),
-        conf.burnchain.chain_id,
-        &chain_state_path,
-        None,
-    )
-    .map_err(|e| format!("Failed to open chainstate: {e:?}"))?;
-
-    let burnchain = conf.get_burnchain();
-    let epochs = conf.burnchain.get_epoch_list();
-    let mut sortdb = SortitionDB::connect(
-        &sort_db_path,
-        burnchain.first_block_height,
-        &burnchain.first_block_hash,
-        u64::from(burnchain.first_block_timestamp),
-        &epochs,
-        burnchain.pox_constants.clone(),
-        None,
-        true,
-        None,
-    )
-    .map_err(|e| format!("Failed to open sortition DB: {e:?}"))?;
-
     let (block, block_size) = chainstate
         .nakamoto_blocks_db()
         .get_nakamoto_block(block_id)
         .map_err(|e| format!("Failed to load Nakamoto block: {e:?}"))?
         .ok_or_else(|| "No block data found".to_string())?;
 
-    replay_block_nakamoto(&mut sortdb, &mut chainstate, &block, block_size)
+    replay_block_nakamoto(sortdb, chainstate, reward_set_cache, &block, block_size)
         .map_err(|e| format!("Failed to validate Nakamoto block: {e:?}"))
+}
+
+/// Reward set cached per cycle, tagged with the block that calculated it so
+/// hits can be verified fork-aware (see [`load_reward_set_cached`]).
+struct CachedRewardSet {
+    calc_coinbase_height: u64,
+    calc_block_id: StacksBlockId,
+    reward_set: RewardSet,
+}
+
+/// Load the reward set of `cycle` as seen from `parent_block_id`, caching per
+/// cycle.
+///
+/// A reward set is identified by its *calculation block* (where `.signers`
+/// was written for the cycle), resolved through the parent's fork. A cache
+/// hit is used only after re-resolving the cached calculation height through
+/// this block's parent and checking it lands on the same calculation block —
+/// forks that diverged before the calculation block (and so may carry a
+/// different reward set) recompute instead of reusing the wrong entry. The
+/// expensive step (a read-only Clarity eval on `.signers`) runs once per
+/// cycle-and-fork-lineage.
+fn load_reward_set_cached<'a>(
+    cycle: u64,
+    reward_set_cache: &'a mut HashMap<u64, CachedRewardSet>,
+    stacks_chain_state: &mut StacksChainState<DiskChainStateBackend>,
+    sort_db: &SortitionDB,
+    parent_block_id: &StacksBlockId,
+) -> Result<&'a RewardSet, String> {
+    let cached_ok = match reward_set_cache.get(&cycle) {
+        Some(entry) => NakamotoChainState::get_header_by_coinbase_height(
+            &mut stacks_chain_state.index_conn(),
+            parent_block_id,
+            entry.calc_coinbase_height,
+        )
+        .map_err(|e| format!("Failed to resolve cached calculation block: {e:?}"))?
+        .is_some_and(|hdr| hdr.index_block_hash() == entry.calc_block_id),
+        None => false,
+    };
+
+    if !cached_ok {
+        let provider = OnChainRewardSetProvider::<DummyEventDispatcher>(None);
+        // anchor the burn view at the block itself
+        let sort_handle = sort_db
+            .index_handle_at_block(stacks_chain_state, parent_block_id)
+            .map_err(|e| format!("Failed to open sortition handle at {parent_block_id}: {e:?}"))?;
+        let calc_coinbase_height = provider
+            .get_height_of_pox_calculation(cycle, stacks_chain_state, &sort_handle, parent_block_id)
+            .map_err(|e| {
+                format!("Failed to find reward-set calculation height of cycle {cycle}: {e:?}")
+            })?;
+        let calc_block_id = NakamotoChainState::get_header_by_coinbase_height(
+            &mut stacks_chain_state.index_conn(),
+            parent_block_id,
+            calc_coinbase_height,
+        )
+        .map_err(|e| format!("Failed to load calculation block header: {e:?}"))?
+        .ok_or_else(|| format!("No block at coinbase height {calc_coinbase_height}"))?
+        .index_block_hash();
+        let reward_set = provider
+            .read_reward_set_at_calculated_block(
+                calc_coinbase_height,
+                stacks_chain_state,
+                parent_block_id,
+                true,
+            )
+            .map_err(|e| format!("Failed to read reward set of cycle {cycle}: {e:?}"))?;
+        reward_set_cache.insert(
+            cycle,
+            CachedRewardSet {
+                calc_coinbase_height,
+                calc_block_id,
+                reward_set,
+            },
+        );
+    }
+
+    Ok(&reward_set_cache
+        .get(&cycle)
+        .expect("reward set just inserted")
+        .reward_set)
 }
 
 #[allow(clippy::result_large_err)]
 fn replay_block_nakamoto(
     sort_db: &mut SortitionDB,
     stacks_chain_state: &mut StacksChainState<DiskChainStateBackend>,
+    reward_set_cache: &mut HashMap<u64, CachedRewardSet>,
     block: &NakamotoBlock,
     block_size: u64,
 ) -> Result<(), ChainstateError> {
@@ -1063,25 +1168,24 @@ fn replay_block_nakamoto(
                 "Elected in block height before first_block_height".into(),
             )
         })?;
-    let active_reward_set = OnChainRewardSetProvider::<DummyEventDispatcher>(None)
-        .read_reward_set_nakamoto_of_cycle(
-            elected_in_cycle,
-            stacks_chain_state,
-            sort_db,
-            &block.header.parent_block_id,
-            true,
-        )
-        .map_err(|e| {
-            warn!(
-                "Cannot process Nakamoto block: could not load reward set that elected the block";
-                "err" => ?e,
-                "consensus_hash" => %block.header.consensus_hash,
-                "stacks_block_hash" => %block.header.block_hash(),
-                "stacks_block_id" => %block.header.block_id(),
-                "parent_block_id" => %block.header.parent_block_id,
-            );
-            ChainstateError::NoSuchBlockError
-        })?;
+    let active_reward_set = load_reward_set_cached(
+        elected_in_cycle,
+        reward_set_cache,
+        stacks_chain_state,
+        sort_db,
+        &block.header.parent_block_id,
+    )
+    .map_err(|e| {
+        warn!(
+            "Cannot process Nakamoto block: could not load reward set that elected the block";
+            "err" => %e,
+            "consensus_hash" => %block.header.consensus_hash,
+            "stacks_block_hash" => %block.header.block_hash(),
+            "stacks_block_id" => %block.header.block_id(),
+            "parent_block_id" => %block.header.parent_block_id,
+        );
+        ChainstateError::NoSuchBlockError
+    })?;
     let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin();
 
     // find parent header
@@ -1104,8 +1208,6 @@ fn replay_block_nakamoto(
         &parent_header_info.anchored_header.block_hash(),
     );
     if parent_block_id != block.header.parent_block_id {
-        drop(chainstate_tx);
-
         let msg = "Discontinuous Nakamoto Stacks block";
         warn!("{}", &msg;
               "child parent_block_id" => %block.header.parent_block_id,
@@ -1253,10 +1355,15 @@ fn replay_block_nakamoto(
         block_size,
         commit_burn,
         sortition_burn,
-        &active_reward_set,
+        active_reward_set,
         true,
     ) {
-        Ok((receipt, _, _, _)) => (Some(receipt), None),
+        Ok((receipt, clarity_commit, _, _)) => {
+            // validation only: discard the block's uncommitted trie so the
+            // long-lived ClarityInstance can begin the next block
+            clarity_commit.rollback();
+            (Some(receipt), None)
+        }
         Err(e) => (None, Some(e)),
     };
 
@@ -1271,9 +1378,6 @@ fn replay_block_nakamoto(
     }
 
     if let Some(e) = err_opt {
-        // force rollback
-        drop(chainstate_tx);
-
         warn!(
             "Failed to append {}/{}: {:?}",
             &block.header.consensus_hash,

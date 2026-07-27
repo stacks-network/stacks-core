@@ -26,6 +26,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::VmExecutionError;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{
     BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
@@ -48,7 +49,7 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation};
-use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::nakamoto::{NakamotoChainState, TxToProcess};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
@@ -4260,7 +4261,11 @@ impl Epoch2BlockProcessor {
                         current_epoch = StacksEpochId::Epoch34;
                     }
                     StacksEpochId::Epoch34 => {
-                        panic!("No defined transition from Epoch34 forward")
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_4_0()?);
+                        current_epoch = StacksEpochId::Epoch40;
+                    }
+                    StacksEpochId::Epoch40 => {
+                        panic!("No defined transition from Epoch40 forward")
                     }
                 }
 
@@ -4341,7 +4346,7 @@ impl Epoch2BlockProcessor {
                     "stack-stx",
                     &args,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
@@ -4380,6 +4385,7 @@ impl Epoch2BlockProcessor {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            problematic_skipped: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4476,6 +4482,7 @@ impl Epoch2BlockProcessor {
                                     microblock_header: None,
                                     tx_index: 0,
                                     vm_error: None,
+                                    problematic_skipped: None,
                                 })
                             }
                             Err(e) => {
@@ -4550,7 +4557,7 @@ impl Epoch2BlockProcessor {
                         reward_addr_val,
                     ],
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
@@ -4593,6 +4600,7 @@ impl Epoch2BlockProcessor {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            problematic_skipped: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4657,7 +4665,7 @@ impl Epoch2BlockProcessor {
                         Value::UInt((*reward_cycle).into()),
                     ],
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
@@ -4702,6 +4710,7 @@ impl Epoch2BlockProcessor {
                             microblock_header: None,
                             tx_index: 0,
                             vm_error: None,
+                            problematic_skipped: None,
                         };
 
                         all_receipts.push(receipt);
@@ -4724,17 +4733,30 @@ impl Epoch2BlockProcessor {
 
     /// Process a single anchored block.
     /// Return the fees and burns.
-    pub fn process_block_transactions(
+    ///
+    /// `block_txs` pairs each transaction with its replay disposition (execute
+    /// vs. skip-as-problematic). Build it from a Nakamoto block with
+    /// [`NakamotoBlock::txs`]; for pre-Nakamoto blocks, wrap the
+    /// transaction list with [`TxToProcess::all_execute`]. Carrying the
+    /// disposition alongside each transaction makes it impossible for this loop
+    /// to execute a problematic transaction by overlooking a separate marker
+    /// list.
+    pub fn process_block_transactions<'a>(
         clarity_tx: &mut ClarityTx,
-        block_txs: &[StacksTransaction],
+        block_txs: impl IntoIterator<Item = TxToProcess<'a>>,
         mut tx_index: u32,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         let mut total_size = 0u64;
-        for tx in block_txs.iter() {
-            let (tx_fee, mut tx_receipt) = clarity_tx.process_transaction(tx, false, None)?;
+        for tx_to_process in block_txs {
+            let (tx_fee, mut tx_receipt) = match tx_to_process {
+                TxToProcess::Skip { tx, category } => {
+                    clarity_tx.process_skipped_transaction(tx, category, false)?
+                }
+                TxToProcess::Execute(tx) => clarity_tx.process_transaction(tx, false, None)?,
+            };
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             total_size = total_size.saturating_add(tx_receipt.size().ok_or_else(|| {
@@ -5072,40 +5094,17 @@ impl Epoch2BlockProcessor {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
             .expect("FATAL: no epoch defined for current burnchain tip height");
 
-        match cur_epoch.epoch_id {
-            StacksEpochId::Epoch10 => {
-                panic!("FATAL: processed a block in Epoch 1.0");
-            }
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                let (stack_ops, transfer_ops) =
-                    Epoch2BlockProcessor::get_stacking_and_transfer_burn_ops_v205(
-                        sortdb_conn,
-                        burn_tip,
-                    )?;
-                // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
-                Ok((stack_ops, transfer_ops, vec![], vec![]))
-            }
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => {
-                let (stack_ops, transfer_ops, delegate_ops, _) =
-                    Epoch2BlockProcessor::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                        chainstate_tx,
-                        parent_index_hash,
-                        sortdb_conn,
-                        burn_tip,
-                        burn_tip_height,
-                        cur_epoch.start_height,
-                    )?;
-                Ok((stack_ops, transfer_ops, delegate_ops, vec![]))
-            }
-            StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => {
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch25 {
+            Epoch2BlockProcessor::get_stacking_and_transfer_and_delegate_burn_ops_v210(
+                chainstate_tx,
+                parent_index_hash,
+                sortdb_conn,
+                burn_tip,
+                burn_tip_height,
+                cur_epoch.start_height,
+            )
+        } else if cur_epoch.epoch_id >= StacksEpochId::Epoch21 {
+            let (stack_ops, transfer_ops, delegate_ops, _) =
                 Epoch2BlockProcessor::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -5113,8 +5112,16 @@ impl Epoch2BlockProcessor {
                     burn_tip,
                     burn_tip_height,
                     cur_epoch.start_height,
-                )
-            }
+                )?;
+            Ok((stack_ops, transfer_ops, delegate_ops, vec![]))
+        } else {
+            let (stack_ops, transfer_ops) =
+                Epoch2BlockProcessor::get_stacking_and_transfer_burn_ops_v205(
+                    sortdb_conn,
+                    burn_tip,
+                )?;
+            // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
+            Ok((stack_ops, transfer_ops, vec![], vec![]))
         }
     }
 
@@ -5200,7 +5207,8 @@ impl Epoch2BlockProcessor {
                 | StacksEpochId::Epoch31
                 | StacksEpochId::Epoch32
                 | StacksEpochId::Epoch33
-                | StacksEpochId::Epoch34 => PoxCycleStartHandler::handle_pox_cycle_start_pox_4(
+                | StacksEpochId::Epoch34
+                | StacksEpochId::Epoch40 => PoxCycleStartHandler::handle_pox_cycle_start_pox_4(
                     clarity_tx,
                     pox_reward_cycle,
                     pox_start_cycle_info,
@@ -5794,7 +5802,7 @@ impl Epoch2BlockProcessor {
             let (block_fees, block_burns, txs_receipts) =
                 match Epoch2BlockProcessor::process_block_transactions(
                     &mut clarity_tx,
-                    &block.txs,
+                    TxToProcess::all_execute(&block.txs),
                     u32::try_from(microblock_txs_receipts.len())
                         .expect("more than 2^32 tx receipts"),
                 ) {
@@ -6840,7 +6848,7 @@ impl MempoolAdmissionPolicy {
         // Enforce low-S on the transaction signatures. While consensus allows high-S
         // signatures at the time of writing, they are a concern because the ambiguity
         // makes transaction ids malleable. That's why we don't admit them to the mempol,
-        // and signers reject blocks with them. In a future hard fork, they will also
+        // and signers reject blocks with them. Once Epoch 4.0 begins, they will also
         // not be allowed by consensus anymore.
         chainstate_config
             .process_transaction_precheck(
@@ -6915,7 +6923,7 @@ impl MempoolAdmissionPolicy {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) =
+        let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height, v4_unlock_height) =
             clarity_connection.with_clarity_db_readonly::<_, Result<_, VmExecutionError>>(
                 |ref mut db| {
                     Ok((
@@ -6923,6 +6931,7 @@ impl MempoolAdmissionPolicy {
                         db.get_v1_unlock_height(),
                         db.get_v2_unlock_height()?,
                         db.get_v3_unlock_height()?,
+                        db.get_v4_unlock_height()?,
                     ))
                 },
             )?;
@@ -6934,6 +6943,7 @@ impl MempoolAdmissionPolicy {
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
+            v4_unlock_height,
         )? {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
@@ -6947,6 +6957,7 @@ impl MempoolAdmissionPolicy {
                             v1_unlock_height,
                             v2_unlock_height,
                             v3_unlock_height,
+                            v4_unlock_height,
                         )?,
                     ));
                 }
@@ -6973,6 +6984,7 @@ impl MempoolAdmissionPolicy {
                     v1_unlock_height,
                     v2_unlock_height,
                     v3_unlock_height,
+                    v4_unlock_height,
                 )? {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         total_spent,
@@ -6981,6 +6993,7 @@ impl MempoolAdmissionPolicy {
                             v1_unlock_height,
                             v2_unlock_height,
                             v3_unlock_height,
+                            v4_unlock_height,
                         )?,
                     ));
                 }
@@ -6993,6 +7006,7 @@ impl MempoolAdmissionPolicy {
                         v1_unlock_height,
                         v2_unlock_height,
                         v3_unlock_height,
+                        v4_unlock_height,
                     )?
                 {
                     return Err(MemPoolRejection::NotEnoughFunds(
@@ -7002,6 +7016,7 @@ impl MempoolAdmissionPolicy {
                             v1_unlock_height,
                             v2_unlock_height,
                             v3_unlock_height,
+                            v4_unlock_height,
                         )?,
                     ));
                 }
@@ -11206,7 +11221,7 @@ pub mod test {
             .collect();
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.chain_config.initial_balances = init_balances;
-        let mut epochs = StacksEpoch::unit_test_2_1(0);
+        let mut epochs = StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch21);
         let last_epoch = epochs.last_mut().unwrap();
         last_epoch.block_limit.runtime = 10_000_000;
         peer_config.chain_config.epochs = Some(epochs);
@@ -11534,7 +11549,7 @@ pub mod test {
             .collect();
         init_balances.push((addr.to_account_principal(), initial_balance));
         peer_config.chain_config.initial_balances = init_balances;
-        let mut epochs = StacksEpoch::unit_test_2_1(0);
+        let mut epochs = StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch21);
         let last_epoch = epochs.last_mut().unwrap();
         last_epoch.block_limit.runtime = 10_000_000;
         last_epoch.block_limit.read_length = 10_000_000;

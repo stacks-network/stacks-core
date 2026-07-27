@@ -23,6 +23,7 @@ use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
 use clarity::vm::errors::{VmExecutionError, VmInternalError};
 use clarity::vm::representations::ClarityName;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
@@ -31,7 +32,7 @@ use clarity::vm::types::{
 
 use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::miner::TransactionResult;
+use crate::chainstate::stacks::miner::{TransactionResourceBudgets, TransactionResult};
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityError, ClarityTransactionConnection};
 use crate::monitoring::increment_unreachable_errors_counter;
@@ -83,6 +84,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -105,6 +107,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error,
+            problematic_skipped: None,
         }
     }
 
@@ -127,6 +130,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(reason),
+            problematic_skipped: None,
         }
     }
 
@@ -148,6 +152,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -170,6 +175,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(reason),
+            problematic_skipped: None,
         }
     }
 
@@ -185,6 +191,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -227,6 +234,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error_string),
+            problematic_skipped: None,
         }
     }
 
@@ -246,6 +254,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
         }
     }
 
@@ -266,6 +275,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error.to_string()),
+            problematic_skipped: None,
         }
     }
 
@@ -285,6 +295,7 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: Some(error.to_string()),
+            problematic_skipped: None,
         }
     }
 
@@ -300,6 +311,32 @@ impl StacksTransactionReceipt {
             microblock_header: None,
             tx_index: 0,
             vm_error: None,
+            problematic_skipped: None,
+        }
+    }
+
+    /// Receipt for a transaction that was marked problematic by the block's
+    /// `NakamotoBlockHeader::problematic_txs` list. The transaction's payload
+    /// was NOT executed: only the precheck cost is reflected in the block
+    /// budget, and the fee was debited / origin (and sponsor) nonces bumped by
+    /// `process_skipped_transaction`. `execution_cost` is zero and `events`
+    /// is empty.
+    pub fn from_problematic_skipped(
+        tx: StacksTransaction,
+        category: u8,
+    ) -> StacksTransactionReceipt {
+        StacksTransactionReceipt {
+            transaction: tx.into(),
+            events: vec![],
+            post_condition_aborted: false,
+            result: Value::err_none(),
+            stx_burned: 0,
+            contract_analysis: None,
+            execution_cost: ExecutionCost::ZERO,
+            microblock_header: None,
+            tx_index: 0,
+            vm_error: None,
+            problematic_skipped: Some(category),
         }
     }
 
@@ -368,7 +405,7 @@ pub enum ClarityRuntimeTxError {
     },
     CostError(ExecutionCost, ExecutionCost),
     AnalysisError(RuntimeCheckErrorKind),
-    ExecutionTimeExpired,
+    ExecutionResourceBudgetExceeded(String),
     Rejectable(ClarityError),
 }
 
@@ -408,7 +445,9 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
             reason,
         },
         ClarityError::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
-        ClarityError::ExecutionTimeExpired => ClarityRuntimeTxError::ExecutionTimeExpired,
+        ClarityError::ExecutionResourceBudgetExceeded(s) => {
+            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s)
+        }
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
 }
@@ -559,8 +598,7 @@ pub trait StacksTransactionExecution {
         &mut self,
         tx: &StacksTransaction,
         origin_account: &StacksAccount,
-        max_execution_time: Option<std::time::Duration>,
-        max_analysis_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
     ) -> Result<StacksTransactionReceipt, Error>;
 }
 
@@ -577,16 +615,9 @@ impl StacksTransactionExecution for ClarityTransactionConnection<'_, '_> {
         &mut self,
         tx: &StacksTransaction,
         origin_account: &StacksAccount,
-        max_execution_time: Option<std::time::Duration>,
-        max_analysis_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
     ) -> Result<StacksTransactionReceipt, Error> {
-        process_transaction_payload(
-            self,
-            tx,
-            origin_account,
-            max_execution_time,
-            max_analysis_time,
-        )
+        process_transaction_payload(self, tx, origin_account, resource_budgets)
     }
 }
 
@@ -603,9 +634,15 @@ pub trait StacksTransactionBlock {
         &mut self,
         tx: &StacksTransaction,
         quiet: bool,
-        max_execution_time: Option<std::time::Duration>,
-        max_analysis_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         check: F,
+    ) -> Result<(u64, StacksTransactionReceipt), Error>;
+
+    fn process_skipped_transaction(
+        &mut self,
+        tx: &StacksTransaction,
+        category: u8,
+        quiet: bool,
     ) -> Result<(u64, StacksTransactionReceipt), Error>;
 }
 
@@ -623,18 +660,19 @@ impl StacksTransactionBlock for ClarityTx<'_, '_> {
         &mut self,
         tx: &StacksTransaction,
         quiet: bool,
-        max_execution_time: Option<std::time::Duration>,
-        max_analysis_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         check: F,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        process_transaction_with_check(
-            self,
-            tx,
-            quiet,
-            max_execution_time,
-            max_analysis_time,
-            check,
-        )
+        process_transaction_with_check(self, tx, quiet, resource_budgets, check)
+    }
+
+    fn process_skipped_transaction(
+        &mut self,
+        tx: &StacksTransaction,
+        category: u8,
+        quiet: bool,
+    ) -> Result<(u64, StacksTransactionReceipt), Error> {
+        process_skipped_transaction(self, tx, category, quiet)
     }
 }
 
@@ -721,13 +759,14 @@ fn pay_transaction_fee(
     fee: u64,
     payer_account: StacksAccount,
 ) -> Result<u64, Error> {
-    let (cur_burn_block_height, v1_unlock_ht, v2_unlock_ht, v3_unlock_ht) = clarity_tx
-        .with_clarity_db_readonly(|ref mut db| {
+    let (cur_burn_block_height, v1_unlock_ht, v2_unlock_ht, v3_unlock_ht, v4_unlock_ht) =
+        clarity_tx.with_clarity_db_readonly(|ref mut db| {
             let res: Result<_, Error> = Ok((
                 db.get_current_burnchain_block_height()?,
                 db.get_v1_unlock_height(),
                 db.get_v2_unlock_height()?,
                 db.get_v3_unlock_height()?,
+                db.get_v4_unlock_height()?,
             ));
             res
         })?;
@@ -739,6 +778,7 @@ fn pay_transaction_fee(
             v1_unlock_ht,
             v2_unlock_ht,
             v3_unlock_ht,
+            v4_unlock_ht,
         )?;
 
     if consolidated_balance < u128::from(fee) {
@@ -834,6 +874,31 @@ pub fn process_transaction_precheck(
         }
     }
 
+    if !epoch_id.supports_staking_post_conditions() {
+        for post_condition in tx.post_conditions.iter() {
+            if matches!(
+                post_condition,
+                TransactionPostCondition::Staking(..) | TransactionPostCondition::Pox(..)
+            ) {
+                let msg = "Invalid Stacks transaction: Staking/Pox post-condition is not supported before Stacks 4.0".to_string();
+                info!("{}", &msg; "txid" => %tx.txid());
+                return Err(Error::InvalidStacksTransaction(msg, false));
+            }
+        }
+    }
+
+    if let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload {
+        let max_version = ClarityVersion::default_for_epoch(epoch_id);
+        if *clarity_version > max_version {
+            let msg = format!(
+                "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch_id} only supports up to {max_version}",
+                tx.txid()
+            );
+            info!("{msg}");
+            return Err(Error::InvalidStacksTransaction(msg, false));
+        }
+    }
+
     Ok(())
 }
 
@@ -846,6 +911,7 @@ fn check_transaction_postconditions(
     post_condition_mode: &TransactionPostConditionMode,
     origin_account: &StacksAccount,
     asset_map: &AssetMap,
+    epoch_id: StacksEpochId,
     txid: Txid,
 ) -> Result<Option<String>, VmExecutionError> {
     let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
@@ -854,6 +920,8 @@ fn check_transaction_postconditions(
         PrincipalData,
         HashMap<AssetIdentifier, HashSet<HashableClarityValue>>,
     > = HashMap::new();
+    let mut checked_staking: HashSet<PrincipalData> = HashSet::new();
+    let mut checked_pox: HashSet<PrincipalData> = HashSet::new();
     let enforce_unchecked_assets_for_principal =
         |principal: &PrincipalData| match post_condition_mode {
             TransactionPostConditionMode::Allow => false,
@@ -879,8 +947,8 @@ fn check_transaction_postconditions(
 
                 if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
                     let reason = format!(
-                            "Post-condition check failure on STX owned by {account_principal}: {amount_sent_condition:?} {condition_code:?} {amount_sent}",
-                        );
+                        "Post-condition check failure on STX owned by {account_principal}: {amount_sent_condition:?} {condition_code:?} {amount_sent}",
+                    );
                     info!("{reason}"; "txid" => %txid);
                     return Ok(Some(reason));
                 }
@@ -924,8 +992,8 @@ fn check_transaction_postconditions(
                     .unwrap_or(0);
                 if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
                     let reason = format!(
-                            "Post-condition check failure on fungible asset {asset_id} owned by {account_principal}: {amount_sent_condition} {condition_code:?} {amount_sent}"
-                        );
+                        "Post-condition check failure on fungible asset {asset_id} owned by {account_principal}: {amount_sent_condition} {condition_code:?} {amount_sent}"
+                    );
                     info!("{reason}"; "txid" => %txid);
                     return Ok(Some(reason));
                 }
@@ -960,8 +1028,8 @@ fn check_transaction_postconditions(
                     .unwrap_or(&empty_assets);
                 if !condition_code.check(asset_value, assets_sent) {
                     let reason = format!(
-                            "Post-condition check failure on non-fungible asset {asset_id} owned by {account_principal}: {asset_value:?} {condition_code:?} {assets_sent:?}"
-                        );
+                        "Post-condition check failure on non-fungible asset {asset_id} owned by {account_principal}: {asset_value:?} {condition_code:?} {assets_sent:?}"
+                    );
                     info!("{reason}"; "txid" => %txid);
                     return Ok(Some(reason));
                 }
@@ -983,6 +1051,40 @@ fn check_transaction_postconditions(
                     asset_id_map.insert(asset_id, asset_set);
                     checked_nonfungible_assets.insert(account_principal, asset_id_map);
                 }
+            }
+            TransactionPostCondition::Staking(
+                ref principal,
+                ref condition_code,
+                ref amount_staked_condition,
+            ) => {
+                let account_principal = principal.to_principal_data(&origin_account.principal);
+
+                let amount_staked = asset_map.get_stacking(&account_principal).unwrap_or(0);
+
+                if !condition_code.check(u128::from(*amount_staked_condition), amount_staked) {
+                    let reason = format!(
+                        "Post-condition check failure on STX staked by {account_principal}: {amount_staked_condition:?} {condition_code:?} {amount_staked}",
+                    );
+                    info!("{reason}"; "txid" => %txid);
+                    return Ok(Some(reason));
+                }
+
+                checked_staking.insert(account_principal);
+            }
+            TransactionPostCondition::Pox(ref principal, ref condition_code) => {
+                let account_principal = principal.to_principal_data(&origin_account.principal);
+
+                let performed = asset_map.did_pox_action(&account_principal);
+
+                if !condition_code.check(performed) {
+                    let reason = format!(
+                        "Post-condition check failure on PoX action by {account_principal}: {condition_code:?} performed={performed}",
+                    );
+                    info!("{reason}"; "txid" => %txid);
+                    return Ok(Some(reason));
+                }
+
+                checked_pox.insert(account_principal);
             }
         }
     }
@@ -1006,8 +1108,8 @@ fn check_transaction_postconditions(
                             for v in values {
                                 if !nfts.contains(&v.clone().try_into()?) {
                                     let reason = format!(
-                                            "Post-condition check failure: Non-fungible asset {asset_identifier} value {v:?} was moved by {principal} but not checked"
-                                        );
+                                        "Post-condition check failure: Non-fungible asset {asset_identifier} value {v:?} was moved by {principal} but not checked"
+                                    );
                                     info!("{reason}"; "txid" => %txid);
                                     return Ok(Some(reason));
                                 }
@@ -1015,16 +1117,16 @@ fn check_transaction_postconditions(
                         } else {
                             // no values covered
                             let reason = format!(
-                                    "Post-condition check failure: Non-fungible asset {asset_identifier} was moved by {principal} but not checked"
-                                );
+                                "Post-condition check failure: Non-fungible asset {asset_identifier} was moved by {principal} but not checked"
+                            );
                             info!("{reason}"; "txid" => %txid);
                             return Ok(Some(reason));
                         }
                     } else {
                         // no NFT for this principal
                         let reason = format!(
-                                "Post-condition check failure: No checks for non-fungible asset {asset_identifier} moved by {principal}"
-                            );
+                            "Post-condition check failure: No checks for non-fungible asset {asset_identifier} moved by {principal}"
+                        );
                         info!("{reason}"; "txid" => %txid);
                         return Ok(Some(reason));
                     }
@@ -1034,15 +1136,15 @@ fn check_transaction_postconditions(
                     if let Some(checked_ft_asset_ids) = checked_fungible_assets.get(&principal) {
                         if !checked_ft_asset_ids.contains(&asset_identifier) {
                             let reason = format!(
-                                    "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
-                                );
+                                "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
+                            );
                             info!("{reason}"; "txid" => %txid);
                             return Ok(Some(reason));
                         }
                     } else {
                         let reason = format!(
-                                "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
-                            );
+                            "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
+                        );
                         info!("{reason}"; "txid" => %txid);
                         return Ok(Some(reason));
                     }
@@ -1050,6 +1152,35 @@ fn check_transaction_postconditions(
             }
         }
     }
+
+    if epoch_id.supports_staking_post_conditions() {
+        for (principal, amount_staked) in asset_map.get_all_stacking() {
+            if *amount_staked == 0 || !enforce_unchecked_assets_for_principal(principal) {
+                continue;
+            }
+            if !checked_staking.contains(principal) {
+                let reason = format!(
+                    "Post-condition check failure: {amount_staked} STX was staked by {principal} but not checked"
+                );
+                info!("{reason}"; "txid" => %txid);
+                return Ok(Some(reason));
+            }
+        }
+
+        for principal in asset_map.get_all_pox_actions() {
+            if !enforce_unchecked_assets_for_principal(principal) {
+                continue;
+            }
+            if !checked_pox.contains(principal) {
+                let reason = format!(
+                    "Post-condition check failure: {principal} performed a PoX action but it was not checked"
+                );
+                info!("{reason}"; "txid" => %txid);
+                return Ok(Some(reason));
+            }
+        }
+    }
+
     return Ok(None);
 }
 
@@ -1152,9 +1283,9 @@ pub fn handle_poison_microblock(
                 < current_height
             {
                 let msg = format!(
-                        "Invalid Stacks transaction: microblock public key hash from height {} has matured relative to current height {}",
-                        height, current_height
-                    );
+                    "Invalid Stacks transaction: microblock public key hash from height {} has matured relative to current height {}",
+                    height, current_height
+                );
                 warn!("{}", &msg;
                       "microblock_pubkey_hash" => %pubkh
                 );
@@ -1256,8 +1387,7 @@ pub fn process_transaction_payload(
     clarity_tx: &mut ClarityTransactionConnection,
     tx: &StacksTransaction,
     origin_account: &StacksAccount,
-    max_execution_time: Option<std::time::Duration>,
-    max_analysis_time: Option<std::time::Duration>,
+    resource_budgets: &TransactionResourceBudgets,
 ) -> Result<StacksTransactionReceipt, Error> {
     match tx.payload {
         TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
@@ -1320,11 +1450,12 @@ pub fn process_transaction_payload(
                         &tx.post_condition_mode,
                         origin_account,
                         asset_map,
+                        epoch_id,
                         tx.txid(),
                     )
                     .expect("FATAL: error while evaluating post-conditions")
                 },
-                max_execution_time,
+                resource_budgets.get_execution_budget(),
             );
 
             let mut total_cost = clarity_tx.cost_so_far();
@@ -1426,15 +1557,16 @@ pub fn process_transaction_payload(
                                 )));
                             }
                         }
-                        ClarityRuntimeTxError::ExecutionTimeExpired => {
-                            warn!("Transaction exceeded miner execution time limit; will be dropped from mempool";
+                        ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
+                            warn!("Transaction exceeded miner execution resource limit; will be dropped from mempool";
+                                              "error" => s.clone(),
                                               "txid" => %tx.txid(),
                                               "origin" => %origin_account.principal,
                                               "origin_nonce" => %origin_account.nonce,
                                                "contract_name" => %contract_id,
                                                "function_name" => %contract_call.function_name,
                                                "function_args" => %VecDisplay(&contract_call.function_args));
-                            return Err(Error::ExecutionTimeExpired);
+                            return Err(Error::ExecutionResourceBudgetExceeded(s));
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
                             error!("Unexpected error in validating transaction: if included, this will invalidate a block";
@@ -1493,14 +1625,11 @@ pub fn process_transaction_payload(
             // The reason for this is that analyzing the transaction is itself an expensive
             // operation, and the paying account will need to be debited the fee regardless.
             //
-            // `max_analysis_time` bounds the analysis phase on the
-            // non-consensus voting paths (mining / block-proposal validation); it is
-            // `None` on deterministic replay/commit (consensus stays deterministic).
             let analysis_resp = clarity_tx.analyze_smart_contract(
                 &contract_id,
                 clarity_version,
                 &contract_code_str,
-                max_analysis_time,
+                resource_budgets.get_analysis_budget(),
             );
             let (contract_ast, contract_analysis) = match analysis_resp {
                 Ok(x) => x,
@@ -1509,42 +1638,42 @@ pub fn process_transaction_payload(
                     match e {
                         ClarityError::CostError(ref cost_after, ref budget) => {
                             warn!(
-                                    "Block compute budget exceeded on {}: cost before={}, after={}, budget={}",
-                                    tx.txid(),
-                                    &cost_before,
-                                    cost_after,
-                                    budget
-                                );
+                                "Block compute budget exceeded on {}: cost before={}, after={}, budget={}",
+                                tx.txid(),
+                                &cost_before,
+                                cost_after,
+                                budget
+                            );
                             return Err(Error::CostOverflowError(
                                 cost_before,
                                 cost_after.clone(),
                                 budget.clone(),
                             ));
                         }
-                        ClarityError::AnalysisTimeExpired => {
-                            // The analysis phase exceeded its wall-clock deadline (on a voting path only).
-                            warn!("Contract analysis exceeded the analysis time limit; tx will be dropped from the mempool";
+                        ClarityError::AnalysisResourceBudgetExceeded(s) => {
+                            warn!("Contract analysis exceeded the analysis resource budget; tx will be dropped from the mempool";
+                                  "error" => s.clone(),
                                   "txid" => %tx.txid(),
                                   "contract_name" => %contract_id,
                             );
-                            return Err(Error::AnalysisTimeExpired);
+                            return Err(Error::AnalysisResourceBudgetExceeded(s));
                         }
                         other_error => {
                             if let ClarityError::Parse(err) = &other_error {
                                 if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
                                     info!(
-                                            "Transaction {} is problematic and should have prevented this block from being relayed",
-                                            tx.txid()
-                                        );
+                                        "Transaction {} is problematic and should have prevented this block from being relayed",
+                                        tx.txid()
+                                    );
                                     return Err(Error::ClarityError(other_error));
                                 }
                             }
                             if let ClarityError::StaticCheck(err) = &other_error {
                                 if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
                                     info!(
-                                            "Transaction {} is problematic and should have prevented this block from being relayed",
-                                            tx.txid()
-                                        );
+                                        "Transaction {} is problematic and should have prevented this block from being relayed",
+                                        tx.txid()
+                                    );
                                     return Err(Error::ClarityError(other_error));
                                 }
                             }
@@ -1591,11 +1720,12 @@ pub fn process_transaction_payload(
                         &tx.post_condition_mode,
                         origin_account,
                         asset_map,
+                        epoch_id,
                         tx.txid(),
                     )
                     .expect("FATAL: error while evaluating post-conditions")
                 },
-                max_execution_time,
+                resource_budgets.get_execution_budget(),
             );
 
             let mut total_cost = clarity_tx.cost_so_far();
@@ -1634,6 +1764,7 @@ pub fn process_transaction_payload(
                                 microblock_header: None,
                                 tx_index: 0,
                                 vm_error: Some(error.to_string()),
+                                problematic_skipped: None,
                             };
                             return Ok(receipt);
                         }
@@ -1689,11 +1820,12 @@ pub fn process_transaction_payload(
                                 )));
                             }
                         }
-                        ClarityRuntimeTxError::ExecutionTimeExpired => {
-                            warn!("Transaction exceeded miner execution time limit; will be dropped from mempool";
+                        ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
+                            warn!("Transaction exceeded miner execution resource limit; will be dropped from mempool";
+                                              "error" => s.clone(),
                                               "txid" => %tx.txid(),
                                               "contract" => %contract_id);
-                            return Err(Error::ExecutionTimeExpired);
+                            return Err(Error::ExecutionResourceBudgetExceeded(s));
                         }
                         ClarityRuntimeTxError::Rejectable(e) => {
                             error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
@@ -1770,9 +1902,9 @@ pub fn process_transaction_payload(
                 && !epoch_id.supports_specific_budget_extends()
             {
                 let msg = format!(
-                        "Invalid Stacks transaction: TenureChange cause variant {:?} is not supported in epoch {:?}",
-                        &payload.cause, &epoch_id
-                    );
+                    "Invalid Stacks transaction: TenureChange cause variant {:?} is not supported in epoch {:?}",
+                    &payload.cause, &epoch_id
+                );
                 info!("{msg}");
                 return Err(Error::InvalidStacksTransaction(msg, false));
             }
@@ -1808,20 +1940,62 @@ fn process_transaction(
     quiet: bool,
     max_execution_time: Option<std::time::Duration>,
 ) -> Result<(u64, StacksTransactionReceipt), Error> {
-    // The generic/replay entry point imposes no analysis deadline (`None`): only the
-    // miner assembly and block-proposal validation paths (which call
-    // `process_transaction_with_check` directly) bound the analysis phase.
-    process_transaction_with_check(clarity_block, tx, quiet, max_execution_time, None, |_| {
-        Ok(())
-    })
+    let resource_budgets = TransactionResourceBudgets::new()
+        .with_execution_budget(ResourceBudget::new().with_max_duration(max_execution_time));
+    process_transaction_with_check(clarity_block, tx, quiet, &resource_budgets, |_| Ok(()))
+}
+
+fn process_skipped_transaction(
+    clarity_block: &mut ClarityTx,
+    tx: &StacksTransaction,
+    category: u8,
+    quiet: bool,
+) -> Result<(u64, StacksTransactionReceipt), Error> {
+    debug!(
+        "Skip-execute problematic transaction {} ({}) category={}",
+        tx.txid(),
+        tx.payload.name(),
+        category,
+    );
+    let epoch = clarity_block.get_epoch();
+    if epoch < StacksEpochId::Epoch40 {
+        return Err(Error::InvalidStacksTransaction(
+            format!("problematic_txs markers are not allowed before Epoch 4.0 (got epoch {epoch})"),
+            false,
+        ));
+    }
+
+    clarity_block
+        .config
+        .process_transaction_precheck(tx, epoch, None)?;
+
+    let mut transaction = clarity_block.connection().start_transaction_processing();
+    let fee = tx.get_tx_fee();
+    let (_origin_account, payer_account) = transaction.check_transaction_nonces(tx, quiet)?;
+
+    let payer_address = payer_account.principal.clone();
+    let payer_nonce = payer_account.nonce;
+    transaction.pay_transaction_fee(fee, payer_account)?;
+
+    let origin_account = transaction.get_account(&tx.origin_address().into());
+    transaction.update_account_nonce(&origin_account.principal, origin_account.nonce);
+    if origin_account.principal != payer_address {
+        transaction.update_account_nonce(&payer_address, payer_nonce);
+    }
+
+    let tx_receipt = StacksTransactionReceipt::from_problematic_skipped(tx.clone(), category);
+    transaction
+        .commit()
+        .map_err(|e| Error::InvalidStacksTransaction(e.to_string(), false))?;
+
+    Ok((fee, tx_receipt))
 }
 
 fn process_transaction_with_check<F: FnMut(&StacksTransactionReceipt) -> Result<(), Error>>(
     clarity_block: &mut ClarityTx,
     tx: &StacksTransaction,
     quiet: bool,
-    max_execution_time: Option<std::time::Duration>,
-    max_analysis_time: Option<std::time::Duration>,
+    resource_budgets: &TransactionResourceBudgets,
     mut check: F,
 ) -> Result<(u64, StacksTransactionReceipt), Error> {
     debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
@@ -1830,18 +2004,6 @@ fn process_transaction_with_check<F: FnMut(&StacksTransactionReceipt) -> Result<
     clarity_block
         .config
         .process_transaction_precheck(tx, epoch, None)?;
-
-    // what version of Clarity did the transaction caller want? And, is it valid now?
-    let clarity_version = clarity_block.get_tx_clarity_version(tx)?;
-    if clarity_version > ClarityVersion::default_for_epoch(epoch) {
-        let msg = format!(
-                "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch} only supports up to {}",
-                tx.txid(),
-                ClarityVersion::default_for_epoch(epoch)
-            );
-        info!("{msg}");
-        return Err(Error::InvalidStacksTransaction(msg, false));
-    }
 
     let mut transaction = clarity_block.connection().start_transaction_processing();
 
@@ -1857,12 +2019,8 @@ fn process_transaction_with_check<F: FnMut(&StacksTransactionReceipt) -> Result<
         // origin balance may have changed (e.g. if the origin paid the tx fee), so reload the account
         let origin_account = transaction.get_account(&tx.origin_address().into());
 
-        let tx_receipt = transaction.process_transaction_payload(
-            tx,
-            &origin_account,
-            max_execution_time,
-            max_analysis_time,
-        )?;
+        let tx_receipt =
+            transaction.process_transaction_payload(tx, &origin_account, resource_budgets)?;
 
         // update the account nonces
         transaction.update_account_nonce(&origin_account.principal, origin_account.nonce);
@@ -1876,8 +2034,11 @@ fn process_transaction_with_check<F: FnMut(&StacksTransactionReceipt) -> Result<
         // pre-2.1: process transaction, then pay tx fee
         let (origin_account, payer_account) = transaction.check_transaction_nonces(tx, quiet)?;
 
-        let tx_receipt =
-            transaction.process_transaction_payload(tx, &origin_account, None, None)?;
+        let tx_receipt = transaction.process_transaction_payload(
+            tx,
+            &origin_account,
+            &TransactionResourceBudgets::unlimited(),
+        )?;
 
         let new_payer_account = transaction.get_payer_account(tx);
         transaction.pay_transaction_fee(fee, new_payer_account)?;
@@ -1945,6 +2106,9 @@ pub mod test {
     pub const TestBurnStateDB_34: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch34,
     };
+    pub const TestBurnStateDB_40: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch40,
+    };
 
     pub const ALL_BURN_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_20 as &dyn BurnStateDB,
@@ -1955,6 +2119,7 @@ pub mod test {
         &TestBurnStateDB_32 as &dyn BurnStateDB,
         &TestBurnStateDB_33 as &dyn BurnStateDB,
         &TestBurnStateDB_34 as &dyn BurnStateDB,
+        &TestBurnStateDB_40 as &dyn BurnStateDB,
     ];
 
     pub const PRE_33_DBS: &[&dyn BurnStateDB] = &[
@@ -1977,6 +2142,7 @@ pub mod test {
         &TestBurnStateDB_32 as &dyn BurnStateDB,
         &TestBurnStateDB_33 as &dyn BurnStateDB,
         &TestBurnStateDB_34 as &dyn BurnStateDB,
+        &TestBurnStateDB_40 as &dyn BurnStateDB,
     ];
 
     #[test]
@@ -2047,8 +2213,7 @@ pub mod test {
                     nonce: 0,
                     stx_balance: STXBalance::Unlocked { amount: 100 },
                 },
-                None,
-                None,
+                &TransactionResourceBudgets::unlimited(),
             )
             .unwrap();
 
@@ -2082,6 +2247,9 @@ pub mod test {
         if epoch_id >= StacksEpochId::Epoch34 {
             genesis.initialize_epoch_3_4().unwrap();
         }
+        if epoch_id >= StacksEpochId::Epoch40 {
+            genesis.initialize_epoch_4_0().unwrap();
+        }
         genesis.commit_block();
 
         let burn_db = match epoch_id {
@@ -2090,6 +2258,7 @@ pub mod test {
             StacksEpochId::Epoch32 => &TestBurnStateDB_32 as &dyn BurnStateDB,
             StacksEpochId::Epoch33 => &TestBurnStateDB_33 as &dyn BurnStateDB,
             StacksEpochId::Epoch34 => &TestBurnStateDB_34 as &dyn BurnStateDB,
+            StacksEpochId::Epoch40 => &TestBurnStateDB_40 as &dyn BurnStateDB,
             _ => panic!("Unsupported epoch in test helper: {epoch_id}"),
         };
 
@@ -2599,6 +2768,207 @@ pub mod test {
 
             assert_eq!(fee, 0);
         }
+    }
+
+    #[test]
+    fn process_skipped_transaction_charges_fee_and_skips_payload() {
+        // A transaction marked problematic must still pay its fee and bump the
+        // origin nonce, but its payload must NOT execute. Here a token-transfer
+        // of 123 uSTX is skipped: the recipient receives nothing, yet the
+        // origin is debited the fee and its nonce advances.
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::TokenTransfer(
+                recv_addr.clone().into(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer.set_tx_fee(100);
+
+        let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        signer.sign_origin(&privk).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        // problematic_txs markers are only serialized/honored in Epoch 4.0+
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_40,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        // fund the origin enough to cover the fee and the (skipped) transfer
+        conn.connection()
+            .as_transaction(|tx| tx.account_credit(&addr.to_account_principal(), 223));
+
+        let category = 7u8;
+        let (fee, receipt) = conn
+            .process_skipped_transaction(&signed_tx, category, false)
+            .unwrap();
+
+        // the fee was charged and the origin nonce bumped, but the 123 uSTX
+        // transfer did not happen: balance dropped by exactly the fee.
+        let account_after = conn.get_account(&addr.to_account_principal());
+        assert_eq!(account_after.nonce, 1);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 123);
+
+        let recv_account_after = conn.get_account(&recv_addr.to_account_principal());
+        assert_eq!(recv_account_after.nonce, 0);
+        assert_eq!(recv_account_after.stx_balance.amount_unlocked(), 0);
+
+        // the receipt reflects the skip: fee returned, tagged with the category
+        // byte, zero execution cost, and no events.
+        assert_eq!(fee, 100);
+        assert_eq!(receipt.problematic_skipped, Some(category));
+        assert_eq!(receipt.execution_cost, ExecutionCost::ZERO);
+        assert!(receipt.events.is_empty());
+        assert!(!receipt.post_condition_aborted);
+
+        conn.commit_block();
+    }
+
+    #[test]
+    fn process_skipped_transaction_bumps_origin_and_sponsor_nonces() {
+        // For a sponsored problematic transaction, both the origin and sponsor
+        // nonces advance and the sponsor pays the fee, but the payload is still
+        // skipped (so the origin's balance is untouched).
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+
+        let privk_origin = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let privk_sponsor = StacksPrivateKey::from_hex(
+            "7e3af4db6af6b3c67e2c6c6d7d5983b519f4d9b3a6e00580ae96dcace3bde8bc01",
+        )
+        .unwrap();
+
+        let auth_origin = TransactionAuth::from_p2pkh(&privk_origin).unwrap();
+        let auth_sponsor = TransactionAuth::from_p2pkh(&privk_sponsor).unwrap();
+        let auth = auth_origin.into_sponsored(auth_sponsor).unwrap();
+
+        let addr = auth.origin().address_testnet();
+        let addr_sponsor = auth.sponsor().unwrap().address_testnet();
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::TokenTransfer(
+                recv_addr.clone().into(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer.set_tx_fee(100);
+
+        let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        signer.sign_origin(&privk_origin).unwrap();
+        signer.sign_sponsor(&privk_sponsor).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_40,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        // the sponsor pays the fee...
+        conn.connection()
+            .as_transaction(|tx| tx.account_credit(&addr_sponsor.to_account_principal(), 100));
+        // ...and give the origin the transfer amount, to prove it is NOT spent.
+        conn.connection()
+            .as_transaction(|tx| tx.account_credit(&addr.to_account_principal(), 123));
+
+        let (fee, receipt) = conn
+            .process_skipped_transaction(&signed_tx, 0, false)
+            .unwrap();
+
+        // both nonces advance; the origin's balance is untouched (no payload).
+        let account_after = conn.get_account(&addr.to_account_principal());
+        assert_eq!(account_after.nonce, 1);
+        assert_eq!(account_after.stx_balance.amount_unlocked(), 123);
+
+        // the sponsor's nonce advances and it paid the fee.
+        let sponsor_after = conn.get_account(&addr_sponsor.to_account_principal());
+        assert_eq!(sponsor_after.nonce, 1);
+        assert_eq!(sponsor_after.stx_balance.amount_unlocked(), 0);
+
+        // the recipient received nothing.
+        let recv_after = conn.get_account(&recv_addr.to_account_principal());
+        assert_eq!(recv_after.nonce, 0);
+        assert_eq!(recv_after.stx_balance.amount_unlocked(), 0);
+
+        assert_eq!(fee, 100);
+        assert_eq!(receipt.problematic_skipped, Some(0));
+
+        conn.commit_block();
+    }
+
+    #[test]
+    fn process_skipped_transaction_rejected_before_epoch_40() {
+        // problematic_txs markers are only valid in Epoch 4.0+. Reaching the
+        // skip path in an earlier epoch is a consensus bug, so it must error
+        // rather than silently charge a fee.
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let recv_addr = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+
+        let mut tx_stx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::TokenTransfer(recv_addr.into(), 123, TokenTransferMemo([0u8; 34])),
+        );
+        tx_stx_transfer.chain_id = 0x80000000;
+        tx_stx_transfer.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx_stx_transfer.set_tx_fee(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
+        signer.sign_origin(&privk).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        // Epoch 3.4 (any pre-4.0 epoch) must reject the skip path outright.
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_34,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+        conn.connection()
+            .as_transaction(|tx| tx.account_credit(&addr.to_account_principal(), 223));
+
+        let err = conn
+            .process_skipped_transaction(&signed_tx, 0, false)
+            .unwrap_err();
+        assert!(matches!(err, Error::InvalidStacksTransaction(..)));
+
+        conn.commit_block();
     }
 
     #[test]
@@ -6951,6 +7321,7 @@ pub mod test {
                 mode,
                 origin,
                 &ft_transfer_2,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -7297,6 +7668,7 @@ pub mod test {
                 mode,
                 origin,
                 &nft_transfer_2,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -7380,6 +7752,7 @@ pub mod test {
                 &mode,
                 &make_account(&origin, 1, 123),
                 &mixed_stx_transfer,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -7389,6 +7762,208 @@ pub mod test {
                 "test failed:\nasset map: {mixed_stx_transfer:?}\nscenario: {post_conditions:?} mode={mode:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_check_postconditions_staking() {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let origin_addr = auth.origin().address_testnet();
+        let origin = origin_addr.to_account_principal();
+
+        // Asset map in which the origin staked 100 uSTX.
+        let mut stacked = AssetMap::new();
+        stacked
+            .add_stacking(&origin, 100, StacksEpochId::Epoch40)
+            .unwrap();
+
+        // (expected_pass, post_conditions, mode, epoch)
+        let tests = vec![
+            // Allow mode: uncovered stacking is permitted.
+            (
+                true,
+                vec![],
+                TransactionPostConditionMode::Allow,
+                StacksEpochId::Epoch40,
+            ),
+            // Deny mode: uncovered stacking is forbidden.
+            (
+                false,
+                vec![],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // Deny mode with a covering allowance (stacked <= limit) passes.
+            (
+                true,
+                vec![TransactionPostCondition::Staking(
+                    PostConditionPrincipal::Origin,
+                    FungibleConditionCode::SentLe,
+                    100,
+                )],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // A limit that is too small (stacked > limit) fails the condition.
+            (
+                false,
+                vec![TransactionPostCondition::Staking(
+                    PostConditionPrincipal::Origin,
+                    FungibleConditionCode::SentLe,
+                    99,
+                )],
+                TransactionPostConditionMode::Allow,
+                StacksEpochId::Epoch40,
+            ),
+            // SentEq matching the exact stacked amount passes even in Deny mode.
+            (
+                true,
+                vec![TransactionPostCondition::Staking(
+                    PostConditionPrincipal::Origin,
+                    FungibleConditionCode::SentEq,
+                    100,
+                )],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // Before epoch 4.0, stacking is not enforced even in Deny mode.
+            (
+                true,
+                vec![],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch33,
+            ),
+        ];
+
+        for (expected_pass, post_conditions, mode, epoch) in tests {
+            let result = check_transaction_postconditions(
+                &post_conditions,
+                &mode,
+                &make_account(&origin, 1, 123),
+                &stacked,
+                epoch,
+                Txid([0; 32]),
+            )
+            .unwrap();
+            assert_eq!(
+                result.is_none(),
+                expected_pass,
+                "test failed:\nscenario: {post_conditions:?} mode={mode:?} epoch={epoch:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_check_postconditions_pox() {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let origin_addr = auth.origin().address_testnet();
+        let origin = origin_addr.to_account_principal();
+
+        // Asset map in which the origin performed a position-altering PoX action.
+        let mut pox_acted = AssetMap::new();
+        pox_acted.add_pox_action(&origin);
+
+        let forbid_pox = || {
+            TransactionPostCondition::Pox(
+                PostConditionPrincipal::Origin,
+                PoxConditionCode::NotPerformed,
+            )
+        };
+        let allow_pox = || {
+            TransactionPostCondition::Pox(
+                PostConditionPrincipal::Origin,
+                PoxConditionCode::MaybePerformed,
+            )
+        };
+        let require_pox = || {
+            TransactionPostCondition::Pox(
+                PostConditionPrincipal::Origin,
+                PoxConditionCode::Performed,
+            )
+        };
+
+        // (expected_pass, post_conditions, mode, epoch)
+        let tests = vec![
+            // Allow mode: uncovered unstaking is permitted.
+            (
+                true,
+                vec![],
+                TransactionPostConditionMode::Allow,
+                StacksEpochId::Epoch40,
+            ),
+            // Deny mode: uncovered unstaking is forbidden.
+            (
+                false,
+                vec![],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // `MaybeUnstaked` opts in, so an unstake passes even in Deny mode.
+            (
+                true,
+                vec![allow_pox()],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // `Unstaked` (must) is satisfied since an unstake occurred.
+            (
+                true,
+                vec![require_pox()],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch40,
+            ),
+            // `NotUnstaked` fails in allow mode because an unstake occurred.
+            (
+                false,
+                vec![forbid_pox()],
+                TransactionPostConditionMode::Allow,
+                StacksEpochId::Epoch40,
+            ),
+            // Before epoch 4.0, unstaking is not enforced even in Deny mode.
+            (
+                true,
+                vec![],
+                TransactionPostConditionMode::Deny,
+                StacksEpochId::Epoch33,
+            ),
+        ];
+
+        for (expected_pass, post_conditions, mode, epoch) in tests {
+            let result = check_transaction_postconditions(
+                &post_conditions,
+                &mode,
+                &make_account(&origin, 1, 123),
+                &pox_acted,
+                epoch,
+                Txid([0; 32]),
+            )
+            .unwrap();
+            assert_eq!(
+                result.is_none(),
+                expected_pass,
+                "test failed:\nscenario: {post_conditions:?} mode={mode:?} epoch={epoch:?}"
+            );
+        }
+
+        // `NotUnstaked` passes when no unstake occurred.
+        let empty = AssetMap::new();
+        let result = check_transaction_postconditions(
+            &[forbid_pox()],
+            &TransactionPostConditionMode::Allow,
+            &make_account(&origin, 1, 123),
+            &empty,
+            StacksEpochId::Epoch40,
+            Txid([0; 32]),
+        )
+        .unwrap();
+        assert!(result.is_none());
     }
 
     #[test]
@@ -7481,6 +8056,7 @@ pub mod test {
                 &mode,
                 &make_account(&origin, 1, 123),
                 asset_map,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -7546,6 +8122,7 @@ pub mod test {
                 &TransactionPostConditionMode::Originator,
                 &make_account(&origin, 1, 123),
                 &asset_map,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -7612,6 +8189,7 @@ pub mod test {
                 &mode,
                 &make_account(&origin, 1, 123),
                 &asset_map,
+                StacksEpochId::latest(),
                 Txid([0; 32]),
             )
             .unwrap();
@@ -8427,6 +9005,7 @@ pub mod test {
                     post_condition_mode,
                     origin_account,
                     asset_map,
+                    StacksEpochId::latest(),
                     Txid([0; 32]),
                 )
                 .unwrap();
@@ -8544,7 +9123,7 @@ pub mod test {
         assert_eq!(
             conn.get_account(&addr.into())
                 .stx_balance
-                .get_available_balance_at_burn_block(0, 0, 0, 0)
+                .get_available_balance_at_burn_block(0, 0, 0, 0, 0)
                 .unwrap(),
             (1000000000 - fee) as u128
         );
@@ -8991,6 +9570,9 @@ pub mod test {
             fn get_pox_4_activation_height(&self) -> u32 {
                 u32::MAX
             }
+            fn get_pox_5_activation_height(&self) -> u32 {
+                u32::MAX
+            }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
                 Some(sortition_id.0[0] as u32)
             }
@@ -9061,6 +9643,7 @@ pub mod test {
                     StacksEpochId::Epoch32 => self.get_stacks_epoch(9),
                     StacksEpochId::Epoch33 => self.get_stacks_epoch(10),
                     StacksEpochId::Epoch34 => self.get_stacks_epoch(11),
+                    StacksEpochId::Epoch40 => self.get_stacks_epoch(12),
                 }
             }
             fn get_pox_payout_addrs(
@@ -9218,6 +9801,9 @@ pub mod test {
                 u32::MAX
             }
             fn get_pox_4_activation_height(&self) -> u32 {
+                u32::MAX
+            }
+            fn get_pox_5_activation_height(&self) -> u32 {
                 u32::MAX
             }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
@@ -12074,8 +12660,8 @@ pub mod test {
             .unwrap_err();
 
         assert!(
-            matches!(err, Error::ExecutionTimeExpired),
-            "expected Error::ExecutionTimeExpired, got {err:?}",
+            matches!(err, Error::ExecutionResourceBudgetExceeded(_)),
+            "expected Error::ExecutionResourceBudgetExceeded, got {err:?}",
         );
 
         // Exercise the miner-level wrapper: it should classify as Problematic and reset the cost.
@@ -12129,8 +12715,8 @@ pub mod test {
             .unwrap_err();
 
         assert!(
-            matches!(err, Error::ExecutionTimeExpired),
-            "expected Error::ExecutionTimeExpired, got {err:?}",
+            matches!(err, Error::ExecutionResourceBudgetExceeded(_)),
+            "expected Error::ExecutionResourceBudgetExceeded, got {err:?}",
         );
 
         // Exercise the miner-level wrapper for the contract-call path too.

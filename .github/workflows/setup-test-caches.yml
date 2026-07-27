@@ -4,227 +4,126 @@ name: "Setup: Test Caches"
 
 on:
   workflow_call:
-    inputs:
-      archive-file:
-        description: "The test archive file"
-        required: true
-        type: string
-      btc-version:
-        description: "Bitcoin version"
-        required: true
-        type: string
 
 # Set default permissions
 permissions:
   contents: read
 
 # Set default env vars
-#   - transferred to composite action steps
 env:
-  RUSTFLAGS: "-Cinstrument-coverage -Awarnings"
+  RUSTFLAGS: "-C instrument-coverage -A warnings"
   LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
 
 # Configure concurrency
-#   - cache will exist longer than workflow execution so other runners have access.
-#   - multiple test workflows may call setup-test-caches simultaneously for the same ref. They share a concurrency slot so only one actively builds; others wait and then find the caches already populated.
-#   - runs on PR branches cancel old builds when a new commit arrives (github.head_ref is only set in a PR context).
+#  - All workflows share this one cache, so make it run atomically and block all other attempts when being generated.
+#  - In the case of multiple concurrent attempts, the first will create the caches and the other(s) will find them after.
 concurrency:
-  group: setup-test-caches-${{ github.head_ref || github.ref }}
-  cancel-in-progress: ${{ github.head_ref != '' }}
+  group: setup-test-caches
+  cancel-in-progress: false
 
 jobs:
-  # Generate cargo cache key based on Cargo.lock and Cargo.toml files
-  generate-cargo-cache-key:
-    name: Generate Cargo Cache Key
-    runs-on: ubuntu-latest
-    outputs:
-      cache-key: ${{ steps.generate-cache-key.outputs.cache-key }}
-    steps:
-      # Checkout the code
-      #   - only Cargo.lock, Cargo.toml, and rust-toolchain.toml are required to generate the cache key
-      - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-          sparse-checkout: |
-            Cargo.lock
-            Cargo.toml
-            rust-toolchain.toml
-
-      - name: Generate Cache Key
-        id: generate-cache-key
-        shell: bash
-        run: |
-          echo "cache-key=cache-cargo-for-archive-build--${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('Cargo.toml') }}-${{ hashFiles('rust-toolchain.toml') }}" >> "$GITHUB_OUTPUT"
-
   # Check which caches already exist before creating them
   check-caches:
     name: Check Existing Caches
-    needs:
-      - generate-cargo-cache-key
     runs-on: ubuntu-latest
-    outputs:
-      bitcoin-cache-hit: ${{ steps.bitcoin.outputs.cache-hit }}
-      cargo-cache-hit: ${{ steps.cargo.outputs.cache-hit }}
-      test-archive-cache-hit: ${{ steps.test-archive.outputs.cache-hit }}
     steps:
       # Checkout the code
       #   - only .github is required for checking caches
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
 
-      # Check cache for bitcoin binary (version is defined as a composite input, default is 25.0)
+      # Check cache for bitcoin binary
       - name: Check Bitcoin Cache
         id: bitcoin
         uses: ./.github/actions/cache/bitcoin
-        with:
-          btc-version: ${{ inputs.btc-version }}
 
       # Check cache for cargo binaries
       - name: Check Cargo Cache
         id: cargo
         uses: ./.github/actions/cache/cargo
-        with:
-          cache-key: ${{ needs.generate-cargo-cache-key.outputs.cache-key }}
 
-      # Check cache for nextest archive
-      - name: Check Test Archive Cache
-        id: test-archive
-        uses: ./.github/actions/cache/test-archive
-        with:
-          archive-file: ${{ inputs.archive-file }}
-
-      # Output a job summary of cache status
+      # Output a job summary of cache status and crash the CI run if a cache is missing and won't be created
       - name: Output GitHub Job Summary
         shell: bash
+        env:
+          IS_MASTER: ${{ github.ref_name == 'master' }}
+          BITCOIN_KEY: ${{ steps.bitcoin.outputs.cache-key }}
+          BITCOIN_MATCHED_KEY: ${{ steps.bitcoin.outputs.cache-matched-key }}
+          CARGO_KEY: ${{ steps.cargo.outputs.cache-key }}
+          CARGO_MATCHED_KEY: ${{ steps.cargo.outputs.cache-matched-key }}
         run: |
-          echo "## Cache Status" >> $GITHUB_STEP_SUMMARY
-          echo "| Cache | Exists |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Bitcoin | ${{ steps.bitcoin.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Cargo | ${{ steps.cargo.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Test Archive | ${{ steps.test-archive.outputs.cache-hit == 'true' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          BITCOIN_EMOJI="❌"
+          [ -n "$BITCOIN_MATCHED_KEY" ] && BITCOIN_EMOJI="✅"
+          CARGO_EMOJI="❌"
+          [ -n "$CARGO_MATCHED_KEY" ] && CARGO_EMOJI="✅"
 
-  # Cache the bitcoin binary
+          echo "## Cache Status" >> $GITHUB_STEP_SUMMARY
+          echo "This workflow is running from \`${{ github.ref_name }}\`." >> $GITHUB_STEP_SUMMARY
+          echo "Caches can only be created from \`master\`." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Cache | Cache Key | Matched Cache Key | Exists? |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Bitcoin | $BITCOIN_KEY | ${BITCOIN_MATCHED_KEY:-❌} | $BITCOIN_EMOJI |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cargo | $CARGO_KEY | ${CARGO_MATCHED_KEY:-❌} | $CARGO_EMOJI |" >> $GITHUB_STEP_SUMMARY
+
+          # Fail the build gracefully if IS_MASTER == false and any cache is missing
+          if [ "$IS_MASTER" = "false" ]; then
+            if [ -z "$BITCOIN_MATCHED_KEY" ] || [ -z "$CARGO_MATCHED_KEY" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "❌ **Required Cache Missing:** A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER seeding the caches from master manually: https://github.com/stacks-network/stacks-core/actions/workflows/_seed-caches.yml" >> $GITHUB_STEP_SUMMARY
+              echo "::error title=Required Cache Missing::A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER seeding the caches from master manually: https://github.com/stacks-network/stacks-core/actions/workflows/_seed-caches.yml"
+              exit 1
+            fi
+          fi
+
+  # Cache the bitcoin binary (if github.ref_name == 'master')
   cache-bitcoin-binary:
     name: Build & Cache Bitcoin Binary
     needs:
       - check-caches
     runs-on: ubuntu-latest
-    if: needs.check-caches.outputs.bitcoin-cache-hit != 'true'
+    if: |
+      !cancelled() && 
+      github.ref_name == 'master'
     steps:
       # Checkout the code
-      #   - only .github is required for this job
+      #   - only .github is required for checking caches
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
 
-      # Save bitcoin v${BTC_VERSION} cache
-      - name: Bitcoin Cache
+      - name: Create Bitcoin Cache
         uses: ./.github/actions/cache/bitcoin
         with:
-          action: save
-          btc-version: ${{ inputs.btc-version }}
+          action: create
 
-  # Cache nextest archives for tests
-  cache-test-archive-and-cargo:
-    name: Build & Cache Test Archive + Cargo
+  # Cache the cargo crates (if github.ref_name == 'master')
+  cache-cargo:
+    name: Build & Cache Cargo Crates
     needs:
-      - generate-cargo-cache-key
       - check-caches
     runs-on: ubuntu-latest
-    ####################################################################################
-    ### Everything below is ONLY done if the test archive file is not cached
-    ####################################################################################
-    if: >-
-      !cancelled() &&
-      needs.check-caches.outputs.test-archive-cache-hit != 'true'
+    if: |
+      !cancelled() && 
+      github.ref_name == 'master'
     steps:
       # Checkout the code
+      #   - only .github is required for checking caches
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
 
-      # Setup rust toolchain
-      - name: Setup Rust Toolchain
-        uses: ./.github/actions/setup-rust-toolchain
-        with:
-          components: llvm-tools-preview
-
-      #  Install nextest
-      - name: Install nextest
-        uses: ./.github/actions/install-tool
-        with:
-          tools: nextest
-      
-      # Install mold linker and clang (faster than default)      
-      - name: Install mold Linker (and clang)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y mold clang
-
-      # Restore the cargo cache IF it exists
-      - name: Restore Cargo Cache
-        if: needs.check-caches.outputs.cargo-cache-hit == 'true'
+      - name: Create Cargo Cache
         uses: ./.github/actions/cache/cargo
         with:
-          action: restore
-          cache-key: ${{ needs.generate-cargo-cache-key.outputs.cache-key }}
-
-      # Dynamic cleanup of local workspace crates right after restoring. We never want them to exist in the produced cache.
-      # These are things like stacks-signer, stacks-inspect, etc. built locally from our codebase.
-      # We must always compile them on-the-fly from current code, as they aren't bumped in version when they are changed.
-      - name: Clean Local Workspace Crates
-        if: needs.check-caches.outputs.cargo-cache-hit == 'true'
-        shell: bash
-        run: |
-          if [ -f Cargo.toml ]; then
-            echo "Identifying local workspace crates to exclude from restored cache..."
-            cargo metadata --format-version 1 --no-deps | jq -r '.packages[].name' | while read -r crate; do
-              echo "Wiping build artifacts for local crate: $crate"
-              cargo clean -p "$crate"
-            done
-          else
-            echo "ERROR: No Cargo.toml found in the current working directory."
-            exit 1
-          fi
-
-      # Build the nextest archive (which also builds our cargo file structure for caching)
-      - name: Build and Archive Tests
-        shell: bash
-        env:
-          RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
-        run: |
-          # Capture the archive file input, then expand the leading ~ to $HOME
-          INPUT_FILE="${{ inputs.archive-file }}"
-          ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
-
-          cargo nextest archive \
-            --workspace \
-            --tests \
-            --locked \
-            --features monitoring_prom \
-            --archive-file "$ARCHIVE_FILE"
-
-      # Save the nextest archive to cache
-      - name: Save Test Archive Cache
-        uses: ./.github/actions/cache/test-archive
-        with:
-          action: save
-          archive-file: ${{ inputs.archive-file }}
-
-      # Save the cargo cache only IF it didn't already exist
-      - name: Save Cargo Cache
-        if: needs.check-caches.outputs.cargo-cache-hit != 'true'
-        uses: ./.github/actions/cache/cargo
-        with:
-          action: save
-          cache-key: ${{ needs.generate-cargo-cache-key.outputs.cache-key }}
+          action: create

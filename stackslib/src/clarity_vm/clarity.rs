@@ -21,7 +21,7 @@ use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
 pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
-use clarity::vm::contexts::{AbortCallback, AssetMap, OwnedEnvironment};
+use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, ClarityExecutionCache, HeadersDB,
@@ -30,6 +30,7 @@ use clarity::vm::database::{
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::representations::SymbolicExpression;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::{ClarityVersion, ContractName};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -38,18 +39,20 @@ use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
-    make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
-    BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, COSTS_3_NAME, COSTS_4_NAME, POX_2_MAINNET_CODE,
-    POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE,
-    POX_4_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME,
-    SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_NAME,
+    make_pox_5_body, make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2,
+    BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
+    COSTS_3_NAME, COSTS_4_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE,
+    POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, POX_5_NAME,
+    SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY,
+    SIGNERS_VOTING_NAME, SIP_031_NAME,
 };
 use crate::chainstate::stacks::db::{
     handle_poison_microblock, StacksAccount, StacksAccountWriter, StacksTransactionExecution,
 };
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::index::marf::MARF;
+use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksMicroblockHeader, StacksTransaction, TransactionPayload,
     TransactionSmartContract, TransactionVersion,
@@ -119,13 +122,6 @@ pub struct ClarityBlockConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
-    /// Callback checked at every Clarity `eval` call. Used by the miner to
-    /// abort block assembly when a resource limit is exceeded (e.g. heap
-    /// memory). Propagated to each `ClarityTransactionConnection` and from
-    /// there into `GlobalContext`.
-    ///
-    /// `AbortCallback::None` is the no-op default.
-    abort_callback: AbortCallback,
 }
 
 ///
@@ -142,7 +138,6 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
-    abort_callback: AbortCallback,
     /// Per-tx cache container which is attached to [`ClarityDatabase`] instances handed out by this
     /// connection.
     cache: ClarityExecutionCache,
@@ -263,7 +258,6 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         mainnet: bool,
         chain_id: u32,
         epoch: StacksEpochId,
-        abort_callback: AbortCallback,
     ) -> ClarityTransactionConnection<'a, 'b> {
         let mut log = RollbackWrapperPersistedLog::new();
         log.nest();
@@ -276,7 +270,6 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             mainnet,
             chain_id,
             epoch,
-            abort_callback,
             cache: ClarityExecutionCache::default(),
         }
     }
@@ -334,7 +327,6 @@ impl ClarityBlockConnection<'_, '_> {
             mainnet: false,
             chain_id: CHAIN_ID_TESTNET,
             epoch,
-            abort_callback: AbortCallback::None,
         }
     }
 
@@ -353,11 +345,6 @@ impl ClarityBlockConnection<'_, '_> {
             .expect("BUG: Clarity block connection lost cost tracker instance");
         self.cost_track.replace(tracker);
         old
-    }
-
-    /// Set an abort callback that will be checked at every Clarity `eval` call.
-    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
-        self.abort_callback = callback;
     }
 
     /// Get the current cost so far
@@ -484,7 +471,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
-            abort_callback: AbortCallback::None,
         }
     }
 
@@ -509,7 +495,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
-            abort_callback: AbortCallback::None,
         }
     }
 
@@ -536,7 +521,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
-            abort_callback: AbortCallback::None,
         };
 
         let use_mainnet = self.mainnet;
@@ -546,7 +530,7 @@ impl ClarityInstance {
                     &boot_code_id("costs", use_mainnet),
                     ClarityVersion::Clarity1,
                     BOOT_CODE_COSTS,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
             clarity_db
@@ -557,7 +541,7 @@ impl ClarityInstance {
                     BOOT_CODE_COSTS,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
         });
@@ -568,7 +552,7 @@ impl ClarityInstance {
                     &boot_code_id("cost-voting", use_mainnet),
                     ClarityVersion::Clarity1,
                     &*BOOT_CODE_COST_VOTING,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
             clarity_db
@@ -579,7 +563,7 @@ impl ClarityInstance {
                     &*BOOT_CODE_COST_VOTING,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
 
@@ -594,7 +578,7 @@ impl ClarityInstance {
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
                     &*BOOT_CODE_POX_TESTNET,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
             clarity_db
@@ -605,7 +589,7 @@ impl ClarityInstance {
                     &*BOOT_CODE_POX_TESTNET,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
         });
@@ -636,7 +620,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch,
-            abort_callback: AbortCallback::None,
         };
 
         let use_mainnet = self.mainnet;
@@ -647,7 +630,7 @@ impl ClarityInstance {
                     &boot_code_id("costs-2", use_mainnet),
                     ClarityVersion::Clarity1,
                     BOOT_CODE_COSTS_2,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
             clarity_db
@@ -658,7 +641,7 @@ impl ClarityInstance {
                     BOOT_CODE_COSTS_2,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
         });
@@ -669,7 +652,7 @@ impl ClarityInstance {
                     &boot_code_id("costs-3", use_mainnet),
                     ClarityVersion::Clarity2,
                     BOOT_CODE_COSTS_3,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
             clarity_db
@@ -680,7 +663,7 @@ impl ClarityInstance {
                     BOOT_CODE_COSTS_3,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
         });
@@ -691,7 +674,7 @@ impl ClarityInstance {
                     &boot_code_id("pox-2", use_mainnet),
                     ClarityVersion::Clarity2,
                     &*POX_2_TESTNET_CODE,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
             clarity_db
@@ -702,7 +685,7 @@ impl ClarityInstance {
                     &*POX_2_TESTNET_CODE,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
         });
@@ -748,7 +731,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
-            abort_callback: AbortCallback::None,
         }
     }
 
@@ -789,7 +771,6 @@ impl ClarityInstance {
             mainnet: self.mainnet,
             chain_id: self.chain_id,
             epoch: epoch.epoch_id,
-            abort_callback: AbortCallback::None,
         }
     }
 
@@ -944,6 +925,15 @@ impl PreCommitClarityBlock<'_> {
             .commit_to_processed_block(&self.commit_to)
             .expect("FATAL: failed to commit block");
     }
+
+    /// Discard the block's uncommitted trie instead of committing it.
+    /// For replay/validation tooling that processes blocks against a
+    /// long-lived `ClarityInstance` and throws the resulting state away:
+    /// the instance cannot `begin` the next block while a trie is open.
+    pub fn rollback(self) {
+        debug!("Rolling back pre-commit Clarity block connection"; "index_block" => %self.commit_to);
+        self.datastore.drop_current_trie();
+    }
 }
 
 impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
@@ -978,6 +968,25 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         self.datastore.test_commit();
 
         self.cost_track.unwrap()
+    }
+
+    /// Set the epoch on this block connection, mirroring what a real
+    /// `initialize_epoch_X_Y` would do: updates the in-memory `epoch` field on
+    /// the block connection, persists the value to the Clarity DB, and updates
+    /// the transaction connection's `epoch` field so subsequent analyses route
+    /// through the correct epoch's type checker.
+    #[cfg(test)]
+    pub fn set_epoch_for_testing(&mut self, epoch: StacksEpochId) {
+        self.epoch = epoch;
+        self.as_transaction(|tx_conn| {
+            tx_conn
+                .with_clarity_db(|db| {
+                    db.set_clarity_epoch_version(epoch)?;
+                    Ok(())
+                })
+                .unwrap();
+            tx_conn.epoch = epoch;
+        });
     }
 
     pub fn precommit_to_block(self, final_bhh: StacksBlockId) -> PreCommitClarityBlock<'a> {
@@ -1043,6 +1052,77 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         Ok(boot_code_account)
     }
 
+    /// Prepares a [`StacksTransaction`] with a [`SmartContract`](TransactionPayload::SmartContract)
+    /// payload for instantiating a boot contract, but does not execute it.
+    ///
+    /// Sets the transaction's auth to be the boot code account and the transaction version based on
+    /// this instance's `mainnet` field.
+    fn make_boot_code_smart_contract_tx(
+        &mut self,
+        contract_name: &str,
+        code_body: &str,
+        clarity_version: Option<ClarityVersion>,
+    ) -> Result<(StacksAccount, StacksTransaction), ClarityError> {
+        let boot_code_account = self.get_boot_code_account()?;
+        let tx_version = if self.mainnet {
+            TransactionVersion::Mainnet
+        } else {
+            TransactionVersion::Testnet
+        };
+
+        let boot_code_auth = boot_code_tx_auth(boot_code_addr(self.mainnet));
+        let payload = TransactionPayload::SmartContract(
+            TransactionSmartContract {
+                name: ContractName::try_from(contract_name.to_string())
+                    .expect("FATAL: invalid boot-code contract name"),
+                code_body: StacksString::from_str(code_body)
+                    .expect("FATAL: invalid boot code body"),
+            },
+            clarity_version,
+        );
+
+        Ok((
+            boot_code_account,
+            StacksTransaction::new(tx_version, boot_code_auth, payload),
+        ))
+    }
+
+    /// Instantiates a boot contract by:
+    ///
+    /// 1. Preparing a [`StacksTransaction`] with the appropriate version, payload and auth,
+    /// 2. Executing it using the boot account within a cost-free transaction, and
+    /// 3. Asserting the receipt for success.
+    ///
+    /// Panics if any of the above steps fail.
+    fn instantiate_boot_contract(
+        &mut self,
+        contract_name: &str,
+        code_body: &str,
+        clarity_version: Option<ClarityVersion>,
+    ) -> Result<StacksTransactionReceipt, ClarityError> {
+        let contract_id = boot_code_id(contract_name, self.mainnet);
+
+        let (boot_code_account, contract_tx) =
+            self.make_boot_code_smart_contract_tx(contract_name, code_body, clarity_version)?;
+
+        let receipt = self.as_free_transaction(|tx_conn| {
+            info!("Instantiate {} contract", &contract_id);
+            tx_conn
+                .process_transaction_payload(
+                    &contract_tx,
+                    &boot_code_account,
+                    &TransactionResourceBudgets::unlimited(),
+                )
+                .expect("FATAL: Failed to process boot contract initialization")
+        });
+
+        if receipt.result != Value::okay_true() || receipt.post_condition_aborted {
+            panic!("FATAL: Failure processing {contract_id} contract initialization: {receipt:#?}");
+        }
+
+        Ok(receipt)
+    }
+
     pub fn initialize_epoch_2_05(&mut self) -> Result<StacksTransactionReceipt, ClarityError> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
@@ -1105,8 +1185,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     .process_transaction_payload(
                         &costs_2_contract_tx,
                         &boot_code_account,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                     .expect("FATAL: Failed to process PoX 2 contract initialization")
             });
@@ -1213,7 +1292,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &pox_2_contract_id);
                 let receipt = tx_conn
-                    .process_transaction_payload(&pox_2_contract_tx, &boot_code_account, None, None)
+                    .process_transaction_payload(
+                        &pox_2_contract_tx,
+                        &boot_code_account,
+                        &TransactionResourceBudgets::unlimited(),
+                    )
                     .expect("FATAL: Failed to process PoX 2 contract initialization");
 
                 // set burnchain params
@@ -1234,7 +1317,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         "set-burnchain-parameters",
                         &params,
                         |_, _| None,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .expect("Failed to set burnchain parameters in PoX-2 contract");
 
@@ -1283,8 +1366,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     .process_transaction_payload(
                         &costs_3_contract_tx,
                         &boot_code_account,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                     .expect("FATAL: Failed to process costs-3 contract initialization");
 
@@ -1449,7 +1531,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &pox_3_contract_id);
                 let receipt = tx_conn
-                    .process_transaction_payload(&pox_3_contract_tx, &boot_code_account, None, None)
+                    .process_transaction_payload(
+                        &pox_3_contract_tx,
+                        &boot_code_account,
+                        &TransactionResourceBudgets::unlimited(),
+                    )
                     .expect("FATAL: Failed to process PoX 3 contract initialization");
 
                 // set burnchain params
@@ -1470,7 +1556,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         "set-burnchain-parameters",
                         &params,
                         |_, _| None,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .expect("Failed to set burnchain parameters in PoX-3 contract");
 
@@ -1563,7 +1649,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &pox_4_contract_id);
                 let receipt = tx_conn
-                    .process_transaction_payload(&pox_4_contract_tx, &boot_code_account, None, None)
+                    .process_transaction_payload(
+                        &pox_4_contract_tx,
+                        &boot_code_account,
+                        &TransactionResourceBudgets::unlimited(),
+                    )
                     .expect("FATAL: Failed to process PoX 4 contract initialization");
 
                 // set burnchain params
@@ -1583,9 +1673,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                         "set-burnchain-parameters",
                         &params,
                         |_, _| None,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
-                    .expect("Failed to set burnchain parameters in PoX-3 contract");
+                    .expect("Failed to set burnchain parameters in PoX-4 contract");
 
                 receipt
             });
@@ -1621,8 +1711,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     .process_transaction_payload(
                         &signers_contract_tx,
                         &boot_code_account,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                     .expect("FATAL: Failed to process .signers contract initialization");
                 receipt
@@ -1668,8 +1757,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                             .process_transaction_payload(
                                 &signers_contract_tx,
                                 &boot_code_account,
-                                None,
-                                None,
+                                &TransactionResourceBudgets::unlimited(),
                             )
                             .expect("FATAL: Failed to process .signers DB contract initialization");
                         receipt
@@ -1708,8 +1796,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     .process_transaction_payload(
                         &signers_contract_tx,
                         &boot_code_account,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                     .expect("FATAL: Failed to process .signers-voting contract initialization");
                 receipt
@@ -1840,8 +1927,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     .process_transaction_payload(
                         &sip_031_contract_tx,
                         &boot_code_account,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                     .expect("FATAL: Failed to process .sip-031 contract initialization");
                 receipt
@@ -1954,8 +2040,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     .process_transaction_payload(
                         &costs_4_contract_tx,
                         &boot_code_account,
-                        None,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                     .expect("FATAL: Failed to process costs-4 contract initialization");
 
@@ -2002,6 +2087,99 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         })
     }
 
+    pub fn initialize_epoch_4_0(&mut self) -> Result<Vec<StacksTransactionReceipt>, ClarityError> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+            self.epoch = StacksEpochId::Epoch40;
+            self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch40)?;
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 4.0 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch40;
+            });
+
+            let first_block_height = self.burn_state_db.get_burn_start_height();
+            let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
+            let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
+            let pox_5_activation_height = self.burn_state_db.get_pox_5_activation_height();
+
+            let pox_5_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
+                u64::from(pox_5_activation_height),
+                u64::from(first_block_height),
+                u64::from(pox_reward_cycle_length),
+            )
+            .expect("PANIC: PoX-5 first reward cycle begins *before* first burn block height")
+                + 1;
+
+            /////////////////// .pox-5 ////////////////////////
+            let pox_5_contract_id = boot_code_id(POX_5_NAME, self.mainnet);
+            let pox_5_code = make_pox_5_body(self.mainnet);
+            let (boot_code_account, pox_5_contract_tx) = self
+                .make_boot_code_smart_contract_tx(
+                    POX_5_NAME,
+                    &pox_5_code,
+                    Some(ClarityVersion::Clarity6),
+                )
+                .expect("FATAL: Failed to construct .pox-5 contract initialization");
+
+            let pox_5_initialization_receipt = self.as_transaction(|tx_conn| {
+                debug!("Instantiate {} contract", &pox_5_contract_id);
+                let receipt = tx_conn
+                    .process_transaction_payload(
+                        &pox_5_contract_tx,
+                        &boot_code_account,
+                        &TransactionResourceBudgets::unlimited(),
+                    )
+                    .expect("FATAL: Failed to process .pox-5 contract initialization");
+
+                // set burnchain params
+                let consts_setter = PrincipalData::from(pox_5_contract_id.clone());
+                let params = vec![
+                    Value::UInt(u128::from(first_block_height)),
+                    Value::UInt(u128::from(pox_prepare_length)),
+                    Value::UInt(u128::from(pox_reward_cycle_length)),
+                    Value::UInt(u128::from(pox_5_first_cycle)),
+                ];
+
+                let (_, _, _burnchain_params_events) = tx_conn
+                    .run_contract_call(
+                        &consts_setter,
+                        None,
+                        &pox_5_contract_id,
+                        "set-burnchain-parameters",
+                        &params,
+                        |_, _| None,
+                        &ResourceBudget::unlimited(),
+                    )
+                    .expect("Failed to set burnchain parameters in PoX-5 contract");
+
+                receipt
+            });
+
+            if pox_5_initialization_receipt.result != Value::okay_true()
+                || pox_5_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing .pox-5 contract initialization: {:#?}",
+                    &pox_5_initialization_receipt
+                );
+            }
+
+            info!("Epoch 4.0 initialized");
+            (old_cost_tracker, Ok(vec![pox_5_initialization_receipt]))
+        })
+    }
+
     pub fn start_transaction_processing(&mut self) -> ClarityTransactionConnection<'_, '_> {
         ClarityTransactionConnection::new(
             &mut self.datastore,
@@ -2011,7 +2189,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             self.mainnet,
             self.chain_id,
             self.epoch,
-            self.abort_callback.clone(),
         )
     }
 
@@ -2158,7 +2335,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                     cost_track,
                     self.epoch,
                 );
-                vm_env.set_abort_callback(self.abort_callback.clone());
+
                 let result = to_do(&mut vm_env);
                 let (mut db, cost_track) = vm_env
                     .destruct()
@@ -2461,7 +2638,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                 })
                 .unwrap_err();
@@ -2474,7 +2651,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                 })
                 .unwrap_err();
@@ -2522,7 +2699,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2532,7 +2709,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -2576,7 +2753,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -2586,7 +2763,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
                 tx.save_analysis(&contract_identifier, &ct_analysis)
@@ -2605,7 +2782,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -2615,7 +2792,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
                 tx.save_analysis(&contract_identifier, &ct_analysis)
@@ -2636,7 +2813,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .unwrap();
                 assert!(format!(
@@ -2648,7 +2825,7 @@ mod tests {
                         contract,
                         None,
                         |_, _| None,
-                        None
+                        &ResourceBudget::unlimited()
                     )
                     .unwrap_err()
                 )
@@ -2691,7 +2868,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2701,7 +2878,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -2716,7 +2893,7 @@ mod tests {
                     "foo",
                     &[Value::Int(1)],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0,
@@ -2753,7 +2930,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2763,7 +2940,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -2846,7 +3023,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2856,7 +3033,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -2978,7 +3155,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2988,7 +3165,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -3003,7 +3180,7 @@ mod tests {
                     "get-bar",
                     &[],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0,
@@ -3018,7 +3195,7 @@ mod tests {
                     "set-bar",
                     &[Value::Int(1), Value::Int(1)],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0,
@@ -3034,7 +3211,7 @@ mod tests {
                         "set-bar",
                         &[Value::Int(10), Value::Int(1)],
                         |_, _| Some("testing rollback".to_string()),
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                 })
                 .unwrap_err();
@@ -3055,7 +3232,7 @@ mod tests {
                     "get-bar",
                     &[],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0,
@@ -3071,7 +3248,7 @@ mod tests {
                     "set-bar",
                     &[Value::Int(10), Value::Int(0)],
                     |_, _| Some("testing rollback".to_string()),
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap_err()
             )
@@ -3086,7 +3263,7 @@ mod tests {
                     "get-bar",
                     &[],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap()
                 .0,
@@ -3193,19 +3370,31 @@ mod tests {
 
             conn.as_transaction(|clarity_tx| {
                 let receipt = clarity_tx
-                    .process_transaction_payload(&tx1, &account, None, None)
+                    .process_transaction_payload(
+                        &tx1,
+                        &account,
+                        &TransactionResourceBudgets::unlimited(),
+                    )
                     .unwrap();
                 assert!(receipt.post_condition_aborted);
             });
             conn.as_transaction(|clarity_tx| {
                 clarity_tx
-                    .process_transaction_payload(&tx2, &account, None, None)
+                    .process_transaction_payload(
+                        &tx2,
+                        &account,
+                        &TransactionResourceBudgets::unlimited(),
+                    )
                     .unwrap();
             });
 
             conn.as_transaction(|clarity_tx| {
                 let receipt = clarity_tx
-                    .process_transaction_payload(&tx3, &account, None, None)
+                    .process_transaction_payload(
+                        &tx3,
+                        &account,
+                        &TransactionResourceBudgets::unlimited(),
+                    )
                     .unwrap();
 
                 assert!(receipt.post_condition_aborted);
@@ -3296,6 +3485,10 @@ mod tests {
                 u32::MAX
             }
 
+            fn get_pox_5_activation_height(&self) -> u32 {
+                u32::MAX
+            }
+
             fn get_pox_prepare_length(&self) -> u32 {
                 panic!("BlockLimitBurnStateDB should not return PoX info");
             }
@@ -3352,7 +3545,7 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        None,
+                        &ResourceBudget::unlimited(),
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -3362,7 +3555,7 @@ mod tests {
                     contract,
                     None,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
                 conn.save_analysis(&contract_identifier, &ct_analysis)
@@ -3387,7 +3580,7 @@ mod tests {
                     "do-expand",
                     &[],
                     |_, _| None,
-                    None
+                    &ResourceBudget::unlimited()
                 ))
                 .unwrap_err()
             {
@@ -3441,7 +3634,7 @@ mod tests {
                     &contract_identifier,
                     ClarityVersion::Clarity1,
                     contract_src,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
                 .unwrap();
             tx.initialize_smart_contract(
@@ -3451,7 +3644,7 @@ mod tests {
                 contract_src,
                 None,
                 |_, _| None,
-                None,
+                &ResourceBudget::unlimited(),
             )
             .unwrap();
             tx.save_analysis(&contract_identifier, &ct_analysis)
@@ -3470,7 +3663,7 @@ mod tests {
                 "noop",
                 &[],
                 |_, _| None,
-                None,
+                &ResourceBudget::unlimited(),
             )
             .unwrap();
 
@@ -3485,7 +3678,7 @@ mod tests {
                 "noop",
                 &[],
                 |_, _| None,
-                None,
+                &ResourceBudget::unlimited(),
             )
             .unwrap();
             assert!(
@@ -3510,7 +3703,7 @@ mod tests {
                 "noop",
                 &[],
                 |_, _| None,
-                None,
+                &ResourceBudget::unlimited(),
             )
             .unwrap();
             assert!(

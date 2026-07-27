@@ -14,17 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Tests for the per-transaction memory-limit abort callback
-//! (`make_mem_abort_callback`). These live in the stacks-node crate because
-//! it sets a `TrackingAllocator` as the `#[global_allocator]`, which is
-//! required for the thread-local counters to reflect actual allocations.
+//! Tests for the per-transaction memory-limit ResourceBudgets. These live
+//! in the stacks-node crate because it sets a `TrackingAllocator` as the
+//! `#[global_allocator]`, which is required for the thread-local counters
+//! to reflect actual allocations.
 
-use clarity::vm::contexts::{AbortCallback, GlobalContext};
+use clarity::vm::analysis::run_analysis;
+use clarity::vm::clarity::ClarityError;
+use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::MemoryBackingStore;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::{ast, eval_all, ClarityVersion, ContractContext};
-use stacks::chainstate::nakamoto::miner::make_mem_abort_callback;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 
@@ -40,16 +42,34 @@ fn big_alloc_program() -> String {
     format!("(list\n{}\n)", lines.join("\n"))
 }
 
-/// Helper: run a Clarity program with an abort callback (use
-/// `AbortCallback::None` for "no callback").
-fn run_with_abort_callback(
+fn big_type_signature_program() -> String {
+    let scream = "a".repeat(100);
+    let mut s = "(define-private (f (tup {".to_string();
+    for i in 0..100 {
+        s.push_str(format!("{scream}{i}: int").as_str());
+        if i < 99 {
+            s.push_str(", ");
+        }
+    }
+    s.push_str("})) 0)\n42");
+    s
+}
+
+/// Helper: analyze and run a Clarity program with memory resource budgets
+/// for both phases (use `None` for no limit).
+fn run_with_memory_limits(
     program: &str,
-    abort_cb: AbortCallback,
-) -> Result<Option<clarity::vm::Value>, clarity::vm::errors::VmExecutionError> {
+    analysis_mem_limit: Option<u64>,
+    eval_mem_limit: Option<u64>,
+) -> Result<Option<clarity::vm::Value>, ClarityError> {
+    let analysis_budget = ResourceBudget::new().with_max_memory_use(analysis_mem_limit);
+    let eval_budget = ResourceBudget::new().with_max_memory_use(eval_mem_limit);
+
     let contract_id = QualifiedContractIdentifier::transient();
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
-    let epoch = StacksEpochId::Epoch30;
+    let version = ClarityVersion::latest();
+    let epoch = StacksEpochId::latest();
 
     let mut global_context = GlobalContext::new(
         false,
@@ -58,30 +78,51 @@ fn run_with_abort_callback(
         LimitedCostTracker::new_free(),
         epoch,
     );
-    global_context.abort_callback = abort_cb;
 
     let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
+    let analysis_limiter = analysis_budget.start_tracking();
+
     let parsed = ast::build_ast(
         &contract_id,
         program,
         &mut global_context.cost_track,
-        ClarityVersion::Clarity2,
+        version,
         epoch,
     )
     .expect("Failed to parse program")
     .expressions;
 
-    global_context.execute(|g| eval_all(&parsed, &mut contract_context, g, None))
+    let mut marf = MemoryBackingStore::new();
+    let mut analysis_db = marf.as_analysis_db();
+    let cost_tracker = LimitedCostTracker::new_free();
+    let _ = run_analysis(
+        &QualifiedContractIdentifier::transient(),
+        &parsed,
+        &mut analysis_db,
+        false,
+        cost_tracker,
+        epoch,
+        version,
+        true,
+        analysis_limiter,
+    )
+    .map_err(|e| ClarityError::from(e.0))?;
+
+    global_context
+        .execute(|g| {
+            g.set_execution_resource_limiter(eval_budget.start_tracking());
+
+            eval_all(&parsed, &mut contract_context, g, None)
+        })
+        .map_err(|e| e.into())
 }
 
 #[test]
-fn test_mem_abort_callback_aborts_on_exceeded_limit() {
+fn test_mem_budget_aborts_on_exceeded_execution_limit() {
     let program = big_alloc_program();
 
     // 1 byte limit => any real execution will exceed this.
-    let abort_cb = make_mem_abort_callback(1);
-
-    let result = run_with_abort_callback(&program, abort_cb);
+    let result = run_with_memory_limits(&program, None, Some(1));
 
     assert!(
         result.is_err(),
@@ -89,19 +130,17 @@ fn test_mem_abort_callback_aborts_on_exceeded_limit() {
     );
     let err_string = format!("{:?}", result.unwrap_err());
     assert!(
-        err_string.contains("exceeded limit"),
-        "Expected 'exceeded limit' in error, got: {err_string}"
+        err_string.contains("Evaluation used too much memory"),
+        "Expected 'Evaluation used too much memory' in error, got: {err_string}"
     );
 }
 
 #[test]
-fn test_mem_abort_callback_allows_execution_under_limit() {
+fn test_mem_budget_allows_execution_under_limit() {
     let program = big_alloc_program();
 
     // 100 MB limit => the large list program should not exceed this.
-    let abort_cb = make_mem_abort_callback(100 * 1024 * 1024);
-
-    let result = run_with_abort_callback(&program, abort_cb);
+    let result = run_with_memory_limits(&program, None, Some(100 * 1024 * 1024));
 
     assert!(
         result.is_ok(),
@@ -110,23 +149,93 @@ fn test_mem_abort_callback_allows_execution_under_limit() {
 }
 
 #[test]
-fn test_mem_abort_callback_disabled_when_zero() {
-    // Limit of 0 means disabled => should return AbortCallback::None.
+fn test_no_mem_budget_allows_large_allocation() {
+    let program = big_alloc_program();
+
+    // No abort callback at all => should succeed regardless of allocations.
+    let result = run_with_memory_limits(&program, None, None);
+
     assert!(
-        matches!(make_mem_abort_callback(0), AbortCallback::None),
-        "Expected AbortCallback::None for limit_bytes=0"
+        result.is_ok(),
+        "Expected execution to succeed with unlimited memory, but got: {result:?}"
     );
 }
 
 #[test]
-fn test_no_abort_callback_allows_large_allocation() {
-    let program = big_alloc_program();
+fn test_mem_budget_aborts_on_exceeded_analysis_limit() {
+    let program = big_type_signature_program();
 
-    // No abort callback at all => should succeed regardless of allocations.
-    let result = run_with_abort_callback(&program, AbortCallback::None);
+    // the type signature of the tuple is 100 keys with 100+ chars each, so 10k is
+    // an absolute lower bound
+    let result = run_with_memory_limits(&program, Some(10_000), None);
+
+    assert!(
+        result.is_err(),
+        "Expected execution to be aborted, but it succeeded"
+    );
+    let err_string = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_string.contains("Analysis used too much memory"),
+        "Expected 'Analysis used too much memory' in error, got: {err_string}"
+    );
+}
+
+#[test]
+fn test_high_enough_analysis_limit_is_fine() {
+    let program = big_type_signature_program();
+
+    // 10 MiB should be more than plenty
+    let result = run_with_memory_limits(&program, Some(10 * 1024 * 1024), None);
 
     assert!(
         result.is_ok(),
-        "Expected execution to succeed without abort callback, but got: {result:?}"
+        "Expected analysis to succeed with enough memory, but got: {result:?}"
     );
+}
+
+#[test]
+fn test_analysis_and_execution_limits_high_enough() {
+    let program = big_type_signature_program();
+
+    let result = run_with_memory_limits(&program, Some(10 * 1024 * 1024), Some(10 * 1024 * 1024));
+
+    assert!(
+        result.is_ok(),
+        "Expected analysis and execution to succeed with enough memory, but got: {result:?}"
+    );
+}
+
+#[test]
+fn test_analysis_limit_fine_but_execution_limit_too_low() {
+    let program = big_type_signature_program();
+
+    let result = run_with_memory_limits(&program, Some(10 * 1024 * 1024), Some(1));
+    // analysis should succeed, but execution shouldn't
+    assert!(
+        result.is_err(),
+        "Expected execution to be aborted, but it succeeded"
+    );
+    let err_string = format!("{:?}", result.unwrap_err());
+    assert!(
+        err_string.contains("Evaluation used too much memory"),
+        "Expected 'Evaluation used too much memory' in error, got: {err_string}"
+    );
+}
+
+/// The read-only RPC memory limit must be threaded from `ConnectionOptions`
+/// into the HTTP server state so the handlers can set the correct budget.
+#[test]
+fn test_read_only_call_max_mem_bytes_threaded_into_http() {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    use stacks::chainstate::stacks::db::DiskChainStateBackend;
+    use stacks::net::connection::ConnectionOptions;
+    use stacks::net::httpcore::StacksHttp;
+
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
+    let mut conn_opts = ConnectionOptions::default();
+    conn_opts.read_only_call_max_mem_bytes = 12345;
+
+    let http = StacksHttp::<DiskChainStateBackend>::new(addr, &conn_opts);
+    assert_eq!(http.read_only_call_max_mem_bytes, 12345);
 }

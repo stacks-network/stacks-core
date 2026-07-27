@@ -697,11 +697,12 @@ where
         "block_headers"
     };
 
-    conn.query_row(
-        &format!("SELECT {column_name} FROM {table_name} WHERE index_block_hash = ?",),
-        args,
-        |x| Ok(loader(x)),
-    )
+    // The distinct statements here are bounded (caller-passed column names ×
+    // two header tables), so they cannot crowd out the statement cache.
+    conn.prepare_cached(&format!(
+        "SELECT {column_name} FROM {table_name} WHERE index_block_hash = ?"
+    ))
+    .and_then(|mut stmt| stmt.query_row(args, |x| Ok(loader(x))))
     .optional()
     .unwrap_or_else(|_| {
         panic!(
@@ -822,14 +823,15 @@ fn get_matured_reward<GTS: GetTenureStartId>(
     };
     let parent_id_bhh = conn
         .conn()
-        .query_row(
-            &format!("SELECT parent_block_id FROM {table_name} WHERE index_block_hash = ?"),
-            params![child_id_bhh.0],
-            |x| {
+        .prepare_cached(&format!(
+            "SELECT parent_block_id FROM {table_name} WHERE index_block_hash = ?"
+        ))
+        .and_then(|mut stmt| {
+            stmt.query_row(params![child_id_bhh.0], |x| {
                 Ok(StacksBlockId::from_column(x, "parent_block_id")
                     .expect("Bad parent_block_id in database"))
-            },
-        )
+            })
+        })
         .optional()
         .expect("Unexpected SQL failure querying parent block ID");
 
@@ -1009,6 +1011,10 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         self.context.pox_constants.pox_4_activation_height
     }
 
+    fn get_pox_5_activation_height(&self) -> u32 {
+        self.context.pox_constants.pox_5_activation_height
+    }
+
     fn get_pox_prepare_length(&self) -> u32 {
         self.context.pox_constants.prepare_length
     }
@@ -1145,6 +1151,10 @@ impl BurnStateDB for SortitionHandleConn<'_> {
 
     fn get_pox_4_activation_height(&self) -> u32 {
         self.context.pox_constants.pox_4_activation_height
+    }
+
+    fn get_pox_5_activation_height(&self) -> u32 {
+        self.context.pox_constants.pox_5_activation_height
     }
 
     fn get_pox_prepare_length(&self) -> u32 {

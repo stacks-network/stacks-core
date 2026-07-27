@@ -730,7 +730,19 @@ impl Relayer {
                 return Err(net_error::NoPoXRewardSet(sn_rc));
             };
 
-            if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
+            // Apply the signer-signature ordering rule as it was in effect for
+            // this block's sortition (strict ordering is enforced from Epoch 4.0).
+            let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), sn.block_height)?
+                .ok_or_else(|| {
+                    error!("No epoch defined at burn height {}", sn.block_height);
+                    net_error::NoPoXRewardSet(sn_rc)
+                })?
+                .epoch_id;
+
+            if let Err(e) = nakamoto_block
+                .header
+                .verify_signer_signatures(reward_set, epoch_id)
+            {
                 warn!(
                     "Signature verification failure for Nakamoto block";
                     "consensus_hash" => %nakamoto_block.header.consensus_hash,

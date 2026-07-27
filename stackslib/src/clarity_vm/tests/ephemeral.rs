@@ -35,7 +35,9 @@ use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use crate::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
+};
 use crate::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -67,11 +69,7 @@ fn test_ephemeral_marf_store() {
     let mut marfed_kv = MarfedKV::open(
         &path,
         None,
-        Some(MARFOpenOpts::new(
-            TrieHashCalculationMode::Deferred,
-            "noop",
-            false,
-        )),
+        Some(MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false)),
     )
     .unwrap();
 
@@ -369,7 +367,7 @@ fn replay_block(
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            None,
+            &TransactionResourceBudgets::unlimited(),
             &mut total_receipts,
         );
         let err = match &tx_result {
@@ -780,11 +778,7 @@ fn prop_ephemeral_tip_height_matches_current() {
         let mut marfed_kv = MarfedKV::open(
             &path,
             None,
-            Some(MARFOpenOpts::new(
-                TrieHashCalculationMode::Deferred,
-                "noop",
-                false,
-            )),
+            Some(MARFOpenOpts::new(TrieHashCalculationMode::Deferred, false)),
         )
         .unwrap();
 

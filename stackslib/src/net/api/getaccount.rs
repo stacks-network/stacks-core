@@ -144,6 +144,7 @@ impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandle
                             let v1_unlock_height = clarity_db.get_v1_unlock_height();
                             let v2_unlock_height = clarity_db.get_v2_unlock_height().ok()?;
                             let v3_unlock_height = clarity_db.get_v3_unlock_height().ok()?;
+                            let v4_unlock_height = clarity_db.get_v4_unlock_height().ok()?;
                             let (balance, balance_proof) = if with_proof {
                                 clarity_db
                                     .get_data_with_proof::<STXBalance>(&key)
@@ -183,6 +184,7 @@ impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandle
                                     v1_unlock_height,
                                     v2_unlock_height,
                                     v3_unlock_height,
+                                    v4_unlock_height,
                                 )
                                 .ok()?;
 
@@ -191,6 +193,7 @@ impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandle
                                 v1_unlock_height,
                                 v2_unlock_height,
                                 v3_unlock_height,
+                                v4_unlock_height,
                             );
 
                             let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));

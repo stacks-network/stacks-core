@@ -4,67 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "124a2f2db151d08535f3e6f1710114ced24741c8251ece1e0654f3ff3a7d2597",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-tenure-info-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: use of unknown tenure property \'none\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 5,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 958,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 5,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 958,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "31f42caa62bfa99d533c4837b8d2421e8291e80fa1b7e11fadde07a17650095f",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: no-such-tenure-info-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: use of unknown tenure property \'none\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 5,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 958,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 5,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 958,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "16fe56b5c84ffa1684481949067fa3fa4757415d037373a8d4eb9c26f1cccf12",
+    marf_hash: "78501864908256866e6b62c9d0f598398b3ccf2ec3c58c3ceec85a821c4bba94",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a9b9b4ed9267e1a0f3015052bd0c6eaeb418356a2f248b3c183d07b5e731d6c0",
+    marf_hash: "2db268da8fad2f07bed65389179ab0297d6bf890841ac1ca8d179792fa62b0fc",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ec7423c680b5c468212eed4f11a60ac9e5b7fb59582215982325d40489592eba",
+    marf_hash: "3bd547037b1a549cddcd451b98219450bc8af60c207d96472b367fa9ad6467ae",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

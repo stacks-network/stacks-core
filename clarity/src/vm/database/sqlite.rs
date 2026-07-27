@@ -54,7 +54,10 @@ pub struct SqliteConnection {
 
 fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<(), VmExecutionError> {
     let params = params![key, value];
-    match conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)", params) {
+    match conn
+        .prepare_cached("REPLACE INTO data_table (key, value) VALUES (?, ?)")
+        .and_then(|mut stmt| stmt.execute(params))
+    {
         Ok(_) => Ok(()),
         Err(e) => {
             error!("Failed to insert/replace ({key},{value}): {e:?}");
@@ -67,11 +70,8 @@ fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>, VmExecutio
     trace!("sqlite_get {key}");
     let params = params![key];
     let res = match conn
-        .query_row(
-            "SELECT value FROM data_table WHERE key = ?",
-            params,
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT value FROM data_table WHERE key = ?")
+        .and_then(|mut stmt| stmt.query_row(params, |row| row.get(0)))
         .optional()
     {
         Ok(x) => Ok(x),
@@ -178,10 +178,10 @@ impl SqliteConnection {
         let key = Self::make_metadata_key(contract_id, key);
         let params = params![bhh, key, value];
 
-        if let Err(e) = conn.execute(
-            "INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)",
-            params,
-        ) {
+        if let Err(e) = conn
+            .prepare_cached("INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)")
+            .and_then(|mut stmt| stmt.execute(params))
+        {
             error!("Failed to insert ({bhh},{key},{value}): {e:?}");
             return Err(VmInternalError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
@@ -282,11 +282,8 @@ impl SqliteConnection {
         let params = params![bhh, key];
 
         match conn
-            .query_row(
-                "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
-                params,
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?")
+            .and_then(|mut stmt| stmt.query_row(params, |row| row.get(0)))
             .optional()
         {
             Ok(x) => Ok(x),

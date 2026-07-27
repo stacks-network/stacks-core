@@ -28,7 +28,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::pipe::*;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
-use crate::config::DEFAULT_PROPOSAL_MEMORY_BYTES;
+use crate::config::{DEFAULT_PROPOSAL_MEMORY_BYTES, DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES};
 use crate::monitoring::{update_inbound_bandwidth, update_outbound_bandwidth};
 use crate::net::download::BLOCK_DOWNLOAD_INTERVAL;
 use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
@@ -495,6 +495,11 @@ pub struct ConnectionOptions {
     /// max execution time of readonly calls when cost tracking is disabled
     pub read_only_max_execution_time_secs: u64,
 
+    /// Maximum bytes a single read-only RPC call may allocate on the heap before
+    /// it is aborted. Tracked via per-thread allocation counters in
+    /// `TrackingAllocator`. A value of `0` disables the limit.
+    pub read_only_call_max_mem_bytes: u64,
+
     /// Maximum time to spend validating a block proposal in seconds
     pub block_proposal_validation_timeout_secs: u64,
 
@@ -513,7 +518,9 @@ pub struct ConnectionOptions {
 
     /// Maximum bytes a single transaction may allocate on the heap during
     /// block-proposal validation before it is rejected. Tracked via
-    /// per-thread allocation counters in `TrackingAllocator`.
+    /// per-thread allocation counters in `TrackingAllocator`. Measured
+    /// independently for the analysis phase and the execution phase of
+    /// a contract deploy.
     /// A value of `0` disables the limit.
     pub block_proposal_max_tx_mem_bytes: u64,
 }
@@ -564,8 +571,8 @@ impl std::default::Default for ConnectionOptions {
             read_only_call_limit: ExecutionCost {
                 write_length: 0,
                 write_count: 0,
-                read_length: 100000,
-                read_count: 30,
+                read_length: 200000,
+                read_count: 100,
                 runtime: 1_000_000_000,
             },
             maximum_call_argument_size: 20 * BOUND_VALUE_SERIALIZATION_HEX,
@@ -624,6 +631,7 @@ impl std::default::Default for ConnectionOptions {
             test_disable_unsolicited_message_authentication: false,
 
             read_only_max_execution_time_secs: 30,
+            read_only_call_max_mem_bytes: DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES,
             block_proposal_validation_timeout_secs: DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
             block_proposal_max_tx_execution_time_secs:
                 DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,

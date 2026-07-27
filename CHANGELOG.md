@@ -5,6 +5,128 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [4.0.1]
+
+This release includes the activation logic for the Epoch 4.0 hard-fork. It is compatible with prior chainstates, but after the hard-fork activation height, nodes running 4.0.1 and 3.4.x will diverge. Node operators **must** upgrade before the activation height.
+
+### Added
+
+* Clarity 6: Add variadic `concat` built-in
+* Adds two new Clarity 6 native functions: `verify-merkle-proof`, which checks a Bitcoin-style merkle inclusion proof against a known root using double-SHA-256, and `get-bitcoin-tx-output?`, which parses a serialized Bitcoin transaction (with or without SegWit witness data) and returns the output at a given index along with the canonical, witness-stripped txid in internal byte order
+* Adds the ability to pause claiming of rewards in pox-5. This is an irreversable action, which can only be taken by the "pause admin", which is set initially at 4.0 activation.
+* Added ed25519-verify to clarity6
+* Adds a new epoch, epoch 4.0, which deploys pox-5, and a new Clarity version, Clarity 6, along with related boilerplate code.
+* Complete L1 bitcoin staking integration tests, including both normal exit after the timelock expires, and early exit.
+* pox-5: support seamless rollovers between bond and STX-only staking positions. A staker may now `register-for-bond` for the bond that starts immediately after their current bond ends or at the same cycle at which their STX-only staking unlocks. They can also `stake` STX-only while their existing bond/stake is ending. In these cases, the STX lock is carried forward (amount may go up or down) with no release. sBTC for the bond is also rolled forward via net transfer (or refunded on bond → stake). These rollovers are restricted to the bond L1 unlock window (last half cycle).
+* Added `print` events for all interesting actions on the pox-5 contract and also improved the return values for some.
+* The `/v2/pox` RPC response now includes `pox_5_sbtc_contract` and `pox_5_sbtc_registry_contract`, the sBTC token and registry contract identifiers that this node's PoX-5 references. On mainnet these are the canonical sBTC contracts; on non-mainnet they reflect the node's configuration.
+* Add support to the pox-locking library for PoX-5.
+* Added a private function, `transfer-from-reserve` to pox-5 to allow a consensus transfer of sBTC from the reserve.
+* Added per-block `problematic_txs` markers to the Nakamoto block header (Epoch 4.0+), letting miners flag transactions to skip during replay. The field is gated on a new header version, so pre-4.0 block serialization and hashes are unchanged, and the header version is now validated against the block's epoch. Until the policies are set, signers will reject any transactions in this list.
+* Added secp256k1-decompress? to clarity6
+* Added transaction-level `Staking` and `Pox` post-conditions, and matching in-contract `with-staking` / `with-pox` allowances. `Staking` constrains how much STX a principal may stake (lock for PoX) during a transaction. `Pox` gates the state-altering PoX-5 operations that act on a principal's existing position: `unstake`, `unstake-sbtc`, `update-bond-registration`, and `announce-l1-early-exit`, and is presence-based (block / allow / require). Both are only valid in Stacks epoch 4.0 and later, and in `Deny`/`Originator` post-condition mode an uncovered stake or PoX action fails the transaction. In Clarity 6 the `with-stacking` allowance was renamed to `with-staking` (the old `with-stacking` spelling remains valid in Clarity 4 and 5).
+* Updated the print event inside `register-for-bond` to include the transaction info for L1 lockups.
+
+### Changed
+
+* Added `.cost-voting` disablement gate beginning from epoch 4.0
+* Updated coinbase intervals for Epoch 4.0
+* Recalibrated all Clarity 6 (Epoch 4.0) runtime cost functions in `costs_5.rs` using Callgrind instruction-count measurements from `clarity-cost-bench`. Arithmetic, tuple, sequence, hash, crypto, and store operations now have bench-derived linear formulas instead of forwarding to the Clarity 4 values, with a calibration baseline of 1 cost unit = 80,000 CPU instructions (a clean round value chosen to place the base overhead of any Clarity call at ≈38 units).
+* Doubled the Clarity read budget (`read_length` and `read_count`) for Stacks Epoch 4.0 blocks, via a new `BLOCK_LIMIT_MAINNET_40` cost limit. All other block limit dimensions (write and runtime) remain unchanged from Epoch 2.1 onward.
+* Add additional Clarity value sanitization pass to function invocations in Epoch 4.0
+* Contract analysis now charges the runtime cost of `AnalysisUseTraitEntry` when a trait is resolved from the contract under analysis. This closes a metering asymmetry between the two lookup paths and applies starting with Epoch 4.0.
+* Allow pox-5 L1 BTC lockups to use timelock unlock heights greater than or equal to the bond's minimum L1 unlock height.
+* Restructure the pox-5 L1 BTC lockup witness script: the early-exit branch now requires revealing the 32-byte `sha256(to-consensus-buff? staker)` preimage alongside the early-unlock signature.
+* Updated the `stacks-signer generate-staking-signature` command to generate PoX-5 signer grant signatures.
+* Reduced the per-cycle `readCount` cost of pox-5 `stake` (and the other staking entry points that fold over lock cycles) by de-duplicating redundant map reads in `settle-rewards` and skipping `settle-staker-rewards` when the staker holds no shares in that cycle. A max-length (96-cycle) `stake` now costs ~2,336 readCount instead of ~3,104 (~15.6% vs ~20.7% of the tenure-block budget), raising worst-case throughput from ~4 to ~6 such transactions per block.
+* pox-5: `announce-l1-early-exit` is now callable by the staker themselves, not the bond's early-unlock admin. The `early-unlock-admin` field is removed from `protocol-bonds` and from the `setup-bond` parameter list, since no on-chain code path consumes it anymore. Re-announcing for the same bond returns the new `ERR_L1_EARLY_EXIT_ALREADY_ANNOUNCED`. The new read-only `has-announced-l1-early-exit` exposes per-staker announcement state for off-chain consumers and gates the re-entry assert on-chain.
+* Reject `unstake-sbtc` and `announce-l1-early-exit` calls during a prepare phase.
+* The node and `stacks-signer` now share a single version (`stacks_node_version` in `versions.toml`) and ship in one combined GitHub release: one set of binary archives (containing both binaries) plus the `stacks-core` and `stacks-signer` docker images, all tagged with the same version. The separate `stacks_signer_version`, the `signer-x.x.x` release tags, and the independent `release/signer-x.x.x` release path have been removed.
+* Use new variadic `concat` in the pox-5 contract.
+
+### Fixed
+
+* Updates to pox-5 to prevent a scenario where a bond participant could switch signers, but that switch would cause the new signer to immediately start getting rewards, even though their signing power isn't updated yet.
+* Fixed an issue related to signer managers not being able to withdrawal their accumulated fees.
+* Consensus now rejects blocks that contain transactions with non-normalized "high S" secp256k1 signatures. This is a requirement of SIP 005, but was never correctly implemented. This change applies starting with Epoch 4.0.
+* Prevent counting duplicate lockups in pox-5 `register-for-bond`.
+* In `signer-manager.clar`, the function `check-pox-addr` wasn't used. Now, it is used to check when a staker has passed a `pox-addr` as part of their calldata.
+* Fixed an issue related to how current and future cycle rewards state is managed after unstaking.
+* Fixed an error where there could be an arithmetic underflow if a staker claimed rewards before the signer claimed their own first. Instead, we now explicitly return an error.
+* Remove the faulty `reward-cycle-to-unlock-height` from pox-5.
+* Return rejected sBTC withdrawal amounts to stakers and let admins sweep orphaned fee-refund dust in the pox-5 reference signer-manager. The admin sweep now subtracts outstanding withdrawal liability so it can never sweep funds owed to stakers, and accepted withdrawals are retired via the permissionless `settle-accepted-withdrawal` to release their liability.
+* Handle reward cycle with no STX-only stakers (all excess rewards go to the reserve).
+* In Epoch 4.0 (PoX-5), the Clarity asset map now sums concurrent stacking entries for the same principal within a transaction (both within a frame and when merging frames) instead of rejecting the block. The pre-Epoch-4.0 soft-fork behavior (rejecting PoX assetmap overwrites) is unchanged.
+* Fixed PoX-5 L1 lockup CLTV height serialization so large unlock heights cannot truncate to lower Bitcoin script numbers.
+* Re-check the signer key grant at every pox-5 new-stake entry point (`register-for-bond`, `update-bond-registration`, `stake`, `stake-update`), so revoking a grant with `revoke-signer-grant` now disables an already-registered signer manager from accepting any new stake. Previously revocation only blocked future `register-signer` calls, leaving a deprecated or buggy manager free to keep accumulating delegated STX and re-enter the signer set; its existing obligations still settle and wind down as the backing bonds/stakes expire.
+* Fixed PoX-5 L1 lockup script construction to reject Bitcoin `CHECKLOCKTIMEVERIFY` values that would be interpreted as Unix timestamps instead of block heights.
+* Allow only the signer to call `grant-signer-key`. Without this check someone could grief the signer, by watching for their call to `register-self` in the mempool, grabbing the `signer-key`, and then frontrunning a call to `grant-signer-key`, causing the signer's call to fail with `ERR_SIGNER_KEY_GRANT_USED`.
+* Require that `revoke-signer-grant` is called directly only, not indirectly through any contract.
+* Starting in Epoch 4.0, signer signatures on a Nakamoto block must be strictly ordered by the signer's index in the reward set. Previously a bug only compared each signature against the first signer's index, so only a partial ordering was enforced. The pre-Epoch-4.0 behavior is preserved for blocks validated before the activation so that historical blocks and un-upgraded peers validate identically.
+* Gate the pox-5 callback functions in the sample signer-manager contract so that they can only be called directly by pox-5.
+* Updates the max-fee settable by the signer to be 99.99%, to prevent accounting issues.
+* Fix an off-by-one in the Clarity `map` built-in over unequal-length sequences. The fix is consensus-breaking and epoch-gated, activating in Epoch 4.0.
+* Do not allow functions that modify the staker/signer set during the prepare phase.
+* The miner-spend estimators (`get_miner_spend` CLI helper and `MinerStats`) now model block-commit outputs using the PoX-5 waterfall single-output scheme when active, matching the relayer.
+* Surface cost-tracking errors raised during Clarity trait-compliance type-checking instead of masking them as `IncompatibleTrait`. The fix is consensus-breaking and epoch-gated, activating in Epoch 4.0.
+* Fix tuple `merge` producing an oversized value: starting in Epoch 4.0, a `merge` whose combined size exceeds the maximum value size is rejected cleanly with `ValueTooLarge` at the merge site (in both static analysis and at runtime), instead of aborting the block. Behavior in earlier epochs is unchanged.
+* Fix `uint-to-buff-le` in pox-5 contract to handle values >255 correctly.
+* Fix the minimum threshold reported by /v2/pox when pox-5 is the active contract.
+* Tightens the Clarity 6 `verify-merkle-proof` builtin so that it rejects CVE-2012-2459-style "inflated `tx-count`" forgeries that relocate the last real leaf of an odd-sized tree into the duplicated-padding region (e.g. presenting the same real Bitcoin tx as `(tx-index 3, tx-count 4)` against the merkle root of a 3-tx block).
+* Replaced `time` dependency in logging code with `chrono` to allow it to work properly in Wasm builds.
+
+### Removed
+
+* Removed the `allow-contract-caller`, `disallow-contract-caller`, and `check-caller-allowed` functions and the `allowance-contract-callers` map from `pox-5`. Stacking methods may now be invoked through any contract-caller; stackers protect themselves with the in-contract `with-stacking` / `with-pox` allowances or transaction-level `Staking` / `Pox` post-conditions instead.
+
+## [3.4.0.0.4]
+
+### Added
+
+* New `stacks-profiler` and `stacks-profiler-macros` instrumentation crates for efficient and minimally-invasive profiling of code in this workspace
+* Added documentation for the arithmetic checker
+* Added execution_stats data to the blockreplay/blocksimulate api.
+* Added a wall-clock deadline to the Clarity contract-analysis phase, bounding the time a single transaction can spend being analyzed on the block-assembly (mining) and block-proposal (signer) validation paths. A transaction whose analysis exceeds the deadline is treated as problematic (deterministic replay and block commit remain unbounded).
+* Added `max_analysis_time_secs` to the `[miner]` configuration section to bound the per-transaction contract-analysis time (in seconds) during block assembly. Defaults to 30 seconds.
+* Added `block_proposal_max_tx_analysis_time_secs` to the `[connection_options]` configuration section to bound the per-transaction contract-analysis time (in seconds) during block-proposal validation. Defaults to 30 seconds.
+* Add snapshot copy of canonical epoch 2.x block files, confirmed microblock streams, and Nakamoto staging blocks into squashed output.
+* Add snapshot copy of canonical burnchain.sqlite tables into squashed output, using the squashed sortition DB as the canonical set.
+* Add snapshot copy of Clarity side-storage tables (data_table, metadata_table) into a squashed Clarity MARF.
+* Add snapshot framework for copying canonical chainstate index side-tables into squashed output
+* Add snapshot copy of canonical sortition side tables into squashed output, with an optional Stacks-tip boundary rewrite for the sortition tip memo tables.
+* Add snapshot copy of Bitcoin SPV headers and complete chain-work intervals up to the squash height into squashed output.
+* Allow nodes booted from a squashed MARF snapshot to resolve coinbase heights and Nakamoto reward sets in the pruned range by reading the underlying immutable keys at the canonical chain tip
+* Add the `marf-squash` offline CLI (`contrib/marf-squash`) that produces a bootable Pruned Chainstate Snapshot (PCS) from another chainstate.
+* Add MARF squash engine (`squash_to_path`) and squash-aware trie lookups for root hashes and block heights
+* Reduced tenure extend timings
+* Moved transaction-codec tests from `stackslib` into the `stacks-codec` crate and added new tests for previously-untested wire-format edges.
+
+### Changed
+
+* Moved `StacksTransaction` and its supporting types (`TransactionAuth`, `*SpendingCondition`, `TransactionPayload`, `ClarityVersion`, `StacksMicroblockHeader`, `Txid`, `StacksString`, `TenureChangePayload`, and related) from `stackslib` into the `stacks-codec` crate ([#7200](https://github.com/stacks-network/stacks-core/pull/7200))
+* Rust toolchain bumped from 1.94.0 to 1.96.0 and new clippy lint warnings addressed
+* Drop unused p2p message types (BlocksAvailable, MicroblocsAvailable, BlocksData)
+* Ensure that the version in the block header matches the expected version for the current epoch, enabling use of this version for future changes to the header structure.
+* Pipeline MARF squash blob reads using `posix_fadvise` prefetch to overlap I/O with node processing during DFS collection
+* Connections opened through `sqlite_open` (including all MARF and Clarity side-store connections) now use SQLite multi-thread (`SQLITE_OPEN_NO_MUTEX`) mode instead of serialized mode; the redundant per-connection mutex measurably slowed hot paths (~11% Nakamoto catch-up throughput improvement measured on a mainnet follower).
+* Exposed connection options `max_stackerdb_push_bandwidth`, `max_nakamoto_block_push_bandwidth`, `max_transaction_push_bandwidth` as TOML configuration to set bandwidth cap on message reception.
+* Set connection option `max_stackerdb_push_bandwidth` default to 4 MB/seconds
+* Enforced StackerDB message chunk-size check against replica configuration instead of statically against `STACKERDB_MAX_CHUNK_SIZE`
+* Improved StackerDB configuration creation for miner to set chunk-size to `STACKERDB_MAX_CHUNK_SIZE` instead of `MAX_PAYLOAD_LEN`
+
+### Fixed
+
+* Prevent blocks that contain transactions with non-normalized "high S" secp256k1 signatures. Consensus still allows them (this will be changed in a future epoch), but miners won't mine them and signers won't sign them.
+* Performance improvement that prevents unnecessary work in the block downloader if nothing has changed.
+* Fixed a bug where under certain conditions, a few unspecified configuration options (notably: `connection_options.private_neighbors`) did not correctly use the documented default value.
+* Gracefully handle clock skew when computing P2P bandwidth stats.
+* Cleanup unwraps/panics in Epoch 2.x microblock downloader
+* Wired the per-call memory-abort callback and wall-clock execution-time limit into the `/v2/contracts/call-read` and `/v3/contracts/fast-call-read` read-only RPC handlers. Also added a new `read_only_call_max_mem_bytes` connection option (default 1 GB; `0` disables) to bound the heap a single read-only call may allocate.
+* Reject blocks which contain transactions with PoX assetmap overwrites
+* Signers now ignore StackerDB chunks whose payload type is not valid for the contract they were received in.
+* The sortition MARF index now auto-detects external-blob storage (a sibling `marf.sqlite.blobs` file) instead of assuming internal SQLite blobs.
+* Fixed flake in tests::signer::v0::tenure_extend::non_blocking_minority_configured_to_favour_incoming_miner
+
 ## [3.4.0.0.3]
 
 ### Added

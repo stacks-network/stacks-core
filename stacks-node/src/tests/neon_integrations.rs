@@ -1530,6 +1530,7 @@ pub fn get_balance<F: std::fmt::Display>(http_origin: &str, account: &F) -> u128
 pub struct Account {
     pub balance: u128,
     pub locked: u128,
+    pub unlock_height: u64,
     pub nonce: u64,
 }
 
@@ -1544,6 +1545,7 @@ pub fn get_account_result<F: std::fmt::Display>(
     Ok(Account {
         balance: u128::from_str_radix(&res.balance[2..], 16).unwrap(),
         locked: u128::from_str_radix(&res.locked[2..], 16).unwrap(),
+        unlock_height: res.unlock_height,
         nonce: res.nonce,
     })
 }
@@ -2305,6 +2307,7 @@ fn stx_delegate_btc_integration_test() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants;
 
@@ -2582,6 +2585,7 @@ fn stack_stx_burn_op_test() {
         15,
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -2979,6 +2983,7 @@ fn vote_for_aggregate_key_burn_op_test() {
         15,
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -5302,6 +5307,7 @@ fn pox_integration_test() {
         15,
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -8689,6 +8695,7 @@ fn test_competing_miners_build_on_same_chain(
             15,
             (16 * reward_cycle_len - 1).into(),
             (17 * reward_cycle_len).into(),
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,

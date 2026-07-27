@@ -38,7 +38,10 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
-use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
+use crate::chainstate::nakamoto::signer_set::{
+    set_pox_5_bond_admin, set_pox_5_pause_admin, set_pox_5_sbtc_contract,
+    set_pox_5_sbtc_registry_contract, NakamotoSigners,
+};
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -149,6 +152,8 @@ const DEFAULT_MINER_ASSEMBLY_MEMORY_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2 GB
 /// Default maximum memory allocation during block proposal evaluation. Defaults higher than miner default
 ///  to avoid miner/signer environment skews.
 pub const DEFAULT_PROPOSAL_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024; // 3 GB
+/// Default maximum heap allocation for a single read-only RPC call before it is aborted.
+pub const DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES: u64 = 1024 * 1024 * 1024; // 1 GB
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -573,6 +578,15 @@ impl Config {
                 burnchain.pox_constants.pox_4_activation_height = epoch.start_height as u32;
                 burnchain.pox_constants.v3_unlock_height = epoch.start_height as u32 + 1;
             }
+
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch40) {
+                // Override pox_5_activation_height to the start_height of epoch4.0
+                debug!(
+                    "Override pox_5_activation_height from {} to {}",
+                    burnchain.pox_constants.pox_5_activation_height, epoch.start_height
+                );
+                burnchain.pox_constants.pox_5_activation_height = epoch.start_height as u32;
+            }
         }
 
         if let Some(sunset_start) = self.burnchain.sunset_start {
@@ -672,7 +686,8 @@ impl Config {
 
         assert!(
             v1_unlock_height > epoch21.start_height,
-            "FATAL: v1 unlock height occurs at or before pox-2 activation: {v1_unlock_height} <= {}\nburnchain: {burnchain:?}", epoch21.start_height
+            "FATAL: v1 unlock height occurs at or before pox-2 activation: {v1_unlock_height} <= {}\nburnchain: {burnchain:?}",
+            epoch21.start_height
         );
 
         let epoch21_rc = burnchain
@@ -737,6 +752,8 @@ impl Config {
                 Ok(StacksEpochId::Epoch33)
             } else if epoch_name == EPOCH_CONFIG_3_4_0 {
                 Ok(StacksEpochId::Epoch34)
+            } else if epoch_name == EPOCH_CONFIG_4_0_0 {
+                Ok(StacksEpochId::Epoch40)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -753,27 +770,14 @@ impl Config {
             );
         }
 
-        let expected_list = [
-            StacksEpochId::Epoch10,
-            StacksEpochId::Epoch20,
-            StacksEpochId::Epoch2_05,
-            StacksEpochId::Epoch21,
-            StacksEpochId::Epoch22,
-            StacksEpochId::Epoch23,
-            StacksEpochId::Epoch24,
-            StacksEpochId::Epoch25,
-            StacksEpochId::Epoch30,
-            StacksEpochId::Epoch31,
-            StacksEpochId::Epoch32,
-            StacksEpochId::Epoch33,
-            StacksEpochId::Epoch34,
-        ];
-        for (expected_epoch, configured_epoch) in expected_list
+        for (expected_epoch, configured_epoch) in StacksEpochId::ALL
             .iter()
             .zip(matched_epochs.iter().map(|(epoch_id, _)| epoch_id))
         {
             if expected_epoch != configured_epoch {
-                return Err(format!("Configured epochs may not skip an epoch. Expected epoch = {expected_epoch}, Found epoch = {configured_epoch}"));
+                return Err(format!(
+                    "Configured epochs may not skip an epoch. Expected epoch = {expected_epoch}, Found epoch = {configured_epoch}"
+                ));
             }
         }
 
@@ -801,9 +805,10 @@ impl Config {
             matched_epochs.iter().zip(out_epochs.iter_mut()).enumerate()
         {
             if epoch_id != &out_epoch.epoch_id {
-                return Err(
-                    format!("Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
-                            &out_epoch.epoch_id));
+                return Err(format!(
+                    "Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
+                    &out_epoch.epoch_id
+                ));
             }
             // end_height = next epoch's start height || i64::max if last epoch
             let end_height = if let Some(next_epoch) = matched_epochs.get(i + 1) {
@@ -829,7 +834,10 @@ impl Config {
                 .find(|&e| e.epoch_id == StacksEpochId::Epoch21)
                 .ok_or("Cannot configure pox_2_activation if epoch 2.1 is not configured")?;
             if last_epoch.start_height > pox_2_activation as u64 {
-                Err(format!("Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {pox_2_activation}, epoch 2.1 start height = {}", last_epoch.start_height))?;
+                Err(format!(
+                    "Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {pox_2_activation}, epoch 2.1 start height = {}",
+                    last_epoch.start_height
+                ))?;
             }
         }
 
@@ -916,6 +924,38 @@ impl Config {
         // Validate the node config
         if is_mainnet && node.use_test_genesis_chainstate == Some(true) {
             return Err("Attempted to run mainnet node with `use_test_genesis_chainstate`".into());
+        }
+
+        if is_mainnet && node.pox_5_sbtc_contract.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_sbtc_contract` set. \
+                 The pox-5 contract always references the canonical sBTC token on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_sbtc_registry_contract.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_sbtc_registry_contract` set. \
+                 Signer-set computation always reads the canonical sBTC registry on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_bond_admin.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_bond_admin` set. \
+                 The pox-5 contract always uses its default bond-admin initializer on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_pause_admin.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_pause_admin` set. \
+                 The pox-5 contract always uses its default pause-admin initializer on mainnet."
+                    .into(),
+            );
         }
 
         if node.stacker || node.miner {
@@ -1136,6 +1176,17 @@ impl Config {
 
     pub fn is_mainnet(&self) -> bool {
         matches!(self.burnchain.mode.as_str(), "mainnet")
+    }
+
+    /// Apply config-driven process-wide runtime state. Call once from a run
+    /// loop's lifecycle entry point, before chainstate is opened. This picks
+    /// up direct field mutations on `Config` (e.g., from integration tests)
+    /// in addition to values populated by [`Config::from_config_file`].
+    pub fn apply_runtime_state(&self) {
+        set_pox_5_sbtc_contract(self.node.pox_5_sbtc_contract.clone());
+        set_pox_5_sbtc_registry_contract(self.node.pox_5_sbtc_registry_contract.clone());
+        set_pox_5_bond_admin(self.node.pox_5_bond_admin.clone());
+        set_pox_5_pause_admin(self.node.pox_5_pause_admin.clone());
     }
 
     pub fn is_node_event_driven(&self) -> bool {
@@ -1733,6 +1784,7 @@ pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 pub const EPOCH_CONFIG_3_3_0: &str = "3.3";
 pub const EPOCH_CONFIG_3_4_0: &str = "3.4";
+pub const EPOCH_CONFIG_4_0_0: &str = "4.0";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -2105,18 +2157,6 @@ pub struct NodeConfig {
     /// ---
     /// @default: `None` (Prometheus server disabled)
     pub prometheus_bind: Option<String>,
-    /// The strategy to use for MARF trie node caching in memory.
-    /// Controls the trade-off between memory usage and performance for state access.
-    ///
-    /// Possible values:
-    /// - `"noop"`: No caching (least memory).
-    /// - `"everything"`: Cache all nodes (most memory, potentially fastest).
-    /// - `"node256"`: Cache only larger `TrieNode256` nodes.
-    ///
-    /// If the value is `None` or an unrecognized string, it defaults to `"noop"`.
-    /// ---
-    /// @default: `None` (effectively `"noop"`)
-    pub marf_cache_strategy: Option<String>,
     /// Controls the timing of hash calculations for MARF trie nodes.
     /// - If `true`, hashes are calculated only when the MARF is flushed to disk
     ///   (deferred hashing).
@@ -2227,6 +2267,32 @@ pub struct NodeConfig {
     /// ---
     /// @default: `false`
     pub txindex: bool,
+    /// Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract that pox-5
+    /// references via `get-balance`. Devnet/test only; different operators
+    /// configuring different contracts will fork the chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_sbtc_contract: Option<QualifiedContractIdentifier>,
+    /// Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract that
+    /// signer-set computation reads `get-current-aggregate-pubkey` from to
+    /// derive the per-cycle sBTC waterfall recipient. Devnet/test only;
+    /// different operators configuring different contracts will fork the
+    /// chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_sbtc_registry_contract: Option<QualifiedContractIdentifier>,
+    /// Epoch 4.0 / PoX-5 scaffolding: the principal that pox-5 initializes
+    /// the `bond-admin` data var to. By default the contract source
+    /// initializes it to `tx-sender`, which at boot deploy time is the
+    /// unsignable boot principal — making `setup-bond` uncallable. Devnets
+    /// and integration tests can set this to a key they control. Devnet/test
+    /// only — different operators configuring different admins will fork
+    /// the chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_bond_admin: Option<PrincipalData>,
+    /// Principal that can permanently pause PoX-5 signer reward claims.
+    pub pox_5_pause_admin: Option<PrincipalData>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -2479,7 +2545,6 @@ impl Default for NodeConfig {
             wait_time_for_blocks: 30_000,
             next_initiative_delay: 10_000,
             prometheus_bind: None,
-            marf_cache_strategy: None,
             marf_defer_hashing: true,
             marf_compress: true,
             pox_sync_sample_secs: 30,
@@ -2491,6 +2556,10 @@ impl Default for NodeConfig {
             event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
             txindex: false,
+            pox_5_sbtc_contract: None,
+            pox_5_sbtc_registry_contract: None,
+            pox_5_bond_admin: None,
+            pox_5_pause_admin: None,
         }
     }
 }
@@ -2644,12 +2713,7 @@ impl NodeConfig {
             TrieHashCalculationMode::Immediate
         };
 
-        MARFOpenOpts::new(
-            hash_mode,
-            self.marf_cache_strategy.as_deref().unwrap_or("noop"),
-            false,
-        )
-        .with_compression(self.marf_compress)
+        MARFOpenOpts::new(hash_mode, false).with_compression(self.marf_compress)
     }
 
     pub fn effective_event_dispatcher_queue_size(&self) -> usize {
@@ -3484,7 +3548,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum total size (in bytes) of data allowed to be read from Clarity data
     /// space (variables, maps) during a read-only call.
     /// ---
-    /// @default: `100_000` (100 KB).
+    /// @default: `200_000` (~200 KB).
     /// @units: bytes
     pub read_only_call_limit_read_length: Option<u64>,
     /// Maximum number of distinct write operations allowed during a read-only call.
@@ -3497,7 +3561,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum number of distinct read operations from Clarity data space allowed
     /// during a read-only call.
     /// ---
-    /// @default: `30`
+    /// @default: `100`
     pub read_only_call_limit_read_count: Option<u64>,
     /// Runtime cost limit for an individual read-only function call. This represents
     /// computation effort within the Clarity VM.
@@ -3730,6 +3794,14 @@ pub struct ConnectionOptionsFile {
     /// @units: seconds
     pub read_only_max_execution_time_secs: Option<u64>,
 
+    /// Maximum bytes a single read-only RPC call may allocate on the heap before
+    /// it is aborted.
+    /// `0` disables the limit.
+    /// ---
+    /// @default: [`DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES`]
+    /// @units: bytes
+    pub read_only_call_max_mem_bytes: Option<u64>,
+
     /// Maximum time (in seconds) to spend validating a block when processing
     /// a block proposal received via the `/v3/block_proposal` RPC endpoint.
     ///
@@ -3943,6 +4015,9 @@ impl ConnectionOptionsFile {
             read_only_max_execution_time_secs: self
                 .read_only_max_execution_time_secs
                 .unwrap_or(default.read_only_max_execution_time_secs),
+            read_only_call_max_mem_bytes: self
+                .read_only_call_max_mem_bytes
+                .unwrap_or(default.read_only_call_max_mem_bytes),
             block_proposal_validation_timeout_secs: self
                 .block_proposal_validation_timeout_secs
                 .unwrap_or(DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS),
@@ -3993,6 +4068,7 @@ pub struct NodeConfigFile {
     pub wait_time_for_blocks: Option<u64>,
     pub next_initiative_delay: Option<u64>,
     pub prometheus_bind: Option<String>,
+    /// @deprecated: MARF node caching has been removed. This setting is ignored.
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
     pub marf_compress: Option<bool>,
@@ -4010,10 +4086,31 @@ pub struct NodeConfigFile {
     pub fault_injection_block_push_fail_probability: Option<u8>,
     /// enable transactions indexing, note this will require additional storage (in the order of gigabytes)
     pub txindex: Option<bool>,
+    /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
+    /// of the sBTC token contract that pox-5 references for `get-balance`.
+    pub pox_5_sbtc_contract: Option<String>,
+    /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
+    /// of the sBTC registry contract from which signer-set computation reads
+    /// `get-current-aggregate-pubkey` to derive the per-cycle sBTC waterfall
+    /// recipient.
+    pub pox_5_sbtc_registry_contract: Option<String>,
+    /// Epoch 4.0 / PoX-5 scaffolding: principal (standard or contract) that
+    /// pox-5 initializes the `bond-admin` data var to. Used to override the
+    /// default initializer (`tx-sender`, the unsignable boot principal) so
+    /// `setup-bond` is callable from a key controlled by the operator.
+    pub pox_5_bond_admin: Option<String>,
+    /// Principal that can permanently pause PoX-5 signer reward claims.
+    pub pox_5_pause_admin: Option<String>,
 }
 
 impl NodeConfigFile {
     fn into_config_default(self, default_node_config: NodeConfig) -> Result<NodeConfig, String> {
+        if let Some(marf_cache_strategy) = self.marf_cache_strategy.as_deref() {
+            warn!(
+                "node.marf_cache_strategy is deprecated and ignored; MARF node caching has been removed (configured value: {marf_cache_strategy})"
+            );
+        }
+
         let rpc_bind = self.rpc_bind.unwrap_or(default_node_config.rpc_bind);
         let miner = self.miner.unwrap_or(default_node_config.miner);
         let stacker = self.stacker.unwrap_or(default_node_config.stacker);
@@ -4070,7 +4167,6 @@ impl NodeConfigFile {
                 .next_initiative_delay
                 .unwrap_or(default_node_config.next_initiative_delay),
             prometheus_bind: self.prometheus_bind,
-            marf_cache_strategy: self.marf_cache_strategy,
             marf_defer_hashing: self
                 .marf_defer_hashing
                 .unwrap_or(default_node_config.marf_defer_hashing),
@@ -4109,6 +4205,30 @@ impl NodeConfigFile {
             },
 
             txindex: self.txindex.unwrap_or(default_node_config.txindex),
+            pox_5_sbtc_contract: self
+                .pox_5_sbtc_contract
+                .as_deref()
+                .map(QualifiedContractIdentifier::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_sbtc_contract: {e}"))?,
+            pox_5_sbtc_registry_contract: self
+                .pox_5_sbtc_registry_contract
+                .as_deref()
+                .map(QualifiedContractIdentifier::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_sbtc_registry_contract: {e}"))?,
+            pox_5_bond_admin: self
+                .pox_5_bond_admin
+                .as_deref()
+                .map(PrincipalData::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_bond_admin: {e}"))?,
+            pox_5_pause_admin: self
+                .pox_5_pause_admin
+                .as_deref()
+                .map(PrincipalData::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_pause_admin: {e}"))?,
         };
         Ok(node_config)
     }
@@ -4821,6 +4941,61 @@ mod tests {
     }
 
     #[test]
+    fn test_mainnet_rejects_pox_5_admin_overrides() {
+        // A mainnet node may not override the pox-5 bond admin.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "mainnet"
+                [node]
+                pox_5_bond_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("`pox_5_bond_admin` set"),
+            "unexpected error: {err}"
+        );
+
+        // Likewise for the pause admin.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "mainnet"
+                [node]
+                pox_5_pause_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("`pox_5_pause_admin` set"),
+            "unexpected error: {err}"
+        );
+
+        // The same overrides are accepted on a non-mainnet node.
+        assert!(Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                pox_5_bond_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                pox_5_pause_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .is_ok());
+    }
+
+    #[test]
     fn test_deny_unknown_fields() {
         {
             let err = ConfigFile::from_str(
@@ -5100,7 +5275,6 @@ mod tests {
                 "#,
         );
 
-        assert_eq!(None, config.node.marf_cache_strategy, "default cache");
         assert_eq!(
             true, config.node.marf_defer_hashing,
             "default defer hashing"
@@ -5108,7 +5282,6 @@ mod tests {
         assert_eq!(true, config.node.marf_compress, "default compress");
 
         let cfg_opts = config.node.get_marf_opts();
-        assert_eq!("noop", cfg_opts.cache_strategy, "default cache opt");
         assert_eq!(
             TrieHashCalculationMode::Deferred,
             cfg_opts.hash_calculation_mode,
@@ -5135,21 +5308,12 @@ mod tests {
         );
 
         assert_eq!(
-            Some("everything".to_string()),
-            config.node.marf_cache_strategy,
-            "configured cache"
-        );
-        assert_eq!(
             false, config.node.marf_defer_hashing,
             "configured defer hashing"
         );
         assert_eq!(false, config.node.marf_compress, "configured compress");
 
         let cfg_opts = config.node.get_marf_opts();
-        assert_eq!(
-            "everything", cfg_opts.cache_strategy,
-            "configured cache opt"
-        );
         assert_eq!(
             TrieHashCalculationMode::Immediate,
             cfg_opts.hash_calculation_mode,
