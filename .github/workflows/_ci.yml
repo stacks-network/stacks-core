@@ -1,5 +1,5 @@
 ############################################################################
-### The main GitHub Actions workflow for CI/CD
+### Our primary CI/CD workflow
 ############################################################################
 
 name: CI
@@ -9,7 +9,12 @@ on:
   merge_group:
     types:
       - checks_requested
-  workflow_dispatch:
+  schedule:
+    # Run at 00:00 UTC daily
+    # This runs on `main` and is done to have `main` generate and upload 
+    # code coverage information for more accurate PR code coverage reports.
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allows manual triggering
   pull_request:
     types:
       - opened
