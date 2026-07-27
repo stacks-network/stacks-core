@@ -8,7 +8,7 @@
 #
 # Triggered by PR review events (submitted/dismissed) and manual dispatch.
 # Manual dispatch always runs; PR-review runs proceed only for approved
-# reviews targeting the `develop` base branch.
+# reviews targeting the `main` base branch.
 #
 # It uses two gates: approval threshold first, then quick diff detection of
 # new proptest tests (tag based), to avoid expensive runs when not needed.
@@ -30,9 +30,9 @@ on:
   workflow_dispatch:
     inputs:
       base_ref:
-        description: "BASE branch to diff against (default: develop)"
+        description: "BASE branch to diff against (default: main)"
         required: true
-        default: "develop"
+        default: "main"
         type: string
       pr_number:
         description: "PR number for stateful run (artifact naming, PR comments)"
@@ -63,13 +63,13 @@ env:
 jobs:
   # Gate 1: on manual dispatch, always proceed.
   # On pull_request_review, proceed only when the triggering review is an
-  # approval targeting the `develop` base branch and check approvals
+  # approval targeting the `main` base branch and check approvals
   # from users with write+ permission to be at least `REQUIRED_APPROVALS`.
   check-approvals:
     name: Check Approval Count
     if: >
       (github.event_name == 'workflow_dispatch') ||
-      (github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'develop')
+      (github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main')
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.count.outputs.ready }}
@@ -200,7 +200,7 @@ jobs:
   ############################################################################
   ### Check Reusable Test Caches
   ###
-  ### Caches can only be created from `master`. The workflow will fail 
+  ### Caches can only be created from `main`. The workflow will fail 
   ### if caches are missing, with instructions on how to manually seed them.
   ############################################################################
   check-test-caches:

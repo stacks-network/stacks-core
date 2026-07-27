@@ -7,9 +7,7 @@ on:
       - checks_requested
   push:
     branches:
-      - master
-      - develop
-      - next
+      - main
     paths-ignore:
       - "**.md"
       - "**.yml"

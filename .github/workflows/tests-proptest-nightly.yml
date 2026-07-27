@@ -3,7 +3,7 @@
 # Targets tests tagged with `#[tag(t_prop)]` (see docs/property-testing.md).
 #
 # Triggers:
-#   schedule  — nightly at 05:00 UTC on NIGHTLY_BRANCH (`develop`)
+#   schedule  — nightly at 05:00 UTC on NIGHTLY_BRANCH (`main`)
 #   dispatch  — manual, on any branch, with configurable PROPTEST_CASES
 #
 # On test failure the workflow:
@@ -48,7 +48,7 @@ env:
   # Test timeout in minutes
   TEST_TIMEOUT: 120
   # Branch to check out on scheduled (nightly) runs.
-  NIGHTLY_BRANCH: develop
+  NIGHTLY_BRANCH: main
   # Default number of generated cases per proptest (used on scheduled runs).
   NIGHTLY_PROPTEST_CASES: 2500
   # Whether to send Slack notifications on nightly (scheduled) runs.
