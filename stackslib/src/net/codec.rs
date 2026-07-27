@@ -16,7 +16,6 @@
 
 use std::collections::HashSet;
 use std::io;
-use std::io::prelude::*;
 use std::io::Read;
 
 use clarity::vm::types::QualifiedContractIdentifier;
