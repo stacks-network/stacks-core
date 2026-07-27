@@ -24,7 +24,9 @@ use super::ClarityVersion;
 use super::costs::{CostErrors, CostOverflowingMath};
 use super::errors::VmInternalError;
 use super::types::signatures::CallableSubtype;
-use crate::vm::contexts::{ContractContext, ExecutionState, InvocationContext};
+use crate::vm::contexts::{
+    ContractContext, ExecutionState, FunctionExecutionOptions, InvocationContext,
+};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, check_argument_count};
@@ -421,6 +423,26 @@ impl DefinedFunction {
 
     pub fn is_read_only(&self) -> bool {
         self.define_type == DefineType::ReadOnly
+    }
+
+    /// Applies this function directly or through a transaction boundary according to its
+    /// visibility.
+    pub fn apply(
+        &self,
+        args: &[Value],
+        exec_state: &mut ExecutionState,
+        invoke_ctx: &InvocationContext,
+    ) -> Result<Value, VmExecutionError> {
+        match self.define_type {
+            DefineType::Private => self.execute_apply(args, exec_state, invoke_ctx),
+            DefineType::Public | DefineType::ReadOnly => exec_state
+                .execute_function_as_transaction(
+                    invoke_ctx,
+                    self,
+                    args,
+                    FunctionExecutionOptions::default(),
+                ),
+        }
     }
 
     pub fn is_public(&self) -> bool {

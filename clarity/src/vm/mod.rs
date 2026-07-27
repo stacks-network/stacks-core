@@ -60,11 +60,9 @@ use self::analysis::ContractAnalysis;
 use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
-use crate::vm::callables::{BuiltinKind, CallableType, DefineType, FunctionIdentifier};
+use crate::vm::callables::{BuiltinKind, CallableType, FunctionIdentifier};
 pub use crate::vm::contexts::{CallStack, ContractContext, LocalContext, MAX_CONTEXT_DEPTH};
-use crate::vm::contexts::{
-    ExecutionState, FunctionExecutionOptions, GlobalContext, InvocationContext,
-};
+use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
@@ -296,50 +294,51 @@ fn dispatch_args(
 ) -> Result<Value, VmExecutionError> {
     exec_state.call_stack.insert(&identifier, track_recursion);
 
-    let mut resp = match function {
-        CallableType::Builtin {
-            kind: BuiltinKind::Native(_, function, cost_function),
-            ..
-        } => runtime_cost(cost_function.clone(), exec_state, args.len())
-            .map_err(VmExecutionError::from)
-            .and_then(|_| function.apply(args, exec_state, invoke_ctx)),
-        CallableType::Builtin {
-            kind: BuiltinKind::Native205(_, function, cost_function, cost_input_handle),
-            ..
-        } => {
-            let cost_input = if exec_state.epoch() >= &StacksEpochId::Epoch2_05 {
-                cost_input_handle(args.as_slice())
-            } else {
-                Ok(args.len() as u64)
-            };
-            cost_input.and_then(|cost_input| {
+    // Scope `?` to callable execution so the common cleanup below always runs.
+    let mut resp = (|| -> Result<Value, VmExecutionError> {
+        match function {
+            // Built-ins (Native)
+            CallableType::Builtin {
+                kind: BuiltinKind::Native(_, function, cost_function),
+                ..
+            } => {
+                runtime_cost(cost_function.clone(), exec_state, args.len())
+                    .map_err(VmExecutionError::from)?;
+                function.apply(args, exec_state, invoke_ctx)
+            }
+
+            // Built-ins (Native 2.05+)
+            CallableType::Builtin {
+                kind: BuiltinKind::Native205(_, function, cost_function, cost_input_handle),
+                ..
+            } => {
+                let cost_input = if exec_state.epoch() >= &StacksEpochId::Epoch2_05 {
+                    cost_input_handle(args.as_slice())?
+                } else {
+                    args.len() as u64
+                };
+
                 runtime_cost(cost_function.clone(), exec_state, cost_input)
-                    .map_err(VmExecutionError::from)
-                    .and_then(|_| function.apply(args, exec_state, invoke_ctx))
-            })
+                    .map_err(VmExecutionError::from)?;
+                function.apply(args, exec_state, invoke_ctx)
+            }
+
+            // User-defined functions (Clarity)
+            CallableType::UserFunction(function) => function.apply(&args, exec_state, invoke_ctx),
+
+            // Special functions evaluate their own arguments and are dispatched directly in
+            // `apply`/`apply_evaluated`, so they never reach `dispatch_args`.
+            CallableType::Builtin {
+                kind: BuiltinKind::Special(..),
+                ..
+            } => Err(VmInternalError::Expect("Should be unreachable.".into()).into()),
         }
-        CallableType::UserFunction(function) => match function.define_type {
-            DefineType::Private => function.execute_apply(&args, exec_state, invoke_ctx),
-            DefineType::Public | DefineType::ReadOnly => exec_state
-                .execute_function_as_transaction(
-                    invoke_ctx,
-                    function,
-                    &args,
-                    FunctionExecutionOptions::default(),
-                ),
-        },
-        // Special functions evaluate their own arguments and are dispatched directly in
-        // `apply`/`apply_evaluated`, so they never reach `dispatch_args`. Return (rather than
-        // early-`return`) so the call-stack/memory cleanup below still runs if ever violated.
-        CallableType::Builtin {
-            kind: BuiltinKind::Special(..),
-            ..
-        } => Err(VmInternalError::Expect("Should be unreachable.".into()).into()),
-    };
+    })();
 
     add_stack_trace(&mut resp, exec_state);
     exec_state.drop_memory(used_memory)?;
     exec_state.call_stack.remove(&identifier, track_recursion)?;
+
     resp
 }
 
