@@ -1,4 +1,4 @@
-# Github workflow to check reusable test caches
+# GitHub workflow to check reusable test caches
 
 name: "Check: Test Caches"
 
