@@ -222,9 +222,9 @@
 ;; the staker receives sBTC.
 ;;
 ;; Returns `{ earned, withdrawal-request-id }` where `earned` is the net
-;; amount credited to the staker and `withdrawal-request-id` is `(some id)`
-;; when an L1 sBTC withdrawal was initiated, or `none` for a direct sBTC
-;; payout.
+;; amount claimed for the staker after signer-manager fees and
+;; `withdrawal-request-id` is `(some id)` when an L1 sBTC withdrawal was
+;; initiated, or `none` for a direct sBTC payout.
 (define-public (claim-staker-rewards
         (staker principal)
         (reward-cycle uint)
