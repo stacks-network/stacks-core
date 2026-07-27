@@ -427,7 +427,7 @@ impl DefinedFunction {
     }
 
     pub fn as_str(&self) -> &str {
-        &self.identifier.as_ref()
+        self.identifier.as_ref()
     }
 
     #[cfg(feature = "developer-mode")]

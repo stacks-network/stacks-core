@@ -926,7 +926,6 @@ impl<'a> OwnedEnvironment<'a> {
                 )
             },
         )
-        .map_err(|e| e.into())
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -1610,7 +1609,6 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
             contract_content,
             &mut analysis_db,
         )
-        .map_err(|e| e.into())
     }
 
     /// Initializes a Clarity smart contract with a custom analysis database.
