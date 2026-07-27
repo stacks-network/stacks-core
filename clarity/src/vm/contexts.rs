@@ -931,7 +931,7 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(any(test, feature = "testing", feature = "rusqlite"))]
     pub fn initialize_versioned_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,

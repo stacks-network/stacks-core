@@ -24,10 +24,6 @@ use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use clarity::rusqlite::{params, Connection};
-use clarity::vm::analysis::contract_interface_builder::{
-    build_contract_interface, ContractInterface,
-};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier};
