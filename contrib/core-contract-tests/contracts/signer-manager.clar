@@ -220,6 +220,11 @@
 ;; If the staker provided a `pox-addr` as calldata while staking, then
 ;; rewards are withdrawn through sBTC to their L1 Bitcoin address. Otherwise,
 ;; the staker receives sBTC.
+;;
+;; Returns `{ earned, withdrawal-request-id }` where `earned` is the net
+;; amount credited to the staker and `withdrawal-request-id` is `(some id)`
+;; when an L1 sBTC withdrawal was initiated, or `none` for a direct sBTC
+;; payout.
 (define-public (claim-staker-rewards
         (staker principal)
         (reward-cycle uint)
@@ -257,7 +262,10 @@
         (var-set unclaimed-staker-rewards
             (- unclaimed-rewards gross)
         )
-        (try! (as-contract?
+        ;; Bind the request-id surfaced when the payout was routed to L1 via 
+        ;; `initiate-withdrawal-request`, `none` when the staker was paid 
+        ;; directly in sBTC.
+        (let ((withdrawal-request-id (try! (as-contract?
             ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                 "sbtc-token" earned
             ))
@@ -291,7 +299,8 @@
                         (+ (var-get withdrawal-liability) amount
                             (get max-fee l1-info)
                         ))
-                    true
+
+                    (some withdrawal-request)
                 )
                 (begin
                     (print {
@@ -306,10 +315,16 @@
                         'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
                         transfer earned tx-sender staker none
                     ))
+                    ;; Direct sBTC payout: there is no L1 withdrawal to track.
+                    none
                 )
-            )))
+            )))))
 
-        (ok earned)
+            (ok {
+                earned: earned,
+                withdrawal-request-id: withdrawal-request-id,
+            })
+        )
     )
 )
 
