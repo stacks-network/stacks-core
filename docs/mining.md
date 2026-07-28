@@ -17,7 +17,10 @@ stacker = true
 nakamoto_attempt_time_ms = 20000
 
 [burnchain]
-# Required name of an existing Bitcoin wallet used for mining operations
+# Required name of an existing Bitcoin wallet used for mining operations.
+# Allowed characters: ASCII letters, digits, and `. _ - /`
+# The node loads it into the running bitcoind if needed; set `wallet=stacks-miner`
+# in bitcoin.conf so it is loaded again after a bitcoind restart.
 wallet_name = "stacks-miner"
 # Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
 burn_fee_cap = 20000

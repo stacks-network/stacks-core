@@ -1,2 +1,2 @@
-Miner configurations must now set a non-empty `burnchain.wallet_name` for an existing wallet, regardless of the Bitcoin Core version. The miner routes wallet RPCs explicitly to that wallet, loads it at startup with restart persistence, and fails fast if it is missing. This also fixes compatibility with Bitcoin Core >= 31, which removed unnamed wallets.
-After migrating a miner wallet, set `burnchain.wallet_name` to the wallet holding the miner's addresses (`migratewallet` can split it in two).
+Miner configurations must now set `burnchain.wallet_name` to an existing wallet (ASCII letters, digits and `. _ - /`), regardless of the Bitcoin Core version; this also fixes compatibility with Bitcoin Core >= 31, which removed unnamed wallets.
+Loading is session-only: set `wallet=<name>` in `bitcoin.conf` to reload it after a bitcoind restart. After `migratewallet`, point `wallet_name` at the wallet holding the miner's addresses.

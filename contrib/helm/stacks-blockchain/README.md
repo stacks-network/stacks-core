@@ -96,7 +96,7 @@ The following tables lists the configurable parameters of the stacks-blockchain 
 | config.burnchain.peer_host |  | bitcoin.mainnet.stacks.org |
 | config.burnchain.rpc_port |  | 18443 |
 | config.burnchain.peer_port |  | 18444 |
-| config.burnchain.wallet_name | Existing Bitcoin wallet required when deploying a miner node, unless `mock_mining` is enabled. | "" |
+| config.burnchain.wallet_name | Existing Bitcoin wallet required when deploying a miner node, unless `mock_mining` is enabled. Allowed characters: ASCII letters, digits, and `. _ - /`. The node loads it into the running bitcoind. Set `wallet=<name>` in `bitcoin.conf` for it to survive a bitcoind restart. | "" |
 | config.ustx_balance |  | See values.yaml |
 | config.raw | Uncommenting this block will give you greater control over the settings in the Configmap | nil |
 | config.annotations | Annotations to be added to the Configmap | {} |

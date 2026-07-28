@@ -138,7 +138,10 @@ max_rbf = 150
 # poll_time_secs = 10
 
 # REQUIRED: Bitcoin wallet used for mining operations.
-# This wallet must already exist; the node loads it if needed.
+# Allowed characters: ASCII letters, digits, and `. _ - /`
+# This wallet must already exist; the node loads it into the running bitcoind if
+# needed. Also set `wallet=<name>` in bitcoin.conf so it is loaded again after a
+# bitcoind restart.
 wallet_name = "<YOUR_BITCOIN_WALLET_NAME>"
 
 # Wait time before attempting to build a block after a burnchain event.
