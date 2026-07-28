@@ -59,17 +59,10 @@ use crate::net::tests::NakamotoBootPlan;
 /// The epochs to test for consensus are the current and upcoming epochs.
 /// This constant must be changed when new epochs are introduced.
 /// Note that contract deploys MUST be done in each epoch >= 2.0.
-///
-/// Epoch 4.0 is intentionally excluded while it is under active development:
-/// its consensus behavior is still changing, so including it here would force
-/// constant churn in the `.snap` files. Re-add `StacksEpochId::Epoch40` here
-/// once 4.0 stabilizes (the supporting infra in `clarity_versions_for_epoch`
-/// and the epoch height calculation is left in place for that purpose).
-pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch34];
+pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch34, StacksEpochId::Epoch40];
 
 /// The latest epoch exercised by the consensus snapshot tests, i.e. the maximum
-/// of [`EPOCHS_TO_TEST`]. Epochs beyond this are intentionally excluded (e.g.
-/// Epoch 4.0 while it is under active development).
+/// of [`EPOCHS_TO_TEST`]. Epochs beyond this are intentionally excluded.
 pub fn max_tested_epoch() -> StacksEpochId {
     *EPOCHS_TO_TEST
         .iter()
@@ -143,6 +136,16 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity5,
             ClarityVersion::Clarity6,
         ],
+    }
+}
+
+/// Block execution limit the consensus tests use for the given epoch, mirroring the
+/// production `STACKS_EPOCHS_MAINNET`/`STACKS_EPOCHS_TESTNET` tables.
+pub fn block_limit_for_epoch(epoch_id: StacksEpochId) -> ExecutionCost {
+    if epoch_id >= StacksEpochId::Epoch40 {
+        BLOCK_LIMIT_MAINNET_40.clone()
+    } else {
+        BLOCK_LIMIT_MAINNET_21.clone()
     }
 }
 
@@ -515,16 +518,7 @@ impl ConsensusChain<'_> {
                 end_height = epoch_30_start; // Epoch 2.5 ends where Epoch 3.0 starts
             }
             // Create epoch
-            let block_limit = if *epoch_id == StacksEpochId::Epoch10 {
-                ExecutionCost::max_value()
-            } else if *epoch_id == StacksEpochId::Epoch40 {
-                // Epoch 4.0 doubles the read budget relative to 2.1's limit; mirror
-                // the real `STACKS_EPOCHS_MAINNET`/`STACKS_EPOCHS_TESTNET` tables so
-                // consensus tests actually exercise the production block limit.
-                BLOCK_LIMIT_MAINNET_40.clone()
-            } else {
-                BLOCK_LIMIT_MAINNET_21.clone()
-            };
+            let block_limit = block_limit_for_epoch(*epoch_id);
             let network_epoch = StacksEpochId::network_epoch(*epoch_id);
             epochs.push(StacksEpoch {
                 epoch_id: *epoch_id,
