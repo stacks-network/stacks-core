@@ -58,11 +58,18 @@ jobs:
             --json databaseId \
             --jq '.[0].databaseId')
         
+          # Guard against empty/null results
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "::error::No successful CI run found for commit ${{ github.event.pull_request.head.sha }}"
+            exit 1
+          fi
+
           # Download the merged code coverage file into $REPORT_FILES_DIR
-          gh run download $RUN_ID \
-            --repo ${{ github.repository }} \
-            --name $MERGED_COVERAGE_REPORT_ARTIFACT_NAME \
-            --dir $REPORT_FILES_DIR
+          echo "Downloading artifact from Run ID: $RUN_ID"
+          gh run download "$RUN_ID" \
+            --repo "${{ github.repository }}" \
+            --name "$MERGED_COVERAGE_REPORT_ARTIFACT_NAME" \
+            --dir "$REPORT_FILES_DIR"
           
       # Upload the merged code coverage file to Coveralls for `main` branch
       - name: Upload code coverage to Coveralls for `main` branch
