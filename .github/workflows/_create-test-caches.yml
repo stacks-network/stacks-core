@@ -1,0 +1,93 @@
+name: Create Test Caches
+run-name: "Create Test Caches: [${{ github.ref_name }}]"
+
+################################################################################################################################
+# GitHub caches are scoped to branches, with a fallback mechanism:
+#   1. A branch by default can only see caches created on that branch
+#   2. Failing that, a branch can opt-in to accessing the base branch cache
+#   3. If the base branch cache is missing, the opt-in check will fall through to the default branch cache (`main`)
+#
+# So we build caches on `main` after each push, since our branches typically target `main` as base.
+#
+# This allows any and all PR branches that ultimately derive from `main` to re-use these caches for faster 
+# CI workflows, via an intentionally broad `restore-keys` fallback in the actions/cache GitHub action.
+#
+# The broad cache restore will find the most recently created (newest) caches in `main`.
+#
+# If the branch has updated cargo crates, or the cache is slightly stale, that's OK.
+# The cargo build process will notice the mismatched versions (or new deps) automatically 
+# and build them on-the-fly. This allows slightly stale caches to still be very useful.
+#
+# NOTE: 
+#   This job ONLY runs if EITHER of the following is true:
+#     1. We're on the `main` branch of `stacks-network/stacks-core`, OR
+#     2. A GitHub Action variable is set: SEED_CACHES = true
+################################################################################################################################
+
+on:
+  workflow_dispatch: # Allows manual triggering / seeding
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+# Configure concurrency
+#   - cache will exist longer than workflow execution so other runners have access.
+#   - when multiple pushes to `main` happen in a short time, cancel 
+#     the current run and start the new one with the most recent code.
+concurrency:
+  group: seed-caches
+  cancel-in-progress: true
+
+jobs:
+  ##############################################################################
+  ### Create Reusable Caches for Tests
+  ###
+  ### Caches can only be created from `main`. This workflow runs only from 
+  ### `main` and therefore will successfully create canonical re-usable caches.
+  ##############################################################################
+  cache-bitcoin-binary:
+    name: "Create: Bitcoin Binary Cache"
+    runs-on: ubuntu-latest
+    # Execute if running in our core repo on `main` OR if SEED_CACHES GitHub Actions variable is 'true'
+    if: |
+      (github.repository == 'stacks-network/stacks-core' && github.ref_name == 'main') ||
+      vars.SEED_CACHES == 'true'
+    steps:
+      # Checkout the code
+      #   - only .github is required for checking caches
+      - name: Checkout the latest code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          sparse-checkout: |
+            .github
+
+      - name: Create Bitcoin Cache
+        uses: ./.github/actions/cache/bitcoin
+        with:
+          action: create
+
+  cache-cargo:
+    name: "Create: Cargo Cache"
+    runs-on: ubuntu-latest
+    # Execute if running in our core repo on `main` OR if SEED_CACHES GitHub Actions variable is 'true'
+    if: |
+      (github.repository == 'stacks-network/stacks-core' && github.ref_name == 'main') ||
+      vars.SEED_CACHES == 'true'
+    steps:
+      # Checkout the code
+      #   - only .github is required for checking caches
+      - name: Checkout the latest code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          sparse-checkout: |
+            .github
+
+      - name: Create Cargo Cache
+        uses: ./.github/actions/cache/cargo
+        with:
+          action: create

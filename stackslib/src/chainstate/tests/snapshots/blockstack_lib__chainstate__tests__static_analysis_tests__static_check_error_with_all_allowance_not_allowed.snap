@@ -63,4 +63,94 @@ expression: result.get_expected_results()
       runtime: 2029,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "32d5c5171453fc8b7463b09131c329e5af5f254af9a67736f40afc3baefd8216",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: all-allow-not-allowed-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 8,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2029,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 8,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2029,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "9c5b3b53ed4049921a426603b04723d13841671c44fc6e65fe9b4058756212c5",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: all-allow-not-allowed-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 8,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2029,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 8,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2029,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "36665fd65f519f3420494c3ae09351a82cbade027b6cd0ea9f66d94bfdd8e98c",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: all-allow-not-allowed-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(:0:0: with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 8,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2029,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 8,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2029,
+    ),
+  )),
 ]

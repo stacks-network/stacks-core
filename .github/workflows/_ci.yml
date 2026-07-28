@@ -1,5 +1,5 @@
 ############################################################################
-### The main GitHub Actions workflow for CI/CD
+### Our primary CI/CD workflow
 ############################################################################
 
 name: CI
@@ -9,7 +9,12 @@ on:
   merge_group:
     types:
       - checks_requested
-  workflow_dispatch:
+  schedule:
+    # Run at 00:00 UTC daily
+    # This runs on `main` and is done to have `main` generate and upload
+    # code coverage information for more accurate PR code coverage reports.
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allows manual triggering
   pull_request:
     types:
       - opened
@@ -167,7 +172,7 @@ jobs:
   ############################################################################
   ### Check Reusable Test Caches
   ###
-  ### Caches can only be created from `master`. The workflow will fail
+  ### Caches can only be created from `main`. The workflow will fail
   ### if caches are missing, with instructions on how to manually seed them.
   ############################################################################
   check-test-caches:
@@ -178,7 +183,7 @@ jobs:
       - setup-env
     if: >-
       needs.setup-env.outputs.job-should-run == 'true'
-    uses: ./.github/workflows/setup-test-caches.yml
+    uses: ./.github/workflows/check-test-caches.yml
 
   ############################################################################
   ### Cargo Hack Check
@@ -657,7 +662,7 @@ jobs:
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
         with: &coveralls_config
           file: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
-          compare-ref: ${{ github.base_ref }} # defaults to master if this isn't supplied
+          compare-ref: ${{ github.base_ref }} # defaults to main if this isn't supplied
           build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
           fail-on-error: true
           coverage-reporter-version: v0.6.17 # the action SHA is pinned but downloads the reporter binary at 'latest' unless pinned here
