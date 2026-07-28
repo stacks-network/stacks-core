@@ -654,6 +654,7 @@ jobs:
       # Upload the merged code coverage file to Coveralls, retrying transient failures
       - name: Upload code coverage to Coveralls
         timeout-minutes: 15
+        continue-on-error: true
         uses: ./.github/actions/coveralls-upload
         with:
           file: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
