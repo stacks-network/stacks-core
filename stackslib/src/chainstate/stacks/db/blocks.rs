@@ -24,6 +24,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::VmExecutionError;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{
     BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
@@ -4119,7 +4120,7 @@ impl StacksChainState {
                     "stack-stx",
                     &args,
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
@@ -4330,7 +4331,7 @@ impl StacksChainState {
                         reward_addr_val,
                     ],
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
@@ -4438,7 +4439,7 @@ impl StacksChainState {
                         Value::UInt((*reward_cycle).into()),
                     ],
                     |_, _| None,
-                    None,
+                    &ResourceBudget::unlimited(),
                 )
             });
             match result {
@@ -6887,7 +6888,7 @@ pub mod test {
     use super::*;
     use crate::burnchains::*;
     use crate::chainstate::stacks::boot::test::eval_at_tip;
-    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::testing::*;
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::*;
@@ -7527,7 +7528,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_block_load_store_empty() {
-        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let path = StacksChainState::get_block_path(
             &chainstate.blocks_path,
@@ -7571,7 +7572,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_block_load_store() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -7732,7 +7733,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -7783,7 +7784,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_reject() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -7834,7 +7835,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_load_store_microblock_stream() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -7894,7 +7895,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_store_confirm_all() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8112,7 +8113,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_store_partial_confirm() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8364,7 +8365,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_microblock_stream_load_continuous_streams() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8806,7 +8807,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -8938,7 +8939,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable_reversed() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9071,7 +9072,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_block_load_store_accept_attachable_fork() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9248,7 +9249,7 @@ pub mod test {
     #[test]
     fn stacks_db_staging_microblocks_multiple_descendants() {
         // multiple anchored blocks build off of different microblock parents
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9383,7 +9384,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_staging_blocks_orphaned() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9551,7 +9552,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_drop_staging_microblocks() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9642,7 +9643,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_has_blocks_and_microblocks() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -9866,7 +9867,7 @@ pub mod test {
 
     #[test]
     fn stacks_db_get_blocks_inventory() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let mut blocks: Vec<StacksBlock> = vec![];
         let mut privks = vec![];
@@ -10536,7 +10537,7 @@ pub mod test {
     #[test]
     fn stacks_db_staging_microblocks_fork() {
         // multiple anchored blocks build off of a forked microblock stream
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )
@@ -10696,7 +10697,7 @@ pub mod test {
     fn stacks_db_staging_microblocks_multiple_forks() {
         // multiple anchored blocks build off of a microblock stream that gets forked multiple
         // times
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         let privk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
         )

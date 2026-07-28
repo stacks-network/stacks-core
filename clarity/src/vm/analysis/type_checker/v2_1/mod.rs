@@ -30,7 +30,7 @@ pub use crate::vm::analysis::errors::{
     StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, check_argument_count,
     check_arguments_at_least, check_arguments_at_most,
 };
-use crate::vm::analysis::{AnalysisDatabase, check_analysis_timeout};
+use crate::vm::analysis::{AnalysisDatabase, check_analysis_resource_limits};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
@@ -43,7 +43,7 @@ use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{ClarityName, SymbolicExpression, depth_traverse};
-use crate::vm::time_tracker::TimeTracker;
+use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, FunctionSignature,
 };
@@ -89,12 +89,12 @@ pub struct TypeChecker<'a, 'b> {
     db: &'a mut AnalysisDatabase<'b>,
     pub cost_track: LimitedCostTracker,
     clarity_version: ClarityVersion,
-    /// Wall-clock deadline for the analysis phase. `NoTracking` on the
-    /// deterministic-replay/commit path (so consensus stays deterministic);
-    /// `MaxTime` only on the non-consensus voting paths (mining / block-proposal
-    /// validation). Checked per node in `type_check` via
-    /// `check_analysis_abort_condition`, independent of cost charging.
-    time_tracker: TimeTracker,
+    /// Resource limits (wallclock deadline and max memory allocation) for the
+    /// analysis phase. Unlimited on the deterministic-replay/commit path (so
+    /// consensus stays deterministic); limited only on the non-consensus voting
+    /// paths (mining / block-proposal validation). Checked per node in `type_check` via
+    /// `check_analysis_resource_limits`, independent of cost charging.
+    resource_limiter: ResourceLimiter,
 }
 
 impl CostTracker for TypeChecker<'_, '_> {
@@ -135,7 +135,7 @@ impl TypeChecker<'_, '_> {
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
         build_type_map: bool,
-        time_tracker: TimeTracker,
+        resource_limiter: ResourceLimiter,
     ) -> Result<(), StaticCheckError> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command = TypeChecker::new(
@@ -145,7 +145,7 @@ impl TypeChecker<'_, '_> {
             &contract_analysis.contract_identifier,
             &contract_analysis.clarity_version,
             build_type_map,
-            time_tracker,
+            resource_limiter,
         );
         // run the analysis, and replace the cost tracker whether or not the
         //   analysis succeeded.
@@ -644,7 +644,7 @@ impl FunctionType {
                     &expected_arg.signature,
                     1,
                     &mut LimitedCostTracker::new_free(),
-                    &TimeTracker::unlimited(),
+                    &ResourceLimiter::unlimited(),
                 )?;
             }
         }
@@ -696,9 +696,9 @@ fn check_function_arg_signature<T: CostTracker>(
 /// caller turns that into `IncompatibleTrait`). Which errors propagate depends on
 /// the epoch:
 ///
-/// - `AnalysisTimeExpired` **always** propagates, in every epoch. The analysis
-///   deadline is configured only on the non-consensus voting paths (mining
-///   assembly / block-proposal validation) and is `NoTracking` on replay/commit,
+/// - `AnalysisResourceBudgetExceeded` **always** propagates, in every epoch. The
+///   analysis resource budget is limited only on the non-consensus voting paths (mining
+///   assembly / block-proposal validation) and is unlimited on replay/commit,
 ///   so it can never arise during consensus — propagating it changes no
 ///   deterministic outcome, which is why it needs no epoch gate.
 ///
@@ -723,7 +723,7 @@ fn mask_incompatible_or_propagate_error(
         StaticCheckErrorKind::TypeSignatureTooDeep => {
             Err(StaticCheckErrorKind::TraitReferenceChainTooDeep.into())
         }
-        StaticCheckErrorKind::AnalysisTimeExpired => Err(e),
+        StaticCheckErrorKind::AnalysisResourceBudgetExceeded(_) => Err(e),
         // Cost-tracking errors: propagate only from the gated epoch.
         StaticCheckErrorKind::CostOverflow
         | StaticCheckErrorKind::CostBalanceExceeded(..)
@@ -753,7 +753,7 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
     actual_sig: &FunctionSignature,
     depth: u8,
     tracker: &mut T,
-    time_tracker: &TimeTracker,
+    resource_limiter: &ResourceLimiter,
 ) -> Result<bool, StaticCheckError> {
     if expected_sig.args.len() != actual_sig.args.len() {
         return Ok(false);
@@ -768,7 +768,7 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
             expected_type,
             depth + 1,
             tracker,
-            time_tracker,
+            resource_limiter,
         ) {
             return mask_incompatible_or_propagate_error(e, epoch);
         }
@@ -781,7 +781,7 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
         &expected_sig.returns,
         depth + 1,
         tracker,
-        time_tracker,
+        resource_limiter,
     ) {
         return mask_incompatible_or_propagate_error(e, epoch);
     }
@@ -803,7 +803,7 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
     expected_trait: &BTreeMap<ClarityName, FunctionSignature>,
     depth: u8,
     tracker: &mut T,
-    time_tracker: &TimeTracker,
+    resource_limiter: &ResourceLimiter,
 ) -> Result<(), StaticCheckError> {
     if depth > MAX_TYPE_DEPTH {
         return Err(StaticCheckErrorKind::TraitReferenceChainTooDeep.into());
@@ -824,7 +824,7 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
                 func,
                 depth,
                 tracker,
-                time_tracker,
+                resource_limiter,
             )? {
                 return Err(StaticCheckErrorKind::IncompatibleTrait(
                     Box::new(expected_trait_identifier.clone()),
@@ -854,7 +854,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
     expected_type: &TypeSignature,
     depth: u8,
     cost_tracker: &mut T,
-    time_tracker: &TimeTracker,
+    resource_limiter: &ResourceLimiter,
 ) -> Result<TypeSignature, StaticCheckError> {
     if depth > MAX_TYPE_DEPTH {
         return Err(StaticCheckErrorKind::TypeSignatureTooDeep.into());
@@ -865,7 +865,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
     // `type_check` node visit, so the per-node deadline check never fires while it
     // runs. Re-check the analysis deadline here: every cycle iteration passes
     // through this function, so one check bounds the whole trait-compliance graph.
-    check_analysis_timeout(time_tracker)?;
+    check_analysis_resource_limits(resource_limiter)?;
 
     // Recurse into values to check embedded traits properly
     match (actual_type, expected_type) {
@@ -881,7 +881,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                 expected_inner_type,
                 depth + 1,
                 cost_tracker,
-                time_tracker,
+                resource_limiter,
             )?;
         }
         (
@@ -896,7 +896,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                 &expected_inner_types.0,
                 depth + 1,
                 cost_tracker,
-                time_tracker,
+                resource_limiter,
             )?;
             clarity2_inner_type_check_type(
                 db,
@@ -906,7 +906,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                 &expected_inner_types.1,
                 depth + 1,
                 cost_tracker,
-                time_tracker,
+                resource_limiter,
             )?;
         }
         (
@@ -922,7 +922,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                     expected_list_type.get_list_item_type(),
                     depth + 1,
                     cost_tracker,
-                    time_tracker,
+                    resource_limiter,
                 )?;
             } else {
                 return Err(StaticCheckErrorKind::TypeError(
@@ -955,7 +955,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                             expected_field_type,
                             depth + 1,
                             cost_tracker,
-                            time_tracker,
+                            resource_limiter,
                         )?;
                     }
                     None => {
@@ -997,7 +997,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                     &expected_trait,
                     depth,
                     cost_tracker,
-                    time_tracker,
+                    resource_limiter,
                 )?;
             }
         }
@@ -1054,7 +1054,7 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
                     expected_type,
                     depth + 1,
                     cost_tracker,
-                    time_tracker,
+                    resource_limiter,
                 )?;
             }
         }
@@ -1191,7 +1191,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         contract_identifier: &QualifiedContractIdentifier,
         clarity_version: &ClarityVersion,
         build_type_map: bool,
-        time_tracker: TimeTracker,
+        resource_limiter: ResourceLimiter,
     ) -> TypeChecker<'a, 'b> {
         Self {
             epoch: *epoch,
@@ -1201,7 +1201,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             function_return_tracker: None,
             type_map: TypeMap::new(build_type_map),
             clarity_version: *clarity_version,
-            time_tracker,
+            resource_limiter,
         }
     }
 
@@ -1316,8 +1316,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         expr: &SymbolicExpression,
         context: &TypingContext,
     ) -> Result<TypeSignature, StaticCheckError> {
-        // Per-node analysis deadline check (independent of cost accounting).
-        check_analysis_timeout(&self.time_tracker)?;
+        // Per-node analysis deadline and memory use check (independent of cost accounting).
+        check_analysis_resource_limits(&self.resource_limiter)?;
 
         runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
 
@@ -1752,7 +1752,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             expected_type,
             1,
             &mut self.cost_track,
-            &self.time_tracker,
+            &self.resource_limiter,
         )?;
 
         // If we reach here with no errors, then the expression can be

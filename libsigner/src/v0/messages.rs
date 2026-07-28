@@ -2087,7 +2087,7 @@ impl std::fmt::Display for RejectReason {
             RejectReason::ConsensusHashMismatch { expected, actual } => {
                 write!(
                     f,
-                    "The block's consensus hash ({expected}) does not match the active miner's tenure id ({actual})",
+                    "The block's consensus hash ({actual}) does not match the active miner's tenure id ({expected})",
                 )
             }
             RejectReason::ProblematicTransactions => {
