@@ -72,6 +72,7 @@ use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
     Timestamp,
 };
+use crate::burnchains::rpc::rpc_transport::RpcError;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -320,6 +321,22 @@ pub enum BitcoinRegtestControllerError {
 
 /// Alias for results returned from [`BitcoinRegtestController`] operations.
 pub type BitcoinRegtestControllerResult<T> = Result<T, BitcoinRegtestControllerError>;
+
+impl BitcoinRegtestControllerError {
+    /// Whether retrying could plausibly succeed, i.e. bitcoind is not reachable
+    /// yet. Only connection-level failures clear on their own: a rejection from
+    /// bitcoind, or a serialization failure, will fail again identically.
+    fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            Self::Rpc(BitcoinRpcClientError::Rpc(
+                RpcError::NetworkIO(_)
+                    | RpcError::NetworkStacksLib(_)
+                    | RpcError::NetworkStacksCommon(_)
+            ))
+        )
+    }
+}
 
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
@@ -748,6 +765,35 @@ impl BitcoinRegtestController {
             ));
         }
         Ok(())
+    }
+
+    /// Block until the miner's bitcoin wallet is loaded, retrying while
+    /// bitcoind may still be starting up. Fatal on misconfiguration or timeout.
+    pub fn ensure_miner_wallet_loaded(&self) {
+        /// Milliseconds to wait between wallet load attempts during startup
+        const WALLET_LOAD_INTERVAL_MS: u64 = 10_000;
+        /// Total wallet load attempts before giving up on bitcoind
+        const WALLET_LOAD_ATTEMPTS: u64 = 6;
+
+        let mut last_error = String::from("none recorded");
+        for attempt in 1..=WALLET_LOAD_ATTEMPTS {
+            match self.ensure_wallet_loaded() {
+                Ok(()) => return,
+                Err(e) if e.is_transient() => {
+                    warn!("Error ensuring bitcoin wallet is loaded, will retry: {e:?}");
+                    last_error = e.to_string();
+                }
+                // misconfiguration or a bug: retrying cannot fix it
+                Err(e) => panic!("FATAL: {e}"),
+            }
+            if attempt < WALLET_LOAD_ATTEMPTS {
+                sleep_ms(WALLET_LOAD_INTERVAL_MS);
+            }
+        }
+        panic!(
+            "FATAL: unable to load a bitcoin wallet after {WALLET_LOAD_ATTEMPTS} attempts, \
+             exiting. Last error: {last_error}"
+        );
     }
 
     /// Creates the configured test wallet when absent, then ensures it is

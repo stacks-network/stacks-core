@@ -36,7 +36,6 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestControllerError;
 use crate::burnchains::make_bitcoin_indexer;
 use crate::globals::Globals as GenericGlobals;
 use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
@@ -173,25 +172,6 @@ impl RunLoop {
     /// Number of times to retry UTXO check during startup
     const UTXO_RETRY_COUNT: u64 = 6;
 
-    /// Block until the miner's bitcoin wallet is loaded, retrying while
-    /// bitcoind may still be starting up. Fatal on misconfiguration or timeout.
-    fn ensure_miner_wallet_loaded(burnchain: &mut BitcoinRegtestController) {
-        for _ in 0..Self::UTXO_RETRY_COUNT {
-            match burnchain.ensure_wallet_loaded() {
-                Ok(()) => return,
-                Err(
-                    e @ (BitcoinRegtestControllerError::MissingWalletName
-                    | BitcoinRegtestControllerError::WalletNotFound(_)),
-                ) => panic!("FATAL: {e}"),
-                Err(e) => {
-                    warn!("Error ensuring bitcoin wallet is loaded, will retry: {e:?}");
-                    thread::sleep(std::time::Duration::from_secs(Self::UTXO_RETRY_INTERVAL));
-                }
-            }
-        }
-        panic!("FATAL: unable to load a bitcoin wallet, exiting");
-    }
-
     /// Determine if we're the miner.
     /// If there's a network error, then assume that we're not a miner.
     fn check_is_miner(&mut self, burnchain: &mut BitcoinRegtestController) -> bool {
@@ -206,7 +186,7 @@ impl RunLoop {
 
             // a miner cannot operate without a wallet; retry: bitcoind may
             // still be starting up
-            Self::ensure_miner_wallet_loaded(burnchain);
+            burnchain.ensure_miner_wallet_loaded();
             let mut btc_addrs = vec![(
                 StacksEpochId::Epoch2_05,
                 // legacy
