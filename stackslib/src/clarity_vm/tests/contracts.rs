@@ -1767,7 +1767,7 @@ fn test_get_block_info_time() {
 /// the current context's `caller` with the calling contract's own principal
 /// (via an unbalanced `push_caller`), so reading `contract-caller` after a
 /// `(contract-call? ...)` returned the calling contract instead of the
-/// original caller, diverging from the interpreter.
+/// original caller, diverging from the interpreter. Fixed in PR #7442.
 #[test]
 #[cfg(feature = "clarity-wasm")]
 fn test_wasm_contract_call_preserves_contract_caller() {
@@ -1844,10 +1844,13 @@ fn test_wasm_contract_call_preserves_contract_caller() {
                 Value::okay(Value::Tuple(
                     TupleData::from_data(vec![
                         (
-                            "inner".into(),
+                            ClarityName::from_literal("inner"),
                             Value::Principal(PrincipalData::Contract(caller_id.clone()))
                         ),
-                        ("outer".into(), Value::Principal(sender.clone())),
+                        (
+                            ClarityName::from_literal("outer"),
+                            Value::Principal(sender.clone())
+                        ),
                     ])
                     .unwrap()
                 ))
