@@ -217,8 +217,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
             )
             .unwrap();
         }
-        StacksEpochId::Epoch40 => {
-            // Epoch 4.0 no longer deploys a costs boot contract
+        StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => {
+            // Epoch 4.0 onwards no longer deploy a costs boot contract
         }
         _ => panic!("Epoch {} not covered.", &epoch),
     });

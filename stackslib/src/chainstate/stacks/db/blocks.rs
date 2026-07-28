@@ -4039,7 +4039,11 @@ impl StacksChainState {
                         current_epoch = StacksEpochId::Epoch40;
                     }
                     StacksEpochId::Epoch40 => {
-                        panic!("No defined transition from Epoch40 forward")
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_4_1()?);
+                        current_epoch = StacksEpochId::Epoch41;
+                    }
+                    StacksEpochId::Epoch41 => {
+                        panic!("No defined transition from Epoch41 forward")
                     }
                 }
 
@@ -4982,7 +4986,8 @@ impl StacksChainState {
                 | StacksEpochId::Epoch32
                 | StacksEpochId::Epoch33
                 | StacksEpochId::Epoch34
-                | StacksEpochId::Epoch40 => Self::handle_pox_cycle_start_pox_4(
+                | StacksEpochId::Epoch40
+                | StacksEpochId::Epoch41 => Self::handle_pox_cycle_start_pox_4(
                     clarity_tx,
                     pox_reward_cycle,
                     pox_start_cycle_info,
