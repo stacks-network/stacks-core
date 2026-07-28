@@ -22,7 +22,7 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, StacksPriva
 
 use super::TestRPC;
 use crate::chainstate::stacks::db::blocks::test::*;
-use crate::chainstate::stacks::db::test::instantiate_chainstate;
+use crate::chainstate::stacks::db::testing::TestChainstateBuilder;
 use crate::chainstate::stacks::{Error as chainstate_error, StacksBlockHeader, StacksMicroblock};
 use crate::net::api::getmicroblocks_unconfirmed::StacksUnconfirmedMicroblockStream;
 use crate::net::api::*;
@@ -137,7 +137,7 @@ fn test_try_make_response() {
 
 #[test]
 fn test_stream_unconfirmed_microblocks() {
-    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
     let privk = StacksPrivateKey::from_hex(
         "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
     )

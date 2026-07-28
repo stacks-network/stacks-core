@@ -88,6 +88,8 @@ pub mod blocks;
 pub mod contracts;
 pub mod headers;
 pub mod snapshot;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 pub mod transactions;
 pub mod unconfirmed;
 
@@ -2801,76 +2803,20 @@ impl ChainStateMetadataDb {
 
 #[cfg(test)]
 pub mod test {
-    use std::{env, fs};
+    use std::env;
 
     use clarity::vm::test_util::TEST_BURN_STATE_DB;
     use stx_genesis::GenesisData;
 
+    use super::testing::*;
     use super::*;
     use crate::chainstate::stacks::*;
     use crate::util_lib::boot::boot_code_test_addr;
     use crate::util_lib::db::query_row;
 
-    pub fn instantiate_chainstate(
-        mainnet: bool,
-        chain_id: u32,
-        test_name: &str,
-    ) -> StacksChainState<DiskChainStateBackend> {
-        instantiate_chainstate_with_balances(mainnet, chain_id, test_name, vec![])
-    }
-
-    pub fn instantiate_chainstate_with_balances(
-        mainnet: bool,
-        chain_id: u32,
-        test_name: &str,
-        balances: Vec<(StacksAddress, u64)>,
-    ) -> StacksChainState<DiskChainStateBackend> {
-        let path = chainstate_path(test_name);
-        if fs::metadata(&path).is_ok() {
-            fs::remove_dir_all(&path).unwrap();
-        };
-
-        let initial_balances = balances
-            .into_iter()
-            .map(|(addr, balance)| (PrincipalData::from(addr), balance))
-            .collect();
-
-        let mut boot_data = ChainStateBootData {
-            initial_balances,
-            post_flight_callback: None,
-            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
-            first_burnchain_block_height: 0,
-            first_burnchain_block_timestamp: 0,
-            pox_constants: PoxConstants::testnet_default(),
-            get_bulk_initial_lockups: None,
-            get_bulk_initial_balances: None,
-            get_bulk_initial_names: None,
-            get_bulk_initial_namespaces: None,
-        };
-
-        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data), None)
-            .unwrap()
-            .0
-    }
-
-    pub fn open_chainstate(
-        mainnet: bool,
-        chain_id: u32,
-        test_name: &str,
-    ) -> StacksChainState<DiskChainStateBackend> {
-        let path = chainstate_path(test_name);
-        StacksChainState::open(mainnet, chain_id, &path, None)
-            .unwrap()
-            .0
-    }
-
-    pub fn chainstate_path(test_name: &str) -> String {
-        format!("/tmp/stacks-node-tests/cs-{}", test_name)
-    }
-
     #[test]
     fn test_instantiate_chainstate() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // verify that the boot code is there
         let mut conn = chainstate.block_begin(
@@ -3143,7 +3089,7 @@ pub mod test {
 
     #[test]
     fn test_sqlite_version() {
-        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         assert_eq!(
             query_row(chainstate.db(), "SELECT sqlite_version()", NO_PARAMS).unwrap(),
             Some("3.45.0".to_string())

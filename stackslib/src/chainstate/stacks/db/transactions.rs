@@ -2076,7 +2076,7 @@ pub mod test {
     use stacks_common::util::hash::*;
 
     use super::*;
-    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::testing::*;
     use crate::chainstate::stacks::{Error, *};
 
     pub const TestBurnStateDB_20: UnitTestBurnStateDB = UnitTestBurnStateDB {
@@ -2393,7 +2393,7 @@ pub mod test {
 
     #[test]
     fn process_token_transfer_stx_transaction() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2502,7 +2502,7 @@ pub mod test {
 
     #[test]
     fn process_token_transfer_stx_transaction_invalid() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2687,7 +2687,7 @@ pub mod test {
 
     #[test]
     fn process_token_transfer_stx_sponsored_transaction() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk_origin = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2776,7 +2776,7 @@ pub mod test {
         // origin nonce, but its payload must NOT execute. Here a token-transfer
         // of 123 uSTX is skipped: the recipient receives nothing, yet the
         // origin is debited the fee and its nonce advances.
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2847,7 +2847,7 @@ pub mod test {
         // For a sponsored problematic transaction, both the origin and sponsor
         // nonces advance and the sponsor pays the fee, but the payload is still
         // skipped (so the origin's balance is untouched).
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk_origin = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2929,7 +2929,7 @@ pub mod test {
         // problematic_txs markers are only valid in Epoch 4.0+. Reaching the
         // skip path in an earlier epoch is a consensus bug, so it must error
         // rather than silently charge a fee.
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2979,7 +2979,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3049,7 +3049,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3149,7 +3149,7 @@ pub mod test {
         ];
         let expected_errors_2_1 = ["unexpected ')'", expected_line_num_error];
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3233,7 +3233,7 @@ pub mod test {
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (begin (set-bar 1 0) (ok 1))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3313,7 +3313,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk_origin = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3394,7 +3394,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3506,7 +3506,7 @@ pub mod test {
         (define-data-var savedContract principal tx-sender)
         (define-public (save (contract principal)) (ok (var-set savedContract contract)))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3627,7 +3627,7 @@ pub mod test {
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (define-public (return-error) (err 1))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3728,7 +3728,7 @@ pub mod test {
     fn process_smart_contract_user_aborts_2257() {
         let contract = "(asserts! false (err 1))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3778,7 +3778,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3973,7 +3973,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -4550,7 +4550,7 @@ pub mod test {
             nonce += 1;
         }
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // make sure costs-3 is instantiated, so as-contract works in 2.1
@@ -5169,7 +5169,7 @@ pub mod test {
             recv_nonce += 1;
         }
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // make sure costs-3 is installed so as-contract will work in epoch 2.1
@@ -5453,7 +5453,7 @@ pub mod test {
         signer.sign_origin(&privk_origin).unwrap();
         let contract_call_tx = signer.get_tx().unwrap();
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
                 *burn_db,
@@ -9034,8 +9034,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -9198,8 +9199,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let block_privk = StacksPrivateKey::from_hex(
             "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01",
@@ -9314,8 +9316,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let block_privk = StacksPrivateKey::from_hex(
             "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01",
@@ -9394,8 +9397,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let block_privk = StacksPrivateKey::from_hex(
             "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01",
@@ -9655,7 +9659,7 @@ pub mod test {
             }
         }
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -9867,7 +9871,7 @@ pub mod test {
             }
         }
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -10001,8 +10005,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -10142,8 +10147,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -10333,8 +10339,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_runtime_checkerror_trait_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -10975,8 +10982,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_foo_trait = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -11453,8 +11461,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_foo_trait = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -12548,8 +12557,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let sip034_causes = [
             TenureChangeCause::ExtendedRuntime,
@@ -12617,8 +12627,9 @@ pub mod test {
         let addr = auth.origin().address_testnet();
         let balances = vec![(addr.clone(), 1_000_000_000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21, // or whichever Epoch ≥ 2.1 stub fits

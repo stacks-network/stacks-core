@@ -42,7 +42,7 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::Error as CoordinatorError;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
-use crate::chainstate::stacks::db::test::*;
+use crate::chainstate::stacks::db::testing::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::miner::*;
@@ -1577,7 +1577,9 @@ fn test_build_anchored_blocks_multiple_chaintips() {
     let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     // make a blank chainstate and mempool so we can mine empty blocks
     //  without punishing the correspondingly "too expensive" transactions
-    let blank_chainstate = instantiate_chainstate(false, 1, function_name!());
+    let blank_chainstate = TestChainstateBuilder::new_testnet(function_name!())
+        .with_chain_id(1)
+        .build();
     let mut blank_mempool = MemPoolDB::open_memory_test().unwrap();
     let mut pending_mempool = MemPoolDB::open_memory_test().unwrap();
 
@@ -4704,8 +4706,7 @@ fn paramaterized_mempool_walk_test(
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, &test_name, vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(&test_name).build();
     let chainstate_path = chainstate_path(&test_name);
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     let b_1 = make_block(
@@ -4886,8 +4887,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
     let recipient =
         StacksAddress::from_string("ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV").unwrap();
 
-    let mut chainstate =
-        instantiate_chainstate_with_balances(false, 0x80000000, &test_name, vec![]);
+    let mut chainstate = TestChainstateBuilder::new_testnet(&test_name).build();
     let chainstate_path = chainstate_path(&test_name);
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     let b_1 = make_block(
