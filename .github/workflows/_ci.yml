@@ -632,9 +632,8 @@ jobs:
           
       # Upload the merged code coverage file to Coveralls
       - name: Upload code coverage to Coveralls
-        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
         with:
           file: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
-          compare-ref: ${{ github.base_ref }} # defaults to main if this isn't supplied
           build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
           fail-on-error: true
