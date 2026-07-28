@@ -740,8 +740,10 @@ impl BitcoinRegtestController {
     }
 
     /// Ensures the configured wallet exists and is loaded in the connected
-    /// bitcoin node. Loads it from disk when needed and configures bitcoind to
-    /// load it again after a restart.
+    /// bitcoin node, loading it from disk when needed.
+    ///
+    /// Operators who want the wallet to survive a bitcoind restart set
+    /// `wallet=<name>` in `bitcoin.conf`.
     pub fn ensure_wallet_loaded(&self) -> BitcoinRegtestControllerResult<()> {
         let wallet_name = self.get_wallet_name();
 
@@ -749,10 +751,9 @@ impl BitcoinRegtestController {
             return Ok(());
         }
 
-        // load_on_startup, or the wallet is gone after a bitcoind restart
         let on_disk_wallets = self.get_rpc_client().list_wallet_dir()?;
         if on_disk_wallets.iter().any(|name| name == wallet_name) {
-            self.get_rpc_client().load_wallet(wallet_name, Some(true))?;
+            self.get_rpc_client().load_wallet(wallet_name, None)?;
         } else {
             return Err(BitcoinRegtestControllerError::WalletNotFound(
                 wallet_name.to_string(),
@@ -796,6 +797,9 @@ impl BitcoinRegtestController {
     fn ensure_test_wallet_loaded(&self) -> BitcoinRegtestControllerResult<()> {
         match self.ensure_wallet_loaded() {
             Err(BitcoinRegtestControllerError::WalletNotFound(_)) => {
+                // unlike production, tests own their bitcoind, so it is fine to
+                // persist the wallet in its startup list: watch-only wallet,
+                // load_on_startup
                 self.get_rpc_client().create_wallet(
                     self.get_wallet_name(),
                     Some(true),
