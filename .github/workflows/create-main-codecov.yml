@@ -26,9 +26,11 @@ jobs:
   ### Create Code Coverage Report for `main`
   ############################################################################
   create-main-baseline-code-coverage-report:
-    # Only run if the PR was actually merged (not just closed without merging)
+    # Only run on our core repo, and if the PR was successfully merged
+    # (will not run for PRs that were closed without merging)
     if: >-
-      github.event.pull_request.merged == true
+      github.event.pull_request.merged == true &&
+      github.repository == 'stacks-network/stacks-core'
     name: "Create: `main` Baseline Code Coverage Report"
     runs-on: ubuntu-latest
     env:
