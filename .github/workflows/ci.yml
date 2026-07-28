@@ -634,7 +634,7 @@ jobs:
           name: merged-code-coverage-report
           path: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
           if-no-files-found: error
-          retention-days: 10
+          retention-days: 30
           compression-level: 9 # 0 (none) - 9 (most)
           overwrite: true
           
