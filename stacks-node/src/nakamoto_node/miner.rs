@@ -837,20 +837,34 @@ impl BlockMinerThread {
                     return Err(e);
                 }
                 NakamotoNodeError::StackerDBUploadError(ref ack) => {
-                    // These failures are permanent for an identical payload: re-uploading the
-                    // same chunk can never succeed, so abort instead of retrying.
-                    if ack.code == Some(StackerDBErrorCodes::BadSigner.code())
-                        || ack.code == Some(StackerDBErrorCodes::ChunkTooBig.code())
-                    {
-                        error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
+                    // A rejected ack must carry an error code. A missing code indicates a malformed
+                    // or unexpected response. Treat it as a terminal error.
+                    let Some(code) = ack.code else {
+                        error!("Error while gathering signatures: malformed miner StackerDB ack (chunk rejected without an error code): {ack:?}. Giving up.";
                             "signer_signature_hash" => %new_block.header.signer_signature_hash(),
                             "block_height" => new_block.header.chain_length,
                             "consensus_hash" => %new_block.header.consensus_hash,
                         );
                         return Err(e);
+                    };
+                    // Classify the rejection by its error code. `DataAlreadyExists` (a stale
+                    // slot version) is the only retryable case — bump the version and
+                    // re-upload. Every other code, plus any unknown code, is permanent for an
+                    // identical payload, so retrying can never succeed.
+                    match StackerDBErrorCodes::from_code(code) {
+                        Some(StackerDBErrorCodes::DataAlreadyExists) => {
+                            self.pause_and_retry(&new_block, last_block_rejected, &e);
+                            return Ok(false);
+                        }
+                        _ => {
+                            error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
+                                "signer_signature_hash" => %new_block.header.signer_signature_hash(),
+                                "block_height" => new_block.header.chain_length,
+                                "consensus_hash" => %new_block.header.consensus_hash,
+                            );
+                            return Err(e);
+                        }
                     }
-                    self.pause_and_retry(&new_block, last_block_rejected, &e);
-                    return Ok(false);
                 }
                 NakamotoNodeError::SignersRejected {
                     ref temporarily_excluded_txids,

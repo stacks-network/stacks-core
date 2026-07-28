@@ -1,2 +1,0 @@
-Fixed the `POST /v2/stackerdb/<address>/<contract>/chunks` handler to report a chunk that exceeds the replica's configured chunk size with a dedicated `ChunkTooBig` error code, instead of misreporting it as `DataAlreadyExists`. 
-Added `ChunkTooBig` management also to the miner side, making it reject the chunk.

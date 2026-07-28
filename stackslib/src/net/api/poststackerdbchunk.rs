@@ -95,8 +95,11 @@ impl HttpRequest for RPCPostStackerDBChunkRequestHandler {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StackerDBErrorCodes {
+    /// The slot already holds a chunk whose version is at least the one submitted.
     DataAlreadyExists,
+    /// The chunk's slot ID is out of range for this replica's slot allocation.
     NoSuchSlot,
+    /// The chunk's signature does not recover to the address that owns the slot.
     BadSigner,
     /// The chunk exceeds the replica's configured chunk size.
     ChunkTooBig,
