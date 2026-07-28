@@ -57,7 +57,7 @@ mod utils {
         config.burnchain.username = Some(String::from("user"));
         config.burnchain.password = Some(String::from("12345"));
         config.burnchain.peer_host = String::from("127.0.0.1");
-        config.burnchain.wallet_name = "my_wallet".to_string();
+        config.burnchain.wallet_name = Some("my_wallet".to_string());
         config.burnchain.rpc_port = 10000;
         config.burnchain.timeout = 300;
         config

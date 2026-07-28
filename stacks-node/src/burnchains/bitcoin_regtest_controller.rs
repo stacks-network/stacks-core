@@ -311,9 +311,6 @@ pub enum BitcoinRegtestControllerError {
     /// A descriptor import was rejected by the bitcoin node.
     #[error("Importing descriptor failed: {0}")]
     ImportDescriptors(String),
-    /// Mining wallet RPCs require an explicitly configured wallet.
-    #[error("Missing `burnchain.wallet_name`; a non-empty wallet name is required for miners")]
-    MissingWalletName,
     /// The configured mining wallet does not exist in the bitcoin node's wallet directory.
     #[error("Configured bitcoin wallet `{0}` was not found; create or restore it before starting the miner")]
     WalletNotFound(String),
@@ -747,9 +744,6 @@ impl BitcoinRegtestController {
     /// load it again after a restart.
     pub fn ensure_wallet_loaded(&self) -> BitcoinRegtestControllerResult<()> {
         let wallet_name = self.get_wallet_name();
-        if wallet_name.trim().is_empty() {
-            return Err(BitcoinRegtestControllerError::MissingWalletName);
-        }
 
         if self.list_wallets()?.iter().any(|name| name == wallet_name) {
             return Ok(());
@@ -2310,8 +2304,14 @@ impl BitcoinRegtestController {
     }
 
     /// Returns the configured wallet name used for wallet RPC routing.
+    ///
+    /// Panics if no wallet is configured. Only miner paths route wallet RPCs, and
+    /// [`Config::from_config_file`] rejects a miner without a wallet name, so an
+    /// absent name here is a bug. Same as [`Self::get_rpc_client`].
     fn get_wallet_name(&self) -> &str {
-        &self.config.burnchain.wallet_name
+        self.config.burnchain.wallet_name.as_deref().expect(
+            "BUG: `burnchain.wallet_name` is required for miners, but it is not configured!",
+        )
     }
 
     /// Imports a public key into configured wallet by registering its
@@ -2664,7 +2664,7 @@ mod tests {
         pub fn create_miner_config() -> Config {
             let mut config = Config::default();
             config.node.miner = true;
-            config.burnchain.wallet_name = "test-miner".to_string();
+            config.burnchain.wallet_name = Some("test-miner".to_string());
             config.burnchain.magic_bytes = "T3".as_bytes().into();
             config.burnchain.username = Some(String::from("user"));
             config.burnchain.password = Some(String::from("12345"));
@@ -3244,16 +3244,17 @@ mod tests {
         );
     }
 
+    // `Config::from_config_file` rejects a miner without a wallet name, so
+    // reaching a wallet RPC without one is a bug, not a recoverable error
     #[test]
-    fn test_ensure_wallet_loaded_rejects_empty_name() {
+    #[should_panic(expected = "burnchain.wallet_name")]
+    fn test_ensure_wallet_loaded_panics_without_wallet_name() {
         let mut config = utils::create_miner_config();
-        config.burnchain.wallet_name.clear();
+        config.burnchain.wallet_name = None;
 
         let btc_controller = BitcoinRegtestController::new(config, None);
-        assert!(matches!(
-            btc_controller.ensure_wallet_loaded(),
-            Err(BitcoinRegtestControllerError::MissingWalletName)
-        ));
+
+        _ = btc_controller.ensure_wallet_loaded();
     }
 
     #[test]
@@ -3264,7 +3265,11 @@ mod tests {
         }
 
         let config = utils::create_miner_config();
-        let wallet_name = config.burnchain.wallet_name.clone();
+        let wallet_name = config
+            .burnchain
+            .wallet_name
+            .clone()
+            .expect("miner config sets a wallet name");
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
@@ -3334,7 +3339,7 @@ mod tests {
         let miner_pubkey = utils::create_miner1_pubkey();
 
         let mut config = utils::create_miner_config();
-        config.burnchain.wallet_name = "keyed".to_string();
+        config.burnchain.wallet_name = Some("keyed".to_string());
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
@@ -3369,7 +3374,7 @@ mod tests {
         }
 
         let mut config = utils::create_miner_config();
-        config.burnchain.wallet_name = String::from("mywallet");
+        config.burnchain.wallet_name = Some(String::from("mywallet"));
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
@@ -3541,7 +3546,7 @@ mod tests {
         miner1_btc_controller.bootstrap_chain(1); // one utxo for miner_pubkey related address
 
         config.burnchain.local_mining_public_key = Some(miner2_pubkey.to_hex());
-        config.burnchain.wallet_name = "miner2_wallet".to_string();
+        config.burnchain.wallet_name = Some("miner2_wallet".to_string());
         let miner2_btc_controller = BitcoinRegtestController::new(config, None);
         miner2_btc_controller.bootstrap_chain(102); // two utxo for other_pubkeys related address
 

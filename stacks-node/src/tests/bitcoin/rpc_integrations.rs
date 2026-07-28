@@ -771,7 +771,7 @@ fn test_named_wallet_bootstrap_ok() {
     config.burnchain.rpc_port = btc_container.get_host_rpc_port();
     config.burnchain.username = Some(BITCOIN_RPC_USERNAME.to_string());
     config.burnchain.password = Some(BITCOIN_RPC_PASSWORD.to_string());
-    config.burnchain.wallet_name = "miner-wallet".to_string();
+    config.burnchain.wallet_name = Some("miner-wallet".to_string());
     config.node.working_dir = format!(
         "/tmp/rpc-integrations-wallet-bootstrap-{}-{}",
         config.burnchain.rpc_port,

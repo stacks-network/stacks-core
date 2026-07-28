@@ -1674,14 +1674,14 @@ pub struct BurnchainConfig {
     /// RPCs can always be routed explicitly. Followers and mock miners do not use
     /// wallet RPCs and may leave this empty.
     /// ---
-    /// @default: `""` (valid only for followers and mock miners)
+    /// @default: `None` (valid only for followers and mock miners)
     /// @notes:
     ///   - Required when [`NodeConfig::miner`] is `true`, unless
     ///     [`NodeConfig::mock_mining`] is also `true`.
     ///   - On Bitcoin Core >= 31 `migratewallet` may split a legacy wallet into a
     ///     primary and a `<name>_watchonly` wallet; set `wallet_name` to the one
     ///     holding the miner's watched addresses.
-    pub wallet_name: String,
+    pub wallet_name: Option<String>,
     /// Fault injection setting for testing. Introduces an artificial delay (in
     /// milliseconds) before processing each burnchain block download. Simulates a
     /// slow burnchain connection.
@@ -1747,7 +1747,7 @@ impl BurnchainConfig {
             pox_reward_length: None,
             sunset_start: None,
             sunset_end: None,
-            wallet_name: "".to_string(),
+            wallet_name: None,
             fault_injection_burnchain_block_delay: 0,
             max_unspent_utxos: Some(1024),
         }
@@ -1974,9 +1974,14 @@ impl BurnchainConfigFile {
                 .or(default_burnchain_config.pox_2_activation),
             sunset_start: self.sunset_start.or(default_burnchain_config.sunset_start),
             sunset_end: self.sunset_end.or(default_burnchain_config.sunset_end),
-            wallet_name: self
-                .wallet_name
-                .unwrap_or(default_burnchain_config.wallet_name.clone()),
+            // a blank name is "unset", not a wallet: deployment templates emit
+            // `wallet_name = ""` unconditionally, including for followers
+            wallet_name: match self.wallet_name {
+                Some(name) if !name.trim().is_empty() => Some(name),
+                // present but blank means unset
+                Some(_) => None,
+                None => default_burnchain_config.wallet_name.clone(),
+            },
             pox_reward_length: self
                 .pox_reward_length
                 .or(default_burnchain_config.pox_reward_length),
@@ -4998,7 +5003,10 @@ mod tests {
             false,
         )
         .expect("A real miner with a named wallet should be valid");
-        assert_eq!(named_miner.burnchain.wallet_name, "miner-wallet");
+        assert_eq!(
+            named_miner.burnchain.wallet_name.as_deref(),
+            Some("miner-wallet")
+        );
 
         Config::from_config_file(
             ConfigFile::from_str(
