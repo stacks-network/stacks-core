@@ -52,8 +52,8 @@ jobs:
           # Get the latest successful CI workflow run ID for this PR
           RUN_ID=$(gh run list \
             --repo ${{ github.repository }} \
-            --pr ${{ github.event.pull_request.number }} \
-            --workflow _ci.yml \
+            --commit ${{ github.event.pull_request.head.sha }} \
+            --workflow ci.yml \
             --status success \
             --json databaseId \
             --jq '.[0].databaseId')
