@@ -198,7 +198,7 @@ runs:
       if: always() # needed to be able to execute this step for test failures
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
-        name: ${{ github.sha }}-nextest-${{ steps.generate-sanitized-file-name.outputs.file-name }}
+        name: nextest-${{ steps.generate-sanitized-file-name.outputs.file-name }}
         path: junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
         if-no-files-found: error
         retention-days: 1
@@ -248,7 +248,7 @@ runs:
       if: github.event.repository.visibility == 'public'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
-        name: ${{ github.sha }}-codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
+        name: codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
         path: lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info
         if-no-files-found: error
         retention-days: 1
