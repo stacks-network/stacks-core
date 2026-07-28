@@ -651,55 +651,11 @@ jobs:
 
           cd ..
 
-      # Upload the merged code coverage file to Coveralls.
-      # Coveralls has recurring 5xx incidents that were failing otherwise-green runs:
-      # retry up to 3 times (fail-on-error + continue-on-error make the step outcome
-      # visible to the next attempt without failing the job), then warn instead of fail.
+      # Upload the merged code coverage file to Coveralls, retrying transient failures
       - name: Upload code coverage to Coveralls
-        id: coveralls-upload-1
-        continue-on-error: true
-        timeout-minutes: 5
-        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
-        with: &coveralls_config
+        timeout-minutes: 15
+        uses: ./.github/actions/coveralls-upload
+        with:
           file: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
           compare-ref: ${{ github.base_ref }} # defaults to main if this isn't supplied
           build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
-          fail-on-error: true
-          coverage-reporter-version: v0.6.17 # the action SHA is pinned but downloads the reporter binary at 'latest' unless pinned here
-
-      - name: Wait before Coveralls retry
-        if: steps.coveralls-upload-1.outcome == 'failure'
-        continue-on-error: true
-        shell: bash
-        run: sleep 30
-
-      - name: Upload code coverage to Coveralls (attempt 2)
-        id: coveralls-upload-2
-        if: steps.coveralls-upload-1.outcome == 'failure'
-        continue-on-error: true
-        timeout-minutes: 5
-        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
-        with: *coveralls_config
-
-      - name: Wait before final Coveralls retry
-        if: steps.coveralls-upload-2.outcome == 'failure'
-        continue-on-error: true
-        shell: bash
-        run: sleep 60
-
-      - name: Upload code coverage to Coveralls (attempt 3)
-        id: coveralls-upload-3
-        if: steps.coveralls-upload-2.outcome == 'failure'
-        continue-on-error: true
-        timeout-minutes: 5
-        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
-        with: *coveralls_config
-
-      # A failed coverage upload leaves a data gap, but it should not fail CI.
-      # "may be missing": a 504 can ingest server-side, so failure here isn't proof of a gap.
-      - name: Warn if coverage upload never succeeded
-        if: steps.coveralls-upload-3.outcome == 'failure'
-        continue-on-error: true
-        shell: bash
-        run: |
-          echo "::warning::All three Coveralls upload attempts reported failure - coverage data for this run may be missing. Check https://status.coveralls.io before investigating."
