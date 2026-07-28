@@ -295,8 +295,8 @@ fn bitcoin_reorg_of_epoch_4_0_activation_block() {
         .running_nodes
         .btc_regtest_controller
         .invalidate_block(&activation_hash);
-    // rebuild five blocks on top of the pre-activation tip, then keep going
-    // until one block past the old tip so the node notices the fork
+    // rebuild on top of the pre-activation tip, up to one block past the
+    // old tip so the node notices the fork
     signer_test
         .running_nodes
         .btc_regtest_controller
