@@ -299,3 +299,46 @@ fn test_response_chunk_too_big() {
     );
     assert!(chunk_ack.reason.is_some());
 }
+
+/// A chunk whose slot version exceeds the replica's configured `max_writes` must be reported
+/// with the dedicated `TooManySlotWrites` error code.
+#[test]
+fn test_response_too_many_slot_writes() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let rpc_test = TestRPC::setup(function_name!());
+
+    // The test StackerDB `TEST_CONTRACT` configures `max-writes: u4096`. Slot 1 is a fresh
+    // slot (server version 0) owned by `privk1`, so a validly-signed, small chunk at a version
+    // just past `max_writes` clears the size, slot, signature, and staleness checks and is
+    // rejected specifically for exceeding the write budget.
+    let data = "too many slot writes".as_bytes();
+    let data_hash = Sha512Trunc256Sum::from_data(data);
+    let mut slot_metadata = SlotMetadata::new_unsigned(1, 4097, data_hash);
+    slot_metadata.sign(&rpc_test.privk1).unwrap();
+
+    let request = StacksHttpRequest::new_post_stackerdb_chunk(
+        addr.into(),
+        TEST_CONTRACT_ID.clone(),
+        slot_metadata.slot_id,
+        slot_metadata.slot_version,
+        slot_metadata.signature.clone(),
+        data.to_vec(),
+    );
+
+    let mut responses = rpc_test.run(vec![request]);
+    let response = responses.remove(0);
+
+    let chunk_ack = response.decode_stackerdb_chunk_ack().unwrap();
+    assert!(!chunk_ack.accepted);
+    assert_eq!(
+        chunk_ack.code,
+        Some(StackerDBErrorCodes::TooManySlotWrites.code())
+    );
+    assert!(chunk_ack.reason.is_some());
+    // The ack still carries the current slot metadata so a client can learn the server's
+    // version (actually unchanged)
+    let metadata = chunk_ack.metadata.as_ref().unwrap();
+    assert_eq!(metadata.slot_id, 1);
+    assert_eq!(metadata.slot_version, 0);
+}
