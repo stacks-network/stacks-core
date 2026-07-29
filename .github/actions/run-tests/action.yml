@@ -188,7 +188,9 @@ runs:
 
     # Store JUnit file in GitHub CI artifacts (with SHA and "nextest" prefix)
     - name: Store JUnit Report as Artifact
-      if: always() # needed to be able to execute this step for test failures
+      if: >-
+        always() && # needed to be able to execute this step for test failures
+        github.event_name != 'merge_group'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
         name: nextest-${{ steps.generate-sanitized-file-name.outputs.file-name }}
@@ -205,7 +207,9 @@ runs:
     # Generate code coverage using grcov
     #   - Resulting coverage filenames must be unique, so use test-name input to name the file
     - name: Run grcov
-      if: github.event.repository.visibility == 'public'
+      if: >-
+        github.event.repository.visibility == 'public' &&
+        github.event_name != 'merge_group'
       shell: bash
       run: |
         grcov . \
@@ -238,7 +242,9 @@ runs:
 
     # Store coverage file in GitHub CI artifacts (with SHA and "lcov" prefix)
     - name: Store Code Coverage as Artifact
-      if: github.event.repository.visibility == 'public'
+      if: >-
+        github.event.repository.visibility == 'public' &&
+        github.event_name != 'merge_group'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
         name: codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
