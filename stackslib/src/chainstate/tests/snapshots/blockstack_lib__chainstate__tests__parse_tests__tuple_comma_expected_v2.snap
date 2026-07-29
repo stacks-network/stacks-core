@@ -153,4 +153,184 @@ expression: result.get_expected_results()
       runtime: 513,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2ab337dfe6b81884ce974904ca3aeccd0072486c4763315f0c23196290256d02",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 513,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 513,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ace58f1cb02dd824f0c701e655c7713250331409568acd3856ebf192408305d6",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 513,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 513,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "108e28f306fa807ebd1068fc08e1fc0043a4831509b580f11cca7e52cd0bd4e4",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 513,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 513,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "56271f280f95abb7ba67d6dc90627e0f24e5eed5ae2f3700be8ff5b74a537286",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 513,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 513,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ab94b5bacf833d093a814706c708633f6b684bef6779c7080c24cc2ca569472d",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 513,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 513,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a2e31193130da0a23914914f0b0f96b9936b630bd34a61ffe0f794f8a84f5ff2",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: my-contract-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 513,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 513,
+    ),
+  )),
 ]

@@ -21,9 +21,9 @@ use std::sync::LazyLock;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{ResponseData, TupleData};
 use clarity::vm::Value;
 use regex::{Captures, Regex};
@@ -38,16 +38,14 @@ use stacks_common::util::tests::TestFlag;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
-use crate::chainstate::nakamoto::miner::{
-    make_mem_abort_callback, MinerTenureInfoCause, NakamotoBlockBuilder,
-};
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxVersions;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
-    TransactionSkipped,
+    BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic,
+    TransactionResourceBudgets, TransactionResult, TransactionSkipped,
 };
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
 use crate::clarity_vm::clarity::ClarityError;
@@ -742,6 +740,24 @@ impl NakamotoBlockProposal {
         // dedicated per-tx analysis budget, independently of the eval budget above.
         let per_tx_max_analysis_time = Duration::from_secs(max_tx_analysis_time_secs);
         let mut receipts_total = 0u64;
+
+        let max_tx_mem_bytes_opt = if max_tx_mem_bytes > 0 {
+            Some(max_tx_mem_bytes)
+        } else {
+            None
+        };
+        let resource_budgets = TransactionResourceBudgets::new()
+            .with_analysis_budget(
+                ResourceBudget::new()
+                    .with_max_duration(Some(per_tx_max_analysis_time))
+                    .with_max_memory_use(max_tx_mem_bytes_opt),
+            )
+            .with_execution_budget(
+                ResourceBudget::new()
+                    .with_max_duration(Some(per_tx_max_execution_time))
+                    .with_max_memory_use(max_tx_mem_bytes_opt),
+            );
+
         for (i, tx) in self.block.txs.iter().enumerate() {
             // Enforce the overall block validation budget between txs. A tx
             // running over its own per-tx limit is the tx's fault and is
@@ -761,10 +777,6 @@ impl NakamotoBlockProposal {
             }
 
             let tx_len = tx.tx_len();
-
-            if max_tx_mem_bytes > 0 {
-                tenure_tx.set_abort_callback(make_mem_abort_callback(max_tx_mem_bytes));
-            }
 
             let tx_result = {
                 // If consensus allows high-S transaction signatures, then `try_mine_tx_with_len`
@@ -788,15 +800,12 @@ impl NakamotoBlockProposal {
                         tx,
                         tx_len,
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        Some(per_tx_max_execution_time),
-                        Some(per_tx_max_analysis_time),
+                        &resource_budgets,
                         &mut receipts_total,
                     ),
                     Err(e) => e,
                 }
             };
-
-            tenure_tx.set_abort_callback(AbortCallback::None);
 
             let reason = match tx_result {
                 TransactionResult::Success(success_result) => {
@@ -995,8 +1004,7 @@ impl NakamotoBlockProposal {
                     &replay_tx,
                     replay_tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    None,
-                    None,
+                    &TransactionResourceBudgets::unlimited(),
                     &mut total_receipts,
                 );
                 match tx_result {
@@ -1063,8 +1071,7 @@ impl NakamotoBlockProposal {
                 tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                None,
-                None,
+                &TransactionResourceBudgets::unlimited(),
                 &mut total_receipts,
             );
         }
@@ -1079,8 +1086,7 @@ impl NakamotoBlockProposal {
                     &tx,
                     tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    None,
-                    None,
+                    &TransactionResourceBudgets::unlimited(),
                     &mut total_receipts,
                 );
                 match tx_result {

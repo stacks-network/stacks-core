@@ -25,7 +25,9 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
+use stacks::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionResourceBudgets,
+};
 use stacks::chainstate::stacks::{TenureChangeCause, TenureChangePayload};
 use stacks::codec::StacksMessageCodec;
 use stacks::config::DEFAULT_MAX_TENURE_BYTES;
@@ -1125,8 +1127,7 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
                     &tenure_change,
                     tenure_change.serialize_to_vec().len() as u64,
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    None,
-                    None,
+                    &TransactionResourceBudgets::unlimited(),
                     &mut 0,
                 )
                 .unwrap();

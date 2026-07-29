@@ -123,4 +123,154 @@ expression: result.get_expected_results()
       runtime: 2519,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3b3c3b814227fc0edf1cb117675cec884fa695df9735d5089a7fb99996538c42",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unknown-type-name-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2519,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2519,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f8e0d003ca0e4dcbb07d43e04e37608315f200cf6e8fa5f05ed77def7f0d00fa",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unknown-type-name-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2519,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2519,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b5642b66bc898041f8452c6c0e4b35dbf1ea66e7e3703c7f5d81b69611a8478a",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unknown-type-name-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2519,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2519,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "adf77943d5008868e3f8d4b163f70cd86df03ccce3f92ae35d82045317e5de01",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unknown-type-name-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2519,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2519,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3c11b465da08ed5aa1e47d5bc99da39215d6ed47c1d16bed871daddbfec03ab9",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unknown-type-name-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(:0:0: failed to parse type: \'foo\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2519,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2519,
+    ),
+  )),
 ]

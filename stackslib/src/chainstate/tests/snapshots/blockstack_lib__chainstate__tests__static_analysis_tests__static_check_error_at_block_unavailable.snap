@@ -123,4 +123,124 @@ expression: result.get_expected_results()
       runtime: 4540,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f296aa6f4aa84ec337195ae3d25b0d0fdf2e36f40779b1ec812e46d2d6227757",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: at-block-unavailable-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: (at-block ...) is not available in this epoch) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4540,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4540,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f26c6509dee40050677bdd71437a6bd52820089d3f8f2f3768c0308f2e153f37",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: at-block-unavailable-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: (at-block ...) is not available in this epoch) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4540,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4540,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "983bd6064da29d831698cc1e2acdfb314c0f61b99875b13a2d2754aa15238ac7",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: at-block-unavailable-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: (at-block ...) is not available in this epoch) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4540,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4540,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "da2e936765ac12f98ac0f72c8c7e36f2234ac1cc21c7cafa3c704e62ca9078d7",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: at-block-unavailable-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: (at-block ...) is not available in this epoch) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4540,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4540,
+    ),
+  )),
 ]

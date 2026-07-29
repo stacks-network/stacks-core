@@ -95,9 +95,7 @@ pub const NUMS_X_COORDINATE: [u8; 32] = [
 ];
 
 /// Maximum BTC fee, in satoshis, encoded into the sBTC deposit script's
-/// `<deposit-data>` payload. Scaffolding constant: chosen high enough that
-/// real-world bitcoin fees never exceed it. Will be replaced by a
-/// protocol-determined value before mainnet activation.
+/// `<deposit-data>` payload. Chosen high enough that real-world bitcoin fees never exceed it.
 pub const POX_5_SBTC_DEPOSIT_MAX_FEE_SATS: u64 = 80_000;
 
 /// The number of blocks which will share the block bonus

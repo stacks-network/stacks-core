@@ -177,6 +177,7 @@ pub mod pox4 {
     mod tests {
         use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
         use clarity::vm::costs::LimitedCostTracker;
+        use clarity::vm::resource_limiter::ResourceBudget;
         use clarity::vm::types::PrincipalData;
         use clarity::vm::ClarityVersion;
         use stacks_common::address::AddressHashMode;
@@ -245,7 +246,12 @@ pub mod pox4 {
                 conn.as_transaction(|clarity_db| {
                     let clarity_version = ClarityVersion::Clarity2;
                     let (ast, analysis) = clarity_db
-                        .analyze_smart_contract(&pox_contract_id, clarity_version, body, None)
+                        .analyze_smart_contract(
+                            &pox_contract_id,
+                            clarity_version,
+                            body,
+                            &ResourceBudget::unlimited(),
+                        )
                         .unwrap();
                     clarity_db
                         .initialize_smart_contract(
@@ -255,7 +261,7 @@ pub mod pox4 {
                             body,
                             None,
                             |_, _| None,
-                            None,
+                            &ResourceBudget::unlimited(),
                         )
                         .unwrap();
                     clarity_db

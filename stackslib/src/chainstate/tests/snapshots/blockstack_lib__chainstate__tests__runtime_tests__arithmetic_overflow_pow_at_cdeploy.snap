@@ -153,4 +153,184 @@ expression: result.get_expected_results()
       runtime: 9350,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c55a14b3b0c6b6e2b3e44e87eb3a0ff4e0291dde5318f6485dc42eceb5e48553",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 47,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9238,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 47,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9238,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a8baacfd32915acb570b64cab0134d2be169e5a39c7d5ab3e6e094f227e72132",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 47,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9238,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 47,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9238,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e4549e115aabc89c3c2dfc46c7b94d415f2e6f9c08cc215a72679d138292e248",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 47,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9238,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 47,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9238,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "71cf9e404fb8de06a1dbe5714df7157c94ea4d6d3bc1c3ddef9d85e9f51b5e13",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 47,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9238,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 47,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9238,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "21e2e6e598406625a4f23c2a8a2be50a4cf7824d70f23189944c3712ea2d6e35",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 47,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9238,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 47,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9238,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2cfcffa423890d6151d73dd4ddff7f01cd7bb426cca4cff5ac558317eefba5f0",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: overflow-pow-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 47,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9238,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 47,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9238,
+    ),
+  )),
 ]

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::assert_matches;
 use std::time::Duration;
 
 use clarity_types::ClarityName;
@@ -1933,40 +1934,12 @@ fn test_chain_id() {
 
 #[test]
 fn test_execution_time_expiration() {
-    assert_eq!(
+    assert_matches!(
         vm_execute_with_limited_execution_time("(+ 1 1)", Duration::from_secs(0))
             .err()
             .unwrap(),
-        ClarityEvalError::Vm(RuntimeCheckErrorKind::ExecutionTimeExpired.into())
+        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(_)
+        ))
     );
-}
-
-#[test]
-fn test_abort_callback_stops_execution() {
-    use crate::vm::contexts::AbortCallback;
-    use crate::vm::execute_with_parameters_and_call_in_global_context;
-    let abort_msg = "abort callback fired";
-
-    // An abort callback that always fires
-    let result = execute_with_parameters_and_call_in_global_context(
-        "(+ 1 1)",
-        ClarityVersion::Clarity1,
-        StacksEpochId::Epoch20,
-        false,
-        clarity_types::types::StandardPrincipalData::transient(),
-        |g| {
-            g.abort_callback = AbortCallback::AlwaysAbort(abort_msg.into());
-            Ok(())
-        },
-        |_| Ok(()),
-    );
-    match result {
-        Err(ClarityEvalError::Vm(e)) => {
-            let expected = VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::AbortedByExecutionHook(abort_msg.into()),
-            );
-            assert_eq!(e, expected);
-        }
-        other => panic!("Expected aborted-by-execution-hook error, got: {other:?}"),
-    }
 }

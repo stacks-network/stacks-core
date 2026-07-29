@@ -1,5 +1,5 @@
 ############################################################################
-### The main GitHub Actions workflow for CI/CD
+### Our primary CI/CD workflow
 ############################################################################
 
 name: CI
@@ -9,7 +9,12 @@ on:
   merge_group:
     types:
       - checks_requested
-  workflow_dispatch:
+  schedule:
+    # Run at 00:00 UTC daily
+    # This runs on `main` and is done to have `main` generate and upload 
+    # code coverage information for more accurate PR code coverage reports.
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allows manual triggering
   pull_request:
     types:
       - opened
@@ -50,7 +55,6 @@ jobs:
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
       debug-binary-path: ${{ steps.set-env.outputs.debug_binary_path }}
-      job-should-run: ${{ steps.set-env.outputs.job_should_run }}
     steps:
       - name: Export Env Variables
         id: set-env
@@ -60,11 +64,7 @@ jobs:
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
         
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
-          
           echo "debug_binary_path=${{ env.DEBUG_BINARY_PATH }}" >> $GITHUB_OUTPUT
-          
-          # Check that evaluates if various jobs should run. Generally we care if it's a workflow dispatch, PR, or merge group.
-          echo "job_should_run=${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group' }}" >> $GITHUB_OUTPUT
   
   ############################################################################
   ### Changelog Check
@@ -167,7 +167,7 @@ jobs:
   ############################################################################
   ### Check Reusable Test Caches
   ###
-  ### Caches can only be created from `master`. The workflow will fail 
+  ### Caches can only be created from `main`. The workflow will fail 
   ### if caches are missing, with instructions on how to manually seed them.
   ############################################################################
   check-test-caches:
@@ -176,9 +176,7 @@ jobs:
       - check-changelog
       - check-rustfmt
       - setup-env
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
-    uses: ./.github/workflows/setup-test-caches.yml
+    uses: ./.github/workflows/check-test-caches.yml
       
   ############################################################################
   ### Cargo Hack Check
@@ -190,8 +188,6 @@ jobs:
       - check-rustfmt
       - setup-env
       - check-test-caches
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/check-cargo-hack.yml
   
   ############################################################################
@@ -204,8 +200,6 @@ jobs:
       - check-rustfmt
       - setup-env
       - check-test-caches
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/check-constants.yml
       
   ############################################################################
@@ -219,8 +213,6 @@ jobs:
       - check-rustfmt
       - setup-env
       - check-test-caches
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -250,8 +242,6 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-stacks-core.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -268,8 +258,6 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -286,8 +274,6 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin-rpc.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -304,8 +290,6 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-p2p.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -651,6 +635,6 @@ jobs:
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
         with:
           file: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
-          compare-ref: ${{ github.base_ref }} # defaults to master if this isn't supplied
+          compare-ref: ${{ github.base_ref }} # defaults to main if this isn't supplied
           build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
           fail-on-error: true

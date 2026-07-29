@@ -1,0 +1,1 @@
+Fix the stringification of block proposal rejections based on a mismatch of the consensus hash between the proposal and the miner's tenure. The error message had the expected and actual values in the wrong order.

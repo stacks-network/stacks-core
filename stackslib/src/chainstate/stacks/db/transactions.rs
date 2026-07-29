@@ -23,6 +23,7 @@ use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
 use clarity::vm::errors::{VmExecutionError, VmInternalError};
 use clarity::vm::representations::ClarityName;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
@@ -31,7 +32,7 @@ use clarity::vm::types::{
 
 use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::miner::TransactionResult;
+use crate::chainstate::stacks::miner::{TransactionResourceBudgets, TransactionResult};
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityError, ClarityTransactionConnection};
 use crate::monitoring::increment_unreachable_errors_counter;
@@ -404,7 +405,7 @@ pub enum ClarityRuntimeTxError {
     },
     CostError(ExecutionCost, ExecutionCost),
     AnalysisError(RuntimeCheckErrorKind),
-    ExecutionTimeExpired,
+    ExecutionResourceBudgetExceeded(String),
     Rejectable(ClarityError),
 }
 
@@ -444,7 +445,9 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
             reason,
         },
         ClarityError::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
-        ClarityError::ExecutionTimeExpired => ClarityRuntimeTxError::ExecutionTimeExpired,
+        ClarityError::ExecutionResourceBudgetExceeded(s) => {
+            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s)
+        }
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
 }
@@ -1285,8 +1288,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTransactionConnection,
         tx: &StacksTransaction,
         origin_account: &StacksAccount,
-        max_execution_time: Option<std::time::Duration>,
-        max_analysis_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
     ) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
@@ -1358,7 +1360,7 @@ impl StacksChainState {
                         )
                         .expect("FATAL: error while evaluating post-conditions")
                     },
-                    max_execution_time,
+                    resource_budgets.get_execution_budget(),
                 );
 
                 let mut total_cost = clarity_tx.cost_so_far();
@@ -1464,15 +1466,16 @@ impl StacksChainState {
                                     )));
                                 }
                             }
-                            ClarityRuntimeTxError::ExecutionTimeExpired => {
-                                warn!("Transaction exceeded miner execution time limit; will be dropped from mempool";
+                            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
+                                warn!("Transaction exceeded miner execution resource limit; will be dropped from mempool";
+                                              "error" => s.clone(),
                                               "txid" => %tx.txid(),
                                               "origin" => %origin_account.principal,
                                               "origin_nonce" => %origin_account.nonce,
                                                "contract_name" => %contract_id,
                                                "function_name" => %contract_call.function_name,
                                                "function_args" => %VecDisplay(&contract_call.function_args));
-                                return Err(Error::ExecutionTimeExpired);
+                                return Err(Error::ExecutionResourceBudgetExceeded(s));
                             }
                             ClarityRuntimeTxError::Rejectable(e) => {
                                 error!("Unexpected error in validating transaction: if included, this will invalidate a block";
@@ -1538,7 +1541,7 @@ impl StacksChainState {
                     &contract_id,
                     clarity_version,
                     &contract_code_str,
-                    max_analysis_time,
+                    resource_budgets.get_analysis_budget(),
                 );
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
@@ -1559,13 +1562,14 @@ impl StacksChainState {
                                     budget.clone(),
                                 ));
                             }
-                            ClarityError::AnalysisTimeExpired => {
-                                // The analysis phase exceeded its wall-clock deadline (on a voting path only).
-                                warn!("Contract analysis exceeded the analysis time limit; tx will be dropped from the mempool";
+                            ClarityError::AnalysisResourceBudgetExceeded(s) => {
+                                // The analysis phase exceeded its wall-clock deadline or allocation limit (on a voting path only).
+                                warn!("Contract analysis exceeded the analysis resource budget; tx will be dropped from the mempool";
+                                      "error" => s.clone(),
                                       "txid" => %tx.txid(),
                                       "contract_name" => %contract_id,
                                 );
-                                return Err(Error::AnalysisTimeExpired);
+                                return Err(Error::AnalysisResourceBudgetExceeded(s));
                             }
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {
@@ -1634,7 +1638,7 @@ impl StacksChainState {
                         )
                         .expect("FATAL: error while evaluating post-conditions")
                     },
-                    max_execution_time,
+                    resource_budgets.get_execution_budget(),
                 );
 
                 let mut total_cost = clarity_tx.cost_so_far();
@@ -1733,11 +1737,12 @@ impl StacksChainState {
                                     )));
                                 }
                             }
-                            ClarityRuntimeTxError::ExecutionTimeExpired => {
-                                warn!("Transaction exceeded miner execution time limit; will be dropped from mempool";
+                            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
+                                warn!("Transaction exceeded miner execution resource limit; will be dropped from mempool";
+                                              "error" => s.clone(),
                                               "txid" => %tx.txid(),
                                               "contract" => %contract_id);
-                                return Err(Error::ExecutionTimeExpired);
+                                return Err(Error::ExecutionResourceBudgetExceeded(s));
                             }
                             ClarityRuntimeTxError::Rejectable(e) => {
                                 error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
@@ -1853,15 +1858,17 @@ impl StacksChainState {
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        // The generic/replay entry point imposes no analysis deadline (`None`): only the
+        // The generic/replay entry point imposes no analysis deadline: only the
         // miner assembly and block-proposal validation paths (which call
         // `process_transaction_with_check` directly) bound the analysis phase.
+        let resource_budgets = TransactionResourceBudgets::new()
+            .with_execution_budget(ResourceBudget::new().with_max_duration(max_execution_time));
+
         Self::process_transaction_with_check(
             clarity_block,
             tx,
             quiet,
-            max_execution_time,
-            None,
+            &resource_budgets,
             |_| Ok(()),
         )
     }
@@ -1943,8 +1950,7 @@ impl StacksChainState {
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
         quiet: bool,
-        max_execution_time: Option<std::time::Duration>,
-        max_analysis_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         mut check: F,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
@@ -1972,8 +1978,7 @@ impl StacksChainState {
                 &mut transaction,
                 tx,
                 &origin_account,
-                max_execution_time,
-                max_analysis_time,
+                resource_budgets,
             )?;
 
             // update the account nonces
@@ -2001,8 +2006,7 @@ impl StacksChainState {
                 &mut transaction,
                 tx,
                 &origin_account,
-                None,
-                None,
+                &TransactionResourceBudgets::unlimited(),
             )?;
 
             let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
@@ -2050,7 +2054,7 @@ pub mod test {
     use stacks_common::util::hash::*;
 
     use super::*;
-    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::db::testing::*;
     use crate::chainstate::stacks::{Error, *};
 
     pub const TestBurnStateDB_20: UnitTestBurnStateDB = UnitTestBurnStateDB {
@@ -2187,8 +2191,7 @@ pub mod test {
                 nonce: 0,
                 stx_balance: STXBalance::Unlocked { amount: 100 },
             },
-            None,
-            None,
+            &TransactionResourceBudgets::unlimited(),
         )
         .unwrap();
 
@@ -2368,7 +2371,7 @@ pub mod test {
 
     #[test]
     fn process_token_transfer_stx_transaction() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2484,7 +2487,7 @@ pub mod test {
 
     #[test]
     fn process_token_transfer_stx_transaction_invalid() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2672,7 +2675,7 @@ pub mod test {
 
     #[test]
     fn process_token_transfer_stx_sponsored_transaction() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk_origin = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2768,7 +2771,7 @@ pub mod test {
         // origin nonce, but its payload must NOT execute. Here a token-transfer
         // of 123 uSTX is skipped: the recipient receives nothing, yet the
         // origin is debited the fee and its nonce advances.
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2841,7 +2844,7 @@ pub mod test {
         // For a sponsored problematic transaction, both the origin and sponsor
         // nonces advance and the sponsor pays the fee, but the payload is still
         // skipped (so the origin's balance is untouched).
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk_origin = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2926,7 +2929,7 @@ pub mod test {
         // problematic_txs markers are only valid in Epoch 4.0+. Reaching the
         // skip path in an earlier epoch is a consensus bug, so it must error
         // rather than silently charge a fee.
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -2976,7 +2979,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3048,7 +3051,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3151,7 +3154,7 @@ pub mod test {
         ];
         let expected_errors_2_1 = ["unexpected ')'", expected_line_num_error];
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3237,7 +3240,7 @@ pub mod test {
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (begin (set-bar 1 0) (ok 1))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3322,7 +3325,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk_origin = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -3407,7 +3410,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3527,7 +3530,7 @@ pub mod test {
         (define-data-var savedContract principal tx-sender)
         (define-public (save (contract principal)) (ok (var-set savedContract contract)))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3657,7 +3660,7 @@ pub mod test {
           (begin (var-set bar (/ x y)) (ok (var-get bar))))
         (define-public (return-error) (err 1))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3764,7 +3767,7 @@ pub mod test {
     fn process_smart_contract_user_aborts_2257() {
         let contract = "(asserts! false (err 1))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -3815,7 +3818,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -4018,7 +4021,7 @@ pub mod test {
         (define-public (set-bar (x int) (y int))
           (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // contract instantiation
         let privk = StacksPrivateKey::from_hex(
@@ -4607,7 +4610,7 @@ pub mod test {
             nonce += 1;
         }
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // make sure costs-3 is instantiated, so as-contract works in 2.1
@@ -5291,7 +5294,7 @@ pub mod test {
             recv_nonce += 1;
         }
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             // make sure costs-3 is installed so as-contract will work in epoch 2.1
@@ -5643,7 +5646,7 @@ pub mod test {
         signer.sign_origin(&privk_origin).unwrap();
         let contract_call_tx = signer.get_tx().unwrap();
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
             let mut conn = chainstate.block_begin(
                 *burn_db,
@@ -9224,8 +9227,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -9392,8 +9396,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let block_privk = StacksPrivateKey::from_hex(
             "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01",
@@ -9513,8 +9518,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let block_privk = StacksPrivateKey::from_hex(
             "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01",
@@ -9598,8 +9604,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let block_privk = StacksPrivateKey::from_hex(
             "2f90f1b148207a110aa58d1b998510407420d7a8065d4fdfc0bbe22c5d9f1c6a01",
@@ -9868,7 +9875,7 @@ pub mod test {
             }
         }
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -10080,7 +10087,7 @@ pub mod test {
             }
         }
 
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         let privk = StacksPrivateKey::from_hex(
             "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
@@ -10214,8 +10221,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -10355,8 +10363,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_contract_create = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -10546,8 +10555,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_runtime_checkerror_trait_no_version = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -11196,8 +11206,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_foo_trait = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -11674,8 +11685,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut tx_foo_trait = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -12769,8 +12781,9 @@ pub mod test {
 
         let balances = vec![(addr.clone(), 1000000000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let sip034_causes = [
             TenureChangeCause::ExtendedRuntime,
@@ -12842,8 +12855,9 @@ pub mod test {
         let addr = auth.origin().address_testnet();
         let balances = vec![(addr.clone(), 1_000_000_000)];
 
-        let mut chainstate =
-            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(balances)
+            .build();
 
         let mut conn = chainstate.block_begin(
             &TestBurnStateDB_21, // or whichever Epoch ≥ 2.1 stub fits
@@ -12889,8 +12903,8 @@ pub mod test {
         .unwrap_err();
 
         assert!(
-            matches!(err, Error::ExecutionTimeExpired),
-            "expected Error::ExecutionTimeExpired, got {err:?}",
+            matches!(err, Error::ExecutionResourceBudgetExceeded(_)),
+            "expected Error::ExecutionResourceBudgetExceeded, got {err:?}",
         );
 
         // Exercise the miner-level wrapper: it should classify as Problematic and reset the cost.
@@ -12944,8 +12958,8 @@ pub mod test {
         .unwrap_err();
 
         assert!(
-            matches!(err, Error::ExecutionTimeExpired),
-            "expected Error::ExecutionTimeExpired, got {err:?}",
+            matches!(err, Error::ExecutionResourceBudgetExceeded(_)),
+            "expected Error::ExecutionResourceBudgetExceeded, got {err:?}",
         );
 
         // Exercise the miner-level wrapper for the contract-call path too.
