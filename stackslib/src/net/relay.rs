@@ -40,7 +40,7 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{StacksBlockHeader, TransactionPayload};
-use crate::core::mempool::MemPoolDB;
+use crate::core::mempool::{MemPoolDB, *};
 use crate::monitoring::update_stacks_tip_height;
 use crate::net::chat::*;
 use crate::net::connection::*;
