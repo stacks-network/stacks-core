@@ -406,6 +406,7 @@ fn test_tuple_data_from_data_typed_returns_clarity_type_error() {
         &StacksEpochId::Epoch32,
         vec![(ClarityName::from_literal("a"), Value::UInt(1))],
         &tuple_type,
+        false,
     )
     .unwrap_err();
     assert_eq!(
@@ -415,6 +416,61 @@ fn test_tuple_data_from_data_typed_returns_clarity_type_error() {
         ),
         err
     );
+}
+
+#[test]
+fn test_tuple_data_from_data_typed_enforces_exact_fields() {
+    let expected = TupleTypeSignature::try_from(vec![
+        (ClarityName::from_literal("a"), TypeSignature::IntType),
+        (ClarityName::from_literal("b"), TypeSignature::IntType),
+    ])
+    .unwrap();
+
+    let duplicate_err = TupleData::from_data_typed(
+        &StacksEpochId::Epoch21,
+        vec![
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("a"), Value::Int(2)),
+        ],
+        &expected,
+        true,
+    )
+    .unwrap_err();
+    assert_eq!(
+        duplicate_err,
+        ClarityTypeError::DuplicateTupleField("a".into())
+    );
+
+    let missing_err = TupleData::from_data_typed(
+        &StacksEpochId::Epoch21,
+        vec![(ClarityName::from_literal("a"), Value::Int(1))],
+        &expected,
+        true,
+    )
+    .unwrap_err();
+    let actual = TupleTypeSignature::try_from(vec![(
+        ClarityName::from_literal("a"),
+        TypeSignature::IntType,
+    )])
+    .unwrap();
+    assert_eq!(
+        missing_err,
+        ClarityTypeError::TypeMismatch(Box::new(expected.clone().into()), Box::new(actual.into()),)
+    );
+
+    let tuple = TupleData::from_data_typed(
+        &StacksEpochId::Epoch21,
+        vec![
+            (ClarityName::from_literal("b"), Value::Int(2)),
+            (ClarityName::from_literal("a"), Value::Int(1)),
+        ],
+        &expected,
+        true,
+    )
+    .unwrap();
+    assert_eq!(tuple.len(), expected.len());
+    assert_eq!(tuple.get("a"), Ok(&Value::Int(1)));
+    assert_eq!(tuple.get("b"), Ok(&Value::Int(2)));
 }
 
 #[rstest]

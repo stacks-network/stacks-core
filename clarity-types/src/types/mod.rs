@@ -1773,11 +1773,17 @@ impl TupleData {
     }
 
     // TODO: add tests from mutation testing results #4834
+    /// Construct a typed tuple, checking `data` against `expected`.
+    ///
+    /// `strict` also rejects duplicate and missing fields, so the tuple's
+    /// signature always matches its data. Non-strict keeps the lossy behavior
+    /// of pre-Epoch 4.1 deserialization.
     #[cfg_attr(test, mutants::skip)]
     pub fn from_data_typed(
         epoch: &StacksEpochId,
         data: Vec<(ClarityName, Value)>,
         expected: &TupleTypeSignature,
+        strict: bool,
     ) -> Result<TupleData, ClarityTypeError> {
         let mut data_map = BTreeMap::new();
 
@@ -1795,7 +1801,23 @@ impl TupleData {
                 ));
             }
 
+            if strict && data_map.contains_key(&name) {
+                return Err(ClarityTypeError::DuplicateTupleField(name.into()));
+            }
             data_map.insert(name, value);
+        }
+
+        // With duplicates rejected, equal cardinality means the field sets
+        // match exactly.
+        if strict && data_map.len() as u64 != expected.len() {
+            let mut actual_types = BTreeMap::new();
+            for (name, value) in data_map.iter() {
+                actual_types.insert(name.clone(), TypeSignature::type_of(value)?);
+            }
+            return Err(ClarityTypeError::TypeMismatch(
+                Box::new(expected.clone().into()),
+                Box::new(TupleTypeSignature::try_from(actual_types)?.into()),
+            ));
         }
 
         Ok(Self::new(expected.clone(), data_map))
