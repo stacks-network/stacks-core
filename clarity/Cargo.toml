@@ -17,6 +17,7 @@ path = "./src/libclarity.rs"
 
 [dependencies]
 clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false }
+stacks-codec = { package = "stacks-codec", path = "../stacks-codec", default-features = false }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
@@ -69,7 +70,7 @@ testing = ["rusqlite", "rstest", "rstest_reuse", "clarity-types/testing", "stack
 devtools = []
 rollback_value_check = []
 disable-costs = []
-wasm-web = ["stacks_common/wasm-web", "clarity-types/wasm-web"]
+wasm-web = ["stacks_common/wasm-web", "clarity-types/wasm-web", "stacks-codec/wasm-web"]
 
 [package.metadata.pinny]
 allowed = ["t_prop"]

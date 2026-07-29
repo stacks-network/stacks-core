@@ -14,20 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
-
 use clarity::vm::analysis::types::ContractAnalysis;
 use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::{AssetMap, AssetMapEntry, ExecutionState, InvocationContext};
+use clarity::vm::contexts::{AssetMap, ExecutionState, InvocationContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::errors::{VmExecutionError, VmInternalError};
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::representations::ClarityName;
 use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{
-    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
-    TypeSignature, Value,
+    BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    StacksAddressExtensions as ClarityStacksAddressExt, TupleData, TypeSignature, Value,
 };
 
 use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
@@ -37,34 +34,6 @@ use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityError, ClarityTransactionConnection};
 use crate::monitoring::increment_unreachable_errors_counter;
 use crate::util_lib::strings::VecDisplay;
-
-/// This is a safe-to-hash Clarity value
-#[derive(PartialEq, Eq)]
-struct HashableClarityValue(Value);
-
-impl TryFrom<Value> for HashableClarityValue {
-    type Error = VmExecutionError;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        // check that serialization _will_ be successful when hashed
-        let _bytes = value.serialize_to_vec().map_err(|_| {
-            VmExecutionError::Internal(VmInternalError::Expect(
-                "Failed to serialize asset in NFT during post-condition checks".into(),
-            ))
-        })?;
-        Ok(Self(value))
-    }
-}
-
-impl std::hash::Hash for HashableClarityValue {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        #[allow(clippy::unwrap_used, clippy::collection_is_never_read)]
-        // this unwrap is safe _as long as_ TryFrom<Value> was used as a constructor
-        // Also, this function has side effects, which cause Clippy to wrongly think `bytes` is unused
-        let bytes = self.0.serialize_to_vec().unwrap();
-        bytes.hash(state);
-    }
-}
 
 impl StacksTransactionReceipt {
     pub fn from_stx_transfer(
@@ -779,6 +748,12 @@ impl StacksChainState {
     /// Return `Ok(None)` if the check passes.
     /// Return `Ok(Some(reason))` if the check fails.
     /// Return `Err` if the check cannot be performed.
+    ///
+    /// The consensus-critical logic lives in
+    /// [`clarity::vm::post_conditions::check_transaction_postconditions`] so the
+    /// wasm SDK can run the identical check without depending on `stackslib`;
+    /// this thin adapter just projects the node's [`StacksAccount`] down to the
+    /// origin principal that check actually needs.
     fn check_transaction_postconditions(
         post_conditions: &[TransactionPostCondition],
         post_condition_mode: &TransactionPostConditionMode,
@@ -787,293 +762,14 @@ impl StacksChainState {
         epoch_id: StacksEpochId,
         txid: Txid,
     ) -> Result<Option<String>, VmExecutionError> {
-        let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
-            HashMap::new();
-        let mut checked_nonfungible_assets: HashMap<
-            PrincipalData,
-            HashMap<AssetIdentifier, HashSet<HashableClarityValue>>,
-        > = HashMap::new();
-        // Principals whose staking (STX locked for PoX) was covered by a
-        // `Staking` post-condition, and whose position-altering PoX actions
-        // (unstake / unstake-sbtc / update-bond-registration /
-        // announce-l1-early-exit) were covered by a `Pox` post-condition. Used
-        // for the unchecked-asset enforcement below, in epochs that support
-        // staking post-conditions.
-        let mut checked_staking: HashSet<PrincipalData> = HashSet::new();
-        let mut checked_pox: HashSet<PrincipalData> = HashSet::new();
-        let enforce_unchecked_assets_for_principal =
-            |principal: &PrincipalData| match post_condition_mode {
-                TransactionPostConditionMode::Allow => false,
-                TransactionPostConditionMode::Deny => true,
-                TransactionPostConditionMode::Originator => principal == &origin_account.principal,
-            };
-
-        for postcond in post_conditions {
-            match postcond {
-                TransactionPostCondition::STX(
-                    ref principal,
-                    ref condition_code,
-                    ref amount_sent_condition,
-                ) => {
-                    let account_principal = principal.to_principal_data(&origin_account.principal);
-
-                    let amount_transferred = asset_map.get_stx(&account_principal).unwrap_or(0);
-                    let amount_burned = asset_map.get_stx_burned(&account_principal).unwrap_or(0);
-
-                    let amount_sent = amount_transferred
-                        .checked_add(amount_burned)
-                        .expect("FATAL: sent waaaaay too much STX");
-
-                    if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
-                        let reason = format!(
-                            "Post-condition check failure on STX owned by {account_principal}: {amount_sent_condition:?} {condition_code:?} {amount_sent}",
-                        );
-                        info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
-                    }
-
-                    if let Some(ref mut asset_ids) =
-                        checked_fungible_assets.get_mut(&account_principal)
-                    {
-                        if amount_transferred > 0 {
-                            asset_ids.insert(AssetIdentifier::STX());
-                        }
-                        if amount_burned > 0 {
-                            asset_ids.insert(AssetIdentifier::STX_burned());
-                        }
-                    } else {
-                        let mut h = HashSet::new();
-                        if amount_transferred > 0 {
-                            h.insert(AssetIdentifier::STX());
-                        }
-                        if amount_burned > 0 {
-                            h.insert(AssetIdentifier::STX_burned());
-                        }
-                        checked_fungible_assets.insert(account_principal, h);
-                    }
-                }
-                TransactionPostCondition::Fungible(
-                    ref principal,
-                    ref asset_info,
-                    ref condition_code,
-                    ref amount_sent_condition,
-                ) => {
-                    let account_principal = principal.to_principal_data(&origin_account.principal);
-                    let asset_id = AssetIdentifier {
-                        contract_identifier: QualifiedContractIdentifier::new(
-                            StandardPrincipalData::from(asset_info.contract_address.clone()),
-                            asset_info.contract_name.clone(),
-                        ),
-                        asset_name: asset_info.asset_name.clone(),
-                    };
-
-                    let amount_sent = asset_map
-                        .get_fungible_tokens(&account_principal, &asset_id)
-                        .unwrap_or(0);
-                    if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
-                        let reason = format!(
-                            "Post-condition check failure on fungible asset {asset_id} owned by {account_principal}: {amount_sent_condition} {condition_code:?} {amount_sent}"
-                        );
-                        info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
-                    }
-
-                    if let Some(ref mut asset_ids) =
-                        checked_fungible_assets.get_mut(&account_principal)
-                    {
-                        asset_ids.insert(asset_id);
-                    } else {
-                        let mut h = HashSet::new();
-                        h.insert(asset_id);
-                        checked_fungible_assets.insert(account_principal, h);
-                    }
-                }
-                TransactionPostCondition::Nonfungible(
-                    ref principal,
-                    ref asset_info,
-                    ref asset_value,
-                    ref condition_code,
-                ) => {
-                    let account_principal = principal.to_principal_data(&origin_account.principal);
-                    let asset_id = AssetIdentifier {
-                        contract_identifier: QualifiedContractIdentifier::new(
-                            StandardPrincipalData::from(asset_info.contract_address.clone()),
-                            asset_info.contract_name.clone(),
-                        ),
-                        asset_name: asset_info.asset_name.clone(),
-                    };
-
-                    let empty_assets = vec![];
-                    let assets_sent = asset_map
-                        .get_nonfungible_tokens(&account_principal, &asset_id)
-                        .unwrap_or(&empty_assets);
-                    if !condition_code.check(asset_value, assets_sent) {
-                        let reason = format!(
-                            "Post-condition check failure on non-fungible asset {asset_id} owned by {account_principal}: {asset_value:?} {condition_code:?} {assets_sent:?}"
-                        );
-                        info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
-                    }
-
-                    if let Some(ref mut asset_id_map) =
-                        checked_nonfungible_assets.get_mut(&account_principal)
-                    {
-                        if let Some(ref mut asset_values) = asset_id_map.get_mut(&asset_id) {
-                            asset_values.insert(asset_value.clone().try_into()?);
-                        } else {
-                            let mut asset_set = HashSet::new();
-                            asset_set.insert(asset_value.clone().try_into()?);
-                            asset_id_map.insert(asset_id, asset_set);
-                        }
-                    } else {
-                        let mut asset_id_map = HashMap::new();
-                        let mut asset_set = HashSet::new();
-                        asset_set.insert(asset_value.clone().try_into()?);
-                        asset_id_map.insert(asset_id, asset_set);
-                        checked_nonfungible_assets.insert(account_principal, asset_id_map);
-                    }
-                }
-                TransactionPostCondition::Staking(
-                    ref principal,
-                    ref condition_code,
-                    ref amount_staked_condition,
-                ) => {
-                    let account_principal = principal.to_principal_data(&origin_account.principal);
-
-                    let amount_staked = asset_map.get_stacking(&account_principal).unwrap_or(0);
-
-                    if !condition_code.check(u128::from(*amount_staked_condition), amount_staked) {
-                        let reason = format!(
-                            "Post-condition check failure on STX staked by {account_principal}: {amount_staked_condition:?} {condition_code:?} {amount_staked}",
-                        );
-                        info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
-                    }
-
-                    checked_staking.insert(account_principal);
-                }
-                TransactionPostCondition::Pox(ref principal, ref condition_code) => {
-                    let account_principal = principal.to_principal_data(&origin_account.principal);
-
-                    let performed = asset_map.did_pox_action(&account_principal);
-
-                    if !condition_code.check(performed) {
-                        let reason = format!(
-                            "Post-condition check failure on PoX action by {account_principal}: {condition_code:?} performed={performed}",
-                        );
-                        info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
-                    }
-
-                    checked_pox.insert(account_principal);
-                }
-            }
-        }
-
-        // make sure every asset transferred is covered by a postcondition, if the current mode
-        // requires it.
-        let asset_map_copy = (*asset_map).clone();
-        let mut all_assets_sent = asset_map_copy.to_table();
-        for (principal, mut assets) in all_assets_sent.drain() {
-            if !enforce_unchecked_assets_for_principal(&principal) {
-                continue;
-            }
-            for (asset_identifier, asset_entry) in assets.drain() {
-                match asset_entry {
-                    AssetMapEntry::Asset(values) => {
-                        // this is a NFT
-                        if let Some(checked_nft_asset_map) =
-                            checked_nonfungible_assets.get(&principal)
-                        {
-                            if let Some(nfts) = checked_nft_asset_map.get(&asset_identifier) {
-                                // each value must be covered
-                                for v in values {
-                                    if !nfts.contains(&v.clone().try_into()?) {
-                                        let reason = format!(
-                                            "Post-condition check failure: Non-fungible asset {asset_identifier} value {v:?} was moved by {principal} but not checked"
-                                        );
-                                        info!("{reason}"; "txid" => %txid);
-                                        return Ok(Some(reason));
-                                    }
-                                }
-                            } else {
-                                // no values covered
-                                let reason = format!(
-                                    "Post-condition check failure: Non-fungible asset {asset_identifier} was moved by {principal} but not checked"
-                                );
-                                info!("{reason}"; "txid" => %txid);
-                                return Ok(Some(reason));
-                            }
-                        } else {
-                            // no NFT for this principal
-                            let reason = format!(
-                                "Post-condition check failure: No checks for non-fungible asset {asset_identifier} moved by {principal}"
-                            );
-                            info!("{reason}"; "txid" => %txid);
-                            return Ok(Some(reason));
-                        }
-                    }
-                    _ => {
-                        // This is STX or a fungible token
-                        if let Some(checked_ft_asset_ids) = checked_fungible_assets.get(&principal)
-                        {
-                            if !checked_ft_asset_ids.contains(&asset_identifier) {
-                                let reason = format!(
-                                    "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
-                                );
-                                info!("{reason}"; "txid" => %txid);
-                                return Ok(Some(reason));
-                            }
-                        } else {
-                            let reason = format!(
-                                "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
-                            );
-                            info!("{reason}"; "txid" => %txid);
-                            return Ok(Some(reason));
-                        }
-                    }
-                }
-            }
-        }
-
-        // make sure every principal that staked STX is covered by a `Staking` post-condition, and
-        // every principal that performed a position-altering PoX action is covered by a `Pox`
-        // post-condition, if the current mode requires it. The staking map and pox-action set are
-        // intentionally excluded from `to_table`, so they are enforced separately here. Only
-        // enforced in epochs that support staking post-conditions, since these were previously
-        // unchecked at the tx level.
-        if epoch_id.supports_staking_post_conditions() {
-            for (principal, amount_staked) in asset_map.get_all_stacking() {
-                if *amount_staked == 0 {
-                    continue;
-                }
-                if !enforce_unchecked_assets_for_principal(principal) {
-                    continue;
-                }
-                if !checked_staking.contains(principal) {
-                    let reason = format!(
-                        "Post-condition check failure: {amount_staked} STX was staked by {principal} but not checked"
-                    );
-                    info!("{reason}"; "txid" => %txid);
-                    return Ok(Some(reason));
-                }
-            }
-
-            for principal in asset_map.get_all_pox_actions() {
-                if !enforce_unchecked_assets_for_principal(principal) {
-                    continue;
-                }
-                if !checked_pox.contains(principal) {
-                    let reason = format!(
-                        "Post-condition check failure: {principal} performed a PoX action but it was not checked"
-                    );
-                    info!("{reason}"; "txid" => %txid);
-                    return Ok(Some(reason));
-                }
-            }
-        }
-
-        return Ok(None);
+        clarity::vm::post_conditions::check_transaction_postconditions(
+            post_conditions,
+            post_condition_mode,
+            &origin_account.principal,
+            asset_map,
+            epoch_id,
+            txid,
+        )
     }
 
     /// Given two microblock headers, were they signed by the same key?
@@ -2045,7 +1741,7 @@ pub mod test {
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
-    use clarity::vm::types::ResponseData;
+    use clarity::vm::types::{AssetIdentifier, ResponseData, StandardPrincipalData};
     use pinny::tag;
     use proptest::prelude::*;
     use rand::Rng;

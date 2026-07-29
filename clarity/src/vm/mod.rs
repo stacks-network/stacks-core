@@ -38,6 +38,7 @@ pub mod docs;
 pub mod version;
 
 pub mod events;
+pub mod post_conditions;
 
 #[cfg(feature = "rusqlite")]
 pub mod tooling;

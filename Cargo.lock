@@ -822,6 +822,7 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "slog",
+ "stacks-codec",
  "stacks-common 0.0.1",
 ]
 
