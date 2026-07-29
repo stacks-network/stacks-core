@@ -864,7 +864,9 @@ fn test_watch_only_wallet_guide_flow_ok() {
     // (all mature at the final tip), 102 segwit, 103..=202 legacy on top so
     // the segwit coinbase reaches 100 confirmations
     let miner_pubkey = Secp256k1PublicKey::from_hex(MINER_PUBKEY).expect("Valid public key");
-    let pkh = Hash160::from_data(&miner_pubkey.to_bytes()).to_bytes().to_vec();
+    let pkh = Hash160::from_data(&miner_pubkey.to_bytes())
+        .to_bytes()
+        .to_vec();
     let legacy_addr = BitcoinAddress::from_bytes_legacy(
         BitcoinNetworkType::Regtest,
         LegacyBitcoinAddressType::PublicKeyHash,
