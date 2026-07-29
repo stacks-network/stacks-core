@@ -1256,6 +1256,7 @@ impl Signer {
     /// Returns true if the block should be re-evaluated, false if it should be ignored.
     fn should_reevaluate_block(
         &mut self,
+        stacks_client: &StacksClient,
         block_info: &BlockInfo,
         block_proposal: &BlockProposal,
     ) -> bool {
@@ -1275,6 +1276,25 @@ impl Signer {
             return false;
         }
         if !should_reevaluate_reject_reason(block_info) {
+            if block_info.state == BlockState::PreCommitted {
+                // We validated this block but haven't signed it. Signing requires the
+                // pre-commit threshold and the conflict checks in `handle_block_pre_commit`.
+                // Re-broadcast our pre-commit and re-run that evaluation instead of
+                // responding with a signature directly, so a re-proposed block can't
+                // bypass those checks.
+                info!(
+                    "{self}: received a block proposal for a block we have pre-committed to but not signed. Re-evaluating the pre-commit.";
+                    "signer_signature_hash" => %signer_signature_hash,
+                    "block_id" => %block_info.block.block_id(),
+                    "block_height" => block_info.block.header.chain_length,
+                    "burn_height" => block_proposal.burn_height,
+                    "consensus_hash" => %block_info.block.header.consensus_hash
+                );
+                self.send_block_pre_commit(signer_signature_hash.clone());
+                let address = self.stacks_address.clone();
+                self.handle_block_pre_commit(stacks_client, &address, &signer_signature_hash);
+                return false;
+            }
             if let Some(block_response) = self.determine_response(block_info) {
                 self.send_block_response(&block_info.block, block_response);
                 return false;
@@ -1359,7 +1379,7 @@ impl Signer {
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
         let pending_responses =
             if let Some(block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) {
-                if !self.should_reevaluate_block(&block_info, block_proposal) {
+                if !self.should_reevaluate_block(stacks_client, &block_info, block_proposal) {
                     return;
                 }
                 PendingBlockResponses::empty()

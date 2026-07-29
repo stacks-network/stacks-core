@@ -353,6 +353,7 @@ mod async_sibling_validation {
     use stacks_common::types::chainstate::{
         ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
     };
+    use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::MerkleTree;
     use stacks_common::util::secp256k1::MessageSignature;
 
@@ -484,16 +485,20 @@ mod async_sibling_validation {
     /// Drive the sibling race: two conflicting tenure-start blocks A and B are both tracked
     /// (as they would be after screening two proposals within the async-validation window),
     /// A's validation returns first and is signed, then B's validation returns. Returns the
-    /// resulting `BlockInfo` for A (captured right after its own validation) and for B.
+    /// resulting `BlockInfo` for A (captured right after its own validation), for B (captured
+    /// right after its validation), and for B after an optional re-proposal.
     ///
     /// `tenure_last_block_proposal_timeout` controls whether A's signature is still fresh when
     /// B crosses the pre-commit threshold. `serve_sibling_as_tip` controls whether the mock
     /// node reports A (height 10) or the parent (height 9) as the canonical tenure tip, which
-    /// is what the signer consults once the signature has timed out.
+    /// is what the signer consults once the signature has timed out. If `re_propose_b_after` is
+    /// set, the miner re-submits B's proposal after that delay (as it does after a signature
+    /// timeout) and B's `BlockInfo` is captured again as the third element.
     fn run_sibling_scenario(
         tenure_last_block_proposal_timeout: Duration,
         serve_sibling_as_tip: bool,
-    ) -> (BlockInfo, BlockInfo) {
+        re_propose_b_after: Option<Duration>,
+    ) -> (BlockInfo, BlockInfo, Option<BlockInfo>) {
         let miner = StacksPrivateKey::from_seed(&[0, 1]);
         let tenure = ConsensusHash([1; 20]);
         let parent_tenure = ConsensusHash([0; 20]);
@@ -517,9 +522,11 @@ mod async_sibling_validation {
         let parent_id = parent_header.block_id();
 
         // Two conflicting sibling tenure-start blocks: same tenure, parent, and height; the only
-        // difference is the timestamp (hence the hash).
-        let block_a = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, 11);
-        let block_b = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, 12);
+        // difference is the timestamp (hence the hash). The timestamps are current so that a
+        // re-proposal of B passes the proposal age check.
+        let now = get_epoch_time_secs();
+        let block_a = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, now);
+        let block_b = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, now + 1);
         let hash_a = block_a.header.signer_signature_hash();
         let hash_b = block_b.header.signer_signature_hash();
         assert_ne!(hash_a, hash_b);
@@ -553,6 +560,13 @@ mod async_sibling_validation {
             (
                 format!("/v3/tenures/tip_metadata/{tenure}"),
                 serde_json::to_string(&tenure_tip).unwrap(),
+            ),
+            // Accept signed-block uploads immediately, so the broadcast after a signing does
+            // not spend seconds in retry backoff (which would let fresh signatures go stale
+            // mid-test and make the freshness-window timing unreliable).
+            (
+                "/v3/blocks/upload".to_string(),
+                format!(r#"{{"stacks_block_id":"{parent_id}","accepted":true}}"#),
             ),
         ];
 
@@ -653,12 +667,33 @@ mod async_sibling_validation {
         );
         let info_b = signer.signer_db.block_lookup(&hash_b).unwrap().unwrap();
 
+        // The miner re-submits B's proposal, as it does after a signature timeout. The signer
+        // must re-run the pre-commit evaluation (threshold + conflict checks) rather than
+        // responding with a signature directly off the tracked `valid` flag.
+        let info_b_reproposed = re_propose_b_after.map(|delay| {
+            thread::sleep(delay);
+            let proposal_b = SignerMessage::BlockProposal(BlockProposal {
+                block: block_b.clone(),
+                burn_height: 1,
+                reward_cycle: 1,
+                block_proposal_data: BlockProposalData::empty(),
+            });
+            signer.process_event(
+                &client,
+                &mut sortition,
+                Some(&SignerEvent::MinerMessages(vec![proposal_b])),
+                &result_tx,
+                1,
+            );
+            signer.signer_db.block_lookup(&hash_b).unwrap().unwrap()
+        });
+
         // Clean up before the callers assert, so failures do not leak the db file.
         exit.store(true, Ordering::SeqCst);
         let _ = server.join();
         let _ = std::fs::remove_file(&db_path);
 
-        (info_a, info_b)
+        (info_a, info_b, info_b_reproposed)
     }
 
     /// Assert that A was signed as soon as its validation returned.
@@ -678,7 +713,7 @@ mod async_sibling_validation {
     fn signer_refuses_to_sign_second_sibling_tenure_start() {
         // Pin the fresh window far beyond the test's runtime so the guard can only take the
         // fresh branch; the stale branch is covered by the tests below.
-        let (info_a, info_b) = run_sibling_scenario(Duration::from_secs(100_000), false);
+        let (info_a, info_b, _) = run_sibling_scenario(Duration::from_secs(100_000), false, None);
         assert_a_signed(&info_a);
         // B is still pre-committed (the sibling is allowed to reach pre-commit), but the signer
         // must refuse to place a second signature on a conflicting same-height block in this
@@ -699,7 +734,7 @@ mod async_sibling_validation {
     fn stale_sibling_still_refused_when_canonical_tip_at_height() {
         // A zero timeout makes A's signature stale immediately, but the node reports A as the
         // canonical tip at the same height, so the replacement must still be refused.
-        let (info_a, info_b) = run_sibling_scenario(Duration::ZERO, true);
+        let (info_a, info_b, _) = run_sibling_scenario(Duration::ZERO, true, None);
         assert_a_signed(&info_a);
         assert_eq!(
             info_b.state,
@@ -718,7 +753,7 @@ mod async_sibling_validation {
         // A zero timeout makes A's signature stale immediately, and the node's canonical tip
         // is still the parent (height 9): A failed to be confirmed, so the signer must sign
         // the replacement rather than stall the tenure (the reorg-recovery case).
-        let (info_a, info_b) = run_sibling_scenario(Duration::ZERO, false);
+        let (info_a, info_b, _) = run_sibling_scenario(Duration::ZERO, false, None);
         assert_a_signed(&info_a);
         assert_eq!(
             info_b.state,
@@ -729,6 +764,74 @@ mod async_sibling_validation {
         assert!(
             info_b.signed_self.is_some(),
             "block B should carry our signature after the conflict timed out unconfirmed"
+        );
+    }
+
+    /// Assert that B was refused while A's signature was fresh: pre-committed but not signed.
+    fn assert_b_refused(info_b: &BlockInfo, context: &str) {
+        assert_eq!(
+            info_b.state,
+            BlockState::PreCommitted,
+            "block B should be pre-committed but not promoted ({context}), got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_none(),
+            "block B must NOT be signed ({context})"
+        );
+    }
+
+    #[test]
+    fn reproposal_cannot_bypass_fresh_conflict() {
+        // B is refused while A's signature is fresh, then the miner re-submits B's proposal
+        // while the signature is STILL fresh. The re-proposal must go back through the
+        // pre-commit evaluation and be refused again, not be signed directly off the tracked
+        // `valid` flag.
+        let (info_a, info_b, info_b_reproposed) =
+            run_sibling_scenario(Duration::from_secs(100_000), false, Some(Duration::ZERO));
+        assert_a_signed(&info_a);
+        assert_b_refused(&info_b, "after validation");
+        assert_b_refused(
+            &info_b_reproposed.unwrap(),
+            "after re-proposal while the conflicting signature is fresh",
+        );
+    }
+
+    #[test]
+    fn reproposal_still_refused_when_canonical_tip_at_height() {
+        // B is refused while A's signature is fresh. After the signature times out the miner
+        // re-submits B's proposal, but the node reports A as the canonical tip at the same
+        // height, so B must still be refused.
+        let (info_a, info_b, info_b_reproposed) =
+            run_sibling_scenario(Duration::from_secs(3), true, Some(Duration::from_secs(4)));
+        assert_a_signed(&info_a);
+        assert_b_refused(&info_b, "after validation");
+        assert_b_refused(
+            &info_b_reproposed.unwrap(),
+            "after re-proposal: the conflicting sibling is canonical at this height",
+        );
+    }
+
+    #[test]
+    fn reproposal_signs_replacement_after_conflict_times_out() {
+        // B is refused while A's signature is fresh. After the signature times out the miner
+        // re-submits B's proposal, and the node's canonical tip is still the parent: A failed
+        // to be confirmed, so the re-proposal must lead to B being signed (the stall-recovery
+        // case; the re-proposal is what re-triggers the pre-commit evaluation).
+        let (info_a, info_b, info_b_reproposed) =
+            run_sibling_scenario(Duration::from_secs(3), false, Some(Duration::from_secs(4)));
+        assert_a_signed(&info_a);
+        assert_b_refused(&info_b, "after validation");
+        let info_b_reproposed = info_b_reproposed.unwrap();
+        assert_eq!(
+            info_b_reproposed.state,
+            BlockState::LocallyAccepted,
+            "block B should be signed on re-proposal: the conflicting signature timed out and the sibling is not canonical, got: {}",
+            info_b_reproposed.state
+        );
+        assert!(
+            info_b_reproposed.signed_self.is_some(),
+            "block B should carry our signature after the re-proposal"
         );
     }
 }
