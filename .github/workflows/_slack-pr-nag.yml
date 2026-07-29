@@ -79,7 +79,7 @@ jobs:
             const allowedUsers = new Set(Object.keys(registry));
             // Triage rotation is an opt-out subset of the team.
             const triagerPool = Object.keys(registry)
-              .filter(login => registry[login].triage !== false)
+              .filter(login => registry[login]?.triage !== false)
               .sort();
 
             // Helper to get Slack mention or display name
