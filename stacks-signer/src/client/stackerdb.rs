@@ -204,36 +204,49 @@ impl<M: MessageSlotID + 'static> StackerDB<M> {
                 self.signer_db
                     .set_latest_chunk_version(&signer_pk, slot_id.0, slot_version)?;
                 return Ok(chunk_ack);
-            } else {
-                warn!("Chunk rejected by stackerdb: {chunk_ack:?}");
             }
-            if let Some(code) = chunk_ack.code {
-                match StackerDBErrorCodes::from_code(code) {
-                    Some(StackerDBErrorCodes::DataAlreadyExists) => {
-                        if let Some(slot_metadata) = chunk_ack.metadata {
-                            warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected {}. Retrying...", slot_version, slot_metadata.slot_version);
-                            self.signer_db.set_latest_chunk_version(
-                                &signer_pk,
-                                slot_id.0,
-                                slot_metadata.slot_version,
-                            )?;
-                        } else {
-                            warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Expected unknown version number. Incrementing and retrying...", slot_version);
-                            self.signer_db.set_latest_chunk_version(
-                                &signer_pk,
-                                slot_id.0,
-                                slot_version,
-                            )?;
-                        }
+
+            warn!("Chunk rejected by stackerdb: {chunk_ack:?}");
+            let Some(code) = chunk_ack.code else {
+                // A rejected ack must carry an error code. A missing code indicates a malformed
+                // or unexpected response. Treat it as a terminal error.
+                warn!("Failed to send message to stackerdb: rejected without an error code: {chunk_ack:?}");
+                return Err(ClientError::PutChunkRejected(
+                    chunk_ack
+                        .reason
+                        .unwrap_or_else(|| "No reason given".to_string()),
+                ));
+            };
+
+            // Classify the rejection by its error code. `DataAlreadyExists` (a stale
+            // slot version) is the only retryable case — bump the version and
+            // re-upload. Every other code, plus any unknown code, is permanent for an
+            // identical payload, so retrying can never succeed.
+            match StackerDBErrorCodes::from_code(code) {
+                Some(StackerDBErrorCodes::DataAlreadyExists) => {
+                    if let Some(slot_metadata) = chunk_ack.metadata {
+                        warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Latest {}. Retrying...", slot_version, slot_metadata.slot_version);
+                        self.signer_db.set_latest_chunk_version(
+                            &signer_pk,
+                            slot_id.0,
+                            slot_metadata.slot_version,
+                        )?;
+                    } else {
+                        warn!("Failed to send message to stackerdb due to wrong version number. Attempted {}. Latest unknown. Incrementing and retrying...", slot_version);
+                        self.signer_db.set_latest_chunk_version(
+                            &signer_pk,
+                            slot_id.0,
+                            slot_version,
+                        )?;
                     }
-                    _ => {
-                        warn!("Failed to send message to stackerdb: {:?}", chunk_ack);
-                        return Err(ClientError::PutChunkRejected(
-                            chunk_ack
-                                .reason
-                                .unwrap_or_else(|| "No reason given".to_string()),
-                        ));
-                    }
+                }
+                _ => {
+                    warn!("Failed to send message to stackerdb: {:?}", chunk_ack);
+                    return Err(ClientError::PutChunkRejected(
+                        chunk_ack
+                            .reason
+                            .unwrap_or_else(|| "No reason given".to_string()),
+                    ));
                 }
             }
         }
