@@ -55,7 +55,6 @@ jobs:
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
       debug-binary-path: ${{ steps.set-env.outputs.debug_binary_path }}
-      job-should-run: ${{ steps.set-env.outputs.job_should_run }}
     steps:
       - name: Export Env Variables
         id: set-env
@@ -65,11 +64,7 @@ jobs:
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
 
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
-
           echo "debug_binary_path=${{ env.DEBUG_BINARY_PATH }}" >> $GITHUB_OUTPUT
-
-          # Check that evaluates if various jobs should run. Generally we care if it's a workflow dispatch, PR, or merge group.
-          echo "job_should_run=${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event_name == 'merge_group' }}" >> $GITHUB_OUTPUT
 
   ############################################################################
   ### Changelog Check
@@ -181,8 +176,6 @@ jobs:
       - check-changelog
       - check-rustfmt
       - setup-env
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/check-test-caches.yml
 
   ############################################################################
@@ -195,8 +188,6 @@ jobs:
       - check-rustfmt
       - setup-env
       - check-test-caches
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/check-cargo-hack.yml
 
   ############################################################################
@@ -209,8 +200,6 @@ jobs:
       - check-rustfmt
       - setup-env
       - check-test-caches
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/check-constants.yml
 
   ############################################################################
@@ -224,8 +213,6 @@ jobs:
       - check-rustfmt
       - setup-env
       - check-test-caches
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -255,8 +242,6 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-stacks-core.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -273,8 +258,6 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -291,8 +274,6 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-bitcoin-rpc.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -309,8 +290,6 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    if: >-
-      needs.setup-env.outputs.job-should-run == 'true'
     uses: ./.github/workflows/tests-p2p.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
