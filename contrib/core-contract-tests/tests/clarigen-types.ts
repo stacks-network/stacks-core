@@ -8196,14 +8196,14 @@ export const contracts = {
       sIP018_MSG_PREFIX: Uint8Array.from([83, 73, 80, 48, 49, 56]),
       STACKS_ADDR_VERSION_MAINNET: Uint8Array.from([22]),
       STACKS_ADDR_VERSION_TESTNET: Uint8Array.from([26]),
-      bondAdmin: 'SP000000000000000000002Q6VF78',
+      bondAdmin: 'SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX',
       configured: false,
       firstBondPeriodCycle: 0n,
       firstBurnchainBlockHeight: 0n,
       firstPox5RewardCycle: 0n,
       lastAccountedRewardsOnly: 0n,
       lastRewardComputeHeight: 0n,
-      pauseAdmin: 'SP000000000000000000002Q6VF78',
+      pauseAdmin: 'SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX',
       poxPrepareCycleLength: 50n,
       poxRewardCycleLength: 1_050n,
       reserveBalance: 0n,
@@ -10447,14 +10447,35 @@ export const contracts = {
           { name: 'reward-cycle', type: 'uint128' },
           { name: 'bond-index', type: { optional: 'uint128' } },
         ],
-        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'earned', type: 'uint128' },
+                  {
+                    name: 'withdrawal-request',
+                    type: { optional: 'uint128' },
+                  },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
           rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
           bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
-        Response<bigint, bigint>
+        Response<
+          {
+            earned: bigint;
+            withdrawalRequest: bigint | null;
+          },
+          bigint
+        >
       >,
       reclaimFailedWithdrawal: {
         name: 'reclaim-failed-withdrawal',
