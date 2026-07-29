@@ -187,9 +187,10 @@ runs:
     ############################################################################
 
     # Store JUnit file in GitHub CI artifacts (with SHA and "nextest" prefix)
+    # always() is needed to execute this step for test failures
     - name: Store JUnit Report as Artifact
       if: >-
-        always() && # needed to be able to execute this step for test failures
+        always() &&
         github.event_name != 'merge_group'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
