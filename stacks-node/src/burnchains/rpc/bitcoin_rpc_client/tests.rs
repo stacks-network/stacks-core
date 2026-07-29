@@ -786,6 +786,7 @@ fn test_send_raw_transaction_ok_with_custom_params() {
 fn test_get_descriptor_info_ok() {
     let descriptor = format!("addr(bc1_address)");
     let expected_checksum = "mychecksum";
+    let expected_descriptor = format!("{descriptor}#{expected_checksum}");
 
     let expected_request = json!({
         "jsonrpc": "2.0",
@@ -797,6 +798,7 @@ fn test_get_descriptor_info_ok() {
     let mock_response = json!({
         "id": "stacks",
         "result": {
+            "descriptor": expected_descriptor,
             "checksum": expected_checksum
         },
         "error": null,
@@ -815,6 +817,7 @@ fn test_get_descriptor_info_ok() {
     let info = client
         .get_descriptor_info(&descriptor)
         .expect("Should work!");
+    assert_eq!(expected_descriptor, info.descriptor);
     assert_eq!(expected_checksum, info.checksum);
 }
 

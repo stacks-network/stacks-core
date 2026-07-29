@@ -68,6 +68,8 @@ pub struct GetTransactionResponse {
 /// Additional fields can be added in the future as needed.
 #[derive(Debug, Clone, Deserialize)]
 pub struct DescriptorInfoResponse {
+    /// The descriptor in canonical form, without private keys
+    pub descriptor: String,
     pub checksum: String,
 }
 
