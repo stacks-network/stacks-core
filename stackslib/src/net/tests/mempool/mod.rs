@@ -30,6 +30,13 @@ use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs_and_balances
 use crate::net::tests::relay::epoch2x::make_contract_tx;
 use crate::net::*;
 
+// These tests step all peers in-process, so keep idle polls short while
+// preserving TestPeer's default timeout for other callers.
+const MEMPOOL_TEST_POLL_TIMEOUT_MS: u64 = 10;
+// Force multiple mempool-query pages without building a 1024-transaction fixture.
+const MEMPOOL_TEST_MAX_TX_QUERY: u64 = 16;
+const MEMPOOL_TEST_PAGINATED_TXS: usize = (MEMPOOL_TEST_MAX_TX_QUERY as usize * 2) + 1;
+
 #[test]
 fn test_mempool_sync_2_peers() {
     // peer 1 gets some transactions; verify peer 2 gets the recent ones and not the old
@@ -229,7 +236,7 @@ fn test_mempool_sync_2_peers() {
     let mut peer_2_mempool_txs = 0;
 
     while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
-        if let Ok(mut result) = peer_1.step_with_ibd(false) {
+        if let Ok(mut result) = peer_1.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS) {
             let lp = peer_1.network.local_peer.clone();
             let burnchain = peer_1.network.burnchain.clone();
             peer_1
@@ -249,7 +256,7 @@ fn test_mempool_sync_2_peers() {
                 .unwrap();
         }
 
-        if let Ok(mut result) = peer_2.step_with_ibd(false) {
+        if let Ok(mut result) = peer_2.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS) {
             let lp = peer_2.network.local_peer.clone();
             let burnchain = peer_2.network.burnchain.clone();
             peer_2
@@ -307,8 +314,10 @@ fn test_mempool_sync_2_peers_paginated() {
 
     peer_1_config.connection_opts.mempool_sync_interval = 1;
     peer_2_config.connection_opts.mempool_sync_interval = 1;
+    peer_1_config.connection_opts.mempool_max_tx_query = MEMPOOL_TEST_MAX_TX_QUERY;
+    peer_2_config.connection_opts.mempool_max_tx_query = MEMPOOL_TEST_MAX_TX_QUERY;
 
-    let num_txs = 1024;
+    let num_txs = MEMPOOL_TEST_PAGINATED_TXS;
     let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
@@ -422,7 +431,7 @@ fn test_mempool_sync_2_peers_paginated() {
     let mut peer_2_mempool_txs = 0;
 
     while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
-        if let Ok(mut result) = peer_1.step_with_ibd(false) {
+        if let Ok(mut result) = peer_1.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS) {
             let lp = peer_1.network.local_peer.clone();
             let burnchain = peer_1.network.burnchain.clone();
             peer_1
@@ -442,7 +451,7 @@ fn test_mempool_sync_2_peers_paginated() {
                 .unwrap();
         }
 
-        if let Ok(mut result) = peer_2.step_with_ibd(false) {
+        if let Ok(mut result) = peer_2.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS) {
             let lp = peer_2.network.local_peer.clone();
             let burnchain = peer_2.network.burnchain.clone();
             peer_2
@@ -631,7 +640,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
     let mut peer_2_mempool_txs = 0;
 
     while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs / 2 {
-        if let Ok(mut result) = peer_1.step_with_ibd(false) {
+        if let Ok(mut result) = peer_1.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS) {
             let lp = peer_1.network.local_peer.clone();
             let burnchain = peer_1.network.burnchain.clone();
             peer_1
@@ -651,7 +660,7 @@ fn test_mempool_sync_2_peers_blacklisted() {
                 .unwrap();
         }
 
-        if let Ok(mut result) = peer_2.step_with_ibd(false) {
+        if let Ok(mut result) = peer_2.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS) {
             let lp = peer_2.network.local_peer.clone();
             let burnchain = peer_2.network.burnchain.clone();
             peer_2
@@ -827,7 +836,7 @@ fn test_mempool_sync_2_peers_problematic() {
             .mempool_sync_txs
             < (num_txs as u64)
     {
-        if let Ok(mut result) = peer_1.step_with_ibd(false) {
+        if let Ok(mut result) = peer_1.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS) {
             let lp = peer_1.network.local_peer.clone();
             let burnchain = peer_1.network.burnchain.clone();
             peer_1
@@ -847,7 +856,7 @@ fn test_mempool_sync_2_peers_problematic() {
                 .unwrap();
         }
 
-        if let Ok(mut result) = peer_2.step_with_ibd(false) {
+        if let Ok(mut result) = peer_2.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS) {
             let lp = peer_2.network.local_peer.clone();
             let burnchain = peer_2.network.burnchain.clone();
             peer_2
@@ -1087,7 +1096,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         // full rc
         vec![true, true, true, true, true, true, true, true, true, true],
     ];
-    let num_txs = 1024;
+    let num_txs = MEMPOOL_TEST_PAGINATED_TXS;
     let pks: Vec<_> = (0..num_txs).map(|_| StacksPrivateKey::random()).collect();
     let addrs: Vec<_> = pks.iter().map(to_addr).collect();
     let initial_balances: Vec<_> = addrs
@@ -1105,6 +1114,8 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
         initial_balances,
     );
     let mut peer_2 = other_peers.pop().unwrap();
+    peer_1.network.connection_opts.mempool_max_tx_query = MEMPOOL_TEST_MAX_TX_QUERY;
+    peer_2.network.connection_opts.mempool_max_tx_query = MEMPOOL_TEST_MAX_TX_QUERY;
 
     let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
         &peer_1.config.chain_config.burnchain.pox_constants,
@@ -1123,8 +1134,8 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
 
     // run peer and other_peer until they connect
     loop {
-        let _ = peer_1.step_with_ibd(false);
-        let _ = peer_2.step_with_ibd(false);
+        let _ = peer_1.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS);
+        let _ = peer_2.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS);
 
         let event_ids = peer_1.network.iter_peer_event_ids();
         let other_event_ids = peer_2.network.iter_peer_event_ids();
@@ -1224,7 +1235,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
     let mut peer_2_mempool_txs = 0;
 
     while peer_1_mempool_txs < num_txs || peer_2_mempool_txs < num_txs {
-        if let Ok(mut result) = peer_1.step_with_ibd(false) {
+        if let Ok(mut result) = peer_1.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS) {
             let lp = peer_1.network.local_peer.clone();
             let burnchain = peer_1.network.burnchain.clone();
             peer_1
@@ -1244,7 +1255,7 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
                 .unwrap();
         }
 
-        if let Ok(mut result) = peer_2.step_with_ibd(false) {
+        if let Ok(mut result) = peer_2.step_with_ibd_timeout(false, MEMPOOL_TEST_POLL_TIMEOUT_MS) {
             let lp = peer_2.network.local_peer.clone();
             let burnchain = peer_2.network.burnchain.clone();
             peer_2

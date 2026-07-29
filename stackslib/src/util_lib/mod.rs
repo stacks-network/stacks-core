@@ -7,10 +7,11 @@ pub mod strings;
 
 #[cfg(test)]
 pub mod test {
-    use std::sync::mpsc::sync_channel;
+    use std::sync::mpsc::{sync_channel, RecvTimeoutError};
+    use std::time::Duration;
     use std::{panic, thread};
 
-    use stacks_common::util::{get_epoch_time_secs, sleep_ms};
+    use stacks_common::util::sleep_ms;
 
     pub fn with_timeout<F>(timeout_secs: u64, test_func: F)
     where
@@ -22,23 +23,23 @@ pub mod test {
             let result = panic::catch_unwind(|| {
                 test_func();
             });
-            let _ = sx.send(result.is_ok());
+            let _ = sx.send(result);
         });
 
-        // wait for test to finish
-        let deadline = timeout_secs + get_epoch_time_secs();
-        let mut done = false;
-        while get_epoch_time_secs() <= deadline {
-            sleep_ms(1000);
-            if let Ok(success) = rx.try_recv() {
-                assert!(success);
-                done = true;
-                break;
+        // Return as soon as the worker reports completion, while preserving the
+        // caller's timeout bound.
+        match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => panic::resume_unwind(err),
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("Test timed out after {} seconds", timeout_secs)
             }
-        }
-
-        if !done {
-            panic!("Test timed out after {} seconds", timeout_secs);
+            Err(RecvTimeoutError::Disconnected) => {
+                if let Err(err) = t.join() {
+                    panic::resume_unwind(err);
+                }
+                panic!("Test thread disconnected before reporting result")
+            }
         }
         t.join().unwrap();
     }
