@@ -626,6 +626,16 @@ jobs:
 
           cd ..
 
+      # Extract and clean the base branch name if running in a merge queue
+      - name: Extract base branch (merge_group only)
+        if: >-
+          github.event_name == 'merge_group'
+        run: |
+          RAW_REF="${{ github.event.merge_group.base_ref }}"
+          # Strips 'refs/heads/' or 'refs/head/' prefix
+          CLEAN_REF=$(echo "$RAW_REF" | sed -E 's|^refs/head(s)?/||')
+          echo "MERGE_GROUP_BASE_BRANCH=$CLEAN_REF" >> $GITHUB_ENV
+
       # Upload the merged code coverage file to Coveralls, retrying transient failures
       - name: Upload code coverage to Coveralls
         timeout-minutes: 15
@@ -636,4 +646,4 @@ jobs:
           build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
           # When running in the merge queue, override the branch to be the base branch of the merge.
           # This creates correct base coverage for future code coverage comparisons / diffs working off of this base branch's latest commit.
-          git-branch: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_ref || null }} # attribute coverage to base branch in merge queue
+          git-branch: ${{ env.MERGE_GROUP_BASE_BRANCH || null }} # attribute coverage to base branch when in merge queue
