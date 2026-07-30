@@ -1106,6 +1106,13 @@ impl<'a> TestRPC<'a> {
         self.run_with_observer(requests, None, |_, _| true)
     }
 
+    /// Convenience wrapper around [`Self::run`] for the single-request case: send one
+    /// request and return its single response.
+    pub fn run_one(self, request: StacksHttpRequest) -> StacksHttpResponse {
+        let mut responses = self.run(vec![request]);
+        responses.remove(0)
+    }
+
     /// Run zero or more HTTP requests on this setup RPC test harness.
     /// Return the list of responses.
     pub fn run_with_observer<F>(
