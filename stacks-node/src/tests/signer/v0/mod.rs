@@ -120,6 +120,7 @@ use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config
 
 pub mod capitulate_parent_tenure_view;
 pub mod epoch_4_0_multi_miner_distribution;
+pub mod epoch_4_0_reorg;
 pub mod epoch_4_0_waterfall;
 pub mod failed_txs;
 pub mod late_block_proposal;

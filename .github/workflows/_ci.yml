@@ -11,7 +11,7 @@ on:
       - checks_requested
   schedule:
     # Run at 00:00 UTC daily
-    # This runs on `main` and is done to have `main` generate and upload 
+    # This runs on `main` and is done to have `main` generate and upload
     # code coverage information for more accurate PR code coverage reports.
     - cron: '0 0 * * *'
   workflow_dispatch: # Allows manual triggering
@@ -44,8 +44,8 @@ env:
 jobs:
   ############################################################################
   ### Global Variables Setup
-  ### 
-  ### Bridges global env variables to the jobs context so they are safely 
+  ###
+  ### Bridges global env variables to the jobs context so they are safely
   ### accessible by downstream reusable workflows.
   ### Also defines default runs-on anchor.
   ############################################################################
@@ -62,13 +62,13 @@ jobs:
           # Capture the archive file input, then expand the leading ~ to $HOME
           INPUT_FILE="${{ env.TEST_ARCHIVE_FILE }}"
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
-        
+
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
           echo "debug_binary_path=${{ env.DEBUG_BINARY_PATH }}" >> $GITHUB_OUTPUT
-  
+
   ############################################################################
   ### Changelog Check
-  ### 
+  ###
   ### Checks for changelog updates (or the 'No Changelog' label) on a PR
   ### Required to pass for all subsequent jobs
   ############################################################################
@@ -98,7 +98,7 @@ jobs:
 
   ############################################################################
   ### Rust Formatting Check
-  ### 
+  ###
   ### Checks for correct formatting
   ### Required to pass for all subsequent jobs
   ############################################################################
@@ -167,7 +167,7 @@ jobs:
   ############################################################################
   ### Check Reusable Test Caches
   ###
-  ### Caches can only be created from `main`. The workflow will fail 
+  ### Caches can only be created from `main`. The workflow will fail
   ### if caches are missing, with instructions on how to manually seed them.
   ############################################################################
   check-test-caches:
@@ -177,7 +177,7 @@ jobs:
       - check-rustfmt
       - setup-env
     uses: ./.github/workflows/check-test-caches.yml
-      
+
   ############################################################################
   ### Cargo Hack Check
   ############################################################################
@@ -189,7 +189,7 @@ jobs:
       - setup-env
       - check-test-caches
     uses: ./.github/workflows/check-cargo-hack.yml
-  
+
   ############################################################################
   ### Constant Check (stacks-inspect)
   ############################################################################
@@ -201,7 +201,7 @@ jobs:
       - setup-env
       - check-test-caches
     uses: ./.github/workflows/check-constants.yml
-      
+
   ############################################################################
   ### Create Nextest Archive Artifact for Tests
   ############################################################################
@@ -222,7 +222,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
-    
+
       # Create Nextest archive artifact
       - name: Create Nextest Archive Artifact
         uses: ./.github/actions/artifacts/nextest-archive
@@ -294,7 +294,7 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
-      
+
   ############################################################################
   ### Run Epoch Tests (Release Only)
   ############################################################################
@@ -320,7 +320,7 @@ jobs:
   ### Creates binary archives for several architectures
   ### Creates Docker images and pushes to ghcr registry
   ### Creates a draft GitHub release
-  ############################################################################  
+  ############################################################################
   create-release:
     name: "Create: Release"
     needs:
@@ -372,20 +372,20 @@ jobs:
           pattern: ${{ github.sha }}-nextest-*
           path: ${{ env.NEXTEST_FILES_DIR }}
           merge-multiple: true
-      
+
       # Check for at least 1 JUnit file
       - name: Check for at least 1 JUnit file
         shell: bash
         run: |
           EXT="${{ env.NEXTEST_FILES_EXT }}"
           DIR="${{ env.NEXTEST_FILES_DIR }}"
-          
+
           file_count=$(find "$DIR" -type f -name "*.$EXT" | wc -l)
           if [ "$file_count" -eq 0 ]; then
             echo "ERROR: no nextest JUnit files of type .$EXT found to merge. Verify that they were correctly generated and uploaded in prior CI steps"
             exit 1
           fi
-      
+
       # Parse the nextest JUnit files and generate the summary
       - name: Parse JUnit Reports and Generate Summary
         shell: bash
@@ -394,41 +394,41 @@ jobs:
           DIR="${{ env.NEXTEST_FILES_DIR }}"
           SLOW_SECS=${{ env.SLOW_THRESHOLD_SECS }}
           DELIM="${{ env.INTERNAL_DELIM }}"
-        
+
           # Feed all reports cleanly into a unified gawk processing loop
           find "$DIR" -type f -name "*.$EXT" | sort | xargs gawk -v slow_thresh="$SLOW_SECS" -v d="$DELIM" '
             BEGIN {
                 # Split the XML file by the testcase tag instead of newlines
                 RS = "<testcase "
             }
-            
+
             FNR == 1 {
                 # Skip the first record of every file (contains metadata before the first testcase)
                 next
             }
-            
+
             {
                 # Clear variables to prevent data bleeding between records
                 classname = ""
                 name = ""
                 time_val = 0
                 has_retry = 0
-                
+
                 # Extract attributes safely from the beginning of this specific testcase record
                 if (match($0, /classname="([^"]+)"/, c)) classname = c[1]
                 if (match($0, /name="([^"]+)"/, n)) name = n[1]
                 if (match($0, /time="([^"]+)"/, t)) time_val = t[1] + 0
-                
+
                 full_name = classname " :: " name
-                
+
                 # Scan for Nextest-specific retry elements within this testcase context
                 if ($0 ~ /flakyFailure|flakyError|rerunFailure|rerunError/) {
                     has_retry = 1
                 }
-                
+
                 short_file = FILENAME
                 sub(/.*\//, "", short_file) # Strip path, preserve filename string
-                
+
                 if (has_retry) {
                     retried_list = retried_list full_name d short_file "\n"
                 }
@@ -437,7 +437,7 @@ jobs:
                     slow_tests[++slow_cnt] = sprintf("%010.3f%s%s%s%s", time_val, d, full_name, d, short_file)
                 }
             }
-            
+
             END {
                 summary_file = ENVIRON["GITHUB_STEP_SUMMARY"]
                 if (!summary_file) summary_file = "/dev/stdout"
@@ -454,7 +454,7 @@ jobs:
                     print "### ⚠️ Automatically Retried (Flaky/Rerun) Tests" >> summary_file
                     print "| Test Name |" >> summary_file
                     print "| --- |" >> summary_file
-                    
+
                     # Split by newline (always safe as a single character)
                     n_retried = split(retried_list, r_lines, "\n")
                     for (i = 1; i < n_retried; i++) {
@@ -477,14 +477,14 @@ jobs:
                     for (i = 1; i <= slow_cnt; i++) {
                         # 1. The duration is always exactly the first 10 characters due to %010.3f
                         duration = substr(slow_tests[i], 1, 10) + 0
-                        
+
                         # 2. Slice off the duration and the first delimiter to get the rest of the string
                         remainder = substr(slow_tests[i], 11 + length(d))
-                        
+
                         # 3. Use literal index matching to find where the test name ends
                         pos = index(remainder, d)
                         test_name = substr(remainder, 1, pos - 1)
-                        
+
                         mins = int(duration / 60)
                         secs = int(duration % 60)
                         printf("| `%s` | %dm %ds (`%.2fs`) |\n", test_name, mins, secs, duration) >> summary_file
@@ -525,13 +525,13 @@ jobs:
         run: |
           echo "ERROR: One or more required CI jobs failed or were cancelled. Failing coverage report."
           exit 1
-    
+
       # Checkout the code (Coveralls requires source code to be available when action is called)
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
            ref: ${{ github.event.pull_request.head.sha || github.ref }}
-        
+
       # Download the code coverage .info files generated by tests from artifacts (prefixed by commit SHA)
       - name: Download code coverage artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
@@ -539,26 +539,26 @@ jobs:
           pattern: ${{ github.sha }}-codecov-*
           path: ${{ env.REPORT_FILES_DIR }}
           merge-multiple: true
-      
+
       # Check for at least 1 code coverage files
       - name: Check for at least 1 code coverage file
         shell: bash
         run: |
           EXT="${{ env.REPORT_FILES_EXT }}"
           DIR="${{ env.REPORT_FILES_DIR }}"
-          
+
           file_count=$(find "$DIR" -type f -name "*.$EXT" | wc -l)
           if [ "$file_count" -eq 0 ]; then
             echo "ERROR: no code coverage files of type .$EXT found to merge. Verify that they were correctly generated and uploaded in prior CI steps"
             exit 1
           fi
-          
+
       # Install lcov for merging the reports
       - name: Install lcov
         shell: bash
         run: |
           sudo apt-get install -y --no-install-recommends lcov
-          
+
       # Merge n coverage report files into 1 file using lcov
       - name: Merge code coverage files
         shell: bash
@@ -567,12 +567,12 @@ jobs:
           DIR="${{ env.REPORT_FILES_DIR }}"
           INTERMEDIATE_FILES=()
           PIDS=() # Array to track background process IDs
-    
+
           cd "$DIR" || exit 1
-    
+
           # 1. Collect all files into an array
           mapfile -d '' ALL_FILES < <(find . -type f -name "*.$EXT" -print0)
-    
+
           # 2. Process in chunks (Dynamically calculated for 4 threads)
           TOTAL_FILES=${#ALL_FILES[@]}
           CHUNK_SIZE=$(( (TOTAL_FILES + 3) / $REPORT_MERGE_NUM_THREADS ))
@@ -587,23 +587,23 @@ jobs:
           for (( i=0; i<TOTAL_FILES; i+=CHUNK_SIZE )); do
               # Slice the array for the current chunk
               CHUNK=("${ALL_FILES[@]:i:CHUNK_SIZE}")
-              
+
               # Build the lcov arguments for this specific chunk
               CHUNK_ARGS=()
               for file in "${CHUNK[@]}"; do
                   CHUNK_ARGS+=(-a "$file")
               done
-              
+
               # Define a unique name for the intermediate report
               PART_FILE="code_coverage_part_$((i / CHUNK_SIZE)).$EXT"
               INTERMEDIATE_FILES+=("$PART_FILE")
-              
+
               # Run lcov in the background
               echo "Processing chunk $((i / CHUNK_SIZE + 1))..."
-              lcov "${CHUNK_ARGS[@]}" -o "$PART_FILE" & 
+              lcov "${CHUNK_ARGS[@]}" -o "$PART_FILE" &
               PIDS+=("$!") # Capture the PID of the process just put in the background
           done
-    
+
           # 3. Wait for all background processes to finish and catch errors
           echo "Waiting for ${#PIDS[@]} background jobs to complete..."
           FAILED=0
@@ -618,23 +618,24 @@ jobs:
               echo "ERROR: One or more lcov chunk operations failed. Aborting final merge."
               exit 1
           fi
-    
+
           # 4. Final Merge: Combine the intermediate files into the final report
           FINAL_ARGS=()
           for part in "${INTERMEDIATE_FILES[@]}"; do
               FINAL_ARGS+=(-a "$part")
           done
-    
+
           echo "Performing final merge of ${#INTERMEDIATE_FILES[@]} intermediate files..."
           lcov "${FINAL_ARGS[@]}" -o "code-coverage-report.$EXT"
-    
+
           cd ..
-          
-      # Upload the merged code coverage file to Coveralls
+
+      # Upload the merged code coverage file to Coveralls, retrying transient failures
       - name: Upload code coverage to Coveralls
-        uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
+        timeout-minutes: 15
+        continue-on-error: true
+        uses: ./.github/actions/coveralls-upload
         with:
           file: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
           compare-ref: ${{ github.base_ref }} # defaults to main if this isn't supplied
           build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
-          fail-on-error: true
