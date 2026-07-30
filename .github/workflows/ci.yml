@@ -497,7 +497,7 @@ jobs:
   create-code-coverage-report:
     if: >-
       always() &&
-      github.event.repository.visibility == 'public' &&
+      github.event.repository.visibility == 'public'
     name: "Create: Code Coverage Report"
     runs-on: *shared_config
     needs:
