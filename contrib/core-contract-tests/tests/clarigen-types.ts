@@ -10453,10 +10453,7 @@ export const contracts = {
               ok: {
                 tuple: [
                   { name: 'earned', type: 'uint128' },
-                  {
-                    name: 'withdrawal-request',
-                    type: { optional: 'uint128' },
-                  },
+                  { name: 'withdrawal-request', type: { optional: 'uint128' } },
                 ],
               },
               error: 'uint128',
@@ -10799,6 +10796,11 @@ export const contracts = {
       } as TypedAbiMap<number | bigint, string>,
     },
     variables: {
+      BIPS_DENOMINATOR: {
+        name: 'BIPS_DENOMINATOR',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
       ERR_INSUFFICIENT_FEES: {
         name: 'ERR_INSUFFICIENT_FEES',
         type: {
@@ -10946,6 +10948,7 @@ export const contracts = {
       } as TypedAbiVariable<bigint>,
     },
     constants: {
+      BIPS_DENOMINATOR: 10_000n,
       ERR_INSUFFICIENT_FEES: {
         isOk: false,
         value: 1_007n,
@@ -10992,7 +10995,7 @@ export const contracts = {
       },
       MAX_ADDRESS_VERSION: 6n,
       mAX_ADDRESS_VERSION_BUFF_20: 4n,
-      MAX_BIPS: 10_000n,
+      MAX_BIPS: 500n,
       earnedFees: 0n,
       feesBips: 0n,
       unclaimedStakerRewards: 0n,
@@ -11003,6 +11006,1035 @@ export const contracts = {
     epoch: 'Epoch40',
     clarity_version: 'Clarity6',
     contractName: 'signer-manager',
+  },
+  signerManagerV2: {
+    functions: {
+      authorizeAdmin: {
+        name: 'authorize-admin',
+        access: 'private',
+        args: [],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<[], Response<boolean, bigint>>,
+      authorizePox5: {
+        name: 'authorize-pox-5',
+        access: 'private',
+        args: [],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<[], Response<boolean, bigint>>,
+      creditCycleBucket: {
+        name: 'credit-cycle-bucket',
+        access: 'private',
+        args: [
+          {
+            name: 'key',
+            type: {
+              tuple: [
+                { name: 'bond-index', type: { optional: 'uint128' } },
+                { name: 'reward-cycle', type: 'uint128' },
+              ],
+            },
+          },
+          { name: 'amount', type: 'uint128' },
+        ],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<
+        [
+          key: TypedAbiArg<
+            {
+              bondIndex: number | bigint | null;
+              rewardCycle: number | bigint;
+            },
+            'key'
+          >,
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+        ],
+        boolean
+      >,
+      snapshotBondRewards: {
+        name: 'snapshot-bond-rewards',
+        access: 'private',
+        args: [
+          {
+            name: 'bond-info',
+            type: {
+              tuple: [
+                { name: 'bond-index', type: 'uint128' },
+                { name: 'earned', type: 'uint128' },
+                { name: 'rewards-per-token', type: 'uint128' },
+              ],
+            },
+          },
+          {
+            name: 'acc',
+            type: {
+              tuple: [
+                { name: 'bips', type: 'uint128' },
+                { name: 'reward-cycle', type: 'uint128' },
+              ],
+            },
+          },
+        ],
+        outputs: {
+          type: {
+            tuple: [
+              { name: 'bips', type: 'uint128' },
+              { name: 'reward-cycle', type: 'uint128' },
+            ],
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          bondInfo: TypedAbiArg<
+            {
+              bondIndex: number | bigint;
+              earned: number | bigint;
+              rewardsPerToken: number | bigint;
+            },
+            'bondInfo'
+          >,
+          acc: TypedAbiArg<
+            {
+              bips: number | bigint;
+              rewardCycle: number | bigint;
+            },
+            'acc'
+          >,
+        ],
+        {
+          bips: bigint;
+          rewardCycle: bigint;
+        }
+      >,
+      storePayoutConfig: {
+        name: 'store-payout-config',
+        access: 'private',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'calldata', type: { buffer: { length: 500 } } },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          calldata: TypedAbiArg<Uint8Array, 'calldata'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      claimRefund: {
+        name: 'claim-refund',
+        access: 'public',
+        args: [{ name: 'staker', type: 'principal' }],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [staker: TypedAbiArg<string, 'staker'>],
+        Response<bigint, bigint>
+      >,
+      claimRewards: {
+        name: 'claim-rewards',
+        access: 'public',
+        args: [
+          {
+            name: 'bond-periods',
+            type: { list: { type: 'uint128', length: 6 } },
+          },
+          { name: 'reward-cycle', type: 'uint128' },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  {
+                    name: 'bond-rewards',
+                    type: {
+                      list: {
+                        type: {
+                          tuple: [
+                            { name: 'bond-index', type: 'uint128' },
+                            { name: 'earned', type: 'uint128' },
+                            { name: 'rewards-per-token', type: 'uint128' },
+                          ],
+                        },
+                        length: 6,
+                      },
+                    },
+                  },
+                  { name: 'bond-totals', type: 'uint128' },
+                  {
+                    name: 'stx-rewards',
+                    type: {
+                      tuple: [
+                        { name: 'earned', type: 'uint128' },
+                        { name: 'rewards-per-token', type: 'uint128' },
+                      ],
+                    },
+                  },
+                  { name: 'total-rewards', type: 'uint128' },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          bondPeriods: TypedAbiArg<number | bigint[], 'bondPeriods'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+        ],
+        Response<
+          {
+            bondRewards: {
+              bondIndex: bigint;
+              earned: bigint;
+              rewardsPerToken: bigint;
+            }[];
+            bondTotals: bigint;
+            stxRewards: {
+              earned: bigint;
+              rewardsPerToken: bigint;
+            };
+            totalRewards: bigint;
+          },
+          bigint
+        >
+      >,
+      claimStakerRewards: {
+        name: 'claim-staker-rewards',
+        access: 'public',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'earned', type: 'uint128' },
+                  { name: 'withdrawal-request', type: { optional: 'uint128' } },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+        ],
+        Response<
+          {
+            earned: bigint;
+            withdrawalRequest: bigint | null;
+          },
+          bigint
+        >
+      >,
+      clearPayoutConfig: {
+        name: 'clear-payout-config',
+        access: 'public',
+        args: [],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<[], Response<boolean, bigint>>,
+      reclaimFailedWithdrawal: {
+        name: 'reclaim-failed-withdrawal',
+        access: 'public',
+        args: [{ name: 'request-id', type: 'uint128' }],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [requestId: TypedAbiArg<number | bigint, 'requestId'>],
+        Response<bigint, bigint>
+      >,
+      registerSelf: {
+        name: 'register-self',
+        access: 'public',
+        args: [
+          { name: 'signer-manager', type: 'trait_reference' },
+          { name: 'signer-key', type: { buffer: { length: 33 } } },
+          { name: 'auth-id', type: 'uint128' },
+          { name: 'signer-sig', type: { buffer: { length: 65 } } },
+        ],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'signer', type: 'principal' },
+                  { name: 'signer-key', type: { buffer: { length: 33 } } },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          signerManager: TypedAbiArg<string, 'signerManager'>,
+          signerKey: TypedAbiArg<Uint8Array, 'signerKey'>,
+          authId: TypedAbiArg<number | bigint, 'authId'>,
+          signerSig: TypedAbiArg<Uint8Array, 'signerSig'>,
+        ],
+        Response<
+          {
+            signer: string;
+            signerKey: Uint8Array;
+          },
+          bigint
+        >
+      >,
+      setPayoutConfig: {
+        name: 'set-payout-config',
+        access: 'public',
+        args: [
+          {
+            name: 'pox-addr',
+            type: {
+              tuple: [
+                { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                { name: 'version', type: { buffer: { length: 1 } } },
+              ],
+            },
+          },
+          { name: 'max-fee', type: 'uint128' },
+          { name: 'min-claim', type: 'uint128' },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          poxAddr: TypedAbiArg<
+            {
+              hashbytes: Uint8Array;
+              version: Uint8Array;
+            },
+            'poxAddr'
+          >,
+          maxFee: TypedAbiArg<number | bigint, 'maxFee'>,
+          minClaim: TypedAbiArg<number | bigint, 'minClaim'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      settleAcceptedWithdrawal: {
+        name: 'settle-accepted-withdrawal',
+        access: 'public',
+        args: [{ name: 'request-id', type: 'uint128' }],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [requestId: TypedAbiArg<number | bigint, 'requestId'>],
+        Response<bigint, bigint>
+      >,
+      sweepFeeRefunds: {
+        name: 'sweep-fee-refunds',
+        access: 'public',
+        args: [{ name: 'recipient', type: 'principal' }],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [recipient: TypedAbiArg<string, 'recipient'>],
+        Response<bigint, bigint>
+      >,
+      updateAdmin: {
+        name: 'update-admin',
+        access: 'public',
+        args: [
+          { name: 'admin', type: 'principal' },
+          { name: 'enabled', type: 'bool' },
+        ],
+        outputs: { type: { response: { ok: 'principal', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          admin: TypedAbiArg<string, 'admin'>,
+          enabled: TypedAbiArg<boolean, 'enabled'>,
+        ],
+        Response<string, bigint>
+      >,
+      updateFees: {
+        name: 'update-fees',
+        access: 'public',
+        args: [{ name: 'new-fees', type: 'uint128' }],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [newFees: TypedAbiArg<number | bigint, 'newFees'>],
+        Response<boolean, bigint>
+      >,
+      validateStake_x: {
+        name: 'validate-stake!',
+        access: 'public',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'first-index', type: 'uint128' },
+          { name: 'num-indexes', type: 'uint128' },
+          { name: 'amount-ustx', type: 'uint128' },
+          { name: 'amount-sats', type: 'uint128' },
+          { name: 'is-bond', type: 'bool' },
+          {
+            name: 'signer-calldata',
+            type: { optional: { buffer: { length: 500 } } },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          firstIndex: TypedAbiArg<number | bigint, 'firstIndex'>,
+          numIndexes: TypedAbiArg<number | bigint, 'numIndexes'>,
+          amountUstx: TypedAbiArg<number | bigint, 'amountUstx'>,
+          amountSats: TypedAbiArg<number | bigint, 'amountSats'>,
+          isBond: TypedAbiArg<boolean, 'isBond'>,
+          signerCalldata: TypedAbiArg<Uint8Array | null, 'signerCalldata'>,
+        ],
+        Response<boolean, bigint>
+      >,
+      withdrawFees: {
+        name: 'withdraw-fees',
+        access: 'public',
+        args: [
+          { name: 'amount', type: 'uint128' },
+          { name: 'recipient', type: 'principal' },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          amount: TypedAbiArg<number | bigint, 'amount'>,
+          recipient: TypedAbiArg<string, 'recipient'>,
+        ],
+        Response<bigint, bigint>
+      >,
+      checkPayoutConfig: {
+        name: 'check-payout-config',
+        access: 'read_only',
+        args: [
+          {
+            name: 'config',
+            type: {
+              tuple: [
+                { name: 'max-fee', type: 'uint128' },
+                { name: 'min-claim', type: 'uint128' },
+                {
+                  name: 'pox-addr',
+                  type: {
+                    tuple: [
+                      { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                      { name: 'version', type: { buffer: { length: 1 } } },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        ],
+        outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          config: TypedAbiArg<
+            {
+              maxFee: number | bigint;
+              minClaim: number | bigint;
+              poxAddr: {
+                hashbytes: Uint8Array;
+                version: Uint8Array;
+              };
+            },
+            'config'
+          >,
+        ],
+        Response<boolean, bigint>
+      >,
+      currentCycle: {
+        name: 'current-cycle',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getActiveFeeBips: {
+        name: 'get-active-fee-bips',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getAdminCount: {
+        name: 'get-admin-count',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getCreditedRefunds: {
+        name: 'get-credited-refunds',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getEarnedFees: {
+        name: 'get-earned-fees',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getEarnedStakerRewards: {
+        name: 'get-earned-staker-rewards',
+        access: 'read_only',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+        ],
+        outputs: {
+          type: {
+            tuple: [
+              { name: 'earned', type: 'uint128' },
+              { name: 'fees', type: 'uint128' },
+            ],
+          },
+        },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+        ],
+        {
+          earned: bigint;
+          fees: bigint;
+        }
+      >,
+      getFeeBipsForCycle: {
+        name: 'get-fee-bips-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+        ],
+        bigint
+      >,
+      getPayoutConfig: {
+        name: 'get-payout-config',
+        access: 'read_only',
+        args: [{ name: 'staker', type: 'principal' }],
+        outputs: {
+          type: {
+            optional: {
+              tuple: [
+                { name: 'max-fee', type: 'uint128' },
+                { name: 'min-claim', type: 'uint128' },
+                {
+                  name: 'pox-addr',
+                  type: {
+                    tuple: [
+                      { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                      { name: 'version', type: { buffer: { length: 1 } } },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [staker: TypedAbiArg<string, 'staker'>],
+        {
+          maxFee: bigint;
+          minClaim: bigint;
+          poxAddr: {
+            hashbytes: Uint8Array;
+            version: Uint8Array;
+          };
+        } | null
+      >,
+      getPendingFees: {
+        name: 'get-pending-fees',
+        access: 'read_only',
+        args: [],
+        outputs: {
+          type: {
+            tuple: [
+              { name: 'activation-cycle', type: 'uint128' },
+              { name: 'active-bips', type: 'uint128' },
+              { name: 'pending-bips', type: 'uint128' },
+            ],
+          },
+        },
+      } as TypedAbiFunction<
+        [],
+        {
+          activationCycle: bigint;
+          activeBips: bigint;
+          pendingBips: bigint;
+        }
+      >,
+      getStakerRefund: {
+        name: 'get-staker-refund',
+        access: 'read_only',
+        args: [{ name: 'staker', type: 'principal' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[staker: TypedAbiArg<string, 'staker'>], bigint>,
+      getUnclaimedRewardsForCycle: {
+        name: 'get-unclaimed-rewards-for-cycle',
+        access: 'read_only',
+        args: [
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+        ],
+        bigint
+      >,
+      getUnclaimedStakerRewards: {
+        name: 'get-unclaimed-staker-rewards',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getWithdrawalLiability: {
+        name: 'get-withdrawal-liability',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+      getWithdrawalRequestStaker: {
+        name: 'get-withdrawal-request-staker',
+        access: 'read_only',
+        args: [{ name: 'withdrawal-request', type: 'uint128' }],
+        outputs: { type: { optional: 'principal' } },
+      } as TypedAbiFunction<
+        [withdrawalRequest: TypedAbiArg<number | bigint, 'withdrawalRequest'>],
+        string | null
+      >,
+      isAdmin: {
+        name: 'is-admin',
+        access: 'read_only',
+        args: [{ name: 'caller', type: 'principal' }],
+        outputs: { type: 'bool' },
+      } as TypedAbiFunction<[caller: TypedAbiArg<string, 'caller'>], boolean>,
+      minUint: {
+        name: 'min-uint',
+        access: 'read_only',
+        args: [
+          { name: 'a', type: 'uint128' },
+          { name: 'b', type: 'uint128' },
+        ],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [
+          a: TypedAbiArg<number | bigint, 'a'>,
+          b: TypedAbiArg<number | bigint, 'b'>,
+        ],
+        bigint
+      >,
+      unattributedBalance: {
+        name: 'unattributed-balance',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
+    },
+    maps: {
+      admins: {
+        name: 'admins',
+        key: 'principal',
+        value: 'bool',
+      } as TypedAbiMap<string, boolean>,
+      feeBipsForCycle: {
+        name: 'fee-bips-for-cycle',
+        key: {
+          tuple: [
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
+          ],
+        },
+        value: 'uint128',
+      } as TypedAbiMap<
+        {
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
+        },
+        bigint
+      >,
+      payoutConfigs: {
+        name: 'payout-configs',
+        key: 'principal',
+        value: {
+          tuple: [
+            { name: 'max-fee', type: 'uint128' },
+            { name: 'min-claim', type: 'uint128' },
+            {
+              name: 'pox-addr',
+              type: {
+                tuple: [
+                  { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                  { name: 'version', type: { buffer: { length: 1 } } },
+                ],
+              },
+            },
+          ],
+        },
+      } as TypedAbiMap<
+        string,
+        {
+          maxFee: bigint;
+          minClaim: bigint;
+          poxAddr: {
+            hashbytes: Uint8Array;
+            version: Uint8Array;
+          };
+        }
+      >,
+      stakerRefunds: {
+        name: 'staker-refunds',
+        key: 'principal',
+        value: 'uint128',
+      } as TypedAbiMap<string, bigint>,
+      unclaimedRewardsForCycle: {
+        name: 'unclaimed-rewards-for-cycle',
+        key: {
+          tuple: [
+            { name: 'bond-index', type: { optional: 'uint128' } },
+            { name: 'reward-cycle', type: 'uint128' },
+          ],
+        },
+        value: 'uint128',
+      } as TypedAbiMap<
+        {
+          bondIndex: number | bigint | null;
+          rewardCycle: number | bigint;
+        },
+        bigint
+      >,
+      withdrawalRequests: {
+        name: 'withdrawal-requests',
+        key: 'uint128',
+        value: 'principal',
+      } as TypedAbiMap<number | bigint, string>,
+    },
+    variables: {
+      BIPS_DENOMINATOR: {
+        name: 'BIPS_DENOMINATOR',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      DUST_LIMIT: {
+        name: 'DUST_LIMIT',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      ERR_BELOW_DUST_LIMIT: {
+        name: 'ERR_BELOW_DUST_LIMIT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_BELOW_MIN_CLAIM: {
+        name: 'ERR_BELOW_MIN_CLAIM',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INSUFFICIENT_FEES: {
+        name: 'ERR_INSUFFICIENT_FEES',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_CALLDATA: {
+        name: 'ERR_INVALID_CALLDATA',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_FEES_BIPS: {
+        name: 'ERR_INVALID_FEES_BIPS',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_MIN_CLAIM: {
+        name: 'ERR_INVALID_MIN_CLAIM',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_INVALID_POX_ADDR: {
+        name: 'ERR_INVALID_POX_ADDR',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_LAST_ADMIN: {
+        name: 'ERR_LAST_ADMIN',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NOT_SELF: {
+        name: 'ERR_NOT_SELF',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NO_CLAIMABLE_REWARDS: {
+        name: 'ERR_NO_CLAIMABLE_REWARDS',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NO_REFUNDS: {
+        name: 'ERR_NO_REFUNDS',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NO_REFUND_CREDIT: {
+        name: 'ERR_NO_REFUND_CREDIT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_UNAUTHORIZED_ADMIN: {
+        name: 'ERR_UNAUTHORIZED_ADMIN',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_UNAUTHORIZED_CALLER: {
+        name: 'ERR_UNAUTHORIZED_CALLER',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_UNKNOWN_WITHDRAWAL_REQUEST: {
+        name: 'ERR_UNKNOWN_WITHDRAWAL_REQUEST',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_WITHDRAWAL_NOT_ACCEPTED: {
+        name: 'ERR_WITHDRAWAL_NOT_ACCEPTED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_WITHDRAWAL_NOT_REJECTED: {
+        name: 'ERR_WITHDRAWAL_NOT_REJECTED',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
+      FEE_ACTIVATION_DELAY_CYCLES: {
+        name: 'FEE_ACTIVATION_DELAY_CYCLES',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      MAX_FEE_BIPS: {
+        name: 'MAX_FEE_BIPS',
+        type: 'uint128',
+        access: 'constant',
+      } as TypedAbiVariable<bigint>,
+      adminCount: {
+        name: 'admin-count',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      creditedRefunds: {
+        name: 'credited-refunds',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      earnedFees: {
+        name: 'earned-fees',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      feesBips: {
+        name: 'fees-bips',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      pendingFeesBips: {
+        name: 'pending-fees-bips',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      pendingFeesCycle: {
+        name: 'pending-fees-cycle',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      totalUnclaimedRewards: {
+        name: 'total-unclaimed-rewards',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+      withdrawalLiability: {
+        name: 'withdrawal-liability',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
+    },
+    constants: {
+      BIPS_DENOMINATOR: 10_000n,
+      DUST_LIMIT: 546n,
+      ERR_BELOW_DUST_LIMIT: {
+        isOk: false,
+        value: 1_012n,
+      },
+      ERR_BELOW_MIN_CLAIM: {
+        isOk: false,
+        value: 1_013n,
+      },
+      ERR_INSUFFICIENT_FEES: {
+        isOk: false,
+        value: 1_007n,
+      },
+      ERR_INVALID_CALLDATA: {
+        isOk: false,
+        value: 1_003n,
+      },
+      ERR_INVALID_FEES_BIPS: {
+        isOk: false,
+        value: 1_005n,
+      },
+      ERR_INVALID_MIN_CLAIM: {
+        isOk: false,
+        value: 1_014n,
+      },
+      ERR_INVALID_POX_ADDR: {
+        isOk: false,
+        value: 1_004n,
+      },
+      ERR_LAST_ADMIN: {
+        isOk: false,
+        value: 1_015n,
+      },
+      ERR_NOT_SELF: {
+        isOk: false,
+        value: 1_016n,
+      },
+      ERR_NO_CLAIMABLE_REWARDS: {
+        isOk: false,
+        value: 1_001n,
+      },
+      ERR_NO_REFUNDS: {
+        isOk: false,
+        value: 1_010n,
+      },
+      ERR_NO_REFUND_CREDIT: {
+        isOk: false,
+        value: 1_019n,
+      },
+      ERR_UNAUTHORIZED_ADMIN: {
+        isOk: false,
+        value: 1_002n,
+      },
+      ERR_UNAUTHORIZED_CALLER: {
+        isOk: false,
+        value: 1_006n,
+      },
+      ERR_UNKNOWN_WITHDRAWAL_REQUEST: {
+        isOk: false,
+        value: 1_008n,
+      },
+      ERR_WITHDRAWAL_NOT_ACCEPTED: {
+        isOk: false,
+        value: 1_011n,
+      },
+      ERR_WITHDRAWAL_NOT_REJECTED: {
+        isOk: false,
+        value: 1_009n,
+      },
+      FEE_ACTIVATION_DELAY_CYCLES: 2n,
+      MAX_FEE_BIPS: 500n,
+      adminCount: 1n,
+      creditedRefunds: 0n,
+      earnedFees: 0n,
+      feesBips: 0n,
+      pendingFeesBips: 0n,
+      pendingFeesCycle: 0n,
+      totalUnclaimedRewards: 0n,
+      withdrawalLiability: 0n,
+    },
+    non_fungible_tokens: [],
+    fungible_tokens: [],
+    epoch: 'Epoch40',
+    clarity_version: 'Clarity6',
+    contractName: 'signer-manager-v2',
   },
   signers: {
     functions: {
@@ -12254,6 +13286,8 @@ export const identifiers = {
   sbtcToken: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token',
   sbtcWithdrawal: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-withdrawal',
   signerManager: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signer-manager',
+  signerManagerV2:
+    'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signer-manager-v2',
   signers: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signers',
   signersVoting: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signers-voting',
   sip031: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sip-031',
@@ -12331,6 +13365,12 @@ export const deployments = {
   signerManager: {
     devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signer-manager',
     simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signer-manager',
+    testnet: null,
+    mainnet: null,
+  },
+  signerManagerV2: {
+    devnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signer-manager-v2',
+    simnet: 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.signer-manager-v2',
     testnet: null,
     mainnet: null,
   },

@@ -43,6 +43,8 @@ export const testSigner = contracts.testPox5Signer;
 export const testSignerErrors = extractErrors(testSigner);
 export const signerManager = contracts.signerManager;
 export const signerManagerErrors = extractErrors(signerManager);
+export const signerManagerV2 = contracts.signerManagerV2;
+export const signerManagerV2Errors = extractErrors(signerManagerV2);
 export const sbtc = contracts.sbtcToken;
 
 export const REWARD_CYCLE_LENGTH = 100n;
@@ -459,6 +461,25 @@ export function registerSignerManager() {
     signerManager.registerSelf({
       signerKey: secp256k1.getPublicKey(signerSk, true),
       signerManager: signerManager.identifier,
+      authId: 1n,
+      signerSig: signature,
+    }),
+    deployer,
+  );
+}
+
+/** `registerSignerManager`, but for the v2 reference contract. */
+export function registerSignerManagerV2() {
+  const signerSk = secp256k1.utils.randomSecretKey();
+  const signature = signSignerKeyGrant({
+    signerManager: signerManagerV2.identifier,
+    authId: 1n,
+    signerSk,
+  });
+  txOk(
+    signerManagerV2.registerSelf({
+      signerKey: secp256k1.getPublicKey(signerSk, true),
+      signerManager: signerManagerV2.identifier,
       authId: 1n,
       signerSig: signature,
     }),
