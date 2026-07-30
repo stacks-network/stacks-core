@@ -13,9 +13,11 @@ inputs:
   compare-ref:
     description: When provided, the specific branch name to compare coverage with
     required: false
+    default: ''
   git-branch:
     description: When provided, attributes the coverage to a specific branch
     required: false
+    default: ''
   git-commit:
     description: When provided, attributes the coverage to a specific commit
     required: false
