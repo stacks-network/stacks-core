@@ -10158,6 +10158,11 @@ mod error_mapping {
             Err(e) => e,
         };
 
+        debug_assert!(
+            !e.root_cause().is::<VmExecutionError>(),
+            "VmExecutionError reachable via root_cause() but not downcast(): {e:?}"
+        );
+
         // Check if the error is caused by
         // an unreachable Wasm trap.
         //
