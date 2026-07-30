@@ -634,7 +634,6 @@ jobs:
         with:
           files: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
           build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
-          # When running in the merge queue, set the commit to the merge commit SHA and the branch to the base branch.
-          # This creates correct base coverage for future code coverage comparisons / diffs working off of this base commit
-          git-branch: ${{ github.event_name == 'merge_group' && github.event.pull_request.base.ref || null }} # attribute to base branch in merge queue
-          git-commit: ${{ github.event_name == 'merge_group' && github.event.pull_request.merge_commit_sha || null }} # use the merge commit in merge queue
+          # When running in the merge queue, override the branch to be the base branch of the merge.
+          # This creates correct base coverage for future code coverage comparisons / diffs working off of this base branch's latest commit.
+          git-branch: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_ref || null }} # attribute coverage to base branch in merge queue
