@@ -342,3 +342,36 @@ fn test_response_too_many_slot_writes() {
     assert_eq!(metadata.slot_id, 1);
     assert_eq!(metadata.slot_version, 0);
 }
+
+/// A chunk whose signature cannot be recovered at all (malformed signature) is a bad *client*
+/// request, not a server fault. It must be reported as a `BadSigner` ack
+#[test]
+fn test_response_unverifiable_signature() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let rpc_test = TestRPC::setup(function_name!());
+
+    // Slot 1 exists and is owned by `privk1`, and this small chunk clears the size and slot
+    // checks. The signature's recovery-id byte is invalid, so signature *recovery* fails
+    // (a `NetError::VerifyingError`).
+    let data = "unverifiable signature".as_bytes();
+    let unverifiable_sig = MessageSignature([0xff; 65]);
+
+    let request = StacksHttpRequest::new_post_stackerdb_chunk(
+        addr.into(),
+        TEST_CONTRACT_ID.clone(),
+        1,
+        1,
+        unverifiable_sig,
+        data.to_vec(),
+    );
+
+    let mut responses = rpc_test.run(vec![request]);
+    let response = responses.remove(0);
+
+    // A `NetError::VerifyingError`is mapped to `BadSigner`
+    let chunk_ack = response.decode_stackerdb_chunk_ack().unwrap();
+    assert!(!chunk_ack.accepted);
+    assert_eq!(chunk_ack.code, Some(StackerDBErrorCodes::BadSigner.code()));
+    assert!(chunk_ack.reason.is_some());
+}

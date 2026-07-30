@@ -213,7 +213,9 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                     let err_code = match &e {
                         NetError::StaleChunk { .. } => StackerDBErrorCodes::DataAlreadyExists,
                         NetError::NoSuchSlot(..) => StackerDBErrorCodes::NoSuchSlot,
-                        NetError::BadSlotSigner(..) => StackerDBErrorCodes::BadSigner,
+                        NetError::BadSlotSigner(..) | NetError::VerifyingError(..) => {
+                            StackerDBErrorCodes::BadSigner
+                        }
                         NetError::StackerDBChunkTooBig(..) => StackerDBErrorCodes::ChunkTooBig,
                         NetError::TooManySlotWrites { .. } => {
                             StackerDBErrorCodes::TooManySlotWrites
