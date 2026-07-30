@@ -81,13 +81,6 @@ jobs:
         with:
           components: llvm-tools-preview
      
-      # Install nextest
-      - name: Install Dependencies
-        id: install_dependencies
-        uses: ./.github/actions/install-tool
-        with:
-          tools: nextest
-        
       # Restore bitcoin cache data
       - name: Restore Bitcoin Binary Cache
         uses: ./.github/actions/cache/bitcoin
