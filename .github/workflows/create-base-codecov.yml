@@ -1,15 +1,14 @@
 ############################################################################
-### On PR closed as merged to `main`, uploads a code coverage artifact 
-### to create the current `main` branch baseline code coverage report
+### On PR closed as merged, uploads a code coverage artifact attributed 
+### to the PR's base branch to create the baseline code coverage report
 ############################################################################
 
-name: "Update `main` Code Coverage"
-run-name: "Update `main` Code Coverage: [${{ github.ref_name }}]"
+name: "Create: Base Branch Code Coverage"
+run-name: "Create: Base Branch Code Coverage: [${{ github.ref_name }}]"
 
 on:
   pull_request:
     types: [ closed ]
-    branches: [ main ]
 
 # Set default permissions
 permissions:
@@ -23,15 +22,15 @@ defaults:
 
 jobs:
   ############################################################################
-  ### Create Code Coverage Report for `main`
+  ### Upload Code Coverage Report for base branch
   ############################################################################
-  create-main-baseline-code-coverage-report:
+  upload-base-branch-code-coverage-report:
     # Only run on our core repo, and if the PR was successfully merged
     # (will not run for PRs that were closed without merging)
     if: >-
       github.event.pull_request.merged == true &&
       github.repository == 'stacks-network/stacks-core'
-    name: "Create: `main` Baseline Code Coverage Report"
+    name: "Upload: Base Branch Code Coverage Report"
     runs-on: ubuntu-latest
     env:
       MERGED_COVERAGE_REPORT_ARTIFACT_NAME: "merged-code-coverage-report"
@@ -71,12 +70,12 @@ jobs:
             --name "$MERGED_COVERAGE_REPORT_ARTIFACT_NAME" \
             --dir "$REPORT_FILES_DIR"
 
-      # Upload the merged code coverage file to Coveralls for `main` branch, retrying transient failures
-      - name: Upload code coverage to Coveralls for `main` branch
+      # Upload the merged code coverage file to Coveralls for base branch, retrying transient failures
+      - name: Upload code coverage to Coveralls for base branch
         timeout-minutes: 15
         uses: ./.github/actions/coveralls-upload
         with:
           files: ${{ env.REPORT_FILES_DIR }}/*.${{ env.REPORT_FILES_EXT }}
-          git-branch: main # attribute to main branch
+          git-branch: ${{ github.event.pull_request.base.ref }} # attribute to base branch
           git-commit: ${{ github.event.pull_request.merge_commit_sha }} # use the merge commit
           build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
