@@ -18,7 +18,6 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{SlotMetadata, StackerDBChunkData};
-use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
@@ -27,9 +26,8 @@ use crate::net::api::poststackerdbchunk::{
     RPCPostStackerDBChunkRequestHandler, StackerDBErrorCodes,
 };
 use crate::net::connection::ConnectionOptions;
-use crate::net::http::Error as HttpError;
 use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
-use crate::net::{Error as NetError, ProtocolFamily};
+use crate::net::ProtocolFamily;
 
 #[test]
 fn test_try_parse_request() {
