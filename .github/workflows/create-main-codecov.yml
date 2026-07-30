@@ -70,13 +70,13 @@ jobs:
             --repo "${{ github.repository }}" \
             --name "$MERGED_COVERAGE_REPORT_ARTIFACT_NAME" \
             --dir "$REPORT_FILES_DIR"
-          
-      # Upload the merged code coverage file to Coveralls for `main` branch
+
+      # Upload the merged code coverage file to Coveralls for `main` branch, retrying transient failures
       - name: Upload code coverage to Coveralls for `main` branch
-        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+        timeout-minutes: 15
+        uses: ./.github/actions/coveralls-upload
         with:
           files: ${{ env.REPORT_FILES_DIR }}/*.${{ env.REPORT_FILES_EXT }}
           git-branch: main # attribute to main branch
           git-commit: ${{ github.event.pull_request.merge_commit_sha }} # use the merge commit
           build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
-          fail-on-error: true

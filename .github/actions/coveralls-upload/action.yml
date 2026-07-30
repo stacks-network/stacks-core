@@ -4,12 +4,21 @@ description: |
   Uploads a coverage report to Coveralls, retrying transient upload failures.
 
 inputs:
-  file:
-    description: Coverage report file to upload
+  files:
+    description: Space-separated list of coverage report files to upload (supports globs)
     required: true
   build-number:
     description: Overrides the build number Coveralls autodetects from CI
     required: true
+  compare-ref:
+    description: When provided, the specific branch name to compare coverage with
+    required: false
+  git-branch:
+    description: When provided, attributes the coverage to a specific branch
+    required: false
+  git-commit:
+    description: When provided, attributes the coverage to a specific commit
+    required: false
   coverage-reporter-version:
     description: Coveralls reporter binary version (the action SHA is pinned but downloads the reporter at 'latest' unless pinned)
     required: false
@@ -26,8 +35,11 @@ runs:
       continue-on-error: true
       uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
       with:
-        file: ${{ inputs.file }}
+        files: ${{ inputs.files }}
         build-number: ${{ inputs.build-number }}
+        compare-ref: ${{ inputs.compare-ref }}
+        git-branch: ${{ inputs.git-branch }}
+        git-commit: ${{ inputs.git-commit }}
         fail-on-error: true
         coverage-reporter-version: ${{ inputs.coverage-reporter-version }}
 
@@ -42,8 +54,11 @@ runs:
       continue-on-error: true
       uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
       with:
-        file: ${{ inputs.file }}
+        files: ${{ inputs.files }}
         build-number: ${{ inputs.build-number }}
+        compare-ref: ${{ inputs.compare-ref }}
+        git-branch: ${{ inputs.git-branch }}
+        git-commit: ${{ inputs.git-commit }}
         fail-on-error: true
         coverage-reporter-version: ${{ inputs.coverage-reporter-version }}
 
@@ -58,8 +73,11 @@ runs:
       continue-on-error: true
       uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
       with:
-        file: ${{ inputs.file }}
+        files: ${{ inputs.files }}
         build-number: ${{ inputs.build-number }}
+        compare-ref: ${{ inputs.compare-ref }}
+        git-branch: ${{ inputs.git-branch }}
+        git-commit: ${{ inputs.git-commit }}
         fail-on-error: true
         coverage-reporter-version: ${{ inputs.coverage-reporter-version }}
 
