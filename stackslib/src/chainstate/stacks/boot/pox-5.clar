@@ -74,11 +74,6 @@
 (define-constant BOND_LENGTH_CYCLES u12)
 ;; The gap between the start of different bond periods
 (define-constant BOND_GAP_CYCLES u2)
-;; Bond length measured in bond-period indices
-;; (`BOND_LENGTH_CYCLES / BOND_GAP_CYCLES`). Also the maximum number of
-;; concurrently active bond periods (and the `(list 6 ...)` bound used for
-;; bond-period arguments).
-(define-constant BOND_LENGTH_PERIODS u6)
 ;; The maximum amount of time that a user can stake for
 (define-constant MAX_NUM_CYCLES u96)
 
@@ -865,7 +860,7 @@
             (bond-index (get bond-index current-membership))
             (current-cycle (current-pox-reward-cycle))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
-            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index BOND_LENGTH_PERIODS)))
+            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
             (next-cycle (+ current-cycle u1))
             ;; If the bond hasn't started yet, then the first cycle where
             ;; this new signer is active is the start cycle. Otherwise, it's the next reward
@@ -1164,7 +1159,7 @@
                 staker: tx-sender,
                 signer: signer,
                 old-signer: old-signer,
-                prev-unlock-cycle: prev-unlock-cycle,
+                prev-unlock-height: prev-unlock-cycle,
                 unlock-cycle: unlock-cycle,
                 num-cycles: num-cycles,
                 amount-ustx: new-lock-amount,
@@ -1209,7 +1204,7 @@
             (signer (get signer membership))
             (current-cycle (current-pox-reward-cycle))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
-            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index BOND_LENGTH_PERIODS)))
+            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
             (current-total-staked (get-total-sbtc-staked-for-bond bond-index))
             (first-changed-reward-cycle (clamp current-cycle bond-start-cycle bond-end-cycle))
             (amount-sats (get amount-sats membership))
@@ -1276,7 +1271,7 @@
             (signer (get signer membership))
             (current-cycle (current-pox-reward-cycle))
             (bond-start-cycle (bond-period-to-reward-cycle bond-index))
-            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index BOND_LENGTH_PERIODS)))
+            (bond-end-cycle (bond-period-to-reward-cycle (+ bond-index u6)))
             (first-changed-reward-cycle (clamp current-cycle bond-start-cycle bond-end-cycle))
             (num-cycles (- bond-end-cycle first-changed-reward-cycle))
             (current-amount-sats (get amount-sats membership))
@@ -2284,7 +2279,7 @@
             ))
             (calculation-height (get calculation-height accumulator))
             (bond-start-height (bond-period-to-burn-height bond-index))
-            (bond-end-height (bond-period-to-burn-height (+ bond-index BOND_LENGTH_PERIODS)))
+            (bond-end-height (bond-period-to-burn-height (+ bond-index u6)))
         )
         ;; Verify that we're paying out bonds in the right order
         (match (get last-bond-stx-value-ratio accumulator)
@@ -2864,9 +2859,9 @@
     )
 )
 
-;; Construct the message hash for validating a signer key grant.
-;; Unlike [get-signer-key-message-hash], this hash covers only
-;; `signer-manager` and `auth-id`. The topic is always `"grant-authorization"`.
+;; Construct the message hash for validating a signer key grant. Unlike [get-signer-key-message-hash],
+;; this message hash does not include `max-amount`, `period`, or `reward-cycle`. The topic is always `"grant-authorization"`.
+;; The `pox-addr` field is optional. When `none`, it means the signer key can be used for any PoX address.
 (define-read-only (get-signer-grant-message-hash
         (signer-manager principal)
         (auth-id uint)
@@ -2956,9 +2951,8 @@
 
 ;; Reject calls that would modify the next reward cycle's signer / staker
 ;; set during the current cycle's prepare phase, when that set is frozen.
-;; Used by `stake`, `stake-update`, `register-for-bond`,
-;; `update-bond-registration`, `announce-l1-early-exit`, and `unstake-sbtc`
-;; as `(try! (verify-not-prepare-phase))`.
+;; Used by `stake`, `stake-update`, `register-for-bond`, and
+;; `update-bond-registration` as `(try! (verify-not-prepare-phase))`.
 (define-private (verify-not-prepare-phase)
     (ok (asserts! (not (is-in-prepare-phase (current-pox-reward-cycle)))
         ERR_STAKE_IN_PREPARE_PHASE
@@ -3036,7 +3030,7 @@
     )
     (let (
             (bond-start-height (bond-period-to-burn-height bond-index))
-            (bond-end-height (bond-period-to-burn-height (+ bond-index BOND_LENGTH_PERIODS)))
+            (bond-end-height (bond-period-to-burn-height (+ bond-index u6)))
         )
         (and
             (is-some (map-get? protocol-bonds bond-index))
@@ -3346,7 +3340,7 @@
 ;; Returns the expected L1 unlock height for a given bond index.
 ;; This is equal to 1/2 of a reward cycle before the end of the bond period.
 (define-read-only (get-bond-l1-unlock-height (bond-index uint))
-    (- (bond-period-to-burn-height (+ bond-index BOND_LENGTH_PERIODS))
+    (- (bond-period-to-burn-height (+ bond-index u6))
         (/ (var-get pox-reward-cycle-length) u2)
     )
 )
