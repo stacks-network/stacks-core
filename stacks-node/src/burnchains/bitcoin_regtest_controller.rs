@@ -753,7 +753,7 @@ impl BitcoinRegtestController {
 
         let on_disk_wallets = self.get_rpc_client().list_wallet_dir()?;
         if on_disk_wallets.iter().any(|name| name == wallet_name) {
-            self.get_rpc_client().load_wallet(wallet_name, None)?;
+            self.get_rpc_client().load_wallet(wallet_name)?;
         } else {
             return Err(BitcoinRegtestControllerError::WalletNotFound(
                 wallet_name.to_string(),
@@ -797,14 +797,8 @@ impl BitcoinRegtestController {
     fn ensure_test_wallet_loaded(&self) -> BitcoinRegtestControllerResult<()> {
         match self.ensure_wallet_loaded() {
             Err(BitcoinRegtestControllerError::WalletNotFound(_)) => {
-                // unlike production, tests own their bitcoind, so it is fine to
-                // persist the wallet in its startup list: watch-only wallet,
-                // load_on_startup
-                self.get_rpc_client().create_wallet(
-                    self.get_wallet_name(),
-                    Some(true),
-                    Some(true),
-                )?;
+                self.get_rpc_client()
+                    .create_wallet(self.get_wallet_name(), Some(true))?;
                 Ok(())
             }
             result => result,
@@ -3325,7 +3319,7 @@ mod tests {
         // must continue to use its configured wallet.
         btc_controller
             .get_rpc_client()
-            .create_wallet("other_wallet", Some(true), None)
+            .create_wallet("other_wallet", Some(true))
             .expect("other_wallet should be created!");
 
         btc_controller
@@ -3353,7 +3347,7 @@ mod tests {
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
             .get_rpc_client()
-            .create_wallet("keyed", Some(false), None)
+            .create_wallet("keyed", Some(false))
             .expect("keyed wallet should be created!");
 
         btc_controller

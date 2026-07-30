@@ -452,14 +452,12 @@ impl BitcoinRpcClient {
     /// * `wallet_name` - Name of the wallet to create.
     /// * `disable_private_keys` - If `Some(true)`, the wallet will not be able to hold private keys.
     ///   If `None`, this defaults to `false`, allowing private key import/use.
-    /// * `load_on_startup` - If set, adds/removes the wallet from the bitcoind
-    ///   startup list so it survives node restarts. `None` leaves it unchanged.
     ///
     /// # Returns
     /// Returns `Ok(())` if the wallet is created successfully.
     ///
     /// # Availability
-    /// - **Since**: Bitcoin Core **v0.17.0** (`load_on_startup` since **v0.21.0**).
+    /// - **Since**: Bitcoin Core **v0.17.0**.
     ///
     /// # Notes
     /// This method supports a subset of available RPC arguments to match current usage.
@@ -468,22 +466,10 @@ impl BitcoinRpcClient {
         &self,
         wallet_name: &str,
         disable_private_keys: Option<bool>,
-        load_on_startup: Option<bool>,
     ) -> BitcoinRpcClientResult<()> {
         let disable_private_keys = disable_private_keys.unwrap_or(false);
 
-        let mut params = vec![wallet_name.into(), disable_private_keys.into()];
-        if let Some(load_on_startup) = load_on_startup {
-            // positional JSON-RPC: the intermediate params (blank, passphrase,
-            // avoid_reuse, descriptors) must be filled with their defaults
-            params.extend([
-                false.into(),
-                "".into(),
-                false.into(),
-                true.into(),
-                load_on_startup.into(),
-            ]);
-        }
+        let params = vec![wallet_name.into(), disable_private_keys.into()];
 
         self.endpoint
             .send::<Value>(&self.client_id, None, "createwallet", params)?;
@@ -494,23 +480,14 @@ impl BitcoinRpcClient {
     ///
     /// # Arguments
     /// * `wallet_name` - Name of the wallet to load.
-    /// * `load_on_startup` - If set, adds/removes the wallet from the bitcoind
-    ///   startup list so it survives node restarts. `None` leaves it unchanged.
     ///
     /// # Returns
     /// Returns `Ok(())` if the wallet is loaded successfully.
     ///
     /// # Availability
-    /// - **Since**: Bitcoin Core **v0.17.0** (`load_on_startup` since **v0.21.0**).
-    pub fn load_wallet(
-        &self,
-        wallet_name: &str,
-        load_on_startup: Option<bool>,
-    ) -> BitcoinRpcClientResult<()> {
-        let mut params = vec![wallet_name.into()];
-        if let Some(load_on_startup) = load_on_startup {
-            params.push(load_on_startup.into());
-        }
+    /// - **Since**: Bitcoin Core **v0.17.0**.
+    pub fn load_wallet(&self, wallet_name: &str) -> BitcoinRpcClientResult<()> {
+        let params = vec![wallet_name.into()];
         self.endpoint
             .send::<Value>(&self.client_id, None, "loadwallet", params)?;
         Ok(())

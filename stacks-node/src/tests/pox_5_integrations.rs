@@ -1510,7 +1510,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient::from_stx_config(&naka_conf)
             .expect("failed to construct bondholder RPC client");
     bondholder_rpc
-        .create_wallet(BONDHOLDER_WALLET, Some(false), None)
+        .create_wallet(BONDHOLDER_WALLET, Some(false))
         .expect("create bondholder wallet");
     let bondholder_addr = bondholder_rpc
         .get_new_address(
@@ -2503,7 +2503,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
         crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient::from_stx_config(&naka_conf)
             .expect("failed to construct bondholder RPC client");
     bondholder_rpc
-        .create_wallet(BONDHOLDER_WALLET, Some(false), None)
+        .create_wallet(BONDHOLDER_WALLET, Some(false))
         .expect("create bondholder wallet");
     let bondholder_addr = bondholder_rpc
         .get_new_address(

@@ -261,7 +261,7 @@ fn test_create_wallet_ok() {
 
     let client = utils::setup_client(&server);
     client
-        .create_wallet("testwallet", Some(true), None)
+        .create_wallet("testwallet", Some(true))
         .expect("create wallet should be ok!");
 }
 
@@ -271,7 +271,7 @@ fn test_load_wallet_ok() {
         "jsonrpc": "2.0",
         "id": "stacks",
         "method": "loadwallet",
-        "params": ["testwallet", true]
+        "params": ["testwallet"]
     });
 
     let mock_response = json!({
@@ -294,43 +294,8 @@ fn test_load_wallet_ok() {
 
     let client = utils::setup_client(&server);
     client
-        .load_wallet("testwallet", Some(true))
+        .load_wallet("testwallet")
         .expect("load wallet should be ok!");
-}
-
-#[test]
-fn test_create_wallet_with_load_on_startup_ok() {
-    // the intermediate createwallet parameters are filled with their bitcoind
-    // defaults to reach the positional load_on_startup argument
-    let expected_request = json!({
-        "jsonrpc": "2.0",
-        "id": "stacks",
-        "method": "createwallet",
-        "params": ["testwallet", true, false, "", false, true, true]
-    });
-
-    let mock_response = json!({
-        "id": "stacks",
-        "result": {
-            "name": "testwallet",
-            "warning": null
-        },
-        "error": null
-    });
-
-    let mut server: mockito::ServerGuard = mockito::Server::new();
-    let _m = server
-        .mock("POST", "/")
-        .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
-        .with_status(200)
-        .with_header("Content-Type", "application/json")
-        .with_body(mock_response.to_string())
-        .create();
-
-    let client = utils::setup_client(&server);
-    client
-        .create_wallet("testwallet", Some(true), Some(true))
-        .expect("create wallet should be ok!");
 }
 
 #[test]
