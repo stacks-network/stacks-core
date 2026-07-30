@@ -39,7 +39,8 @@
 ;; settled via `settle-accepted-withdrawal`.
 (define-constant ERR_WITHDRAWAL_NOT_ACCEPTED (err u1011))
 
-(define-constant MAX_BIPS u10000)
+(define-constant MAX_BIPS u500)
+(define-constant BIPS_DENOMINATOR u10000)
 
 ;; Maximum value of an address version as a uint
 (define-constant MAX_ADDRESS_VERSION u6)
@@ -203,7 +204,7 @@
                 (* earned-before-fees
                     (get-fee-bips-for-cycle reward-cycle bond-index)
                 )
-                MAX_BIPS
+                BIPS_DENOMINATOR
             ))
         )
         {
@@ -239,7 +240,7 @@
             (prev-fees (var-get earned-fees))
             (gross (get earned rewards-info))
             (fees (/ (* gross (get-fee-bips-for-cycle reward-cycle bond-index))
-                MAX_BIPS
+                BIPS_DENOMINATOR
             ))
             (earned (- gross fees))
             (unclaimed-rewards (var-get unclaimed-staker-rewards))
