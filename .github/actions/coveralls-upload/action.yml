@@ -1,0 +1,72 @@
+# Wrapper for the `coverallsapp/github-action` action and the retry behaviour.
+name: Coveralls Upload
+description: |
+  Uploads a coverage report to Coveralls, retrying transient upload failures.
+
+inputs:
+  file:
+    description: Coverage report file to upload
+    required: true
+  build-number:
+    description: Overrides the build number Coveralls autodetects from CI
+    required: true
+  coverage-reporter-version:
+    description: Coveralls reporter binary version (the action SHA is pinned but downloads the reporter at 'latest' unless pinned)
+    required: false
+    default: v0.6.17
+
+runs:
+  using: "composite"
+  steps:
+    # Coveralls has recurring 5xx incidents that were failing otherwise-green runs, so every
+    # attempt is non-fatal and the next one only runs when the previous reported a failure
+    # (`continue-on-error` keeps `outcome` visible without failing the job).
+    - name: Upload code coverage to Coveralls
+      id: attempt-1
+      continue-on-error: true
+      uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+      with:
+        file: ${{ inputs.file }}
+        build-number: ${{ inputs.build-number }}
+        fail-on-error: true
+        coverage-reporter-version: ${{ inputs.coverage-reporter-version }}
+
+    - name: Wait before Coveralls retry
+      if: steps.attempt-1.outcome == 'failure'
+      shell: bash
+      run: sleep 30
+
+    - name: Upload code coverage to Coveralls (attempt 2)
+      id: attempt-2
+      if: steps.attempt-1.outcome == 'failure'
+      continue-on-error: true
+      uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+      with:
+        file: ${{ inputs.file }}
+        build-number: ${{ inputs.build-number }}
+        fail-on-error: true
+        coverage-reporter-version: ${{ inputs.coverage-reporter-version }}
+
+    - name: Wait before final Coveralls retry
+      if: steps.attempt-2.outcome == 'failure'
+      shell: bash
+      run: sleep 60
+
+    - name: Upload code coverage to Coveralls (attempt 3)
+      id: attempt-3
+      if: steps.attempt-2.outcome == 'failure'
+      continue-on-error: true
+      uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+      with:
+        file: ${{ inputs.file }}
+        build-number: ${{ inputs.build-number }}
+        fail-on-error: true
+        coverage-reporter-version: ${{ inputs.coverage-reporter-version }}
+
+    # A failed coverage upload leaves a data gap, but it should not fail CI.
+    # "may be missing": a 504 can ingest server-side, so failure here isn't proof of a gap.
+    - name: Warn if coverage upload never succeeded
+      if: steps.attempt-3.outcome == 'failure'
+      shell: bash
+      run: |
+        echo "::warning::All three Coveralls upload attempts reported failure - coverage data for this run may be missing. Check https://status.coveralls.io before investigating."
