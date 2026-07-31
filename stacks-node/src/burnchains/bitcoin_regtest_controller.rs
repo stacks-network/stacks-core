@@ -1842,7 +1842,7 @@ impl BitcoinRegtestController {
                 let message = signer
                     .sign_message(sig_hash.as_bytes())
                     .expect("Unable to sign message");
-                #[cfg(feature = "wasm")]
+                #[cfg(target_family = "wasm")]
                 {
                     message
                         .to_secp256k1_recoverable()
@@ -1851,7 +1851,7 @@ impl BitcoinRegtestController {
                         .serialize_der()
                 }
 
-                #[cfg(not(feature = "wasm"))]
+                #[cfg(not(target_family = "wasm"))]
                 {
                     message
                         .to_secp256k1_recoverable()

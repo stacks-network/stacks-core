@@ -29,7 +29,9 @@ use stacks_common::types::chainstate::StacksBlockId;
 use wasmtime::Engine;
 
 use super::EvalHook;
-use super::analysis::{self, ContractAnalysis};
+#[cfg(any(test, feature = "testing", feature = "rusqlite"))]
+use super::analysis;
+use super::analysis::ContractAnalysis;
 #[cfg(feature = "clarity-wasm")]
 use super::clarity_wasm::{CostMeter, call_function};
 use crate::vm::ast::ContractAST;
@@ -359,6 +361,7 @@ pub struct GlobalContext<'a> {
     /// `VmExecutionError::RuntimeCheck(AbortedByExecutionHook)`. The
     /// default `AbortCallback::None` is a no-op.
     pub abort_callback: AbortCallback,
+    #[cfg(feature = "clarity-wasm")]
     pub cost_meter: CostMeter,
 }
 
@@ -926,10 +929,9 @@ impl<'a> OwnedEnvironment<'a> {
                 )
             },
         )
-        .map_err(|e| e.into())
     }
 
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(any(test, feature = "testing", feature = "rusqlite"))]
     pub fn initialize_versioned_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
@@ -1438,6 +1440,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
         })
     }
 
+    #[cfg(feature = "clarity-wasm")]
     pub fn execute_contract_from_wasm(
         &mut self,
         invoke_ctx: &InvocationContext,
@@ -1631,7 +1634,6 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
             contract_content,
             &mut analysis_db,
         )
-        .map_err(|e| e.into())
     }
 
     /// Initializes a Clarity smart contract with a custom analysis database.
@@ -1662,8 +1664,6 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
         contract_content: &str,
         analysis_db: &mut analysis::AnalysisDatabase,
     ) -> Result<(), ClarityEvalError> {
-        use crate::vm::errors::WasmError;
-
         let clarity_version = invoke_ctx.contract_context.clarity_version;
 
         let mut contract_ast = ast::build_ast(
@@ -1673,7 +1673,17 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
             clarity_version,
             self.global_context.epoch_id,
         )
-        .map_err(|e| VmExecutionError::Wasm(WasmError::Expect(format!("Build Ast Error: {e}"))))?;
+        .map_err(|e| {
+            let msg = format!("Build Ast Error: {e}");
+            #[cfg(feature = "clarity-wasm")]
+            {
+                VmExecutionError::Wasm(crate::vm::errors::WasmError::Expect(msg))
+            }
+            #[cfg(not(feature = "clarity-wasm"))]
+            {
+                VmExecutionError::Internal(VmInternalError::Expect(msg))
+            }
+        })?;
 
         let contract_analysis = analysis::run_analysis(
             &contract_identifier,
@@ -2052,6 +2062,7 @@ impl<'a> GlobalContext<'a> {
             #[cfg(feature = "clarity-wasm")]
             engine,
             abort_callback: AbortCallback::None,
+            #[cfg(feature = "clarity-wasm")]
             cost_meter: CostMeter::MIN,
         }
     }

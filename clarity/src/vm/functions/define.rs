@@ -96,6 +96,7 @@ pub enum DefineFunctionsParsed<'a> {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum DefineResult {
     /// `define-constant`
     Variable(ClarityName, Value),

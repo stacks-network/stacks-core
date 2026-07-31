@@ -162,13 +162,11 @@ fn test_get_block_info_eval(
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Value::Int(-1).to_error_string(),
-        )
-        .into()),
+        )),
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Value::Bool(true).to_error_string(),
-        )
-        .into()),
+        )),
         Ok(Value::none()),
         Ok(Value::none()),
         Ok(Value::none()),

@@ -1920,3 +1920,101 @@ fn test_wasm_dynamic_dispatch_validation() {
         });
     });
 }
+
+/// Regression test: the Wasm `contract_call` host function used to overwrite
+/// the current context's `caller` with the calling contract's own principal
+/// (via an unbalanced `push_caller`), so reading `contract-caller` after a
+/// `(contract-call? ...)` returned the calling contract instead of the
+/// original caller, diverging from the interpreter. Fixed in PR #7442.
+#[test]
+#[cfg(feature = "clarity-wasm")]
+fn test_wasm_contract_call_preserves_contract_caller() {
+    use clar2wasm::compile_contract;
+
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2, 3, 4, 5, 6, 7];
+
+    let callee_id = QualifiedContractIdentifier::local("callee").unwrap();
+    let caller_id = QualifiedContractIdentifier::local("caller-contract").unwrap();
+    let sender: PrincipalData = StacksAddress::burn_address(false).into();
+
+    let callee_src = "
+        (define-public (get-caller)
+          (if true (ok contract-caller) (err u1)))
+    ";
+    let caller_src = "
+        (define-public (call-and-read-caller)
+          (let ((inner (try! (contract-call? .callee get-caller))))
+            (ok { inner: inner, outer: contract-caller })))
+    ";
+
+    // Advance to epoch 3.0
+    while sim.block_height <= 7 {
+        sim.execute_next_block(|_env| {});
+    }
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        // Deploy with a compiled Wasm module, as the transaction deploy
+        // path does, so that both contracts execute on the Wasm runtime.
+        for (id, src) in [(&callee_id, callee_src), (&caller_id, caller_src)] {
+            conn.as_transaction(|clarity_db| {
+                let (mut ast, analysis) = clarity_db
+                    .analyze_smart_contract(id, clarity_version, src)
+                    .unwrap();
+                let mut module = compile_contract(analysis.clone()).unwrap();
+                ast.wasm_module = Some(module.emit_wasm());
+                clarity_db
+                    .initialize_smart_contract(
+                        id,
+                        clarity_version,
+                        &mut ast,
+                        &analysis,
+                        src,
+                        None,
+                        |_, _| None,
+                        None,
+                    )
+                    .unwrap();
+                clarity_db.save_analysis(id, &analysis).unwrap();
+            });
+        }
+    });
+
+    sim.execute_next_block_as_conn(|conn| {
+        conn.as_transaction(|clarity_db| {
+            let (value, ..) = clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &caller_id,
+                    "call-and-read-caller",
+                    &[],
+                    |_, _| None,
+                    None,
+                )
+                .unwrap();
+            // Inside the callee, `contract-caller` must be the calling
+            // contract; after the inner contract-call? returns, it must be
+            // back to the top-level sender, as in the interpreter.
+            assert_eq!(
+                Value::okay(Value::Tuple(
+                    TupleData::from_data(vec![
+                        (
+                            ClarityName::from_literal("inner"),
+                            Value::Principal(PrincipalData::Contract(caller_id.clone()))
+                        ),
+                        (
+                            ClarityName::from_literal("outer"),
+                            Value::Principal(sender.clone())
+                        ),
+                    ])
+                    .unwrap()
+                ))
+                .unwrap(),
+                value
+            );
+        });
+    });
+}

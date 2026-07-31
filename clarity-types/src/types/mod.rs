@@ -1182,7 +1182,7 @@ impl Value {
 
     pub fn string_utf8_from_unicode_scalars(scalars: Vec<u8>) -> Result<Value, ClarityTypeError> {
         // Ensure input length is divisible by 4
-        if scalars.len() % 4 != 0 {
+        if !scalars.len().is_multiple_of(4) {
             return Err(ClarityTypeError::InvalidUtf8Encoding);
         }
 
