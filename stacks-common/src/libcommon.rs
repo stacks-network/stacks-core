@@ -39,7 +39,6 @@ pub mod deps_common {
 
 pub mod alloc_tracker;
 
-#[cfg(not(feature = "wasm"))]
 pub mod bitvec;
 
 pub mod consts {
