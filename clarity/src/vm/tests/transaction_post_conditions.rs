@@ -2443,42 +2443,42 @@ fn test_check_postconditions_pox() {
 
     // (expected_pass, post_conditions, mode, epoch)
     let tests = vec![
-        // Allow mode: uncovered unstaking is permitted.
+        // Allow mode: an uncovered PoX action is permitted.
         (
             true,
             vec![],
             TransactionPostConditionMode::Allow,
             StacksEpochId::Epoch40,
         ),
-        // Deny mode: uncovered unstaking is forbidden.
+        // Deny mode: an uncovered PoX action is forbidden.
         (
             false,
             vec![],
             TransactionPostConditionMode::Deny,
             StacksEpochId::Epoch40,
         ),
-        // `MaybeUnstaked` opts in, so an unstake passes even in Deny mode.
+        // `MaybePerformed` opts in, so the action passes even in Deny mode.
         (
             true,
             vec![allow_pox()],
             TransactionPostConditionMode::Deny,
             StacksEpochId::Epoch40,
         ),
-        // `Unstaked` (must) is satisfied since an unstake occurred.
+        // `Performed` (must) is satisfied since an action occurred.
         (
             true,
             vec![require_pox()],
             TransactionPostConditionMode::Deny,
             StacksEpochId::Epoch40,
         ),
-        // `NotUnstaked` fails in allow mode because an unstake occurred.
+        // `NotPerformed` fails in allow mode because an action occurred.
         (
             false,
             vec![forbid_pox()],
             TransactionPostConditionMode::Allow,
             StacksEpochId::Epoch40,
         ),
-        // Before epoch 4.0, unstaking is not enforced even in Deny mode.
+        // Before epoch 4.0, coverage of PoX actions is not enforced even in Deny mode.
         (
             true,
             vec![],
@@ -2504,7 +2504,7 @@ fn test_check_postconditions_pox() {
         );
     }
 
-    // `NotUnstaked` passes when no unstake occurred.
+    // `NotPerformed` passes when no PoX action occurred.
     let empty = AssetMap::new();
     let result = check_transaction_postconditions(
         &[forbid_pox()],
@@ -2516,6 +2516,240 @@ fn test_check_postconditions_pox() {
     )
     .unwrap();
     assert!(result.is_none());
+}
+
+/// Staking coverage is enforced per-principal: `Originator` mode only requires
+/// the origin to be covered, and a `Staking` condition naming one principal does
+/// not cover another. Exercises the non-origin paths through
+/// `PostConditionPrincipal::to_principal_data`, which the origin-only tests miss.
+#[test]
+fn test_check_postconditions_staking_non_origin() {
+    let privk = StacksPrivateKey::from_hex(
+        "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+    )
+    .unwrap();
+    let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+    let origin = auth.origin().address_testnet().to_account_principal();
+    let other_addr = StacksAddress::new(1, Hash160([0xee; 20])).unwrap();
+    let other = other_addr.to_account_principal();
+
+    // Only a *non-origin* principal staked.
+    let mut other_staked = AssetMap::new();
+    other_staked
+        .add_stacking(&other, 100, StacksEpochId::Epoch40)
+        .unwrap();
+
+    let cover_other = || {
+        TransactionPostCondition::Staking(
+            PostConditionPrincipal::Standard(other_addr.clone()),
+            FungibleConditionCode::SentLe,
+            100,
+        )
+    };
+    let cover_origin = || {
+        TransactionPostCondition::Staking(
+            PostConditionPrincipal::Origin,
+            FungibleConditionCode::SentLe,
+            100,
+        )
+    };
+
+    // (expected_pass, post_conditions, mode)
+    let tests = vec![
+        // Originator mode only enforces coverage for the origin, so the other
+        // principal's uncovered staking is permitted.
+        (true, vec![], TransactionPostConditionMode::Originator),
+        // Deny mode enforces coverage for every principal.
+        (false, vec![], TransactionPostConditionMode::Deny),
+        // ...and is satisfied by a condition naming that principal explicitly.
+        (true, vec![cover_other()], TransactionPostConditionMode::Deny),
+        // A condition on the origin passes on its own terms (the origin staked
+        // nothing, so `SentLe 100` holds) but does not cover `other`.
+        (false, vec![cover_origin()], TransactionPostConditionMode::Deny),
+        // Covering both principals passes.
+        (
+            true,
+            vec![cover_origin(), cover_other()],
+            TransactionPostConditionMode::Deny,
+        ),
+    ];
+
+    for (expected_pass, post_conditions, mode) in tests {
+        let result = check_transaction_postconditions(
+            &post_conditions,
+            &mode,
+            &origin,
+            &other_staked,
+            StacksEpochId::Epoch40,
+            Txid([0; 32]),
+        )
+        .unwrap();
+        assert_eq!(
+            result.is_none(),
+            expected_pass,
+            "test failed:\nscenario: {post_conditions:?} mode={mode:?}"
+        );
+    }
+}
+
+/// PoX-action coverage is enforced per-principal, mirroring
+/// [`test_check_postconditions_staking_non_origin`] for the pox-action set.
+#[test]
+fn test_check_postconditions_pox_non_origin() {
+    let privk = StacksPrivateKey::from_hex(
+        "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+    )
+    .unwrap();
+    let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+    let origin = auth.origin().address_testnet().to_account_principal();
+    let other_addr = StacksAddress::new(1, Hash160([0xee; 20])).unwrap();
+    let other = other_addr.to_account_principal();
+
+    // Only a *non-origin* principal performed a PoX action.
+    let mut other_acted = AssetMap::new();
+    other_acted.add_pox_action(&other);
+
+    let cover_other = || {
+        TransactionPostCondition::Pox(
+            PostConditionPrincipal::Standard(other_addr.clone()),
+            PoxConditionCode::MaybePerformed,
+        )
+    };
+
+    // (expected_pass, post_conditions, mode)
+    let tests = vec![
+        // Originator mode only enforces coverage for the origin.
+        (true, vec![], TransactionPostConditionMode::Originator),
+        // Deny mode enforces coverage for every principal.
+        (false, vec![], TransactionPostConditionMode::Deny),
+        // ...and is satisfied by a condition naming that principal explicitly.
+        (true, vec![cover_other()], TransactionPostConditionMode::Deny),
+        // A condition on the origin does not cover `other`. `NotPerformed` holds
+        // for the origin, which performed no action, so the failure below is the
+        // coverage check rather than the condition itself.
+        (
+            false,
+            vec![TransactionPostCondition::Pox(
+                PostConditionPrincipal::Origin,
+                PoxConditionCode::NotPerformed,
+            )],
+            TransactionPostConditionMode::Deny,
+        ),
+    ];
+
+    for (expected_pass, post_conditions, mode) in tests {
+        let result = check_transaction_postconditions(
+            &post_conditions,
+            &mode,
+            &origin,
+            &other_acted,
+            StacksEpochId::Epoch40,
+            Txid([0; 32]),
+        )
+        .unwrap();
+        assert_eq!(
+            result.is_none(),
+            expected_pass,
+            "test failed:\nscenario: {post_conditions:?} mode={mode:?}"
+        );
+    }
+}
+
+/// The `supports_staking_post_conditions` epoch gate governs only the
+/// *coverage* requirement for staking and PoX actions. Explicit `Staking` /
+/// `Pox` post-conditions are evaluated in every epoch, and a zero-amount
+/// stacking entry never needs coverage.
+#[test]
+fn test_check_postconditions_staking_pox_epoch_gate_scope() {
+    let privk = StacksPrivateKey::from_hex(
+        "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+    )
+    .unwrap();
+    let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+    let origin = auth.origin().address_testnet().to_account_principal();
+
+    let mut acted = AssetMap::new();
+    acted
+        .add_stacking(&origin, 100, StacksEpochId::Epoch33)
+        .unwrap();
+    acted.add_pox_action(&origin);
+
+    let check = |post_conditions: &[TransactionPostCondition],
+                 mode: TransactionPostConditionMode,
+                 epoch: StacksEpochId,
+                 asset_map: &AssetMap| {
+        check_transaction_postconditions(
+            post_conditions,
+            &mode,
+            &origin,
+            asset_map,
+            epoch,
+            Txid([0; 32]),
+        )
+        .unwrap()
+    };
+
+    // Before epoch 4.0 the coverage requirement is not enforced, so staking and
+    // a PoX action with no post-conditions at all passes even under Deny.
+    assert!(
+        check(
+            &[],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch33,
+            &acted
+        )
+        .is_none()
+    );
+
+    // ...but an explicit `Staking` condition is still evaluated: a limit below
+    // the staked amount fails regardless of epoch.
+    for epoch in [StacksEpochId::Epoch33, StacksEpochId::Epoch40] {
+        assert!(
+            check(
+                &[TransactionPostCondition::Staking(
+                    PostConditionPrincipal::Origin,
+                    FungibleConditionCode::SentLe,
+                    99,
+                )],
+                TransactionPostConditionMode::Allow,
+                epoch,
+                &acted
+            )
+            .is_some(),
+            "explicit Staking condition should be evaluated in {epoch:?}"
+        );
+
+        // Likewise for an explicit `Pox` condition that an action violates.
+        assert!(
+            check(
+                &[TransactionPostCondition::Pox(
+                    PostConditionPrincipal::Origin,
+                    PoxConditionCode::NotPerformed,
+                )],
+                TransactionPostConditionMode::Allow,
+                epoch,
+                &acted
+            )
+            .is_some(),
+            "explicit Pox condition should be evaluated in {epoch:?}"
+        );
+    }
+
+    // A zero-amount stacking entry needs no coverage, even under Deny in an
+    // epoch that enforces staking coverage.
+    let mut zero_staked = AssetMap::new();
+    zero_staked
+        .add_stacking(&origin, 0, StacksEpochId::Epoch40)
+        .unwrap();
+    assert!(
+        check(
+            &[],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch40,
+            &zero_staked
+        )
+        .is_none()
+    );
 }
 
 #[test]
