@@ -947,7 +947,7 @@ fn test_variadic_concat_string_ascii() {
 #[test]
 fn test_variadic_concat_string_utf8() {
     // Existing test_string_utf8_concat builds the same emoji from 5 binary
-    // concats — here we do it in one variadic call to verify the v600 path
+    // concats — here we do it in one variadic call to verify the v400 path
     // preserves UTF-8 semantics.
     let variadic =
         "(concat u\"\\u{1F926}\" u\"\\u{1F3FC}\" u\"\\u{200D}\" u\"\\u{2642}\" u\"\\u{FE0F}\")";
@@ -1798,7 +1798,7 @@ fn test_filter_with_special_functions() {
 // with random data, builds the variadic `(concat a1 a2 ... aN)` snippet, and
 // verifies the result equals the byte/char/element-wise concatenation of all
 // args computed in Rust. This exercises both the two-pass evaluation in
-// `special_concat_v600` (phase 1 sum, phase 2 reserve+concat) and the
+// `special_concat_v400` (phase 1 sum, phase 2 reserve+concat) and the
 // type-checker fold in `check_special_concat`.
 //
 // Per-arg lengths are kept small so that the combined result fits comfortably
