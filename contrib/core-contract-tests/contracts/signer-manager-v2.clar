@@ -853,14 +853,6 @@
 
 ;; As an admin, register this contract with a specific signer key. The signer key grant
 ;; must not have been used yet.
-;;
-;; `signer-manager` must be this contract. That is not asserted here because
-;; pox-5's `register-signer` already enforces it -- it checks `contract-caller`
-;; against the trait principal, and we are the caller -- so passing anything
-;; else fails there with `ERR_UNAUTHORIZED_SIGNER_REGISTRATION` (u26) and the
-;; whole transaction reverts, including the `grant-signer-key` above. The
-;; parameter cannot simply be dropped: `register-signer` takes a trait
-;; reference, which Clarity cannot synthesize from `current-contract`.
 (define-public (register-self
         (signer-manager <signer-manager-trait>)
         (signer-key (buff 33))
