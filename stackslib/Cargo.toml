@@ -82,7 +82,7 @@ disable-costs = []
 developer-mode = ["clarity/developer-mode"]
 monitoring_prom = ["prometheus"]
 slog_json = ["stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
-clarity-wasm = []
+clarity-wasm = ["clarity/clarity-wasm"]
 testing = ["chrono", "stacks-common/testing", "clarity/testing"]
 profiler = ["perf-event2"]
 
