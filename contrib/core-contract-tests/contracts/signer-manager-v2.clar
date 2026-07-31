@@ -23,7 +23,10 @@
 ;;   * Unclaimed rewards are tracked per `(reward-cycle, bond-index)` rather
 ;;     than as one global counter, so a claim against one cycle can never be
 ;;     funded out of another cycle's reserve.
-;;   * The last admin cannot be removed.
+;;   * An admin cannot remove themselves, so the contract can never be left
+;;     with no admin at all.
+;;   * v1's two-field payout calldata is still accepted, so stakers rolling
+;;     over from a v1 signer are not rejected.
 ;;
 ;; Fees are still snapshotted per cycle when `claim-rewards` crystallizes it,
 ;; so a rate change never applies to a cycle that has already been pulled.
@@ -65,8 +68,8 @@
 (define-constant ERR_BELOW_MIN_CLAIM (err u1013))
 ;; `min-claim` must leave a spendable (non-dust) output after `max-fee`.
 (define-constant ERR_INVALID_MIN_CLAIM (err u1014))
-;; Refusing to remove the only remaining admin.
-(define-constant ERR_LAST_ADMIN (err u1015))
+;; An admin tried to remove themselves.
+(define-constant ERR_CANNOT_REMOVE_SELF (err u1015))
 ;; `register-self` was passed a signer-manager other than this contract.
 (define-constant ERR_NOT_SELF (err u1016))
 ;; The staker has nothing settled to pay out.
@@ -95,11 +98,6 @@
     bool
 )
 (map-set admins tx-sender true)
-
-;; Number of principals currently mapped to `true` in `admins`. Tracked so
-;; `update-admin` can refuse to remove the last one, which would permanently
-;; brick every admin-gated function.
-(define-data-var admin-count uint u1)
 
 ;; Fees taken, in basis points, from rewards. This is the rate in force now;
 ;; `pending-fees-bips` / `pending-fees-cycle` hold a queued change. Read
@@ -229,8 +227,9 @@
 ;; If provided, the payout config is saved for the user, and they'll receive
 ;; rewards through sBTC withdrawals.
 ;;
-;; NOTE: the calldata tuple gained a `min-claim` field relative to v1; v1
-;; calldata will not deserialize here.
+;; v1's two-field `{ pox-addr, max-fee }` calldata is also accepted, so a
+;; staker rolling over from a v1 signer is not rejected; it is given
+;; `default-min-claim`. See `parse-payout-calldata`.
 (define-public (validate-stake!
         (staker principal)
         ;; #[allow(unused_binding)]
@@ -723,34 +722,31 @@
 
 ;;; Admin functions
 
-;; Update the allowed admin principals. The last remaining admin cannot be
-;; removed -- doing so would permanently disable `update-fees`,
-;; `withdraw-fees`, `sweep-fee-refunds` and `register-self`, stranding any
-;; accrued fees.
+;; Update the allowed admin principals.
+;;
+;; An admin may not remove themselves. Removing an admin therefore always
+;; requires a *different* admin to do it, and since `authorize-admin` has
+;; already established that the caller is one, at least one admin always
+;; survives the call. That is what stops the contract being left with no admin
+;; at all, which would permanently disable `update-fees`, `withdraw-fees`,
+;; `sweep-fee-refunds` and `register-self`, stranding any accrued fees.
+;;
+;; Enforcing it this way rather than by counting admins keeps the invariant in
+;; one comparison, with no counter to hold in sync with the map.
 (define-public (update-admin
         (admin principal)
         (enabled bool)
     )
-    (let ((was-admin (is-admin admin)))
+    (begin
         (try! (authorize-admin))
-        (asserts! (or enabled (not was-admin) (> (var-get admin-count) u1))
-            ERR_LAST_ADMIN
+        (asserts! (or enabled (not (is-eq admin tx-sender)))
+            ERR_CANNOT_REMOVE_SELF
         )
-        (if (is-eq was-admin enabled)
-            true
-            (begin
-                (var-set admin-count (if enabled
-                    (+ (var-get admin-count) u1)
-                    (- (var-get admin-count) u1)
-                ))
-                (map-set admins admin enabled)
-            )
-        )
+        (map-set admins admin enabled)
         (print {
             topic: "update-admin",
             admin: admin,
             enabled: enabled,
-            admin-count: (var-get admin-count),
         })
         (ok admin)
     )
@@ -907,17 +903,7 @@
         (staker principal)
         (calldata (buff 500))
     )
-    (let ((config (unwrap!
-            (from-consensus-buff? {
-                pox-addr: {
-                    version: (buff 1),
-                    hashbytes: (buff 32),
-                },
-                max-fee: uint,
-                min-claim: uint,
-            }
-                calldata
-            )
+    (let ((config (unwrap! (parse-payout-calldata calldata)
             ERR_INVALID_CALLDATA
         )))
         (try! (check-payout-config config))
@@ -963,10 +949,6 @@
 
 (define-read-only (is-admin (caller principal))
     (default-to false (map-get? admins caller))
-)
-
-(define-read-only (get-admin-count)
-    (var-get admin-count)
 )
 
 (define-read-only (current-cycle)
@@ -1067,6 +1049,55 @@
         (if (>= balance reserved)
             (- balance reserved)
             u0
+        )
+    )
+)
+
+;; The `min-claim` given to a staker whose calldata does not carry one --
+;; i.e. v1-shaped calldata. This is the lowest value `check-payout-config`
+;; accepts, so it gates nothing that could actually have been paid out: below
+;; it, an L1 payout would fail the sBTC dust limit anyway. That reproduces v1's
+;; behaviour exactly, since v1 had no third-party floor at all. A staker who
+;; wants a real floor sets one with `set-payout-config`.
+(define-read-only (default-min-claim (max-fee uint))
+    (+ max-fee DUST_LIMIT u1)
+)
+
+;; Deserialize payout calldata, accepting both this contract's shape and v1's.
+;;
+;; v1's `signer-manager` took `{ pox-addr, max-fee }`; v2 adds `min-claim`.
+;; `from-consensus-buff?` requires an exact type match, so without this a
+;; staker rolling over from a v1 signer -- or any client still building v1
+;; calldata -- would have their `stake` rejected outright with
+;; ERR_INVALID_CALLDATA. v1 calldata is accepted and given `default-min-claim`.
+;;
+;; The two shapes cannot be confused: a two-field tuple never deserializes as
+;; the three-field type, or the reverse.
+(define-read-only (parse-payout-calldata (calldata (buff 500)))
+    (match (from-consensus-buff? {
+            pox-addr: {
+                version: (buff 1),
+                hashbytes: (buff 32),
+            },
+            max-fee: uint,
+            min-claim: uint,
+        }
+            calldata
+        )
+        config (some config)
+        (match (from-consensus-buff? {
+                pox-addr: {
+                    version: (buff 1),
+                    hashbytes: (buff 32),
+                },
+                max-fee: uint,
+            }
+                calldata
+            )
+            legacy (some (merge legacy {
+                min-claim: (default-min-claim (get max-fee legacy)),
+            }))
+            none
         )
     )
 )

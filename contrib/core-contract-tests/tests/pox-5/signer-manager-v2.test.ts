@@ -2,7 +2,7 @@
 // it makes relative to v1. Driven through raw simnet calls (rather than the
 // clarigen handles the v1 suite uses) so the generated types file does not have
 // to be regenerated to run these.
-import { Cl, ClarityValue } from "@stacks/transactions";
+import { Cl, ClarityValue, serializeCV } from "@stacks/transactions";
 import { beforeEach, describe, expect, it } from "vitest";
 import { hex } from "@scure/base";
 import {
@@ -26,7 +26,7 @@ const ERR_NO_REFUNDS = 1010;
 const ERR_BELOW_DUST_LIMIT = 1012;
 const ERR_BELOW_MIN_CLAIM = 1013;
 const ERR_INVALID_MIN_CLAIM = 1014;
-const ERR_LAST_ADMIN = 1015;
+const ERR_CANNOT_REMOVE_SELF = 1015;
 const ERR_NOT_SELF = 1016;
 const ERR_NO_REFUND_CREDIT = 1019;
 
@@ -238,6 +238,85 @@ describe("fee increases are delayed by 2 cycles, decreases are immediate", () =>
   });
 });
 
+describe("v1 calldata migration", () => {
+  // v1's `signer-manager` took `{ pox-addr, max-fee }`. v2 adds `min-claim`,
+  // and `from-consensus-buff?` demands an exact type match, so without a
+  // fallback a staker rolling over from a v1 signer would have their `stake`
+  // rejected with ERR_INVALID_CALLDATA.
+  const v1Calldata = (maxFee: number) =>
+    Cl.buffer(
+      hex.decode(
+        serializeCV(
+          Cl.tuple({ "pox-addr": POX_ADDR, "max-fee": Cl.uint(maxFee) }),
+        ),
+      ),
+    );
+  const v2Calldata = (maxFee: number, minClaim: number) =>
+    Cl.buffer(
+      hex.decode(
+        serializeCV(
+          Cl.tuple({
+            "pox-addr": POX_ADDR,
+            "max-fee": Cl.uint(maxFee),
+            "min-claim": Cl.uint(minClaim),
+          }),
+        ),
+      ),
+    );
+
+  it("defaults min-claim to the lowest value that could ever pay out", () => {
+    // Anything lower would fail the sBTC dust limit anyway, so the default
+    // gates nothing -- matching v1, which had no third-party floor at all.
+    expect(ro("default-min-claim", [Cl.uint(100)])).toBeUint(100 + DUST_LIMIT + 1);
+    expect(ro("default-min-claim", [Cl.uint(0)])).toBeUint(DUST_LIMIT + 1);
+  });
+
+  it("parses both calldata shapes and rejects anything else", () => {
+    const fromV1 = tupleFields(
+      (ro("parse-payout-calldata", [v1Calldata(100)]) as any).value,
+    );
+    expect(num(fromV1["max-fee"])).toBe(100);
+    expect(num(fromV1["min-claim"])).toBe(100 + DUST_LIMIT + 1);
+
+    // An explicit min-claim is preserved, not overwritten by the default.
+    const fromV2 = tupleFields(
+      (ro("parse-payout-calldata", [v2Calldata(100, 5_000)]) as any).value,
+    );
+    expect(num(fromV2["max-fee"])).toBe(100);
+    expect(num(fromV2["min-claim"])).toBe(5_000);
+
+    expect(
+      ro("parse-payout-calldata", [Cl.buffer(new Uint8Array([1, 2, 3]))]),
+    ).toBeNone();
+  });
+
+  it("accepts v1 calldata through a real pox-5 stake", () => {
+    expectOk(registerSigner(deployer, MANAGER, POX5).result, "register-self");
+    const maxFee = 100;
+    expectOk(
+      simnet.callPublicFn(
+        POX5,
+        "stake",
+        [
+          Cl.principal(manager()),
+          Cl.uint(100_000_000_000),
+          Cl.uint(2),
+          Cl.uint(cycleStart(currentCycle(deployer, POX5))),
+          Cl.some(v1Calldata(maxFee)),
+        ],
+        staker,
+      ).result,
+      "stake with v1 calldata",
+    );
+
+    const config = tupleFields(
+      (ro("get-payout-config", [Cl.principal(staker)]) as any).value,
+    );
+    expect(num(config["max-fee"])).toBe(maxFee);
+    expect(num(config["min-claim"])).toBe(maxFee + DUST_LIMIT + 1);
+  });
+});
+
 describe("payout config", () => {
   it("rejects a min-claim that does not clear max-fee + dust", () => {
     expect(setPayoutConfig(100, 100 + DUST_LIMIT)).toBeErr(
@@ -363,39 +442,55 @@ describe("accepted-withdrawal fee refunds go to the staker", () => {
 });
 
 describe("admin hardening", () => {
-  beforeEach(() => {
-    expect(ro("get-admin-count")).toBeUint(1);
-  });
-
-  it("refuses to remove the last admin", () => {
+  it("refuses to let an admin remove themselves", () => {
     expect(
       tx("update-admin", [Cl.principal(deployer), Cl.bool(false)], deployer),
-    ).toBeErr(Cl.uint(ERR_LAST_ADMIN));
+    ).toBeErr(Cl.uint(ERR_CANNOT_REMOVE_SELF));
+    expect(ro("is-admin", [Cl.principal(deployer)])).toBeBool(true);
+
+    // Still refused with a second admin present: the rule is about the
+    // caller, not about how many admins are left.
+    tx("update-admin", [Cl.principal(dave), Cl.bool(true)], deployer);
+    expect(
+      tx("update-admin", [Cl.principal(deployer), Cl.bool(false)], deployer),
+    ).toBeErr(Cl.uint(ERR_CANNOT_REMOVE_SELF));
     expect(ro("is-admin", [Cl.principal(deployer)])).toBeBool(true);
   });
 
-  it("allows removal once a second admin exists", () => {
+  it("lets one admin remove another, always leaving the remover behind", () => {
     expect(
       tx("update-admin", [Cl.principal(dave), Cl.bool(true)], deployer),
     ).toBeOk(Cl.principal(dave));
-    expect(ro("get-admin-count")).toBeUint(2);
+    expect(ro("is-admin", [Cl.principal(dave)])).toBeBool(true);
 
+    // dave removes the deployer. Since a caller can never be the one removed,
+    // dave necessarily survives -- the contract cannot end up with no admin.
     expect(
-      tx("update-admin", [Cl.principal(deployer), Cl.bool(false)], deployer),
+      tx("update-admin", [Cl.principal(deployer), Cl.bool(false)], dave),
     ).toBeOk(Cl.principal(deployer));
-    expect(ro("get-admin-count")).toBeUint(1);
     expect(ro("is-admin", [Cl.principal(deployer)])).toBeBool(false);
+    expect(ro("is-admin", [Cl.principal(dave)])).toBeBool(true);
 
     // ...and the demoted admin really has lost access.
     expect(tx("update-fees", [Cl.uint(10)], deployer)).toBeErr(
       Cl.uint(ERR_UNAUTHORIZED_ADMIN),
     );
+    expect(tx("update-fees", [Cl.uint(10)], dave)).toBeOk(Cl.bool(true));
   });
 
-  it("does not double-count a repeated grant", () => {
+  it("treats a repeated grant as idempotent", () => {
     tx("update-admin", [Cl.principal(dave), Cl.bool(true)], deployer);
-    tx("update-admin", [Cl.principal(dave), Cl.bool(true)], deployer);
-    expect(ro("get-admin-count")).toBeUint(2);
+    expect(
+      tx("update-admin", [Cl.principal(dave), Cl.bool(true)], deployer),
+    ).toBeOk(Cl.principal(dave));
+    expect(ro("is-admin", [Cl.principal(dave)])).toBeBool(true);
+  });
+
+  it("only an admin can change the admin set", () => {
+    expect(
+      tx("update-admin", [Cl.principal(other), Cl.bool(true)], other),
+    ).toBeErr(Cl.uint(ERR_UNAUTHORIZED_ADMIN));
+    expect(ro("is-admin", [Cl.principal(other)])).toBeBool(false);
   });
 
   it("rejects register-self for a contract other than itself", () => {

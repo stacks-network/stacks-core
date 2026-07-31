@@ -11491,14 +11491,17 @@ export const contracts = {
         args: [],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<[], bigint>,
+      defaultMinClaim: {
+        name: 'default-min-claim',
+        access: 'read_only',
+        args: [{ name: 'max-fee', type: 'uint128' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<
+        [maxFee: TypedAbiArg<number | bigint, 'maxFee'>],
+        bigint
+      >,
       getActiveFeeBips: {
         name: 'get-active-fee-bips',
-        access: 'read_only',
-        args: [],
-        outputs: { type: 'uint128' },
-      } as TypedAbiFunction<[], bigint>,
-      getAdminCount: {
-        name: 'get-admin-count',
         access: 'read_only',
         args: [],
         outputs: { type: 'uint128' },
@@ -11687,6 +11690,40 @@ export const contracts = {
         ],
         bigint
       >,
+      parsePayoutCalldata: {
+        name: 'parse-payout-calldata',
+        access: 'read_only',
+        args: [{ name: 'calldata', type: { buffer: { length: 500 } } }],
+        outputs: {
+          type: {
+            optional: {
+              tuple: [
+                { name: 'max-fee', type: 'uint128' },
+                { name: 'min-claim', type: 'uint128' },
+                {
+                  name: 'pox-addr',
+                  type: {
+                    tuple: [
+                      { name: 'hashbytes', type: { buffer: { length: 32 } } },
+                      { name: 'version', type: { buffer: { length: 1 } } },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [calldata: TypedAbiArg<Uint8Array, 'calldata'>],
+        {
+          maxFee: bigint;
+          minClaim: bigint;
+          poxAddr: {
+            hashbytes: Uint8Array;
+            version: Uint8Array;
+          };
+        } | null
+      >,
       unattributedBalance: {
         name: 'unattributed-balance',
         access: 'read_only',
@@ -11808,6 +11845,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_CANNOT_REMOVE_SELF: {
+        name: 'ERR_CANNOT_REMOVE_SELF',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INSUFFICIENT_FEES: {
         name: 'ERR_INSUFFICIENT_FEES',
         type: {
@@ -11850,16 +11897,6 @@ export const contracts = {
       } as TypedAbiVariable<Response<null, bigint>>,
       ERR_INVALID_POX_ADDR: {
         name: 'ERR_INVALID_POX_ADDR',
-        type: {
-          response: {
-            ok: 'none',
-            error: 'uint128',
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Response<null, bigint>>,
-      ERR_LAST_ADMIN: {
-        name: 'ERR_LAST_ADMIN',
         type: {
           response: {
             ok: 'none',
@@ -11978,11 +12015,6 @@ export const contracts = {
         type: 'uint128',
         access: 'constant',
       } as TypedAbiVariable<bigint>,
-      adminCount: {
-        name: 'admin-count',
-        type: 'uint128',
-        access: 'variable',
-      } as TypedAbiVariable<bigint>,
       creditedRefunds: {
         name: 'credited-refunds',
         type: 'uint128',
@@ -12035,6 +12067,10 @@ export const contracts = {
         isOk: false,
         value: 1_013n,
       },
+      ERR_CANNOT_REMOVE_SELF: {
+        isOk: false,
+        value: 1_015n,
+      },
       ERR_INSUFFICIENT_FEES: {
         isOk: false,
         value: 1_007n,
@@ -12054,10 +12090,6 @@ export const contracts = {
       ERR_INVALID_POX_ADDR: {
         isOk: false,
         value: 1_004n,
-      },
-      ERR_LAST_ADMIN: {
-        isOk: false,
-        value: 1_015n,
       },
       ERR_NOT_SELF: {
         isOk: false,
@@ -12101,7 +12133,6 @@ export const contracts = {
       },
       FEE_ACTIVATION_DELAY_CYCLES: 2n,
       MAX_FEE_BIPS: 500n,
-      adminCount: 1n,
       creditedRefunds: 0n,
       earnedFees: 0n,
       feesBips: 0n,
