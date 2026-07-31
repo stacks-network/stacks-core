@@ -51,6 +51,8 @@ mod sequences;
 #[cfg(test)]
 mod simple_apply_eval;
 mod traits;
+#[cfg(test)]
+mod transaction_post_conditions;
 mod variables;
 
 #[cfg(any(test, feature = "testing"))]
