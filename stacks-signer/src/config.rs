@@ -282,6 +282,7 @@ pub struct GlobalConfig {
 /// `stacks-signer` binary. All fields with `Option` types will use their
 /// documented defaults when omitted.
 #[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 struct RawConfigFile {
     /// The Stacks node RPC endpoint that this signer will connect to.
     /// ---
@@ -844,6 +845,25 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_unknown_fields_rejected() {
+        let config_toml = r#"
+node_host = "127.0.0.1:20443"
+endpoint = "127.0.0.1:30000"
+network = "testnet"
+auth_password = "abcd"
+db_path = ":memory:"
+stacks_private_key = "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01"
+tenure_idle_timeout_sec = 30
+"#;
+        let result = RawConfigFile::load_from_str(config_toml);
+        let err = result.expect_err("Config with a misspelled field should fail to parse");
+        assert!(
+            format!("{err:?}").contains("tenure_idle_timeout_sec"),
+            "Error should name the unknown field: {err:?}"
+        );
     }
 
     #[test]
