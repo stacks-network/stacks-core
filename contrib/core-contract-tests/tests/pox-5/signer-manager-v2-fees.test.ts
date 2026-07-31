@@ -253,29 +253,30 @@ test('claiming staker rewards transfers net rewards after fees', () => {
     claim.events,
     CoreNodeEventType.FtTransferEvent,
   );
-  const printEvent = filterEvents(
-    claim.events,
-    CoreNodeEventType.ContractEvent,
-  ).find((e) => e.data.contract_identifier === signerManagerV2.identifier)!;
-  const printData = cvToValue<{
-    topic: string;
-    amountSats: bigint;
-    l1Withdrawal: null;
-    staker: string;
-    rewardCycle: bigint;
-    bondIndex: null;
-  }>(printEvent.data.value);
+  // v2 splits the claim into a settle and a payout, each with its own event.
+  const prints = filterEvents(claim.events, CoreNodeEventType.ContractEvent)
+    .filter((e) => e.data.contract_identifier === signerManagerV2.identifier)
+    .map((e) => cvToValue<{ topic: string } & Record<string, any>>(e.data.value));
+  const settleEvent = prints.find((p) => p.topic === 'settle-staker-rewards')!;
+  const payoutEvent = prints.find((p) => p.topic === 'payout')!;
 
   expect(transfer.data.sender).toBe(signerManagerV2.identifier);
   expect(transfer.data.recipient).toBe(alice);
   expect(transfer.data.amount).toBe(netRewards.toString());
-  expect(printData).toEqual({
-    topic: 'claim-staker-rewards',
-    amountSats: netRewards,
-    l1Withdrawal: null,
+  expect(settleEvent).toEqual({
+    topic: 'settle-staker-rewards',
     staker: alice,
     rewardCycle: cycle,
     bondIndex: null,
+    earned: netRewards,
+    fees: feeOn(grossPerStaker, FEE_BIPS),
+    pendingPayout: netRewards,
+  });
+  expect(payoutEvent).toEqual({
+    topic: 'payout',
+    amountSats: netRewards,
+    l1Withdrawal: null,
+    staker: alice,
   });
   expect(sbtcBalance(alice)).toBe(aliceBalance + netRewards);
   expect(

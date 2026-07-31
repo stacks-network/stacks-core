@@ -55,10 +55,13 @@ const cycleStart = (cycle: number) =>
       deployer,
     ).result,
   );
-const CYCLE_LENGTH = cycleStart(1) - cycleStart(0);
+// Read lazily, not at module load: module bodies execute before the per-file
+// simnet reset, so a length captured there can belong to whatever pox-5 state
+// the previously-loaded test file left behind.
+const cycleLength = () => cycleStart(1) - cycleStart(0);
 
 /** Advance the burn chain by `n` whole reward cycles. */
-const mineCycles = (n: number) => simnet.mineEmptyBurnBlocks(CYCLE_LENGTH * n);
+const mineCycles = (n: number) => simnet.mineEmptyBurnBlocks(cycleLength() * n);
 
 const POX_ADDR = Cl.tuple({
   version: Cl.buffer(new Uint8Array([0x01])),

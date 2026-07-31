@@ -10995,7 +10995,7 @@ export const contracts = {
       },
       MAX_ADDRESS_VERSION: 6n,
       mAX_ADDRESS_VERSION_BUFF_20: 4n,
-      MAX_BIPS: 500n,
+      MAX_BIPS: 10_000n,
       earnedFees: 0n,
       feesBips: 0n,
       unclaimedStakerRewards: 0n,
@@ -11239,6 +11239,33 @@ export const contracts = {
         args: [],
         outputs: { type: { response: { ok: 'bool', error: 'uint128' } } },
       } as TypedAbiFunction<[], Response<boolean, bigint>>,
+      payout: {
+        name: 'payout',
+        access: 'public',
+        args: [{ name: 'staker', type: 'principal' }],
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'amount', type: 'uint128' },
+                  { name: 'withdrawal-request', type: { optional: 'uint128' } },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
+      } as TypedAbiFunction<
+        [staker: TypedAbiArg<string, 'staker'>],
+        Response<
+          {
+            amount: bigint;
+            withdrawalRequest: bigint | null;
+          },
+          bigint
+        >
+      >,
       reclaimFailedWithdrawal: {
         name: 'reclaim-failed-withdrawal',
         access: 'public',
@@ -11323,6 +11350,23 @@ export const contracts = {
         outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
       } as TypedAbiFunction<
         [requestId: TypedAbiArg<number | bigint, 'requestId'>],
+        Response<bigint, bigint>
+      >,
+      settleStakerRewards: {
+        name: 'settle-staker-rewards',
+        access: 'public',
+        args: [
+          { name: 'staker', type: 'principal' },
+          { name: 'reward-cycle', type: 'uint128' },
+          { name: 'bond-index', type: { optional: 'uint128' } },
+        ],
+        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+      } as TypedAbiFunction<
+        [
+          staker: TypedAbiArg<string, 'staker'>,
+          rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
+          bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
+        ],
         Response<bigint, bigint>
       >,
       sweepFeeRefunds: {
@@ -11568,12 +11612,24 @@ export const contracts = {
           pendingBips: bigint;
         }
       >,
+      getPendingPayout: {
+        name: 'get-pending-payout',
+        access: 'read_only',
+        args: [{ name: 'staker', type: 'principal' }],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[staker: TypedAbiArg<string, 'staker'>], bigint>,
       getStakerRefund: {
         name: 'get-staker-refund',
         access: 'read_only',
         args: [{ name: 'staker', type: 'principal' }],
         outputs: { type: 'uint128' },
       } as TypedAbiFunction<[staker: TypedAbiArg<string, 'staker'>], bigint>,
+      getTotalPendingPayouts: {
+        name: 'get-total-pending-payouts',
+        access: 'read_only',
+        args: [],
+        outputs: { type: 'uint128' },
+      } as TypedAbiFunction<[], bigint>,
       getUnclaimedRewardsForCycle: {
         name: 'get-unclaimed-rewards-for-cycle',
         access: 'read_only',
@@ -11689,6 +11745,11 @@ export const contracts = {
           };
         }
       >,
+      pendingPayouts: {
+        name: 'pending-payouts',
+        key: 'principal',
+        value: 'uint128',
+      } as TypedAbiMap<string, bigint>,
       stakerRefunds: {
         name: 'staker-refunds',
         key: 'principal',
@@ -11827,6 +11888,16 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
+      ERR_NO_PENDING_PAYOUT: {
+        name: 'ERR_NO_PENDING_PAYOUT',
+        type: {
+          response: {
+            ok: 'none',
+            error: 'uint128',
+          },
+        },
+        access: 'constant',
+      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_NO_REFUNDS: {
         name: 'ERR_NO_REFUNDS',
         type: {
@@ -11937,6 +12008,11 @@ export const contracts = {
         type: 'uint128',
         access: 'variable',
       } as TypedAbiVariable<bigint>,
+      totalPendingPayouts: {
+        name: 'total-pending-payouts',
+        type: 'uint128',
+        access: 'variable',
+      } as TypedAbiVariable<bigint>,
       totalUnclaimedRewards: {
         name: 'total-unclaimed-rewards',
         type: 'uint128',
@@ -11991,6 +12067,10 @@ export const contracts = {
         isOk: false,
         value: 1_001n,
       },
+      ERR_NO_PENDING_PAYOUT: {
+        isOk: false,
+        value: 1_017n,
+      },
       ERR_NO_REFUNDS: {
         isOk: false,
         value: 1_010n,
@@ -12027,6 +12107,7 @@ export const contracts = {
       feesBips: 0n,
       pendingFeesBips: 0n,
       pendingFeesCycle: 0n,
+      totalPendingPayouts: 0n,
       totalUnclaimedRewards: 0n,
       withdrawalLiability: 0n,
     },

@@ -6,7 +6,12 @@
 ;;
 ;;   * Unused sBTC withdrawal fee budget (`max-fee - actual-fee`) is credited
 ;;     back to the staker who earned it instead of pooling for an admin sweep.
-;;   * Stakers set a `min-claim` floor; only the staker may trigger a claim
+;;   * Settling rewards is split from paying them out
+;;     (`settle-staker-rewards` / `payout`), so a staker whose reward in any
+;;     one cycle is too small to withdraw can accumulate across cycles and pay
+;;     one Bitcoin fee instead of one per cycle. `claim-staker-rewards` remains
+;;     as the one-shot convenience path.
+;;   * Stakers set a `min-claim` floor; only the staker may trigger a payout
 ;;     below it, so a third party cannot burn their reward on L1 fees.
 ;;   * Fee increases are queued and only take effect `FEE_ACTIVATION_DELAY_CYCLES`
 ;;     reward cycles later, giving stakers time to leave. Decreases are immediate.
@@ -64,6 +69,8 @@
 (define-constant ERR_LAST_ADMIN (err u1015))
 ;; `register-self` was passed a signer-manager other than this contract.
 (define-constant ERR_NOT_SELF (err u1016))
+;; The staker has nothing settled to pay out.
+(define-constant ERR_NO_PENDING_PAYOUT (err u1017))
 ;; The staker has no fee refund credited.
 (define-constant ERR_NO_REFUND_CREDIT (err u1019))
 
@@ -183,6 +190,24 @@
 ;; alongside the map because `sweep-fee-refunds` needs the total in one read
 ;; and Clarity cannot iterate a map.
 (define-data-var total-unclaimed-rewards uint u0)
+
+;; Net rewards settled for a staker but not yet paid out.
+;; `settle-staker-rewards` credits this one cycle at a time; `payout` drains
+;; the whole balance in a single transfer or sBTC withdrawal.
+;;
+;; This is what lets a staker accumulate across cycles. pox-5 keys rewards by
+;; reward cycle and never rolls them forward, so a staker whose reward in any
+;; one cycle is below the sBTC dust limit would otherwise never be able to
+;; take an L1 payout at all.
+;;
+;; Staker-owed sBTC held by the contract: reserved from `sweep-fee-refunds`.
+(define-map pending-payouts
+    principal
+    uint
+)
+
+;; Sum over `pending-payouts`, for the `sweep-fee-refunds` reserve.
+(define-data-var total-pending-payouts uint u0)
 
 ;; Per-staker sBTC withdrawal fee refunds, credited by
 ;; `settle-accepted-withdrawal` and paid out by `claim-refund`.
@@ -347,22 +372,25 @@
     )
 )
 
-;; Trigger a claim of rewards for a given staker.
-;; Anyone can call this function, and it will transfer rewards to the
-;; staker.
+;; Settle one `(reward-cycle, bond-index)` of a staker's rewards into their
+;; pending payout balance. Moves no sBTC.
 ;;
-;; If the staker has an L1 payout config, then rewards are withdrawn through
-;; sBTC to their Bitcoin address. Otherwise, the staker receives sBTC.
+;; Settling is separated from paying out so that rewards can ACCUMULATE. A
+;; staker whose reward in any single cycle is below the sBTC dust limit (or
+;; below their own `min-claim`) can settle each cycle as it crystallizes and
+;; then make one payout covering all of them -- paying one Bitcoin fee instead
+;; of one per cycle, and clearing thresholds their per-cycle rewards never
+;; would. pox-5 keys rewards by cycle and never rolls them forward, so without
+;; this the small amounts would be individually unclaimable forever.
 ;;
-;; A third-party caller may only trigger an L1 payout once the staker's net
-;; reward reaches their `min-claim`; the staker themselves may claim any
-;; non-dust amount.
+;; Permissionless: settling costs the staker nothing, moves nothing out of the
+;; contract, and can only ever credit them. The `min-claim` gate that protects
+;; a staker from a third party burning their reward on Bitcoin fees belongs on
+;; `payout`, not here.
 ;;
-;; Returns `{ earned, withdrawal-request }` where `earned` is the net
-;; amount claimed for the staker after signer-manager fees and
-;; `withdrawal-request` is `(some id)` when an L1 sBTC withdrawal was
-;; initiated, or `none` for a direct sBTC payout.
-(define-public (claim-staker-rewards
+;; The signer-manager fee is taken at this point, at the rate snapshotted for
+;; that cycle, so a later rate change cannot revise it.
+(define-public (settle-staker-rewards
         (staker principal)
         (reward-cycle uint)
         (bond-index (optional uint))
@@ -382,96 +410,160 @@
                 bond-index: bond-index,
             })
             (bucket (default-to u0 (map-get? unclaimed-rewards-for-cycle bucket-key)))
-            (config (get-payout-config staker))
         )
         (asserts! (> earned u0) ERR_NO_CLAIMABLE_REWARDS)
         ;; This cycle's reserve must actually cover the payout: a claim against
         ;; one cycle can never be funded out of another cycle's reserve.
         (asserts! (>= bucket gross) ERR_NO_CLAIMABLE_REWARDS)
-        ;; Anyone may trigger a claim, but forcing a *Bitcoin* payout costs the
-        ;; staker up to `max-fee` in miner fees. Only the staker may do that
-        ;; below the floor they set.
+        (var-set earned-fees (+ (var-get earned-fees) fees))
+        ;; This staker's share is now owed to them individually, so move it
+        ;; from the cycle's pooled reserve into their pending balance. The
+        ;; contract's sBTC balance does not change; `gross == earned + fees`,
+        ;; so the total reserved against `sweep-fee-refunds` is unchanged too.
+        (map-set unclaimed-rewards-for-cycle bucket-key (- bucket gross))
+        (var-set total-unclaimed-rewards
+            (- (var-get total-unclaimed-rewards) gross)
+        )
+        (map-set pending-payouts staker (+ (get-pending-payout staker) earned))
+        (var-set total-pending-payouts
+            (+ (var-get total-pending-payouts) earned)
+        )
+        (print {
+            topic: "settle-staker-rewards",
+            staker: staker,
+            reward-cycle: reward-cycle,
+            bond-index: bond-index,
+            earned: earned,
+            fees: fees,
+            pending-payout: (get-pending-payout staker),
+        })
+        (ok earned)
+    )
+)
+
+;; Pay out everything a staker has settled, in one transfer.
+;;
+;; If the staker has an L1 payout config, the whole pending balance is
+;; withdrawn through sBTC to their Bitcoin address. Otherwise they receive
+;; sBTC directly.
+;;
+;; Permissionless, but a third party may only trigger an L1 payout once the
+;; accumulated balance reaches the staker's `min-claim`; the staker themselves
+;; may pay out any non-dust amount.
+;;
+;; Returns `{ amount, withdrawal-request }` where `amount` is what was paid
+;; out and `withdrawal-request` is `(some id)` when an L1 sBTC withdrawal was
+;; initiated, or `none` for a direct sBTC payout.
+(define-public (payout (staker principal))
+    (let (
+            (amount (get-pending-payout staker))
+            (config (get-payout-config staker))
+        )
+        (asserts! (> amount u0) ERR_NO_PENDING_PAYOUT)
+        ;; Anyone may trigger a payout, but forcing a *Bitcoin* payout costs
+        ;; the staker up to `max-fee` in miner fees. Only the staker may do
+        ;; that below the floor they set.
         (asserts!
             (or (is-eq tx-sender staker)
                 (match config
-                    l1-info (>= earned (get min-claim l1-info))
+                    l1-info (>= amount (get min-claim l1-info))
                     true
                 ))
             ERR_BELOW_MIN_CLAIM
         )
-        (var-set earned-fees (+ (var-get earned-fees) fees))
-        ;; This staker's share is being distributed now so release it from
-        ;; the unclaimed counts recorded when `claim-rewards` pulled it in.
-        (map-set unclaimed-rewards-for-cycle bucket-key (- bucket gross))
-        (var-set total-unclaimed-rewards
-            (- (var-get total-unclaimed-rewards) gross)
+        (map-delete pending-payouts staker)
+        (var-set total-pending-payouts
+            (- (var-get total-pending-payouts) amount)
         )
         ;; Bind the request-id surfaced when the payout was routed to L1 via
         ;; `initiate-withdrawal-request`, `none` when the staker was paid
         ;; directly in sBTC.
         (let ((withdrawal-request (try! (as-contract?
                 ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                    "sbtc-token" earned
+                    "sbtc-token" amount
                 ))
                 (match config
                     l1-info (let ((max-fee (get max-fee l1-info)))
                         ;; `initiate-withdrawal-request` asserts
-                        ;; `(> amount DUST_LIMIT)` on `earned - max-fee`.
-                        ;; Check it here so an unpayable claim fails with our
+                        ;; `(> amount DUST_LIMIT)` on `amount - max-fee`.
+                        ;; Check it here so an unpayable payout fails with our
                         ;; error rather than an opaque sBTC one -- and so the
-                        ;; subtraction below cannot underflow.
-                        (asserts! (> earned (+ max-fee DUST_LIMIT))
+                        ;; subtraction below cannot underflow. Settling more
+                        ;; cycles first is what clears this.
+                        (asserts! (> amount (+ max-fee DUST_LIMIT))
                             ERR_BELOW_DUST_LIMIT
                         )
                         (let (
-                                (amount (- earned max-fee))
+                                (withdrawal-amount (- amount max-fee))
                                 (withdrawal-request (try! (contract-call?
                                     'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-withdrawal
-                                    initiate-withdrawal-request amount
+                                    initiate-withdrawal-request withdrawal-amount
                                     (get pox-addr l1-info) max-fee
                                 )))
                             )
                             (print {
-                                topic: "claim-staker-rewards",
-                                amount-sats: earned,
+                                topic: "payout",
+                                amount-sats: amount,
                                 l1-withdrawal: (some (merge l1-info {
                                     withdrawal-request: withdrawal-request,
-                                    amount: amount,
+                                    amount: withdrawal-amount,
                                 })),
                                 staker: staker,
-                                reward-cycle: reward-cycle,
-                                bond-index: bond-index,
                             })
                             (map-set withdrawal-requests withdrawal-request staker)
-                            ;; `amount + max-fee` == `earned` left the balance
-                            ;; into the sBTC withdrawal system; record it as
-                            ;; staker liability.
+                            ;; `withdrawal-amount + max-fee` == `amount` left
+                            ;; the balance into the sBTC withdrawal system;
+                            ;; record it as staker liability.
                             (var-set withdrawal-liability
-                                (+ (var-get withdrawal-liability) earned)
+                                (+ (var-get withdrawal-liability) amount)
                             )
                             (some withdrawal-request)
                         )
                     )
                     (begin
                         (print {
-                            topic: "claim-staker-rewards",
-                            amount-sats: earned,
+                            topic: "payout",
+                            amount-sats: amount,
                             l1-withdrawal: none,
                             staker: staker,
-                            reward-cycle: reward-cycle,
-                            bond-index: bond-index,
                         })
                         (try! (contract-call?
                             'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                            transfer earned tx-sender staker none
+                            transfer amount tx-sender staker none
                         ))
                         ;; Direct sBTC payout: there is no L1 withdrawal to track.
                         none
                     )
                 )))))
             (ok {
-                earned: earned,
+                amount: amount,
                 withdrawal-request: withdrawal-request,
+            })
+        )
+    )
+)
+
+;; Settle one cycle and pay out immediately -- the one-shot convenience path,
+;; equivalent to `settle-staker-rewards` followed by `payout`.
+;;
+;; Note that `payout` drains the staker's WHOLE pending balance, so if earlier
+;; cycles were settled and not yet paid out, the amount returned here covers
+;; those too. A staker whose per-cycle reward is too small to pay out should
+;; call `settle-staker-rewards` per cycle and `payout` once instead.
+;;
+;; Returns `{ earned, withdrawal-request }`, where `earned` is the amount
+;; actually paid out.
+(define-public (claim-staker-rewards
+        (staker principal)
+        (reward-cycle uint)
+        (bond-index (optional uint))
+    )
+    (begin
+        (try! (settle-staker-rewards staker reward-cycle bond-index))
+        (let ((result (try! (payout staker))))
+            (ok {
+                earned: (get amount result),
+                withdrawal-request: (get withdrawal-request result),
             })
         )
     )
@@ -736,8 +828,10 @@
 ;;
 ;; The full unreserved amount is taken: the sBTC balance minus the fee
 ;; accumulator (`earned-fees`), the outstanding `withdrawal-liability`, the
-;; pooled `unclaimed-rewards-for-cycle` totals, and `credited-refunds`, so it
-;; can NEVER sweep funds owed to a staker. A rejected-but-unreclaimed
+;; pooled `unclaimed-rewards-for-cycle` totals, `credited-refunds`, and
+;; `total-pending-payouts`, so it can NEVER sweep funds owed to a staker --
+;; whether those funds are still pooled for a cycle or already settled to an
+;; individual staker awaiting `payout`. A rejected-but-unreclaimed
 ;; withdrawal's `amount + max-fee` is present in BOTH the sBTC balance (the
 ;; protocol returned it here) and in `withdrawal-liability` (the entry is still
 ;; live), so the two cancel and the refund stays untouchable, whether or not
@@ -941,6 +1035,15 @@
     (default-to u0 (map-get? staker-refunds staker))
 )
 
+;; Net rewards settled for this staker and awaiting `payout`.
+(define-read-only (get-pending-payout (staker principal))
+    (default-to u0 (map-get? pending-payouts staker))
+)
+
+(define-read-only (get-total-pending-payouts)
+    (var-get total-pending-payouts)
+)
+
 (define-read-only (get-credited-refunds)
     (var-get credited-refunds)
 )
@@ -958,6 +1061,7 @@
             )))
             (reserved (+ (var-get earned-fees) (var-get withdrawal-liability)
                 (var-get total-unclaimed-rewards) (var-get credited-refunds)
+                (var-get total-pending-payouts)
             ))
         )
         (if (>= balance reserved)
