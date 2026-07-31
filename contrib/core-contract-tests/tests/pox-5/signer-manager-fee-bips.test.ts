@@ -1,14 +1,23 @@
 // Pins the two fee constants of `contracts/signer-manager.clar`:
 //
-//   MAX_BIPS          u500    -- the cap enforced by `update-fees` (`<`, so the
-//                               highest settable rate is 499 bips = 4.99%)
+//   MAX_BIPS          u10000  -- the bound enforced by `update-fees` (`<`, so
+//                               the highest settable rate is 9999 bips, i.e.
+//                               99.99%)
 //   BIPS_DENOMINATOR  u10000  -- the divisor used when fees are taken from
 //                               rewards (`gross * bips / 10000`)
 //
-// Both matter: a wrong cap would let an admin take more than 5%, and a wrong
-// denominator would silently rescale every fee (e.g. /1000 turns 499 bips into
-// ~50%). The first block covers the cap, the second drives a real reward payout
-// and checks the arithmetic against the gross rewards pox-5 reports.
+// v1 is deliberately UNCAPPED: an admin of this contract may take essentially
+// all of a staker's rewards, and `MAX_BIPS` exists only to keep the rate a
+// fraction of the denominator rather than to limit it. A staker's protection is
+// choosing which signer to stake with, not a contract-enforced ceiling. The
+// v2 reference contract (`signer-manager-v2.clar`) is the one that caps fees,
+// at 5% -- see signer-manager-v2*.test.ts.
+//
+// So what these pin is: the rate can never reach 100% of rewards, and the
+// denominator is 10000. A wrong denominator would silently rescale every fee
+// (e.g. /1000 turns 499 bips into ~50%). The first block covers the bound, the
+// second drives a real reward payout and checks the arithmetic against the
+// gross rewards pox-5 reports.
 import { Cl } from "@stacks/transactions";
 import { describe, expect, it } from "vitest";
 import {
@@ -29,7 +38,7 @@ const MANAGER = "signer-manager";
 // other tests use.
 const POX5 = "ST000000000000000000002AMW42H.pox-5";
 
-const MAX_BIPS = 500;
+const MAX_BIPS = 10_000;
 const BIPS_DENOMINATOR = 10_000;
 const ERR_INVALID_FEES_BIPS = 1005;
 
@@ -53,21 +62,20 @@ const sbtcBalance = (who: string) =>
   );
 
 describe("update-fees enforces MAX_BIPS", () => {
-  it("accepts every rate below MAX_BIPS, up to 4.99%", () => {
-    for (const bips of [0, 1, 100, 250, MAX_BIPS - 1]) {
+  it("accepts every rate below MAX_BIPS, up to 99.99%", () => {
+    // Rates well past 5% are valid here by design -- v1 is uncapped.
+    for (const bips of [0, 1, 100, 250, 500, 1_000, 5_000, MAX_BIPS - 1]) {
       expect(updateFees(bips)).toBeOk(Cl.bool(true));
-      // sanity: everything accepted really is below 5%
-      expect(bips / BIPS_DENOMINATOR).toBeLessThan(0.05);
+      // sanity: everything accepted is still a proper fraction of the pot
+      expect(bips / BIPS_DENOMINATOR).toBeLessThan(1);
     }
   });
 
   it("rejects MAX_BIPS itself and anything above it", () => {
     for (const bips of [
-      MAX_BIPS, // exactly 5% -- the cap is `<`, not `<=`
+      MAX_BIPS, // exactly 100% -- the bound is `<`, not `<=`
       MAX_BIPS + 1,
-      1_000,
-      BIPS_DENOMINATOR,
-      BIPS_DENOMINATOR + 1,
+      20_000,
     ]) {
       expect(updateFees(bips)).toBeErr(Cl.uint(ERR_INVALID_FEES_BIPS));
     }
@@ -90,7 +98,10 @@ describe("fees are taken as bips / BIPS_DENOMINATOR", () => {
     ["0 bips takes nothing", 0],
     ["100 bips is exactly 1%", 100],
     ["250 bips is exactly 2.5%", 250],
-    ["499 bips (MAX_BIPS - 1) is 4.99%", MAX_BIPS - 1],
+    ["500 bips is exactly 5%", 500],
+    // v1 permits rates a capped contract never would; the arithmetic must
+    // hold there too, and the staker must still be left something.
+    ["9999 bips (MAX_BIPS - 1) is 99.99%", MAX_BIPS - 1],
   ];
 
   for (const [name, bips] of cases) {
@@ -113,8 +124,10 @@ describe("fees are taken as bips / BIPS_DENOMINATOR", () => {
       // The fee is a fraction of 10000, not of 100 or 1000: rounding aside,
       // `fee / gross` must equal `bips / 10000`.
       expect(expectedFee / gross).toBeCloseTo(bips / BIPS_DENOMINATOR, 6);
-      // ...and can never reach 5% of the rewards.
+      // ...and can never reach 100% of the rewards, so a claim always leaves
+      // the staker something. This is the only ceiling v1 has.
       expect(expectedFee * BIPS_DENOMINATOR).toBeLessThan(gross * MAX_BIPS);
+      expect(gross - expectedFee).toBeGreaterThan(0);
 
       // The payout matches the view: staker gets `gross - fee`, the contract
       // keeps `fee` as withdrawable admin fees.
