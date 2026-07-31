@@ -72,6 +72,7 @@ use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
     Timestamp,
 };
+use crate::burnchains::rpc::rpc_transport::RpcError;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -307,10 +308,32 @@ pub enum BitcoinRegtestControllerError {
     /// Error related to invalid or malformed [`Secp256k1PublicKey`].
     #[error("Invalid public key: {0}")]
     InvalidPublicKey(btc_error),
+    /// A descriptor import was rejected by the bitcoin node.
+    #[error("Importing descriptor failed: {0}")]
+    ImportDescriptors(String),
+    /// The configured mining wallet does not exist in the bitcoin node's wallet directory.
+    #[error("Configured bitcoin wallet `{0}` was not found; create or restore it before starting the miner")]
+    WalletNotFound(String),
 }
 
 /// Alias for results returned from [`BitcoinRegtestController`] operations.
 pub type BitcoinRegtestControllerResult<T> = Result<T, BitcoinRegtestControllerError>;
+
+impl BitcoinRegtestControllerError {
+    /// Whether retrying could plausibly succeed, i.e. bitcoind is not reachable
+    /// yet. Only connection-level failures clear on their own: a rejection from
+    /// bitcoind, or a serialization failure, will fail again identically.
+    fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            Self::Rpc(BitcoinRpcClientError::Rpc(
+                RpcError::NetworkIO(_)
+                    | RpcError::NetworkStacksLib(_)
+                    | RpcError::NetworkStacksCommon(_)
+            ))
+        )
+    }
+}
 
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
@@ -716,15 +739,70 @@ impl BitcoinRegtestController {
         Ok(self.get_rpc_client().list_wallets()?)
     }
 
-    /// Checks if the config-supplied wallet exists.
-    /// If it does not exist, this function creates it.
-    pub fn create_wallet_if_dne(&self) -> BitcoinRegtestControllerResult<()> {
-        let wallets = self.list_wallets()?;
-        let wallet = self.get_wallet_name();
-        if !wallets.contains(wallet) {
-            self.get_rpc_client().create_wallet(wallet, Some(true))?
+    /// Ensures the configured wallet exists and is loaded in the connected
+    /// bitcoin node, loading it from disk when needed.
+    ///
+    /// Operators who want the wallet to survive a bitcoind restart set
+    /// `wallet=<name>` in `bitcoin.conf`.
+    pub fn ensure_wallet_loaded(&self) -> BitcoinRegtestControllerResult<()> {
+        let wallet_name = self.get_wallet_name();
+
+        if self.list_wallets()?.iter().any(|name| name == wallet_name) {
+            return Ok(());
+        }
+
+        let on_disk_wallets = self.get_rpc_client().list_wallet_dir()?;
+        if on_disk_wallets.iter().any(|name| name == wallet_name) {
+            self.get_rpc_client().load_wallet(wallet_name)?;
+        } else {
+            return Err(BitcoinRegtestControllerError::WalletNotFound(
+                wallet_name.to_string(),
+            ));
         }
         Ok(())
+    }
+
+    /// Block until the miner's bitcoin wallet is loaded, retrying while
+    /// bitcoind may still be starting up. Fatal on misconfiguration or timeout.
+    pub fn ensure_miner_wallet_loaded(&self) {
+        /// Milliseconds to wait between wallet load attempts during startup
+        const WALLET_LOAD_INTERVAL_MS: u64 = 10_000;
+        /// Total wallet load attempts before giving up on bitcoind
+        const WALLET_LOAD_ATTEMPTS: u64 = 6;
+
+        let mut last_error = String::from("none recorded");
+        for attempt in 1..=WALLET_LOAD_ATTEMPTS {
+            match self.ensure_wallet_loaded() {
+                Ok(()) => return,
+                Err(e) if e.is_transient() => {
+                    warn!("Error ensuring bitcoin wallet is loaded, will retry: {e:?}");
+                    last_error = e.to_string();
+                }
+                // misconfiguration or a bug: retrying cannot fix it
+                Err(e) => panic!("FATAL: {e}"),
+            }
+            if attempt < WALLET_LOAD_ATTEMPTS {
+                sleep_ms(WALLET_LOAD_INTERVAL_MS);
+            }
+        }
+        panic!(
+            "FATAL: unable to load a bitcoin wallet after {WALLET_LOAD_ATTEMPTS} attempts, \
+             exiting. Last error: {last_error}"
+        );
+    }
+
+    /// Creates the configured test wallet when absent, then ensures it is
+    /// loaded. Production miners must provision their wallet before startup.
+    #[cfg(test)]
+    fn ensure_test_wallet_loaded(&self) -> BitcoinRegtestControllerResult<()> {
+        match self.ensure_wallet_loaded() {
+            Err(BitcoinRegtestControllerError::WalletNotFound(_)) => {
+                self.get_rpc_client()
+                    .create_wallet(self.get_wallet_name(), Some(true))?;
+                Ok(())
+            }
+            result => result,
+        }
     }
 
     pub fn get_utxos(
@@ -2157,9 +2235,9 @@ impl BitcoinRegtestController {
     ///  to the bitcoin single sig addresses corresponding to `pks` in a round robin fashion.
     #[cfg(test)]
     pub fn bootstrap_chain_to_pks(&self, num_blocks: u64, pks: &[Secp256k1PublicKey]) {
-        info!("Creating wallet if it does not exist");
-        if let Err(e) = self.create_wallet_if_dne() {
-            error!("Error when creating wallet: {e:?}");
+        info!("Ensuring the test wallet is loaded, creating it if needed");
+        if let Err(e) = self.ensure_test_wallet_loaded() {
+            error!("Error ensuring wallet is loaded: {e:?}");
         }
 
         for pk in pks {
@@ -2223,9 +2301,15 @@ impl BitcoinRegtestController {
         }
     }
 
-    /// Returns the configured wallet name from [`Config`].
-    fn get_wallet_name(&self) -> &String {
-        &self.config.burnchain.wallet_name
+    /// Returns the configured wallet name used for wallet RPC routing.
+    ///
+    /// Panics if no wallet is configured. Only miner paths route wallet RPCs, and
+    /// [`Config::from_config_file`] rejects a miner without a wallet name, so an
+    /// absent name here is a bug. Same as [`Self::get_rpc_client`].
+    fn get_wallet_name(&self) -> &str {
+        self.config.burnchain.wallet_name.as_deref().expect(
+            "BUG: `burnchain.wallet_name` is required for miners, but it is not configured!",
+        )
     }
 
     /// Imports a public key into configured wallet by registering its
@@ -2273,8 +2357,21 @@ impl BitcoinRegtestController {
                 internal: Some(true),
             };
 
-            self.get_rpc_client()
+            let results = self
+                .get_rpc_client()
                 .import_descriptors(self.get_wallet_name(), &[&descr_req])?;
+            // the RPC reports per-descriptor failures in the response body,
+            // e.g. when the target wallet has private keys enabled
+            for result in results {
+                if !result.success {
+                    return Err(BitcoinRegtestControllerError::ImportDescriptors(
+                        result.error.map_or_else(
+                            || format!("importing addr({address}) failed with no error message"),
+                            |e| format!("importing addr({address}) failed: {}", e.message),
+                        ),
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -2339,7 +2436,7 @@ impl BitcoinRegtestController {
         const MIN_CONFIRMATIONS: u64 = 0;
         const MAX_CONFIRMATIONS: u64 = 9_999_999;
         let unspents = self.get_rpc_client().list_unspent(
-            &self.get_wallet_name(),
+            self.get_wallet_name(),
             Some(MIN_CONFIRMATIONS),
             Some(MAX_CONFIRMATIONS),
             Some(&[address]),
@@ -2565,6 +2662,7 @@ mod tests {
         pub fn create_miner_config() -> Config {
             let mut config = Config::default();
             config.node.miner = true;
+            config.burnchain.wallet_name = Some("test-miner".to_string());
             config.burnchain.magic_bytes = "T3".as_bytes().into();
             config.burnchain.username = Some(String::from("user"));
             config.burnchain.password = Some(String::from("12345"));
@@ -3144,12 +3242,66 @@ mod tests {
         );
     }
 
+    // `Config::from_config_file` rejects a miner without a wallet name, so
+    // reaching a wallet RPC without one is a bug, not a recoverable error
+    #[test]
+    #[should_panic(expected = "burnchain.wallet_name")]
+    fn test_ensure_wallet_loaded_panics_without_wallet_name() {
+        let mut config = utils::create_miner_config();
+        config.burnchain.wallet_name = None;
+
+        let btc_controller = BitcoinRegtestController::new(config, None);
+
+        _ = btc_controller.ensure_wallet_loaded();
+    }
+
     #[test]
     #[ignore]
-    fn test_create_wallet_from_default_empty_name() {
+    fn test_ensure_wallet_loaded_reloads_unloaded_wallet() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
         }
+
+        let config = utils::create_miner_config();
+        let wallet_name = config
+            .burnchain
+            .wallet_name
+            .clone()
+            .expect("miner config sets a wallet name");
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .ensure_test_wallet_loaded()
+            .expect("Test wallet should be created!");
+
+        // simulate a bitcoind restart, after which no wallet is loaded
+        btc_controller
+            .get_rpc_client()
+            .unload_wallet(&wallet_name)
+            .expect("Wallet should be unloaded!");
+        assert_eq!(0, btc_controller.list_wallets().unwrap().len());
+
+        btc_controller
+            .ensure_wallet_loaded()
+            .expect("Wallet should be loaded from disk, not re-created!");
+
+        let wallets = btc_controller.list_wallets().unwrap();
+        assert_eq!(vec![wallet_name], wallets);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_wallet_rpcs_route_to_configured_wallet() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
 
         let config = utils::create_miner_config();
 
@@ -3159,28 +3311,68 @@ mod tests {
             .expect("bitcoind should be started!");
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .ensure_test_wallet_loaded()
+            .expect("Test wallet should be created!");
 
-        let wallets = btc_controller.list_wallets().unwrap();
-        assert_eq!(0, wallets.len());
+        // A second loaded wallet breaks node-level routing. The miner's RPCs
+        // must continue to use its configured wallet.
+        btc_controller
+            .get_rpc_client()
+            .create_wallet("other_wallet", Some(true))
+            .expect("other_wallet should be created!");
 
         btc_controller
-            .create_wallet_if_dne()
-            .expect("Wallet should now exists!");
-
-        let wallets = btc_controller.list_wallets().unwrap();
-        assert_eq!(1, wallets.len());
-        assert_eq!("".to_owned(), wallets[0]);
+            .import_public_key(&miner_pubkey)
+            .expect("Import should succeed via explicit routing to the configured wallet!");
     }
 
     #[test]
     #[ignore]
-    fn test_create_wallet_from_custom_name() {
+    fn test_import_public_key_fails_on_wallet_with_private_keys() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let mut config = utils::create_miner_config();
+        config.burnchain.wallet_name = Some("keyed".to_string());
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .get_rpc_client()
+            .create_wallet("keyed", Some(false))
+            .expect("keyed wallet should be created!");
+
+        btc_controller
+            .ensure_wallet_loaded()
+            .expect("Configured wallet should already be loaded!");
+
+        let result = btc_controller.import_public_key(&miner_pubkey);
+        assert!(
+            matches!(
+                result,
+                Err(BitcoinRegtestControllerError::ImportDescriptors(_))
+            ),
+            "Watch-only import into a wallet with private keys should fail, got: {result:?}"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_ensure_wallet_loaded_fails_if_wallet_missing() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
         }
 
         let mut config = utils::create_miner_config();
-        config.burnchain.wallet_name = String::from("mywallet");
+        config.burnchain.wallet_name = Some(String::from("mywallet"));
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
@@ -3189,13 +3381,11 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
-        btc_controller
-            .create_wallet_if_dne()
-            .expect("Wallet should now exists!");
-
-        let wallets = btc_controller.list_wallets().unwrap();
-        assert_eq!(1, wallets.len());
-        assert_eq!("mywallet".to_owned(), wallets[0]);
+        assert!(matches!(
+            btc_controller.ensure_wallet_loaded(),
+            Err(BitcoinRegtestControllerError::WalletNotFound(ref name)) if name == "mywallet"
+        ));
+        assert!(btc_controller.list_wallets().unwrap().is_empty());
     }
 
     #[test]
@@ -3349,11 +3539,12 @@ mod tests {
             .start_bitcoind()
             .expect("bitcoind should be started!");
 
+        // Miner RPC routing must survive another miner's wallet being loaded.
         let miner1_btc_controller = BitcoinRegtestController::new(config.clone(), None);
         miner1_btc_controller.bootstrap_chain(1); // one utxo for miner_pubkey related address
 
         config.burnchain.local_mining_public_key = Some(miner2_pubkey.to_hex());
-        config.burnchain.wallet_name = "miner2_wallet".to_string();
+        config.burnchain.wallet_name = Some("miner2_wallet".to_string());
         let miner2_btc_controller = BitcoinRegtestController::new(config, None);
         miner2_btc_controller.bootstrap_chain(102); // two utxo for other_pubkeys related address
 
@@ -3561,8 +3752,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
-            .create_wallet_if_dne()
-            .expect("Wallet should be created!");
+            .ensure_test_wallet_loaded()
+            .expect("Test wallet should be created!");
 
         let result = btc_controller.import_public_key(&miner_pubkey);
         assert!(
@@ -3590,8 +3781,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
-            .create_wallet_if_dne()
-            .expect("Wallet should be created!");
+            .ensure_test_wallet_loaded()
+            .expect("Test wallet should be created!");
 
         btc_controller
             .import_public_key(&miner_pubkey)
@@ -3625,8 +3816,8 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
         btc_controller
-            .create_wallet_if_dne()
-            .expect("Wallet should be created!");
+            .ensure_test_wallet_loaded()
+            .expect("Test wallet should be created!");
 
         let result = btc_controller.import_public_key(&miner_pubkey);
         assert!(
