@@ -27,8 +27,9 @@ const ERR_BELOW_DUST_LIMIT = 1012;
 const ERR_BELOW_MIN_CLAIM = 1013;
 const ERR_INVALID_MIN_CLAIM = 1014;
 const ERR_CANNOT_REMOVE_SELF = 1015;
-const ERR_NOT_SELF = 1016;
-const ERR_NO_REFUND_CREDIT = 1019;
+const ERR_NO_REFUND_CREDIT = 1017;
+// pox-5's ERR_SIGNER_KEY_GRANT_NOT_FOUND, not one of ours.
+const POX5_ERR_SIGNER_KEY_GRANT_NOT_FOUND = 17;
 
 const DUST_LIMIT = 546;
 
@@ -494,19 +495,26 @@ describe("admin hardening", () => {
   });
 
   it("rejects register-self for a contract other than itself", () => {
+    // The manager does not check this itself; pox-5's `register-signer` does.
+    // `grant-signer-key` is called with `current-contract`, so the grant is
+    // issued to this manager -- and `register-signer` then looks the grant up
+    // under the *trait* principal, finds none for the foreign contract, and
+    // fails with ERR_SIGNER_KEY_GRANT_NOT_FOUND. (That lookup runs before
+    // pox-5's own `contract-caller` check, so u17 is what surfaces, not
+    // ERR_UNAUTHORIZED_SIGNER_REGISTRATION.)
+    //
+    // The grant signature is a real one for this manager, so the call gets
+    // past `grant-signer-key` and actually reaches `register-signer` -- a
+    // dummy signature would fail earlier with ERR_INVALID_SIGNATURE_RECOVER
+    // and prove nothing about the trait argument.
     expect(
-      simnet.callPublicFn(
-        MANAGER,
-        "register-self",
-        [
-          Cl.principal(`${deployer}.signer-manager`),
-          Cl.buffer(new Uint8Array(33)),
-          Cl.uint(1),
-          Cl.buffer(new Uint8Array(65)),
-        ],
-        deployer,
-      ).result,
-    ).toBeErr(Cl.uint(ERR_NOT_SELF));
+      registerSigner(deployer, MANAGER, POX5, `${deployer}.signer-manager`)
+        .result,
+    ).toBeErr(Cl.uint(POX5_ERR_SIGNER_KEY_GRANT_NOT_FOUND));
+
+    // The whole transaction reverted, so the single-use grant was not
+    // consumed and registering itself still works.
+    expectOk(registerSigner(deployer, MANAGER, POX5).result, "register-self");
   });
 });
 

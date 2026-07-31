@@ -35,11 +35,20 @@ export function expectOk(cv: ClarityValue, label: string) {
   return cv;
 }
 
-/** Register the manager contract as a pox-5 signer. */
+/**
+ * Register the manager contract as a pox-5 signer.
+ *
+ * `traitPrincipal` overrides the trait argument passed to `register-self`,
+ * which otherwise is the manager itself. Pass a different contract to check
+ * that registering on behalf of someone else is refused -- note the grant
+ * signature is still built for `manager`, so the call gets far enough to reach
+ * pox-5's `register-signer` rather than failing signature recovery first.
+ */
 export function registerSigner(
   deployer: string,
   manager: string = MANAGER,
   pox5: string = POX5,
+  traitPrincipal?: string,
 ) {
   const signerKey = privateKeyToPublic(SIGNER_PRIVKEY);
   const authId = 1;
@@ -59,7 +68,7 @@ export function registerSigner(
     manager,
     "register-self",
     [
-      Cl.principal(managerPrincipal(deployer, manager)),
+      Cl.principal(traitPrincipal ?? managerPrincipal(deployer, manager)),
       Cl.bufferFromHex(signerKey),
       Cl.uint(authId),
       Cl.bufferFromHex(sig),

@@ -11905,16 +11905,6 @@ export const contracts = {
         },
         access: 'constant',
       } as TypedAbiVariable<Response<null, bigint>>,
-      ERR_NOT_SELF: {
-        name: 'ERR_NOT_SELF',
-        type: {
-          response: {
-            ok: 'none',
-            error: 'uint128',
-          },
-        },
-        access: 'constant',
-      } as TypedAbiVariable<Response<null, bigint>>,
       ERR_NO_CLAIMABLE_REWARDS: {
         name: 'ERR_NO_CLAIMABLE_REWARDS',
         type: {
@@ -12091,17 +12081,13 @@ export const contracts = {
         isOk: false,
         value: 1_004n,
       },
-      ERR_NOT_SELF: {
-        isOk: false,
-        value: 1_016n,
-      },
       ERR_NO_CLAIMABLE_REWARDS: {
         isOk: false,
         value: 1_001n,
       },
       ERR_NO_PENDING_PAYOUT: {
         isOk: false,
-        value: 1_017n,
+        value: 1_016n,
       },
       ERR_NO_REFUNDS: {
         isOk: false,
@@ -12109,7 +12095,7 @@ export const contracts = {
       },
       ERR_NO_REFUND_CREDIT: {
         isOk: false,
-        value: 1_019n,
+        value: 1_017n,
       },
       ERR_UNAUTHORIZED_ADMIN: {
         isOk: false,

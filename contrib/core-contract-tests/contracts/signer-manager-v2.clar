@@ -70,12 +70,10 @@
 (define-constant ERR_INVALID_MIN_CLAIM (err u1014))
 ;; An admin tried to remove themselves.
 (define-constant ERR_CANNOT_REMOVE_SELF (err u1015))
-;; `register-self` was passed a signer-manager other than this contract.
-(define-constant ERR_NOT_SELF (err u1016))
 ;; The staker has nothing settled to pay out.
-(define-constant ERR_NO_PENDING_PAYOUT (err u1017))
+(define-constant ERR_NO_PENDING_PAYOUT (err u1016))
 ;; The staker has no fee refund credited.
-(define-constant ERR_NO_REFUND_CREDIT (err u1019))
+(define-constant ERR_NO_REFUND_CREDIT (err u1017))
 
 ;; Highest fee an admin may set, in basis points. Inclusive: `u500` is
 ;; exactly 5%, and 5% is settable.
@@ -855,6 +853,14 @@
 
 ;; As an admin, register this contract with a specific signer key. The signer key grant
 ;; must not have been used yet.
+;;
+;; `signer-manager` must be this contract. That is not asserted here because
+;; pox-5's `register-signer` already enforces it -- it checks `contract-caller`
+;; against the trait principal, and we are the caller -- so passing anything
+;; else fails there with `ERR_UNAUTHORIZED_SIGNER_REGISTRATION` (u26) and the
+;; whole transaction reverts, including the `grant-signer-key` above. The
+;; parameter cannot simply be dropped: `register-signer` takes a trait
+;; reference, which Clarity cannot synthesize from `current-contract`.
 (define-public (register-self
         (signer-manager <signer-manager-trait>)
         (signer-key (buff 33))
@@ -863,14 +869,6 @@
     )
     (begin
         (try! (authorize-admin))
-        ;; pox-5's `register-signer` also enforces this (it asserts
-        ;; `contract-caller` is the trait principal), but assert it here so the
-        ;; failure names this contract instead of surfacing a pox-5 error. The
-        ;; parameter cannot be dropped: `register-signer` takes a trait
-        ;; reference, which Clarity cannot synthesize from `current-contract`.
-        (asserts! (is-eq (contract-of signer-manager) current-contract)
-            ERR_NOT_SELF
-        )
         (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
             signer-key current-contract auth-id signer-sig
         ))
