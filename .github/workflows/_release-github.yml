@@ -51,7 +51,7 @@ jobs:
       contents: read       # required for checkout inside release-build.yml
       id-token: write      # required for attestation inside release-build.yml
       attestations: write  # required for attestation inside release-build.yml
-    uses: ./.github/workflows/release-build.yml
+    uses: ./.github/workflows/_release-build.yml
     with:
       tag: ${{ inputs.tag }}
 
@@ -77,7 +77,7 @@ jobs:
           - stacks-core
           - stacks-signer
     # Build the docker images
-    uses: ./.github/workflows/release-docker.yml
+    uses: ./.github/workflows/_release-docker.yml
     with:
       tag: ${{ inputs.tag }} # 3-part version shared by the node and signer, i.e. 4.0.0
       release_type: ${{ matrix.type }} # one of stacks-signer or stacks-core

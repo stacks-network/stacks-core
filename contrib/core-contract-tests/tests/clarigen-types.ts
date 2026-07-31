@@ -5708,7 +5708,7 @@ export const contracts = {
                   { name: 'cycles-to-extend', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   { name: 'old-signer', type: 'principal' },
-                  { name: 'prev-unlock-cycle', type: 'uint128' },
+                  { name: 'prev-unlock-height', type: 'uint128' },
                   { name: 'signer', type: 'principal' },
                   { name: 'staker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
@@ -5734,7 +5734,7 @@ export const contracts = {
             cyclesToExtend: bigint;
             numCycles: bigint;
             oldSigner: string;
-            prevUnlockCycle: bigint;
+            prevUnlockHeight: bigint;
             signer: string;
             staker: string;
             unlockBurnHeight: bigint;
@@ -7380,11 +7380,6 @@ export const contracts = {
         type: 'uint128',
         access: 'constant',
       } as TypedAbiVariable<bigint>,
-      BOND_LENGTH_PERIODS: {
-        name: 'BOND_LENGTH_PERIODS',
-        type: 'uint128',
-        access: 'constant',
-      } as TypedAbiVariable<bigint>,
       ERR_ACTIVE_BOND_NOT_INCLUDED: {
         name: 'ERR_ACTIVE_BOND_NOT_INCLUDED',
         type: {
@@ -7999,7 +7994,6 @@ export const contracts = {
       BITCOIN_LOCKTIME_THRESHOLD: 500_000_000n,
       BOND_GAP_CYCLES: 2n,
       BOND_LENGTH_CYCLES: 12n,
-      BOND_LENGTH_PERIODS: 6n,
       ERR_ACTIVE_BOND_NOT_INCLUDED: {
         isOk: false,
         value: 33n,
@@ -8458,7 +8452,7 @@ export const contracts = {
                   { name: 'cycles-to-extend', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   { name: 'old-signer', type: 'principal' },
-                  { name: 'prev-unlock-cycle', type: 'uint128' },
+                  { name: 'prev-unlock-height', type: 'uint128' },
                   { name: 'signer', type: 'principal' },
                   { name: 'staker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
@@ -8484,7 +8478,7 @@ export const contracts = {
             cyclesToExtend: bigint;
             numCycles: bigint;
             oldSigner: string;
-            prevUnlockCycle: bigint;
+            prevUnlockHeight: bigint;
             signer: string;
             staker: string;
             unlockBurnHeight: bigint;
@@ -10453,10 +10447,7 @@ export const contracts = {
               ok: {
                 tuple: [
                   { name: 'earned', type: 'uint128' },
-                  {
-                    name: 'withdrawal-request',
-                    type: { optional: 'uint128' },
-                  },
+                  { name: 'withdrawal-request', type: { optional: 'uint128' } },
                 ],
               },
               error: 'uint128',
