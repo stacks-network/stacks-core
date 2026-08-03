@@ -260,7 +260,6 @@ fn copy_burnchain_db_inner(
     conn: &Connection,
     canonical_hashes: &[BurnchainHeaderHash],
 ) -> Result<BurnchainDbCopyStats, Error> {
-    let spec = BurnchainDbSnapshotSpec;
     clone_schemas_from_source(conn, &BurnchainDbSnapshotSpec::table_names())?;
 
     populate_canonical_burn_hashes(conn, canonical_hashes)?;
@@ -275,7 +274,7 @@ fn copy_burnchain_db_inner(
         )));
     }
 
-    let results = spec.run_copy(conn)?;
+    let results = BurnchainDbSnapshotSpec.run_copy(conn)?;
 
     let stats = BurnchainDbCopyStats {
         block_headers_rows: copied_rows(&results, "burnchain_db_block_headers"),

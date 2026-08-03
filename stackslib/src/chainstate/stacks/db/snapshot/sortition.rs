@@ -470,10 +470,10 @@ fn copy_sortition_tables_inner(
     populate_canonical_sortitions(src_conn, session_conn)?;
 
     // Execute descriptor-driven copies.
-    let spec = SortitionDbSnapshotSpec {
+    let results = SortitionDbSnapshotSpec {
         boundary: stacks_boundary.cloned(),
-    };
-    let results = spec.run_copy(session_conn)?;
+    }
+    .run_copy(session_conn)?;
     if !session_conn.stacks_tip_memos_within_boundary(stacks_boundary)? {
         return Err(Error::CorruptionError(
             "copied sortition tip row points past the Stacks MARF boundary".into(),

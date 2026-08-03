@@ -381,10 +381,9 @@ pub fn copy_nakamoto_staging_blocks(
         &[("src", src_nakamoto_path), ("idx", squashed_index_path)],
         "",
         |conn| {
-            let spec = NakamotoStagingDbSnapshotSpec;
             clone_schemas_from_source(conn, &NakamotoStagingDbSnapshotSpec::table_names())?;
 
-            let results = spec.run_copy(conn)?;
+            let results = NakamotoStagingDbSnapshotSpec.run_copy(conn)?;
 
             let total_blob_bytes: i64 = conn.query_row(
                 "SELECT COALESCE(SUM(LENGTH(data)), 0) FROM nakamoto_staging_blocks",

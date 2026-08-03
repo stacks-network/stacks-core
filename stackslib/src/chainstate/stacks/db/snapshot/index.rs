@@ -321,8 +321,7 @@ fn copy_tables_inner(
     let max_reward_cycle =
         derive_max_reward_cycle(conn, &canonical_tip, first_burn_height, reward_cycle_len)?;
 
-    let spec = IndexDbSnapshotSpec { max_reward_cycle };
-    let results = spec.run_copy(conn)?;
+    let results = IndexDbSnapshotSpec { max_reward_cycle }.run_copy(conn)?;
 
     conn.execute_batch("DROP TABLE IF EXISTS canonical_blocks")
         .map_err(Error::SQLError)?;

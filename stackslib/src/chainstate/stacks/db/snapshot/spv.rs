@@ -135,10 +135,9 @@ fn copy_spv_headers_inner(
     conn: &Connection,
     burn_height: u64,
 ) -> Result<SpvHeadersCopyStats, Error> {
-    let spec = SpvDbSnapshotSpec { burn_height };
     clone_schemas_from_source(conn, &SpvDbSnapshotSpec::table_names())?;
 
-    let results = spec.run_copy(conn)?;
+    let results = SpvDbSnapshotSpec { burn_height }.run_copy(conn)?;
 
     let stats = SpvHeadersCopyStats {
         headers_rows: copied_rows(&results, "headers"),
