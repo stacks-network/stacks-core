@@ -51,13 +51,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-      # Install nextest
-      - name: Install nextest
-        uses: ./.github/actions/install-tool
-        with:
-          tools: nextest
-          
       # Restore Nextest archive artifact
+      #   - also provides the nextest binary bundled in the artifact
       - name: Restore Nextest Archive Artifact
         uses: ./.github/actions/artifacts/nextest-archive
         with:
@@ -110,8 +105,7 @@ jobs:
       - integration-tests
     if: |
       always() && 
-      !cancelled() &&
-      github.event_name != 'merge_group'
+      !cancelled()
     runs-on: ubuntu-latest
     steps:
       # Checkout the code

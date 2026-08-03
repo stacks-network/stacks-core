@@ -1,6 +1,6 @@
-# Github workflow to run p2p tests
+# Github workflow to run epoch tests
 
-name: "Tests: P2P"
+name: "Tests: Epoch"
 
 on:
   workflow_call:
@@ -19,21 +19,21 @@ permissions:
   contents: read
 
 # Set default env vars
-#  - transferred to composite action steps
+#   - transferred to composite action steps
 env:
-  BITCOIND_TEST: 0
+  BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
 
 # Configure concurrency
 concurrency:
-  group: stackslib-tests-${{ github.head_ref || github.ref || github.run_id }}
+  group: epoch-tests-${{ github.head_ref || github.ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  # P2P integration tests with code coverage
-  integration-tests:
-    name: Integration Tests
+  # Epoch integration tests with code coverage
+  epoch-tests:
+    name: Epoch Tests
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     strategy:
@@ -41,23 +41,25 @@ jobs:
       fail-fast: false
       matrix:
         test-name:
-          - net::tests::convergence::test_walk_ring_allow_15
-          - net::tests::convergence::test_walk_ring_15_plain
-          - net::tests::convergence::test_walk_ring_15_pingback
-          - net::tests::convergence::test_walk_ring_15_org_biased
-          - net::tests::convergence::test_walk_line_allowed_15
-          - net::tests::convergence::test_walk_line_15_plain
-          - net::tests::convergence::test_walk_line_15_org_biased
-          - net::tests::convergence::test_walk_line_15_pingback
-          - net::tests::convergence::test_walk_star_allowed_15
-          - net::tests::convergence::test_walk_star_15_plain
-          - net::tests::convergence::test_walk_star_15_pingback
-          - net::tests::convergence::test_walk_star_15_org_biased
-          - net::tests::convergence::test_walk_inbound_line_15
-          - net::server::test::test_http_10_threads_getinfo
-          - net::server::test::test_http_10_threads_getblock
-          - net::server::test::test_http_too_many_clients
-          - net::server::test::test_http_slow_client
+          - tests::epoch_205::test_cost_limit_switch_version205
+          - tests::epoch_205::test_dynamic_db_method_costs
+          - tests::epoch_205::test_exact_block_costs
+          - tests::epoch_205::transition_empty_blocks
+          - tests::epoch_21::test_sortition_divergence_pre_21
+          - tests::epoch_21::test_v1_unlock_height_with_current_stackers
+          - tests::epoch_21::test_v1_unlock_height_with_delay_and_current_stackers
+          - tests::epoch_21::trait_invocation_cross_epoch
+          - tests::epoch_21::transition_adds_burn_block_height
+          - tests::epoch_21::transition_adds_get_pox_addr_recipients
+          - tests::epoch_21::transition_adds_mining_from_segwit
+          - tests::epoch_21::transition_empty_blocks
+          - tests::epoch_21::transition_fixes_bitcoin_rigidity
+          - tests::epoch_21::transition_removes_pox_sunset
+          - tests::epoch_22::disable_pox
+          - tests::epoch_22::pox_2_unlock_all
+          - tests::epoch_23::trait_invocation_behavior
+          - tests::epoch_24::fix_to_pox_contract
+          - tests::epoch_24::verify_auto_unlock_behavior
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -83,11 +85,10 @@ jobs:
   check-tests:
     name: Check Tests
     needs:
-      - integration-tests
+      - epoch-tests
     if: |
-      always() && 
-      !cancelled() &&
-      github.event_name != 'merge_group'
+      always() &&
+      !cancelled()
     runs-on: ubuntu-latest
     steps:
       # Checkout the code

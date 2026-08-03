@@ -154,7 +154,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5590d0be60ef75a9e1ec85068fde34fad5d3ee833db3c6d044d26b7d8a24b00f",
+    marf_hash: "5ba9a59c7c72e61b5114660d65fedc2e7c07ae04ef4acc362596c1339068dbe6",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +184,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a3231938f5e2f58445f8225f630f6e6cdb88fc9f3b294302412247ced924e546",
+    marf_hash: "a51835c3643066e698970088496a92d77933fe4ee2bdaedcc91851273d915aaa",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -214,7 +214,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e0d38f259a4788c3f7c27c7da156ece62e25925dcd50447453418f8bab3eb992",
+    marf_hash: "f35e6d1cb34f098f8f5c7eff838d22c3a006ff1b59257d59da82a276582d489f",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -244,7 +244,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a058e62bbd4fc458e91192bba17efb199309e35161e81a9b07ddcb34076f5efa",
+    marf_hash: "aa56722e0488c7de10712ac6a8436a11e8f2a504c6c04f130b9812a6e15d0730",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -274,7 +274,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "25d7641863fba932a1556fcd3167ade9d0b3205c149918163d88394d7d1d83a9",
+    marf_hash: "78881ee93ddae5018cb1a93dcd77ddbd64a793aacb13c448d86215db74c12995",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
@@ -304,7 +304,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "00304ba777586105b0d8707b80b27b56364f56ec0ec954ccea3f49bd27ff8d51",
+    marf_hash: "28d23406270ce55cf80acba758512f319fa33da1cb6c2090824b691d98c6f455",
     evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
