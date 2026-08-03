@@ -642,7 +642,7 @@ impl SequenceData {
     /// `String(UTF8)`, and elements for `List`.
     ///
     /// This is intended for variadic builders (e.g. Clarity 6's
-    /// `special_concat_v600`) that know the final size up front and want
+    /// `special_concat_v400`) that know the final size up front and want
     /// to do a single allocation.
     pub fn reserve(&mut self, additional: usize) {
         match self {
