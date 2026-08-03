@@ -34,7 +34,10 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, Txid};
 use stacks_common::util::hash::Hash160;
 
-use crate::check_transaction_postconditions;
+use crate::{
+    UnsupportedPostCondition, check_post_conditions_supported_in_epoch,
+    check_transaction_postconditions,
+};
 
 #[test]
 fn test_check_postconditions_multiple_fts() {
@@ -2436,42 +2439,42 @@ fn test_check_postconditions_pox() {
 
     // (expected_pass, post_conditions, mode, epoch)
     let tests = vec![
-        // Allow mode: uncovered unstaking is permitted.
+        // Allow mode: an uncovered PoX action is permitted.
         (
             true,
             vec![],
             TransactionPostConditionMode::Allow,
             StacksEpochId::Epoch40,
         ),
-        // Deny mode: uncovered unstaking is forbidden.
+        // Deny mode: an uncovered PoX action is forbidden.
         (
             false,
             vec![],
             TransactionPostConditionMode::Deny,
             StacksEpochId::Epoch40,
         ),
-        // `MaybeUnstaked` opts in, so an unstake passes even in Deny mode.
+        // `MaybePerformed` opts in, so the action passes even in Deny mode.
         (
             true,
             vec![allow_pox()],
             TransactionPostConditionMode::Deny,
             StacksEpochId::Epoch40,
         ),
-        // `Unstaked` (must) is satisfied since an unstake occurred.
+        // `Performed` (must) is satisfied since an action occurred.
         (
             true,
             vec![require_pox()],
             TransactionPostConditionMode::Deny,
             StacksEpochId::Epoch40,
         ),
-        // `NotUnstaked` fails in allow mode because an unstake occurred.
+        // `NotPerformed` fails in allow mode because an action occurred.
         (
             false,
             vec![forbid_pox()],
             TransactionPostConditionMode::Allow,
             StacksEpochId::Epoch40,
         ),
-        // Before epoch 4.0, unstaking is not enforced even in Deny mode.
+        // Before epoch 4.0, coverage of PoX actions is not enforced even in Deny mode.
         (
             true,
             vec![],
@@ -2497,7 +2500,7 @@ fn test_check_postconditions_pox() {
         );
     }
 
-    // `NotUnstaked` passes when no unstake occurred.
+    // `NotPerformed` passes when no PoX action occurred.
     let empty = AssetMap::new();
     let result = check_transaction_postconditions(
         &[forbid_pox()],
@@ -2509,6 +2512,416 @@ fn test_check_postconditions_pox() {
     )
     .unwrap();
     assert!(result.is_none());
+}
+
+#[test]
+fn test_check_post_conditions_supported_in_epoch() {
+    let contract_addr = StacksAddress::new(1, Hash160([0x01; 20])).unwrap();
+    let asset_info = AssetInfo {
+        contract_address: contract_addr,
+        contract_name: ContractName::try_from("hello-world").unwrap(),
+        asset_name: ClarityName::try_from("test-asset").unwrap(),
+    };
+
+    let nft = |code| {
+        TransactionPostCondition::Nonfungible(
+            PostConditionPrincipal::Origin,
+            asset_info.clone(),
+            Value::UInt(1),
+            code,
+        )
+    };
+    let staking = || {
+        TransactionPostCondition::Staking(
+            PostConditionPrincipal::Origin,
+            FungibleConditionCode::SentLe,
+            100,
+        )
+    };
+    let pox = || {
+        TransactionPostCondition::Pox(
+            PostConditionPrincipal::Origin,
+            PoxConditionCode::MaybePerformed,
+        )
+    };
+    let stx = || {
+        TransactionPostCondition::STX(
+            PostConditionPrincipal::Origin,
+            FungibleConditionCode::SentEq,
+            1,
+        )
+    };
+
+    // SIP-040 (`Originator` mode, NFT `MaybeSent`) activates in Stacks 3.4;
+    // `Staking` / `Pox` activate in Stacks 4.0.
+    // (expected, post_conditions, mode, epoch)
+    let tests = vec![
+        (
+            Err(UnsupportedPostCondition::OriginatorMode),
+            vec![],
+            TransactionPostConditionMode::Originator,
+            StacksEpochId::Epoch33,
+        ),
+        (
+            Ok(()),
+            vec![],
+            TransactionPostConditionMode::Originator,
+            StacksEpochId::Epoch34,
+        ),
+        (
+            Err(UnsupportedPostCondition::NftMaybeSent),
+            vec![nft(NonfungibleConditionCode::MaybeSent)],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch33,
+        ),
+        (
+            Ok(()),
+            vec![nft(NonfungibleConditionCode::MaybeSent)],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch34,
+        ),
+        (
+            Ok(()),
+            vec![nft(NonfungibleConditionCode::Sent)],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch33,
+        ),
+        (
+            Err(UnsupportedPostCondition::StakingOrPox),
+            vec![staking()],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch34,
+        ),
+        (
+            Err(UnsupportedPostCondition::StakingOrPox),
+            vec![pox()],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch34,
+        ),
+        (
+            Ok(()),
+            vec![staking(), pox()],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch40,
+        ),
+        // an unsupported condition mixed in among supported ones is still caught
+        (
+            Err(UnsupportedPostCondition::StakingOrPox),
+            vec![stx(), staking()],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch34,
+        ),
+        (
+            Ok(()),
+            vec![stx()],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch33,
+        ),
+        // the mode check takes precedence over an also-unsupported variant
+        (
+            Err(UnsupportedPostCondition::OriginatorMode),
+            vec![nft(NonfungibleConditionCode::MaybeSent)],
+            TransactionPostConditionMode::Originator,
+            StacksEpochId::Epoch33,
+        ),
+        (
+            Ok(()),
+            vec![
+                stx(),
+                staking(),
+                pox(),
+                nft(NonfungibleConditionCode::MaybeSent),
+            ],
+            TransactionPostConditionMode::Originator,
+            StacksEpochId::latest(),
+        ),
+    ];
+
+    for (expected, post_conditions, mode, epoch) in tests {
+        let result = check_post_conditions_supported_in_epoch(&post_conditions, &mode, epoch);
+        assert_eq!(
+            result, expected,
+            "test failed:\nscenario: {post_conditions:?} mode={mode:?} epoch={epoch:?}"
+        );
+    }
+}
+
+/// A post-condition rejected at admission is still evaluated by
+/// [`check_transaction_postconditions`] in that epoch, which is why callers
+/// need both checks.
+#[test]
+fn test_epoch_admission_is_independent_of_asset_check() {
+    let privk = StacksPrivateKey::from_hex(
+        "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+    )
+    .unwrap();
+    let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+    let origin = auth.origin().address_testnet().to_account_principal();
+
+    let mut staked = AssetMap::new();
+    staked
+        .add_stacking(&origin, 100, StacksEpochId::Epoch33)
+        .unwrap();
+
+    // a limit below the staked amount, so the asset check would fail it
+    let post_conditions = vec![TransactionPostCondition::Staking(
+        PostConditionPrincipal::Origin,
+        FungibleConditionCode::SentLe,
+        99,
+    )];
+
+    // admission rejects it before Stacks 4.0...
+    assert_eq!(
+        check_post_conditions_supported_in_epoch(
+            &post_conditions,
+            &TransactionPostConditionMode::Allow,
+            StacksEpochId::Epoch33,
+        ),
+        Err(UnsupportedPostCondition::StakingOrPox)
+    );
+
+    // ...yet the asset check still evaluates it in that same epoch
+    assert!(
+        check_transaction_postconditions(
+            &post_conditions,
+            &TransactionPostConditionMode::Allow,
+            &origin,
+            &staked,
+            StacksEpochId::Epoch33,
+            Txid([0; 32]),
+        )
+        .unwrap()
+        .is_some()
+    );
+}
+
+/// Staking coverage is per-principal: `Originator` mode only requires the
+/// origin to be covered, and a condition naming one principal does not cover
+/// another.
+#[test]
+fn test_check_postconditions_staking_non_origin() {
+    let privk = StacksPrivateKey::from_hex(
+        "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+    )
+    .unwrap();
+    let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+    let origin = auth.origin().address_testnet().to_account_principal();
+    let other_addr = StacksAddress::new(1, Hash160([0xee; 20])).unwrap();
+    let other = other_addr.to_account_principal();
+
+    // only a non-origin principal staked
+    let mut other_staked = AssetMap::new();
+    other_staked
+        .add_stacking(&other, 100, StacksEpochId::Epoch40)
+        .unwrap();
+
+    let cover_other = || {
+        TransactionPostCondition::Staking(
+            PostConditionPrincipal::Standard(other_addr.clone()),
+            FungibleConditionCode::SentLe,
+            100,
+        )
+    };
+    let cover_origin = || {
+        TransactionPostCondition::Staking(
+            PostConditionPrincipal::Origin,
+            FungibleConditionCode::SentLe,
+            100,
+        )
+    };
+
+    // (expected_pass, post_conditions, mode)
+    let tests = vec![
+        (true, vec![], TransactionPostConditionMode::Originator),
+        (false, vec![], TransactionPostConditionMode::Deny),
+        (
+            true,
+            vec![cover_other()],
+            TransactionPostConditionMode::Deny,
+        ),
+        // `cover_origin` holds on its own terms (the origin staked nothing) but
+        // does not cover `other`
+        (
+            false,
+            vec![cover_origin()],
+            TransactionPostConditionMode::Deny,
+        ),
+        (
+            true,
+            vec![cover_origin(), cover_other()],
+            TransactionPostConditionMode::Deny,
+        ),
+    ];
+
+    for (expected_pass, post_conditions, mode) in tests {
+        let result = check_transaction_postconditions(
+            &post_conditions,
+            &mode,
+            &origin,
+            &other_staked,
+            StacksEpochId::Epoch40,
+            Txid([0; 32]),
+        )
+        .unwrap();
+        assert_eq!(
+            result.is_none(),
+            expected_pass,
+            "test failed:\nscenario: {post_conditions:?} mode={mode:?}"
+        );
+    }
+}
+
+/// PoX-action coverage is per-principal, as for staking above.
+#[test]
+fn test_check_postconditions_pox_non_origin() {
+    let privk = StacksPrivateKey::from_hex(
+        "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+    )
+    .unwrap();
+    let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+    let origin = auth.origin().address_testnet().to_account_principal();
+    let other_addr = StacksAddress::new(1, Hash160([0xee; 20])).unwrap();
+    let other = other_addr.to_account_principal();
+
+    // only a non-origin principal performed a PoX action
+    let mut other_acted = AssetMap::new();
+    other_acted.add_pox_action(&other);
+
+    let cover_other = || {
+        TransactionPostCondition::Pox(
+            PostConditionPrincipal::Standard(other_addr.clone()),
+            PoxConditionCode::MaybePerformed,
+        )
+    };
+
+    // (expected_pass, post_conditions, mode)
+    let tests = vec![
+        (true, vec![], TransactionPostConditionMode::Originator),
+        (false, vec![], TransactionPostConditionMode::Deny),
+        (
+            true,
+            vec![cover_other()],
+            TransactionPostConditionMode::Deny,
+        ),
+        // `NotPerformed` holds for the origin, which performed no action, so
+        // this fails on coverage of `other` rather than on the condition itself
+        (
+            false,
+            vec![TransactionPostCondition::Pox(
+                PostConditionPrincipal::Origin,
+                PoxConditionCode::NotPerformed,
+            )],
+            TransactionPostConditionMode::Deny,
+        ),
+    ];
+
+    for (expected_pass, post_conditions, mode) in tests {
+        let result = check_transaction_postconditions(
+            &post_conditions,
+            &mode,
+            &origin,
+            &other_acted,
+            StacksEpochId::Epoch40,
+            Txid([0; 32]),
+        )
+        .unwrap();
+        assert_eq!(
+            result.is_none(),
+            expected_pass,
+            "test failed:\nscenario: {post_conditions:?} mode={mode:?}"
+        );
+    }
+}
+
+/// The `supports_staking_post_conditions` gate governs only the *coverage*
+/// requirement; explicit conditions are evaluated in every epoch.
+#[test]
+fn test_check_postconditions_staking_pox_epoch_gate_scope() {
+    let privk = StacksPrivateKey::from_hex(
+        "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+    )
+    .unwrap();
+    let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+    let origin = auth.origin().address_testnet().to_account_principal();
+
+    let mut acted = AssetMap::new();
+    acted
+        .add_stacking(&origin, 100, StacksEpochId::Epoch33)
+        .unwrap();
+    acted.add_pox_action(&origin);
+
+    let check = |post_conditions: &[TransactionPostCondition],
+                 mode: TransactionPostConditionMode,
+                 epoch: StacksEpochId,
+                 asset_map: &AssetMap| {
+        check_transaction_postconditions(
+            post_conditions,
+            &mode,
+            &origin,
+            asset_map,
+            epoch,
+            Txid([0; 32]),
+        )
+        .unwrap()
+    };
+
+    // before 4.0 coverage is not enforced, so no post-conditions at all passes
+    assert!(
+        check(
+            &[],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch33,
+            &acted
+        )
+        .is_none()
+    );
+
+    // ...but an explicit condition is still evaluated in either epoch
+    for epoch in [StacksEpochId::Epoch33, StacksEpochId::Epoch40] {
+        assert!(
+            check(
+                &[TransactionPostCondition::Staking(
+                    PostConditionPrincipal::Origin,
+                    FungibleConditionCode::SentLe,
+                    99,
+                )],
+                TransactionPostConditionMode::Allow,
+                epoch,
+                &acted
+            )
+            .is_some(),
+            "explicit Staking condition should be evaluated in {epoch:?}"
+        );
+
+        assert!(
+            check(
+                &[TransactionPostCondition::Pox(
+                    PostConditionPrincipal::Origin,
+                    PoxConditionCode::NotPerformed,
+                )],
+                TransactionPostConditionMode::Allow,
+                epoch,
+                &acted
+            )
+            .is_some(),
+            "explicit Pox condition should be evaluated in {epoch:?}"
+        );
+    }
+
+    // a zero-amount stacking entry needs no coverage
+    let mut zero_staked = AssetMap::new();
+    zero_staked
+        .add_stacking(&origin, 0, StacksEpochId::Epoch40)
+        .unwrap();
+    assert!(
+        check(
+            &[],
+            TransactionPostConditionMode::Deny,
+            StacksEpochId::Epoch40,
+            &zero_staked
+        )
+        .is_none()
+    );
 }
 
 #[test]
