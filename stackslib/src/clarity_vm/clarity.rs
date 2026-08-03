@@ -212,7 +212,8 @@ pub trait ClarityStoreTransaction {
     /// It can later be deleted via `drop_metadata_for_block()` if given the same target.
     /// Returns Ok(()) on success
     /// Returns Err(..) on error
-    fn commit_metadata_for_block(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError>;
+    fn commit_metadata_for_block(&mut self, target: &StacksBlockId)
+        -> Result<(), VmExecutionError>;
 
     /// Drop metadata for a particular block that was stored previously via
     /// `commit_metadata_for_block()`. This function is idempotent.

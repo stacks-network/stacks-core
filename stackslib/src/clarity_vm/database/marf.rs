@@ -37,9 +37,7 @@ use crate::chainstate::stacks::index::marf::{
 };
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, Error, MARFValue};
-use crate::clarity_vm::clarity::{
-    ClarityStore, ClarityStoreTransaction, WritableClarityStore,
-};
+use crate::clarity_vm::clarity::{ClarityStore, ClarityStoreTransaction, WritableClarityStore};
 use crate::clarity_vm::database::ephemeral::EphemeralMarfStore;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
@@ -409,7 +407,10 @@ impl ClarityStoreTransaction for PersistentWritableMarfStore<'_> {
     ///
     /// Returns Ok(()) on success
     /// Returns Err(VmInternalError(..)) on sqlite failure
-    fn commit_metadata_for_block(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
+    fn commit_metadata_for_block(
+        &mut self,
+        target: &StacksBlockId,
+    ) -> Result<(), VmExecutionError> {
         SqliteConnection::commit_metadata_to(self.marf.sqlite_tx(), &self.chain_tip, target)
     }
 
@@ -1126,7 +1127,10 @@ impl<T: ClarityStoreTransaction> BoxedClarityStoreTransaction for T {
 }
 
 impl<'a> ClarityStoreTransaction for Box<dyn WritableClarityStore + 'a> {
-    fn commit_metadata_for_block(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
+    fn commit_metadata_for_block(
+        &mut self,
+        target: &StacksBlockId,
+    ) -> Result<(), VmExecutionError> {
         ClarityStoreTransaction::commit_metadata_for_block(self.deref_mut(), target)
     }
 

@@ -32,9 +32,7 @@ use stacks_common::types::sqlite::NO_PARAMS;
 
 use crate::chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
 use crate::chainstate::stacks::index::{Error, MARFValue};
-use crate::clarity_vm::clarity::{
-    ClarityStore, ClarityStoreTransaction, WritableClarityStore,
-};
+use crate::clarity_vm::clarity::{ClarityStore, ClarityStoreTransaction, WritableClarityStore};
 use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
@@ -69,7 +67,10 @@ impl ClarityStoreTransaction for EphemeralMarfStore<'_> {
     ///
     /// Returns Ok(()) on success
     /// Returns Err(VmInternalError(..)) on sqlite failure
-    fn commit_metadata_for_block(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
+    fn commit_metadata_for_block(
+        &mut self,
+        target: &StacksBlockId,
+    ) -> Result<(), VmExecutionError> {
         if let Some(tip) = self.ephemeral_marf.get_open_chain_tip() {
             self.teardown_views();
             let res =
