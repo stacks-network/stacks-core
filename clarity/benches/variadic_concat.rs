@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 //! End-to-end benchmarks for Clarity 6's variadic `concat` runtime
-//! (`special_concat_v600`).
+//! (`special_concat_v400`).
 //!
 //! `concat` reuses the existing `ClarityCostFunction::Concat` cost
 //! function with `linear(total_len, 37, 220)` — i.e., 37 cost units per
@@ -25,7 +25,7 @@
 //!
 //! These benchmarks measure actual runtime cost so that the calibration
 //! of `linear(n, 37, 220)` can be validated against real execution time,
-//! and so regressions in `special_concat_v600` (the two-pass evaluate /
+//! and so regressions in `special_concat_v400` (the two-pass evaluate /
 //! reserve / append path) get caught.
 //!
 //! Three groups:

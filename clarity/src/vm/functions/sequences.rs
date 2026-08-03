@@ -405,7 +405,7 @@ pub fn special_append(
 ///
 /// - [`special_concat_v200`]: Epoch 2.0 (legacy size-based cost)
 /// - [`special_concat_v205`]: Epoch 2.05 .. 3.4 (per-element cost, exactly 2 args)
-/// - [`special_concat_v600`]: Epoch 4.0+ (Clarity 6 variadic `concat`)
+/// - [`special_concat_v400`]: Epoch 4.0+ (Clarity 6 variadic `concat`)
 pub fn special_concat(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
@@ -428,7 +428,9 @@ pub fn special_concat(
         | StacksEpochId::Epoch32
         | StacksEpochId::Epoch33
         | StacksEpochId::Epoch34 => special_concat_v205(args, exec_state, invoke_ctx, context),
-        StacksEpochId::Epoch40 => special_concat_v600(args, exec_state, invoke_ctx, context),
+        StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => {
+            special_concat_v400(args, exec_state, invoke_ctx, context)
+        }
     }
 }
 
@@ -546,7 +548,7 @@ pub fn special_concat_v205(
 /// length. Phase 2 charges cost once, takes the first arg as the accumulator,
 /// pre-reserves capacity to fit the final result, and appends the remaining
 /// args. Pre-reservation means the underlying `Vec` does not reallocate as
-/// we concat — exactly one allocation per `special_concat_v600` call.
+/// we concat — exactly one allocation per `special_concat_v400` call.
 ///
 /// Peak memory during phase 1 is bounded by the type checker's sequence-
 /// length limits: every arg is ≤ `MAX_VALUE_SIZE`, and the type checker
@@ -558,7 +560,7 @@ pub fn special_concat_v205(
 /// contract only ever reaches this function with exactly two arguments —
 /// in which case the two-pass form collapses to the same work and cost as
 /// v205.
-pub fn special_concat_v600(
+pub fn special_concat_v400(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
     invoke_ctx: &InvocationContext,
