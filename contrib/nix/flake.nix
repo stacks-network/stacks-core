@@ -75,9 +75,7 @@
 
         cargoWorkspace = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace;
         # Keep the source fileset in sync with Cargo's workspace declarations.
-        workspaceCrates = map (
-          crate: ../.. + "/${crate}"
-        ) (cargoWorkspace.members ++ (cargoWorkspace.exclude or [ ]));
+        workspaceCrates = map (crate: ../.. + "/${crate}") cargoWorkspace.members;
 
         versions = builtins.fromTOML (builtins.readFile ../../versions.toml);
         version = versions.stacks_node_version;
