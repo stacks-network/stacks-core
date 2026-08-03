@@ -91,7 +91,7 @@ const CANONICAL_BURN_HASHES_SQL: &str = "SELECT burn_header_hash FROM canonical_
 /// The burnchain snapshot's source-schema guard (see
 /// [`DbSnapshotSpec::assert_source_classified`]);
 /// `test_no_unclassified_burnchain_tables` runs it against a fresh schema.
-pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
+pub fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
     BurnchainDbSnapshotSpec::assert_source_classified(src_conn)
 }
 
@@ -211,7 +211,7 @@ pub fn copy_burnchain_db(
 /// derived from the copied commit metadata. `overrides` is schema-only:
 /// reward-cycle affirmation-map overrides are never read or written by any
 /// production path, so its schema is cloned for fidelity but no rows are copied.
-pub(super) fn burnchain_copy_specs() -> &'static [TableCopySpec<NoBind>] {
+pub fn burnchain_copy_specs() -> &'static [TableCopySpec<NoBind>] {
     static SPECS: &[TableCopySpec<NoBind>] = &[
         TableCopySpec::sql("db_config", "SELECT * FROM src.db_config"),
         TableCopySpec::sql(

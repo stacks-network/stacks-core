@@ -82,7 +82,7 @@ impl DbSnapshotSpec for NakamotoStagingDbSnapshotSpec {
 /// The blocks snapshot's source-schema guard (see
 /// [`DbSnapshotSpec::assert_source_classified`]);
 /// `test_no_unclassified_nakamoto_staging_tables` runs it against a fresh schema.
-pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
+pub fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
     NakamotoStagingDbSnapshotSpec::assert_source_classified(src_conn)
 }
 
@@ -332,7 +332,7 @@ pub fn copy_epoch2_block_files(
 }
 
 /// Copy specs for the Nakamoto staging DB.
-pub(super) fn nakamoto_copy_specs() -> &'static [TableCopySpec<NoBind>] {
+pub fn nakamoto_copy_specs() -> &'static [TableCopySpec<NoBind>] {
     static SPECS: &[TableCopySpec<NoBind>] = &[
         TableCopySpec::sql("db_version", "SELECT * FROM src.db_version"),
         TableCopySpec::sql(

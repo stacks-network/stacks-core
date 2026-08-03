@@ -377,7 +377,7 @@ where
 /// module lists the tables it handles; both the runtime source-schema check and
 /// the drift-guard tests assert this is empty, so a new migration can't silently
 /// drop a table from the copy.
-pub(super) fn unclassified_tables(conn: &Connection, known: &[&str]) -> Vec<String> {
+pub fn unclassified_tables(conn: &Connection, known: &[&str]) -> Vec<String> {
     let known: std::collections::HashSet<&str> = known.iter().copied().collect();
     let mut stmt = conn
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
@@ -399,7 +399,7 @@ pub(super) fn unclassified_tables(conn: &Connection, known: &[&str]) -> Vec<Stri
 /// disk outside the tool's migration path (a newer node, an ad-hoc `CREATE
 /// TABLE`) that a compile-time list check would miss. `db_label` names the DB in
 /// the error; `classify_hint` says where to classify a newly added table.
-pub(super) fn assert_source_schema(
+pub fn assert_source_schema(
     src_conn: &Connection,
     known: &[&str],
     db_label: &str,
@@ -421,7 +421,7 @@ pub(super) fn assert_source_schema(
 /// source DB and are created by the squash engine (`MARF::squash_to_path`) or
 /// store init — not by a side-table copy — so the drift guards treat them as
 /// already handled.
-pub(super) const MARF_INFRA_TABLES: &[&str] = &[
+pub const MARF_INFRA_TABLES: &[&str] = &[
     "marf_data",
     "__fork_storage",
     "marf_squash_info",

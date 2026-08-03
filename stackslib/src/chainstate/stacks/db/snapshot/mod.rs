@@ -27,8 +27,8 @@
 mod blocks;
 mod burnchain;
 mod clarity;
-pub(crate) mod common;
-pub(crate) mod fork_storage;
+mod common;
+mod fork_storage;
 mod index;
 mod sortition;
 mod spv;

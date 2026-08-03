@@ -30,7 +30,7 @@ use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue};
 use crate::util_lib::db::{sqlite_open, u64_to_sql, Error as db_error};
 
 /// Snapshot-only reads over a sortition DB connection.
-pub(super) trait SortitionSnapshotExt {
+pub trait SortitionSnapshotExt {
     /// Distinct burn header hashes of all snapshots, forks included. Only on a
     /// squashed sortition DB is this exactly the canonical burnchain.
     fn get_all_snapshot_burn_header_hashes(&self) -> Result<Vec<BurnchainHeaderHash>, db_error>;
@@ -156,7 +156,7 @@ fn stacks_tip_memo_copy_binds(
 /// Tables that may appear in a source sortition DB but are deliberately not
 /// copied. `snapshot_burn_distributions` is written only under the `testing`
 /// feature (`SortitionDBTx::store_burn_distribution`), never in production.
-pub(super) const IGNORED_TABLES: &[&str] = &["snapshot_burn_distributions"];
+const IGNORED_TABLES: &[&str] = &["snapshot_burn_distributions"];
 
 /// The sortition (`marf.sqlite` side-tables) snapshot spec. The `boundary`
 /// selects the `stacks_chain_tips*` memo template (plain vs rewrite) and feeds
@@ -171,7 +171,7 @@ struct SortitionDbSnapshotSpec {
 /// The sortition snapshot's `?N` bind: the `stacks_chain_tips*` memo tables'
 /// boundary-rewrite anchors. Present only when copying with a boundary.
 #[derive(Clone, Copy)]
-pub(super) enum SortitionBind {
+pub enum SortitionBind {
     TipMemo { include_burn_view: bool },
 }
 
@@ -221,7 +221,7 @@ impl DbSnapshotSpec for SortitionDbSnapshotSpec {
 /// The sortition snapshot's source-schema guard (see
 /// [`DbSnapshotSpec::assert_source_classified`]); `test_no_unclassified_sortition_tables`
 /// runs it against a fresh schema. The recognized set is independent of the boundary.
-pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
+pub fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
     SortitionDbSnapshotSpec::assert_source_classified(src_conn)
 }
 
@@ -338,7 +338,7 @@ const fn memo_spec(
 ///
 /// The set of tables is independent of `boundary`; the boundary only rewrites
 /// the `stacks_chain_tips*` source SQL.
-pub(super) fn sortition_copy_specs(has_boundary: bool) -> &'static [TableCopySpec<SortitionBind>] {
+pub fn sortition_copy_specs(has_boundary: bool) -> &'static [TableCopySpec<SortitionBind>] {
     // The only runtime values are the `stacks_chain_tips*` boundary-rewrite
     // anchors, supplied as `?N` binds; `has_boundary` selects the rewrite vs
     // plain memo template (see `stacks_tip_memo_copy_sql`). The plain and rewrite

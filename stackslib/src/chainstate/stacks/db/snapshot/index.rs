@@ -31,7 +31,7 @@ use crate::util_lib::db::{sqlite_open, u64_to_sql};
 
 /// The index snapshot's `?N` bind: the `signer_stats` reward-cycle bound.
 #[derive(Clone, Copy)]
-pub(super) enum IndexBind {
+pub enum IndexBind {
     /// `signer_stats` filters `reward_cycle <= ?1`.
     MaxRewardCycle,
 }
@@ -75,7 +75,7 @@ impl DbSnapshotSpec for IndexDbSnapshotSpec {
 /// The index snapshot's source-schema guard (see
 /// [`DbSnapshotSpec::assert_source_classified`]);
 /// `test_no_unclassified_source_tables` runs it against a fresh schema.
-pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
+pub fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
     IndexDbSnapshotSpec::assert_source_classified(src_conn)
 }
 
@@ -194,7 +194,7 @@ fn derive_max_reward_cycle(
 /// - `db_config` is copied in full.
 /// - `staging_blocks` adds a check for processend and non-orphaned blocks.
 /// - `signer_stats` is cut off at the canonical tip's  reward cycle.
-pub(super) fn index_copy_specs() -> &'static [TableCopySpec<IndexBind>] {
+pub fn index_copy_specs() -> &'static [TableCopySpec<IndexBind>] {
     // `signer_stats`'s reward-cycle bound is the only runtime value, passed as
     // the `?1` bind.
     static SPECS: &[TableCopySpec<IndexBind>] = &[

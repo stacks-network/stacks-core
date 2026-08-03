@@ -29,7 +29,7 @@ use crate::util_lib::db::{sqlite_open, u64_to_sql};
 
 /// The SPV headers snapshot's `?N` binds, both derived from `burn_height`.
 #[derive(Clone, Copy)]
-pub(super) enum SpvBind {
+pub enum SpvBind {
     /// `headers` filters `height <= ?1`.
     BurnHeight,
     /// `chain_work` filters `interval < ?1`.
@@ -72,7 +72,7 @@ impl DbSnapshotSpec for SpvDbSnapshotSpec {
 /// [`DbSnapshotSpec::assert_source_classified`]); `test_no_unclassified_spv_tables`
 /// runs it against a fresh schema. The recognized set is independent of
 /// `burn_height`.
-pub(super) fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
+pub fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
     SpvDbSnapshotSpec::assert_source_classified(src_conn)
 }
 
@@ -114,7 +114,7 @@ pub fn copy_spv_headers(
 /// `?1` (burn height), `chain_work` for complete difficulty intervals
 /// (`interval < ?1`). The runtime values are bound via
 /// [`SpvDbSnapshotSpec::bind_params`].
-pub(super) fn spv_copy_specs() -> &'static [TableCopySpec<SpvBind>] {
+pub fn spv_copy_specs() -> &'static [TableCopySpec<SpvBind>] {
     static SPECS: &[TableCopySpec<SpvBind>] = &[
         TableCopySpec::sql("db_config", "SELECT * FROM src.db_config"),
         TableCopySpec::sql_with_bind(
