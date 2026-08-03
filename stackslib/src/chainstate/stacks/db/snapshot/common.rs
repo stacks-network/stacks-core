@@ -375,7 +375,7 @@ where
 /// module lists the tables it handles; both the runtime source-schema check and
 /// the drift-guard tests assert this is empty, so a new migration can't silently
 /// drop a table from the copy.
-pub fn unclassified_tables(conn: &Connection, known: &[&str]) -> Vec<String> {
+fn unclassified_tables(conn: &Connection, known: &[&str]) -> Vec<String> {
     let known: std::collections::HashSet<&str> = known.iter().copied().collect();
     let mut stmt = conn
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
