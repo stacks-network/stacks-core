@@ -20,7 +20,6 @@ use std::collections::HashSet;
 use rusqlite::{params, Connection};
 use tempfile::tempdir;
 
-use super::super::common::TableCopySpecs;
 use super::super::index::{
     assert_source_tables_classified, copy_index_side_tables, index_copy_specs,
 };
@@ -148,7 +147,7 @@ fn test_copy_index_side_tables_round_trip() {
     // from the index copy (`staging_microblocks*` are populated later by the
     // block-preservation phase; the rest stay empty). The COUNT query also
     // fails if a table was never cloned.
-    for table in TableCopySpecs::new(index_copy_specs()).schema_only() {
+    for table in index_copy_specs().schema_only() {
         assert_eq!(
             count(&format!("SELECT COUNT(*) FROM {table}")),
             0,
@@ -444,7 +443,7 @@ fn test_canonical_block_missing_from_src_is_corruption() {
 /// re-listing the table names here would just duplicate the spec list.
 #[test]
 fn test_index_copy_specs_well_formed() {
-    let tables = TableCopySpecs::new(index_copy_specs()).table_names();
+    let tables = index_copy_specs().table_names();
     let unique: HashSet<&str> = tables.iter().copied().collect();
     assert_eq!(tables.len(), unique.len(), "duplicate spec tables");
 }

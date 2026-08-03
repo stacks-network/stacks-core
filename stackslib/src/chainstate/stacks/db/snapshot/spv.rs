@@ -21,7 +21,7 @@ use rusqlite::{Connection, OpenFlags};
 
 use super::common::{
     classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
-    DbSnapshotSpec, TableCopySpec,
+    DbSnapshotSpec, TableCopySpec, TableCopySpecs,
 };
 use crate::burnchains::bitcoin::spv::num_complete_chain_work_intervals;
 use crate::chainstate::stacks::index::Error;
@@ -46,7 +46,7 @@ struct SpvDbSnapshotSpec {
 impl DbSnapshotSpec for SpvDbSnapshotSpec {
     type Bind = SpvBind;
 
-    fn copy_spec_list() -> &'static [TableCopySpec<SpvBind>] {
+    fn copy_spec_list() -> TableCopySpecs<'static, SpvBind> {
         spv_copy_specs()
     }
 
@@ -114,7 +114,7 @@ pub fn copy_spv_headers(
 /// `?1` (burn height), `chain_work` for complete difficulty intervals
 /// (`interval < ?1`). The runtime values are bound via
 /// [`SpvDbSnapshotSpec::bind_params`].
-pub fn spv_copy_specs() -> &'static [TableCopySpec<SpvBind>] {
+pub fn spv_copy_specs() -> TableCopySpecs<'static, SpvBind> {
     static SPECS: &[TableCopySpec<SpvBind>] = &[
         TableCopySpec::sql("db_config", "SELECT * FROM src.db_config"),
         TableCopySpec::sql_with_bind(
@@ -128,7 +128,7 @@ pub fn spv_copy_specs() -> &'static [TableCopySpec<SpvBind>] {
             SpvBind::CompleteChainWorkIntervals,
         ),
     ];
-    SPECS
+    TableCopySpecs::new(SPECS)
 }
 
 fn copy_spv_headers_inner(

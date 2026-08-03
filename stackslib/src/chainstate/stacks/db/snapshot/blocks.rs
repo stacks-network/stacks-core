@@ -23,7 +23,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlo
 
 use super::common::{
     classify_hint, clone_schemas_from_source, copied_rows, execute_copy_specs,
-    with_offline_write_session, DbSnapshotSpec, NoBind, TableCopySpec,
+    with_offline_write_session, DbSnapshotSpec, NoBind, TableCopySpec, TableCopySpecs,
 };
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::Error;
@@ -62,7 +62,7 @@ struct NakamotoStagingDbSnapshotSpec;
 impl DbSnapshotSpec for NakamotoStagingDbSnapshotSpec {
     type Bind = NoBind;
 
-    fn copy_spec_list() -> &'static [TableCopySpec<NoBind>] {
+    fn copy_spec_list() -> TableCopySpecs<'static, NoBind> {
         nakamoto_copy_specs()
     }
 
@@ -218,7 +218,7 @@ fn populate_microblock_temp_tables(
 
 /// Copy specs for the confirmed-microblock tables, filtered by the temp
 /// tables [`populate_microblock_temp_tables`] builds.
-fn microblock_copy_specs() -> &'static [TableCopySpec<NoBind>] {
+fn microblock_copy_specs() -> TableCopySpecs<'static, NoBind> {
     static SPECS: &[TableCopySpec<NoBind>] = &[
         TableCopySpec::sql(
             "staging_microblocks",
@@ -233,7 +233,7 @@ fn microblock_copy_specs() -> &'static [TableCopySpec<NoBind>] {
                  WHERE s.block_hash IN (SELECT hash FROM temp.selected_microblocks)",
         ),
     ];
-    SPECS
+    TableCopySpecs::new(SPECS)
 }
 
 /// Copy confirmed canonical epoch-2 microblock streams into the squashed index.
@@ -253,7 +253,12 @@ pub fn copy_confirmed_epoch2_microblocks(
         if !selected_hashes.is_empty() {
             populate_microblock_temp_tables(conn, &selected_hashes, &selected_parents)?;
 
-            let results = execute_copy_specs(conn, microblock_copy_specs(), |bind| match bind {})?;
+            let results =
+                execute_copy_specs(
+                    conn,
+                    microblock_copy_specs().as_slice(),
+                    |bind| match bind {},
+                )?;
             stats.microblock_rows_copied = copied_rows(&results, "staging_microblocks");
 
             stats.microblock_bytes_copied = conn.query_row(
@@ -332,7 +337,7 @@ pub fn copy_epoch2_block_files(
 }
 
 /// Copy specs for the Nakamoto staging DB.
-pub fn nakamoto_copy_specs() -> &'static [TableCopySpec<NoBind>] {
+pub fn nakamoto_copy_specs() -> TableCopySpecs<'static, NoBind> {
     static SPECS: &[TableCopySpec<NoBind>] = &[
         TableCopySpec::sql("db_version", "SELECT * FROM src.db_version"),
         TableCopySpec::sql(
@@ -343,7 +348,7 @@ pub fn nakamoto_copy_specs() -> &'static [TableCopySpec<NoBind>] {
                  (SELECT index_block_hash FROM idx.nakamoto_block_headers)",
         ),
     ];
-    SPECS
+    TableCopySpecs::new(SPECS)
 }
 
 /// Create and populate `nakamoto.sqlite` with canonical `nakamoto_staging_blocks` rows.

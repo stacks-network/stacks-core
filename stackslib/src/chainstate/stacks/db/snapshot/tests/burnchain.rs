@@ -26,7 +26,6 @@ use tempfile::tempdir;
 use super::super::burnchain::{
     assert_source_tables_classified, burnchain_copy_specs, copy_burnchain_db,
 };
-use super::super::common::TableCopySpecs;
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
@@ -85,8 +84,7 @@ fn test_unclassified_source_table_is_rejected() {
 /// table names here would just duplicate the spec list.
 #[test]
 fn test_burnchain_copy_specs_well_formed() {
-    let specs = burnchain_copy_specs();
-    let tables = TableCopySpecs::new(specs).table_names();
+    let tables = burnchain_copy_specs().table_names();
     let unique: HashSet<&str> = tables.iter().copied().collect();
     assert_eq!(tables.len(), unique.len(), "duplicate spec tables");
 }
@@ -405,7 +403,7 @@ fn test_burnchain_db_anchor_blocks_filtered() {
     assert_eq!(cycle, 1);
     // Every schema-only table (`overrides`) is cloned into the dst but receives
     // no rows. The COUNT also fails if a table was never cloned.
-    for table in TableCopySpecs::new(burnchain_copy_specs()).schema_only() {
+    for table in burnchain_copy_specs().schema_only() {
         let rows: i64 = dst
             .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
             .unwrap();

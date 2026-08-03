@@ -22,7 +22,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 
 use super::common::{
     classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
-    DbSnapshotSpec, TableCopySpec, MARF_INFRA_TABLES,
+    DbSnapshotSpec, TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 use crate::burnchains::PoxConstants;
@@ -47,7 +47,7 @@ struct IndexDbSnapshotSpec {
 impl DbSnapshotSpec for IndexDbSnapshotSpec {
     type Bind = IndexBind;
 
-    fn copy_spec_list() -> &'static [TableCopySpec<IndexBind>] {
+    fn copy_spec_list() -> TableCopySpecs<'static, IndexBind> {
         index_copy_specs()
     }
 
@@ -194,7 +194,7 @@ fn derive_max_reward_cycle(
 /// - `db_config` is copied in full.
 /// - `staging_blocks` adds a check for processend and non-orphaned blocks.
 /// - `signer_stats` is cut off at the canonical tip's  reward cycle.
-pub fn index_copy_specs() -> &'static [TableCopySpec<IndexBind>] {
+pub fn index_copy_specs() -> TableCopySpecs<'static, IndexBind> {
     // `signer_stats`'s reward-cycle bound is the only runtime value, passed as
     // the `?1` bind.
     static SPECS: &[TableCopySpec<IndexBind>] = &[
@@ -267,7 +267,7 @@ pub fn index_copy_specs() -> &'static [TableCopySpec<IndexBind>] {
         // Dead table: zero runtime references.
         TableCopySpec::schema_only("user_supporters"),
     ];
-    SPECS
+    TableCopySpecs::new(SPECS)
 }
 
 /// Copy required non-MARF tables from the source `index.sqlite` into the

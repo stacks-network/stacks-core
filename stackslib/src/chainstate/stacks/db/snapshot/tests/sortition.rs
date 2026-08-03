@@ -26,10 +26,10 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::StacksEpochId;
 use tempfile::tempdir;
 
-use super::super::common::{TableCopySource, TableCopySpecs};
+use super::super::common::TableCopySource;
 use super::super::sortition::{
     assert_source_tables_classified, copy_sortition_side_tables,
-    copy_sortition_side_tables_with_boundary, sortition_copy_specs, SortitionTipCopyBoundary,
+    copy_sortition_side_tables_with_boundary, sortition_copy_specs,
 };
 use super::{hex_id, label_block_id};
 use crate::burnchains::PoxConstants;
@@ -42,7 +42,7 @@ use crate::chainstate::burn::db::sortdb::tests::{
     test_insert_transfer_stx_row, test_insert_vote_for_aggregate_key_row,
     test_set_snapshot_consensus_hash,
 };
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionTipCopyBoundary};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
 use crate::core::{StacksEpoch, StacksEpochExtension};
@@ -671,10 +671,7 @@ fn test_no_unclassified_sortition_tables() {
 /// by the unclassified-table guard.
 #[test]
 fn test_sortition_copy_specs_well_formed() {
-    let tables: Vec<&str> = sortition_copy_specs(false)
-        .iter()
-        .map(|s| s.table)
-        .collect();
+    let tables = sortition_copy_specs(false).table_names();
     let spec_set: HashSet<&str> = tables.iter().copied().collect();
     assert_eq!(
         tables.len(),
@@ -682,9 +679,7 @@ fn test_sortition_copy_specs_well_formed() {
         "duplicate table in sortition_copy_specs"
     );
     assert!(
-        TableCopySpecs::new(sortition_copy_specs(false))
-            .schema_only()
-            .is_empty(),
+        sortition_copy_specs(false).schema_only().is_empty(),
         "sortition has no schema-only tables; every spec must row-copy"
     );
 }
@@ -695,8 +690,8 @@ fn test_sortition_copy_specs_well_formed() {
 /// table-name set, and differ only in the SQL of the two memo tables.
 #[test]
 fn test_sortition_copy_specs_boundary_invariant_table_set() {
-    let plain = TableCopySpecs::new(sortition_copy_specs(false));
-    let rewrite = TableCopySpecs::new(sortition_copy_specs(true));
+    let plain = sortition_copy_specs(false);
+    let rewrite = sortition_copy_specs(true);
 
     assert_eq!(
         plain.table_names(),

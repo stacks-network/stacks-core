@@ -57,9 +57,9 @@ pub enum TableCopySource {
 pub enum NoBind {}
 
 /// A spec for materializing a single table in the squashed destination from the
-/// ATTACHed `src` database. A slice's spec list is the single source of truth
-/// for the tables it accounts for; the table-name sets are derived from it via
-/// [`TableCopySpecs`]. `B` is the DB's own bind enum ([`NoBind`] when it has no
+/// ATTACHed `src` database. A DB's spec list ([`TableCopySpecs`]) is the single
+/// source of truth for the tables it accounts for; the table-name sets are
+/// derived from it. `B` is the DB's own bind enum ([`NoBind`] when it has no
 /// runtime placeholders), so a spec can only carry a bind its own DB resolves.
 pub struct TableCopySpec<B> {
     pub table: &'static str,
@@ -114,7 +114,8 @@ impl<'a, B> TableCopySpecs<'a, B> {
     }
 
     /// Every table the specs account for (row-copied plus schema-only): the set
-    /// whose schema must be cloned into the destination.
+    /// whose schema must be cloned into the destination. One entry per spec, in
+    /// spec order.
     pub fn table_names(&self) -> Vec<&'static str> {
         self.iter().map(|s| s.table).collect()
     }
@@ -239,10 +240,7 @@ pub fn copied_rows(results: &[(&'static str, u64)], table: &str) -> u64 {
 /// CREATE statement so the caller can drop and later rebuild them.
 /// Excludes `sqlite_autoindex_*` (those have `sql IS NULL` and are
 /// recreated implicitly with the table).
-pub(crate) fn collect_user_indexes(
-    conn: &Connection,
-    table: &str,
-) -> Result<Vec<(String, String)>, Error> {
+fn collect_user_indexes(conn: &Connection, table: &str) -> Result<Vec<(String, String)>, Error> {
     let mut stmt = conn
         .prepare(
             "SELECT name, sql FROM sqlite_master \
@@ -451,13 +449,13 @@ pub trait DbSnapshotSpec {
     /// from this. A DB whose executed specs vary with a runtime parameter (the
     /// sortition boundary) returns the boundary-invariant list here and overrides
     /// [`Self::copy_specs`] for the runtime variant.
-    fn copy_spec_list() -> &'static [TableCopySpec<Self::Bind>];
+    fn copy_spec_list() -> TableCopySpecs<'static, Self::Bind>;
 
     /// Every table the snapshot accounts for (row-copied plus schema-only): the
     /// set whose schema must be cloned into the destination. Independent of any
     /// runtime parameter, hence an associated fn.
     fn table_names() -> Vec<&'static str> {
-        TableCopySpecs::new(Self::copy_spec_list()).table_names()
+        Self::copy_spec_list().table_names()
     }
 
     /// Tables recognized by the source-schema guard beyond the copy specs --
@@ -497,7 +495,7 @@ pub trait DbSnapshotSpec {
     /// whose specs vary with a runtime parameter (the sortition boundary)
     /// overrides this while keeping the same table set.
     fn copy_specs(&self) -> TableCopySpecs<'static, Self::Bind> {
-        TableCopySpecs::new(Self::copy_spec_list())
+        Self::copy_spec_list()
     }
 
     /// Positional bind values for a spec's `?N` placeholders. Called only for
@@ -518,7 +516,9 @@ mod tests {
     use rstest::rstest;
     use rusqlite::Connection;
 
-    use super::{copied_rows, execute_copy_specs, percent_encode_path, NoBind, TableCopySpec};
+    use super::{
+        copied_rows, execute_copy_specs, percent_encode_path, NoBind, TableCopySpec, TableCopySpecs,
+    };
 
     /// Representative paths survive the `file:` URI percent-encoding used
     /// by [`super::with_offline_write_session`]'s read-only ATTACH.
@@ -532,6 +532,22 @@ mod tests {
     #[case::non_ascii_as_utf8_bytes("/tmp/café", "/tmp/caf%C3%A9")]
     fn percent_encode_path_cases(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(percent_encode_path(input), expected);
+    }
+
+    /// The per-DB well-formedness guards detect a table listed twice by
+    /// comparing `table_names()` length against its deduplicated set, so
+    /// `table_names` must keep one entry per spec, in spec order.
+    #[test]
+    fn table_names_preserves_order_and_duplicates() {
+        let specs = [
+            TableCopySpec::<NoBind>::sql("b", "SELECT * FROM src.b"),
+            TableCopySpec::schema_only("a"),
+            TableCopySpec::sql("b", "SELECT * FROM src.b"),
+        ];
+        assert_eq!(
+            TableCopySpecs::new(&specs).table_names(),
+            vec!["b", "a", "b"]
+        );
     }
 
     #[test]

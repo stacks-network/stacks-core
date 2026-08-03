@@ -23,7 +23,7 @@ use stacks_common::types::sqlite::NO_PARAMS;
 
 use super::common::{
     classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
-    DbSnapshotSpec, NoBind, TableCopySpec,
+    DbSnapshotSpec, NoBind, TableCopySpec, TableCopySpecs,
 };
 use super::sortition::SortitionSnapshotExt;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -67,7 +67,7 @@ struct BurnchainDbSnapshotSpec;
 impl DbSnapshotSpec for BurnchainDbSnapshotSpec {
     type Bind = NoBind;
 
-    fn copy_spec_list() -> &'static [TableCopySpec<NoBind>] {
+    fn copy_spec_list() -> TableCopySpecs<'static, NoBind> {
         burnchain_copy_specs()
     }
 
@@ -211,7 +211,7 @@ pub fn copy_burnchain_db(
 /// derived from the copied commit metadata. `overrides` is schema-only:
 /// reward-cycle affirmation-map overrides are never read or written by any
 /// production path, so its schema is cloned for fidelity but no rows are copied.
-pub fn burnchain_copy_specs() -> &'static [TableCopySpec<NoBind>] {
+pub fn burnchain_copy_specs() -> TableCopySpecs<'static, NoBind> {
     static SPECS: &[TableCopySpec<NoBind>] = &[
         TableCopySpec::sql("db_config", "SELECT * FROM src.db_config"),
         TableCopySpec::sql(
@@ -239,7 +239,7 @@ pub fn burnchain_copy_specs() -> &'static [TableCopySpec<NoBind>] {
         ),
         TableCopySpec::schema_only("overrides"),
     ];
-    SPECS
+    TableCopySpecs::new(SPECS)
 }
 
 /// Consistency assertion: the squashed sortition DB's tip must match the

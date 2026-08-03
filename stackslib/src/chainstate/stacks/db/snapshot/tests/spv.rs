@@ -24,7 +24,6 @@ use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use tempfile::tempdir;
 
-use super::super::common::TableCopySpecs;
 use super::super::spv::{assert_source_tables_classified, copy_spv_headers, spv_copy_specs};
 use crate::burnchains::bitcoin::spv::{SpvClient, BLOCK_DIFFICULTY_CHUNK_SIZE, SPV_DB_VERSION};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
@@ -49,7 +48,7 @@ fn test_no_unclassified_spv_tables() {
 /// the specs, so a dropped spec is caught by the unclassified-table guard.
 #[test]
 fn test_spv_copy_specs_well_formed() {
-    let tables: Vec<&str> = spv_copy_specs().iter().map(|s| s.table).collect();
+    let tables = spv_copy_specs().table_names();
     let spec_set: HashSet<&str> = tables.iter().copied().collect();
     assert_eq!(
         tables.len(),
@@ -57,9 +56,7 @@ fn test_spv_copy_specs_well_formed() {
         "duplicate table in spv_copy_specs"
     );
     assert!(
-        TableCopySpecs::new(spv_copy_specs())
-            .schema_only()
-            .is_empty(),
+        spv_copy_specs().schema_only().is_empty(),
         "spv has no schema-only tables; every spec must row-copy"
     );
 }

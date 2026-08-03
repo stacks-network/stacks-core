@@ -25,7 +25,7 @@ use super::common::{
     DbSnapshotSpec, TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
-pub use crate::chainstate::burn::db::sortdb::SortitionTipCopyBoundary;
+use crate::chainstate::burn::db::sortdb::SortitionTipCopyBoundary;
 use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue};
 use crate::util_lib::db::{sqlite_open, u64_to_sql, Error as db_error};
 
@@ -178,7 +178,7 @@ pub enum SortitionBind {
 impl DbSnapshotSpec for SortitionDbSnapshotSpec {
     type Bind = SortitionBind;
 
-    fn copy_spec_list() -> &'static [TableCopySpec<SortitionBind>] {
+    fn copy_spec_list() -> TableCopySpecs<'static, SortitionBind> {
         // Boundary-invariant list for classification/`table_names`: `has_boundary`
         // only swaps the two memo SQL templates, not the table set (asserted by
         // `test_sortition_copy_specs_boundary_invariant_table_set`). The executed
@@ -206,7 +206,7 @@ impl DbSnapshotSpec for SortitionDbSnapshotSpec {
     }
 
     fn copy_specs(&self) -> TableCopySpecs<'static, SortitionBind> {
-        TableCopySpecs::new(sortition_copy_specs(self.boundary.is_some()))
+        sortition_copy_specs(self.boundary.is_some())
     }
 
     fn bind_params(&self, bind: SortitionBind) -> Result<Vec<Value>, Error> {
@@ -338,7 +338,7 @@ const fn memo_spec(
 ///
 /// The set of tables is independent of `boundary`; the boundary only rewrites
 /// the `stacks_chain_tips*` source SQL.
-pub fn sortition_copy_specs(has_boundary: bool) -> &'static [TableCopySpec<SortitionBind>] {
+pub fn sortition_copy_specs(has_boundary: bool) -> TableCopySpecs<'static, SortitionBind> {
     // The only runtime values are the `stacks_chain_tips*` boundary-rewrite
     // anchors, supplied as `?N` binds; `has_boundary` selects the rewrite vs
     // plain memo template (see `stacks_tip_memo_copy_sql`). The plain and rewrite
@@ -414,11 +414,7 @@ pub fn sortition_copy_specs(has_boundary: bool) -> &'static [TableCopySpec<Sorti
     }
     static PLAIN: &[TableCopySpec<SortitionBind>] = sortition_specs!(false);
     static REWRITE: &[TableCopySpec<SortitionBind>] = sortition_specs!(true);
-    if has_boundary {
-        REWRITE
-    } else {
-        PLAIN
-    }
+    TableCopySpecs::new(if has_boundary { REWRITE } else { PLAIN })
 }
 
 /// Copy required non-MARF tables from the source sortition DB into the

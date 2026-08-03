@@ -32,7 +32,7 @@ use super::super::blocks::{
     assert_source_tables_classified, copy_confirmed_epoch2_microblocks, copy_epoch2_block_files,
     copy_nakamoto_staging_blocks, nakamoto_copy_specs,
 };
-use super::super::common::{clone_schemas_from_source, TableCopySpecs};
+use super::super::common::clone_schemas_from_source;
 use super::{
     create_dest_db_with_canonical_blocks, create_source_db, insert_epoch2_block_header_with_ibh,
     insert_nakamoto_header,
@@ -167,7 +167,7 @@ fn test_no_unclassified_nakamoto_staging_tables() {
 /// unclassified-table guard.
 #[test]
 fn test_nakamoto_copy_specs_well_formed() {
-    let tables: Vec<&str> = nakamoto_copy_specs().iter().map(|s| s.table).collect();
+    let tables = nakamoto_copy_specs().table_names();
     let spec_set: HashSet<&str> = tables.iter().copied().collect();
     assert_eq!(
         tables.len(),
@@ -175,9 +175,7 @@ fn test_nakamoto_copy_specs_well_formed() {
         "duplicate table in nakamoto_copy_specs"
     );
     assert!(
-        TableCopySpecs::new(nakamoto_copy_specs())
-            .schema_only()
-            .is_empty(),
+        nakamoto_copy_specs().schema_only().is_empty(),
         "nakamoto staging has no schema-only tables; every spec must row-copy"
     );
 }
