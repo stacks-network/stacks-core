@@ -677,7 +677,7 @@ mod tests {
                 ),
                 (ClarityName::from_literal("num-cycle"), Value::UInt(1)),
                 (
-                    ClarityName::from_literal("prev-unlock-cycle"),
+                    ClarityName::from_literal("prev-unlock-height"),
                     Value::UInt(2),
                 ),
                 (

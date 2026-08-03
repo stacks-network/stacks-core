@@ -220,6 +220,11 @@
 ;; If the staker provided a `pox-addr` as calldata while staking, then
 ;; rewards are withdrawn through sBTC to their L1 Bitcoin address. Otherwise,
 ;; the staker receives sBTC.
+;;
+;; Returns `{ earned, withdrawal-request }` where `earned` is the net
+;; amount claimed for the staker after signer-manager fees and
+;; `withdrawal-request` is `(some id)` when an L1 sBTC withdrawal was
+;; initiated, or `none` for a direct sBTC payout.
 (define-public (claim-staker-rewards
         (staker principal)
         (reward-cycle uint)
@@ -254,62 +259,69 @@
         (var-set earned-fees (+ prev-fees fees))
         ;; This staker's share is being distributed now so release it from
         ;; the unclaimed count recorded when `claim-rewards` pulled it in.
-        (var-set unclaimed-staker-rewards
-            (- unclaimed-rewards gross)
-        )
-        (try! (as-contract?
-            ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                "sbtc-token" earned
-            ))
-            (match (get-pox-addr staker)
-                l1-info (let (
-                        (amount (try! (if (>= earned (get max-fee l1-info))
-                            (ok (- earned (get max-fee l1-info)))
-                            ERR_NO_CLAIMABLE_REWARDS
-                        )))
-                        (withdrawal-request (try! (contract-call?
-                            'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-withdrawal
-                            initiate-withdrawal-request amount
-                            (get pox-addr l1-info) (get max-fee l1-info)
-                        )))
-                    )
-                    (print {
-                        topic: "claim-staker-rewards",
-                        amount-sats: earned,
-                        l1-withdrawal: (some (merge l1-info {
-                            withdrawal-request: withdrawal-request,
-                            amount: amount,
-                        })),
-                        staker: staker,
-                        reward-cycle: reward-cycle,
-                        bond-index: bond-index,
-                    })
-                    (map-set withdrawal-requests withdrawal-request staker)
-                    ;; `amount + max-fee` == `earned` left the balance into the
-                    ;; sBTC withdrawal system; record it as staker liability.
-                    (var-set withdrawal-liability
-                        (+ (var-get withdrawal-liability) amount
-                            (get max-fee l1-info)
-                        ))
-                    true
-                )
-                (begin
-                    (print {
-                        topic: "claim-staker-rewards",
-                        amount-sats: earned,
-                        l1-withdrawal: none,
-                        staker: staker,
-                        reward-cycle: reward-cycle,
-                        bond-index: bond-index,
-                    })
-                    (try! (contract-call?
-                        'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
-                        transfer earned tx-sender staker none
-                    ))
-                )
-            )))
+        (var-set unclaimed-staker-rewards (- unclaimed-rewards gross))
+        ;; Bind the request-id surfaced when the payout was routed to L1 via
+        ;; `initiate-withdrawal-request`, `none` when the staker was paid
+        ;; directly in sBTC.
+        (let ((withdrawal-request (try! (as-contract?
+                ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                    "sbtc-token" earned
+                ))
+                (match (get-pox-addr staker)
+                    l1-info (let (
+                            (amount (try! (if (>= earned (get max-fee l1-info))
+                                (ok (- earned (get max-fee l1-info)))
+                                ERR_NO_CLAIMABLE_REWARDS
+                            )))
+                            (withdrawal-request (try! (contract-call?
+                                'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-withdrawal
+                                initiate-withdrawal-request amount
+                                (get pox-addr l1-info) (get max-fee l1-info)
+                            )))
+                        )
+                        (print {
+                            topic: "claim-staker-rewards",
+                            amount-sats: earned,
+                            l1-withdrawal: (some (merge l1-info {
+                                withdrawal-request: withdrawal-request,
+                                amount: amount,
+                            })),
+                            staker: staker,
+                            reward-cycle: reward-cycle,
+                            bond-index: bond-index,
+                        })
+                        (map-set withdrawal-requests withdrawal-request staker)
+                        ;; `amount + max-fee` == `earned` left the balance into the
+                        ;; sBTC withdrawal system; record it as staker liability.
+                        (var-set withdrawal-liability
+                            (+ (var-get withdrawal-liability) amount
+                                (get max-fee l1-info)
+                            ))
 
-        (ok earned)
+                        (some withdrawal-request)
+                    )
+                    (begin
+                        (print {
+                            topic: "claim-staker-rewards",
+                            amount-sats: earned,
+                            l1-withdrawal: none,
+                            staker: staker,
+                            reward-cycle: reward-cycle,
+                            bond-index: bond-index,
+                        })
+                        (try! (contract-call?
+                            'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token
+                            transfer earned tx-sender staker none
+                        ))
+                        ;; Direct sBTC payout: there is no L1 withdrawal to track.
+                        none
+                    )
+                )))))
+            (ok {
+                earned: earned,
+                withdrawal-request: withdrawal-request,
+            })
+        )
     )
 )
 
