@@ -136,7 +136,9 @@ impl RPCRequestHandler for RPCGetContractSrcRequestHandler {
                                 db.get_data_with_proof::<ContractCommitment>(&contract_commit_key)
                                     .ok()
                                     .flatten()
-                                    .map(|(a, b)| (a, b.map(|bytes| format!("0x{}", to_hex(&bytes)))))?
+                                    .map(|(a, b)| {
+                                        (a, b.map(|bytes| format!("0x{}", to_hex(&bytes))))
+                                    })?
                             } else {
                                 db.get_data::<ContractCommitment>(&contract_commit_key)
                                     .ok()

@@ -21,9 +21,9 @@ pub use self::clarity_db::{
     BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, NULL_HEADER_DB,
     STORE_CONTRACT_SRC_INTERFACE, StoreType,
 };
-pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
 #[cfg(feature = "rusqlite")]
 pub use self::clarity_store::SqliteBackingStore;
+pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
 pub use self::hashmap_store::HashMapBackingStore;
 pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
 #[cfg(feature = "rusqlite")]
