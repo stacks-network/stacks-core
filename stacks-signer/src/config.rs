@@ -856,7 +856,7 @@ network = "testnet"
 auth_password = "abcd"
 db_path = ":memory:"
 stacks_private_key = "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01"
-tenure_idle_timeout_sec = 30
+tenure_idle_timeout_sec = 30 # Error: missing trailing 's' in 'secs'
 "#;
         let result = RawConfigFile::load_from_str(config_toml);
         let err = result.expect_err("Config with a misspelled field should fail to parse");
