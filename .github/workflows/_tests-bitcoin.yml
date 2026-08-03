@@ -105,8 +105,7 @@ jobs:
       - integration-tests
     if: |
       always() && 
-      !cancelled() &&
-      github.event_name != 'merge_group'
+      !cancelled()
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
