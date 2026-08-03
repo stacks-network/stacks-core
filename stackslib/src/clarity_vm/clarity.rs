@@ -56,7 +56,7 @@ use crate::chainstate::stacks::{
     TransactionSmartContract, TransactionVersion,
 };
 use crate::clarity_vm::database::marf::{
-    BoxedClarityMarfStoreTransaction, MarfedKV, ReadOnlyMarfStore,
+    BoxedClarityStoreTransaction, MarfedKV, ReadOnlyMarfStore,
 };
 use crate::core::{StacksEpoch, StacksEpochId, FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
@@ -105,7 +105,7 @@ pub struct ClarityInstance {
 /// issuring event dispatches, before the Clarity database commits.
 ///
 pub struct PreCommitClarityBlock<'a> {
-    datastore: Box<dyn WritableMarfStore + 'a>,
+    datastore: Box<dyn WritableClarityStore + 'a>,
     commit_to: StacksBlockId,
 }
 
@@ -113,7 +113,7 @@ pub struct PreCommitClarityBlock<'a> {
 /// A high-level interface for Clarity VM interactions within a single block.
 ///
 pub struct ClarityBlockConnection<'a, 'b> {
-    datastore: Box<dyn WritableMarfStore + 'a>,
+    datastore: Box<dyn WritableClarityStore + 'a>,
     header_db: &'b dyn HeadersDB,
     burn_state_db: &'b dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
@@ -141,9 +141,16 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     cache: ClarityExecutionCache,
 }
 
-/// Unified API common to all MARF stores
-pub trait ClarityMarfStore: ClarityBackingStore {
-    /// Instantiate a `ClarityDatabase` out of this MARF store.
+/// Convenience factory methods, common to any [`ClarityBackingStore`] implementation, for
+/// building the higher-level `ClarityDatabase`/`AnalysisDatabase` views over it.
+///
+/// This is split out from `ClarityBackingStore` itself (rather than being default methods there)
+/// because both methods pass `self` by value into a constructor that takes a concrete
+/// `&mut dyn ClarityBackingStore` reference -- a coercion that requires `Self: Sized`, which would
+/// make `ClarityBackingStore` itself not object-safe. Nothing here is MARF- or sqlite-specific;
+/// any backing store gets both methods for free via their default implementations.
+pub trait ClarityStore: ClarityBackingStore {
+    /// Instantiate a `ClarityDatabase` out of this store.
     /// Takes a `HeadersDB` and `BurnStateDB` implementation which are both used by
     /// `ClarityDatabase` to access Stacks's chainstate and sortition chainstate, respectively.
     fn as_clarity_db<'b>(
@@ -157,7 +164,7 @@ pub trait ClarityMarfStore: ClarityBackingStore {
         ClarityDatabase::new(self, headers_db, burn_state_db)
     }
 
-    /// Instantiate an `AnalysisDatabase` out of this MARF store.
+    /// Instantiate an `AnalysisDatabase` out of this store.
     fn as_analysis_db(&mut self) -> AnalysisDatabase<'_>
     where
         Self: Sized,
@@ -166,8 +173,8 @@ pub trait ClarityMarfStore: ClarityBackingStore {
     }
 }
 
-/// A MARF store which can be written to is both a ClarityMarfStore and a
-/// ClarityMarfStoreTransaction (and thus also a ClarityBackingStore).
+/// A backing store that can be written to is both a `ClarityStore` and a
+/// `ClarityStoreTransaction` (and thus also a `ClarityBackingStore`).
 ///
 /// This is the storage-backend abstraction for Clarity block processing: any type
 /// implementing it can drive a full block (`process_transaction`, `finish_block`,
@@ -175,51 +182,61 @@ pub trait ClarityMarfStore: ClarityBackingStore {
 /// [`ClarityBlockConnection::from_writable_store`] (or
 /// [`ClarityBlockConnection::from_writable_store_genesis`] for the boot block);
 /// the built-in [`MarfedKV`] backend reaches the same path through
-/// [`ClarityInstance::begin_block`].
-pub trait WritableMarfStore:
-    ClarityMarfStore + ClarityMarfStoreTransaction + BoxedClarityMarfStoreTransaction
+/// [`ClarityInstance::begin_block`]. Nothing about this trait requires a MARF trie --
+/// `crate::clarity_vm::database::hashmap::HashMapWritableStore` is a second, unrelated
+/// implementation with no trie and no sqlite underneath it. The one place MARF specifically is
+/// still required is real chain consensus: [`Self::seal`]'s result becomes the block header's
+/// `state_index_root`, which every node must derive identically, so only a MARF-faithful
+/// implementation may back actual mainnet/testnet block processing. Other implementations are
+/// valid for tests, tooling, and simulation.
+pub trait WritableClarityStore:
+    ClarityStore + ClarityStoreTransaction + BoxedClarityStoreTransaction
 {
 }
 
-/// A MARF store transaction for a chainstate block's trie.
-/// This transaction instantiates a trie which builds atop an already-written trie in the
-/// chainstate.  Once committed, it will persist -- it may be built upon, and a subsequent attempt
-/// to build the same trie will fail.
+/// A write transaction for a chainstate block's storage.
+/// This transaction builds atop an already-written parent block. Once committed, it will
+/// persist -- it may be built upon, and a subsequent attempt to build the same block will fail.
 ///
-/// The Stacks node commits tries for one of three purposes:
-/// * It processed a block, and needs to persist its trie in the chainstate proper.
-/// * It mined a block, and needs to persist its trie outside of the chainstate proper. The miner
+/// The Stacks node commits blocks for one of three purposes:
+/// * It processed a block, and needs to persist it in the chainstate proper.
+/// * It mined a block, and needs to persist it outside of the chainstate proper. The miner
 /// may build on it later.
 /// * It processed an unconfirmed microblock (Stacks 2.x only), and needs to persist the
 /// unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
 /// continue to build on it and the network can service RPC requests on its state.
 ///
 /// These needs are each captured in distinct methods for committing this transaction.
-pub trait ClarityMarfStoreTransaction {
-    /// Commit all inserted metadata and associate it with the block trie identified by `target`.
-    /// It can later be deleted via `drop_metadata_for()` if given the same taret.
+pub trait ClarityStoreTransaction {
+    /// Commit all inserted metadata and associate it with the block identified by `target`.
+    /// It can later be deleted via `drop_metadata_for_block()` if given the same target.
     /// Returns Ok(()) on success
     /// Returns Err(..) on error
-    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError>;
+    fn commit_metadata_for_block(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError>;
 
-    /// Drop metadata for a particular block trie that was stored previously via `commit_metadata_to()`.
-    /// This function is idempotent.
+    /// Drop metadata for a particular block that was stored previously via
+    /// `commit_metadata_for_block()`. This function is idempotent.
     ///
-    /// Returns Ok(()) if the metadata for the trie identified by `target` was dropped.
+    /// Returns Ok(()) if the metadata for the block identified by `target` was dropped.
     /// It will be possible to insert it again afterwards.
     /// Returns Err(..) if the metadata was not successfully dropped.
-    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError>;
+    fn drop_metadata_for_block(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError>;
 
-    /// Compute the ID of the trie being built.
-    /// In Stacks, this will only be called once all key/value pairs are inserted (and will only be
-    /// called at most once in this transaction's lifetime).
-    fn seal_trie(&mut self) -> TrieHash;
+    /// Compute a commitment (root hash) for the batch of writes in the block being built.
+    /// In Stacks, this will only be called once all key/value pairs are inserted (and will only
+    /// be called at most once in this transaction's lifetime).
+    ///
+    /// For real chainstate blocks, this **must** be the actual MARF trie's root hash: the
+    /// result is embedded as `state_index_root` in the block header and every node re-derives
+    /// it while replaying the block, rejecting the block on mismatch. Implementations not used
+    /// for real chain consensus (tests, tooling, simulation) may return any deterministic value.
+    fn seal(&mut self) -> TrieHash;
 
-    /// Drop the block trie that this transaction was creating.
+    /// Drop the block that this transaction was creating.
     /// Destroys the transaction.
-    fn drop_current_trie(self);
+    fn drop_current_block(self);
 
-    /// Drop the unconfirmed state trie that this transaction was creating.
+    /// Drop the unconfirmed state that this transaction was creating.
     /// Destroys the transaction.
     ///
     /// Returns Ok(()) on successful deletion of the data
@@ -227,22 +244,22 @@ pub trait ClarityMarfStoreTransaction {
     /// to the caller)
     fn drop_unconfirmed(self) -> Result<(), VmExecutionError>;
 
-    /// Store the processed block's trie that this transaction was creating.
-    /// The trie's ID must be `target`, so that subsequent tries can be built on it (and so that
-    /// subsequent queries can read from it).  `target` may not be known until it is time to write
-    /// the trie out, which is why it is provided here.
+    /// Store the processed block that this transaction was creating.
+    /// The block's ID must be `target`, so that subsequent blocks can be built on it (and so
+    /// that subsequent queries can read from it).  `target` may not be known until it is time to
+    /// write the block out, which is why it is provided here.
     ///
-    /// Returns Ok(()) if the block trie was successfully persisted.
-    /// Returns Err(..) if there was an error in trying to persist this block trie.
+    /// Returns Ok(()) if the block was successfully persisted.
+    /// Returns Err(..) if there was an error in trying to persist this block.
     fn commit_to_processed_block(self, target: &StacksBlockId) -> Result<(), VmExecutionError>;
 
-    /// Store a mined block's trie that this transaction was creating.
+    /// Store a mined block that this transaction was creating.
     /// This function is distinct from `commit_to_processed_block()` in that the stored block will
     /// not be added to the chainstate. However, it must be persisted so that the node can later
     /// build on it.
     ///
-    /// Returns Ok(()) if the block trie was successfully persisted.
-    /// Returns Err(..) if there was an error trying to persist this MARF trie.
+    /// Returns Ok(()) if the block was successfully persisted.
+    /// Returns Err(..) if there was an error trying to persist this block.
     fn commit_to_mined_block(self, target: &StacksBlockId) -> Result<(), VmExecutionError>;
 
     /// Persist the unconfirmed state trie so that other parts of the Stacks node can read from it
@@ -320,7 +337,7 @@ macro_rules! using {
 impl ClarityBlockConnection<'_, '_> {
     #[cfg(test)]
     pub fn new_test_conn<'a, 'b>(
-        datastore: Box<dyn WritableMarfStore + 'a>,
+        datastore: Box<dyn WritableClarityStore + 'a>,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
         epoch: StacksEpochId,
@@ -340,10 +357,10 @@ impl ClarityBlockConnection<'_, '_> {
     ///
     /// `ClarityBlockConnection` — and therefore the whole consensus block-processing
     /// pipeline built on it (`process_transaction`, `finish_block`, `seal`, …) — is
-    /// generic over the [`WritableMarfStore`] trait: it holds a
-    /// `Box<dyn WritableMarfStore>` and never names a concrete store type. This
+    /// generic over the [`WritableClarityStore`] trait: it holds a
+    /// `Box<dyn WritableClarityStore>` and never names a concrete store type. This
     /// constructor is the public injection point for that abstraction. It lets a
-    /// caller run block processing against any `WritableMarfStore` implementation —
+    /// caller run block processing against any `WritableClarityStore` implementation —
     /// the built-in [`MarfedKV`], an in-memory store, a remote/disaggregated
     /// backend, a snapshotting store, and so on — instead of only the datastore
     /// owned by a [`ClarityInstance`].
@@ -359,7 +376,7 @@ impl ClarityBlockConnection<'_, '_> {
     /// The store must already be positioned on the block being built (its
     /// `begin`/`extend_to_block` equivalent has run).
     pub fn from_writable_store<'a, 'b>(
-        mut datastore: Box<dyn WritableMarfStore + 'a>,
+        mut datastore: Box<dyn WritableClarityStore + 'a>,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
         mainnet: bool,
@@ -392,12 +409,12 @@ impl ClarityBlockConnection<'_, '_> {
     }
 
     /// Genesis/boot twin of [`Self::from_writable_store`]: begins the genesis block
-    /// over an externally-supplied [`WritableMarfStore`] using a free (unmetered)
+    /// over an externally-supplied [`WritableClarityStore`] using a free (unmetered)
     /// cost tracker and [`GENESIS_EPOCH`], because the cost-limit contract has not
     /// yet been installed at boot. The injection twin of
     /// [`ClarityInstance::begin_genesis_block`].
     pub fn from_writable_store_genesis<'a, 'b>(
-        datastore: Box<dyn WritableMarfStore + 'a>,
+        datastore: Box<dyn WritableClarityStore + 'a>,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
         mainnet: bool,
@@ -522,7 +539,7 @@ impl ClarityInstance {
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
     ) -> ClarityBlockConnection<'a, 'b> {
-        // The built-in datastore (`MarfedKV`) is just one `WritableMarfStore`; this
+        // The built-in datastore (`MarfedKV`) is just one `WritableClarityStore`; this
         // funnels through the same generic injection point external backends use.
         let datastore = self.datastore.begin(current, next);
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
@@ -987,7 +1004,7 @@ impl PreCommitClarityBlock<'_> {
     /// the instance cannot `begin` the next block while a trie is open.
     pub fn rollback(self) {
         debug!("Rolling back pre-commit Clarity block connection"; "index_block" => %self.commit_to);
-        self.datastore.drop_current_trie();
+        self.datastore.drop_current_block();
     }
 }
 
@@ -999,7 +1016,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         // this is a "lower-level" rollback than the roll backs performed in
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
         debug!("Rollback Clarity datastore");
-        self.datastore.drop_current_trie();
+        self.datastore.drop_current_block();
     }
 
     /// Rolls back all unconfirmed state in the current block by
@@ -2313,10 +2330,10 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     }
 
     pub fn seal(&mut self) -> TrieHash {
-        self.datastore.seal_trie()
+        self.datastore.seal()
     }
 
-    pub fn destruct(self) -> Box<dyn WritableMarfStore + 'a> {
+    pub fn destruct(self) -> Box<dyn WritableClarityStore + 'a> {
         self.datastore
     }
 
@@ -3800,7 +3817,7 @@ mod tests {
         conn.commit_block();
     }
 
-    /// Exercise the public `WritableMarfStore` injection constructors and the
+    /// Exercise the public `WritableClarityStore` injection constructors and the
     /// mainnet/chain_id getters.
     #[test]
     fn test_from_writable_store_constructors() {
@@ -3858,7 +3875,7 @@ mod tests {
 
         // Non-MARF injection: `HashMapWritableStore` has no trie and no sqlite underneath, yet
         // it drives the exact same block-processing path -- deploy a contract, call it, and
-        // commit the block -- proving `WritableMarfStore` doesn't actually require MARF.
+        // commit the block -- proving `WritableClarityStore` doesn't actually require MARF.
         {
             let mut store = HashMapWritableStore::new();
             store.begin(&StacksBlockId::sentinel(), StacksBlockId([0; 32]));

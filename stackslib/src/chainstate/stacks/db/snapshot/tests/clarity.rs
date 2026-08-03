@@ -29,7 +29,7 @@ use super::super::copy_clarity_side_tables;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId as _, Error, MARFValue};
-use crate::clarity_vm::clarity::ClarityMarfStoreTransaction as _;
+use crate::clarity_vm::clarity::ClarityStoreTransaction as _;
 use crate::clarity_vm::database::marf::MarfedKV;
 
 /// Build a Clarity MARF with N blocks of data and a single contract.

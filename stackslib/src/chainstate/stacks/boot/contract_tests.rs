@@ -46,8 +46,8 @@ use crate::chainstate::stacks::boot::{
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
 use crate::clarity_vm::clarity::{
-    ClarityBlockConnection, ClarityError, ClarityMarfStore, ClarityMarfStoreTransaction,
-    WritableMarfStore,
+    ClarityBlockConnection, ClarityError, ClarityStore, ClarityStoreTransaction,
+    WritableClarityStore,
 };
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{
@@ -160,12 +160,12 @@ impl ClarityTestSim {
         &'_ mut self,
         new_tenure: bool,
     ) -> (
-        Box<dyn WritableMarfStore + '_>,
+        Box<dyn WritableClarityStore + '_>,
         TestSimHeadersDB,
         TestSimBurnStateDB,
         StacksEpochId,
     ) {
-        let mut store: Box<dyn WritableMarfStore> = Box::new(self.marf.begin(
+        let mut store: Box<dyn WritableClarityStore> = Box::new(self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
         ));
@@ -253,7 +253,7 @@ impl ClarityTestSim {
     }
 
     fn check_and_bump_epoch<'a>(
-        store: &mut Box<dyn WritableMarfStore + 'a>,
+        store: &mut Box<dyn WritableClarityStore + 'a>,
         headers_db: &TestSimHeadersDB,
         burn_db: &dyn BurnStateDB,
     ) -> StacksEpochId {
@@ -280,7 +280,7 @@ impl ClarityTestSim {
     where
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
-        let mut store: Box<dyn WritableMarfStore> = Box::new(self.marf.begin(
+        let mut store: Box<dyn WritableClarityStore> = Box::new(self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(parent_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(parent_height + 1, self.fork + 1)),
         ));

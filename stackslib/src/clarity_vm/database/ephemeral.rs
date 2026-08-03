@@ -33,7 +33,7 @@ use stacks_common::types::sqlite::NO_PARAMS;
 use crate::chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
 use crate::chainstate::stacks::index::{Error, MARFValue};
 use crate::clarity_vm::clarity::{
-    ClarityMarfStore, ClarityMarfStoreTransaction, WritableMarfStore,
+    ClarityStore, ClarityStoreTransaction, WritableClarityStore,
 };
 use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
@@ -59,9 +59,9 @@ pub struct EphemeralMarfStore<'a> {
     read_only_marf: ReadOnlyMarfStore<'a>,
 }
 
-impl ClarityMarfStore for EphemeralMarfStore<'_> {}
+impl ClarityStore for EphemeralMarfStore<'_> {}
 
-impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
+impl ClarityStoreTransaction for EphemeralMarfStore<'_> {
     /// Commit metadata for a given `target` trie.  In this MARF store, this just renames all
     /// metadata rows with `self.chain_tip` as their block identifier to have `target` instead,
     /// but only within the ephemeral MARF.  None of the writes will hit disk, and they will
@@ -69,7 +69,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     ///
     /// Returns Ok(()) on success
     /// Returns Err(VmInternalError(..)) on sqlite failure
-    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
+    fn commit_metadata_for_block(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         if let Some(tip) = self.ephemeral_marf.get_open_chain_tip() {
             self.teardown_views();
             let res =
@@ -87,7 +87,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     ///
     /// Returns Ok(()) on success
     /// Returns Err(VmInternalError(..)) on sqlite failure
-    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
+    fn drop_metadata_for_block(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         self.teardown_views();
         let res = SqliteConnection::drop_metadata(self.ephemeral_marf.sqlite_tx(), target);
         self.setup_views();
@@ -96,7 +96,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
 
     /// Seal the trie -- compute the root hash.
     /// NOTE: This is a one-time operation for this implementation -- a subsequent call will panic.
-    fn seal_trie(&mut self) -> TrieHash {
+    fn seal(&mut self) -> TrieHash {
         self.ephemeral_marf
             .seal()
             .expect("FATAL: failed to .seal() MARF")
@@ -104,7 +104,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
 
     /// Drop the trie being built. This just drops the data from RAM and aborts the underlying
     /// sqlite transaction.  This MARF store instance is consumed.
-    fn drop_current_trie(self) {
+    fn drop_current_block(self) {
         self.ephemeral_marf.drop_current()
     }
 
@@ -116,7 +116,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     fn drop_unconfirmed(mut self) -> Result<(), VmExecutionError> {
         if let Some(tip) = self.ephemeral_marf.get_open_chain_tip().cloned() {
             debug!("Drop unconfirmed MARF trie {}", tip);
-            self.drop_metadata_for_trie(&tip)?;
+            self.drop_metadata_for_block(&tip)?;
             self.ephemeral_marf.drop_unconfirmed();
         }
         Ok(())
@@ -131,7 +131,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     /// Returns Err(VmInternalError(..)) on sqlite failure
     fn commit_to_processed_block(mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         if self.ephemeral_marf.get_open_chain_tip().is_some() {
-            self.commit_metadata_for_trie(target)?;
+            self.commit_metadata_for_block(target)?;
             let _ = self.ephemeral_marf.commit_to(target).map_err(|e| {
                 error!("Failed to commit to ephemeral MARF block {target}: {e:?}",);
                 VmInternalError::Expect("Failed to commit to MARF block".into())
@@ -154,7 +154,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
             //    included in the processed chainstate (like a block constructed during mining)
             //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
             //    we should probably commit the data to a different table which does not have uniqueness constraints.
-            self.drop_metadata_for_trie(&tip)?;
+            self.drop_metadata_for_block(&tip)?;
             let _ = self.ephemeral_marf.commit_mined(target).map_err(|e| {
                 error!("Failed to commit to mined MARF block {target}: {e:?}",);
                 VmInternalError::Expect("Failed to commit to MARF block".into())
@@ -777,4 +777,4 @@ impl SqliteBackingStore for EphemeralMarfStore<'_> {
     }
 }
 
-impl WritableMarfStore for EphemeralMarfStore<'_> {}
+impl WritableClarityStore for EphemeralMarfStore<'_> {}

@@ -520,7 +520,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
     /// by `inner_clarity_tx_begin`. Paired with
     /// [`ClarityBlockConnection::from_writable_store`], it lets a caller run the
     /// whole consensus transaction engine (`process_transaction`, `finish_block`,
-    /// `seal`, …) against a custom [`WritableMarfStore`] backend rather than the
+    /// `seal`, …) against a custom [`WritableClarityStore`] backend rather than the
     /// datastore owned by a `ClarityInstance`.
     ///
     /// `DBConfig` is derived from the block connection so mainnet/chain_id cannot
@@ -1364,7 +1364,7 @@ impl StacksChainState {
     /// final `commit_to_block`. Extracted from [`Self::install_boot_code`] (which
     /// now calls it against a `MarfedKV`-backed tx) so the same boot can be run
     /// against *any* [`ClarityTx`] — e.g. one built over a custom
-    /// [`WritableMarfStore`] via [`ClarityBlockConnection::from_writable_store_genesis`]
+    /// [`WritableClarityStore`] via [`ClarityBlockConnection::from_writable_store_genesis`]
     /// — yielding a byte-identical genesis state root regardless of backend.
     ///
     /// Network mode (`mainnet` vs testnet) is taken from `clarity_tx.config` so it
