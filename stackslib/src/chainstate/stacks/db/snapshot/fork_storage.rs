@@ -40,7 +40,7 @@ pub fn collect_leaf_value_hashes<T: MarfTrieId>(
     db_path: &str,
 ) -> Result<(T, HashSet<MARFValue>), Error> {
     let external_blobs = std::path::Path::new(&format!("{db_path}.blobs")).exists();
-    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", external_blobs);
+    let open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, external_blobs);
     let storage = TrieFileStorage::open_readonly(db_path, open_opts)?;
     let mut marf = MARF::<T>::from_storage(storage);
     let tip = trie_sql::get_latest_confirmed_block_hash::<T>(marf.sqlite_conn())?;

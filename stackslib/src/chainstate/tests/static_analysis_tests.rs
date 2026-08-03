@@ -63,11 +63,10 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         CostBalanceExceeded(execution_cost, execution_cost1) => Tested(vec![static_check_error_cost_balance_exceeded]),
         MemoryBalanceExceeded(_, _) => Tested(vec![static_check_error_memory_balance_exceeded]),
         CostComputationFailed(_) => Unreachable_ExpectLike,
-        ExecutionTimeExpired => Unreachable_Functionally("Can only be triggered at runtime."),
-        AnalysisTimeExpired => Unreachable_Functionally(
+        AnalysisResourceBudgetExceeded(_) => Unreachable_Functionally(
             "All consensus-critical code paths (block validation and transaction processing) pass
-             `None` for max_analysis_time, so the analysis-phase time tracking stays
-             unlimited and check_analysis_abort_condition always returns Ok(()). The analysis
+             an unlimited resource budget, so the analysis-phase time tracking and memory limit stays
+             unlimited and check_analysis_resource_limits always returns Ok(()). The analysis
              deadline is only enforced on the miner-local block-assembly and block-proposal
              validation paths; it is exercised by the analysis-deadline integration tests, not
              by this consensus harness.",

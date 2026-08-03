@@ -947,7 +947,7 @@ fn test_variadic_concat_string_ascii() {
 #[test]
 fn test_variadic_concat_string_utf8() {
     // Existing test_string_utf8_concat builds the same emoji from 5 binary
-    // concats — here we do it in one variadic call to verify the v600 path
+    // concats — here we do it in one variadic call to verify the v400 path
     // preserves UTF-8 semantics.
     let variadic =
         "(concat u\"\\u{1F926}\" u\"\\u{1F3FC}\" u\"\\u{200D}\" u\"\\u{2642}\" u\"\\u{FE0F}\")";
@@ -1798,7 +1798,7 @@ fn test_filter_with_special_functions() {
 // with random data, builds the variadic `(concat a1 a2 ... aN)` snippet, and
 // verifies the result equals the byte/char/element-wise concatenation of all
 // args computed in Rust. This exercises both the two-pass evaluation in
-// `special_concat_v600` (phase 1 sum, phase 2 reserve+concat) and the
+// `special_concat_v400` (phase 1 sum, phase 2 reserve+concat) and the
 // type-checker fold in `check_special_concat`.
 //
 // Per-arg lengths are kept small so that the combined result fits comfortably
@@ -1810,12 +1810,22 @@ fn buff_chunk_strategy() -> impl Strategy<Value = Vec<u8>> {
     prop::collection::vec(any::<u8>(), 0..=32)
 }
 
+/// Printable-ASCII bytes (`0x20..=0x7E`) excluding `"` and `\`, which need
+/// escaping in a Clarity string literal.
+///
+/// Callers sample from this set directly rather than `prop_filter`-ing the full
+/// range: a per-byte filter rejects `"`/`\` ~2% of the time, and with many
+/// bytes per case the cumulative local rejects blow past proptest's cap under
+/// high case counts (aborting the run).
+fn allowed_ascii_bytes() -> Vec<u8> {
+    (0x20u8..=0x7Eu8)
+        .filter(|b| *b != b'"' && *b != b'\\')
+        .collect()
+}
+
 /// Random printable-ASCII bytes (no `"` or `\`) for a string-ascii arg.
 fn ascii_chunk_strategy() -> impl Strategy<Value = Vec<u8>> {
-    prop::collection::vec(
-        (0x20u8..=0x7Eu8).prop_filter("not quote or backslash", |b| *b != b'"' && *b != b'\\'),
-        0..=32,
-    )
+    prop::collection::vec(prop::sample::select(allowed_ascii_bytes()), 0..=32)
 }
 
 /// Random Unicode chars (printable ASCII + BMP + emoji) for a string-utf8 arg.
@@ -1823,9 +1833,7 @@ fn utf8_chunk_strategy() -> impl Strategy<Value = Vec<char>> {
     prop::collection::vec(
         prop_oneof![
             // Printable ASCII excluding `"` and `\`
-            (0x20u8..=0x7Eu8)
-                .prop_filter("not quote or backslash", |b| *b != b'"' && *b != b'\\')
-                .prop_map(|b| b as char),
+            prop::sample::select(allowed_ascii_bytes()).prop_map(|b| b as char),
             // BMP non-control non-surrogate codepoints
             (0xA1u32..=0xD7FF).prop_filter_map("valid bmp char", |n| {
                 char::from_u32(n).filter(|c| !c.is_control())

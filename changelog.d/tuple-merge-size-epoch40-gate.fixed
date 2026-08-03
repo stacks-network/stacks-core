@@ -1,1 +1,0 @@
-Fix tuple `merge` producing an oversized value: starting in Epoch 4.0, a `merge` whose combined size exceeds the maximum value size is rejected cleanly with `ValueTooLarge` at the merge site (in both static analysis and at runtime), instead of aborting the block. Behavior in earlier epochs is unchanged.

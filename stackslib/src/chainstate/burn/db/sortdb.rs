@@ -4805,11 +4805,12 @@ impl SortitionDB {
         // is empty -- i.e. on migration to schema 11.
         let mut cursor = tip.clone();
         for _ in 0..STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH {
-            let result_at_tip : Option<(ConsensusHash, ConsensusHash, BlockHeaderHash, u64)> = conn.query_row_and_then(
-                "SELECT consensus_hash,burn_view_consensus_hash, block_hash,block_height FROM stacks_chain_tips_by_burn_view WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
-                &[&cursor.sortition_id],
-                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), row.get_unwrap(2), (u64::try_from(row.get_unwrap::<_, i64>(3)).expect("FATAL: block height too high"))))
-            ).optional()?;
+            let result_at_tip : Option<(ConsensusHash, ConsensusHash, BlockHeaderHash, u64)> = conn
+                .prepare_cached("SELECT consensus_hash,burn_view_consensus_hash, block_hash,block_height FROM stacks_chain_tips_by_burn_view WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1")?
+                .query_row(
+                    &[&cursor.sortition_id],
+                    |row| Ok((row.get_unwrap(0), row.get_unwrap(1), row.get_unwrap(2), (u64::try_from(row.get_unwrap::<_, i64>(3)).expect("FATAL: block height too high"))))
+                ).optional()?;
             test_debug!(
                 "Result at tip by burn view ({} {} {}): {:?}",
                 &cursor.sortition_id,
@@ -4831,11 +4832,12 @@ impl SortitionDB {
         // exhaustively search stacks_chain_tips
         let mut cursor = tip.clone();
         loop {
-            let result_at_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = conn.query_row_and_then(
-                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
-                &[&cursor.sortition_id],
-                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
-            ).optional()?;
+            let result_at_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = conn
+                .prepare_cached("SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1")?
+                .query_row(
+                    &[&cursor.sortition_id],
+                    |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
+                ).optional()?;
             test_debug!(
                 "Result at tip ({} {} {}): {:?}",
                 &cursor.sortition_id,

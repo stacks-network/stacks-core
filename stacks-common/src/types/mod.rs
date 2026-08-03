@@ -38,7 +38,7 @@ use crate::consts::{
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
-    PEER_VERSION_EPOCH_4_0, STACKS_EPOCH_MAX,
+    PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1, STACKS_EPOCH_MAX,
 };
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
@@ -167,6 +167,7 @@ define_stacks_epochs! {
     Epoch33 = 0x03003 => "3.3",
     Epoch34 = 0x03004 => "3.4",
     Epoch40 = 0x04000 => "4.0",
+    Epoch41 = 0x04001 => "4.1",
 }
 
 #[derive(Debug)]
@@ -189,7 +190,7 @@ pub struct CoinbaseInterval {
 pub const BITCOIN_MAINNET_GENESIS_BURN_HEIGHT: u64 = 666_050;
 
 /// Burnchain height at which the Stacks 4.0 epoch activates (mainnet).
-pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 1_012_860;
+pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 960_230;
 
 /// Burnchain height of the Stacks genesis block (testnet).
 pub const BITCOIN_TESTNET_GENESIS_BURN_HEIGHT: u64 = 2_000_000;
@@ -506,7 +507,7 @@ impl StacksEpochId {
 
     #[cfg(any(test, feature = "testing"))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch40
+        StacksEpochId::Epoch41
     }
 
     #[cfg(not(any(test, feature = "testing")))]
@@ -790,6 +791,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch33
     }
 
+    /// Whether contract analysis charges `AnalysisUseTraitEntry` for traits
+    /// resolved from the in-memory type-checking context, not only for those
+    /// fetched from the datastore.
+    pub fn meters_in_contract_trait_entry(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     pub fn handles_with_stx_combined_check(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
@@ -881,6 +889,7 @@ impl StacksEpochId {
             StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_3,
             StacksEpochId::Epoch34 => PEER_VERSION_EPOCH_3_4,
             StacksEpochId::Epoch40 => PEER_VERSION_EPOCH_4_0,
+            StacksEpochId::Epoch41 => PEER_VERSION_EPOCH_4_1,
         }
     }
 }

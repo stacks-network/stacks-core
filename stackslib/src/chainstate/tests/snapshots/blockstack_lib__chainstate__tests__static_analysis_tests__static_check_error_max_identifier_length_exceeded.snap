@@ -63,4 +63,94 @@ expression: result.get_expected_results()
       runtime: 16108,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "59bbfa10312196c0c664ed1d0a4a96fd8e246466e39d0202143670ab24d37866",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: max-ident-len-excd-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: with-nft allowance identifiers list must not exceed 128 elements, got 130) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 142,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 16108,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 142,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 16108,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ceeef0042b88be544c28f3d69c491e0f3c1c701ebdda99293e63d95fa25af661",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: max-ident-len-excd-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: with-nft allowance identifiers list must not exceed 128 elements, got 130) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 142,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 16108,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 142,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 16108,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8a7decfe9a8e3a2fde6cb8790c9fcfde7960604e3f37b1efeb7be429c7ef7f96",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: max-ident-len-excd-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(:0:0: with-nft allowance identifiers list must not exceed 128 elements, got 130) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 142,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 16108,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 142,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 16108,
+    ),
+  )),
 ]

@@ -75,13 +75,6 @@ runs:
         archive-file: ${{ inputs.archive-file }}
         debug-binary-path: ${{ inputs.debug-binary-path }}
 
-    # Install dependencies
-    #   grcov is used in the code coverage workflow in tests, so it's installed here
-    - name: Install Dependencies
-      uses: ./.github/actions/install-tool
-      with:
-        tools: nextest, grcov
-
     ############################################################################
     ### Run the tests
     ############################################################################
@@ -194,11 +187,13 @@ runs:
     ############################################################################
 
     # Store JUnit file in GitHub CI artifacts (with SHA and "nextest" prefix)
+    # always() is needed to execute this step for test failures
     - name: Store JUnit Report as Artifact
-      if: always() # needed to be able to execute this step for test failures
+      if: >-
+        always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
-        name: ${{ github.sha }}-nextest-${{ steps.generate-sanitized-file-name.outputs.file-name }}
+        name: nextest-${{ steps.generate-sanitized-file-name.outputs.file-name }}
         path: junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
         if-no-files-found: error
         retention-days: 1
@@ -210,9 +205,10 @@ runs:
     ############################################################################
 
     # Generate code coverage using grcov
-    #   - Resulting coverage filenames must be unique, so use test-name input to name the file
+    # Resulting coverage filenames must be unique, so use test-name input to name the file
     - name: Run grcov
-      if: github.event.repository.visibility == 'public'
+      if: >-
+        github.event.repository.visibility == 'public'
       shell: bash
       run: |
         grcov . \
@@ -245,10 +241,11 @@ runs:
 
     # Store coverage file in GitHub CI artifacts (with SHA and "lcov" prefix)
     - name: Store Code Coverage as Artifact
-      if: github.event.repository.visibility == 'public'
+      if: >-
+        github.event.repository.visibility == 'public'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
-        name: ${{ github.sha }}-codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
+        name: codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
         path: lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info
         if-no-files-found: error
         retention-days: 1

@@ -153,4 +153,184 @@ expression: result.get_expected_results()
       runtime: 9463,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "65b2ad774165b257c9ebbaea2bbcf9cd3528030c2233723020f39d6b2903d478",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: return-types-must-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: detected two execution paths, returning two different expression types (got \'(response UnknownType int)\' and \'(response UnknownType bool)\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 42,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9463,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 42,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9463,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6f02de0f8a5be50636159aae50ac56ad2a60f11ab13b45185d647107bec9b154",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: return-types-must-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: detected two execution paths, returning two different expression types (got \'(response UnknownType int)\' and \'(response UnknownType bool)\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 42,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9463,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 42,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9463,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bd42134a4cad918c5deb30bd3397e436af8caec547ce57a56ee8b232e330b880",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: return-types-must-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: detected two execution paths, returning two different expression types (got \'(response UnknownType int)\' and \'(response UnknownType bool)\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 42,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9463,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 42,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9463,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "307ec40a6bfd65f10380e731f89d4737b3461886eb89f8dbeea4dfe1d39529dd",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: return-types-must-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: detected two execution paths, returning two different expression types (got \'(response UnknownType int)\' and \'(response UnknownType bool)\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 42,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9463,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 42,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9463,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "114cec8d2b0a5c5056b4ff842016d382e3550fd9b0492c030e86644042ab3c76",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: return-types-must-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: detected two execution paths, returning two different expression types (got \'(response UnknownType int)\' and \'(response UnknownType bool)\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 42,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9463,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 42,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9463,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b52c360eb152ce2f593755fe5136a8ea1af42981018e46670dc06014c1576abe",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: return-types-must-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(:0:0: detected two execution paths, returning two different expression types (got \'(response UnknownType int)\' and \'(response UnknownType bool)\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 42,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 9463,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 42,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 9463,
+    ),
+  )),
 ]

@@ -167,7 +167,7 @@ fn marf_insert_random_1048576_4096_file_storage() {
 fn marf_read_random_1048576_4096_file_storage() {
     let do_merkle_check = std::env::var("TEST_MARF_PERFS_MERKLE_PROOFS") == Ok("1".to_string());
 
-    for marf_opts in opts::ALL_OPTS_NOOP.clone().into_iter() {
+    for marf_opts in opts::ALL_OPTS.clone().into_iter() {
         test_debug!("With {:?}", &marf_opts);
         let path = "/tmp/rust_marf_insert_random_1048576_4096_file_storage".to_string();
         if fs::metadata(&path).is_err() {
@@ -225,8 +225,19 @@ fn marf_read_random_1048576_4096_file_storage() {
                 let (read_count, write_count) = f.stats();
                 let (node_reads, backptr_reads, node_writes) = f.node_stats();
                 let (leaf_reads, leaf_writes) = f.leaf_stats();
-                debug!("Got {} in {} (1 get = {} ms).  Read = {}, Write = {}, Node Reads = {}, Node Writes = {}, Backptr Reads = {}, Leaf Reads = {}, Leaf Writes = {}",
-                         i, end_time - start_time, ((end_time - start_time) as f64) / 128.0, read_count, write_count, node_reads, node_writes, backptr_reads, leaf_reads, leaf_writes);
+                debug!(
+                    "Got {} in {} (1 get = {} ms).  Read = {}, Write = {}, Node Reads = {}, Node Writes = {}, Backptr Reads = {}, Leaf Reads = {}, Leaf Writes = {}",
+                    i,
+                    end_time - start_time,
+                    ((end_time - start_time) as f64) / 128.0,
+                    read_count,
+                    write_count,
+                    node_reads,
+                    node_writes,
+                    backptr_reads,
+                    leaf_reads,
+                    leaf_writes
+                );
 
                 start_time = get_epoch_time_ms();
             }

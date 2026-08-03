@@ -5708,7 +5708,7 @@ export const contracts = {
                   { name: 'cycles-to-extend', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   { name: 'old-signer', type: 'principal' },
-                  { name: 'prev-unlock-cycle', type: 'uint128' },
+                  { name: 'prev-unlock-height', type: 'uint128' },
                   { name: 'signer', type: 'principal' },
                   { name: 'staker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
@@ -5734,7 +5734,7 @@ export const contracts = {
             cyclesToExtend: bigint;
             numCycles: bigint;
             oldSigner: string;
-            prevUnlockCycle: bigint;
+            prevUnlockHeight: bigint;
             signer: string;
             staker: string;
             unlockBurnHeight: bigint;
@@ -7380,11 +7380,6 @@ export const contracts = {
         type: 'uint128',
         access: 'constant',
       } as TypedAbiVariable<bigint>,
-      BOND_LENGTH_PERIODS: {
-        name: 'BOND_LENGTH_PERIODS',
-        type: 'uint128',
-        access: 'constant',
-      } as TypedAbiVariable<bigint>,
       ERR_ACTIVE_BOND_NOT_INCLUDED: {
         name: 'ERR_ACTIVE_BOND_NOT_INCLUDED',
         type: {
@@ -7999,7 +7994,6 @@ export const contracts = {
       BITCOIN_LOCKTIME_THRESHOLD: 500_000_000n,
       BOND_GAP_CYCLES: 2n,
       BOND_LENGTH_CYCLES: 12n,
-      BOND_LENGTH_PERIODS: 6n,
       ERR_ACTIVE_BOND_NOT_INCLUDED: {
         isOk: false,
         value: 33n,
@@ -8196,14 +8190,14 @@ export const contracts = {
       sIP018_MSG_PREFIX: Uint8Array.from([83, 73, 80, 48, 49, 56]),
       STACKS_ADDR_VERSION_MAINNET: Uint8Array.from([22]),
       STACKS_ADDR_VERSION_TESTNET: Uint8Array.from([26]),
-      bondAdmin: 'SP000000000000000000002Q6VF78',
+      bondAdmin: 'SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX',
       configured: false,
       firstBondPeriodCycle: 0n,
       firstBurnchainBlockHeight: 0n,
       firstPox5RewardCycle: 0n,
       lastAccountedRewardsOnly: 0n,
       lastRewardComputeHeight: 0n,
-      pauseAdmin: 'SP000000000000000000002Q6VF78',
+      pauseAdmin: 'SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX',
       poxPrepareCycleLength: 50n,
       poxRewardCycleLength: 1_050n,
       reserveBalance: 0n,
@@ -8458,7 +8452,7 @@ export const contracts = {
                   { name: 'cycles-to-extend', type: 'uint128' },
                   { name: 'num-cycles', type: 'uint128' },
                   { name: 'old-signer', type: 'principal' },
-                  { name: 'prev-unlock-cycle', type: 'uint128' },
+                  { name: 'prev-unlock-height', type: 'uint128' },
                   { name: 'signer', type: 'principal' },
                   { name: 'staker', type: 'principal' },
                   { name: 'unlock-burn-height', type: 'uint128' },
@@ -8484,7 +8478,7 @@ export const contracts = {
             cyclesToExtend: bigint;
             numCycles: bigint;
             oldSigner: string;
-            prevUnlockCycle: bigint;
+            prevUnlockHeight: bigint;
             signer: string;
             staker: string;
             unlockBurnHeight: bigint;
@@ -10447,14 +10441,32 @@ export const contracts = {
           { name: 'reward-cycle', type: 'uint128' },
           { name: 'bond-index', type: { optional: 'uint128' } },
         ],
-        outputs: { type: { response: { ok: 'uint128', error: 'uint128' } } },
+        outputs: {
+          type: {
+            response: {
+              ok: {
+                tuple: [
+                  { name: 'earned', type: 'uint128' },
+                  { name: 'withdrawal-request', type: { optional: 'uint128' } },
+                ],
+              },
+              error: 'uint128',
+            },
+          },
+        },
       } as TypedAbiFunction<
         [
           staker: TypedAbiArg<string, 'staker'>,
           rewardCycle: TypedAbiArg<number | bigint, 'rewardCycle'>,
           bondIndex: TypedAbiArg<number | bigint | null, 'bondIndex'>,
         ],
-        Response<bigint, bigint>
+        Response<
+          {
+            earned: bigint;
+            withdrawalRequest: bigint | null;
+          },
+          bigint
+        >
       >,
       reclaimFailedWithdrawal: {
         name: 'reclaim-failed-withdrawal',

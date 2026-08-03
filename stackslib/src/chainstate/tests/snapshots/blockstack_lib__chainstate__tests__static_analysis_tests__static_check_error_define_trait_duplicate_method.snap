@@ -151,4 +151,182 @@ expression: result.get_expected_results()
       runtime: 4094,
     ),
   )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "44aa87f1f7a313fae192f8ec595ef8bdaad65bbeced688f5429f9a7355cfc554",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 163,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12905,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 163,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12905,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2854977beb81ef64b9c635547d74147b6eb74a349387a45a37918f4920f7c04b",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 21,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4094,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 21,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4094,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e886cf128f5a512e65416a972338dcedbbd37f3ed407a87d0933bcfc96c4e4e3",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 21,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4094,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 21,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4094,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5f9e7084f9409840b4776ec9b6a7ecae5d56f1da119b75ea6459bd8301bfcb9b",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 21,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4094,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 21,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4094,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8f325f0fe89c94047df7c9ddbc7aa0335b3b8982adfa32da5c88af7af49fe56d",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 21,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4094,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 21,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4094,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "25499bd156c6354e07808279b8d8c8fe05f0914261bda2da4184f6346ab1bada",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-trait-dup-method-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
+        vm_error: "Some(:0:0: duplicate method name \'foo\' in trait definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 21,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 4094,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 21,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 4094,
+    ),
+  )),
 ]

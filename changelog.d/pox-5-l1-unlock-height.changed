@@ -1,1 +1,0 @@
-Allow pox-5 L1 BTC lockups to use timelock unlock heights greater than or equal to the bond's minimum L1 unlock height.

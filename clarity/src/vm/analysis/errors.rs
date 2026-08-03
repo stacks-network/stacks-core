@@ -235,12 +235,8 @@ pub enum StaticCheckErrorKind {
     /// Failure in cost-tracking due to an unexpected condition or invalid state.
     /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
-    // Time checker errors
-    /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    ExecutionTimeExpired,
-    /// Contract-analysis time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable end-to-end.
-    AnalysisTimeExpired,
+    /// Contract-analysis time or memory usage exceeds the allowed budget, halting analysis to ensure responsiveness.
+    AnalysisResourceBudgetExceeded(String),
     /// The read-only checker recursed too deeply while checking native function calls.
     ReadOnlyCheckerRecursionLimitExceeded,
     /// Value exceeds the maximum allowed size for type-checking or serialization.
@@ -557,9 +553,8 @@ pub enum RuntimeCheckErrorKind {
     /// Failure in cost-tracking due to an unexpected condition or invalid state.
     /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
-    // Time checker errors
-    /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    ExecutionTimeExpired,
+    /// Runtime (eval) execution time or memory use exceeds the allowed budget, halting execution to ensure responsiveness.
+    ExecutionResourceBudgetExceeded(String),
 
     /// Value exceeds the maximum allowed size for type-checking or serialization.
     ValueTooLarge,
@@ -570,11 +565,6 @@ pub enum RuntimeCheckErrorKind {
 
     /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
     Unreachable(String),
-
-    /// Execution was deliberately aborted by the per-`eval` abort callback.
-    /// (e.g., by the memory limit enforcement in block proposal validation or
-    ///  miner block assembly)
-    AbortedByExecutionHook(String),
 
     /// Block rejection: a `pox-4` call would overwrite
     /// an existing asset-map stacking entry for its sender.
@@ -686,7 +676,6 @@ impl RuntimeCheckErrorKind {
             self,
             RuntimeCheckErrorKind::Unreachable(_)
                 | RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(_, _)
-                | RuntimeCheckErrorKind::AbortedByExecutionHook(_)
                 | RuntimeCheckErrorKind::PoxStxAssetMapOverwrite
         )
     }
@@ -930,7 +919,6 @@ impl From<CostErrors> for StaticCheckErrorKind {
                 "Unexpected interpreter failure in cost computation".into(),
             ),
             CostErrors::Expect(s) => StaticCheckErrorKind::Unreachable(s),
-            CostErrors::ExecutionTimeExpired => StaticCheckErrorKind::ExecutionTimeExpired,
         }
     }
 }
@@ -953,7 +941,6 @@ impl From<CostErrors> for RuntimeCheckErrorKind {
                 "Unexpected interpreter failure in cost computation".into(),
             ),
             CostErrors::Expect(s) => RuntimeCheckErrorKind::Unreachable(s),
-            CostErrors::ExecutionTimeExpired => RuntimeCheckErrorKind::ExecutionTimeExpired,
         }
     }
 }
@@ -1182,8 +1169,7 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
-            StaticCheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
-            StaticCheckErrorKind::AnalysisTimeExpired => "analysis time expired".into(),
+            StaticCheckErrorKind::AnalysisResourceBudgetExceeded(s) => format!("analysis resource budget exceeded: {s}"),
             StaticCheckErrorKind::ReadOnlyCheckerRecursionLimitExceeded => "read-only checker exceeded maximum allowed recursion depth".into(),
             StaticCheckErrorKind::InvalidTypeDescription => "supplied type description is invalid".into(),
             StaticCheckErrorKind::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),

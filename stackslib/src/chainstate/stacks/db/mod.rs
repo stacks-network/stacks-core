@@ -23,7 +23,6 @@ use std::{fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
@@ -31,6 +30,7 @@ use clarity::vm::database::{
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::events::*;
 use clarity::vm::representations::ContractName;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::TupleData;
 use clarity::vm::{SymbolicExpression, Value};
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -64,6 +64,7 @@ use crate::chainstate::stacks::index::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::{
     Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
@@ -88,6 +89,8 @@ pub mod blocks;
 pub mod contracts;
 pub mod headers;
 pub mod snapshot;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 pub mod transactions;
 pub mod unconfirmed;
 
@@ -511,13 +514,28 @@ impl ClarityConnection for ClarityTx<'_, '_> {
 }
 
 impl<'a, 'b> ClarityTx<'a, 'b> {
-    pub fn cost_so_far(&self) -> ExecutionCost {
-        self.block.cost_so_far()
+    /// Wrap an externally-constructed [`ClarityBlockConnection`] into a `ClarityTx`.
+    ///
+    /// Public twin of the internal `ClarityTx { block, config }` construction used
+    /// by `inner_clarity_tx_begin`. Paired with
+    /// [`ClarityBlockConnection::from_writable_store`], it lets a caller run the
+    /// whole consensus transaction engine (`process_transaction`, `finish_block`,
+    /// `seal`, …) against a custom [`WritableMarfStore`] backend rather than the
+    /// datastore owned by a `ClarityInstance`.
+    ///
+    /// `DBConfig` is derived from the block connection so mainnet/chain_id cannot
+    /// disagree with the store being driven.
+    pub fn from_block_connection(block: ClarityBlockConnection<'a, 'b>) -> ClarityTx<'a, 'b> {
+        let config = DBConfig {
+            mainnet: block.is_mainnet(),
+            chain_id: block.chain_id(),
+            version: CHAINSTATE_VERSION.to_string(),
+        };
+        ClarityTx { block, config }
     }
 
-    /// Set an abort callback that will be checked at every Clarity `eval` call.
-    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
-        self.block.set_abort_callback(callback);
+    pub fn cost_so_far(&self) -> ExecutionCost {
+        self.block.cost_so_far()
     }
 
     pub fn get_epoch(&self) -> StacksEpochId {
@@ -1338,14 +1356,24 @@ impl StacksChainState {
         return principal;
     }
 
-    /// Install the boot code into the chain history.
-    fn install_boot_code(
-        chainstate: &mut StacksChainState,
-        mainnet: bool,
+    /// Instantiate the boot code and genesis state into a given [`ClarityTx`].
+    ///
+    /// This is the genesis (boot) block body: instantiate the boot contracts,
+    /// import the Stacks 1.0 genesis balances/lockups/BNS state, set the PoX
+    /// burnchain params, and credit the initial liquid uSTX — everything except the
+    /// final `commit_to_block`. Extracted from [`Self::install_boot_code`] (which
+    /// now calls it against a `MarfedKV`-backed tx) so the same boot can be run
+    /// against *any* [`ClarityTx`] — e.g. one built over a custom
+    /// [`WritableMarfStore`] via [`ClarityBlockConnection::from_writable_store_genesis`]
+    /// — yielding a byte-identical genesis state root regardless of backend.
+    ///
+    /// Network mode (`mainnet` vs testnet) is taken from `clarity_tx.config` so it
+    /// cannot disagree with the connection being written to.
+    pub fn instantiate_boot_code(
+        clarity_tx: &mut ClarityTx,
         boot_data: &mut ChainStateBootData,
     ) -> Result<Vec<StacksTransactionReceipt>, Error> {
-        info!("Building genesis block");
-
+        let mainnet = clarity_tx.config.mainnet;
         let tx_version = if mainnet {
             TransactionVersion::Mainnet
         } else {
@@ -1360,8 +1388,402 @@ impl StacksChainState {
 
         let mut initial_liquid_ustx = 0u128;
         let mut receipts = vec![];
+        let boot_code = if mainnet {
+            *boot::STACKS_BOOT_CODE_MAINNET
+        } else {
+            *boot::STACKS_BOOT_CODE_TESTNET
+        };
+        for (boot_code_name, boot_code_contract) in boot_code.iter() {
+            debug!(
+                "Instantiate boot code contract '{}' ({} bytes)...",
+                boot_code_name,
+                boot_code_contract.len()
+            );
 
-        {
+            let smart_contract = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(boot_code_name.to_string())
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(boot_code_contract)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                None,
+            );
+
+            let boot_code_smart_contract =
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), smart_contract);
+
+            let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
+                StacksChainState::process_transaction_payload(
+                    clarity,
+                    &boot_code_smart_contract,
+                    &boot_code_account,
+                    &TransactionResourceBudgets::unlimited(),
+                )
+            })?;
+            receipts.push(tx_receipt);
+
+            boot_code_account.nonce += 1;
+        }
+
+        let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
+        if !boot_data.initial_balances.is_empty() {
+            warn!(
+                "Seeding {} balances coming from the config",
+                boot_data.initial_balances.len()
+            );
+        }
+        for (address, amount) in boot_data.initial_balances.iter() {
+            clarity_tx.connection().as_transaction(|clarity| {
+                StacksChainState::account_genesis_credit(clarity, address, (*amount).into())
+            });
+            initial_liquid_ustx = initial_liquid_ustx
+                .checked_add(*amount as u128)
+                .expect("FATAL: liquid STX overflow");
+            let mint_event =
+                StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(STXMintEventData {
+                    recipient: address.clone(),
+                    amount: *amount as u128,
+                }));
+            allocation_events.push(mint_event);
+        }
+
+        clarity_tx.connection().as_transaction(|clarity| {
+            // Balances
+            if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
+                info!("Importing accounts from Stacks 1.0");
+                let mut balances_count = 0;
+                let initial_balances = get_balances();
+                for balance in initial_balances {
+                    balances_count += 1;
+                    let stx_address =
+                        StacksChainState::parse_genesis_address(&balance.address, mainnet);
+                    StacksChainState::account_genesis_credit(
+                        clarity,
+                        &stx_address,
+                        balance.amount.into(),
+                    );
+                    initial_liquid_ustx = initial_liquid_ustx
+                        .checked_add(balance.amount as u128)
+                        .expect("FATAL: liquid STX overflow");
+                    let mint_event = StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(
+                        STXMintEventData {
+                            recipient: stx_address,
+                            amount: balance.amount.into(),
+                        },
+                    ));
+                    allocation_events.push(mint_event);
+                }
+                info!("Seeding {} balances coming from chain dump", balances_count);
+            }
+
+            // Lockups
+            if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
+                info!("Initializing chain with lockups");
+                let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
+                let initial_lockups = get_schedules();
+                for schedule in initial_lockups {
+                    let stx_address =
+                        StacksChainState::parse_genesis_address(&schedule.address, mainnet);
+                    let value = Value::Tuple(
+                        TupleData::from_data(vec![
+                            (
+                                ClarityName::from_literal("recipient"),
+                                Value::Principal(stx_address),
+                            ),
+                            (
+                                ClarityName::from_literal("amount"),
+                                Value::UInt(schedule.amount.into()),
+                            ),
+                        ])
+                        .unwrap(),
+                    );
+                    match lockups_per_block.entry(schedule.block_height) {
+                        Entry::Occupied(schedules) => {
+                            schedules.into_mut().push(value);
+                        }
+                        Entry::Vacant(entry) => {
+                            let schedules = vec![value];
+                            entry.insert(schedules);
+                        }
+                    };
+                }
+
+                let lockup_contract_id = boot_code_id("lockup", mainnet);
+                let epoch = clarity.get_epoch();
+                clarity
+                    .with_clarity_db(|db| {
+                        for (block_height, schedule) in lockups_per_block.into_iter() {
+                            let key = Value::UInt(block_height.into());
+                            let value = Value::cons_list(schedule, &epoch).unwrap();
+                            db.insert_entry_unknown_descriptor(
+                                &lockup_contract_id,
+                                "lockups",
+                                key,
+                                value,
+                                &epoch,
+                            )?;
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+            }
+
+            // BNS Namespace
+            let bns_contract_id = boot_code_id("bns", mainnet);
+            if let Some(get_namespaces) = boot_data.get_bulk_initial_namespaces.take() {
+                info!("Initializing chain with namespaces");
+                let epoch = clarity.get_epoch();
+                clarity
+                    .with_clarity_db(|db| {
+                        let initial_namespaces = get_namespaces();
+                        for entry in initial_namespaces {
+                            let namespace = {
+                                if !BNS_CHARS_REGEX.is_match(&entry.namespace_id) {
+                                    panic!("Invalid namespace characters");
+                                }
+                                let buffer = entry.namespace_id.as_bytes();
+                                Value::buff_from(buffer.to_vec()).expect("Invalid namespace")
+                            };
+
+                            let importer = {
+                                let address = StacksChainState::parse_genesis_address(
+                                    &entry.importer,
+                                    mainnet,
+                                );
+                                Value::Principal(address)
+                            };
+
+                            let revealed_at = Value::UInt(0);
+                            let launched_at = Value::UInt(0);
+                            let lifetime = Value::UInt(entry.lifetime.into());
+                            let price_function = {
+                                let base = Value::UInt(entry.base.into());
+                                let coeff = Value::UInt(entry.coeff.into());
+                                let nonalpha_discount = Value::UInt(entry.nonalpha_discount.into());
+                                let no_vowel_discount = Value::UInt(entry.no_vowel_discount.into());
+                                let buckets: Vec<_> = entry
+                                    .buckets
+                                    .split(';')
+                                    .map(|e| Value::UInt(e.parse::<u64>().unwrap().into()))
+                                    .collect();
+                                assert_eq!(buckets.len(), 16);
+
+                                TupleData::from_data(vec![
+                                    (
+                                        ClarityName::from_literal("buckets"),
+                                        Value::cons_list(buckets, &epoch).unwrap(),
+                                    ),
+                                    (ClarityName::from_literal("base"), base),
+                                    (ClarityName::from_literal("coeff"), coeff),
+                                    (
+                                        ClarityName::from_literal("nonalpha-discount"),
+                                        nonalpha_discount,
+                                    ),
+                                    (
+                                        ClarityName::from_literal("no-vowel-discount"),
+                                        no_vowel_discount,
+                                    ),
+                                ])
+                                .unwrap()
+                            };
+
+                            let namespace_props = Value::Tuple(
+                                TupleData::from_data(vec![
+                                    (ClarityName::from_literal("revealed-at"), revealed_at),
+                                    (
+                                        ClarityName::from_literal("launched-at"),
+                                        Value::some(launched_at).unwrap(),
+                                    ),
+                                    (ClarityName::from_literal("lifetime"), lifetime),
+                                    (ClarityName::from_literal("namespace-import"), importer),
+                                    (
+                                        ClarityName::from_literal("can-update-price-function"),
+                                        Value::Bool(true),
+                                    ),
+                                    (
+                                        ClarityName::from_literal("price-function"),
+                                        Value::Tuple(price_function),
+                                    ),
+                                ])
+                                .unwrap(),
+                            );
+
+                            db.insert_entry_unknown_descriptor(
+                                &bns_contract_id,
+                                "namespaces",
+                                namespace,
+                                namespace_props,
+                                &epoch,
+                            )?;
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+            }
+
+            // BNS Names
+            if let Some(get_names) = boot_data.get_bulk_initial_names.take() {
+                info!("Initializing chain with names");
+                let epoch = clarity.get_epoch();
+                clarity
+                    .with_clarity_db(|db| {
+                        let initial_names = get_names();
+                        for entry in initial_names {
+                            let components: Vec<_> =
+                                entry.fully_qualified_name.split('.').collect();
+                            assert_eq!(components.len(), 2);
+
+                            let namespace = {
+                                let namespace_str = components.get(1).unwrap();
+                                if !BNS_CHARS_REGEX.is_match(namespace_str) {
+                                    panic!("Invalid namespace characters");
+                                }
+                                let buffer = namespace_str.as_bytes();
+                                Value::buff_from(buffer.to_vec()).expect("Invalid namespace")
+                            };
+
+                            let name = {
+                                let name_str = components.get(0).unwrap().to_string();
+                                if !BNS_CHARS_REGEX.is_match(&name_str) {
+                                    panic!("Invalid name characters");
+                                }
+                                let buffer = name_str.as_bytes();
+                                Value::buff_from(buffer.to_vec()).expect("Invalid name")
+                            };
+
+                            let fqn = Value::Tuple(
+                                TupleData::from_data(vec![
+                                    (ClarityName::from_literal("namespace"), namespace),
+                                    (ClarityName::from_literal("name"), name),
+                                ])
+                                .unwrap(),
+                            );
+
+                            let owner_address =
+                                StacksChainState::parse_genesis_address(&entry.owner, mainnet);
+
+                            let zonefile_hash = {
+                                if entry.zonefile_hash.is_empty() {
+                                    Value::buff_from(vec![]).unwrap()
+                                } else {
+                                    let buffer = Hash160::from_hex(&entry.zonefile_hash)
+                                        .expect("Invalid zonefile_hash");
+                                    Value::buff_from(buffer.to_bytes().to_vec()).unwrap()
+                                }
+                            };
+
+                            let expected_asset_type =
+                                db.get_nft_key_type(&bns_contract_id, "names")?;
+                            db.set_nft_owner(
+                                &bns_contract_id,
+                                "names",
+                                &fqn,
+                                &owner_address,
+                                &expected_asset_type,
+                                &epoch,
+                            )?;
+
+                            let registered_at = Value::UInt(0);
+                            let name_props = Value::Tuple(
+                                TupleData::from_data(vec![
+                                    (
+                                        ClarityName::from_literal("registered-at"),
+                                        Value::some(registered_at).unwrap(),
+                                    ),
+                                    (ClarityName::from_literal("imported-at"), Value::none()),
+                                    (ClarityName::from_literal("revoked-at"), Value::none()),
+                                    (ClarityName::from_literal("zonefile-hash"), zonefile_hash),
+                                ])
+                                .unwrap(),
+                            );
+
+                            db.insert_entry_unknown_descriptor(
+                                &bns_contract_id,
+                                "name-properties",
+                                fqn.clone(),
+                                name_props,
+                                &epoch,
+                            )?;
+
+                            db.insert_entry_unknown_descriptor(
+                                &bns_contract_id,
+                                "owner-name",
+                                Value::Principal(owner_address),
+                                fqn,
+                                &epoch,
+                            )?;
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+            }
+            info!("Saving Genesis block. This could take a while");
+        });
+
+        let allocations_tx = StacksTransaction::new(
+            tx_version,
+            boot_code_auth,
+            TransactionPayload::TokenTransfer(
+                PrincipalData::Standard(boot_code_address.into()),
+                0,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        );
+        let allocations_receipt = StacksTransactionReceipt::from_stx_transfer(
+            allocations_tx,
+            allocation_events,
+            Value::okay_true(),
+            ExecutionCost::ZERO,
+        );
+        receipts.push(allocations_receipt);
+
+        if let Some(callback) = boot_data.post_flight_callback.take() {
+            callback(&mut *clarity_tx);
+        }
+
+        // Setup burnchain parameters for pox contract
+        let pox_constants = &boot_data.pox_constants;
+        let contract = boot_code_id("pox", mainnet);
+        let sender = PrincipalData::from(contract.clone());
+        let params = vec![
+            Value::UInt(boot_data.first_burnchain_block_height as u128),
+            Value::UInt(pox_constants.prepare_length as u128),
+            Value::UInt(pox_constants.reward_cycle_length as u128),
+            Value::UInt(pox_constants.pox_rejection_fraction as u128),
+        ];
+        clarity_tx.connection().as_transaction(|conn| {
+            conn.run_contract_call(
+                &sender,
+                None,
+                &contract,
+                "set-burnchain-parameters",
+                &params,
+                |_, _| None,
+                &ResourceBudget::unlimited(),
+            )
+            .expect("Failed to set burnchain parameters in PoX contract");
+        });
+
+        clarity_tx
+            .connection()
+            .as_transaction(|tx| {
+                tx.with_clarity_db(|db| {
+                    db.increment_ustx_liquid_supply(initial_liquid_ustx)
+                        .map_err(|e| e.into())
+                })
+            })
+            .expect("FATAL: `ustx-liquid-supply` overflowed");
+        Ok(receipts)
+    }
+
+    fn install_boot_code(
+        chainstate: &mut StacksChainState,
+        boot_data: &mut ChainStateBootData,
+    ) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        info!("Building genesis block");
+
+        let receipts = {
             let mut clarity_tx = chainstate.genesis_block_begin(
                 &NULL_BURN_STATE_DB,
                 &BURNCHAIN_BOOT_CONSENSUS_HASH,
@@ -1369,399 +1791,10 @@ impl StacksChainState {
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
             );
-            let boot_code = if mainnet {
-                *boot::STACKS_BOOT_CODE_MAINNET
-            } else {
-                *boot::STACKS_BOOT_CODE_TESTNET
-            };
-            for (boot_code_name, boot_code_contract) in boot_code.iter() {
-                debug!(
-                    "Instantiate boot code contract '{}' ({} bytes)...",
-                    boot_code_name,
-                    boot_code_contract.len()
-                );
-
-                let smart_contract = TransactionPayload::SmartContract(
-                    TransactionSmartContract {
-                        name: ContractName::try_from(boot_code_name.to_string())
-                            .expect("FATAL: invalid boot-code contract name"),
-                        code_body: StacksString::from_str(boot_code_contract)
-                            .expect("FATAL: invalid boot code body"),
-                    },
-                    None,
-                );
-
-                let boot_code_smart_contract =
-                    StacksTransaction::new(tx_version, boot_code_auth.clone(), smart_contract);
-
-                let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
-                    StacksChainState::process_transaction_payload(
-                        clarity,
-                        &boot_code_smart_contract,
-                        &boot_code_account,
-                        None,
-                        None,
-                    )
-                })?;
-                receipts.push(tx_receipt);
-
-                boot_code_account.nonce += 1;
-            }
-
-            let mut allocation_events: Vec<StacksTransactionEvent> = vec![];
-            if !boot_data.initial_balances.is_empty() {
-                warn!(
-                    "Seeding {} balances coming from the config",
-                    boot_data.initial_balances.len()
-                );
-            }
-            for (address, amount) in boot_data.initial_balances.iter() {
-                clarity_tx.connection().as_transaction(|clarity| {
-                    StacksChainState::account_genesis_credit(clarity, address, (*amount).into())
-                });
-                initial_liquid_ustx = initial_liquid_ustx
-                    .checked_add(*amount as u128)
-                    .expect("FATAL: liquid STX overflow");
-                let mint_event = StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(
-                    STXMintEventData {
-                        recipient: address.clone(),
-                        amount: *amount as u128,
-                    },
-                ));
-                allocation_events.push(mint_event);
-            }
-
-            clarity_tx.connection().as_transaction(|clarity| {
-                // Balances
-                if let Some(get_balances) = boot_data.get_bulk_initial_balances.take() {
-                    info!("Importing accounts from Stacks 1.0");
-                    let mut balances_count = 0;
-                    let initial_balances = get_balances();
-                    for balance in initial_balances {
-                        balances_count += 1;
-                        let stx_address =
-                            StacksChainState::parse_genesis_address(&balance.address, mainnet);
-                        StacksChainState::account_genesis_credit(
-                            clarity,
-                            &stx_address,
-                            balance.amount.into(),
-                        );
-                        initial_liquid_ustx = initial_liquid_ustx
-                            .checked_add(balance.amount as u128)
-                            .expect("FATAL: liquid STX overflow");
-                        let mint_event = StacksTransactionEvent::STXEvent(
-                            STXEventType::STXMintEvent(STXMintEventData {
-                                recipient: stx_address,
-                                amount: balance.amount.into(),
-                            }),
-                        );
-                        allocation_events.push(mint_event);
-                    }
-                    info!("Seeding {} balances coming from chain dump", balances_count);
-                }
-
-                // Lockups
-                if let Some(get_schedules) = boot_data.get_bulk_initial_lockups.take() {
-                    info!("Initializing chain with lockups");
-                    let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
-                    let initial_lockups = get_schedules();
-                    for schedule in initial_lockups {
-                        let stx_address =
-                            StacksChainState::parse_genesis_address(&schedule.address, mainnet);
-                        let value = Value::Tuple(
-                            TupleData::from_data(vec![
-                                (
-                                    ClarityName::from_literal("recipient"),
-                                    Value::Principal(stx_address),
-                                ),
-                                (
-                                    ClarityName::from_literal("amount"),
-                                    Value::UInt(schedule.amount.into()),
-                                ),
-                            ])
-                            .unwrap(),
-                        );
-                        match lockups_per_block.entry(schedule.block_height) {
-                            Entry::Occupied(schedules) => {
-                                schedules.into_mut().push(value);
-                            }
-                            Entry::Vacant(entry) => {
-                                let schedules = vec![value];
-                                entry.insert(schedules);
-                            }
-                        };
-                    }
-
-                    let lockup_contract_id = boot_code_id("lockup", mainnet);
-                    let epoch = clarity.get_epoch();
-                    clarity
-                        .with_clarity_db(|db| {
-                            for (block_height, schedule) in lockups_per_block.into_iter() {
-                                let key = Value::UInt(block_height.into());
-                                let value = Value::cons_list(schedule, &epoch).unwrap();
-                                db.insert_entry_unknown_descriptor(
-                                    &lockup_contract_id,
-                                    "lockups",
-                                    key,
-                                    value,
-                                    &epoch,
-                                )?;
-                            }
-                            Ok(())
-                        })
-                        .unwrap();
-                }
-
-                // BNS Namespace
-                let bns_contract_id = boot_code_id("bns", mainnet);
-                if let Some(get_namespaces) = boot_data.get_bulk_initial_namespaces.take() {
-                    info!("Initializing chain with namespaces");
-                    let epoch = clarity.get_epoch();
-                    clarity
-                        .with_clarity_db(|db| {
-                            let initial_namespaces = get_namespaces();
-                            for entry in initial_namespaces {
-                                let namespace = {
-                                    if !BNS_CHARS_REGEX.is_match(&entry.namespace_id) {
-                                        panic!("Invalid namespace characters");
-                                    }
-                                    let buffer = entry.namespace_id.as_bytes();
-                                    Value::buff_from(buffer.to_vec()).expect("Invalid namespace")
-                                };
-
-                                let importer = {
-                                    let address = StacksChainState::parse_genesis_address(
-                                        &entry.importer,
-                                        mainnet,
-                                    );
-                                    Value::Principal(address)
-                                };
-
-                                let revealed_at = Value::UInt(0);
-                                let launched_at = Value::UInt(0);
-                                let lifetime = Value::UInt(entry.lifetime.into());
-                                let price_function = {
-                                    let base = Value::UInt(entry.base.into());
-                                    let coeff = Value::UInt(entry.coeff.into());
-                                    let nonalpha_discount =
-                                        Value::UInt(entry.nonalpha_discount.into());
-                                    let no_vowel_discount =
-                                        Value::UInt(entry.no_vowel_discount.into());
-                                    let buckets: Vec<_> = entry
-                                        .buckets
-                                        .split(';')
-                                        .map(|e| Value::UInt(e.parse::<u64>().unwrap().into()))
-                                        .collect();
-                                    assert_eq!(buckets.len(), 16);
-
-                                    TupleData::from_data(vec![
-                                        (
-                                            ClarityName::from_literal("buckets"),
-                                            Value::cons_list(buckets, &epoch).unwrap(),
-                                        ),
-                                        (ClarityName::from_literal("base"), base),
-                                        (ClarityName::from_literal("coeff"), coeff),
-                                        (
-                                            ClarityName::from_literal("nonalpha-discount"),
-                                            nonalpha_discount,
-                                        ),
-                                        (
-                                            ClarityName::from_literal("no-vowel-discount"),
-                                            no_vowel_discount,
-                                        ),
-                                    ])
-                                    .unwrap()
-                                };
-
-                                let namespace_props = Value::Tuple(
-                                    TupleData::from_data(vec![
-                                        (ClarityName::from_literal("revealed-at"), revealed_at),
-                                        (
-                                            ClarityName::from_literal("launched-at"),
-                                            Value::some(launched_at).unwrap(),
-                                        ),
-                                        (ClarityName::from_literal("lifetime"), lifetime),
-                                        (ClarityName::from_literal("namespace-import"), importer),
-                                        (
-                                            ClarityName::from_literal("can-update-price-function"),
-                                            Value::Bool(true),
-                                        ),
-                                        (
-                                            ClarityName::from_literal("price-function"),
-                                            Value::Tuple(price_function),
-                                        ),
-                                    ])
-                                    .unwrap(),
-                                );
-
-                                db.insert_entry_unknown_descriptor(
-                                    &bns_contract_id,
-                                    "namespaces",
-                                    namespace,
-                                    namespace_props,
-                                    &epoch,
-                                )?;
-                            }
-                            Ok(())
-                        })
-                        .unwrap();
-                }
-
-                // BNS Names
-                if let Some(get_names) = boot_data.get_bulk_initial_names.take() {
-                    info!("Initializing chain with names");
-                    let epoch = clarity.get_epoch();
-                    clarity
-                        .with_clarity_db(|db| {
-                            let initial_names = get_names();
-                            for entry in initial_names {
-                                let components: Vec<_> =
-                                    entry.fully_qualified_name.split('.').collect();
-                                assert_eq!(components.len(), 2);
-
-                                let namespace = {
-                                    let namespace_str = components.get(1).unwrap();
-                                    if !BNS_CHARS_REGEX.is_match(namespace_str) {
-                                        panic!("Invalid namespace characters");
-                                    }
-                                    let buffer = namespace_str.as_bytes();
-                                    Value::buff_from(buffer.to_vec()).expect("Invalid namespace")
-                                };
-
-                                let name = {
-                                    let name_str = components.get(0).unwrap().to_string();
-                                    if !BNS_CHARS_REGEX.is_match(&name_str) {
-                                        panic!("Invalid name characters");
-                                    }
-                                    let buffer = name_str.as_bytes();
-                                    Value::buff_from(buffer.to_vec()).expect("Invalid name")
-                                };
-
-                                let fqn = Value::Tuple(
-                                    TupleData::from_data(vec![
-                                        (ClarityName::from_literal("namespace"), namespace),
-                                        (ClarityName::from_literal("name"), name),
-                                    ])
-                                    .unwrap(),
-                                );
-
-                                let owner_address =
-                                    StacksChainState::parse_genesis_address(&entry.owner, mainnet);
-
-                                let zonefile_hash = {
-                                    if entry.zonefile_hash.is_empty() {
-                                        Value::buff_from(vec![]).unwrap()
-                                    } else {
-                                        let buffer = Hash160::from_hex(&entry.zonefile_hash)
-                                            .expect("Invalid zonefile_hash");
-                                        Value::buff_from(buffer.to_bytes().to_vec()).unwrap()
-                                    }
-                                };
-
-                                let expected_asset_type =
-                                    db.get_nft_key_type(&bns_contract_id, "names")?;
-                                db.set_nft_owner(
-                                    &bns_contract_id,
-                                    "names",
-                                    &fqn,
-                                    &owner_address,
-                                    &expected_asset_type,
-                                    &epoch,
-                                )?;
-
-                                let registered_at = Value::UInt(0);
-                                let name_props = Value::Tuple(
-                                    TupleData::from_data(vec![
-                                        (
-                                            ClarityName::from_literal("registered-at"),
-                                            Value::some(registered_at).unwrap(),
-                                        ),
-                                        (ClarityName::from_literal("imported-at"), Value::none()),
-                                        (ClarityName::from_literal("revoked-at"), Value::none()),
-                                        (ClarityName::from_literal("zonefile-hash"), zonefile_hash),
-                                    ])
-                                    .unwrap(),
-                                );
-
-                                db.insert_entry_unknown_descriptor(
-                                    &bns_contract_id,
-                                    "name-properties",
-                                    fqn.clone(),
-                                    name_props,
-                                    &epoch,
-                                )?;
-
-                                db.insert_entry_unknown_descriptor(
-                                    &bns_contract_id,
-                                    "owner-name",
-                                    Value::Principal(owner_address),
-                                    fqn,
-                                    &epoch,
-                                )?;
-                            }
-                            Ok(())
-                        })
-                        .unwrap();
-                }
-                info!("Saving Genesis block. This could take a while");
-            });
-
-            let allocations_tx = StacksTransaction::new(
-                tx_version,
-                boot_code_auth,
-                TransactionPayload::TokenTransfer(
-                    PrincipalData::Standard(boot_code_address.into()),
-                    0,
-                    TokenTransferMemo([0u8; 34]),
-                ),
-            );
-            let allocations_receipt = StacksTransactionReceipt::from_stx_transfer(
-                allocations_tx,
-                allocation_events,
-                Value::okay_true(),
-                ExecutionCost::ZERO,
-            );
-            receipts.push(allocations_receipt);
-
-            if let Some(callback) = boot_data.post_flight_callback.take() {
-                callback(&mut clarity_tx);
-            }
-
-            // Setup burnchain parameters for pox contract
-            let pox_constants = &boot_data.pox_constants;
-            let contract = boot_code_id("pox", mainnet);
-            let sender = PrincipalData::from(contract.clone());
-            let params = vec![
-                Value::UInt(boot_data.first_burnchain_block_height as u128),
-                Value::UInt(pox_constants.prepare_length as u128),
-                Value::UInt(pox_constants.reward_cycle_length as u128),
-                Value::UInt(pox_constants.pox_rejection_fraction as u128),
-            ];
-            clarity_tx.connection().as_transaction(|conn| {
-                conn.run_contract_call(
-                    &sender,
-                    None,
-                    &contract,
-                    "set-burnchain-parameters",
-                    &params,
-                    |_, _| None,
-                    None,
-                )
-                .expect("Failed to set burnchain parameters in PoX contract");
-            });
-
-            clarity_tx
-                .connection()
-                .as_transaction(|tx| {
-                    tx.with_clarity_db(|db| {
-                        db.increment_ustx_liquid_supply(initial_liquid_ustx)
-                            .map_err(|e| e.into())
-                    })
-                })
-                .expect("FATAL: `ustx-liquid-supply` overflowed");
-
+            let receipts = StacksChainState::instantiate_boot_code(&mut clarity_tx, boot_data)?;
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-        }
+            receipts
+        };
 
         // verify that genesis root hash is as expected
         {
@@ -1775,7 +1808,7 @@ impl StacksChainState {
 
             info!("Computed Clarity state genesis"; "root_hash" => %genesis_root_hash);
 
-            if mainnet {
+            if chainstate.mainnet {
                 assert_eq!(
                     &genesis_root_hash.to_string(),
                     MAINNET_2_0_GENESIS_ROOT_HASH,
@@ -1982,8 +2015,7 @@ impl StacksChainState {
         let mut receipts = vec![];
         match (init_required, boot_data) {
             (true, Some(boot_data)) => {
-                let mut res =
-                    StacksChainState::install_boot_code(&mut chainstate, mainnet, boot_data)?;
+                let mut res = StacksChainState::install_boot_code(&mut chainstate, boot_data)?;
                 receipts.append(&mut res);
             }
             (true, None) => {
@@ -2927,71 +2959,19 @@ impl StacksChainState {
 
 #[cfg(test)]
 pub mod test {
-    use std::{env, fs};
+    use std::env;
 
     use clarity::vm::test_util::TEST_BURN_STATE_DB;
     use stx_genesis::GenesisData;
 
+    use super::testing::*;
     use super::*;
     use crate::chainstate::stacks::*;
     use crate::util_lib::boot::boot_code_test_addr;
 
-    pub fn instantiate_chainstate(
-        mainnet: bool,
-        chain_id: u32,
-        test_name: &str,
-    ) -> StacksChainState {
-        instantiate_chainstate_with_balances(mainnet, chain_id, test_name, vec![])
-    }
-
-    pub fn instantiate_chainstate_with_balances(
-        mainnet: bool,
-        chain_id: u32,
-        test_name: &str,
-        balances: Vec<(StacksAddress, u64)>,
-    ) -> StacksChainState {
-        let path = chainstate_path(test_name);
-        if fs::metadata(&path).is_ok() {
-            fs::remove_dir_all(&path).unwrap();
-        };
-
-        let initial_balances = balances
-            .into_iter()
-            .map(|(addr, balance)| (PrincipalData::from(addr), balance))
-            .collect();
-
-        let mut boot_data = ChainStateBootData {
-            initial_balances,
-            post_flight_callback: None,
-            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
-            first_burnchain_block_height: 0,
-            first_burnchain_block_timestamp: 0,
-            pox_constants: PoxConstants::testnet_default(),
-            get_bulk_initial_lockups: None,
-            get_bulk_initial_balances: None,
-            get_bulk_initial_names: None,
-            get_bulk_initial_namespaces: None,
-        };
-
-        StacksChainState::open_and_exec(mainnet, chain_id, &path, Some(&mut boot_data), None)
-            .unwrap()
-            .0
-    }
-
-    pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
-        let path = chainstate_path(test_name);
-        StacksChainState::open(mainnet, chain_id, &path, None)
-            .unwrap()
-            .0
-    }
-
-    pub fn chainstate_path(test_name: &str) -> String {
-        format!("/tmp/stacks-node-tests/cs-{}", test_name)
-    }
-
     #[test]
     fn test_instantiate_chainstate() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
 
         // verify that the boot code is there
         let mut conn = chainstate.block_begin(
@@ -3011,6 +2991,79 @@ pub mod test {
                 StacksChainState::get_contract(&mut conn, &boot_contract_id).unwrap();
             assert!(contract_res.is_some());
         }
+    }
+
+    /// Drive genesis boot through the public pluggable-store path:
+    /// `from_writable_store_genesis` → `ClarityTx::from_block_connection` →
+    /// `instantiate_boot_code`. Config/mainnet are derived from the connection
+    /// rather than passed in separately.
+    #[test]
+    fn test_pluggable_store_instantiate_boot_code() {
+        use clarity::vm::database::NULL_HEADER_DB;
+        use stacks_common::consts::CHAIN_ID_TESTNET;
+
+        let mut marf = MarfedKV::temporary();
+        let parent = StacksBlockId::sentinel();
+        let genesis = StacksBlockHeader::make_index_block_hash(
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+        );
+        let store = marf.begin(&parent, &genesis);
+        let block = ClarityBlockConnection::from_writable_store_genesis(
+            Box::new(store),
+            &NULL_HEADER_DB,
+            &NULL_BURN_STATE_DB,
+            false,
+            CHAIN_ID_TESTNET,
+        );
+        assert!(!block.is_mainnet());
+        assert_eq!(block.chain_id(), CHAIN_ID_TESTNET);
+
+        let mut clarity_tx = ClarityTx::from_block_connection(block);
+        assert_eq!(
+            clarity_tx.config,
+            DBConfig {
+                mainnet: false,
+                chain_id: CHAIN_ID_TESTNET,
+                version: CHAINSTATE_VERSION.to_string(),
+            }
+        );
+
+        let mut boot_data = ChainStateBootData {
+            initial_balances: vec![],
+            post_flight_callback: None,
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            pox_constants: PoxConstants::testnet_default(),
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+            get_bulk_initial_names: None,
+            get_bulk_initial_namespaces: None,
+        };
+
+        let receipts =
+            StacksChainState::instantiate_boot_code(&mut clarity_tx, &mut boot_data).unwrap();
+        assert!(
+            !receipts.is_empty(),
+            "boot should produce at least the contract-deploy receipts"
+        );
+
+        // Boot contracts should be present on the open connection before commit.
+        for (boot_contract_name, _) in STACKS_BOOT_CODE_TESTNET.iter() {
+            let boot_contract_id = QualifiedContractIdentifier::new(
+                boot_code_test_addr().into(),
+                ContractName::try_from(boot_contract_name.to_string()).unwrap(),
+            );
+            let contract_res =
+                StacksChainState::get_contract(&mut clarity_tx, &boot_contract_id).unwrap();
+            assert!(
+                contract_res.is_some(),
+                "missing boot contract {boot_contract_name}"
+            );
+        }
+
+        clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
     }
 
     #[test]
@@ -3192,7 +3245,7 @@ pub mod test {
 
     #[test]
     fn test_sqlite_version() {
-        let chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
         assert_eq!(
             query_row(chainstate.db(), "SELECT sqlite_version()", NO_PARAMS).unwrap(),
             Some("3.45.0".to_string())
