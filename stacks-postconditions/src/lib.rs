@@ -16,13 +16,16 @@
 
 //! Transaction post-condition verification for the Stacks blockchain.
 //!
-//! Post-conditions constrain the assets a transaction is allowed to move. The
-//! check compares the declared post-conditions against an [`AssetMap`], the
-//! record of what actually moved during execution, and reports a reason string
-//! when reality violates the sender's declared expectations.
+//! Post-conditions constrain the assets a transaction is allowed to move. Two
+//! checks, both needed to match mainnet semantics:
+//! [`check_post_conditions_supported_in_epoch`] rejects variants and modes not
+//! yet activated in the current epoch, before execution;
+//! [`check_transaction_postconditions`] compares the declared post-conditions
+//! against the [`AssetMap`] of what actually moved, after execution. The latter
+//! runs in every epoch, so it does not subsume the former.
 //!
-//! This lives outside the node, and outside any one contract language, because
-//! it needs only the codec post-condition types, an [`AssetMap`], the origin
+//! These live outside the node, and outside any one contract language, because
+//! they need only the codec post-condition types, an [`AssetMap`], the origin
 //! principal and the epoch — no database or chainstate. That lets a wasm SDK
 //! run the same consensus-critical code mainnet does.
 
@@ -34,7 +37,9 @@ use clarity_types::Value;
 use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
-use stacks_codec::transaction::{TransactionPostCondition, TransactionPostConditionMode};
+use stacks_codec::transaction::{
+    NonfungibleConditionCode, TransactionPostCondition, TransactionPostConditionMode,
+};
 use stacks_common::info;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::Txid;
@@ -65,6 +70,78 @@ impl std::hash::Hash for HashableClarityValue {
         let bytes = self.0.serialize_to_vec().unwrap();
         bytes.hash(state);
     }
+}
+
+/// Why a transaction's post-conditions are not valid in a given epoch. Typed
+/// rather than a formatted message so callers keep their own error channel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnsupportedPostCondition {
+    OriginatorMode,
+    NftMaybeSent,
+    StakingOrPox,
+}
+
+impl UnsupportedPostCondition {
+    /// The offending feature on its own, for callers that phrase the epoch
+    /// requirement themselves instead of using [`Display`].
+    pub fn subject(&self) -> &'static str {
+        match self {
+            Self::OriginatorMode => "Originator post-condition mode",
+            Self::NftMaybeSent => "NFT MaybeSent post-condition",
+            Self::StakingOrPox => "Staking/Pox post-condition",
+        }
+    }
+}
+
+impl std::fmt::Display for UnsupportedPostCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let version = match self {
+            Self::OriginatorMode | Self::NftMaybeSent => "3.4",
+            Self::StakingOrPox => "4.0",
+        };
+        write!(
+            f,
+            "{} is not supported before Stacks {version}",
+            self.subject()
+        )
+    }
+}
+
+impl std::error::Error for UnsupportedPostCondition {}
+
+/// Reject post-condition variants and modes not yet activated in `epoch_id`,
+/// returning the first unsupported one found.
+pub fn check_post_conditions_supported_in_epoch(
+    post_conditions: &[TransactionPostCondition],
+    post_condition_mode: &TransactionPostConditionMode,
+    epoch_id: StacksEpochId,
+) -> Result<(), UnsupportedPostCondition> {
+    if !epoch_id.supports_sip040_post_conditions() {
+        if *post_condition_mode == TransactionPostConditionMode::Originator {
+            return Err(UnsupportedPostCondition::OriginatorMode);
+        }
+        if post_conditions.iter().any(|pc| {
+            matches!(
+                pc,
+                TransactionPostCondition::Nonfungible(_, _, _, NonfungibleConditionCode::MaybeSent)
+            )
+        }) {
+            return Err(UnsupportedPostCondition::NftMaybeSent);
+        }
+    }
+
+    if !epoch_id.supports_staking_post_conditions()
+        && post_conditions.iter().any(|pc| {
+            matches!(
+                pc,
+                TransactionPostCondition::Staking(..) | TransactionPostCondition::Pox(..)
+            )
+        })
+    {
+        return Err(UnsupportedPostCondition::StakingOrPox);
+    }
+
+    Ok(())
 }
 
 /// Apply a post-conditions check.

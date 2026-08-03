@@ -688,41 +688,16 @@ impl StacksChainState {
             }
         }
 
-        // check if post-condition mode is supported in this epoch
-        if tx.post_condition_mode == TransactionPostConditionMode::Originator
-            && !epoch_id.supports_sip040_post_conditions()
-        {
-            let msg = "Invalid Stacks transaction: Originator post-condition mode is not supported before Stacks 3.4".to_string();
+        stacks_postconditions::check_post_conditions_supported_in_epoch(
+            &tx.post_conditions,
+            &tx.post_condition_mode,
+            epoch_id,
+        )
+        .map_err(|reason| {
+            let msg = format!("Invalid Stacks transaction: {reason}");
             info!("{}", &msg; "txid" => %tx.txid());
-            return Err(Error::InvalidStacksTransaction(msg, false));
-        }
-        // check if MaybeSent NFT post-conditions are supported in this epoch
-        if !epoch_id.supports_sip040_post_conditions() {
-            for post_condition in tx.post_conditions.iter() {
-                if let TransactionPostCondition::Nonfungible(_, _, _, condition_code) =
-                    post_condition
-                {
-                    if *condition_code == NonfungibleConditionCode::MaybeSent {
-                        let msg = "Invalid Stacks transaction: NFT MaybeSent post-condition is not supported before Stacks 3.4".to_string();
-                        info!("{}", &msg; "txid" => %tx.txid());
-                        return Err(Error::InvalidStacksTransaction(msg, false));
-                    }
-                }
-            }
-        }
-        // check if Staking/Pox post-conditions are supported in this epoch
-        if !epoch_id.supports_staking_post_conditions() {
-            for post_condition in tx.post_conditions.iter() {
-                if matches!(
-                    post_condition,
-                    TransactionPostCondition::Staking(..) | TransactionPostCondition::Pox(..)
-                ) {
-                    let msg = "Invalid Stacks transaction: Staking/Pox post-condition is not supported before Stacks 4.0".to_string();
-                    info!("{}", &msg; "txid" => %tx.txid());
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-            }
-        }
+            Error::InvalidStacksTransaction(msg, false)
+        })?;
 
         // check that the requested Clarity version is supported in this epoch.
         // Only a versioned smart-contract deploy can pin a specific version;
