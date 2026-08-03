@@ -44,6 +44,9 @@ use stacks_common::info;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::Txid;
 
+#[cfg(test)]
+mod tests;
+
 /// This is a safe-to-hash Clarity value
 #[derive(PartialEq, Eq)]
 struct HashableClarityValue(Value);
