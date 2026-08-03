@@ -23,7 +23,9 @@ use clarity::vm::database::sqlite::{
     sqlite_get_contract_hash, sqlite_get_metadata, sqlite_get_metadata_manual,
     sqlite_insert_metadata,
 };
-use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
+use clarity::vm::database::{
+    ClarityBackingStore, SpecialCaseHandler, SqliteBackingStore, SqliteConnection,
+};
 use clarity::vm::errors::{IncomparableError, RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::Connection;
@@ -531,10 +533,6 @@ impl ReadOnlyMarfStore<'_> {
 }
 
 impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
-    fn get_side_store(&mut self) -> &Connection {
-        self.marf.sqlite_conn()
-    }
-
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         Some(&handle_contract_call_special_cases)
     }
@@ -632,7 +630,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     fn get_data_with_proof(
         &mut self,
         key: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -649,7 +647,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                             side_key
                         ))
                     })?;
-                Ok((data, proof.serialize_to_vec()))
+                Ok((data, Some(proof.serialize_to_vec())))
             })
             .transpose()
     }
@@ -657,7 +655,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         self.marf
             .get_with_proof_from_hash(&self.chain_tip, hash)
             .or_else(|e| match e {
@@ -674,7 +672,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                             side_key
                         ))
                     })?;
-                Ok((data, proof.serialize_to_vec()))
+                Ok((data, Some(proof.serialize_to_vec())))
             })
             .transpose()
     }
@@ -785,6 +783,12 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     }
 }
 
+impl SqliteBackingStore for ReadOnlyMarfStore<'_> {
+    fn get_side_store(&mut self) -> &Connection {
+        self.marf.sqlite_conn()
+    }
+}
+
 impl PersistentWritableMarfStore<'_> {
     #[cfg(test)]
     fn do_test_commit(self) {
@@ -892,7 +896,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
     fn get_data_with_proof(
         &mut self,
         key: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -909,7 +913,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
                             side_key
                         ))
                     })?;
-                Ok((data, proof.serialize_to_vec()))
+                Ok((data, Some(proof.serialize_to_vec())))
             })
             .transpose()
     }
@@ -917,7 +921,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         self.marf
             .get_with_proof_from_hash(&self.chain_tip, hash)
             .or_else(|e| match e {
@@ -934,13 +938,9 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
                             side_key
                         ))
                     })?;
-                Ok((data, proof.serialize_to_vec()))
+                Ok((data, Some(proof.serialize_to_vec())))
             })
             .transpose()
-    }
-
-    fn get_side_store(&mut self) -> &Connection {
-        self.marf.sqlite_tx()
     }
 
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
@@ -1047,6 +1047,12 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
         key: &str,
     ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
+    }
+}
+
+impl SqliteBackingStore for PersistentWritableMarfStore<'_> {
+    fn get_side_store(&mut self) -> &Connection {
+        self.marf.sqlite_tx()
     }
 }
 
@@ -1173,14 +1179,14 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
     fn get_data_with_proof(
         &mut self,
         key: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         ClarityBackingStore::get_data_with_proof(self.deref_mut(), key)
     }
 
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         ClarityBackingStore::get_data_with_proof_from_path(self.deref_mut(), hash)
     }
 
@@ -1202,10 +1208,6 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
 
     fn get_open_chain_tip(&mut self) -> StacksBlockId {
         ClarityBackingStore::get_open_chain_tip(self.deref_mut())
-    }
-
-    fn get_side_store(&mut self) -> &Connection {
-        ClarityBackingStore::get_side_store(self.deref_mut())
     }
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {

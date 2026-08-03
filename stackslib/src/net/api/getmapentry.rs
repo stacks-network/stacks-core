@@ -176,7 +176,7 @@ impl RPCRequestHandler for RPCGetMapEntryRequestHandler {
                                     .get_data_with_proof(&key)
                                     .ok()
                                     .flatten()
-                                    .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
+                                    .map(|(a, b)| (a, b.map(|bytes| format!("0x{}", to_hex(&bytes)))))
                                     .unwrap_or_else(|| {
                                         test_debug!("No value for '{}' in {}", &key, tip);
                                         (none_response, Some("".into()))
