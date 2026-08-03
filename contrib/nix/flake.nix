@@ -133,6 +133,7 @@
               (craneLib.fileset.commonCargoSources ../../pox-locking)
               (craneLib.fileset.commonCargoSources ../../stacks-codec)
               (craneLib.fileset.commonCargoSources ../../stacks-common)
+              (craneLib.fileset.commonCargoSources ../../stacks-postconditions)
               (craneLib.fileset.commonCargoSources ../../stackslib)
               (craneLib.fileset.commonCargoSources ../../stx-genesis)
               (craneLib.fileset.commonCargoSources ../../stacks-node)
