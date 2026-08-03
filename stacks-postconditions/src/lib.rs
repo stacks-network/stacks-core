@@ -40,9 +40,7 @@ use clarity_types::types::{
 use stacks_codec::transaction::{
     NonfungibleConditionCode, TransactionPostCondition, TransactionPostConditionMode,
 };
-use stacks_common::info;
 use stacks_common::types::StacksEpochId;
-use stacks_common::types::chainstate::Txid;
 
 #[cfg(test)]
 mod tests;
@@ -157,7 +155,6 @@ pub fn check_transaction_postconditions(
     origin_principal: &PrincipalData,
     asset_map: &AssetMap,
     epoch_id: StacksEpochId,
-    txid: Txid,
 ) -> Result<Option<String>, VmExecutionError> {
     let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
         HashMap::new();
@@ -196,7 +193,6 @@ pub fn check_transaction_postconditions(
                     let reason = format!(
                         "Post-condition check failure on STX owned by {account_principal}: {amount_sent_condition:?} {condition_code:?} {amount_sent}",
                     );
-                    info!("{reason}"; "txid" => %txid);
                     return Ok(Some(reason));
                 }
 
@@ -241,7 +237,6 @@ pub fn check_transaction_postconditions(
                     let reason = format!(
                         "Post-condition check failure on fungible asset {asset_id} owned by {account_principal}: {amount_sent_condition} {condition_code:?} {amount_sent}"
                     );
-                    info!("{reason}"; "txid" => %txid);
                     return Ok(Some(reason));
                 }
 
@@ -277,7 +272,6 @@ pub fn check_transaction_postconditions(
                     let reason = format!(
                         "Post-condition check failure on non-fungible asset {asset_id} owned by {account_principal}: {asset_value:?} {condition_code:?} {assets_sent:?}"
                     );
-                    info!("{reason}"; "txid" => %txid);
                     return Ok(Some(reason));
                 }
 
@@ -312,7 +306,6 @@ pub fn check_transaction_postconditions(
                     let reason = format!(
                         "Post-condition check failure on STX staked by {account_principal}: {amount_staked_condition:?} {condition_code:?} {amount_staked}",
                     );
-                    info!("{reason}"; "txid" => %txid);
                     return Ok(Some(reason));
                 }
 
@@ -327,7 +320,6 @@ pub fn check_transaction_postconditions(
                     let reason = format!(
                         "Post-condition check failure on PoX action by {account_principal}: {condition_code:?} performed={performed}",
                     );
-                    info!("{reason}"; "txid" => %txid);
                     return Ok(Some(reason));
                 }
 
@@ -357,7 +349,6 @@ pub fn check_transaction_postconditions(
                                     let reason = format!(
                                         "Post-condition check failure: Non-fungible asset {asset_identifier} value {v:?} was moved by {principal} but not checked"
                                     );
-                                    info!("{reason}"; "txid" => %txid);
                                     return Ok(Some(reason));
                                 }
                             }
@@ -366,7 +357,6 @@ pub fn check_transaction_postconditions(
                             let reason = format!(
                                 "Post-condition check failure: Non-fungible asset {asset_identifier} was moved by {principal} but not checked"
                             );
-                            info!("{reason}"; "txid" => %txid);
                             return Ok(Some(reason));
                         }
                     } else {
@@ -374,7 +364,6 @@ pub fn check_transaction_postconditions(
                         let reason = format!(
                             "Post-condition check failure: No checks for non-fungible asset {asset_identifier} moved by {principal}"
                         );
-                        info!("{reason}"; "txid" => %txid);
                         return Ok(Some(reason));
                     }
                 }
@@ -385,14 +374,12 @@ pub fn check_transaction_postconditions(
                             let reason = format!(
                                 "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
                             );
-                            info!("{reason}"; "txid" => %txid);
                             return Ok(Some(reason));
                         }
                     } else {
                         let reason = format!(
                             "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
                         );
-                        info!("{reason}"; "txid" => %txid);
                         return Ok(Some(reason));
                     }
                 }
@@ -418,7 +405,6 @@ pub fn check_transaction_postconditions(
                 let reason = format!(
                     "Post-condition check failure: {amount_staked} STX was staked by {principal} but not checked"
                 );
-                info!("{reason}"; "txid" => %txid);
                 return Ok(Some(reason));
             }
         }
@@ -431,7 +417,6 @@ pub fn check_transaction_postconditions(
                 let reason = format!(
                     "Post-condition check failure: {principal} performed a PoX action but it was not checked"
                 );
-                info!("{reason}"; "txid" => %txid);
                 return Ok(Some(reason));
             }
         }

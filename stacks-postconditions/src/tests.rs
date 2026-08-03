@@ -31,7 +31,7 @@ use stacks_codec::transaction::{
     PoxConditionCode, TransactionAuth, TransactionPostCondition, TransactionPostConditionMode,
 };
 use stacks_common::types::StacksEpochId;
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, Txid};
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use stacks_common::util::hash::Hash160;
 
 use crate::{
@@ -1873,7 +1873,6 @@ fn test_check_postconditions_multiple_fts() {
             origin,
             &ft_transfer_2,
             StacksEpochId::latest(),
-            Txid([0; 32]),
         )
         .unwrap();
         assert_eq!(
@@ -2220,7 +2219,6 @@ fn test_check_postconditions_multiple_nfts() {
             origin,
             &nft_transfer_2,
             StacksEpochId::latest(),
-            Txid([0; 32]),
         )
         .unwrap();
         assert_eq!(
@@ -2304,7 +2302,6 @@ fn test_check_postconditions_originator_mode_coverage() {
             &origin,
             &mixed_stx_transfer,
             StacksEpochId::latest(),
-            Txid([0; 32]),
         )
         .unwrap();
         assert_eq!(
@@ -2390,15 +2387,9 @@ fn test_check_postconditions_staking() {
     ];
 
     for (expected_pass, post_conditions, mode, epoch) in tests {
-        let result = check_transaction_postconditions(
-            &post_conditions,
-            &mode,
-            &origin,
-            &stacked,
-            epoch,
-            Txid([0; 32]),
-        )
-        .unwrap();
+        let result =
+            check_transaction_postconditions(&post_conditions, &mode, &origin, &stacked, epoch)
+                .unwrap();
         assert_eq!(
             result.is_none(),
             expected_pass,
@@ -2484,15 +2475,9 @@ fn test_check_postconditions_pox() {
     ];
 
     for (expected_pass, post_conditions, mode, epoch) in tests {
-        let result = check_transaction_postconditions(
-            &post_conditions,
-            &mode,
-            &origin,
-            &pox_acted,
-            epoch,
-            Txid([0; 32]),
-        )
-        .unwrap();
+        let result =
+            check_transaction_postconditions(&post_conditions, &mode, &origin, &pox_acted, epoch)
+                .unwrap();
         assert_eq!(
             result.is_none(),
             expected_pass,
@@ -2508,7 +2493,6 @@ fn test_check_postconditions_pox() {
         &origin,
         &empty,
         StacksEpochId::Epoch40,
-        Txid([0; 32]),
     )
     .unwrap();
     assert!(result.is_none());
@@ -2688,7 +2672,6 @@ fn test_epoch_admission_is_independent_of_asset_check() {
             &origin,
             &staked,
             StacksEpochId::Epoch33,
-            Txid([0; 32]),
         )
         .unwrap()
         .is_some()
@@ -2760,7 +2743,6 @@ fn test_check_postconditions_staking_non_origin() {
             &origin,
             &other_staked,
             StacksEpochId::Epoch40,
-            Txid([0; 32]),
         )
         .unwrap();
         assert_eq!(
@@ -2822,7 +2804,6 @@ fn test_check_postconditions_pox_non_origin() {
             &origin,
             &other_acted,
             StacksEpochId::Epoch40,
-            Txid([0; 32]),
         )
         .unwrap();
         assert_eq!(
@@ -2854,15 +2835,7 @@ fn test_check_postconditions_staking_pox_epoch_gate_scope() {
                  mode: TransactionPostConditionMode,
                  epoch: StacksEpochId,
                  asset_map: &AssetMap| {
-        check_transaction_postconditions(
-            post_conditions,
-            &mode,
-            &origin,
-            asset_map,
-            epoch,
-            Txid([0; 32]),
-        )
-        .unwrap()
+        check_transaction_postconditions(post_conditions, &mode, &origin, asset_map, epoch).unwrap()
     };
 
     // before 4.0 coverage is not enforced, so no post-conditions at all passes
@@ -3015,7 +2988,6 @@ fn test_check_postconditions_nft_maybe_sent() {
             &origin,
             asset_map,
             StacksEpochId::latest(),
-            Txid([0; 32]),
         )
         .unwrap();
         assert_eq!(
@@ -3081,7 +3053,6 @@ proptest! {
             &origin,
             &asset_map,
             StacksEpochId::latest(),
-            Txid([0; 32]),
         )
         .unwrap();
 
@@ -3148,7 +3119,6 @@ proptest! {
             &origin,
             &asset_map,
             StacksEpochId::latest(),
-            Txid([0; 32]),
         )
         .unwrap();
 
@@ -3964,7 +3934,6 @@ fn test_check_postconditions_stx() {
                 origin_account,
                 asset_map,
                 StacksEpochId::latest(),
-                Txid([0; 32]),
             )
             .unwrap();
             assert_eq!(

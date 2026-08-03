@@ -730,14 +730,17 @@ impl StacksChainState {
         epoch_id: StacksEpochId,
         txid: Txid,
     ) -> Result<Option<String>, VmExecutionError> {
-        stacks_postconditions::check_transaction_postconditions(
+        let result = stacks_postconditions::check_transaction_postconditions(
             post_conditions,
             post_condition_mode,
             &origin_account.principal,
             asset_map,
             epoch_id,
-            txid,
-        )
+        )?;
+        if let Some(reason) = &result {
+            info!("{reason}"; "txid" => %txid);
+        }
+        Ok(result)
     }
 
     /// Given two microblock headers, were they signed by the same key?

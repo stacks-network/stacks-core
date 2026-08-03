@@ -22,8 +22,6 @@ clarity = { package = "clarity", path = "../clarity", default-features = false }
 clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false }
 stacks-codec = { package = "stacks-codec", path = "../stacks-codec", default-features = false }
 stacks-common = { package = "stacks-common", path = "../stacks-common", default-features = false }
-slog = { workspace = true }
-
 [dev-dependencies]
 pinny = { workspace = true }
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
