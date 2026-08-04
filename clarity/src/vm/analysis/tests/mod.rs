@@ -579,6 +579,7 @@ fn test_order_of_readonly_check_and_type_check() {
     let expected_type_error = "IllegalOrUnknownFunctionApplication";
 
     let last_epoch_with_read_only_checker_first = StacksEpochId::Epoch40;
+    let first_epoch_with_type_checker_first = StacksEpochId::Epoch41;
 
     // In epoch 4.0, the read-only checker runs first, and thus its error should
     // be the result that we get.
@@ -597,19 +598,15 @@ fn test_order_of_readonly_check_and_type_check() {
     // Starting in epoch 4.1, the type checker runs first, and we should get
     // a different error.
 
-    // At the time of writing this test, Epoch 4.0 was latest, so this new behavior could not
-    // be tested yet. Once Epoch 4.1 is added, this test will automatically assert the new
-    // behavior where [`StacksEpochId::performs_read_only_checks_before_type_checks`]
-    // starts returning `false`.
-    //
-    // At that point, feel free to remove the wrapping `if`.
-    let latest_epoch = StacksEpochId::latest();
-    if latest_epoch > last_epoch_with_read_only_checker_first {
-        let err = mem_run_analysis(snippet, ClarityVersion::latest(), latest_epoch).unwrap_err();
-        assert!(
-            err.to_string().contains(expected_type_error),
-            "expected error to contain \"{expected_type_error}\" but got {}",
-            err
-        );
-    }
+    let err = mem_run_analysis(
+        snippet,
+        ClarityVersion::latest(),
+        first_epoch_with_type_checker_first,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains(expected_type_error),
+        "expected error to contain \"{expected_type_error}\" but got {}",
+        err
+    );
 }
