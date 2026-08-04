@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
 use crate::vm::analysis::tests::utils::{SingleAnalysisPass, run_single_analysis_pass};
-use crate::vm::analysis::{mem_type_check as mem_run_analysis, type_check};
+use crate::vm::analysis::type_check;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{StaticCheckError, StaticCheckErrorKind};
@@ -54,7 +54,7 @@ fn test_argument_count_violations(#[case] version: ClarityVersion, #[case] epoch
     // at-block is removed in Clarity 5
     let at_block_contract = "(define-private (foo-bar)
            (at-block))";
-    let err = mem_run_analysis(at_block_contract, version, epoch).unwrap_err();
+    let err = run_read_only_checker(at_block_contract, version, epoch).unwrap_err();
     if has_at_block(&version) {
         assert_eq!(*err.err, StaticCheckErrorKind::IncorrectArgumentCount(2, 0));
     } else {
