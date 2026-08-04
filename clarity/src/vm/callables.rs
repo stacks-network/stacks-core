@@ -24,10 +24,13 @@ use super::ClarityVersion;
 use super::costs::{CostErrors, CostOverflowingMath};
 use super::errors::VmInternalError;
 use super::types::signatures::CallableSubtype;
-use crate::vm::contexts::{ContractContext, ExecutionState, InvocationContext};
+use crate::vm::contexts::{
+    ContractContext, ExecutionState, FunctionExecutionOptions, InvocationContext,
+};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, check_argument_count};
+use crate::vm::hooks::CallHook;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
@@ -35,44 +38,56 @@ use crate::vm::types::{
 };
 use crate::vm::{LocalContext, Value, eval};
 
-#[allow(clippy::type_complexity, clippy::large_enum_variant)]
+type Native205CostInputFn = &'static dyn Fn(&[Value]) -> Result<u64, VmExecutionError>;
+
+type SpecialFunctionFn = &'static dyn Fn(
+    &[SymbolicExpression],
+    &mut ExecutionState,
+    &InvocationContext,
+    &LocalContext,
+) -> Result<Value, VmExecutionError>;
+
+#[allow(clippy::large_enum_variant)]
 pub enum CallableType {
     /// A function defined in a Clarity contract via `define-public`,
     /// `define-read-only`, or `define-private`. Arguments are evaluated by
     /// the caller and then bound into a fresh `LocalContext` before the
     /// body is interpreted.
     UserFunction(DefinedFunction),
-    /// A built-in function implemented in Rust. The string is the function's
-    /// Clarity name (used for identifier construction and diagnostics), the
-    /// [`NativeHandle`] dispatches on arity, and the [`ClarityCostFunction`]
-    /// is charged with the argument count as its input size.
-    NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
-    /// A built-in function whose runtime-cost input size is computed from
-    /// the actual argument values rather than just their count. Introduced
-    /// in epoch 2.05: when the current epoch is >= 2.05, the trailing
-    /// closure is applied to the evaluated arguments to obtain the input
-    /// passed to the cost function. In earlier epochs this variant behaves
-    /// like [`Self::NativeFunction`].
-    NativeFunction205(
+    /// A reserved (built-in or special-form) function. `clarity_name` is the
+    /// source-level name (e.g. `"+"`, `"fold"`) and is uniform across every
+    /// builtin; the per-function dispatch detail lives in `kind`.
+    Builtin {
+        clarity_name: &'static str,
+        kind: BuiltinKind,
+    },
+}
+
+/// Dispatch detail for a reserved function. The leading `&'static str` on each
+/// variant is the Rust implementation name (e.g. `"native_add"`).
+pub enum BuiltinKind {
+    Native(&'static str, NativeHandle, ClarityCostFunction),
+    /// These native functions have a new method for calculating input size in 2.05
+    /// If the global context's epoch is >= 2.05, the fn field is applied to obtain
+    /// the input to the cost function.
+    Native205(
         &'static str,
         NativeHandle,
         ClarityCostFunction,
-        &'static dyn Fn(&[Value]) -> Result<u64, VmExecutionError>,
+        Native205CostInputFn,
     ),
-    /// A built-in form that needs control over how (or whether) its
-    /// arguments are evaluated — e.g. `if`, `let`, `match`, `contract-call?`.
-    /// The closure receives the raw [`SymbolicExpression`]s along with the
-    /// execution and local contexts, and is responsible for cost tracking,
-    /// arity checking, and argument evaluation itself.
-    SpecialFunction(
-        &'static str,
-        &'static dyn Fn(
-            &[SymbolicExpression],
-            &mut ExecutionState,
-            &InvocationContext,
-            &LocalContext,
-        ) -> Result<Value, VmExecutionError>,
-    ),
+    Special(&'static str, SpecialFunctionFn),
+}
+
+impl BuiltinKind {
+    /// Rust implementation name (e.g. `"native_add"`).
+    fn rust_name(&self) -> &'static str {
+        match self {
+            BuiltinKind::Native(rust_name, ..)
+            | BuiltinKind::Native205(rust_name, ..)
+            | BuiltinKind::Special(rust_name, ..) => rust_name,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -169,6 +184,21 @@ impl DefinedFunction {
             body,
             arg_types: types,
         }
+    }
+
+    /// Clarity source-level function name.
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Declared argument names, in source order.
+    pub fn argument_names(&self) -> &[ClarityName] {
+        &self.arguments
+    }
+
+    /// Declared argument types, in source order.
+    pub fn arg_types(&self) -> &[TypeSignature] {
+        &self.arg_types
     }
 
     pub fn execute_apply(
@@ -395,6 +425,8 @@ impl DefinedFunction {
         self.define_type == DefineType::ReadOnly
     }
 
+    /// Applies this function directly or through a transaction boundary according to its
+    /// visibility.
     pub fn apply(
         &self,
         args: &[Value],
@@ -403,12 +435,13 @@ impl DefinedFunction {
     ) -> Result<Value, VmExecutionError> {
         match self.define_type {
             DefineType::Private => self.execute_apply(args, exec_state, invoke_ctx),
-            DefineType::Public => {
-                exec_state.execute_function_as_transaction(invoke_ctx, self, args, None, false)
-            }
-            DefineType::ReadOnly => {
-                exec_state.execute_function_as_transaction(invoke_ctx, self, args, None, false)
-            }
+            DefineType::Public | DefineType::ReadOnly => exec_state
+                .execute_function_as_transaction(
+                    invoke_ctx,
+                    self,
+                    args,
+                    FunctionExecutionOptions::default(),
+                ),
         }
     }
 
@@ -448,10 +481,19 @@ impl CallableType {
     pub fn get_identifier(&self) -> FunctionIdentifier {
         match self {
             CallableType::UserFunction(f) => f.get_identifier(),
-            CallableType::NativeFunction(s, _, _) => FunctionIdentifier::new_native_function(s),
-            CallableType::SpecialFunction(s, _) => FunctionIdentifier::new_native_function(s),
-            CallableType::NativeFunction205(s, _, _, _) => {
-                FunctionIdentifier::new_native_function(s)
+            CallableType::Builtin { kind, .. } => {
+                FunctionIdentifier::new_native_function(kind.rust_name())
+            }
+        }
+    }
+
+    pub fn call_trace_hook<'a>(&'a self, invoke_ctx: &'a InvocationContext) -> CallHook<'a> {
+        match self {
+            CallableType::Builtin { clarity_name, kind } => {
+                CallHook::builtin(clarity_name, kind.rust_name())
+            }
+            CallableType::UserFunction(function) => {
+                CallHook::user_defined(&invoke_ctx.contract_context.contract_identifier, function)
             }
         }
     }
