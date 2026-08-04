@@ -42,17 +42,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ##############################################################################
+  #######################################################################################################################
   ### Create Reusable Caches for Tests
   ###
-  ### Caches can only be created from `main` (OR if SEED_CACHES GitHub Actions 
-  ### variable is 'true'). This workflow runs only from `main` and therefore 
-  ### will successfully create canonical re-usable caches.
-  ##############################################################################
+  ### Caches can only be created from `main` (or via manual seeding when the SEED_CACHES Actions variable is 'true').
+  ### When run on `main`, this workflow creates canonical re-usable caches for future CI runs.
+  ### When manually dispatched from another branch, any created caches will be scoped to that branch.
+  #######################################################################################################################
   cache-bitcoin-binary:
     name: "Create: Bitcoin Binary Cache"
     runs-on: ubuntu-latest
-    # Execute if running in our core repo on `main` OR if SEED_CACHES GitHub Actions variable is 'true'
+    # Execute if running in our core repo on `main` OR manually if SEED_CACHES GitHub Actions variable is 'true'
     if: |
       (github.repository == 'stacks-network/stacks-core' && github.ref_name == 'main') ||
       vars.SEED_CACHES == 'true'
@@ -83,7 +83,7 @@ jobs:
   cache-cargo:
     name: "Create: Cargo Cache"
     runs-on: ubuntu-latest
-    # Execute if running in our core repo on `main` OR if SEED_CACHES GitHub Actions variable is 'true'
+    # Execute if running in our core repo on `main` OR manually if SEED_CACHES GitHub Actions variable is 'true'
     if: |
       (github.repository == 'stacks-network/stacks-core' && github.ref_name == 'main') ||
       vars.SEED_CACHES == 'true'
