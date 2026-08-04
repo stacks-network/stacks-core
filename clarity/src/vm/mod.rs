@@ -33,6 +33,7 @@ pub mod representations;
 
 pub mod callables;
 pub mod functions;
+pub mod resource_limiter;
 pub mod variables;
 
 pub mod analysis;
@@ -63,10 +64,10 @@ use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
 use crate::vm::callables::{CallableType, FunctionIdentifier};
 pub use crate::vm::contexts::{CallStack, ContractContext, LocalContext, MAX_CONTEXT_DEPTH};
-use crate::vm::contexts::{ExecutionState, ExecutionTimeTracker, GlobalContext, InvocationContext};
+use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    CostErrors, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
+    CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
 };
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
@@ -79,6 +80,9 @@ pub use crate::vm::functions::stx_transfer_consolidated;
 pub use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
+#[cfg(any(test, feature = "testing"))]
+use crate::vm::resource_limiter::ResourceBudget;
+use crate::vm::resource_limiter::ResourceLimitExceeded;
 pub use crate::vm::types::Value;
 use crate::vm::types::{PrincipalData, TypeSignature};
 pub use crate::vm::version::ClarityVersion;
@@ -486,31 +490,28 @@ pub fn apply_evaluated(
     )
 }
 
-/// Check for interpreter-level abort conditions.
-///
-/// Currently, this is either the AbortCallback or the execution
-///  time limit.
-fn check_interpreter_abort_condition(
+/// Check for interpreter-level violations of the resource limits
+/// (execution time limit or excessive heap allocations).
+fn check_interpreter_resource_usage(
     global_context: &GlobalContext,
 ) -> Result<(), VmExecutionError> {
-    match global_context.execution_time_tracker {
-        ExecutionTimeTracker::NoTracking => {}
-        ExecutionTimeTracker::MaxTime {
-            start_time,
-            max_duration,
-        } => {
-            if start_time.elapsed() >= max_duration {
-                return Err(CostErrors::ExecutionTimeExpired.into());
+    global_context
+        .execution_resource_limiter
+        .check_not_exceeded()
+        .map_err(|err| match err {
+            ResourceLimitExceeded::MaxDurationExceeded(s) => {
+                RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(format!(
+                    "Evaluation took too much time: {s}"
+                ))
+                .into()
             }
-        }
-    }
-    if let Err(reason) = global_context.abort_callback.check() {
-        return Err(VmExecutionError::RuntimeCheck(
-            RuntimeCheckErrorKind::AbortedByExecutionHook(reason),
-        ));
-    }
-
-    Ok(())
+            ResourceLimitExceeded::MaxAllocationExceeded(s) => {
+                RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(format!(
+                    "Evaluation used too much memory: {s}"
+                ))
+                .into()
+            }
+        })
 }
 
 pub fn eval<'a>(
@@ -523,7 +524,7 @@ pub fn eval<'a>(
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
-    check_interpreter_abort_condition(exec_state.global_context)?;
+    check_interpreter_resource_usage(exec_state.global_context)?;
 
     if let Some(mut eval_hooks) = exec_state.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {
@@ -838,7 +839,8 @@ pub fn execute_with_limited_execution_time(
         false,
         clarity_types::types::StandardPrincipalData::transient(),
         |g| {
-            g.set_max_execution_time(max_execution_time);
+            let budget = ResourceBudget::new().with_max_duration(Some(max_execution_time));
+            g.set_execution_resource_limiter(budget.start_tracking());
             Ok(())
         },
         |_| Ok(()),
@@ -852,6 +854,17 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>, ClarityEvalError> {
         program,
         ClarityVersion::Clarity2,
         StacksEpochId::Epoch21,
+        false,
+    )
+}
+
+/// Execute for test in Clarity6, Epoch40, testnet.
+#[cfg(any(test, feature = "testing"))]
+pub fn execute_v6(program: &str) -> Result<Option<Value>, ClarityEvalError> {
+    execute_with_parameters(
+        program,
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
         false,
     )
 }

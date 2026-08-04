@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[cfg(all(any(test, feature = "testing"), not(feature = "wasm-deterministic")))]
 use ::libsecp256k1::curve::Scalar;
 pub use ::libsecp256k1::Error;
 use ::libsecp256k1::{
@@ -118,6 +119,35 @@ impl Secp256k1PublicKey {
         msg: &[u8],
         sig: &MessageSignature,
     ) -> Result<Secp256k1PublicKey, &'static str> {
+        Self::recover_to_pubkey_possibly_with_low_s_verification(msg, sig, true)
+    }
+
+    #[cfg(not(feature = "wasm-deterministic"))]
+    /// Recover message and signature to public key (will be compressed), while
+    /// skipping validation that the signature is normalized to low-S. You shouldn't
+    /// use this in new code.
+    pub fn recover_to_pubkey_without_validating_low_s(
+        msg: &[u8],
+        sig: &MessageSignature,
+    ) -> Result<Secp256k1PublicKey, &'static str> {
+        Self::recover_to_pubkey_possibly_with_low_s_verification(msg, sig, false)
+    }
+
+    #[cfg(not(feature = "wasm-deterministic"))]
+    fn recover_to_pubkey_possibly_with_low_s_verification(
+        msg: &[u8],
+        sig: &MessageSignature,
+        verify_low_s: bool,
+    ) -> Result<Secp256k1PublicKey, &'static str> {
+        if verify_low_s {
+            let signature = LibSecp256k1Signature::parse_standard_slice(&sig[..64])
+                .map_err(|_| "Invalid signature: incorrect length")?;
+            let mut sig_low_s = signature;
+            sig_low_s.normalize_s();
+            if signature != sig_low_s {
+                return Err("Invalid signature: high-S");
+            }
+        }
         let secp256k1_sig = secp256k1_recover(msg, sig.as_bytes())
             .map_err(|_e| "Invalid signature: failed to recover public key")?;
 
@@ -223,6 +253,12 @@ pub fn secp256k1_verify(
     }
 }
 
+#[cfg(not(feature = "wasm-deterministic"))]
+pub fn secp256k1_decompress(compressed_pubkey_arr: &[u8]) -> Result<[u8; 65], LibSecp256k1Error> {
+    let pubkey = LibSecp256k1PublicKey::parse_slice(compressed_pubkey_arr, None)?;
+    Ok(pubkey.serialize())
+}
+
 fn secp256k1_pubkey_serialize<S: serde::Serializer>(
     pubk: &LibSecp256k1PublicKey,
     s: S,
@@ -313,6 +349,8 @@ impl PublicKey for Secp256k1PublicKey {
 
     #[cfg(not(feature = "wasm-deterministic"))]
     fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str> {
+        // `recover_to_pubkey` also ensures that the signature has low-S. That matches the
+        // corresponding implementation in `native.rs`.
         let pub_key = Secp256k1PublicKey::recover_to_pubkey(data_hash, sig)?;
         Ok(self.eq(&pub_key))
     }
@@ -378,5 +416,28 @@ impl PrivateKey for Secp256k1PrivateKey {
         let (sig, recid) = (LibSecp256k1Signature { r: sigr, s: sigs }, recid);
         let rec_sig = MessageSignature::from_secp256k1_recoverable(&sig, recid);
         Ok(rec_sig)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::PublicKey;
+
+    #[test]
+    fn test_decompress() {
+        let mut sk = Secp256k1PrivateKey::random();
+        sk.set_compress_public(true);
+        let pk = Secp256k1PublicKey::from_private(&sk);
+
+        assert_eq!(pk.to_bytes().len(), 33);
+
+        let decompressed_pk = secp256k1_decompress(pk.to_bytes().as_slice()).unwrap();
+        assert_eq!(decompressed_pk.len(), 65);
+
+        sk.set_compress_public(false);
+        let pk_uncompressed = Secp256k1PublicKey::from_private(&sk);
+
+        assert_eq!(pk_uncompressed.to_bytes(), decompressed_pk);
     }
 }

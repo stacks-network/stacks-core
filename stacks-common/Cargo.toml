@@ -113,7 +113,7 @@ bech32_strict = []
 vrf = ["ed25519-dalek", "curve25519-dalek"]
 wasm = ["developer-mode", "getrandom"]
 # Wasm-specific features for easier configuration
-wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context"]
+wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context", "chrono/wasmbind"]
 wasm-deterministic = ["getrandom/custom"]
 clarity-wasm = []
 

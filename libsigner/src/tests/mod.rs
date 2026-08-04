@@ -26,20 +26,16 @@ use std::time::{Duration, SystemTime};
 use std::{mem, thread};
 
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
-use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
-use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use clarity::util::hash::Sha512Trunc256Sum;
-use clarity::util::secp256k1::MessageSignature;
 use libstackerdb::StackerDBChunkData;
-use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
 
-use crate::events::{BlockProposalData, SignerEvent, SignerEventTrait};
+use crate::events::{SignerEvent, SignerEventTrait};
 use crate::v0::messages::SignerMessage;
-use crate::{BlockProposal, Signer, SignerEventReceiver, SignerRunLoop};
+use crate::{Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
 /// last call to `run_one_pass` as its final state.
@@ -96,37 +92,18 @@ impl<T: SignerEventTrait> SignerRunLoop<Vec<SignerEvent<T>>, T> for SimpleRunLoo
 /// and the signer runloop.
 #[test]
 fn test_simple_signer() {
-    let contract_id = NakamotoSigners::make_signers_db_contract_id(0, 0, false);
+    // Use a `BlockPreCommit` payload on its matching contract (signers-0-3).
+    let contract_id = NakamotoSigners::make_signers_db_contract_id(0, 3, false);
     let ev = SignerEventReceiver::new(false);
     let (res_send, _res_recv) = channel();
     let max_events = 5;
     let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, res_send);
     let endpoint: SocketAddr = "127.0.0.1:30000".parse().unwrap();
     let mut chunks = vec![];
-    let block_proposal = BlockProposal {
-        block: NakamotoBlock {
-            header: NakamotoBlockHeader {
-                version: 1,
-                chain_length: 10,
-                burn_spent: 10,
-                consensus_hash: ConsensusHash([0; 20]),
-                parent_block_id: StacksBlockId([0; 32]),
-                tx_merkle_root: Sha512Trunc256Sum([0; 32]),
-                state_index_root: TrieHash([0; 32]),
-                timestamp: 11,
-                miner_signature: MessageSignature::empty(),
-                signer_signature: vec![],
-                pox_treatment: BitVec::ones(1).unwrap(),
-            },
-            txs: vec![],
-        },
-        burn_height: 2,
-        reward_cycle: 1,
-        block_proposal_data: BlockProposalData::empty(),
-    };
     for i in 0..max_events {
         let privk = Secp256k1PrivateKey::random();
-        let message = SignerMessage::BlockProposal(block_proposal.clone());
+        let message =
+            SignerMessage::BlockPreCommit(Sha512Trunc256Sum([(i as u8).wrapping_add(1); 32]));
         let message_bytes = message.serialize_to_vec();
         let mut chunk = StackerDBChunkData::new(i as u32, 1, message_bytes);
         chunk.sign(&privk).unwrap();

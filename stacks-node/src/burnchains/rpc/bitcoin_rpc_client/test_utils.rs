@@ -127,6 +127,38 @@ impl<'de> Deserialize<'de> for GetNewAddressResponse {
 }
 
 impl BitcoinRpcClient {
+    /// Creates and loads a new wallet into the Bitcoin Core node.
+    ///
+    /// Wallet is stored in the `-walletdir` specified in the Bitcoin Core configuration (or the default data directory if not set).
+    ///
+    /// # Arguments
+    /// * `wallet_name` - Name of the wallet to create.
+    /// * `disable_private_keys` - If `Some(true)`, the wallet will not be able to hold private keys.
+    ///   If `None`, this defaults to `false`, allowing private key import/use.
+    ///
+    /// # Returns
+    /// Returns `Ok(())` if the wallet is created successfully.
+    ///
+    /// # Availability
+    /// - **Since**: Bitcoin Core **v0.17.0**.
+    ///
+    /// # Notes
+    /// This method supports a subset of available RPC arguments to match current usage.
+    /// Additional parameters can be added in the future as needed.
+    pub fn create_wallet(
+        &self,
+        wallet_name: &str,
+        disable_private_keys: Option<bool>,
+    ) -> BitcoinRpcClientResult<()> {
+        let disable_private_keys = disable_private_keys.unwrap_or(false);
+
+        let params = vec![wallet_name.into(), disable_private_keys.into()];
+
+        self.endpoint
+            .send::<Value>(&self.client_id, None, "createwallet", params)?;
+        Ok(())
+    }
+
     /// Retrieve general information about the current state of the blockchain.
     ///
     /// # Arguments
@@ -160,6 +192,23 @@ impl BitcoinRpcClient {
         Ok(deserialize_hex(&raw_hex)?)
     }
 
+    /// Unloads a currently loaded wallet.
+    ///
+    /// # Arguments
+    /// * `wallet_name` - Name of the wallet to unload.
+    ///
+    /// # Availability
+    /// - **Since**: Bitcoin Core **v0.17.0**.
+    pub fn unload_wallet(&self, wallet_name: &str) -> BitcoinRpcClientResult<()> {
+        self.endpoint.send::<Value>(
+            &self.client_id,
+            None,
+            "unloadwallet",
+            vec![wallet_name.into()],
+        )?;
+        Ok(())
+    }
+
     /// Mines a new block including the given transactions to a specified address.
     ///
     /// # Arguments
@@ -187,6 +236,40 @@ impl BitcoinRpcClient {
             vec![address.to_string().into(), txs.into()],
         )?;
         Ok(response.hash)
+    }
+
+    /// Fetches the 80-byte serialized block header for the given block hash,
+    /// as a hex-encoded string. The caller decodes (e.g. via `hex_bytes`)
+    /// once it knows how it wants to consume the result.
+    pub fn get_block_header_hex(
+        &self,
+        hash: &BurnchainHeaderHash,
+    ) -> BitcoinRpcClientResult<String> {
+        Ok(self.endpoint.send(
+            &self.client_id,
+            None,
+            "getblockheader",
+            vec![hash.to_hex().into(), Value::Bool(false)],
+        )?)
+    }
+
+    /// Lists the (display-order) txids in a block. The Bitcoin Core
+    /// convention is that block-explorer / RPC txids are the *reverse* of
+    /// the internal-byte-order hash that the merkle tree commits to —
+    /// callers building merkle proofs need to reverse each entry before
+    /// feeding it to `verify-merkle-proof`.
+    pub fn get_block_txids(&self, hash: &BurnchainHeaderHash) -> BitcoinRpcClientResult<Vec<Txid>> {
+        #[derive(Deserialize)]
+        struct GetBlockTxidsResponse {
+            tx: Vec<TxidWrapperResponse>,
+        }
+        let response: GetBlockTxidsResponse = self.endpoint.send(
+            &self.client_id,
+            None,
+            "getblock",
+            vec![hash.to_hex().into(), 1.into()],
+        )?;
+        Ok(response.tx.into_iter().map(|w| w.0).collect())
     }
 
     /// Gracefully shuts down the Bitcoin Core node.

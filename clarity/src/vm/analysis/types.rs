@@ -25,6 +25,7 @@ use crate::vm::analysis::contract_interface_builder::ContractInterface;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::LimitedCostTracker;
+use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::FunctionType;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::{ClarityVersion, SymbolicExpression};
@@ -39,6 +40,11 @@ pub trait AnalysisPass {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
+        // Resource limits (wallclock deadline and max memory allocation) for this
+        // pass. This is limited only on the non-consensus voting paths; it is unlimited
+        // on deterministic replay/commit (so consensus stays deterministic — see
+        // `check_analysis_resource_limits`).
+        resource_limiter: ResourceLimiter,
     ) -> Result<(), StaticCheckError>;
 }
 

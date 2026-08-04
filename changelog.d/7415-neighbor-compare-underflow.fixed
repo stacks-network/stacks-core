@@ -1,0 +1,1 @@
+Ensure sorting p2p neighbors by uptime behaves predictably in the face of system clock adjustments.

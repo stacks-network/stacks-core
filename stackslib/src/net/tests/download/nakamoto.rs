@@ -23,6 +23,7 @@ use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, TrieHash,
 };
 use stacks_common::types::net::PeerAddress;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
@@ -95,8 +96,12 @@ impl NakamotoDownloadStateMachine {
         );
 
         // find all sortitions in this reward cycle
-        let ih = sortdb.index_handle(&tip.sortition_id);
-        Self::load_wanted_tenures(&ih, first_block_height, last_block_height)
+        Self::load_wanted_tenures(
+            sortdb,
+            &tip.sortition_id,
+            first_block_height,
+            last_block_height,
+        )
     }
 }
 
@@ -155,6 +160,7 @@ fn test_nakamoto_tenure_downloader() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let tenure_change_payload = TenureChangePayload {
@@ -223,6 +229,7 @@ fn test_nakamoto_tenure_downloader() {
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::zeros(1).unwrap(),
+            problematic_txs: vec![],
         };
 
         let mut block = NakamotoBlock {
@@ -245,6 +252,7 @@ fn test_nakamoto_tenure_downloader() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let next_tenure_change_payload = TenureChangePayload {
@@ -286,6 +294,7 @@ fn test_nakamoto_tenure_downloader() {
         naddr,
         reward_set.clone(),
         reward_set,
+        StacksEpochId::latest(),
         false,
     );
 
@@ -1075,6 +1084,7 @@ fn test_tenure_start_end_from_inventory() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
     );
     let first_burn_height = 100u64;
 
@@ -1337,9 +1347,10 @@ fn test_make_tenure_downloaders() {
 
     // test load_wanted_tenures()
     {
-        let ih = peer.sortdb().index_handle(&tip.sortition_id);
+        let sortdb = peer.sortdb();
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             tip.block_height - rc_len,
             tip.block_height,
         )
@@ -1361,7 +1372,8 @@ fn test_make_tenure_downloaders() {
         }
 
         let err = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             tip.block_height + 1,
             tip.block_height + 2,
         )
@@ -1369,7 +1381,8 @@ fn test_make_tenure_downloaders() {
         assert!(matches!(err, NetError::DBError(DBError::NotFoundError)));
 
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             tip.block_height + 3,
             tip.block_height,
         )
@@ -1472,9 +1485,9 @@ fn test_make_tenure_downloaders() {
     // test inner_update_processed_wanted_tenures
     {
         let sortdb = peer.sortdb();
-        let ih = peer.sortdb().index_handle(&tip.sortition_id);
         let mut wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
-            &ih,
+            sortdb,
+            &tip.sortition_id,
             nakamoto_start,
             tip.block_height,
         )
@@ -1994,6 +2007,8 @@ fn test_make_tenure_downloaders() {
         let old_schedule = ibd_schedule.clone();
         let sched_len = ibd_schedule.len();
 
+        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn()).unwrap();
+
         // make 6 downloaders
         downloaders.make_tenure_downloaders(
             &mut ibd_schedule,
@@ -2001,6 +2016,7 @@ fn test_make_tenure_downloaders() {
             &tenure_block_ids,
             6,
             &current_reward_sets,
+            &epochs,
         );
 
         // made all 6 downloaders
@@ -2039,6 +2055,7 @@ fn test_make_tenure_downloaders() {
             &tenure_block_ids,
             12,
             &current_reward_sets,
+            &epochs,
         );
 
         // only made 4 downloaders got created

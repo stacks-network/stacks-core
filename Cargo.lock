@@ -819,7 +819,7 @@ checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
-source = "git+https://github.com/stx-labs/clarity-wasm.git#f346b438c43b5e0f17e522a651e4e2567f1051e5"
+source = "git+https://github.com/stx-labs/clarity-wasm.git#566ecb7d75d67bc3e8ffd5d81ee4602f7dbc3a79"
 dependencies = [
  "chrono",
  "clap",
@@ -846,6 +846,7 @@ dependencies = [
  "hashbrown 0.15.2",
  "integer-sqrt",
  "lazy_static",
+ "madhouse",
  "mutants",
  "pinny",
  "proptest",
@@ -895,6 +896,7 @@ dependencies = [
  "serde_json",
  "slog",
  "stacks-common",
+ "variant_count",
  "wasmtime",
 ]
 
@@ -1860,8 +1862,19 @@ checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if 1.0.0",
  "libc",
- "r-efi",
+ "r-efi 5.3.0",
  "wasip2",
+]
+
+[[package]]
+name = "getrandom"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
+dependencies = [
+ "cfg-if 1.0.0",
+ "libc",
+ "r-efi 6.0.0",
 ]
 
 [[package]]
@@ -2535,11 +2548,11 @@ dependencies = [
 
 [[package]]
 name = "jobserver"
-version = "0.1.34"
+version = "0.1.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9afb3de4395d6b3e67a780b6de64b51c978ecf11cb9a462c66be7d4ca9039d33"
+checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
 dependencies = [
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "libc",
 ]
 
@@ -2588,9 +2601,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "leb128"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cc46bac87ef8093eed6f272babb833b6443374399985ac8ed28471ee0918545"
+checksum = "c83bff1d572d6b9aeef67ddfc8448e4a3737909cb28e81f97c791b9018703e52"
 
 [[package]]
 name = "leb128fmt"
@@ -2843,6 +2856,21 @@ version = "0.2.1"
 source = "git+https://github.com/stacks-network/madhouse-rs.git?rev=f83f8ea649182c40b9dbd1b90f8de86261b91fe7#f83f8ea649182c40b9dbd1b90f8de86261b91fe7"
 dependencies = [
  "proptest",
+]
+
+[[package]]
+name = "marf-squash"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "rstest",
+ "rusqlite",
+ "serde",
+ "sha2 0.10.8",
+ "stacks-common",
+ "stackslib",
+ "tempfile",
+ "toml 0.5.11",
 ]
 
 [[package]]
@@ -3467,7 +3495,10 @@ name = "pox-locking"
 version = "2.4.0"
 dependencies = [
  "clarity",
+ "madhouse",
  "mutants",
+ "pinny",
+ "proptest",
  "slog",
  "stacks-common",
 ]
@@ -3622,6 +3653,12 @@ name = "r-efi"
 version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
+
+[[package]]
+name = "r-efi"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rand"
@@ -4749,6 +4786,7 @@ dependencies = [
  "clarity-types",
  "serde",
  "stacks-common",
+ "variant_count",
 ]
 
 [[package]]
@@ -4834,6 +4872,7 @@ dependencies = [
  "serde_json",
  "serial_test",
  "slog",
+ "stacks-codec",
  "stacks-common",
  "stacks-inspect",
  "stacks-signer",
@@ -4939,6 +4978,7 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "rusqlite",
+ "secp256k1",
  "serde",
  "serde_derive",
  "serde_json",
@@ -5723,6 +5763,17 @@ name = "value-bag"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ba6f5989077681266825251a52748b8c1d8a4ad098cc37e440103d0ea717fc0"
+
+[[package]]
+name = "variant_count"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1935e10c6f04d22688d07c0790f2fc0e1b1c5c2c55bc0cc87ed67656e587dd8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
 
 [[package]]
 name = "vcpkg"

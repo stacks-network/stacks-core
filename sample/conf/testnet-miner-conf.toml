@@ -23,6 +23,10 @@ username = "<Bitcoin RPC username>"
 password = "<Bitcoin RPC password>"
 rpc_port = 18443 # Bitcoin regtest RPC port
 peer_port = 18444 # Bitcoin regtest P2P port
+# Required: this Bitcoin wallet must already exist. Allowed characters:
+# ASCII letters, digits, and `. _ - /`
+# Also set `wallet=<name>` in bitcoin.conf so it survives a bitcoind restart.
+wallet_name = "<YOUR_BITCOIN_WALLET_NAME>"
 pox_prepare_length = 100
 pox_reward_length = 900
 # Maximum amount (in sats) of "burn commitment" to broadcast for the next block's leader election
@@ -55,7 +59,7 @@ max_rbf = 150
 # tenure_extend_wait_timeout_ms = 120000
 
 # WARNING: Should be > tenure_extend_wait_timeout_ms and > signer's
-# tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs (default 62s).
+# tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs (default 32s).
 # Default: 180 seconds
 # tenure_timeout_secs = 180
 

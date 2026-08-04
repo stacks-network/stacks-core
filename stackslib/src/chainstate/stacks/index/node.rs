@@ -475,6 +475,14 @@ impl TriePtr {
         }
     }
 
+    /// A pointer whose offset forces the widest on-disk encoding: an 8-byte
+    /// (u64) offset, as used by a squashed trie that exceeds 4 GiB. The id,
+    /// chr, and back_block are irrelevant to the encoded width. Useful for
+    /// computing a node type's maximum serialized size.
+    pub fn widest_encoded() -> TriePtr {
+        TriePtr::new(0, 0, u64::from(u32::MAX) + 1)
+    }
+
     /// Create a back-pointer version of a [`TriePtr`]
     #[cfg(test)]
     pub fn new_backptr(id: u8, chr: u8, ptr: u64, back_block: u32) -> TriePtr {

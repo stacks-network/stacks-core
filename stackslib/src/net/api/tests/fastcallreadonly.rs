@@ -64,6 +64,7 @@ fn test_try_parse_request() {
     let mut handler = fastcallreadonly::RPCFastCallReadOnlyRequestHandler::new(
         4096,
         Duration::from_secs(30),
+        ConnectionOptions::default().read_only_call_max_mem_bytes,
         Some("password".into()),
     );
     let mut parsed_request = http
@@ -321,10 +322,10 @@ fn test_try_make_response_free_cost_tracker() {
     let response = responses.remove(0);
     let (preamble, contents) = response.destruct();
 
-    assert_eq!(preamble.status_code, 408);
+    assert_eq!(preamble.status_code, 400);
 
     let body: String = contents.try_into().unwrap();
-    assert_eq!(body, "ExecutionTime expired");
+    assert_eq!(body, "Execution resource budget exceeded");
 }
 
 #[test]

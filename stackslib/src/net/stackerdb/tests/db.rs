@@ -19,6 +19,7 @@ use std::path::Path;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
+use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
@@ -737,4 +738,76 @@ fn test_reconfigure_stackerdb() {
     }
 }
 
-// TODO: max chunk size
+/// [`StackerDBTx::try_replace_chunk`] must reject any chunk whose length exceeds the
+/// per-replica `chunk_size` configuration.
+#[test]
+fn test_try_replace_chunk_enforces_config_chunk_size() {
+    let path = "/tmp/stackerdb-tests/test_try_replace_chunk_chunk_size.sqlite";
+    setup_test_path(path);
+
+    let sc = QualifiedContractIdentifier::new(
+        StacksAddress::new(0x01, Hash160([0x01; 20]))
+            .unwrap()
+            .into(),
+        ContractName::try_from("db1").unwrap(),
+    );
+
+    let mut db = StackerDBs::connect(path, true).unwrap();
+
+    let mut db_config = StackerDBConfig::noop();
+    db_config.chunk_size = 256;
+    let tx = db.tx_begin(db_config.clone()).unwrap();
+
+    let pk = StacksPrivateKey::random();
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&pk)],
+    )
+    .unwrap();
+    tx.create_stackerdb(&sc, &[(addr, 1)]).unwrap();
+
+    // Case 1: within chunk_size, must pass the size gate
+    // (and succeed end-to-end given a valid signer/version).
+    let mut at_max = StackerDBChunkData {
+        slot_id: 0,
+        slot_version: 1,
+        sig: MessageSignature::empty(),
+        data: vec![0xcd; db_config.chunk_size as usize],
+    };
+    at_max.sign(&pk).unwrap();
+    tx.try_replace_chunk(&sc, &at_max.get_slot_metadata(), &at_max.data)
+        .expect("a chunk at exactly config.chunk_size must be accepted");
+
+    // Case 2: oversized by one byte over the cap must be rejected
+    // regardless of whether the signature would otherwise validate.
+    let mut oversized = StackerDBChunkData {
+        slot_id: 0,
+        slot_version: 1,
+        sig: MessageSignature::empty(),
+        data: vec![0xab; (db_config.chunk_size as usize) + 1],
+    };
+    oversized.sign(&pk).unwrap();
+
+    let err = tx
+        .try_replace_chunk(&sc, &oversized.get_slot_metadata(), &oversized.data)
+        .unwrap_err();
+    assert_eq!(
+        net_error::StackerDBChunkTooBig(oversized.data.len()),
+        err,
+        "should be chunk too big, but got {err:?}"
+    );
+}
+
+#[test]
+fn test_stackerdb_noop_config() {
+    let config = StackerDBConfig::noop();
+    assert_eq!(STACKERDB_MAX_CHUNK_SIZE as u64, config.chunk_size);
+    assert_eq!(0, config.write_freq);
+    assert_eq!(u32::MAX, config.max_writes);
+    assert!(config.hint_replicas.is_empty());
+    assert_eq!(8, config.max_neighbors);
+    assert!(config.signers.is_empty());
+    assert_eq!(0, config.num_slots());
+}

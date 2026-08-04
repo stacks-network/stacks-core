@@ -1197,3 +1197,87 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
         debug!("Completed stacker DB sync in {} step(s)", step_count);
     })
 }
+
+/// [`PeerNetwork::validate_received_chunk`] rejects any chunk whose `data` exceeds the
+/// per-replica `config.chunk_size`, regardless of whether the rest of the chunk
+/// would otherwise validate.
+#[test]
+fn test_validate_received_chunk_rejects_oversized() {
+    let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 100);
+    peer_config.allowed = -1;
+
+    // Use a small chunk_size so we can build an "oversized" chunk cheaply.
+    let mut stackerdb_config = StackerDBConfig::template();
+    stackerdb_config.chunk_size = 1024;
+    let idx = add_stackerdb(&mut peer_config, Some(stackerdb_config));
+
+    let mut peer = TestPeer::new(peer_config);
+    // 1 slot, no fill — signer key generated and registered.
+    setup_stackerdb(&mut peer, idx, false, 1);
+
+    let contract_id = peer.config.stacker_dbs[idx].clone();
+    let stackerdb_config = peer.config.stacker_db_configs[idx]
+        .clone()
+        .expect("stackerdb config must exist");
+    let expected_versions = vec![0u32; 1];
+
+    // Oversized: chunk_size + 1 bytes. Signature does not need to be valid — the
+    // size check is the first gate in `validate_received_chunk` and fires before
+    // signer/version checks.
+    let oversized_data = vec![0u8; (stackerdb_config.chunk_size as usize) + 1];
+    let oversized_chunk = StackerDBChunkData::new(0, 1, oversized_data);
+
+    let result = peer
+        .network
+        .validate_received_chunk(
+            &contract_id,
+            &stackerdb_config,
+            &oversized_chunk,
+            &expected_versions,
+        )
+        .unwrap();
+    assert!(!result, "an oversized chunk must be rejected");
+}
+
+/// [`PeerNetwork::validate_received_chunk`] accepts a chunk at exactly `config.chunk_size` bytes
+/// (if other validations — signer, version — pass as well)
+#[test]
+fn test_validate_received_chunk_accepts_max_size() {
+    let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 102);
+    peer_config.allowed = -1;
+
+    let mut stackerdb_config = StackerDBConfig::template();
+    stackerdb_config.chunk_size = 1024;
+    let idx = add_stackerdb(&mut peer_config, Some(stackerdb_config));
+
+    let mut peer = TestPeer::new(peer_config);
+    // 1 slot, fill with a valid signed chunk so a same-size resubmission can
+    // pass signature + version checks and we can confirm Ok(true).
+    setup_stackerdb(&mut peer, idx, true, 1);
+
+    let contract_id = peer.config.stacker_dbs[idx].clone();
+    let stackerdb_config = peer.config.stacker_db_configs[idx]
+        .clone()
+        .expect("stackerdb config must exist");
+
+    // Load the chunk we just stored — it's valid for this replica, signed by
+    // the registered slot signer, and exactly `chunk_size` bytes.
+    let (stored_metadata, stored_data) = load_stackerdb(&peer, idx).into_iter().next().unwrap();
+    assert_eq!(stored_data.len(), stackerdb_config.chunk_size as usize);
+
+    // Replay it through `validate_received_chunk`. Use the stored version as
+    // the expected version so the freshness check passes.
+    let chunk = StackerDBChunkData {
+        slot_id: stored_metadata.slot_id,
+        slot_version: stored_metadata.slot_version,
+        sig: stored_metadata.signature,
+        data: stored_data,
+    };
+    let expected_versions = vec![stored_metadata.slot_version];
+
+    let result = peer
+        .network
+        .validate_received_chunk(&contract_id, &stackerdb_config, &chunk, &expected_versions)
+        .unwrap();
+    assert!(result, "a chunk within chunk_size must pass the size gate");
+}

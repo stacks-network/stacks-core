@@ -1,12 +1,11 @@
 ---
 source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "47216b0d3bd2d207077a9f678b83d26313682f16b8bf128f5f0208908af2ed59",
-    evaluated_epoch: Epoch33,
+    marf_hash: "209eb956b14fb7bfb9170f3e4be7da2a0e7e0623c467dbe7b94e463e3cba5736",
+    evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: non-existent-contract, function_name: this-function-does-not-exist, function_args: [[]])",
@@ -35,8 +34,8 @@ snapshot_kind: text
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "82bc01d74f80d3b276d1cdd37f9d4c04c64bfda6e00c9f6239fc7a28184c850f",
-    evaluated_epoch: Epoch34,
+    marf_hash: "7169ff29539c3626c65ed136e5b9ac4f583731e708a66b6e2801d7a22ad1e812",
+    evaluated_epoch: Epoch40,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: non-existent-contract, function_name: this-function-does-not-exist, function_args: [[]])",

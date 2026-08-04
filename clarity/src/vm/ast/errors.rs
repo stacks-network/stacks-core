@@ -41,8 +41,6 @@ pub enum ParseErrorKind {
     /// Failure in cost-tracking due to an unexpected condition or invalid state.
     /// The `String` represents the specific reason for the failure.
     CostComputationFailed(String),
-    /// Parsing time exceeds the allowed budget, halting AST construction to ensure responsiveness.
-    ExecutionTimeExpired,
 
     // Structural errors
     /// Number of expressions exceeds the maximum allowed limit.
@@ -282,9 +280,6 @@ impl From<CostErrors> for ParseError {
             CostErrors::InterpreterFailure | CostErrors::Expect(_) => {
                 ParseError::new(ParseErrorKind::InterpreterFailure)
             }
-            CostErrors::ExecutionTimeExpired => {
-                ParseError::new(ParseErrorKind::ExecutionTimeExpired)
-            }
         }
     }
 }
@@ -410,7 +405,6 @@ impl DiagnosableError for ParseErrorKind {
                 "unexpected failure while parsing".to_string()
             }
             ParseErrorKind::InterpreterFailure => "unexpected failure while parsing".to_string(),
-            ParseErrorKind::ExecutionTimeExpired => "max execution time expired".to_string(),
         }
     }
 

@@ -158,6 +158,7 @@ fn test_store_and_fetch() {
             &headers,
             &canonical_block,
             StacksEpochId::Epoch21,
+            u64::MAX,
         )
         .unwrap();
     assert!(ops.is_empty());
@@ -203,6 +204,7 @@ fn test_store_and_fetch() {
             &headers,
             &non_canonical_block,
             StacksEpochId::Epoch21,
+            u64::MAX,
         )
         .unwrap();
     assert_eq!(ops.len(), expected_ops.len());
@@ -284,6 +286,7 @@ fn test_classify_stack_stx() {
             &headers,
             &canonical_block,
             StacksEpochId::Epoch21,
+            u64::MAX,
         )
         .unwrap();
     assert!(ops.is_empty());
@@ -458,7 +461,13 @@ fn test_classify_stack_stx() {
     });
 
     let processed_ops_0 = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &block_0, StacksEpochId::Epoch21)
+        .store_new_burnchain_block(
+            &burnchain,
+            &headers,
+            &block_0,
+            StacksEpochId::Epoch21,
+            u64::MAX,
+        )
         .unwrap();
 
     assert_eq!(
@@ -468,7 +477,13 @@ fn test_classify_stack_stx() {
     );
 
     let processed_ops_1 = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &block_1, StacksEpochId::Epoch21)
+        .store_new_burnchain_block(
+            &burnchain,
+            &headers,
+            &block_1,
+            StacksEpochId::Epoch21,
+            u64::MAX,
+        )
         .unwrap();
 
     assert_eq!(
@@ -571,6 +586,7 @@ fn burn_db_test_pox() -> PoxConstants {
         0,
         u64::MAX - 1,
         u64::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -797,6 +813,7 @@ fn test_classify_delegate_stx() {
             &headers,
             &canonical_block,
             StacksEpochId::Epoch21,
+            u64::MAX,
         )
         .unwrap();
     assert!(ops.is_empty());
@@ -987,7 +1004,13 @@ fn test_classify_delegate_stx() {
 
     test_debug!("store ops ({}) for block 0", ops_0_length);
     let processed_ops_0 = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &block_0, StacksEpochId::Epoch21)
+        .store_new_burnchain_block(
+            &burnchain,
+            &headers,
+            &block_0,
+            StacksEpochId::Epoch21,
+            u64::MAX,
+        )
         .unwrap();
 
     assert_eq!(
@@ -998,7 +1021,13 @@ fn test_classify_delegate_stx() {
 
     test_debug!("store ops ({}) for block 1", ops_1_length);
     let processed_ops_1 = burnchain_db
-        .store_new_burnchain_block(&burnchain, &headers, &block_1, StacksEpochId::Epoch21)
+        .store_new_burnchain_block(
+            &burnchain,
+            &headers,
+            &block_1,
+            StacksEpochId::Epoch21,
+            u64::MAX,
+        )
         .unwrap();
 
     assert_eq!(
@@ -1084,7 +1113,7 @@ pub fn tmp_db_path() -> PathBuf {
 }
 
 #[test]
-fn burnchain_db_migration_v2_to_v3() -> Result<(), BurnchainError> {
+fn burnchain_db_migration_v2() -> Result<(), BurnchainError> {
     // Create an in-memory database
     let tmp_path = tmp_db_path();
     let conn = Connection::open(tmp_path.clone())?;
@@ -1123,7 +1152,111 @@ fn burnchain_db_migration_v2_to_v3() -> Result<(), BurnchainError> {
         .filter_map(|v| v.parse::<u32>().ok())
         .max()
         .expect("Expected db_config to have a version");
-    assert_eq!(version, 3, "Database version should be 3 after migration");
+    assert_eq!(
+        version,
+        BurnchainDB::SCHEMA_VERSION,
+        "Database version should be current after migration"
+    );
+
+    // Verify affirmation_maps table is dropped
+    assert!(
+        !table_exists(&db.conn, "affirmation_maps")?,
+        "affirmation_maps table should be dropped"
+    );
+
+    // Verify affirmation_id column is dropped from block_commit_metadata
+    let columns: Vec<String> = db
+        .conn
+        .prepare("PRAGMA table_info(block_commit_metadata)")?
+        .query_map([], |row| row.get(1))?
+        .collect::<Result<Vec<String>, _>>()?;
+    assert!(
+        !columns.contains(&"affirmation_id".to_string()),
+        "affirmation_id column should be dropped"
+    );
+
+    // Verify other tables and data remain intact
+    assert!(
+        table_exists(&db.conn, "burnchain_db_block_headers")?,
+        "burnchain_db_block_headers table should exist"
+    );
+    assert!(
+        table_exists(&db.conn, "block_commit_metadata")?,
+        "block_commit_metadata table should exist"
+    );
+    let header: Option<BurnchainBlockHeader> = query_row(
+        &db.conn,
+        "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ?",
+        params![&sample_block_hash],
+    )?;
+    assert!(
+        header.is_some(),
+        "Sample block header should remain after migration"
+    );
+    let metadata: Option<String> = query_row(
+        &db.conn,
+        "SELECT txid FROM block_commit_metadata WHERE burn_block_hash = ?",
+        params![&sample_block_hash],
+    )?;
+    assert_eq!(
+        metadata,
+        Some(sample_txid),
+        "Sample block_commit_metadata should remain after migration"
+    );
+
+    // Verify indexes are still present
+    let indexes: Vec<String> = db.conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'index_block_commit_metadata%'")?
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+    assert!(
+        indexes.contains(&"index_block_commit_metadata_burn_block_hash_anchor_block".to_string()),
+        "Expected index should still exist"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn burnchain_db_migration_v3() -> Result<(), BurnchainError> {
+    // Create an in-memory database
+    let tmp_path = tmp_db_path();
+    let conn = Connection::open(tmp_path.clone())?;
+
+    // Initialize database with schema version 3
+    for statement in SCHEMA_2.iter().chain(SCHEMA_3.iter()) {
+        conn.execute_batch(statement)?;
+    }
+
+    // Insert sample data to verify data integrity post-migration
+    let sample_block_hash = BurnchainHeaderHash([1u8; 32]);
+    let sample_parent_block_hash = BurnchainHeaderHash([0u8; 32]);
+    let sample_txid = "txid1".to_string();
+    conn.execute(
+            "INSERT INTO burnchain_db_block_headers (block_height, block_hash, parent_block_hash, num_txs, timestamp) VALUES (?, ?, ?, ?, ?)",
+            params![1, &sample_block_hash, &sample_parent_block_hash, 1, 1234567890],
+        )?;
+    conn.execute(
+            "INSERT INTO block_commit_metadata (burn_block_hash, txid, block_height, vtxindex, anchor_block, anchor_block_descendant) VALUES (?, ?, ?, ?, ?, ?)",
+            params![&sample_block_hash, &sample_txid, 1, 0, None::<i64>, None::<i64>],
+        )?;
+
+    // Create BurnchainDB using connect to trigger migration code
+    let burnchain = mock_burnchain();
+    let db = BurnchainDB::connect(tmp_path.to_str().unwrap(), &burnchain, true)?;
+
+    let mut stmt = conn.prepare("SELECT version FROM db_config")?;
+    let version: u32 = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .filter_map(Result::ok)
+        .filter_map(|v| v.parse::<u32>().ok())
+        .max()
+        .expect("Expected db_config to have a version");
+    assert_eq!(
+        version,
+        BurnchainDB::SCHEMA_VERSION,
+        "Database version should be current after migration"
+    );
 
     // Verify affirmation_maps table is dropped
     assert!(

@@ -14,15 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::mem::replace;
-use std::time::{Duration, Instant};
 
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
-use stacks_common::alloc_tracker::{AllocationCounter, thread_allocated};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 #[cfg(feature = "clarity-wasm")]
@@ -51,6 +50,7 @@ use crate::vm::errors::{
 };
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
+use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     AssetIdentifier, BuffData, CallableData, PrincipalData, QualifiedContractIdentifier,
@@ -171,6 +171,12 @@ pub struct AssetMap {
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>,
     /// Amount of STX stacked or delegated for stacking by principal
     stacking_map: HashMap<PrincipalData, u128>,
+    /// Principals that attempted a position-altering PoX action (`unstake`,
+    /// `unstake-sbtc`, `update-bond-registration`, `announce-l1-early-exit`)
+    /// during the transaction -- recorded whether or not the call succeeded, so
+    /// a `Pox` post-condition / `with-pox` allowance can gate even a failed
+    /// attempt.
+    pox_action_set: HashSet<PrincipalData>,
 }
 
 impl AssetMap {
@@ -257,12 +263,19 @@ impl AssetMap {
             })
             .collect();
 
+        let pox: Vec<serde_json::value::Value> = self
+            .pox_action_set
+            .iter()
+            .map(|principal| serde_json::value::Value::String(format!("{principal}")))
+            .collect();
+
         json!({
             "stx": stx,
             "burns": burns,
             "tokens": tokens,
             "assets": assets,
             "stacking": stacking,
+            "pox": pox,
         })
     }
 }
@@ -272,71 +285,8 @@ pub struct EventBatch {
     pub events: Vec<StacksTransactionEvent>,
 }
 
-/** ExecutionTimeTracker keeps track of how much time a contract call is taking.
-   It is checked at every eval call.
-*/
-pub enum ExecutionTimeTracker {
-    NoTracking,
-    MaxTime {
-        start_time: Instant,
-        max_duration: Duration,
-    },
-}
-
-/// Per-`eval` abort check. This operates alongside the execution time
-/// tracker.
-///
-/// The `None` variant is a no-op (the common case during
-/// block append/replay); other variants encode specific abort
-/// conditions and are dispatched statically via match.
-#[derive(Clone)]
-pub enum AbortCallback {
-    /// No abort check.
-    None,
-    /// Abort when net heap allocation since `baseline` exceeds
-    /// `limit_bytes` (per-thread).
-    ///
-    /// Used by miner block assembly and proposal validation.
-    MemAbort {
-        baseline: AllocationCounter,
-        limit_bytes: u64,
-    },
-    /// Test fixture: always aborts with the given reason.
-    #[cfg(test)]
-    AlwaysAbort(String),
-}
-
-impl AbortCallback {
-    /// Run the abort check.
-    ///
-    /// Returns:
-    ///   * `Ok(())` to continue
-    ///   * `Err(reason)` to abort execution with
-    ///     `RuntimeCheckErrorKind::AbortedByExecutionHook`.
-    pub fn check(&self) -> Result<(), String> {
-        match self {
-            Self::None => Ok(()),
-            Self::MemAbort {
-                baseline,
-                limit_bytes,
-            } => {
-                let net_alloc = thread_allocated().net_allocated(baseline);
-                if net_alloc > *limit_bytes {
-                    Err(format!(
-                        "Transaction heap usage ({net_alloc} bytes) exceeded limit ({limit_bytes} bytes)"
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-            #[cfg(test)]
-            Self::AlwaysAbort(reason) => Err(reason.clone()),
-        }
-    }
-}
-
 /** GlobalContext represents the outermost context for a single transaction's
-     execution. It tracks an asset changes that occurred during the
+     execution. It tracks any asset changes that occurred during the
      processing of the transaction, whether or not the current context is read_only,
      and is responsible for committing/rolling-back transactions as they error or
      abort.
@@ -353,14 +303,11 @@ pub struct GlobalContext<'a> {
     /// This is the chain ID of the transaction
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'a mut dyn EvalHook>>,
-    pub execution_time_tracker: ExecutionTimeTracker,
+    /// A resource limiter that will be polled on every `eval` to check that execution
+    /// time and heap allocation don't exceed configured maximums
+    pub execution_resource_limiter: ResourceLimiter,
     #[cfg(feature = "clarity-wasm")]
     pub engine: Engine,
-    /// Callback checked at every `eval` call. When `check()` returns
-    /// `Err(reason)`, execution is aborted with
-    /// `VmExecutionError::RuntimeCheck(AbortedByExecutionHook)`. The
-    /// default `AbortCallback::None` is a no-op.
-    pub abort_callback: AbortCallback,
     #[cfg(feature = "clarity-wasm")]
     pub cost_meter: CostMeter,
 }
@@ -434,6 +381,7 @@ impl AssetMap {
             token_map: HashMap::new(),
             asset_map: HashMap::new(),
             stacking_map: HashMap::new(),
+            pox_action_set: HashSet::new(),
         }
     }
 
@@ -467,6 +415,23 @@ impl AssetMap {
         // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
         // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
         let current_amount = self.burn_map.get(principal).unwrap_or(&0);
+        current_amount
+            .checked_add(amount)
+            .ok_or(RuntimeError::ArithmeticOverflow.into())
+    }
+
+    /// This will get the next amount for a (principal, stx) entry in the
+    /// stacking table. Used in Epoch 4.0+ (PoX-5), where multiple stacking
+    /// entries for the same principal in one transaction are summed rather
+    /// than rejected. Overflow returns `ArithmeticOverflow`; it is unreachable
+    /// in normal execution because every stacked amount is bounded by the
+    /// principal's balance, which is a subset of `stx-liquid-supply`.
+    fn get_next_stacking_amount(
+        &self,
+        principal: &PrincipalData,
+        amount: u128,
+    ) -> Result<u128, VmExecutionError> {
+        let current_amount = self.stacking_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
             .ok_or(RuntimeError::ArithmeticOverflow.into())
@@ -544,19 +509,58 @@ impl AssetMap {
         Ok(())
     }
 
-    /// Log an amount of STX to be stacked or delegated for stacking by a
-    /// principal. Since any given principal can only stack once, this will
-    /// overwrite any previous amount for the principal.
-    pub fn add_stacking(&mut self, principal: &PrincipalData, amount: u128) {
-        self.stacking_map.insert(principal.clone(), amount);
+    /// Add stacking entry for `principal` of `amount`.  The EpochId
+    /// controls whether or not an existing entry is replaced or
+    /// accumulated.
+    pub fn add_stacking(
+        &mut self,
+        principal: &PrincipalData,
+        amount: u128,
+        epoch_id: StacksEpochId,
+    ) -> Result<(), VmExecutionError> {
+        match self.stacking_map.entry(principal.clone()) {
+            Entry::Occupied(mut occupied_entry) => {
+                let next_amt = if epoch_id.sums_stacking_assetmap() {
+                    occupied_entry
+                        .get()
+                        .checked_add(amount)
+                        .ok_or(RuntimeError::ArithmeticOverflow)?
+                } else {
+                    amount
+                };
+                occupied_entry.insert(next_amt);
+            }
+            Entry::Vacant(vacant_entry) => {
+                vacant_entry.insert(amount);
+            }
+        };
+        Ok(())
+    }
+
+    /// Record that a principal attempted a position-altering PoX action
+    /// (`unstake`, `unstake-sbtc`, `update-bond-registration`,
+    /// `announce-l1-early-exit`) during the transaction. Recorded whether or
+    /// not the call succeeded.
+    pub fn add_pox_action(&mut self, principal: &PrincipalData) {
+        self.pox_action_set.insert(principal.clone());
     }
 
     // This will add any asset transfer data from other to self,
     //   aborting _all_ changes in the event of an error, leaving self unchanged
-    pub fn commit_other(&mut self, mut other: AssetMap) -> Result<(), VmExecutionError> {
+    //
+    // `epoch_id` selects how concurrent stacking entries for the same principal
+    // are handled (see the stacking-merge block below): pre-Epoch-4.0, a second
+    // entry is rejected (`PoxStxAssetMapOverwrite`, a soft-fork safety net);
+    // Epoch-4.0+ (PoX-5) sums the amounts.
+    pub fn commit_other(
+        &mut self,
+        mut other: AssetMap,
+        epoch_id: StacksEpochId,
+    ) -> Result<(), VmExecutionError> {
         let mut to_add = Vec::new();
         let mut stx_to_add = Vec::with_capacity(other.stx_map.len());
         let mut stx_burn_to_add = Vec::with_capacity(other.burn_map.len());
+        let mut stacking_to_add = Vec::with_capacity(other.stacking_map.len());
 
         for (principal, mut principal_map) in other.token_map.drain() {
             for (asset, amount) in principal_map.drain() {
@@ -573,6 +577,30 @@ impl AssetMap {
         for (principal, stx_burn_amount) in other.burn_map.drain() {
             let next_amount = self.get_next_stx_burn_amount(&principal, stx_burn_amount)?;
             stx_burn_to_add.push((principal.clone(), next_amount));
+        }
+
+        if epoch_id.sums_stacking_assetmap() {
+            // Epoch 4.0+ (PoX-5): sum a principal's stacking entries, mirroring
+            // how STX transfers/burns accumulate. Computed before any mutation
+            // so an overflow aborts the whole merge with `self` unchanged.
+            for (principal, stacking_amount) in other.stacking_map.drain() {
+                let next_amount = self.get_next_stacking_amount(&principal, stacking_amount)?;
+                stacking_to_add.push((principal, next_amount));
+            }
+        } else {
+            // Pre-Epoch-4.0 soft-fork behavior: reject any transaction that
+            // would overwrite an existing asset-map stacking entry.
+            for principal in other.stacking_map.keys() {
+                if self.stacking_map.contains_key(principal) {
+                    return Err(VmExecutionError::from(
+                        RuntimeCheckErrorKind::PoxStxAssetMapOverwrite,
+                    ));
+                }
+            }
+            // No collision is possible, so each entry carries its own amount.
+            for (principal, stacking_amount) in other.stacking_map.drain() {
+                stacking_to_add.push((principal, stacking_amount));
+            }
         }
 
         // After this point, this function will not fail.
@@ -600,8 +628,12 @@ impl AssetMap {
             principal_map.insert(asset, amount);
         }
 
-        for (principal, stacking_amount) in other.stacking_map.drain() {
+        for (principal, stacking_amount) in stacking_to_add.into_iter() {
             self.stacking_map.insert(principal, stacking_amount);
+        }
+
+        for principal in other.pox_action_set.drain() {
+            self.pox_action_set.insert(principal);
         }
 
         Ok(())
@@ -694,6 +726,26 @@ impl AssetMap {
 
     pub fn get_stacking(&self, principal: &PrincipalData) -> Option<u128> {
         self.stacking_map.get(principal).copied()
+    }
+
+    /// Returns the full map of STX stacked (locked for PoX) by each principal
+    /// during the transaction. Used to enforce transaction-level `Staking`
+    /// post-conditions, since the stacking map is intentionally excluded from
+    /// `to_table`.
+    pub fn get_all_stacking(&self) -> &HashMap<PrincipalData, u128> {
+        &self.stacking_map
+    }
+
+    pub fn did_pox_action(&self, principal: &PrincipalData) -> bool {
+        self.pox_action_set.contains(principal)
+    }
+
+    /// Returns the set of principals that performed a position-altering PoX
+    /// action during the transaction. Used to enforce transaction-level `Pox`
+    /// post-conditions; like the stacking map it is intentionally excluded from
+    /// `to_table`.
+    pub fn get_all_pox_actions(&self) -> &HashSet<PrincipalData> {
+        &self.pox_action_set
     }
 }
 
@@ -813,9 +865,9 @@ impl<'a> OwnedEnvironment<'a> {
         }
     }
 
-    /// Set an abort callback that will be checked at every `eval` call.
-    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
-        self.context.abort_callback = callback;
+    pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
+        self.context
+            .set_execution_resource_limiter(resource_limiter);
     }
 
     pub fn get_exec_environment<'b>(
@@ -1673,6 +1725,7 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
             self.global_context.epoch_id,
             clarity_version,
             true,
+            self.global_context.execution_resource_limiter,
         )
         .map_err(|boxed_err| {
             let (boxed_check_error, _cost_tracker) = *boxed_err;
@@ -2037,10 +2090,9 @@ impl<'a> GlobalContext<'a> {
             epoch_id,
             chain_id,
             eval_hooks: None,
-            execution_time_tracker: ExecutionTimeTracker::NoTracking,
+            execution_resource_limiter: ResourceLimiter::unlimited(),
             #[cfg(feature = "clarity-wasm")]
             engine,
-            abort_callback: AbortCallback::None,
             #[cfg(feature = "clarity-wasm")]
             cost_meter: CostMeter::MIN,
         }
@@ -2050,11 +2102,8 @@ impl<'a> GlobalContext<'a> {
         self.asset_maps.is_empty()
     }
 
-    pub fn set_max_execution_time(&mut self, max_execution_time: Duration) {
-        self.execution_time_tracker = ExecutionTimeTracker::MaxTime {
-            start_time: Instant::now(),
-            max_duration: max_execution_time,
-        }
+    pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
+        self.execution_resource_limiter = resource_limiter;
     }
 
     fn get_asset_map(&mut self) -> Result<&mut AssetMap, VmExecutionError> {
@@ -2121,7 +2170,12 @@ impl<'a> GlobalContext<'a> {
         sender: &PrincipalData,
         amount: u128,
     ) -> Result<(), VmExecutionError> {
-        self.get_asset_map()?.add_stacking(sender, amount);
+        let epoch = self.epoch_id;
+        self.get_asset_map()?.add_stacking(sender, amount, epoch)
+    }
+
+    pub fn log_pox_action(&mut self, sender: &PrincipalData) -> Result<(), VmExecutionError> {
+        self.get_asset_map()?.add_pox_action(sender);
         Ok(())
     }
 
@@ -2220,7 +2274,7 @@ impl<'a> GlobalContext<'a> {
 
         let out_map = match self.asset_maps.last_mut() {
             Some(tail_back) => {
-                if let Err(e) = tail_back.commit_other(asset_map) {
+                if let Err(e) = tail_back.commit_other(asset_map, self.epoch_id) {
                     self.database.roll_back()?;
                     return Err(e);
                 }
@@ -2593,7 +2647,7 @@ mod test {
         am2.add_token_transfer(&p1, t1.clone(), 1).unwrap();
         am2.add_token_transfer(&p2, t1.clone(), 1).unwrap();
 
-        am1.commit_other(am2).unwrap_err();
+        am1.commit_other(am2, StacksEpochId::Epoch30).unwrap_err();
 
         let table = am1.to_table();
 
@@ -2683,7 +2737,7 @@ mod test {
         am1.add_stx_burn(&p1, 31).unwrap();
         am2.add_stx_burn(&p2, 36).unwrap();
 
-        am1.commit_other(am2).unwrap();
+        am1.commit_other(am2, StacksEpochId::Epoch30).unwrap();
 
         let table = am1.to_table();
 
@@ -2718,6 +2772,52 @@ mod test {
 
         assert_eq!(table[&p1][&t7], AssetMapEntry::Burn(30 + 31));
         assert_eq!(table[&p2][&t7], AssetMapEntry::Burn(35 + 36));
+    }
+
+    /// Merging a child frame whose stacking entry collides with the parent's
+    /// is rejected (`PoxStxAssetMapOverwrite`) before Epoch 4.0, but summed in
+    /// Epoch 4.0+ (PoX-5). A non-colliding entry merges identically in both.
+    #[test]
+    fn test_asset_map_stacking_merge() {
+        let p1 = PrincipalData::from(StandardPrincipalData::transient());
+        let p2 = PrincipalData::Contract(QualifiedContractIdentifier::local("b").unwrap());
+
+        // Pre-Epoch-4.0: a colliding stacking entry is rejected.
+        let mut am1 = AssetMap::new();
+        let mut am2 = AssetMap::new();
+        am1.add_stacking(&p1, 100, StacksEpochId::Epoch40).unwrap();
+        am2.add_stacking(&p1, 50, StacksEpochId::Epoch40).unwrap();
+        assert!(matches!(
+            am1.commit_other(am2, StacksEpochId::Epoch30).unwrap_err(),
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::PoxStxAssetMapOverwrite)
+        ));
+        // `self` is left unchanged by the aborted merge.
+        assert_eq!(am1.get_stacking(&p1), Some(100));
+
+        // Epoch 4.0+: the colliding entry is summed; non-colliding entries pass
+        // through unchanged.
+        let mut am1 = AssetMap::new();
+        let mut am2 = AssetMap::new();
+        am1.add_stacking(&p1, 100, StacksEpochId::Epoch40).unwrap();
+        am2.add_stacking(&p1, 50, StacksEpochId::Epoch40).unwrap();
+        am2.add_stacking(&p2, 25, StacksEpochId::Epoch40).unwrap();
+        am1.commit_other(am2, StacksEpochId::Epoch40).unwrap();
+        assert_eq!(am1.get_stacking(&p1), Some(150));
+        assert_eq!(am1.get_stacking(&p2), Some(25));
+
+        // Epoch 4.0+: a summed stacking amount that overflows `u128` aborts the
+        // merge with an arithmetic error rather than panicking, and leaves
+        // `self` unchanged.
+        let mut am1 = AssetMap::new();
+        let mut am2 = AssetMap::new();
+        am1.add_stacking(&p1, u128::MAX, StacksEpochId::Epoch40)
+            .unwrap();
+        am2.add_stacking(&p1, 1, StacksEpochId::Epoch40).unwrap();
+        assert!(matches!(
+            am1.commit_other(am2, StacksEpochId::Epoch40).unwrap_err(),
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
+        ));
+        assert_eq!(am1.get_stacking(&p1), Some(u128::MAX));
     }
 
     /// Test the stx-transfer consolidation tx invalidation
@@ -2842,7 +2942,7 @@ mod test {
         // commit_other: merge two maps where sum exceeds u128::MAX
         am2.add_token_transfer(&p1, t1.clone(), u128::MAX).unwrap();
         assert!(matches!(
-            am1.commit_other(am2).unwrap_err(),
+            am1.commit_other(am2, StacksEpochId::Epoch30).unwrap_err(),
             VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
         ));
     }
@@ -2955,6 +3055,7 @@ mod test {
             exec_state.global_context.epoch_id,
             clarity_version,
             true,
+            ResourceLimiter::unlimited(),
         )
         .map_err(|boxed_err| {
             let (boxed_check_error, _cost_tracker) = *boxed_err;
@@ -2986,6 +3087,7 @@ mod test {
             exec_state.global_context.epoch_id,
             clarity_version,
             true,
+            ResourceLimiter::unlimited(),
         )
         .map_err(|boxed_err| {
             let (boxed_check_error, _cost_tracker) = *boxed_err;

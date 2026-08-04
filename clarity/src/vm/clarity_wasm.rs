@@ -29,6 +29,7 @@ use super::{CallStack, ClarityVersion, ContractName, ExecutionState, SymbolicExp
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::contexts::{GlobalContext, InvocationContext};
+use crate::vm::costs::CostErrors;
 use crate::vm::costs::cost_functions::linear;
 use crate::vm::errors::{
     RuntimeCheckErrorKind, RuntimeError, StaticCheckErrorKind, VmExecutionError, WasmError,
@@ -39,7 +40,7 @@ use crate::vm::functions::post_conditions::{
 use crate::vm::types::{
     BufferLength, SequenceSubtype, SequencedValue, StringSubtype, TypeSignature, TypeSignatureExt,
 };
-use crate::vm::{ClarityName, ContractContext, CostErrors, ExecutionCost, Value};
+use crate::vm::{ClarityName, ContractContext, ExecutionCost, Value};
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,
@@ -1003,7 +1004,7 @@ fn read_from_wasm(
                     {
                         Value::CallableContract(CallableData {
                             contract_identifier: qualified_id,
-                            trait_identifier: Some(trait_identifier.clone()),
+                            trait_identifier: Some(Box::new(trait_identifier.clone())),
                         })
                     } else {
                         Value::Principal(PrincipalData::Contract(qualified_id))
@@ -2184,7 +2185,7 @@ fn wasm_to_clarity_value(
                         {
                             Value::CallableContract(CallableData {
                                 contract_identifier: qualified_id,
-                                trait_identifier: Some(trait_identifier.clone()),
+                                trait_identifier: Some(Box::new(trait_identifier.clone())),
                             })
                         } else {
                             Value::Principal(PrincipalData::Contract(qualified_id))
@@ -4239,12 +4240,21 @@ fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Vm
                     .global_context
                     .database
                     .get_v3_unlock_height()?;
+                let v4_unlock_ht = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_v4_unlock_height()?;
 
                 let locked = account.amount_locked();
                 let locked_high = (locked >> 64) as u64;
                 let locked_low = (locked & 0xffff_ffff_ffff_ffff) as u64;
-                let unlock_height =
-                    account.effective_unlock_height(v1_unlock_ht, v2_unlock_ht, v3_unlock_ht);
+                let unlock_height = account.effective_unlock_height(
+                    v1_unlock_ht,
+                    v2_unlock_ht,
+                    v3_unlock_ht,
+                    v4_unlock_ht,
+                );
                 let unlocked = account.amount_unlocked();
                 let unlocked_high = (unlocked >> 64) as u64;
                 let unlocked_low = (unlocked & 0xffff_ffff_ffff_ffff) as u64;
@@ -10880,7 +10890,9 @@ impl ContractCallOverhead {
                 | StacksEpochId::Epoch31
                 | StacksEpochId::Epoch32
                 | StacksEpochId::Epoch33
-                | StacksEpochId::Epoch34 => CostMeter {
+                | StacksEpochId::Epoch34
+                | StacksEpochId::Epoch40
+                | StacksEpochId::Epoch41 => CostMeter {
                     runtime: linear(n as u64, 26, 5) as i64,
                     read_count: 0,
                     read_length: 0,
@@ -10913,7 +10925,9 @@ impl ContractCallOverhead {
                 | StacksEpochId::Epoch31
                 | StacksEpochId::Epoch32
                 | StacksEpochId::Epoch33
-                | StacksEpochId::Epoch34 => CostMeter {
+                | StacksEpochId::Epoch34
+                | StacksEpochId::Epoch40
+                | StacksEpochId::Epoch41 => CostMeter {
                     runtime: linear(n as u64, 2, 5) as i64,
                     read_count: 0,
                     read_length: 0,

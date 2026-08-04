@@ -187,7 +187,14 @@ impl StackerDBConfig {
     /// Config that does nothing
     pub fn noop() -> StackerDBConfig {
         StackerDBConfig {
-            chunk_size: u64::MAX,
+            // Cap the chunk size at the protocol-wide maximum rather than u64::MAX.
+            // `noop()` is used as a fallback whenever a replica's real config can't be
+            // loaded (see `create_or_reconfigure_stackerdbs`), and it can transiently
+            // overwrite a good in-memory config on a failed refresh. Since the DB slots
+            // persist independently of the config, writes can still land on existing
+            // slots while `noop()` is active, so its chunk-size limit must never be
+            // looser than `STACKERDB_MAX_CHUNK_SIZE`.
+            chunk_size: STACKERDB_MAX_CHUNK_SIZE as u64,
             write_freq: 0,
             max_writes: u32::MAX,
             hint_replicas: vec![],
@@ -565,11 +572,14 @@ impl PeerNetwork {
         })
     }
 
-    /// Validate chunk data -- either pushed to us, or downloaded.
+    /// Validate chunk data either downloaded (with [`StackerDBSync::validate_downloaded_chunk`]), or
+    /// pushed to us (with [`PeerNetwork::handle_unsolicited_StackerDBPushChunk`])
+    ///
     /// NOTE: does not check write frequency, since the caller has different ways of doing this.
-    /// Returns Ok(true) if the chunk is valid
-    /// Returns Ok(false) if the chunk is invalid
-    /// Returns Err(..) on DB error
+    /// Returns:  
+    /// - Ok(true) if the chunk is valid
+    /// - Ok(false) if the chunk is invalid
+    /// - Err(..) on DB error
     pub fn validate_received_chunk(
         &self,
         smart_contract_id: &QualifiedContractIdentifier,
@@ -577,6 +587,18 @@ impl PeerNetwork {
         data: &StackerDBChunkData,
         expected_versions: &[u32],
     ) -> Result<bool, net_error> {
+        // validate -- must not exceed this replica's configured chunk size.
+        if (data.data.len() as u64) > config.chunk_size {
+            info!(
+                "Received StackerDBChunk for {} ID {}, which is oversized: {} bytes (max {} bytes)",
+                smart_contract_id,
+                data.slot_id,
+                data.data.len(),
+                config.chunk_size
+            );
+            return Ok(false);
+        }
+
         // validate -- must be a valid chunk
         let Some(expected_version) = expected_versions.get(data.slot_id as usize) else {
             info!(

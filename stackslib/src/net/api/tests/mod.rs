@@ -906,7 +906,7 @@ impl<'a> TestRPC<'a> {
         ]];
 
         let (mut peer, mut other_peers) =
-            make_nakamoto_peers_from_invs_ext(function_name!(), observer, bitvecs, |boot_plan| {
+            make_nakamoto_peers_from_invs_ext(test_name, observer, bitvecs, |boot_plan| {
                 boot_plan
                     .with_pox_constants(10, 3)
                     .with_extra_peers(1)
