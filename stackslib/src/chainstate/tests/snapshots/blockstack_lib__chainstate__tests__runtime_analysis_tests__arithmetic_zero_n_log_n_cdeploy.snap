@@ -513,32 +513,4 @@ expression: result.get_expected_results()
       runtime: 10231,
     ),
   )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "773552917f350c502e8831da865859e1d6d304262008d046e196514ca7d283f8",
-    evaluated_epoch: Epoch34,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: zero-n-log-n-deploy-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 65,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 10632,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 65,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 10632,
-    ),
-  )),
 ]

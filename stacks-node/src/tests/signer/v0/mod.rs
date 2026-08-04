@@ -120,6 +120,7 @@ use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config
 
 pub mod capitulate_parent_tenure_view;
 pub mod epoch_4_0_multi_miner_distribution;
+pub mod epoch_4_0_reorg;
 pub mod epoch_4_0_waterfall;
 pub mod failed_txs;
 pub mod late_block_proposal;
@@ -3754,6 +3755,20 @@ fn empty_tenure_delayed() {
             {
                 assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
                 assert!(matches!(response_data.reject_reason, RejectReason::ConsensusHashMismatch { .. }), "Unexpected reject reason: {}", response_data.reject_reason);
+
+                let proposals = signer_test.get_miner_proposal_messages();
+                let rejected_proposal = proposals.last().expect("proposal must exist since we've found a rejection");
+                let expected_message = format!(
+                    "block's consensus hash ({}) does not match the active miner's tenure id",
+                    rejected_proposal.block.header.consensus_hash
+                );
+                assert!(
+                    response_data.reject_reason.to_string().contains(expected_message.as_str()),
+                    "expected reject reason message to contain \"{}\" but got \"{}\"",
+                    expected_message,
+                    response_data.reject_reason.to_string()
+                );
+
                 assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {

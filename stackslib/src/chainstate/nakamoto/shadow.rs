@@ -59,8 +59,8 @@ use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksAccount, StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
-    TransactionSkipped,
+    BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic,
+    TransactionResourceBudgets, TransactionResult, TransactionSkipped,
 };
 use crate::chainstate::stacks::{
     CoinbasePayload, Error, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
@@ -537,8 +537,7 @@ impl NakamotoBlockBuilder {
                 &tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                None,
-                None,
+                &TransactionResourceBudgets::unlimited(),
                 &mut receipts_total,
             ) {
                 TransactionResult::Success(..) => {

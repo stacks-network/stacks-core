@@ -33,8 +33,8 @@ use crate::vm::ast::parser::v2::lexer::token::Token;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker, runtime_cost};
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::time_tracker::TimeTracker;
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
@@ -4517,7 +4517,9 @@ fn test_clarity2_inner_type_check_type_aborts_when_deadline_elapsed() {
     let mut db = marf.as_analysis_db();
     let mut cost_tracker = LimitedCostTracker::new_free();
     // A zero-duration deadline is already elapsed at the first check.
-    let time_tracker = TimeTracker::from_max_duration(Duration::ZERO);
+    let resource_limiter = ResourceBudget::new()
+        .with_max_duration(Some(Duration::ZERO))
+        .start_tracking();
 
     let result = super::clarity2_inner_type_check_type(
         &mut db,
@@ -4527,12 +4529,12 @@ fn test_clarity2_inner_type_check_type_aborts_when_deadline_elapsed() {
         &BoolType,
         1,
         &mut cost_tracker,
-        &time_tracker,
+        &resource_limiter,
     );
 
     assert!(
-        matches!(result, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::AnalysisTimeExpired)),
-        "expected AnalysisTimeExpired, got {result:?}"
+        matches!(result, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::AnalysisResourceBudgetExceeded(_))),
+        "expected AnalysisResourceBudgetExceeded, got {result:?}"
     );
 }
 
@@ -4586,7 +4588,7 @@ fn test_trait_compliance_cost_error_masking_is_epoch40_gated() {
         let mut db = marf.as_analysis_db();
         let mut tracker = LimitedCostTracker::new_with_limit(epoch, ExecutionCost::ZERO);
         // Unlimited time: the deadline never fires, so only the cost charge can error.
-        let time_tracker = TimeTracker::unlimited();
+        let resource_limiter = ResourceLimiter::unlimited();
         super::clarity2_trait_check_trait_compliance(
             &mut db,
             None,
@@ -4597,7 +4599,7 @@ fn test_trait_compliance_cost_error_masking_is_epoch40_gated() {
             &expected_trait,
             0,
             &mut tracker,
-            &time_tracker,
+            &resource_limiter,
         )
     };
 
@@ -4646,7 +4648,7 @@ fn test_in_contract_trait_entry_metered_from_epoch40() {
             epoch,
             version,
             true,
-            TimeTracker::unlimited(),
+            ResourceLimiter::unlimited(),
         )
         .expect("analysis succeeds")
     };

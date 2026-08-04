@@ -39,6 +39,9 @@ jobs:
 
       # Install cargo-hack tool
       - name: Install cargo-hack
+        # Fail fast if GitHub rate-limits the download instead of retrying
+        # until the job times out
+        timeout-minutes: 5
         uses: ./.github/actions/install-tool
         with:
           tools: cargo-hack
@@ -80,6 +83,9 @@ jobs:
 
       # Install cargo-hack tool
       - name: Install cargo-hack
+        # Fail fast if GitHub rate-limits the download instead of retrying
+        # until the job times out
+        timeout-minutes: 5
         uses: ./.github/actions/install-tool
         with:
           tools: cargo-hack

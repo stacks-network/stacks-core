@@ -2061,7 +2061,10 @@ impl Signer {
             "signer_pubkey" => public_key.to_hex(),
             "signer_signature_hash" => %block_hash,
             "consensus_hash" => %block_info.block.header.consensus_hash,
-            "block_height" => block_info.block.header.chain_length
+            "block_height" => block_info.block.header.chain_length,
+            "signer_weight" => self.signer_weights.get(&signer_address).copied().unwrap_or(0),
+            "tenure_extend_timestamp" => accepted.response_data.tenure_extend_timestamp,
+            "tenure_extend_read_count_timestamp" => accepted.response_data.tenure_extend_read_count_timestamp
         );
         self.store_and_process_block_signature(
             stacks_client,
