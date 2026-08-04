@@ -825,7 +825,9 @@ impl StacksEpochId {
     /// sized, the contract deployed and became uncallable). Gated here so the
     /// behavior changes atomically at the epoch boundary. See PR #6946.
     pub fn fixes_tuple_merge_size_check(&self) -> bool {
-        self >= &StacksEpochId::Epoch40
+        // TEMP: ungated to test whether the fix is consensus-breaking.
+        // Previously: `self >= &StacksEpochId::Epoch40`
+        true
     }
 
     pub fn supports_call_with_constant(&self) -> bool {
