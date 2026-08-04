@@ -107,6 +107,108 @@ impl std::error::Error for ClarityError {
     }
 }
 
+/// The transaction-level outcome of a [`ClarityError`].
+// Left unboxed, as it was in `stackslib`.
+#[allow(clippy::large_enum_variant)]
+pub enum ClarityRuntimeTxError {
+    Acceptable {
+        error: ClarityError,
+        err_type: &'static str,
+    },
+    AbortedByCallback {
+        /// What the output value of the transaction would have been.
+        /// This will be a Some for contract-calls, and None for contract initialization txs.
+        output: Option<Value>,
+        /// The asset map which was evaluated by the abort callback
+        assets_modified: AssetMap,
+        /// The events from the transaction processing
+        tx_events: Vec<StacksTransactionEvent>,
+        /// A human-readable explanation for aborting the transaction
+        reason: String,
+    },
+    CostError(ExecutionCost, ExecutionCost),
+    AnalysisError(RuntimeCheckErrorKind),
+    ExecutionResourceBudgetExceeded(String),
+    Rejectable(ClarityError),
+}
+
+impl ClarityRuntimeTxError {
+    /// Whether a transaction that failed this way still lands in a block, and so
+    /// still debits the fee and consumes the nonce.
+    ///
+    /// Must agree with `process_transaction_payload`.
+    pub fn is_included_in_block(&self, epoch_id: StacksEpochId) -> bool {
+        match self {
+            Self::Acceptable { .. } | Self::AbortedByCallback { .. } => true,
+            // Analysis is not free, so from 2.1 the payer owes the fee.
+            Self::AnalysisError(_) => epoch_id >= StacksEpochId::Epoch21,
+            Self::CostError(..)
+            | Self::ExecutionResourceBudgetExceeded(_)
+            | Self::Rejectable(_) => false,
+        }
+    }
+}
+
+/// Classify an execution-phase [`ClarityError`]. Unclassified variants are
+/// [`ClarityRuntimeTxError::Rejectable`].
+pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxError {
+    match error {
+        // runtime errors are okay
+        ClarityError::Interpreter(VmExecutionError::Runtime(_, _)) => {
+            ClarityRuntimeTxError::Acceptable {
+                error,
+                err_type: "runtime error",
+            }
+        }
+        ClarityError::Interpreter(VmExecutionError::EarlyReturn(_)) => {
+            ClarityRuntimeTxError::Acceptable {
+                error,
+                err_type: "short return/panic",
+            }
+        }
+        ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_check_err)) => {
+            if runtime_check_err.rejectable() {
+                ClarityRuntimeTxError::Rejectable(ClarityError::Interpreter(
+                    VmExecutionError::RuntimeCheck(runtime_check_err),
+                ))
+            } else {
+                ClarityRuntimeTxError::AnalysisError(runtime_check_err)
+            }
+        }
+        ClarityError::AbortedByCallback {
+            output,
+            assets_modified,
+            tx_events,
+            reason,
+        } => ClarityRuntimeTxError::AbortedByCallback {
+            output: output.map(|v| *v),
+            assets_modified: *assets_modified,
+            tx_events,
+            reason,
+        },
+        ClarityError::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
+        ClarityError::ExecutionResourceBudgetExceeded(s) => {
+            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s)
+        }
+        unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
+    }
+}
+
+/// [`ClarityRuntimeTxError::is_included_in_block`] for a deploy whose analysis
+/// phase failed. Analysis does not go through [`handle_clarity_runtime_error`],
+/// so it is judged on `rejectable_in_epoch` instead.
+pub fn analysis_failure_is_included_in_block(
+    error: &ClarityError,
+    epoch_id: StacksEpochId,
+) -> bool {
+    match error {
+        ClarityError::CostError(..) | ClarityError::AnalysisResourceBudgetExceeded(_) => false,
+        ClarityError::Parse(err) => !err.rejectable_in_epoch(epoch_id),
+        ClarityError::StaticCheck(err) => !err.err.rejectable_in_epoch(epoch_id),
+        _ => true,
+    }
+}
+
 impl From<StaticCheckError> for ClarityError {
     fn from(e: StaticCheckError) -> Self {
         match *e.err {
@@ -492,5 +594,122 @@ pub trait TransactionConnection: ClarityConnection {
         } else {
             Ok((assets_modified, tx_events))
         }
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    use crate::vm::analysis::errors::StaticCheckErrorKind;
+    use crate::vm::ast::errors::ParseErrorKind;
+
+    fn acceptable() -> ClarityRuntimeTxError {
+        ClarityRuntimeTxError::Acceptable {
+            error: ClarityError::BadTransaction("boom".into()),
+            err_type: "runtime error",
+        }
+    }
+
+    fn aborted_by_callback() -> ClarityRuntimeTxError {
+        ClarityRuntimeTxError::AbortedByCallback {
+            output: None,
+            assets_modified: AssetMap::new(),
+            tx_events: vec![],
+            reason: "post-condition".into(),
+        }
+    }
+
+    /// Must match `process_transaction_payload`; `AnalysisError` covered below.
+    #[test]
+    fn runtime_tx_error_inclusion_matches_variants() {
+        let epoch = StacksEpochId::latest();
+
+        assert!(acceptable().is_included_in_block(epoch));
+        assert!(aborted_by_callback().is_included_in_block(epoch));
+
+        assert!(
+            !ClarityRuntimeTxError::CostError(ExecutionCost::ZERO, ExecutionCost::max_value())
+                .is_included_in_block(epoch)
+        );
+        assert!(
+            !ClarityRuntimeTxError::ExecutionResourceBudgetExceeded("too slow".into())
+                .is_included_in_block(epoch)
+        );
+        assert!(
+            !ClarityRuntimeTxError::Rejectable(ClarityError::BadTransaction("nope".into()))
+                .is_included_in_block(epoch)
+        );
+    }
+
+    #[test]
+    fn analysis_error_inclusion_is_gated_on_epoch_21() {
+        let err = || ClarityRuntimeTxError::AnalysisError(RuntimeCheckErrorKind::ValueTooLarge);
+
+        assert!(!err().is_included_in_block(StacksEpochId::Epoch20));
+        assert!(!err().is_included_in_block(StacksEpochId::Epoch2_05));
+        assert!(err().is_included_in_block(StacksEpochId::Epoch21));
+        assert!(err().is_included_in_block(StacksEpochId::latest()));
+    }
+
+    #[test]
+    fn analysis_failure_excludes_resource_exhaustion() {
+        let epoch = StacksEpochId::latest();
+
+        assert!(!analysis_failure_is_included_in_block(
+            &ClarityError::CostError(ExecutionCost::ZERO, ExecutionCost::max_value()),
+            epoch
+        ));
+        assert!(!analysis_failure_is_included_in_block(
+            &ClarityError::AnalysisResourceBudgetExceeded("too slow".into()),
+            epoch
+        ));
+    }
+
+    #[test]
+    fn analysis_failure_excludes_rejectable_errors() {
+        let epoch = StacksEpochId::latest();
+
+        // Rejectable in every epoch.
+        assert!(!analysis_failure_is_included_in_block(
+            &ClarityError::Parse(ParseError::new(ParseErrorKind::InterpreterFailure)),
+            epoch
+        ));
+        assert!(!analysis_failure_is_included_in_block(
+            &ClarityError::StaticCheck(StaticCheckError::new(
+                StaticCheckErrorKind::TraitReferenceChainTooDeep
+            )),
+            epoch
+        ));
+    }
+
+    #[test]
+    fn analysis_failure_includes_ordinary_type_errors() {
+        let epoch = StacksEpochId::latest();
+
+        assert!(analysis_failure_is_included_in_block(
+            &ClarityError::StaticCheck(StaticCheckError::new(
+                StaticCheckErrorKind::UnknownFunction("no-such-fn".into())
+            )),
+            epoch
+        ));
+    }
+
+    /// `SupertypeTooLarge` stops being rejectable at 3.4.
+    #[test]
+    fn analysis_failure_rejectability_can_change_with_epoch() {
+        let err = || {
+            ClarityError::StaticCheck(StaticCheckError::new(
+                StaticCheckErrorKind::SupertypeTooLarge,
+            ))
+        };
+
+        assert!(!analysis_failure_is_included_in_block(
+            &err(),
+            StacksEpochId::Epoch33
+        ));
+        assert!(analysis_failure_is_included_in_block(
+            &err(),
+            StacksEpochId::Epoch34
+        ));
     }
 }
