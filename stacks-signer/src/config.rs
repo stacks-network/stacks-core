@@ -737,8 +737,6 @@ pub fn build_signer_config_tomls(
     password: &str,
     run_stamp: u16,
     mut port_start: usize,
-    max_tx_fee_ustx: Option<u64>,
-    tx_fee_ustx: Option<u64>,
     mut metrics_port_start: Option<usize>,
     chain_id: Option<u32>,
 ) -> Vec<String> {
@@ -772,25 +770,7 @@ db_path = "{db_path}"
             signer_config_toml = format!(
                 r#"
 {signer_config_toml}
-event_timeout = {event_timeout_ms}
-"#
-            )
-        }
-
-        if let Some(max_tx_fee_ustx) = max_tx_fee_ustx {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-max_tx_fee_ustx = {max_tx_fee_ustx}
-"#
-            )
-        }
-
-        if let Some(tx_fee_ustx) = tx_fee_ustx {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-tx_fee_ustx = {tx_fee_ustx}
+event_timeout_ms = {event_timeout_ms}
 "#
             )
         }
@@ -885,8 +865,6 @@ tenure_idle_timeout_sec = 30 # Error: missing trailing 's' in 'secs'
             password,
             rand::random(),
             3000,
-            None,
-            None,
             Some(4000),
             None,
         );
@@ -1006,8 +984,6 @@ capitulate_miner_view_timeout_secs = 1000
             password,
             rand::random(),
             3000,
-            None,
-            None,
             Some(4000),
             Some(0x80000100),
         );

@@ -271,8 +271,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             password,
             run_stamp,
             3000,
-            Some(100_000),
-            None,
             Some(9000),
             None,
         )
