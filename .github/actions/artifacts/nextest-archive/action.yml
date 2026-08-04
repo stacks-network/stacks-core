@@ -13,11 +13,6 @@ inputs:
     description: "Debug binary path"
     required: true
 
-# Set default env vars
-env:
-  RUSTFLAGS: "-C instrument-coverage -A warnings"
-  LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
-
 runs:
   using: "composite"
   steps:
@@ -27,6 +22,19 @@ runs:
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
       with:
         name: "nextest-archive"
+
+    # Install the tool binaries bundled in the artifact (see the staging step
+    # in the create path below)
+    - name: Install Bundled Tools
+      if: |
+        inputs.action == 'restore'
+      shell: bash
+      run: |
+        # upload-artifact does not preserve file permissions, so restore the
+        # executable bit before putting the tools on $PATH
+        chmod +x ci-tools/*
+        mkdir -p "$HOME/.cargo/bin"
+        mv -f ci-tools/* "$HOME/.cargo/bin/"
 
     # Checkout the code
     - name: Checkout the latest code
@@ -44,14 +52,27 @@ runs:
       with:
         components: llvm-tools-preview
 
-    #  Install nextest
-    - name: Install nextest
+    #  Install nextest and grcov
+    #    grcov is not needed to build the archive, but it is bundled into the
+    #    artifact for the test jobs (see the staging step below)
+    - name: Install nextest and grcov
       if: |
         inputs.action == 'create'
       uses: ./.github/actions/install-tool
       with:
-        tools: nextest
-    
+        tools: nextest, grcov
+
+    # Stage the tool binaries so they are uploaded with the artifact. The many
+    # parallel test jobs restore them from there instead of each downloading
+    # from GitHub Releases, which rate-limits the runners' shared IPs (429)
+    - name: Stage Tool Binaries for Upload
+      if: |
+        inputs.action == 'create'
+      shell: bash
+      run: |
+        mkdir -p ci-tools
+        cp "$(command -v cargo-nextest)" "$(command -v grcov)" ci-tools/
+
     # Install mold linker and clang (faster than default)      
     - name: Install mold Linker (and clang)
       if: |
@@ -98,6 +119,7 @@ runs:
         name: "nextest-archive"
         path: |
           ${{ inputs.archive-file }}
+          ci-tools/
           ${{ inputs.debug-binary-path }}
           !${{ inputs.debug-binary-path }}/examples/**
           !${{ inputs.debug-binary-path }}/incremental/**

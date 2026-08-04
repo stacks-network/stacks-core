@@ -25,16 +25,24 @@
 //! the relevant set of Bitcoin Core versions.
 
 use pinny::tag;
-use stacks::burnchains::bitcoin::address::LegacyBitcoinAddressType;
+use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
+use stacks::config::Config;
+use stacks::core::{StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH};
 use stacks::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::PublicKey;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use tempfile::TempDir;
 
+use crate::burnchains::bitcoin::core_controller::BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
 use crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType;
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
 };
 use crate::burnchains::rpc::rpc_transport::RpcError;
+use crate::tests::bitcoin::core_container::{BITCOIN_RPC_PASSWORD, BITCOIN_RPC_USERNAME};
+use crate::BitcoinRegtestController;
 
 mod utils {
     use std::env;
@@ -744,4 +752,155 @@ fn test_send_raw_transaction_rebroadcast_ok() {
         .expect("send raw transaction (rebroadcast) ok!");
 
     assert_eq!(txid.to_hex(), raw_tx.txid().to_string());
+}
+
+/// Compatibility probe for the named miner wallet bootstrap used at node
+/// startup. It must keep working across Bitcoin Core versions (e.g. v31
+/// removed unnamed wallets).
+#[tag(ci_skip)]
+#[ignore]
+#[test]
+fn test_named_wallet_bootstrap_ok() {
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
+
+    let mut config = Config::default();
+    config.node.miner = true;
+    config.burnchain.peer_host = "127.0.0.1".to_string();
+    config.burnchain.peer_port = BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
+    config.burnchain.rpc_port = btc_container.get_host_rpc_port();
+    config.burnchain.username = Some(BITCOIN_RPC_USERNAME.to_string());
+    config.burnchain.password = Some(BITCOIN_RPC_PASSWORD.to_string());
+    config.burnchain.wallet_name = Some("miner-wallet".to_string());
+    let working_dir = TempDir::new().expect("Should create the working dir");
+    config.node.working_dir = working_dir.path().to_string_lossy().into_owned();
+    let client = utils::create_client_from_container(&btc_container);
+    client
+        .create_wallet("miner-wallet", Some(true))
+        .expect("Test setup should create the configured wallet");
+
+    let controller = BitcoinRegtestController::new(config, None);
+    controller
+        .ensure_wallet_loaded()
+        .expect("Wallet bootstrap should succeed");
+
+    assert_eq!(
+        vec!["miner-wallet".to_string()],
+        client.list_wallets().expect("Should list wallets")
+    );
+
+    let miner_pubkey = Secp256k1PublicKey::from_hex(
+        "03dc62fe0b8964d01fc9ca9a5eec0e22e557a12cc656919e648f04e0b26fea5faa",
+    )
+    .expect("Valid public key");
+    controller
+        .import_public_key(&miner_pubkey)
+        .expect("Watch-only import should succeed");
+
+    let utxos = client
+        .list_unspent("miner-wallet", None, None, None, None, None, None)
+        .expect("listunspent should reach the configured wallet");
+    assert!(utxos.is_empty());
+}
+
+/// Compatibility probe for the wallet-provisioning flow documented in the
+/// operator mining guides: a pre-created watch-only descriptor wallet holding
+/// the public `combo(...)` descriptor of the miner key. The node must load it
+/// and see miner UTXOs through its own path, both for the legacy
+/// (`segwit = false`) and the p2wpkh (`segwit = true`) miner address.
+#[tag(ci_skip)]
+#[ignore]
+#[test]
+fn test_watch_only_wallet_guide_flow_ok() {
+    // throwaway key pair from the testnet mining guide example
+    const MINER_WIF: &str = "cPdTdMgww2njhnekUZmHmFNKsWAjVdCR4cfvD2Y4UQhFzMmwoW33";
+    const MINER_PUBKEY: &str = "0299445e0a04d9d7b9dcf85837960c6b7da279d1dc2c1f632de2e5785b56feb885";
+    const COINBASE_SATS: u64 = 50_0000_0000;
+
+    let mut btc_container = utils::create_container_from_env();
+    btc_container.start();
+
+    let mut config = Config::default();
+    config.node.miner = true;
+    config.burnchain.peer_host = "127.0.0.1".to_string();
+    config.burnchain.peer_port = BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
+    config.burnchain.rpc_port = btc_container.get_host_rpc_port();
+    config.burnchain.username = Some(BITCOIN_RPC_USERNAME.to_string());
+    config.burnchain.password = Some(BITCOIN_RPC_PASSWORD.to_string());
+    config.burnchain.wallet_name = Some("miner".to_string());
+    let working_dir = TempDir::new().expect("Should create the working dir");
+    config.node.working_dir = working_dir.path().to_string_lossy().into_owned();
+
+    let client = utils::create_client_from_container(&btc_container);
+
+    // guide step 1: watch-only descriptor wallet. The guide's `blank` and
+    // `load_on_startup` are inert here: a key-less wallet generates no seed,
+    // and the container never restarts
+    client
+        .create_wallet("miner", Some(true))
+        .expect("Guide createwallet should succeed");
+
+    // guide step 2: derive the public descriptor from the wif
+    let info = client
+        .get_descriptor_info(&format!("combo({MINER_WIF})"))
+        .expect("Guide getdescriptorinfo should succeed");
+
+    // guide step 3: import the returned `descriptor` value verbatim
+    let request = ImportDescriptorsRequest {
+        descriptor: info.descriptor,
+        timestamp: Timestamp::Now,
+        internal: None,
+    };
+    let results = client
+        .import_descriptors("miner", &[&request])
+        .expect("Guide importdescriptors should succeed");
+    assert!(
+        results.iter().all(|r| r.success),
+        "importdescriptors should report per-descriptor success: {results:?}"
+    );
+
+    // fund both miner addresses with mature coinbase: heights 1..=101 legacy
+    // (all mature at the final tip), 102 segwit, 103..=202 legacy on top so
+    // the segwit coinbase reaches 100 confirmations
+    let miner_pubkey = Secp256k1PublicKey::from_hex(MINER_PUBKEY).expect("Valid public key");
+    let pkh = Hash160::from_data(&miner_pubkey.to_bytes())
+        .to_bytes()
+        .to_vec();
+    let legacy_addr = BitcoinAddress::from_bytes_legacy(
+        BitcoinNetworkType::Regtest,
+        LegacyBitcoinAddressType::PublicKeyHash,
+        &pkh,
+    )
+    .expect("Valid legacy address");
+    let segwit_addr = BitcoinAddress::from_bytes_segwit_p2wpkh(BitcoinNetworkType::Regtest, &pkh)
+        .expect("Valid segwit address");
+    client
+        .generate_to_address(101, &legacy_addr)
+        .expect("Should mine to the legacy address");
+    client
+        .generate_to_address(1, &segwit_addr)
+        .expect("Should mine to the segwit address");
+    client
+        .generate_to_address(100, &legacy_addr)
+        .expect("Should mine to the legacy address");
+
+    // the node must load the guide-provisioned wallet and see the UTXOs
+    // through its own retrieval path
+    let controller = BitcoinRegtestController::new(config.clone(), None);
+    controller
+        .ensure_wallet_loaded()
+        .expect("Wallet bootstrap should succeed");
+    let utxos = controller
+        .get_utxos(StacksEpochId::Epoch21, &miner_pubkey, 1, None, 0)
+        .expect("Legacy miner UTXOs should be visible");
+    assert!(utxos.total_available() >= COINBASE_SATS);
+
+    // same wallet, same descriptor: the segwit miner address is covered too
+    let mut segwit_config = config;
+    segwit_config.miner.segwit = true;
+    let controller = BitcoinRegtestController::new(segwit_config, None);
+    let utxos = controller
+        .get_utxos(StacksEpochId::Epoch21, &miner_pubkey, 1, None, 0)
+        .expect("Segwit miner UTXOs should be visible");
+    assert_eq!(utxos.total_available(), COINBASE_SATS);
 }

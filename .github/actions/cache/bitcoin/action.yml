@@ -40,7 +40,7 @@ runs:
         lookup-only: true
         path: ~/bitcoin
         key: ${{ steps.generate-keys.outputs.bitcoin-cache-key }}
-        # Allows cache to "fallback" to `master` generated cache, using a prefix. The most recently created cache will be selected.
+        # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
         restore-keys: ${{ steps.generate-keys.outputs.bitcoin-restore-key }}
 
     # Restore cache data
@@ -52,7 +52,7 @@ runs:
       with:
         path: ~/bitcoin
         key: ${{ steps.generate-keys.outputs.bitcoin-cache-key }}
-        # Allows cache to "fallback" to base branch or `master`
+        # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
         restore-keys: ${{ steps.generate-keys.outputs.bitcoin-restore-key }}
         fail-on-cache-miss: true
 

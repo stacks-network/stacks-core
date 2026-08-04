@@ -878,7 +878,7 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => COSTS_3_NAME.to_string(),
             StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => COSTS_4_NAME.to_string(),
-            StacksEpochId::Epoch40 => COSTS_5_NAME.to_string(),
+            StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => COSTS_5_NAME.to_string(),
         };
         Ok(result)
     }

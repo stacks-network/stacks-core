@@ -699,6 +699,22 @@ impl StacksChainState {
     // TODO: add tests from mutation testing results #4854
     #[cfg_attr(test, mutants::skip)]
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
+    ///
+    /// This should only be called for PoX v5 cycles. Like PoX v4, there is no
+    /// cycle-start work (missed-slot auto-unlocks ended in Epoch 2.5), so this is
+    /// intentionally a no-op.
+    pub fn handle_pox_cycle_start_pox_5(
+        _clarity: &mut ClarityTransactionConnection,
+        _cycle_number: u64,
+        _cycle_info: Option<PoxStartCycleInfo>,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        // PASS
+        Ok(vec![])
+    }
+
+    // TODO: add tests from mutation testing results #4854
+    #[cfg_attr(test, mutants::skip)]
+    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
     /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
     ///
     fn handle_pox_cycle_missed_unlocks(

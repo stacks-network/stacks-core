@@ -8423,7 +8423,7 @@ fn run_with_custom_wallet() {
     test_observer::register_any(&mut conf);
 
     // custom wallet
-    conf.burnchain.wallet_name = "test_with_custom_wallet".to_string();
+    conf.burnchain.wallet_name = Some("test_with_custom_wallet".to_string());
 
     test_observer::spawn();
 

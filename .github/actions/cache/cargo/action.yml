@@ -39,7 +39,7 @@ runs:
           ~/.cargo/git/db/
           target/
         key: ${{ steps.generate-keys.outputs.cargo-cache-key }}
-        # Allows cache to "fallback" to `master` generated cache, using a prefix. The most recently created cache will be selected.
+        # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
         restore-keys: ${{ steps.generate-keys.outputs.cargo-restore-key }}
 
     # Restore cache data
@@ -56,7 +56,7 @@ runs:
           ~/.cargo/git/db/
           target/
         key: ${{ steps.generate-keys.outputs.cargo-cache-key }}
-        # Allows cache to "fallback" to base branch or `master`
+        # Allows cache to "fallback" to `main` generated cache, using a prefix. The most recently created cache will be selected.
         restore-keys: ${{ steps.generate-keys.outputs.cargo-restore-key }}
         fail-on-cache-miss: true
 

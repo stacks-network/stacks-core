@@ -20,10 +20,10 @@ concurrency:
 jobs:
   lock:
     name: Lock Closed Issues, PRs, & Discussions
-    # Only execute if running in our core repo. The CRON schedule will run against `master` which is intended
+    # Only execute if running in our core repo. The CRON schedule will run against `main` which is intended
     if: |
       github.repository == 'stacks-network/stacks-core' &&
-      github.ref_name == 'master'
+      github.ref_name == 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Lock Threads

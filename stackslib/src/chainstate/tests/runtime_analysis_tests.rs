@@ -29,7 +29,7 @@ use crate::chainstate::tests::consensus::{
     FAUCET_PRIV_KEY,
 };
 use crate::core::test_util::to_addr;
-use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::core::BLOCK_LIMIT_MAINNET_40;
 
 /// Generates a coverage classification report for a specific [`RuntimeCheckErrorKind`] variant.
 ///
@@ -149,7 +149,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
 /// Caused by: exceeding the cost analysis budget during contract initialization.
 ///   The contract repeatedly performs `var-get` lookups on a data variable,
 ///   forcing the type checker to fetch the variable enough times to exceed
-///   the read-count limit in [`BLOCK_LIMIT_MAINNET_21`].
+///   the read-count limit in [`BLOCK_LIMIT_MAINNET_40`].
 /// Outcome: block rejected.
 #[test]
 fn runtime_check_error_cost_balance_exceeded_cdeploy() {
@@ -160,7 +160,7 @@ fn runtime_check_error_cost_balance_exceeded_cdeploy() {
         (begin
             {}
         )",
-            "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_21.read_count as usize + 1)
+            "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_40.read_count as usize + 1)
         ),
     );
 }
@@ -237,10 +237,10 @@ fn runtime_check_error_memory_balance_exceeded_ccall() {
         },
         function_name: "create-many-references",
         function_args: &[],
-        // we only test epochs 2.4 and later because the call takes ~200 milion runtime cost,
-        // if we test all epochs, the tenure limit will be exceeded and the last 2 calls in
-        // epoch 3.3 will cause a block rejection.
-        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch24),
+        // Each call takes ~200 million runtime cost, and every deployed contract is
+        // called within a single tenure (5B runtime budget) per call epoch. Starting
+        // at 3.1 keeps the epoch 4.0 tenure (6 deploys + 21 calls, ~4.2B) under budget
+        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch31),
     );
 }
 
@@ -260,7 +260,7 @@ fn runtime_check_error_cost_balance_exceeded_ccall() {
             (ok (begin
                 {}
                 u0)))",
-            "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_21.read_count as usize + 1)
+            "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_40.read_count as usize + 1)
         ),
         function_name: "trigger-error",
         function_args: &[],
@@ -1186,8 +1186,8 @@ fn arithmetic_zero_n_log_n_cdeploy() {
     contract_deploy_consensus_snap_test!(
         contract_name: "zero-n-log-n-deploy",
         contract_code: "(define-constant overflow (from-consensus-buff? int 0x))",
-        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch21),
-        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
+        deploy_epochs: (StacksEpochId::Epoch21..=StacksEpochId::Epoch34).as_slice(),
+        clarity_versions: &[ClarityVersion::Clarity2, ClarityVersion::Clarity3, ClarityVersion::Clarity4],
     );
 }
 
@@ -1207,8 +1207,9 @@ fn arithmetic_zero_n_log_n_ccall() {
 )",
         function_name: "trigger",
         function_args: &[],
-        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch21),
-        clarity_versions: ClarityVersion::since(ClarityVersion::Clarity2),
+        deploy_epochs: (StacksEpochId::Epoch21..=StacksEpochId::Epoch34).as_slice(),
+        call_epochs: &[StacksEpochId::Epoch34],
+        clarity_versions: &[ClarityVersion::Clarity2, ClarityVersion::Clarity3, ClarityVersion::Clarity4],
     );
 }
 
