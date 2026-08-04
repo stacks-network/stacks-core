@@ -89,20 +89,7 @@ fn type_check_helper_version(
         SingleAnalysisPass::TypeChecker2_1
     };
     match run_single_analysis_pass(pass, exp, version, epoch) {
-        Ok(x) => {
-            // return the first type result of the type checker
-
-            let first_type = x
-                .type_map
-                .as_ref()
-                .ok_or_else(|| StaticCheckErrorKind::Unreachable("Should be non-empty".into()))?
-                .get_type_expected(x.expressions.last().ok_or_else(|| {
-                    StaticCheckErrorKind::Unreachable("Should be non-empty".into())
-                })?)
-                .cloned();
-
-            Ok(first_type.unwrap())
-        }
+        Ok(analysis) => Ok(analysis.type_of_final_expression()?.unwrap()),
         Err(e) => Err(e),
     }
 }

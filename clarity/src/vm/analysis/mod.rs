@@ -103,19 +103,7 @@ pub fn mem_type_check(
         true,
         ResourceLimiter::unlimited(),
     ) {
-        Ok(x) => {
-            // return the first type result of the type checker
-
-            let first_type = x
-                .type_map
-                .as_ref()
-                .ok_or_else(|| StaticCheckErrorKind::Unreachable("Should be non-empty".into()))?
-                .get_type_expected(x.expressions.last().ok_or_else(|| {
-                    StaticCheckErrorKind::Unreachable("Should be non-empty".into())
-                })?)
-                .cloned();
-            Ok((first_type, x))
-        }
+        Ok(analysis) => Ok((analysis.type_of_final_expression()?, analysis)),
         Err(e) => Err(e.0),
     }
 }
