@@ -1,1 +1,1 @@
-Moved `ClarityRuntimeTxError` from `stackslib` to `clarity`, and exposed whether a failed transaction is included in a block
+Moved `ClarityRuntimeTxError` and `handle_clarity_runtime_error` from `stackslib` to `clarity`, and added APIs that report whether failed transactions are included in a block

@@ -111,10 +111,14 @@ impl std::error::Error for ClarityError {
 // Left unboxed, as it was in `stackslib`.
 #[allow(clippy::large_enum_variant)]
 pub enum ClarityRuntimeTxError {
+    /// An execution failure that does not invalidate the transaction.
     Acceptable {
+        /// The underlying Clarity error.
         error: ClarityError,
+        /// A short description used when logging the failure.
         err_type: &'static str,
     },
+    /// Execution stopped by an abort callback, such as a failed post-condition check.
     AbortedByCallback {
         /// What the output value of the transaction would have been.
         /// This will be a Some for contract-calls, and None for contract initialization txs.
@@ -126,17 +130,24 @@ pub enum ClarityRuntimeTxError {
         /// A human-readable explanation for aborting the transaction
         reason: String,
     },
+    /// The execution cost and the budget it exceeded.
     CostError(ExecutionCost, ExecutionCost),
+    /// A non-rejectable runtime analysis error.
     AnalysisError(RuntimeCheckErrorKind),
+    /// An execution failure caused by exceeding a non-consensus resource budget.
     ExecutionResourceBudgetExceeded(String),
+    /// An error that invalidates the transaction and prevents its inclusion in a block.
     Rejectable(ClarityError),
 }
 
 impl ClarityRuntimeTxError {
-    /// Whether a transaction that failed this way still lands in a block, and so
-    /// still debits the fee and consumes the nonce.
+    /// Whether a transaction that fails this way is still included in a block.
     ///
-    /// Must agree with `process_transaction_payload`.
+    /// Inclusion charges the fee payer and advances the applicable origin and
+    /// sponsor nonces.
+    ///
+    /// This must agree with the consensus behavior implemented by
+    /// `process_transaction_payload` in `stackslib`.
     pub fn is_included_in_block(&self, epoch_id: StacksEpochId) -> bool {
         match self {
             Self::Acceptable { .. } | Self::AbortedByCallback { .. } => true,
@@ -153,7 +164,7 @@ impl ClarityRuntimeTxError {
 /// [`ClarityRuntimeTxError::Rejectable`].
 pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxError {
     match error {
-        // runtime errors are okay
+        // Runtime errors do not invalidate the transaction.
         ClarityError::Interpreter(VmExecutionError::Runtime(_, _)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
@@ -194,9 +205,12 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
     }
 }
 
-/// [`ClarityRuntimeTxError::is_included_in_block`] for a deploy whose analysis
-/// phase failed. Analysis does not go through [`handle_clarity_runtime_error`],
-/// so it is judged on `rejectable_in_epoch` instead.
+/// Whether a contract-deployment transaction whose analysis phase failed is
+/// still included in a block.
+///
+/// Deployment analysis does not go through [`handle_clarity_runtime_error`],
+/// so parse and static-check failures are classified with their epoch-specific
+/// `rejectable_in_epoch` rules instead.
 pub fn analysis_failure_is_included_in_block(
     error: &ClarityError,
     epoch_id: StacksEpochId,
