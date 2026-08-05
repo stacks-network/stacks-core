@@ -925,7 +925,8 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     .unwrap_err();
     println!("{err}");
     assert!(match err {
-        VmExecutionError::Runtime(crate::vm::errors::RuntimeError::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
+        VmExecutionError::Runtime(crate::vm::errors::RuntimeError::SupplyOverflow(x, y), _) =>
+            (x, y) == (6, 5),
         _ => false,
     });
 }

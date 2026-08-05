@@ -22,7 +22,7 @@ use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId, TrieHash, Txid,
 };
 use crate::util::hash::{Hash160, Sha512Trunc256Sum};
-use crate::util::secp256k1::{MessageSignature, SchnorrSignature};
+use crate::util::secp256k1::MessageSignature;
 #[cfg(feature = "vrf")]
 use crate::util::vrf::VRFProof;
 

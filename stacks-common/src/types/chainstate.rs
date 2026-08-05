@@ -27,6 +27,7 @@ use crate::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::util::hash::{Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use crate::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+#[cfg(feature = "vrf")]
 use crate::util::vrf::{VRFProof, VRF_PROOF_ENCODED_SIZE};
 
 pub type StacksPublicKey = Secp256k1PublicKey;
@@ -461,6 +462,7 @@ impl StacksWorkScore {
     }
 }
 
+#[cfg(feature = "vrf")]
 impl StacksMessageCodec for VRFProof {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         fd.write_all(&self.to_bytes())
@@ -566,7 +568,10 @@ impl VRFSeed {
         VRFSeed::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
             .unwrap()
     }
+}
 
+#[cfg(feature = "vrf")]
+impl VRFSeed {
     pub fn from_proof(proof: &VRFProof) -> VRFSeed {
         let h = Sha512Trunc256Sum::from_data(&proof.to_bytes());
         VRFSeed(h.0)

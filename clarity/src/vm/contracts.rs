@@ -45,9 +45,11 @@ impl Deref for Contract {
 }
 
 impl Contract {
+    #[cfg_attr(not(feature = "clarity-wasm"), allow(unused_variables))]
     pub fn initialize_from_ast(
         contract_identifier: QualifiedContractIdentifier,
         contract: &mut ContractAST,
+        #[cfg_attr(not(feature = "clarity-wasm"), allow(unused_variables))]
         contract_analysis: &ContractAnalysis,
         sponsor: Option<PrincipalData>,
         global_context: &mut GlobalContext,

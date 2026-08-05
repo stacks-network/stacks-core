@@ -78,7 +78,7 @@ wasm-web = ["stacks_common/wasm-web", "clarity-types/wasm-web"]
 
 # clarity-wasm
 default = ["rusqlite", "clarity-wasm", "serde_stacker", "vrf"]
-clarity-wasm = ["wasmtime"]
+clarity-wasm = ["wasmtime", "clarity-types/clarity-wasm"]
 vrf = ["stacks_common/vrf"]
 wasm = ["stacks_common/wasm", "developer-mode", "getrandom"]
 

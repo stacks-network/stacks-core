@@ -7,6 +7,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PublicKey, secp256k1_recover, secp256k1_verify};
+use stacks_common::util::secp256r1::{secp256r1_verify, secp256r1_verify_digest};
 use wasmtime::{
     AsContextMut, Caller, Extern, ExternRef, Global, GlobalType, Linker, Memory, Module, Store,
     Val, ValType,
@@ -1596,7 +1597,7 @@ fn ensure_memory(
     required_bytes: usize,
 ) -> Result<(), VmExecutionError> {
     // Round up division.
-    let required_pages = ((required_bytes + 65535) / 65536) as u64;
+    let required_pages = required_bytes.div_ceil(65536) as u64;
     let current_pages = memory.size(store.as_context_mut());
     // If the current memory is not large enough, grow it by the required
     // number of pages.
@@ -2350,6 +2351,8 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Vm
     link_sha512_256_fn(linker)?;
     link_secp256k1_recover_fn(linker)?;
     link_secp256k1_verify_fn(linker)?;
+    link_secp256r1_verify_double_hash_fn(linker)?;
+    link_secp256r1_verify_simple_hash_fn(linker)?;
     link_principal_of_fn(linker)?;
     link_save_constant_fn(linker)?;
     link_load_constant_fn(linker)?;
@@ -2950,7 +2953,7 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
                     .get(var_name.as_str())
                     .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
                         "Variable {}",
-                        var_name.to_string()
+                        var_name
                     ))))?
                     .clone();
 
@@ -3008,6 +3011,13 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
              name_length: i32,
              mut value_offset: i32,
              mut value_length: i32| {
+                if caller.data().global_context.is_read_only() {
+                    return Err(VmExecutionError::Wasm(WasmError::Expect(
+                        "Tried to set a variable in read only context".into(),
+                    ))
+                    .into());
+                }
+
                 // Get the memory from the caller
                 let memory = caller
                     .get_export("memory")
@@ -3029,7 +3039,7 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
                     .get(var_name.as_str())
                     .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
                         "Variable {}",
-                        var_name.to_string()
+                        var_name
                     ))))?
                     .clone();
 
@@ -4583,7 +4593,7 @@ fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                     .get(&token_name)
                     .ok_or(VmExecutionError::Wasm(WasmError::NotInDatabase(format!(
                         "NFT: {}",
-                        token_name.to_string()
+                        token_name
                     ))))?
                     .clone();
 
@@ -7454,13 +7464,16 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     arg_offset += get_type_size(arg_ty);
                 }
 
+                // The calling contract becomes the `contract-caller` for the
+                // callee via the nested `Environment` below; the current
+                // context's `caller` must remain unchanged, matching the
+                // interpreter's scoping in `special_contract_call`.
                 let caller_contract: PrincipalData = caller
                     .data()
                     .contract_context()
                     .contract_identifier
                     .clone()
                     .into();
-                caller.data_mut().push_caller(caller_contract.clone());
 
                 let mut call_stack = caller.data().call_stack.clone();
                 let sender = caller.data().sender.clone();
@@ -8186,6 +8199,88 @@ fn link_secp256k1_verify_fn(
         })
 }
 
+fn link_secp256r1_verify_double_hash_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), VmExecutionError> {
+    linker
+        .func_wrap(
+            "clarity",
+            "secp256r1_verify_double_hash",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             msg_offset: i32,
+             msg_length: i32,
+             sig_offset: i32,
+             sig_length: i32,
+             pk_offset: i32,
+             pk_length: i32| {
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
+
+                // Read the message bytes from the memory
+                let msg_bytes = read_bytes_from_wasm(memory, &mut caller, msg_offset, msg_length)?;
+
+                // Read the signature bytes from the memory
+                let sig_bytes = read_bytes_from_wasm(memory, &mut caller, sig_offset, sig_length)?;
+
+                // Read the public-key bytes from the memory
+                let pk_bytes = read_bytes_from_wasm(memory, &mut caller, pk_offset, pk_length)?;
+
+                Ok(secp256r1_verify(&msg_bytes, &sig_bytes, &pk_bytes).is_ok() as i32)
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
+                "secp256r1_verify_double_hash".to_string(),
+                e,
+            ))
+        })
+}
+
+fn link_secp256r1_verify_simple_hash_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), VmExecutionError> {
+    linker
+        .func_wrap(
+            "clarity",
+            "secp256r1_verify_simple_hash",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             msg_offset: i32,
+             msg_length: i32,
+             sig_offset: i32,
+             sig_length: i32,
+             pk_offset: i32,
+             pk_length: i32| {
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
+
+                // Read the message bytes from the memory
+                let msg_bytes = read_bytes_from_wasm(memory, &mut caller, msg_offset, msg_length)?;
+
+                // Read the signature bytes from the memory
+                let sig_bytes = read_bytes_from_wasm(memory, &mut caller, sig_offset, sig_length)?;
+
+                // Read the public-key bytes from the memory
+                let pk_bytes = read_bytes_from_wasm(memory, &mut caller, pk_offset, pk_length)?;
+
+                Ok(secp256r1_verify_digest(&msg_bytes, &sig_bytes, &pk_bytes).is_ok() as i32)
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
+                "secp256r1_verify_simple_hash".to_string(),
+                e,
+            ))
+        })
+}
+
 /// Link host interface function, `principal_of`, into the Wasm module.
 /// This function is called for the Clarity expression, `principal-of?`.
 fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
@@ -8681,7 +8776,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             16,
             StacksEpochId::latest(),
         )
@@ -8704,8 +8799,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 8,
+            offset,
+            offset + 8,
             &expected,
             false,
         )
@@ -8715,7 +8810,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             16,
             StacksEpochId::latest(),
         )
@@ -8738,8 +8833,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32,
+            offset,
+            offset,
             &expected,
             false,
         )
@@ -8749,7 +8844,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             4,
             StacksEpochId::latest(),
         )
@@ -8773,8 +8868,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32,
+            offset,
+            offset,
             &expected,
             false,
         )
@@ -8784,7 +8879,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             16,
             StacksEpochId::latest(),
         )
@@ -8808,8 +8903,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32,
+            offset,
+            offset,
             &expected,
             false,
         )
@@ -8819,7 +8914,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             48,
             StacksEpochId::latest(),
         )
@@ -8853,8 +8948,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32,
+            offset,
+            offset,
             &expected,
             false,
         )
@@ -8864,7 +8959,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             24,
             StacksEpochId::latest(),
         )
@@ -8888,8 +8983,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 24,
+            offset,
+            offset + 24,
             &expected,
             false,
         )
@@ -8899,7 +8994,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             24,
             StacksEpochId::latest(),
         )
@@ -8923,8 +9018,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 24,
+            offset,
+            offset + 24,
             &expected,
             false,
         )
@@ -8934,7 +9029,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             24,
             StacksEpochId::latest(),
         )
@@ -8965,8 +9060,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 28,
+            offset,
+            offset + 28,
             &expected,
             false,
         )
@@ -8976,7 +9071,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             28,
             StacksEpochId::latest(),
         )
@@ -9008,8 +9103,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 24,
+            offset,
+            offset + 24,
             &expected,
             false,
         )
@@ -9019,7 +9114,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             28,
             StacksEpochId::latest(),
         )
@@ -9042,8 +9137,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 4,
+            offset,
+            offset + 4,
             &expected,
             false,
         )
@@ -9053,7 +9148,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             4,
             StacksEpochId::latest(),
         )
@@ -9076,8 +9171,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 20,
+            offset,
+            offset + 20,
             &expected,
             false,
         )
@@ -9087,7 +9182,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             20,
             StacksEpochId::latest(),
         )
@@ -9111,8 +9206,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 24,
+            offset,
+            offset + 24,
             &expected,
             false,
         )
@@ -9122,7 +9217,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             24,
             StacksEpochId::latest(),
         )
@@ -9157,8 +9252,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 24,
+            offset,
+            offset + 24,
             &expected,
             false,
         )
@@ -9168,7 +9263,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             24,
             StacksEpochId::latest(),
         )
@@ -9193,8 +9288,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32,
+            offset,
+            offset,
             &expected,
             false,
         )
@@ -9204,7 +9299,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             STANDARD_PRINCIPAL_BYTES as i32,
             StacksEpochId::latest(),
         )
@@ -9230,8 +9325,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32,
+            offset,
+            offset,
             &expected,
             false,
         )
@@ -9241,7 +9336,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             STANDARD_PRINCIPAL_BYTES as i32 + 21,
             StacksEpochId::latest(),
         )
@@ -9276,8 +9371,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32,
+            offset,
+            offset,
             &expected,
             false,
         )
@@ -9287,7 +9382,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             36,
             StacksEpochId::latest(),
         )
@@ -9329,8 +9424,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 20,
+            offset,
+            offset + 20,
             &expected,
             false,
         )
@@ -9340,7 +9435,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             20,
             StacksEpochId::latest(),
         )
@@ -9365,8 +9460,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 8,
+            offset,
+            offset + 8,
             &expected,
             true,
         )
@@ -9376,7 +9471,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9398,8 +9493,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 8,
+            offset,
+            offset + 8,
             &expected,
             true,
         )
@@ -9409,7 +9504,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9431,8 +9526,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 8,
+            offset,
+            offset + 8,
             &expected,
             true,
         )
@@ -9442,7 +9537,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9465,8 +9560,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 8,
+            offset,
+            offset + 8,
             &expected,
             true,
         )
@@ -9476,7 +9571,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9499,8 +9594,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 8,
+            offset,
+            offset + 8,
             &expected,
             true,
         )
@@ -9510,7 +9605,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9543,8 +9638,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 8,
+            offset,
+            offset + 8,
             &expected,
             true,
         )
@@ -9554,7 +9649,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9577,8 +9672,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 24,
+            offset,
+            offset + 24,
             &expected,
             true,
         )
@@ -9588,7 +9683,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9611,8 +9706,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 24,
+            offset,
+            offset + 24,
             &expected,
             true,
         )
@@ -9622,7 +9717,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9652,8 +9747,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 28,
+            offset,
+            offset + 28,
             &expected,
             true,
         )
@@ -9663,7 +9758,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9694,8 +9789,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 24,
+            offset,
+            offset + 24,
             &expected,
             true,
         )
@@ -9705,7 +9800,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9727,8 +9822,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 4,
+            offset,
+            offset + 4,
             &expected,
             true,
         )
@@ -9738,7 +9833,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9760,8 +9855,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 20,
+            offset,
+            offset + 20,
             &expected,
             true,
         )
@@ -9771,7 +9866,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9794,8 +9889,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 24,
+            offset,
+            offset + 24,
             &expected,
             true,
         )
@@ -9805,7 +9900,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9839,8 +9934,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 24,
+            offset,
+            offset + 24,
             &expected,
             true,
         )
@@ -9850,7 +9945,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9874,8 +9969,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 8,
+            offset,
+            offset + 8,
             &expected,
             true,
         )
@@ -9885,7 +9980,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9910,8 +10005,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 8,
+            offset,
+            offset + 8,
             &expected,
             true,
         )
@@ -9921,7 +10016,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -9955,8 +10050,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32,
+            offset,
+            offset,
             &expected,
             true,
         )
@@ -9966,7 +10061,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
@@ -10007,8 +10102,8 @@ mod tests {
             &mut store,
             memory,
             &expected_ty,
-            offset as i32,
-            offset as i32 + 20,
+            offset,
+            offset + 20,
             &expected,
             true,
         )
@@ -10018,7 +10113,7 @@ mod tests {
             memory,
             &mut store,
             &expected_ty,
-            offset as i32,
+            offset,
             StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
