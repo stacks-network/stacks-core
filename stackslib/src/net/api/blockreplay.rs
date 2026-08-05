@@ -32,7 +32,9 @@ use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuil
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
-use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use crate::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
+};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
 use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::net::http::{
@@ -302,7 +304,7 @@ where
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            None,
+            &TransactionResourceBudgets::unlimited(),
             &mut total_receipts,
         );
 

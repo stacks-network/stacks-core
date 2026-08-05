@@ -22,6 +22,10 @@ impl RunLoop {
 
     /// Sets up a runloop and node, given a config.
     pub fn new_with_boot_exec(config: Config, boot_exec: Box<dyn FnOnce(&mut ClarityTx)>) -> Self {
+        // Apply config-driven process-wide state before any chainstate is opened.
+        // Helium opens chainstate inside `Node::new`, so this must run first.
+        config.apply_runtime_state();
+
         // Build node based on config
         let node = Node::new(config.clone(), boot_exec);
 

@@ -445,19 +445,10 @@ impl TypeSignature {
         epoch: &StacksEpochId,
         other: &TypeSignature,
     ) -> Result<bool, ClarityTypeError> {
-        match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(other),
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => self.admits_type_v2_1(other),
-            StacksEpochId::Epoch10 => Err(ClarityTypeError::UnsupportedEpoch(*epoch)),
+        if *epoch < StacksEpochId::Epoch21 {
+            self.admits_type_v2_0(other)
+        } else {
+            self.admits_type_v2_1(other)
         }
     }
 
@@ -650,22 +641,11 @@ impl TypeSignature {
     /// This method will convert types from previous epochs with the appropriate
     /// types for the specified epoch.
     pub fn canonicalize(&self, epoch: &StacksEpochId) -> TypeSignature {
-        match epoch {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
-            | StacksEpochId::Epoch22 => self.clone(),
-            // Note for future epochs: Epochs >= 2.3 should use the canonicalize_v2_1() routine
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => self.canonicalize_v2_1(),
+        // Epoch-2.2 had a regression in canonicalization, so it must be preserved here.
+        if *epoch < StacksEpochId::Epoch21 || *epoch == StacksEpochId::Epoch22 {
+            self.clone()
+        } else {
+            self.canonicalize_v2_1()
         }
     }
 
@@ -850,6 +830,8 @@ impl TypeSignature {
     pub const BUFFER_64: TypeSignature = Self::type_buffer_const(64);
     /// Buffer type with length 65.
     pub const BUFFER_65: TypeSignature = Self::type_buffer_const(65);
+    /// Buffer type with length 1024.
+    pub const BUFFER_1024: TypeSignature = Self::type_buffer_const(1024);
 
     /// String ASCII type with minimum length (`1`).
     pub const STRING_ASCII_MIN: TypeSignature = Self::type_ascii_const(1);
@@ -994,19 +976,10 @@ impl TypeSignature {
         a: &TypeSignature,
         b: &TypeSignature,
     ) -> Result<TypeSignature, ClarityTypeError> {
-        match epoch {
-            StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(a, b),
-            StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33
-            | StacksEpochId::Epoch34 => Self::least_supertype_v2_1(a, b),
-            StacksEpochId::Epoch10 => Err(ClarityTypeError::UnsupportedEpoch(*epoch)),
+        if *epoch < StacksEpochId::Epoch21 {
+            Self::least_supertype_v2_0(a, b)
+        } else {
+            Self::least_supertype_v2_1(a, b)
         }
     }
 
@@ -1296,7 +1269,7 @@ impl TypeSignature {
             Value::Response(v) => v.type_signature()?,
             Value::CallableContract(v) => {
                 if let Some(trait_identifier) = &v.trait_identifier {
-                    CallableType(CallableSubtype::Trait(trait_identifier.clone()))
+                    CallableType(CallableSubtype::Trait(trait_identifier.as_ref().clone()))
                 } else {
                     CallableType(CallableSubtype::Principal(v.contract_identifier.clone()))
                 }
@@ -1317,21 +1290,37 @@ impl TypeSignature {
 
     // Checks if resulting type signature is of valid size.
     pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData, ClarityTypeError> {
-        let children_types: Result<Vec<_>, ClarityTypeError> =
-            args.iter().map(TypeSignature::type_of).collect();
-        TypeSignature::parent_list_type(&children_types?)
+        Self::parent_list_type_from_iter(args.len(), args.iter().map(TypeSignature::type_of))
     }
 
     pub fn parent_list_type(children: &[TypeSignature]) -> Result<ListTypeData, ClarityTypeError> {
-        if let Some((first, rest)) = children.split_first() {
-            let mut current_entry_type = first.clone();
-            for next_entry in rest.iter() {
-                current_entry_type = Self::least_supertype_v2_1(&current_entry_type, next_entry)?;
+        Self::parent_list_type_from_iter(children.len(), children.iter().cloned().map(Ok))
+    }
+
+    /// Left-to-right `least_supertype_v2_1` fold, shared so
+    /// `construct_parent_list_type` and `parent_list_type` cannot drift.
+    /// Deliberately not epoch-gated: this matches shipped behavior, and
+    /// pre-2.1 values cannot produce the types where v2_0 differs.
+    fn parent_list_type_from_iter(
+        len: usize,
+        entry_types: impl Iterator<Item = Result<TypeSignature, ClarityTypeError>>,
+    ) -> Result<ListTypeData, ClarityTypeError> {
+        let mut entry_type: Option<TypeSignature> = None;
+        for next in entry_types {
+            let next = next?;
+            entry_type = Some(match entry_type {
+                None => next,
+                // Idempotent so equal types skip the fold.
+                Some(current) if current == next => current,
+                Some(current) => Self::least_supertype_v2_1(&current, &next)?,
+            });
+        }
+        match entry_type {
+            Some(entry_type) => {
+                let len = u32::try_from(len).map_err(|_| ClarityTypeError::ValueTooLarge)?;
+                ListTypeData::new_list(entry_type, len)
             }
-            let len = u32::try_from(children.len()).map_err(|_| ClarityTypeError::ValueTooLarge)?;
-            ListTypeData::new_list(current_entry_type, len)
-        } else {
-            Ok(TypeSignature::empty_list())
+            None => Ok(TypeSignature::empty_list()),
         }
     }
 }
@@ -1545,6 +1534,18 @@ impl TupleTypeSignature {
         self.inner_size()?.ok_or_else(|| {
             ClarityTypeError::InvariantViolation("size() overflowed on a constructed type.".into())
         })
+    }
+
+    /// Serialized value size of the tuple, or [`ClarityTypeError::ValueTooLarge`] if it
+    /// exceeds [`MAX_VALUE_SIZE`].
+    ///
+    /// This differs from [`Self::size`] only in the error variant: `size` reports an oversized
+    /// tuple as an `InvariantViolation` (a "should never happen" signal that block-invalidates),
+    /// whereas this reports it as the checked `ValueTooLarge` rejection. Used at the tuple
+    /// `merge` site (static analysis and runtime) to reject an oversized merged tuple cleanly.
+    pub fn checked_value_size(&self) -> Result<u32, ClarityTypeError> {
+        // inner_size() returns Ok(None) exactly when the tuple is oversized.
+        self.inner_size()?.ok_or(ClarityTypeError::ValueTooLarge)
     }
 
     fn max_depth(&self) -> u8 {

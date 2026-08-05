@@ -177,6 +177,7 @@ pub mod pox4 {
     mod tests {
         use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
         use clarity::vm::costs::LimitedCostTracker;
+        use clarity::vm::resource_limiter::ResourceBudget;
         use clarity::vm::types::PrincipalData;
         use clarity::vm::ClarityVersion;
         use stacks_common::address::AddressHashMode;
@@ -245,7 +246,12 @@ pub mod pox4 {
                 conn.as_transaction(|clarity_db| {
                     let clarity_version = ClarityVersion::Clarity2;
                     let (ast, analysis) = clarity_db
-                        .analyze_smart_contract(&pox_contract_id, clarity_version, body, None)
+                        .analyze_smart_contract(
+                            &pox_contract_id,
+                            clarity_version,
+                            body,
+                            &ResourceBudget::unlimited(),
+                        )
                         .unwrap();
                     clarity_db
                         .initialize_smart_contract(
@@ -255,7 +261,7 @@ pub mod pox4 {
                             body,
                             None,
                             |_, _| None,
-                            None,
+                            &ResourceBudget::unlimited(),
                         )
                         .unwrap();
                     clarity_db
@@ -409,6 +415,57 @@ pub mod pox4 {
 
             assert_eq!(to_hex(message_hash.as_bytes()), fixture);
         }
+    }
+}
+
+pub mod pox5 {
+    use clarity::vm::types::PrincipalData;
+    use clarity::vm::ClarityName;
+
+    use super::{
+        make_structured_data_domain, structured_data_message_hash, MessageSignature, PrivateKey,
+        Secp256k1PrivateKey, Sha256Sum, TupleData, Value,
+    };
+
+    pub fn make_pox_5_signed_data_domain(chain_id: u32) -> Value {
+        make_structured_data_domain("pox-5-signer", "1.0.0", chain_id)
+    }
+
+    /// Compute the hash of the `grant-authorization` message that is signed
+    /// by a signer key when authorizing a `signer-manager` contract to
+    /// register the corresponding signer via pox-5's `grant-signer-key`.
+    pub fn make_pox_5_signer_grant_message_hash(
+        signer_manager: &PrincipalData,
+        auth_id: u128,
+        chain_id: u32,
+    ) -> Sha256Sum {
+        let domain_tuple = make_pox_5_signed_data_domain(chain_id);
+        let data_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    ClarityName::from_literal("topic"),
+                    Value::string_ascii_from_bytes("grant-authorization".into()).unwrap(),
+                ),
+                (
+                    ClarityName::from_literal("signer-manager"),
+                    Value::Principal(signer_manager.clone()),
+                ),
+                (ClarityName::from_literal("auth-id"), Value::UInt(auth_id)),
+            ])
+            .expect("Error creating signature hash"),
+        );
+        structured_data_message_hash(data_tuple, domain_tuple)
+    }
+
+    /// Sign a pox-5 `grant-authorization` message with `signer_key`.
+    pub fn make_pox_5_signer_grant_signature(
+        signer_manager: &PrincipalData,
+        auth_id: u128,
+        chain_id: u32,
+        signer_key: &Secp256k1PrivateKey,
+    ) -> Result<MessageSignature, &'static str> {
+        let msg_hash = make_pox_5_signer_grant_message_hash(signer_manager, auth_id, chain_id);
+        signer_key.sign(msg_hash.as_bytes())
     }
 }
 

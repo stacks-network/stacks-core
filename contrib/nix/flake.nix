@@ -136,6 +136,8 @@
               (craneLib.fileset.commonCargoSources ../../stackslib)
               (craneLib.fileset.commonCargoSources ../../stx-genesis)
               (craneLib.fileset.commonCargoSources ../../stacks-node)
+              (craneLib.fileset.commonCargoSources ../../stacks-profiler)
+              (craneLib.fileset.commonCargoSources ../../stacks-profiler-macros)
               (craneLib.fileset.commonCargoSources ../tools/config-docs-generator)
               (craneLib.fileset.commonCargoSources ../../contrib/stacks-inspect)
               (craneLib.fileset.commonCargoSources ../../contrib/stacks-cli)
@@ -148,7 +150,7 @@
         stacks-signer = craneLib.buildPackage (
           individualCrateArgs
           // rec {
-            version = versions.stacks_signer_version;
+            inherit version;
             pname = "stacks-signer";
             cargoFeatures = "--features monitoring_prom";
             cargoExtraArgs = "${cargoFeatures} -p ${pname}";

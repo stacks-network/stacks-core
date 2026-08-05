@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
-use std::time::Duration;
 
 use stacks_common::types::StacksEpochId;
 
@@ -28,7 +27,7 @@ use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
-use crate::vm::time_tracker::TimeTracker;
+use crate::vm::resource_limiter::ResourceBudget;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
 
@@ -63,11 +62,11 @@ pub enum ClarityError {
         /// A human-readable explanation for aborting the transaction
         reason: String,
     },
-    /// Transaction exceeded the maximum execution time allowed.
-    ExecutionTimeExpired,
-    /// Contract analysis exceeded the maximum analysis time allowed.
-    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable end-to-end.
-    AnalysisTimeExpired,
+    /// Transaction exceeded the maximum execution time or heap usage allowed.
+    ExecutionResourceBudgetExceeded(String),
+    /// Contract analysis exceeded the maximum analysis time or heap usage allowed.
+    /// Distinct from `ExecutionResourceBudgetExceeded` so an analysis-phase issue is separable end-to-end.
+    AnalysisResourceBudgetExceeded(String),
 }
 
 impl fmt::Display for ClarityError {
@@ -83,8 +82,12 @@ impl fmt::Display for ClarityError {
             }
             ClarityError::Interpreter(e) => fmt::Display::fmt(e, f),
             ClarityError::BadTransaction(s) => fmt::Display::fmt(s, f),
-            ClarityError::ExecutionTimeExpired => write!(f, "Execution time expired"),
-            ClarityError::AnalysisTimeExpired => write!(f, "Analysis time expired"),
+            ClarityError::ExecutionResourceBudgetExceeded(s) => {
+                write!(f, "Execution resource budget exceeded: {s}")
+            }
+            ClarityError::AnalysisResourceBudgetExceeded(s) => {
+                write!(f, "Analysis resource budget exceeded: {s}")
+            }
         }
     }
 }
@@ -98,8 +101,8 @@ impl std::error::Error for ClarityError {
             ClarityError::Parse(ref e) => Some(e),
             ClarityError::Interpreter(ref e) => Some(e),
             ClarityError::BadTransaction(ref _s) => None,
-            ClarityError::ExecutionTimeExpired => None,
-            ClarityError::AnalysisTimeExpired => None,
+            ClarityError::ExecutionResourceBudgetExceeded(_) => None,
+            ClarityError::AnalysisResourceBudgetExceeded(_) => None,
         }
     }
 }
@@ -114,8 +117,9 @@ impl From<StaticCheckError> for ClarityError {
             StaticCheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            StaticCheckErrorKind::ExecutionTimeExpired => ClarityError::ExecutionTimeExpired,
-            StaticCheckErrorKind::AnalysisTimeExpired => ClarityError::AnalysisTimeExpired,
+            StaticCheckErrorKind::AnalysisResourceBudgetExceeded(s) => {
+                ClarityError::AnalysisResourceBudgetExceeded(s)
+            }
             _ => ClarityError::StaticCheck(e),
         }
     }
@@ -161,9 +165,9 @@ impl From<VmExecutionError> for ClarityError {
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CostOverflow) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExecutionTimeExpired) => {
-                ClarityError::ExecutionTimeExpired
-            }
+            VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(s),
+            ) => ClarityError::ExecutionResourceBudgetExceeded(s.clone()),
             _ => ClarityError::Interpreter(e),
         }
     }
@@ -179,7 +183,6 @@ impl From<ParseError> for ClarityError {
             ParseErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            ParseErrorKind::ExecutionTimeExpired => ClarityError::ExecutionTimeExpired,
             _ => ClarityError::Parse(e),
         }
     }
@@ -253,14 +256,16 @@ pub trait TransactionConnection: ClarityConnection {
     /// containing a human-readable reason for aborting the transaction.
     ///
     /// If `to_do` returns an `Err` variant, then the changes are aborted.
-    fn with_abort_callback<F, A, R, E>(
-        &mut self,
+    fn with_abort_callback<'hooks, F, A, R, E>(
+        &'hooks mut self,
         to_do: F,
         abort_call_back: A,
     ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
-        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
+        F: FnOnce(
+            &mut OwnedEnvironment<'_, 'hooks>,
+        ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<VmExecutionError>;
 
     /// Do something with the analysis database and cost tracker
@@ -272,30 +277,31 @@ pub trait TransactionConnection: ClarityConnection {
     where
         F: FnOnce(&mut AnalysisDatabase, LimitedCostTracker) -> (LimitedCostTracker, R);
 
-    /// Analyze a provided smart contract with an optional wall-clock deadline covering
-    /// AST building and static analysis, but do not write the analysis to the
-    /// AnalysisDatabase.
+    /// Analyze a provided smart contract with an optional resource budget (wall-clock
+    /// deadline and allocation limit) covering AST building and static analysis, but do
+    /// not write the analysis to the AnalysisDatabase.
     ///
-    /// `max_time` must be `Some` only on the non-consensus voting paths
-    /// (block assembly / block-proposal validation) and `None` on deterministic
-    /// replay/commit, so consensus stays deterministic. When the deadline elapses
-    /// the analysis aborts with [`ClarityError::AnalysisTimeExpired`].
+    /// `analysis_resource_budget` must be limited only on the non-consensus voting paths
+    /// (block assembly / block-proposal validation) and [`ResourceBudget::unlimited`]
+    /// on deterministic replay/commit, so consensus stays deterministic. When the deadline
+    /// elapses or allocations exceed the limit, the analysis aborts with
+    /// [`ClarityError::AnalysisResourceBudgetExceeded`].
     ///
     /// The clock starts before AST building so that time counts against the budget;
     /// the deadline itself is only enforced at the cooperative checkpoints inside the
-    /// analysis passes.
+    /// analysis passes. The same goes for measuring the baseline memory usage.
     fn analyze_smart_contract(
         &mut self,
         identifier: &QualifiedContractIdentifier,
         clarity_version: ClarityVersion,
         contract_content: &str,
-        max_time: Option<Duration>,
+        analysis_resource_budget: &ResourceBudget,
     ) -> Result<(ContractAST, ContractAnalysis), ClarityError> {
         let epoch_id = self.get_epoch();
 
         self.with_analysis_db(|db, mut cost_track| {
-            // Start the analysis clock here and take into account AST building.
-            let time_tracker = TimeTracker::from_opt_max_duration(max_time);
+            // Start the analysis baseline here and take into account AST building.
+            let resource_limiter = analysis_resource_budget.start_tracking();
 
             let ast_result = ast::build_ast(
                 identifier,
@@ -319,7 +325,7 @@ pub trait TransactionConnection: ClarityConnection {
                 epoch_id,
                 clarity_version,
                 false,
-                time_tracker,
+                resource_limiter,
             );
 
             match result {
@@ -398,7 +404,7 @@ pub trait TransactionConnection: ClarityConnection {
         public_function: &str,
         args: &[Value],
         abort_call_back: F,
-        max_execution_time: Option<std::time::Duration>,
+        resource_budget: &ResourceBudget,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
@@ -410,11 +416,9 @@ pub trait TransactionConnection: ClarityConnection {
 
         self.with_abort_callback(
             |vm_env| {
-                if let Some(max_execution_time_duration) = max_execution_time {
-                    vm_env
-                        .context
-                        .set_max_execution_time(max_execution_time_duration);
-                }
+                vm_env
+                    .context
+                    .set_execution_resource_limiter(resource_budget.start_tracking());
                 vm_env
                     .execute_transaction(
                         sender.clone(),
@@ -455,18 +459,17 @@ pub trait TransactionConnection: ClarityConnection {
         contract_str: &str,
         sponsor: Option<PrincipalData>,
         abort_call_back: F,
-        max_execution_time: Option<std::time::Duration>,
+        execution_resource_budget: &ResourceBudget,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
         let (_, assets_modified, tx_events, reason) = self.with_abort_callback(
             |vm_env| {
-                if let Some(max_execution_time_duration) = max_execution_time {
-                    vm_env
-                        .context
-                        .set_max_execution_time(max_execution_time_duration);
-                }
+                vm_env
+                    .context
+                    .set_execution_resource_limiter(execution_resource_budget.start_tracking());
+
                 vm_env
                     .initialize_contract_from_ast(
                         identifier.clone(),

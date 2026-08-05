@@ -1644,7 +1644,10 @@ impl BlockMinerThread {
 
         parent_block_info.stacks_parent_header.microblock_tail = None;
 
-        let signer_bitvec_len = reward_set.rewarded_addresses.len().try_into().ok();
+        // Length of the per-block `pox_treatment` BitVec.
+        // Must be `> 0`:
+        //   the BitVec codec rejects zero-length bitvecs at deserialization.
+        let signer_bitvec_len = reward_set.pox_treatment_bitvec_len();
 
         if !self.validate_timestamp_info(
             get_epoch_time_secs(),
@@ -1706,7 +1709,7 @@ impl BlockMinerThread {
             // we'll invoke the event dispatcher ourselves so that it calculates the
             //  correct signer_signature_hash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
-            signer_bitvec_len.unwrap_or(0),
+            signer_bitvec_len,
             &replay_transactions,
         )
         .map_err(|e| {
@@ -1719,7 +1722,7 @@ impl BlockMinerThread {
             e
         })?;
 
-        if block_metadata.block.txs.is_empty() {
+        if block_metadata.block.tx_count() == 0 {
             return Err(ChainstateError::NoTransactionsToMine.into());
         }
         let mining_key = self.keychain.get_nakamoto_sk();
@@ -1738,7 +1741,7 @@ impl BlockMinerThread {
             "Miner: Assembled block #{} for signer set proposal: {}, with {} txs",
             block_metadata.block.header.chain_length,
             block_metadata.block.header.block_hash(),
-            block_metadata.block.txs.len();
+            block_metadata.block.tx_count();
             "signer_signature_hash" => %block_metadata.block.header.signer_signature_hash(),
             "consensus_hash" => %block_metadata.block.header.consensus_hash,
             "parent_block_id" => %block_metadata.block.header.parent_block_id,

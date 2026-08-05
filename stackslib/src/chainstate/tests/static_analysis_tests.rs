@@ -25,7 +25,8 @@ use clarity::vm::types::MAX_TYPE_DEPTH;
 use clarity::vm::ClarityVersion;
 
 use crate::chainstate::tests::consensus::{
-    clarity_versions_for_epoch, contract_deploy_consensus_snap_test, ConsensusTest, ConsensusUtils,
+    clarity_versions_for_epoch, contract_call_consensus_snap_test,
+    contract_deploy_consensus_snap_test, tested_epochs_since, ConsensusTest, ConsensusUtils,
     SetupContract, TestBlock, EPOCHS_TO_TEST,
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
@@ -62,22 +63,30 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         CostBalanceExceeded(execution_cost, execution_cost1) => Tested(vec![static_check_error_cost_balance_exceeded]),
         MemoryBalanceExceeded(_, _) => Tested(vec![static_check_error_memory_balance_exceeded]),
         CostComputationFailed(_) => Unreachable_ExpectLike,
-        ExecutionTimeExpired => Unreachable_Functionally("Can only be triggered at runtime."),
-        AnalysisTimeExpired => Unreachable_Functionally(
+        AnalysisResourceBudgetExceeded(_) => Unreachable_Functionally(
             "All consensus-critical code paths (block validation and transaction processing) pass
-             `None` for max_execution_time, so the analysis-phase time tracking stays
-             unlimited and check_analysis_abort_condition always returns Ok(()). The analysis
+             an unlimited resource budget, so the analysis-phase time tracking and memory limit stays
+             unlimited and check_analysis_resource_limits always returns Ok(()). The analysis
              deadline is only enforced on the miner-local block-assembly and block-proposal
              validation paths; it is exercised by the analysis-deadline integration tests, not
              by this consensus harness.",
         ),
         ReadOnlyCheckerRecursionLimitExceeded => todo!(),
-        ValueTooLarge => Tested(vec![static_check_error_value_too_large]),
+        // `tuple_merge_exceeds_max_value_size_cdeploy` produces `ValueTooLarge` at 4.0+ (an
+        // oversized tuple `merge` rejected at the merge site); pre-4.0 the same test surfaces
+        // as `Unreachable` (see that arm below).
+        ValueTooLarge => Tested(vec![
+            static_check_error_value_too_large,
+            tuple_merge_exceeds_max_value_size_cdeploy,
+        ]),
         ValueOutOfBounds => Tested(vec![static_check_error_value_out_of_bounds]),
         TypeSignatureTooDeep => Tested(vec![static_check_error_type_signature_too_deep]),
         ExpectedName => Tested(vec![static_check_error_expected_name]),
         SupertypeTooLarge => Tested(vec![static_check_error_supertype_too_large]),
-        Unreachable(_) => Unreachable_ExpectLike,
+        // Normally a "Unreachable_ExpectLike", but pre-4.0 an oversized tuple `merge` reaches
+        // it via an `InvariantViolation` from `.size()` in `new_response`. (At 4.0+ the same
+        // test is rejected earlier as `ValueTooLarge` — see that arm above.)
+        Unreachable(_) => Tested(vec![tuple_merge_exceeds_max_value_size_cdeploy]),
         BadMatchOptionSyntax(static_check_error_kind) => {
             Tested(vec![static_check_error_bad_match_option_syntax])
         }
@@ -1252,7 +1261,7 @@ fn static_check_error_at_block_unavailable() {
         (define-public (trigger-error)
             (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
                     u1)))",
-        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch34),
+        deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch34),
         clarity_versions: ClarityVersion::up_to(ClarityVersion::Clarity4),
     );
 }
@@ -1427,4 +1436,124 @@ fn error_invalid_stacks_transaction_duplicate_contract() {
     let result = ConsensusTest::new(function_name!(), vec![], epochs_blocks).run();
 
     insta::assert_ron_snapshot!(result);
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::Unreachable`] pre-4.0 /
+///   [`StaticCheckErrorKind::ValueTooLarge`] 4.0+.
+/// Caused by: `(ok (merge ta tb))` of two individually-valid ~512 KiB tuples whose combined
+/// size exceeds `MAX_VALUE_SIZE`.
+///   - pre-4.0: `check_special_merge` does not size the merge, so the oversized type
+///     propagates until `new_response` calls `.size()` on it, raising `InvariantViolation`
+///     surfaced as `Unreachable` (demonstrating the `Unreachable` catch-all is in fact
+///     reachable via an oversized tuple `merge`).
+///   - 4.0+: `check_special_merge` rejects the oversized merge at the merge site with the
+///     checked `ValueTooLarge`.
+/// Outcome: block rejected pre-4.0, accepted 4.0+ (deploy tx mined with `committed:false`).
+#[test]
+fn tuple_merge_exceeds_max_value_size_cdeploy() {
+    contract_deploy_consensus_snap_test!(
+        contract_name: "tuple-merge-overflow",
+        contract_code: r#"
+        (define-private (make-buff-256)
+            (let ((b16 0x00112233445566778899aabbccddeeff)
+                  (b32 (concat b16 b16))
+                  (b64 (concat b32 b32))
+                  (b128 (concat b64 b64))
+                  (b256 (concat b128 b128)))
+              b256))
+
+        (define-private (make-buff-4096)
+            (let ((b256 (make-buff-256))
+                  (b512 (concat b256 b256))
+                  (b1024 (concat b512 b512))
+                  (b2048 (concat b1024 b1024))
+                  (b4096 (concat b2048 b2048)))
+              b4096))
+
+        (define-private (make-buff-65536)
+            (let ((b4096 (make-buff-4096))
+                  (b8192 (concat b4096 b4096))
+                  (b16384 (concat b8192 b8192))
+                  (b32768 (concat b16384 b16384))
+                  (b65536 (concat b32768 b32768)))
+              b65536))
+
+        (define-private (make-buff-524288)
+            (let ((b65536 (make-buff-65536))
+                  (b131072 (concat b65536 b65536))
+                  (b262144 (concat b131072 b131072))
+                  (b524288 (concat b262144 b262144)))
+              b524288))
+
+        (define-public (trigger-merge-overflow)
+            (let ((big (unwrap-panic (as-max-len? (make-buff-524288) u524288))))
+                (let ((ta (tuple (a big)))
+                      (tb (tuple (b big))))
+                    (ok (merge ta tb)))))
+    "#,
+    deploy_epochs: &[StacksEpochId::Epoch34, StacksEpochId::Epoch40],
+    );
+}
+
+/// Runtime reachability of an oversized tuple `merge`: `(merge ta tb)` bound in a `let` but
+/// NEVER sized (the function returns `(ok true)`). Because nothing sizes the merged type at
+/// analysis, this is the case that slips past the static checker pre-4.0. The test deploys in
+/// both Epoch34 and Epoch40 and calls `run` in both, exercising the static gate (deploy) and
+/// the runtime gate (call) across the boundary.
+///
+/// Error family: `VmInternalError::Expect` (block-invalidating) pre-4.0 at runtime;
+///   [`StaticCheckErrorKind::ValueTooLarge`] 4.0+ at analysis time.
+///
+/// Behavior:
+///   - pre-4.0: the contract DEPLOYS (analysis never sizes the merge); calling `run` then
+///     executes the runtime `merge`, and computing the oversized value size during cost
+///     calculation raises a block-invalidating `InvariantViolation`/`Expect`.
+///   - 4.0+: the deploy is rejected at analysis (`ValueTooLarge`, tx `committed:false`); and a
+///     contract deployed pre-4.0 but called at 4.0+ reaches the runtime gate, which rejects
+///     the oversized `merge` cleanly with `ValueTooLarge` (tx `committed:false`) instead of
+///     invalidating the block.
+/// Outcome: the `run` call invalidates the block pre-4.0, but is accepted at 4.0+ (both the
+/// deploy and the call are mined with `committed:false`).
+#[test]
+fn tuple_merge_overflow_unused_runtime_ccall() {
+    contract_call_consensus_snap_test!(
+        contract_name: "merge-unused",
+        contract_code: r#"
+        (define-private (make-buff-256)
+            (let ((b16 0x00112233445566778899aabbccddeeff)
+                  (b32 (concat b16 b16))
+                  (b64 (concat b32 b32))
+                  (b128 (concat b64 b64))
+                  (b256 (concat b128 b128)))
+              b256))
+        (define-private (make-buff-4096)
+            (let ((b256 (make-buff-256))
+                  (b512 (concat b256 b256))
+                  (b1024 (concat b512 b512))
+                  (b2048 (concat b1024 b1024))
+                  (b4096 (concat b2048 b2048)))
+              b4096))
+        (define-private (make-buff-65536)
+            (let ((b4096 (make-buff-4096))
+                  (b8192 (concat b4096 b4096))
+                  (b16384 (concat b8192 b8192))
+                  (b32768 (concat b16384 b16384))
+                  (b65536 (concat b32768 b32768)))
+              b65536))
+        (define-private (make-buff-524288)
+            (let ((b65536 (make-buff-65536))
+                  (b131072 (concat b65536 b65536))
+                  (b262144 (concat b131072 b131072))
+                  (b524288 (concat b262144 b262144)))
+              b524288))
+        (define-public (run)
+            (let ((big (unwrap-panic (as-max-len? (make-buff-524288) u524288))))
+                (let ((m (merge (tuple (a big)) (tuple (b big)))))
+                    (ok true))))
+    "#,
+        function_name: "run",
+        function_args: &[],
+        deploy_epochs: &[StacksEpochId::Epoch34, StacksEpochId::Epoch40],
+        call_epochs: &[StacksEpochId::Epoch34, StacksEpochId::Epoch40],
+    );
 }

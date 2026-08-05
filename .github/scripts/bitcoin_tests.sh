@@ -107,6 +107,8 @@ tests::nakamoto_integrations::large_mempool_next_random_fee
 tests::nakamoto_integrations::larger_mempool
 tests::nakamoto_integrations::check_block_info_rewards
 tests::signer::v0::larger_mempool
+# This test takes too long run in CI
+tests::pox_5_integrations::check_pox_5_register_for_second_bond_no_downtime
 EOF
 
 ## ── Append tests tagged with ci_skip to the exclude list ────────────────────

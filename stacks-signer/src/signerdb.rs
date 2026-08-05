@@ -255,16 +255,16 @@ impl BlockInfo {
     /// Whether the block is a tenure extend/change block or not. Used only for schema migrations
     fn is_tenure_change(&self) -> bool {
         self.block
-            .txs
-            .first()
-            .map(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)))
+            .txs()
+            .next()
+            .map(|tx| matches!(tx.payload(), TransactionPayload::TenureChange(_)))
             .unwrap_or(false)
     }
 
     /// If the block has a tenure change tx, return the cause
     fn tenure_change_cause(&self) -> Option<TenureChangeCause> {
-        let tx = self.block.txs.first()?;
-        let TransactionPayload::TenureChange(ref tenure_change) = tx.payload else {
+        let tx = self.block.txs().next()?;
+        let TransactionPayload::TenureChange(ref tenure_change) = tx.payload() else {
             // if its not a tenure change payload at all, return None
             return None;
         };
@@ -2548,10 +2548,7 @@ pub mod tests {
         overrides: impl FnOnce(&mut BlockProposal),
     ) -> (BlockInfo, BlockProposal) {
         let header = NakamotoBlockHeader::empty();
-        let block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let block = NakamotoBlock::new(header, vec![]);
         let mut block_proposal = BlockProposal {
             block,
             burn_height: 7,
@@ -3360,7 +3357,10 @@ pub mod tests {
             b.burn_height = 1;
         });
         block_info_1.state = BlockState::GloballyAccepted;
-        block_info_1.block.txs.push(tenure_change_tx.clone());
+        block_info_1
+            .block
+            .executed_and_skipped_txs_mut()
+            .push(tenure_change_tx.clone());
         block_info_1.validation_time_ms = Some(1000);
         block_info_1.proposed_time = get_epoch_time_secs() + 500;
 
@@ -3381,7 +3381,10 @@ pub mod tests {
             b.burn_height = 2;
         });
         block_info_3.state = BlockState::GloballyAccepted;
-        block_info_3.block.txs.push(tenure_change_tx);
+        block_info_3
+            .block
+            .executed_and_skipped_txs_mut()
+            .push(tenure_change_tx);
         block_info_3.validation_time_ms = Some(5000);
         block_info_3.proposed_time = block_info_1.proposed_time + 10;
 
@@ -3752,10 +3755,7 @@ pub mod tests {
     #[test]
     fn deserialize_old_block_info() {
         let block_info_prev = BlockInfoPrev {
-            block: NakamotoBlock {
-                header: NakamotoBlockHeader::genesis(),
-                txs: vec![],
-            },
+            block: NakamotoBlock::new(NakamotoBlockHeader::genesis(), vec![]),
             burn_block_height: 2,
             reward_cycle: 3,
             vote: None,

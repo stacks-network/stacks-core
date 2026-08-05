@@ -26,6 +26,7 @@ pub enum ClarityVersion {
     Clarity3,
     Clarity4,
     Clarity5,
+    Clarity6,
 }
 
 // Compile-time guard: if a new variant is added to the enum above without
@@ -47,13 +48,14 @@ impl fmt::Display for ClarityVersion {
             ClarityVersion::Clarity3 => write!(f, "Clarity 3"),
             ClarityVersion::Clarity4 => write!(f, "Clarity 4"),
             ClarityVersion::Clarity5 => write!(f, "Clarity 5"),
+            ClarityVersion::Clarity6 => write!(f, "Clarity 6"),
         }
     }
 }
 
 impl ClarityVersion {
     pub const fn latest() -> ClarityVersion {
-        ClarityVersion::Clarity5
+        ClarityVersion::Clarity6
     }
 
     pub const ALL: &'static [ClarityVersion] = &[
@@ -62,6 +64,7 @@ impl ClarityVersion {
         ClarityVersion::Clarity3,
         ClarityVersion::Clarity4,
         ClarityVersion::Clarity5,
+        ClarityVersion::Clarity6,
     ];
 
     /// Returns all [`ClarityVersion`] starting from the given `version` (inclusive)
@@ -88,8 +91,12 @@ impl ClarityVersion {
 
     pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
         match epoch_id {
-            // Clarity does not exist in Epoch 1.0; callers that hit this branch are buggy.
-            StacksEpochId::Epoch10 => ClarityVersion::Clarity1,
+            StacksEpochId::Epoch10 => {
+                warn!(
+                    "Attempted to get default Clarity version for Epoch 1.0 where Clarity does not exist"
+                );
+                ClarityVersion::Clarity1
+            }
             StacksEpochId::Epoch20 => ClarityVersion::Clarity1,
             StacksEpochId::Epoch2_05 => ClarityVersion::Clarity1,
             StacksEpochId::Epoch21 => ClarityVersion::Clarity2,
@@ -102,27 +109,17 @@ impl ClarityVersion {
             StacksEpochId::Epoch32 => ClarityVersion::Clarity3,
             StacksEpochId::Epoch33 => ClarityVersion::Clarity4,
             StacksEpochId::Epoch34 => ClarityVersion::Clarity5,
+            StacksEpochId::Epoch40 => ClarityVersion::Clarity6,
+            StacksEpochId::Epoch41 => ClarityVersion::Clarity6,
         }
     }
 
     pub fn supports_callables(&self) -> bool {
-        match self {
-            ClarityVersion::Clarity1 => false,
-            ClarityVersion::Clarity2
-            | ClarityVersion::Clarity3
-            | ClarityVersion::Clarity4
-            | ClarityVersion::Clarity5 => true,
-        }
+        self >= &ClarityVersion::Clarity2
     }
 
     pub fn uses_secp256r1_double_hashing(&self) -> bool {
-        match self {
-            ClarityVersion::Clarity1
-            | ClarityVersion::Clarity2
-            | ClarityVersion::Clarity3
-            | ClarityVersion::Clarity4 => true,
-            ClarityVersion::Clarity5 => false,
-        }
+        self <= &ClarityVersion::Clarity4
     }
 
     /// Beginning in Clarity 5, cost functions that call `logn` are ensured to
@@ -131,13 +128,13 @@ impl ClarityVersion {
     /// function that requires this protection is `from-consensus-buff?`, other
     /// cost functions that call `logn` are already protected from zeros.
     pub fn protects_logn_cost_fn(&self) -> bool {
-        match self {
-            ClarityVersion::Clarity1
-            | ClarityVersion::Clarity2
-            | ClarityVersion::Clarity3
-            | ClarityVersion::Clarity4 => false,
-            ClarityVersion::Clarity5 => true,
-        }
+        self >= &ClarityVersion::Clarity5
+    }
+
+    /// Beginning in Clarity 6, `concat` is variadic and accepts two or more
+    /// arguments. Earlier versions require exactly two arguments.
+    pub fn supports_variadic_concat(&self) -> bool {
+        self >= &ClarityVersion::Clarity6
     }
 }
 
@@ -156,9 +153,11 @@ impl FromStr for ClarityVersion {
             Ok(ClarityVersion::Clarity4)
         } else if s == "clarity5" {
             Ok(ClarityVersion::Clarity5)
+        } else if s == "clarity6" {
+            Ok(ClarityVersion::Clarity6)
         } else {
             Err(
-                "Invalid clarity version. Valid versions are: Clarity1, Clarity2, Clarity3, Clarity4, Clarity5.",
+                "Invalid clarity version. Valid versions are: Clarity1, Clarity2, Clarity3, Clarity4, Clarity5, Clarity6.",
             )
         }
     }

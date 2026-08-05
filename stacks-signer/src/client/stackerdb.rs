@@ -329,14 +329,10 @@ mod tests {
         let mut stackerdb = StackerDB::from(&signer_config);
 
         let header = NakamotoBlockHeader::empty();
-        let mut block = NakamotoBlock {
-            header,
-            txs: vec![],
-        };
+        let mut block = NakamotoBlock::new(header, vec![]);
         let tx_merkle_root = {
             let txid_vecs: Vec<_> = block
-                .txs
-                .iter()
+                .txs()
                 .map(|tx| tx.txid().as_bytes().to_vec())
                 .collect();
 

@@ -28,7 +28,10 @@ use stacks_common::types::StacksEpochId;
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::coordinator::OnChainRewardSetProvider;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
+use crate::chainstate::nakamoto::signer_set::{pox_5_sbtc_contract, pox_5_sbtc_registry_contract};
+use crate::chainstate::stacks::boot::{
+    POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME, POX_5_SIGNER_SET_MIN_USTX,
+};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::core::StacksEpoch;
@@ -128,6 +131,19 @@ pub struct RPCPoxInfoData {
 
     // Information specific to each PoX contract version
     pub contract_versions: Vec<RPCPoxContractVersion>,
+
+    // Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract used for PoX
+    // payments in epoch 4+. On mainnet this is the canonical sBTC token; on
+    // non-mainnet it reflects this node's configuration (operators configuring
+    // different contracts will fork the chain), so it is exposed here for
+    // diagnostics.
+    pub pox_5_sbtc_contract: String,
+
+    // Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract from which the
+    // node derives the per-cycle sBTC waterfall recipient (epoch 4+) via a
+    // call to `get-current-aggregate-pubkey`. Same mainnet-fixed /
+    // non-mainnet-configurable semantics as `pox_5_sbtc_contract`.
+    pub pox_5_sbtc_registry_contract: String,
 }
 
 impl RPCPoxInfoData {
@@ -186,6 +202,15 @@ impl RPCPoxInfoData {
             ))
             .ok_or(NetError::ChainstateError(
                 "PoX-4 first reward cycle begins before first burn block height".to_string(),
+            ))?
+            + 1;
+
+        let pox_5_first_cycle = burnchain
+            .block_height_to_reward_cycle(u64::from(
+                burnchain.pox_constants.pox_5_activation_height,
+            ))
+            .ok_or(NetError::ChainstateError(
+                "PoX-5 first reward cycle begins before first burn block height".to_string(),
             ))?
             + 1;
 
@@ -372,25 +397,31 @@ impl RPCPoxInfoData {
             reward_slots as u128,
         ) as u64;
 
-        let cur_cycle_threshold = Self::get_persisted_cycle_threshold(
-            sortdb,
-            chainstate,
-            tip,
-            &burnchain_tip,
-            current_reward_sets,
-            reward_cycle_id,
-        )
-        .unwrap_or(cur_cycle_threshold_live);
+        let cur_cycle_threshold = Self::resolve_cycle_threshold(
+            cur_cycle_pox_contract,
+            Self::get_persisted_cycle_threshold(
+                sortdb,
+                chainstate,
+                tip,
+                &burnchain_tip,
+                current_reward_sets,
+                reward_cycle_id,
+            ),
+            cur_cycle_threshold_live,
+        );
 
-        let next_threshold = Self::get_persisted_cycle_threshold(
-            sortdb,
-            chainstate,
-            tip,
-            &burnchain_tip,
-            current_reward_sets,
-            reward_cycle_id + 1,
-        )
-        .unwrap_or(next_threshold_live);
+        let next_threshold = Self::resolve_cycle_threshold(
+            next_cycle_pox_contract,
+            Self::get_persisted_cycle_threshold(
+                sortdb,
+                chainstate,
+                tip,
+                &burnchain_tip,
+                current_reward_sets,
+                reward_cycle_id + 1,
+            ),
+            next_threshold_live,
+        );
 
         let pox_activation_threshold_ustx = (total_liquid_supply_ustx as u128)
             .checked_mul(pox_consts.pox_participation_threshold_pct as u128)
@@ -478,8 +509,37 @@ impl RPCPoxInfoData {
                         as u64,
                     first_reward_cycle_id: pox_4_first_cycle,
                 },
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_5_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain
+                        .pox_constants
+                        .pox_5_activation_height
+                        as u64,
+                    first_reward_cycle_id: pox_5_first_cycle,
+                },
             ],
+            pox_5_sbtc_contract: pox_5_sbtc_contract(mainnet).to_string(),
+            pox_5_sbtc_registry_contract: pox_5_sbtc_registry_contract(mainnet).to_string(),
         })
+    }
+
+    /// Pick the participation-minimum value to surface on `/v2/pox` for a
+    /// given reward cycle.
+    ///
+    /// pox-1..pox-4 use a dynamic, liquid-supply-derived minimum stored on
+    /// the persisted reward set's `pox_ustx_threshold` (with a live
+    /// recompute as fallback before the reward set is anchored). pox-5
+    /// replaces that formula with a flat `SIGNER_SET_MIN_USTX` constant.
+    fn resolve_cycle_threshold(
+        cycle_pox_contract: &str,
+        persisted_threshold: Option<u64>,
+        live_threshold: u64,
+    ) -> u64 {
+        if cycle_pox_contract == POX_5_NAME {
+            POX_5_SIGNER_SET_MIN_USTX
+        } else {
+            persisted_threshold.unwrap_or(live_threshold)
+        }
     }
 
     /// Load a reward cycle's threshold from stored reward set data, if available.
@@ -496,7 +556,7 @@ impl RPCPoxInfoData {
         if let Some(threshold) = current_reward_sets
             .get(&reward_cycle_id)
             .and_then(|reward_cycle| reward_cycle.reward_set())
-            .and_then(|reward_set| reward_set.pox_ustx_threshold)
+            .and_then(|reward_set| reward_set.pox_ustx_threshold())
             .and_then(|threshold| u64::try_from(threshold).ok())
         {
             return Some(threshold);
@@ -509,7 +569,7 @@ impl RPCPoxInfoData {
             provider.read_reward_set_nakamoto(chainstate, reward_cycle_id, sortdb, tip, true)
         {
             if let Some(threshold) = reward_set
-                .pox_ustx_threshold
+                .pox_ustx_threshold()
                 .and_then(|threshold| u64::try_from(threshold).ok())
             {
                 return Some(threshold);
@@ -523,7 +583,7 @@ impl RPCPoxInfoData {
         ) {
             if let Some(threshold) = reward_cycle_info
                 .known_selected_anchor_block()
-                .and_then(|reward_set| reward_set.pox_ustx_threshold)
+                .and_then(|reward_set| reward_set.pox_ustx_threshold())
                 .and_then(|threshold| u64::try_from(threshold).ok())
             {
                 return Some(threshold);
@@ -653,5 +713,45 @@ impl StacksHttpResponse {
         let pox_info: RPCPoxInfoData = serde_json::from_value(response_json)
             .map_err(|_e| Error::DecodeError("Failed to decode JSON".to_string()))?;
         Ok(pox_info)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// pox-5 cycles surface the flat `SIGNER_SET_MIN_USTX` regardless of the
+    /// persisted slot-apportionment threshold or the legacy
+    /// liquid-supply-derived live estimate. Older PoX versions keep the
+    /// pre-existing behavior: prefer the persisted threshold, fall back to
+    /// the live value.
+    #[test]
+    fn resolve_cycle_threshold_pox5_ignores_legacy_inputs() {
+        // Even with a much-larger persisted apportionment threshold and a
+        // very different live estimate, pox-5 returns the flat constant.
+        assert_eq!(
+            RPCPoxInfoData::resolve_cycle_threshold(POX_5_NAME, Some(10_000_000_000_000), 1),
+            POX_5_SIGNER_SET_MIN_USTX,
+        );
+        assert_eq!(
+            RPCPoxInfoData::resolve_cycle_threshold(POX_5_NAME, None, 12_345),
+            POX_5_SIGNER_SET_MIN_USTX,
+        );
+    }
+
+    #[test]
+    fn resolve_cycle_threshold_pre_pox5_prefers_persisted() {
+        for contract in [POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME] {
+            assert_eq!(
+                RPCPoxInfoData::resolve_cycle_threshold(contract, Some(42), 99),
+                42,
+                "{contract} should prefer persisted threshold over live",
+            );
+            assert_eq!(
+                RPCPoxInfoData::resolve_cycle_threshold(contract, None, 99),
+                99,
+                "{contract} should fall back to live threshold when not persisted",
+            );
+        }
     }
 }

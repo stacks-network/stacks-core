@@ -143,7 +143,7 @@ fn create_event_info_data_code(
                         ;; start of lock-up.
                         ;; equal to args[2]
                         start-burn-height: {start_burn_height},
-                        ;; how long to lock, in burn blocks
+                        ;; how long to lock, in cycles
                         ;; equal to args[3]
                         lock-period: {lock_period},
                         ;; equal to args[4]
@@ -193,7 +193,7 @@ fn create_event_info_data_code(
                         ;; start of lock-up
                         ;; equal to args[3]
                         start-burn-height: {start_burn_height},
-                        ;; how long to lock, in burn blocks
+                        ;; how long to lock, in cycles
                         ;; equal to args[3]
                         lock-period: {lock_period},
                         ;; delegator
