@@ -184,6 +184,11 @@ pub struct EventDispatcher {
     pub stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
     /// Path to the database where pending payloads are stored.
     db_path: PathBuf,
+    /// When `false`, the `contract_interface` field of transaction payloads in
+    /// `new_block` / `new_microblocks` events is always emitted as `None`,
+    /// regardless of whether the transaction deployed a contract. Set from
+    /// [`NodeConfig::disable_contract_interface_in_events`].
+    include_contract_interface: bool,
     /// The worker thread that performs the actual HTTP requests so that they don't block
     /// the main operation of the node.
     worker: EventDispatcherWorker,
@@ -423,6 +428,7 @@ impl EventDispatcher {
             stackerdb_observers_lookup: HashSet::new(),
             block_proposal_observers_lookup: HashSet::new(),
             db_path,
+            include_contract_interface: true,
             worker,
         }
     }
@@ -646,6 +652,7 @@ impl EventDispatcher {
                     signer_bitvec,
                     block_timestamp,
                     coinbase_height,
+                    self.include_contract_interface,
                 );
 
                 // Send payload
@@ -697,7 +704,8 @@ impl EventDispatcher {
         for (_, _, receipts) in processed_unconfirmed_state.receipts.iter() {
             tx_index = 0;
             for receipt in receipts.iter() {
-                let payload = make_new_block_txs_payload(receipt, tx_index);
+                let payload =
+                    make_new_block_txs_payload(receipt, tx_index, self.include_contract_interface);
                 serialized_txs.push(payload);
                 tx_index += 1;
             }
@@ -964,6 +972,13 @@ impl EventDispatcher {
                 dispatch_matrix[*o_i as usize].insert(event_index);
             }
         }
+    }
+
+    /// Control whether transaction `contract_interface` (ABI) data is included in
+    /// `new_block` / `new_microblocks` event payloads. When `false`, the field is
+    /// always emitted as `None`. Defaults to `true`.
+    pub fn set_include_contract_interface(&mut self, include: bool) {
+        self.include_contract_interface = include;
     }
 
     pub fn register_observer(&mut self, conf: &EventObserverConfig) {

@@ -367,6 +367,8 @@ impl Node {
         for observer in &config.events_observers {
             event_dispatcher.register_observer(observer);
         }
+        event_dispatcher
+            .set_include_contract_interface(!config.node.disable_contract_interface_in_events);
 
         let burnchain_config = config.get_burnchain();
 

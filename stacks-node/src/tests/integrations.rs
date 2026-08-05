@@ -1726,6 +1726,115 @@ fn mine_contract_twice() {
     run_loop.start(num_rounds).unwrap();
 }
 
+/// End-to-end check that `[node] disable_contract_interface_in_events = true`
+/// causes the `contract_interface` (ABI) field of every transaction in emitted
+/// `new_block` events to be `null`, even for a contract-publish transaction that
+/// would otherwise carry a fully populated interface. Mirrors `mine_contract_twice`,
+/// but drives a real event observer to inspect the emitted payloads.
+#[ignore]
+#[test]
+fn contract_interface_omitted_from_block_events_when_disabled() {
+    use std::thread::sleep;
+    use std::time::{Duration, Instant};
+
+    use stacks::config::EventKeyType;
+
+    use super::neon_integrations::test_observer;
+
+    let mut conf = new_test_conf();
+    let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+
+    conf.burnchain.commit_anchor_block_within = 1000;
+    conf.add_initial_balance(to_addr(&contract_sk).to_string(), 1000);
+
+    // The behavior under test: the ABI must be stripped from all block events.
+    conf.node.disable_contract_interface_in_events = true;
+
+    // Capture `new_block` events with an in-process HTTP observer.
+    test_observer::clear();
+    test_observer::spawn();
+    test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
+
+    let num_rounds = 3;
+    let mut run_loop = RunLoop::new(conf);
+
+    run_loop
+        .callbacks
+        .on_new_tenure(|round, _burnchain_tip, _chain_tip, tenure| {
+            let mut chainstate_copy = tenure.open_chainstate();
+            let sortdb = tenure.open_fake_sortdb();
+            let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
+
+            if round == 1 {
+                let publish_tx = make_contract_publish(
+                    &contract_sk,
+                    0,
+                    10,
+                    CHAIN_ID_TESTNET,
+                    "faucet",
+                    FAUCET_CONTRACT,
+                );
+                let (consensus_hash, block_hash) = (
+                    &tenure.parent_block.metadata.consensus_hash,
+                    &tenure.parent_block.metadata.anchored_header.block_hash(),
+                );
+                tenure
+                    .mem_pool
+                    .submit_raw(
+                        &mut chainstate_copy,
+                        &sortdb,
+                        consensus_hash,
+                        block_hash,
+                        publish_tx,
+                        &ExecutionCost::max_value(),
+                        &StacksEpochId::Epoch21,
+                    )
+                    .unwrap();
+            }
+        });
+
+    run_loop.start(num_rounds).unwrap();
+
+    // The observer worker posts asynchronously, so poll until the contract-publish
+    // transaction shows up in a `new_block` event (or we time out). `run_loop` stays
+    // in scope here, keeping the dispatcher's worker thread alive to finish flushing.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut saw_contract_publish = false;
+    loop {
+        for block in test_observer::get_blocks() {
+            let txs = block.get("transactions").unwrap().as_array().unwrap();
+            for tx in txs {
+                // With the option enabled, the ABI is omitted for every transaction.
+                assert!(
+                    tx.get("contract_interface").unwrap().is_null(),
+                    "contract_interface must be null when disabled, got tx: {tx}"
+                );
+
+                // Positively confirm the contract-publish tx was observed, so the
+                // null-check above is not vacuously satisfied.
+                let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+                if raw_tx != "0x00" {
+                    let bytes = hex_bytes(raw_tx.trim_start_matches("0x")).unwrap();
+                    let parsed = StacksTransaction::consensus_deserialize(&mut &bytes[..]).unwrap();
+                    if matches!(parsed.payload, TransactionPayload::SmartContract(..)) {
+                        saw_contract_publish = true;
+                    }
+                }
+            }
+        }
+
+        if saw_contract_publish || Instant::now() > deadline {
+            break;
+        }
+        sleep(Duration::from_millis(500));
+    }
+
+    assert!(
+        saw_contract_publish,
+        "did not observe the contract-publish transaction in any new_block event"
+    );
+}
+
 #[test]
 fn bad_contract_tx_rollback() {
     let mut conf = new_test_conf();

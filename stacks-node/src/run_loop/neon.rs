@@ -337,6 +337,8 @@ impl RunLoop {
         for observer in config.events_observers.iter() {
             event_dispatcher.register_observer(observer);
         }
+        event_dispatcher
+            .set_include_contract_interface(!config.node.disable_contract_interface_in_events);
 
         Self {
             config,

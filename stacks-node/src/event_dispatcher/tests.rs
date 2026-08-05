@@ -198,6 +198,7 @@ fn build_block_processed_event() {
         &Some(signer_bitvec.clone()),
         block_timestamp,
         coinbase_height,
+        true,
     );
     assert_eq!(
         payload
@@ -287,6 +288,7 @@ fn test_block_processed_event_nakamoto() {
         &Some(signer_bitvec),
         block_timestamp,
         coinbase_height,
+        true,
     );
 
     let event_signer_signature = payload
@@ -960,13 +962,69 @@ fn make_new_block_txs_payload_vm_error() {
         tx_index: 0,
     };
 
-    let payload_no_error = make_new_block_txs_payload(&receipt, 0);
+    let payload_no_error = make_new_block_txs_payload(&receipt, 0, true);
     assert_eq!(payload_no_error.vm_error, receipt.vm_error);
 
     receipt.vm_error = Some("Inconceivable!".into());
 
-    let payload_with_error = make_new_block_txs_payload(&receipt, 0);
+    let payload_with_error = make_new_block_txs_payload(&receipt, 0, true);
     assert_eq!(payload_with_error.vm_error, receipt.vm_error);
+}
+
+#[test]
+/// The `contract_interface` field is populated when inclusion is enabled, and is
+/// always `None` when disabled -- even when the receipt carries a contract analysis.
+fn make_new_block_txs_payload_contract_interface_toggle() {
+    let privkey = StacksPrivateKey::random();
+    let tx = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: 0x80000000,
+        auth: TransactionAuth::from_p2pkh(&privkey).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::TokenTransfer(
+            to_addr(&privkey).to_account_principal(),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        ),
+    };
+
+    let analysis = clarity::vm::analysis::ContractAnalysis::new(
+        clarity::vm::types::QualifiedContractIdentifier::transient(),
+        vec![],
+        clarity::vm::costs::LimitedCostTracker::new_free(),
+        stacks_common::types::StacksEpochId::Epoch21,
+        clarity::vm::ClarityVersion::Clarity1,
+    );
+
+    let receipt = StacksTransactionReceipt {
+        transaction: TransactionOrigin::Stacks(tx),
+        events: vec![],
+        post_condition_aborted: false,
+        result: Value::okay_true(),
+        contract_analysis: Some(analysis),
+        execution_cost: ExecutionCost {
+            write_length: 0,
+            write_count: 0,
+            read_length: 0,
+            read_count: 0,
+            runtime: 0,
+        },
+        microblock_header: None,
+        vm_error: None,
+        problematic_skipped: None,
+        stx_burned: 0u128,
+        tx_index: 0,
+    };
+
+    // Enabled: the ABI is present because the receipt has a contract analysis.
+    let included = make_new_block_txs_payload(&receipt, 0, true);
+    assert!(included.contract_interface.is_some());
+
+    // Disabled: the ABI is omitted regardless of the receipt's contract analysis.
+    let omitted = make_new_block_txs_payload(&receipt, 0, false);
+    assert!(omitted.contract_interface.is_none());
 }
 
 fn make_tenure_change_payload() -> TenureChangePayload {
@@ -1035,7 +1093,7 @@ fn backwards_compatibility_transaction_event_payload() {
         vm_error: None,
         problematic_skipped: None,
     };
-    let payload = make_new_block_txs_payload(&receipt, 0);
+    let payload = make_new_block_txs_payload(&receipt, 0, true);
     let new_serialized_data = serde_json::to_string_pretty(&payload).expect("Failed");
     let old_serialized_data = r#"
         {
