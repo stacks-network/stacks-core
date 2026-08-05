@@ -23,8 +23,8 @@ use crate::errors::ClarityTypeError;
 use crate::types::{
     ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
     QualifiedContractIdentifier, RetainValuesError, SequenceData, SequenceSubtype,
-    SequencedValue as _, StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature,
-    TypeSignature, UTF8Data, Value,
+    SequencedValue as _, StandardPrincipalData, TraitIdentifier, TupleData, TupleFieldsBehavior,
+    TupleTypeSignature, TypeSignature, UTF8Data, Value,
 };
 
 mod utils {
@@ -406,7 +406,7 @@ fn test_tuple_data_from_data_typed_returns_clarity_type_error() {
         &StacksEpochId::Epoch32,
         vec![(ClarityName::from_literal("a"), Value::UInt(1))],
         &tuple_type,
-        false,
+        TupleFieldsBehavior::LEGACY,
     )
     .unwrap_err();
     assert_eq!(
@@ -433,7 +433,7 @@ fn test_tuple_data_from_data_typed_enforces_exact_fields() {
             (ClarityName::from_literal("a"), Value::Int(2)),
         ],
         &expected,
-        true,
+        TupleFieldsBehavior::EXACT_FIELD_SET,
     )
     .unwrap_err();
     assert_eq!(
@@ -441,11 +441,31 @@ fn test_tuple_data_from_data_typed_enforces_exact_fields() {
         ClarityTypeError::DuplicateTupleField("a".into())
     );
 
+    // Type admission runs before duplicate detection, so a wrong-typed
+    // duplicate reports the type mismatch, not the duplicate field.
+    let precedence_err = TupleData::from_data_typed(
+        &StacksEpochId::Epoch21,
+        vec![
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("a"), Value::UInt(2)),
+        ],
+        &expected,
+        TupleFieldsBehavior::EXACT_FIELD_SET,
+    )
+    .unwrap_err();
+    assert_eq!(
+        precedence_err,
+        ClarityTypeError::TypeMismatchValue(
+            Box::new(TypeSignature::IntType),
+            Box::new(Value::UInt(2)),
+        )
+    );
+
     let missing_err = TupleData::from_data_typed(
         &StacksEpochId::Epoch21,
         vec![(ClarityName::from_literal("a"), Value::Int(1))],
         &expected,
-        true,
+        TupleFieldsBehavior::EXACT_FIELD_SET,
     )
     .unwrap_err();
     let actual = TupleTypeSignature::try_from(vec![(
@@ -465,7 +485,7 @@ fn test_tuple_data_from_data_typed_enforces_exact_fields() {
             (ClarityName::from_literal("a"), Value::Int(1)),
         ],
         &expected,
-        true,
+        TupleFieldsBehavior::EXACT_FIELD_SET,
     )
     .unwrap();
     assert_eq!(tuple.len(), expected.len());

@@ -28,7 +28,8 @@ use crate::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::types::{
     BOUND_VALUE_SERIALIZATION_BYTES, BufferLength, CallableData, CharType, MAX_TYPE_DEPTH,
     MAX_VALUE_SIZE, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    SequenceSubtype, StandardPrincipalData, StringSubtype, TupleData, TypeSignature, Value,
+    SequenceSubtype, StandardPrincipalData, StringSubtype, TupleData, TupleFieldsBehavior,
+    TypeSignature, Value,
 };
 
 /// Errors that may occur in serialization or deserialization
@@ -540,14 +541,19 @@ impl Value {
         expected_type: Option<&TypeSignature>,
         sanitize: bool,
     ) -> Result<(Value, u64), SerializationError> {
-        Self::deserialize_read_count_with_options(r, expected_type, sanitize, false)
+        Self::deserialize_read_count_with_options(
+            r,
+            expected_type,
+            sanitize,
+            TupleFieldsBehavior::LEGACY,
+        )
     }
 
     fn deserialize_read_count_with_options<R: Read>(
         r: &mut R,
         expected_type: Option<&TypeSignature>,
         sanitize: bool,
-        strict_tuple_fields: bool,
+        behavior: TupleFieldsBehavior,
     ) -> Result<(Value, u64), SerializationError> {
         let bound_value_serialization_bytes = if sanitize && expected_type.is_some() {
             SANITIZATION_READ_BOUND
@@ -555,12 +561,8 @@ impl Value {
             BOUND_VALUE_SERIALIZATION_BYTES as u64
         };
         let mut bound_reader = BoundReader::from_reader(r, bound_value_serialization_bytes);
-        let value = Value::inner_deserialize_read(
-            &mut bound_reader,
-            expected_type,
-            sanitize,
-            strict_tuple_fields,
-        )?;
+        let value =
+            Value::inner_deserialize_read(&mut bound_reader, expected_type, sanitize, behavior)?;
         let bytes_read = bound_reader.num_read();
         if let Some(expected_type) = expected_type {
             let expect_size = match expected_type.max_serialized_size() {
@@ -589,7 +591,7 @@ impl Value {
         r: &mut R,
         top_expected_type: Option<&TypeSignature>,
         sanitize: bool,
-        strict_tuple_fields: bool,
+        behavior: TupleFieldsBehavior,
     ) -> Result<Value, SerializationError> {
         use super::Value::*;
 
@@ -850,7 +852,7 @@ impl Value {
                                 &DESERIALIZATION_TYPE_CHECK_EPOCH,
                                 vec![],
                                 tuple_type,
-                                strict_tuple_fields,
+                                behavior,
                             )
                             .map_err(|_| "Illegal tuple type")
                             .map(Value::from)?
@@ -1017,7 +1019,7 @@ impl Value {
                                     &DESERIALIZATION_TYPE_CHECK_EPOCH,
                                     items,
                                     &tuple_type,
-                                    strict_tuple_fields,
+                                    behavior,
                                 )
                                 .map_err(|_| "Illegal tuple type")
                                 .map(Value::from)?
@@ -1177,7 +1179,7 @@ impl Value {
             &mut bytes.as_slice(),
             Some(expected),
             epoch.value_sanitizing(),
-            epoch.enforces_exact_typed_tuple_field_set(),
+            TupleFieldsBehavior::from_epoch(epoch),
         )
         .map(|(value, _)| value)
     }
@@ -1221,7 +1223,7 @@ impl Value {
             &mut bytes.as_slice(),
             Some(expected),
             epoch.value_sanitizing(),
-            epoch.enforces_exact_typed_tuple_field_set(),
+            TupleFieldsBehavior::from_epoch(epoch),
         )?;
         if read_count != (input_length as u64) {
             Err(SerializationError::LeftoverBytesInDeserialization)
