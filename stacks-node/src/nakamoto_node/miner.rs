@@ -857,6 +857,9 @@ impl BlockMinerThread {
                             return Ok(false);
                         }
                         _ => {
+                            // Terminal for an identical chunk. `TooManySlotWrites` can't really occur:
+                            // `.miners` uses `max_writes = u32::MAX`, so the local `MinerDB`
+                            // version never needs to attempt reconciling with the replica.
                             error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
                                 "signer_signature_hash" => %new_block.header.signer_signature_hash(),
                                 "block_height" => new_block.header.chain_length,
