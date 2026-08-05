@@ -68,6 +68,9 @@ const SANITIZATION_READ_BOUND: u64 = 15_000_000;
 /// After epoch-2.4, with type sanitization support, the full
 ///  clarity depth limit is supported.
 const UNSANITIZED_DEPTH_CHECK: usize = 16;
+/// Initial capacity used when deserializing list/tuple containers; the vector
+/// grows as elements are read. Does not change the accepted serialized length.
+const INITIAL_DESERIALIZATION_CONTAINER_CAPACITY: usize = 1024;
 
 impl std::fmt::Display for SerializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -738,7 +741,9 @@ impl Value {
                     };
 
                     if len > 0 {
-                        let items = Vec::with_capacity(len as usize);
+                        let items = Vec::with_capacity(
+                            (len as usize).min(INITIAL_DESERIALIZATION_CONTAINER_CAPACITY),
+                        );
                         let stack_item = DeserializeStackItem::List {
                             items,
                             expected_len: len,
@@ -802,7 +807,9 @@ impl Value {
                     };
 
                     if len > 0 {
-                        let items = Vec::with_capacity(expected_len as usize);
+                        let items = Vec::with_capacity(
+                            (expected_len as usize).min(INITIAL_DESERIALIZATION_CONTAINER_CAPACITY),
+                        );
                         let first_key = ClarityName::deserialize_read(r)?;
                         // figure out if the next (key, value) pair for this
                         //  tuple will be elided (or sanitized) from the tuple.

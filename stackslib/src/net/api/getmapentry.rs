@@ -25,6 +25,7 @@ use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::to_hex;
 
+use crate::net::api::read_only_parse::parse_map_key_body;
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
@@ -47,13 +48,16 @@ pub struct MapEntryResponse {
 
 #[derive(Clone)]
 pub struct RPCGetMapEntryRequestHandler {
+    max_parse_mem_bytes: u64,
     pub contract_identifier: Option<QualifiedContractIdentifier>,
     pub map_name: Option<ClarityName>,
     pub key: Option<Value>,
 }
+
 impl RPCGetMapEntryRequestHandler {
-    pub fn new() -> Self {
+    pub fn new(max_parse_mem_bytes: u64) -> Self {
         Self {
+            max_parse_mem_bytes,
             contract_identifier: None,
             map_name: None,
             key: None,
@@ -106,12 +110,7 @@ impl HttpRequest for RPCGetMapEntryRequestHandler {
         let contract_identifier = request::get_contract_address(captures, "address", "contract")?;
         let map_name = request::get_clarity_name(captures, "map")?;
 
-        let mut body_ptr = body;
-        let value_hex: String = serde_json::from_reader(&mut body_ptr)
-            .map_err(|_e| Error::DecodeError("Failed to parse JSON body".into()))?;
-
-        let value = Value::try_deserialize_hex_untyped(&value_hex)
-            .map_err(|_e| Error::DecodeError("Failed to deserialize key value".into()))?;
+        let value = parse_map_key_body(body, self.max_parse_mem_bytes)?;
 
         self.contract_identifier = Some(contract_identifier);
         self.map_name = Some(map_name);

@@ -102,7 +102,7 @@ impl TimeTracker {
 }
 
 #[derive(Clone, Copy)]
-enum MemoryTracker {
+pub enum MemoryTracker {
     NoTracking,
     MaxAllocated {
         baseline: AllocationCounter,
@@ -116,11 +116,7 @@ impl MemoryTracker {
     }
 
     pub fn from_max_allocation(limit_bytes: u64) -> Self {
-        if !tracking_allocator_installed() {
-            error!(
-                "TrackingAllocator is not installed as the global allocator; any miner or signer configured memory limits will never trigger"
-            );
-        }
+        tracking_allocator_installed();
 
         Self::MaxAllocated {
             baseline: thread_allocated(),
@@ -145,6 +141,22 @@ impl MemoryTracker {
                     Ok(())
                 }
             }
+        }
+    }
+
+    /// Net bytes allocated since the baseline. `None` for `NoTracking`.
+    pub fn net_allocated_bytes(&self) -> Option<u64> {
+        match self {
+            Self::NoTracking => None,
+            Self::MaxAllocated { baseline, .. } => Some(thread_allocated().net_allocated(baseline)),
+        }
+    }
+
+    /// The configured allocation limit. `None` for `NoTracking`.
+    pub fn limit_bytes(&self) -> Option<u64> {
+        match self {
+            Self::NoTracking => None,
+            Self::MaxAllocated { limit_bytes, .. } => Some(*limit_bytes),
         }
     }
 }
