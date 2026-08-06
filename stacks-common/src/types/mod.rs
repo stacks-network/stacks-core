@@ -542,6 +542,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether typed tuple deserialization requires every declared field to be
+    /// present exactly once after sanitization.
+    pub fn enforces_exact_typed_tuple_field_set(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_specific_budget_extends(&self) -> bool {
         self >= &StacksEpochId::Epoch33
     }
