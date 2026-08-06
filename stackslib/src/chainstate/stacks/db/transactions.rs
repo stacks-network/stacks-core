@@ -18,6 +18,10 @@ use std::collections::{HashMap, HashSet};
 
 use clarity::vm::analysis::types::ContractAnalysis;
 use clarity::vm::clarity::TransactionConnection;
+// Re-exported to keep the old import paths working.
+pub use clarity::vm::clarity::{
+    analysis_failure_is_included_in_block, handle_clarity_runtime_error, ClarityRuntimeTxError,
+};
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, ExecutionState, InvocationContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
@@ -384,71 +388,6 @@ impl<T> From<(TransactionNonceMismatch, T)> for Error {
 impl From<TransactionNonceMismatch> for MemPoolRejection {
     fn from(e: TransactionNonceMismatch) -> MemPoolRejection {
         MemPoolRejection::BadNonces(e)
-    }
-}
-
-pub enum ClarityRuntimeTxError {
-    Acceptable {
-        error: ClarityError,
-        err_type: &'static str,
-    },
-    AbortedByCallback {
-        /// What the output value of the transaction would have been.
-        /// This will be a Some for contract-calls, and None for contract initialization txs.
-        output: Option<Value>,
-        /// The asset map which was evaluated by the abort callback
-        assets_modified: AssetMap,
-        /// The events from the transaction processing
-        tx_events: Vec<StacksTransactionEvent>,
-        /// A human-readable explanation for aborting the transaction
-        reason: String,
-    },
-    CostError(ExecutionCost, ExecutionCost),
-    AnalysisError(RuntimeCheckErrorKind),
-    ExecutionResourceBudgetExceeded(String),
-    Rejectable(ClarityError),
-}
-
-pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxError {
-    match error {
-        // runtime errors are okay
-        ClarityError::Interpreter(VmExecutionError::Runtime(_, _)) => {
-            ClarityRuntimeTxError::Acceptable {
-                error,
-                err_type: "runtime error",
-            }
-        }
-        ClarityError::Interpreter(VmExecutionError::EarlyReturn(_)) => {
-            ClarityRuntimeTxError::Acceptable {
-                error,
-                err_type: "short return/panic",
-            }
-        }
-        ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_check_err)) => {
-            if runtime_check_err.rejectable() {
-                ClarityRuntimeTxError::Rejectable(ClarityError::Interpreter(
-                    VmExecutionError::RuntimeCheck(runtime_check_err),
-                ))
-            } else {
-                ClarityRuntimeTxError::AnalysisError(runtime_check_err)
-            }
-        }
-        ClarityError::AbortedByCallback {
-            output,
-            assets_modified,
-            tx_events,
-            reason,
-        } => ClarityRuntimeTxError::AbortedByCallback {
-            output: output.map(|v| *v),
-            assets_modified: *assets_modified,
-            tx_events,
-            reason,
-        },
-        ClarityError::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
-        ClarityError::ExecutionResourceBudgetExceeded(s) => {
-            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s)
-        }
-        unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
 }
 
@@ -1383,7 +1322,9 @@ impl StacksChainState {
                     }
                     Err(e) => {
                         log_unreachable_error(&e, &tx.txid());
-                        match handle_clarity_runtime_error(e) {
+                        let runtime_err = handle_clarity_runtime_error(e);
+                        let included_in_block = runtime_err.is_included_in_block(epoch_id);
+                        match runtime_err {
                             ClarityRuntimeTxError::Acceptable { error, err_type } => {
                                 info!("Contract-call processed with {}", err_type;
                                           "txid" => %tx.txid(),
@@ -1432,7 +1373,7 @@ impl StacksChainState {
                                 ));
                             }
                             ClarityRuntimeTxError::AnalysisError(runtime_check_err) => {
-                                if epoch_id >= StacksEpochId::Epoch21 {
+                                if included_in_block {
                                     // in 2.1 and later, this is a permitted runtime error.  take the
                                     // fee from the payer and keep the tx.
                                     info!("Contract-call encountered an analysis error at runtime";
@@ -1572,23 +1513,15 @@ impl StacksChainState {
                                 return Err(Error::AnalysisResourceBudgetExceeded(s));
                             }
                             other_error => {
-                                if let ClarityError::Parse(err) = &other_error {
-                                    if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                        info!(
-                                            "Transaction {} is problematic and should have prevented this block from being relayed",
-                                            tx.txid()
-                                        );
-                                        return Err(Error::ClarityError(other_error));
-                                    }
-                                }
-                                if let ClarityError::StaticCheck(err) = &other_error {
-                                    if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                        info!(
-                                            "Transaction {} is problematic and should have prevented this block from being relayed",
-                                            tx.txid()
-                                        );
-                                        return Err(Error::ClarityError(other_error));
-                                    }
+                                if !analysis_failure_is_included_in_block(
+                                    &other_error,
+                                    clarity_tx.get_epoch(),
+                                ) {
+                                    info!(
+                                        "Transaction {} is problematic and should have prevented this block from being relayed",
+                                        tx.txid()
+                                    );
+                                    return Err(Error::ClarityError(other_error));
                                 }
                                 // this analysis isn't free -- convert to runtime error
                                 let mut analysis_cost = clarity_tx.cost_so_far();
@@ -1656,7 +1589,9 @@ impl StacksChainState {
                     }
                     Err(e) => {
                         log_unreachable_error(&e, &tx.txid());
-                        match handle_clarity_runtime_error(e) {
+                        let runtime_err = handle_clarity_runtime_error(e);
+                        let included_in_block = runtime_err.is_included_in_block(epoch_id);
+                        match runtime_err {
                             ClarityRuntimeTxError::Acceptable { error, err_type } => {
                                 info!("Smart-contract processed with {}", err_type;
                                           "txid" => %tx.txid(),
@@ -1710,7 +1645,7 @@ impl StacksChainState {
                                 ));
                             }
                             ClarityRuntimeTxError::AnalysisError(runtime_check_err) => {
-                                if epoch_id >= StacksEpochId::Epoch21 {
+                                if included_in_block {
                                     // in 2.1 and later, this is a permitted runtime error.  take the
                                     // fee from the payer and keep the tx.
                                     info!("Smart-contract encountered an analysis error at runtime";
