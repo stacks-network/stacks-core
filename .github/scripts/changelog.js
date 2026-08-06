@@ -42,7 +42,13 @@ module.exports = async ({ github, context, core }) => {
     return;
   }
 
-  const validExtensions = ["added", "changed", "fixed", "removed"];
+  const validExtensions = [
+    "breaking",
+    "added",
+    "changed",
+    "fixed",
+    "removed",
+  ];
   const fragments = files.filter(
     (f) =>
       (f.filename.startsWith("changelog.d/") ||

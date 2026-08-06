@@ -79,12 +79,17 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
      ```
 
      This will collect all fragment files from `changelog.d/` and `stacks-signer/changelog.d/`,
-     group them by category (Added/Changed/Fixed/Removed), insert them as a new version section
-     in the respective `CHANGELOG.md`, and delete the assembled fragments. For a signer-only
-     release, the flag `--signer` can be passed to only process the signer fragments and upate
-     `stacks-signer/CHANGELOG.md`.
+     group them by category (⚠️ Breaking Changes/Added/Changed/Fixed/Removed), insert them as a
+     new version section in the respective `CHANGELOG.md`, and delete the assembled fragments.
+     For a signer-only release, the flag `--signer` can be passed to only process the signer
+     fragments and upate `stacks-signer/CHANGELOG.md`.
 
      Review the assembled changelog for accuracy and make any manual adjustments if needed.
+
+     If the release has a **⚠️ Breaking Changes** section, it is emitted first in the version
+     section and is carried verbatim into the drafted GitHub release notes. Give it extra
+     scrutiny: every entry should state what breaks and what the operator must do, and the
+     release announcement should call the section out explicitly.
 
    - This PR must be merged before continuing to the next steps
 
