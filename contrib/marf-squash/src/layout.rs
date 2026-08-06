@@ -115,7 +115,7 @@ mod tests {
 
     use rstest::rstest;
 
-    use super::{target_out_paths, CLARITY_MARF_REL, INDEX_DB_REL, SORTITION_MARF_REL};
+    use super::{CLARITY_MARF_REL, INDEX_DB_REL, SORTITION_MARF_REL, target_out_paths};
 
     /// `target_out_paths` over (`out_dir`, rel-const) → expected `(db, blobs)`
     /// output paths. The output is always `out_dir.join(rel)` plus its `.blobs`
