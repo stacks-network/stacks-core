@@ -1,0 +1,1 @@
+From Epoch 4.1, `from-consensus-buff?` rejects typed tuples whose declared fields are duplicated or missing.
