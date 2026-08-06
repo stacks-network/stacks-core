@@ -14,7 +14,8 @@
 #
 # Note: A Slack notification is also sent in case of unexpected workflow error.
 
-name: Tests::Proptest Nightly
+name: "Tests: Proptest Nightly"
+run-name: "Tests: Proptest Nightly [${{ github.ref_name }}]"
 
 on:
   schedule:
@@ -107,6 +108,9 @@ jobs:
       # Install dependencies
       - name: Install Dependencies
         id: install_dependencies
+        # Fail fast if GitHub rate-limits the download instead of retrying
+        # until the job times out
+        timeout-minutes: 5
         uses: ./.github/actions/install-tool
         with:
           tools: nextest
