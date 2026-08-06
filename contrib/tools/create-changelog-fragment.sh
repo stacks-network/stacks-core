@@ -34,20 +34,20 @@ esac
 # --- Category ---
 echo ""
 echo "Category:"
-echo "  1) added"
-echo "  2) changed"
-echo "  3) fixed"
-echo "  4) removed"
-echo "  5) breaking  (⚠️  likely to break users)"
+echo "  1) breaking  (⚠️  likely to break users)"
+echo "  2) added"
+echo "  3) changed"
+echo "  4) fixed"
+echo "  5) removed"
 echo ""
 read -rp "Category [1/2/3/4/5]: " cat_choice
 
 case "$cat_choice" in
-  1) CATEGORY="added" ;;
-  2) CATEGORY="changed" ;;
-  3) CATEGORY="fixed" ;;
-  4) CATEGORY="removed" ;;
-  5) CATEGORY="breaking" ;;
+  1) CATEGORY="breaking" ;;
+  2) CATEGORY="added" ;;
+  3) CATEGORY="changed" ;;
+  4) CATEGORY="fixed" ;;
+  5) CATEGORY="removed" ;;
   *)
     echo "Invalid choice. Aborting."
     exit 1
