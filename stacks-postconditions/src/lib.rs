@@ -149,6 +149,11 @@ pub fn check_post_conditions_supported_in_epoch(
 /// Return `Ok(None)` if the check passes.
 /// Return `Ok(Some(reason))` if the check fails.
 /// Return `Err` if the check cannot be performed.
+///
+/// TODO: return a typed reason rather than a `String`. It becomes
+/// `StacksTransactionReceipt::vm_error`, which reaches the `new_block` event
+/// payload and the `/v3/blocks/{replay,simulate}` RPC, so changing it is an
+/// observable API change.
 pub fn check_transaction_postconditions(
     post_conditions: &[TransactionPostCondition],
     post_condition_mode: &TransactionPostConditionMode,
