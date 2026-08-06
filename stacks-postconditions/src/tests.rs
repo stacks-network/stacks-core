@@ -2451,14 +2451,14 @@ fn test_check_postconditions_pox() {
             TransactionPostConditionMode::Deny,
             StacksEpochId::Epoch40,
         ),
-        // `Performed` (must) is satisfied since an action occurred.
+        // `Performed` requires an action, and one occurred.
         (
             true,
             vec![require_pox()],
             TransactionPostConditionMode::Deny,
             StacksEpochId::Epoch40,
         ),
-        // `NotPerformed` fails in allow mode because an action occurred.
+        // `NotPerformed` fails in Allow mode because an action occurred.
         (
             false,
             vec![forbid_pox()],
@@ -2838,7 +2838,8 @@ fn test_check_postconditions_staking_pox_epoch_gate_scope() {
         check_transaction_postconditions(post_conditions, &mode, &origin, asset_map, epoch).unwrap()
     };
 
-    // before 4.0 coverage is not enforced, so no post-conditions at all passes
+    // before 4.0, coverage is not enforced, so a transaction with no
+    // post-conditions passes
     assert!(
         check(
             &[],

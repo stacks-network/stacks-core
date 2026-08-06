@@ -17,7 +17,7 @@
 //! Transaction post-condition verification for the Stacks blockchain.
 //!
 //! Post-conditions constrain the assets a transaction is allowed to move. Two
-//! checks, both needed to match mainnet semantics:
+//! checks define that constraint, and both are required:
 //! [`check_post_conditions_supported_in_epoch`] rejects variants and modes not
 //! yet activated in the current epoch, before execution;
 //! [`check_transaction_postconditions`] compares the declared post-conditions
@@ -26,7 +26,7 @@
 //!
 //! These live outside the node, and outside any one contract language, because
 //! they need only the codec post-condition types, an [`AssetMap`], the origin
-//! principal and the epoch — no database or chainstate. That lets a wasm SDK
+//! principal and the epoch — no database or chainstate. That lets a WASM SDK
 //! run the same consensus-critical code mainnet does.
 
 use std::collections::{HashMap, HashSet};
