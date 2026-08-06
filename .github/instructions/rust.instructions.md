@@ -1,5 +1,5 @@
 ---
-applyTo: "**/*.rs,**/Cargo.toml,rust-toolchain.toml"
+applyTo: "**/*.rs"
 ---
 
 # Rust and core-node review guidance
@@ -11,7 +11,30 @@ applyTo: "**/*.rs,**/Cargo.toml,rust-toolchain.toml"
 - For `unsafe` code or FFI changes, verify that the PR establishes the required memory, lifetime, aliasing, and thread-safety invariants.
 - Check error conversions when they discard distinctions or context needed for retry, peer handling, RPC behavior, rollback, or operator diagnosis.
 - Flag visibility expansion only when it unintentionally exposes an API or permits cross-module use that can violate an invariant.
-- For `Cargo.toml` and toolchain changes, check feature unification, default features, target-specific dependencies, minimum supported versions, and consistency with CI and release builds.
+
+## Rust license headers
+
+- For every `.rs` file added by the PR, including tests, benches, examples, and generated source, verify it begins with appropriate copyright attribution followed by the complete GPLv3-or-later notice.
+- For newly authored Rust source, require this header, replacing `<year>` with the appropriate year:
+  ```text
+  // Copyright (C) <year> Stacks Open Internet Foundation
+  //
+  // This program is free software: you can redistribute it and/or modify
+  // it under the terms of the GNU General Public License as published by
+  // the Free Software Foundation, either version 3 of the License, or
+  // (at your option) any later version.
+  //
+  // This program is distributed in the hope that it will be useful,
+  // but WITHOUT ANY WARRANTY; without even the implied warranty of
+  // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  // GNU General Public License for more details.
+  //
+  // You should have received a copy of the GNU General Public License
+  // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+  ```
+- Check copyright holders and years against the source's provenance, not the nearest file alone. Do not copy historical Blockstack attribution onto newly authored source unless that attribution applies.
+- For generated source, require the generator or template to emit the header rather than requesting a manual output-only edit.
+- If the PR changes an existing Rust file's header, verify the resulting block remains complete and accurate. Otherwise, do not request unrelated year-only updates or retroactive header changes to existing files.
 
 ## Consensus and chainstate
 
@@ -27,14 +50,10 @@ applyTo: "**/*.rs,**/Cargo.toml,rust-toolchain.toml"
 - Check read-only operations, trait dispatch, nested calls, epoch gating, and transaction rollback for parity across affected execution paths.
 - Check serialization, deserialization, type limits, malformed input, and compatibility with data produced under older epochs.
 
-## Signer, miner, RPC, and operations
+## Signer, miner, events, and operations
 
 - Check stale, delayed, duplicated, reordered, or replayed signer, miner, block, tenure, and burn-chain messages.
 - Verify signer thresholds, signer-set selection, miner selection, authorization, and validation decisions use the intended reward cycle and chain view.
+- Treat changes to event-observer payload shapes, field names, optionality, types, and encodings as compatibility-sensitive for downstream indexers and observers; verify serialization tests and `docs/event-dispatcher.md` remain aligned.
 - Check timeout, retry, failover, restart, cleanup, shutdown, backpressure, and bounded resource-use behavior when the PR changes a long-running or external interaction.
-- Check changed RPC status codes, response bodies, encodings, event payloads, error mapping, and block-specific requests for compatibility and correct chain views.
 - Check configuration and external-service changes, including bitcoind integration, for safe defaults, validation, timeouts, retries, partial responses, and actionable errors.
-
-## Example of a high-value comment
-
-If a fork-sensitive reward-set lookup uses `index_handle_at_tip()` while validating a block on a non-tip fork, it can resolve the PoX calculation against the wrong burn view and reuse the wrong reward set. Resolve the sortition handle from the block's parent, or establish why the tip view is guaranteed.

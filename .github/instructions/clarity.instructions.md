@@ -2,7 +2,9 @@
 applyTo: "**/*.clar"
 ---
 
-# Clarity contract review guidance
+# Clarity review guidance
+
+Clarity files include deployable contracts and parser, analysis, and type-checker fixtures. Apply the contract checks below only to executable contracts. For fixture changes, verify that the source and expected acceptance, diagnostic, or error result exercise the intended language behavior under the relevant Clarity version and epoch.
 
 ## Contract semantics
 
@@ -19,7 +21,3 @@ applyTo: "**/*.clar"
 - Check nested calls, trait dispatch, contract-call boundaries, and malformed or duplicate contract inputs.
 - Verify contract state after failed execution, not only the returned error.
 - Check comments and API documentation against the exact value credited, returned, transferred, burned, or retained.
-
-## Example of a high-value comment
-
-If documentation describes `earned` as the amount credited to a staker while an L1 withdrawal sends `earned - max-fee` and accounts for the fee budget separately, consumers may mistake the gross reward for the credited payout. Document the gross reward, credited amount, and fee budget distinctly.
