@@ -1852,7 +1852,7 @@ fn test_wasm_contract_call_preserves_contract_caller() {
         for (id, src) in [(&callee_id, callee_src), (&caller_id, caller_src)] {
             conn.as_transaction(|clarity_db| {
                 let (mut ast, analysis) = clarity_db
-                    .analyze_smart_contract(id, clarity_version, src)
+                    .analyze_smart_contract(id, clarity_version, src, None)
                     .unwrap();
                 let mut module = compile_contract(analysis.clone()).unwrap();
                 ast.wasm_module = Some(module.emit_wasm());
