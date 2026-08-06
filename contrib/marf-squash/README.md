@@ -6,7 +6,7 @@ canonical block data and Bitcoin auxiliary files, and generates a self-describin
 manifest with SHA-256 checksums for the fixed artifacts plus one aggregate hash
 for the epoch-2 block archive.
 
-This crate _produces_ a PCS; it does not verify one. Offline verification of a
+This crate *produces* a PCS; it does not verify one. Offline verification of a
 PCS against a trusted checkpoint is a separate tool, not provided here.
 
 ## Build
