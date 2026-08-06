@@ -87,6 +87,7 @@ pub mod accounts;
 pub mod blocks;
 pub mod contracts;
 pub mod headers;
+pub mod snapshot;
 pub mod transactions;
 pub mod unconfirmed;
 
@@ -1400,6 +1401,7 @@ impl StacksChainState {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
+                        None,
                         None,
                     )
                 })?;

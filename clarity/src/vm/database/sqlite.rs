@@ -32,6 +32,22 @@ use crate::vm::types::QualifiedContractIdentifier;
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 
+/// Clarity side-storage table names.
+pub const DATA_TABLE_NAME: &str = "data_table";
+pub const METADATA_TABLE_NAME: &str = "metadata_table";
+
+/// A borrowed `metadata_table` row, yielded by
+/// [`SqliteConnection::visit_metadata_rows`] and accepted by
+/// [`SqliteConnection::insert_metadata_row`].
+pub struct MetadataRow<'a> {
+    /// Full `clr-meta::<contract id>::<key>` key.
+    pub key: &'a str,
+    /// The `blockhash` column: a hex-encoded [`StacksBlockId`].
+    pub block_id: &'a str,
+    /// The stored metadata value.
+    pub value: &'a str,
+}
+
 pub struct SqliteConnection {
     conn: Connection,
 }
@@ -130,6 +146,20 @@ pub fn sqlite_get_metadata_manual(
 }
 
 impl SqliteConnection {
+    /// Build a `metadata_table` key: `clr-meta::<contract id>::<metadata key>`.
+    fn make_metadata_key(contract_id: &str, key: &str) -> String {
+        format!("clr-meta::{contract_id}::{key}")
+    }
+
+    /// Split a `metadata_table` key produced by [`Self::make_metadata_key`]
+    /// back into `(contract id, metadata key)`. Returns `None` if `key` is
+    /// not in that format. The contract id never contains `::`, so the first
+    /// separator after the prefix is the boundary (the metadata key may
+    /// itself contain `::`).
+    pub fn parse_metadata_key(key: &str) -> Option<(&str, &str)> {
+        key.strip_prefix("clr-meta::")?.split_once("::")
+    }
+
     pub fn put(conn: &Connection, key: &str, value: &str) -> Result<(), VmExecutionError> {
         sqlite_put(conn, key, value)
     }
@@ -141,11 +171,11 @@ impl SqliteConnection {
     pub fn insert_metadata(
         conn: &Connection,
         bhh: &StacksBlockId,
-        contract_hash: &str,
+        contract_id: &str,
         key: &str,
         value: &str,
     ) -> Result<(), VmExecutionError> {
-        let key = format!("clr-meta::{contract_hash}::{key}");
+        let key = Self::make_metadata_key(contract_id, key);
         let params = params![bhh, key, value];
 
         if let Err(e) = conn.execute(
@@ -156,6 +186,63 @@ impl SqliteConnection {
             return Err(VmInternalError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())
+    }
+
+    /// Insert a `metadata_table` row verbatim. [`MetadataRow::key`] is assumed
+    /// to already be in the [`Self::make_metadata_key`] (`clr-meta::`) format.
+    pub fn insert_metadata_row(
+        conn: &Connection,
+        row: &MetadataRow,
+    ) -> Result<(), rusqlite::Error> {
+        conn.prepare_cached("INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)")?
+            .execute(params![row.block_id, row.key, row.value])?;
+        Ok(())
+    }
+
+    /// Visit every `metadata_table` row on `conn` as a [`MetadataRow`].
+    pub fn visit_metadata_rows<E, F>(conn: &Connection, mut visit: F) -> Result<(), E>
+    where
+        E: From<rusqlite::Error>,
+        F: FnMut(&MetadataRow) -> Result<(), E>,
+    {
+        let mut stmt = conn.prepare("SELECT key, blockhash, value FROM metadata_table")?;
+        let mut rows = stmt.query(NO_PARAMS)?;
+        while let Some(row) = rows.next()? {
+            let key = row.get_ref(0)?.as_str().map_err(rusqlite::Error::from)?;
+            let block_id = row.get_ref(1)?.as_str().map_err(rusqlite::Error::from)?;
+            let value = row.get_ref(2)?.as_str().map_err(rusqlite::Error::from)?;
+            visit(&MetadataRow {
+                key,
+                block_id,
+                value,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Visit every `metadata_table` key on `conn` in ascending key order.
+    ///
+    /// The ascending order is a guaranteed part of this method's contract
+    /// (`ORDER BY key`); callers such as the snapshot copier rely on it for
+    /// deterministic, reproducible scans (locked by `metadata_keys_visited_in_order`).
+    pub fn visit_metadata_keys<E, F>(conn: &Connection, mut visit: F) -> Result<(), E>
+    where
+        E: From<rusqlite::Error>,
+        F: FnMut(&str) -> Result<(), E>,
+    {
+        let mut stmt = conn.prepare("SELECT key FROM metadata_table ORDER BY key")?;
+        let mut rows = stmt.query(NO_PARAMS)?;
+        while let Some(row) = rows.next()? {
+            visit(row.get_ref(0)?.as_str().map_err(rusqlite::Error::from)?)?;
+        }
+        Ok(())
+    }
+
+    /// Number of rows in `data_table`.
+    pub fn count_data_rows(conn: &Connection) -> Result<u64, rusqlite::Error> {
+        conn.query_row("SELECT COUNT(*) FROM data_table", NO_PARAMS, |row| {
+            row.get(0)
+        })
     }
 
     pub fn commit_metadata_to(
@@ -188,10 +275,10 @@ impl SqliteConnection {
     pub fn get_metadata(
         conn: &Connection,
         bhh: &StacksBlockId,
-        contract_hash: &str,
+        contract_id: &str,
         key: &str,
     ) -> Result<Option<String>, VmExecutionError> {
-        let key = format!("clr-meta::{contract_hash}::{key}");
+        let key = Self::make_metadata_key(contract_id, key);
         let params = params![bhh, key];
 
         match conn
@@ -404,23 +491,121 @@ impl ClarityBackingStore for MemoryBackingStore {
     }
 }
 
-#[test]
-fn trigger_bad_block_height() {
-    let mut store = MemoryBackingStore::default();
-    let contract_id = QualifiedContractIdentifier::transient();
-    // Use a block height that does NOT exist in MemoryBackingStore
-    // MemoryBackingStore::get_block_at_height returns None for any height != 0
-    let nonexistent_height = 42;
-    let key = "some-metadata-key";
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let err =
-        sqlite_get_metadata_manual(&mut store, nonexistent_height, &contract_id, key).unwrap_err();
+    #[test]
+    fn trigger_bad_block_height() {
+        let mut store = MemoryBackingStore::default();
+        let contract_id = QualifiedContractIdentifier::transient();
+        // Use a block height that does NOT exist in MemoryBackingStore
+        // MemoryBackingStore::get_block_at_height returns None for any height != 0
+        let nonexistent_height = 42;
+        let key = "some-metadata-key";
 
-    assert!(
-        matches!(
-            err,
-            VmExecutionError::Runtime(RuntimeError::BadBlockHeight(_), _)
-        ),
-        "Expected BadBlockHeight. Got {err}"
-    );
+        let err = sqlite_get_metadata_manual(&mut store, nonexistent_height, &contract_id, key)
+            .unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                VmExecutionError::Runtime(RuntimeError::BadBlockHeight(_), _)
+            ),
+            "Expected BadBlockHeight. Got {err}"
+        );
+    }
+
+    #[test]
+    fn metadata_keys_visited_in_order() {
+        let conn = SqliteConnection::memory().unwrap();
+        let block_id = StacksBlockId([0x11; 32]).to_hex();
+
+        // Insert keys out of order; visit_metadata_keys must yield them sorted.
+        for key in [
+            "clr-meta::contract-z::source",
+            "clr-meta::contract-a::source",
+            "clr-meta::contract-m::source",
+            "clr-meta::contract-a::other",
+        ] {
+            SqliteConnection::insert_metadata_row(
+                &conn,
+                &MetadataRow {
+                    key,
+                    block_id: &block_id,
+                    value: "v",
+                },
+            )
+            .unwrap();
+        }
+
+        let mut visited: Vec<String> = Vec::new();
+        SqliteConnection::visit_metadata_keys(&conn, |key| -> Result<(), rusqlite::Error> {
+            visited.push(key.to_string());
+            Ok(())
+        })
+        .unwrap();
+
+        let mut sorted = visited.clone();
+        sorted.sort();
+        assert_eq!(
+            visited, sorted,
+            "visit_metadata_keys must yield keys in ascending order"
+        );
+        assert_eq!(visited.len(), 4, "all rows must be visited");
+    }
+
+    #[test]
+    fn metadata_key_make_and_parse() {
+        // Round-trips through the `clr-meta::<contract id>::<key>` format.
+        let key = SqliteConnection::make_metadata_key("ST000.contract", "var");
+        assert_eq!(key, "clr-meta::ST000.contract::var");
+        assert_eq!(
+            SqliteConnection::parse_metadata_key(&key),
+            Some(("ST000.contract", "var"))
+        );
+
+        // The metadata key may itself contain "::"; only the first separator
+        // after the prefix is the boundary (contract ids never contain "::").
+        let key = SqliteConnection::make_metadata_key("ST000.contract", "vm-metadata::9::sub");
+        assert_eq!(
+            SqliteConnection::parse_metadata_key(&key),
+            Some(("ST000.contract", "vm-metadata::9::sub"))
+        );
+
+        // An empty metadata key is still well-formed.
+        let key = SqliteConnection::make_metadata_key("ST000.contract", "");
+        assert_eq!(
+            SqliteConnection::parse_metadata_key(&key),
+            Some(("ST000.contract", ""))
+        );
+
+        // A realistic mainnet contract id round-trips.
+        let key =
+            SqliteConnection::make_metadata_key("SP000000000000000000002Q6VF78.pox-4", "vars");
+        assert_eq!(
+            SqliteConnection::parse_metadata_key(&key),
+            Some(("SP000000000000000000002Q6VF78.pox-4", "vars"))
+        );
+
+        // The parser only checks shape, not identifiers: a key with an empty
+        // contract id parses here (it's rejected later by contract-id parsing).
+        assert_eq!(
+            SqliteConnection::parse_metadata_key("clr-meta::::var"),
+            Some(("", "var"))
+        );
+
+        // Keys outside the format (or with the prefix but no second separator)
+        // do not parse.
+        assert_eq!(
+            SqliteConnection::parse_metadata_key("not-a-metadata-key"),
+            None
+        );
+        assert_eq!(
+            SqliteConnection::parse_metadata_key("clr-meta::no-second-separator"),
+            None
+        );
+        assert_eq!(SqliteConnection::parse_metadata_key("clr-meta::"), None);
+        assert_eq!(SqliteConnection::parse_metadata_key(""), None);
+    }
 }

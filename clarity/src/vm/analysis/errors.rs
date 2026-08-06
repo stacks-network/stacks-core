@@ -238,6 +238,9 @@ pub enum StaticCheckErrorKind {
     // Time checker errors
     /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
     ExecutionTimeExpired,
+    /// Contract-analysis time exceeds the allowed budget, halting analysis to ensure responsiveness.
+    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable end-to-end.
+    AnalysisTimeExpired,
 
     /// Value exceeds the maximum allowed size for type-checking or serialization.
     ValueTooLarge,
@@ -570,6 +573,10 @@ pub enum RuntimeCheckErrorKind {
     ///  miner block assembly)
     AbortedByExecutionHook(String),
 
+    /// Block rejection: a `pox-4` call would overwrite
+    /// an existing asset-map stacking entry for its sender.
+    PoxStxAssetMapOverwrite,
+
     // List typing errors
     /// List elements have mismatched types, violating type consistency.
     ListTypesMustMatch,
@@ -677,6 +684,7 @@ impl RuntimeCheckErrorKind {
             RuntimeCheckErrorKind::Unreachable(_)
                 | RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(_, _)
                 | RuntimeCheckErrorKind::AbortedByExecutionHook(_)
+                | RuntimeCheckErrorKind::PoxStxAssetMapOverwrite
         )
     }
 
@@ -1153,6 +1161,7 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
             StaticCheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
+            StaticCheckErrorKind::AnalysisTimeExpired => "analysis time expired".into(),
             StaticCheckErrorKind::InvalidTypeDescription => "supplied type description is invalid".into(),
             StaticCheckErrorKind::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             StaticCheckErrorKind::UnknownTypeName(name) => format!("failed to parse type: '{name}'"),

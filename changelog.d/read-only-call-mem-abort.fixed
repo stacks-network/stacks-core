@@ -1,0 +1,1 @@
+Wired the per-call memory-abort callback and wall-clock execution-time limit into the `/v2/contracts/call-read` and `/v3/contracts/fast-call-read` read-only RPC handlers. Also added a new `read_only_call_max_mem_bytes` connection option (default 1 GB; `0` disables) to bound the heap a single read-only call may allocate.

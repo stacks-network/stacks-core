@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
 use clarity_types::types::SequenceSubtype;
 #[cfg(test)]
 use rstest::rstest;
@@ -28,7 +30,10 @@ use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::parser::v2::lexer::token::Token;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
+use crate::vm::time_tracker::TimeTracker;
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
@@ -4305,4 +4310,28 @@ fn test_contract_call_with_non_callable_constant_target(
             );
         }
     }
+}
+
+#[test]
+fn test_clarity2_inner_type_check_type_aborts_when_deadline_elapsed() {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let mut cost_tracker = LimitedCostTracker::new_free();
+    // A zero-duration deadline is already elapsed at the first check.
+    let time_tracker = TimeTracker::from_max_duration(Duration::ZERO);
+
+    let result = super::clarity2_inner_type_check_type(
+        &mut db,
+        None,
+        &BoolType,
+        &BoolType,
+        1,
+        &mut cost_tracker,
+        &time_tracker,
+    );
+
+    assert!(
+        matches!(result, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::AnalysisTimeExpired)),
+        "expected AnalysisTimeExpired, got {result:?}"
+    );
 }

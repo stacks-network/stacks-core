@@ -2260,6 +2260,7 @@ dependencies = [
  "clarity-types",
  "serde",
  "stacks-common",
+ "variant_count",
 ]
 
 [[package]]

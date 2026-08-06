@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 pub mod consensus;
+mod consensus_unit_tests;
 mod early_return_tests;
 mod madhouse;
 mod parse_tests;
@@ -294,6 +295,7 @@ impl<'a> TestChainstate<'a> {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
+                        None,
                         None,
                     )
                     .unwrap()

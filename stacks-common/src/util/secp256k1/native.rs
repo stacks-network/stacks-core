@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -74,6 +74,24 @@ impl MessageSignature {
         MessageSignature(buf)
     }
 
+    // Returns the version of this message signature in which s has
+    // the opposite sign (mod n). This is only used in tests, to
+    // create invalid (or let's call them semi-valid) transaction
+    // signatures to test how the code handles them.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn with_negated_s(&self) -> Self {
+        let mut bytes = [0u8; 65];
+        bytes.copy_from_slice(self.as_bytes());
+
+        // A `PrivateKey` is just a number, and it conveniently has a .negate()
+        // method (mod n), so we'll just use that.
+        let s = LibSecp256k1PrivateKey::from_slice(&bytes[33..]).unwrap();
+        let neg = s.negate();
+        bytes[33..].copy_from_slice(&neg.secret_bytes()[..]);
+        bytes[0] ^= 1; // invert the parity of the recovery id
+        Self(bytes)
+    }
+
     pub fn from_secp256k1_recoverable(sig: &LibSecp256k1RecoverableSignature) -> MessageSignature {
         let (recid, bytes) = sig.serialize_compact();
         let mut ret_bytes = [0u8; 65];
@@ -99,6 +117,18 @@ impl MessageSignature {
     /// Convert from VRS to RSV
     pub fn to_rsv(&self) -> Vec<u8> {
         [&self.0[1..], &self.0[0..1]].concat()
+    }
+
+    /// Convert from RSV (what Clarity uses) to VSR (what we use here)
+    pub fn from_rsv(source: &[u8]) -> Option<Self> {
+        if source.len() != 65 {
+            return None;
+        }
+        let swapped: [u8; 65] = *[&source[64..], &source[0..64]]
+            .concat()
+            .as_array()
+            .expect("source has len 65, thus this is guaranteed to work");
+        Some(Self(swapped))
     }
 }
 
@@ -161,6 +191,24 @@ impl Secp256k1PublicKey {
         msg: &[u8],
         sig: &MessageSignature,
     ) -> Result<Secp256k1PublicKey, &'static str> {
+        Self::recover_to_pubkey_possibly_with_low_s_verification(msg, sig, true)
+    }
+
+    /// Recover message and signature to public key (will be compressed), while
+    /// skipping validation that the signature is normalized to low-S. You shouldn't
+    /// use this in new code.
+    pub fn recover_to_pubkey_without_validating_low_s(
+        msg: &[u8],
+        sig: &MessageSignature,
+    ) -> Result<Secp256k1PublicKey, &'static str> {
+        Self::recover_to_pubkey_possibly_with_low_s_verification(msg, sig, false)
+    }
+
+    fn recover_to_pubkey_possibly_with_low_s_verification(
+        msg: &[u8],
+        sig: &MessageSignature,
+        verify_low_s: bool,
+    ) -> Result<Secp256k1PublicKey, &'static str> {
         _secp256k1.with(|ctx| {
             let msg = LibSecp256k1Message::from_slice(msg).map_err(|_e| {
                 "Invalid message: failed to decode data hash: must be a 32-byte hash"
@@ -169,6 +217,15 @@ impl Secp256k1PublicKey {
             let secp256k1_sig = sig
                 .to_secp256k1_recoverable()
                 .ok_or("Invalid signature: failed to decode recoverable signature")?;
+
+            if verify_low_s {
+                let secp256k1_sig_standard = secp256k1_sig.to_standard();
+                let mut secp256k1_sig_low_s = secp256k1_sig_standard;
+                secp256k1_sig_low_s.normalize_s();
+                if secp256k1_sig_low_s != secp256k1_sig_standard {
+                    return Err("Invalid signature: high-S");
+                }
+            }
 
             let recovered_pubkey = ctx
                 .recover_ecdsa(&msg, &secp256k1_sig)
@@ -222,11 +279,10 @@ impl PublicKey for Secp256k1PublicKey {
                 return Ok(false);
             }
 
-            // NOTE: libsecp256k1 _should_ ensure that the S is low,
-            // but add this check just to be safe.
+            // libsecp256k1 doesn't ensure that the S is low,
+            // we have to do it ourselves
             let secp256k1_sig_standard = secp256k1_sig.to_standard();
 
-            // must be low-S
             let mut secp256k1_sig_low_s = secp256k1_sig_standard;
             secp256k1_sig_low_s.normalize_s();
             if secp256k1_sig_low_s != secp256k1_sig_standard {
@@ -708,6 +764,53 @@ mod tests {
             runtime_verify,
             runtime_recover,
             runtime_verify - runtime_recover
+        );
+    }
+
+    #[test]
+    fn test_with_negated_s() {
+        let priv_key = Secp256k1PrivateKey::from_hex(
+            "7b48329a5126dad83fc583c309c2698ae2843acfb9a7023fb081d850386c6950",
+        )
+        .unwrap();
+        let pub_key = Secp256k1PublicKey::from_private(&priv_key);
+        let message =
+            &hex_bytes("77949dd27dabb40847564f40afcde8b91e0f7baf2cc710415a4ac8b777104866").unwrap()
+                [..];
+        let original_sig = priv_key.sign(message).unwrap();
+        let high_s_sig = original_sig.with_negated_s();
+
+        assert_ne!(
+            original_sig, high_s_sig,
+            "low-S and high-S signatures should not be the same"
+        );
+
+        assert_eq!(
+            original_sig,
+            high_s_sig.with_negated_s(),
+            "negating twice should bring back the original"
+        );
+
+        let (recovered_from_orig, recovered_from_high_s) = _secp256k1.with(|ctx| {
+            let msg = LibSecp256k1Message::from_slice(message).unwrap();
+
+            let secp256k1_orig_sig = original_sig.to_secp256k1_recoverable().unwrap();
+            let recovered_from_orig = ctx.recover_ecdsa(&msg, &secp256k1_orig_sig).unwrap();
+
+            let secp256k1_high_s_sig = high_s_sig.to_secp256k1_recoverable().unwrap();
+            let recovered_from_high_s = ctx.recover_ecdsa(&msg, &secp256k1_high_s_sig).unwrap();
+
+            (recovered_from_orig, recovered_from_high_s)
+        });
+
+        assert_eq!(
+            recovered_from_orig, recovered_from_high_s,
+            "both signatures should recover to the same public key"
+        );
+
+        assert_eq!(
+            recovered_from_high_s, pub_key.key,
+            "the recovered key should be identical to the original key"
         );
     }
 }

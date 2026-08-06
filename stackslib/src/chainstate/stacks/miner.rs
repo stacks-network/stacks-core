@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -243,6 +243,8 @@ pub struct BlockBuilderSettings {
     /// Should the builder attempt to confirm any parent microblocks
     pub confirm_microblocks: bool,
     pub max_execution_time: Option<std::time::Duration>,
+    /// Wall-clock deadline for the contract-analysis phase of a single tx
+    pub max_analysis_time: Option<std::time::Duration>,
     pub max_tenure_bytes: u64,
     /// Transaction IDs to temporarily exclude from block building (e.g., signer-rejected txs)
     pub temporarily_excluded_txids: HashSet<Txid>,
@@ -262,6 +264,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_analysis_time: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
@@ -277,6 +280,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_analysis_time: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
@@ -735,6 +739,16 @@ impl TransactionResult {
                       "payload" => ?tx.payload,
                 );
                 return (true, Error::ExecutionTimeExpired);
+            }
+            Error::AnalysisTimeExpired => {
+                // The transaction's contract analysis took too long. Consider it problematic so the
+                // contract-publish is dropped and blacklisted instead of being re-mined.
+                info!("Problematic transaction caused AnalysisTimeExpired";
+                      "txid" => %tx.txid(),
+                      "origin" => %tx.get_origin().get_address(false),
+                      "payload" => ?tx.payload,
+                );
+                return (true, Error::AnalysisTimeExpired);
             }
             e => e,
         };
