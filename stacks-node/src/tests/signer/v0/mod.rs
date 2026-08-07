@@ -8606,7 +8606,6 @@ fn multiversioned_signer_protocol_version_calculation() {
         },
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
-            node_config.miner.replay_transactions = true;
         },
         None,
         None,
@@ -8709,7 +8708,6 @@ fn contract_with_undefined_variable_compat() {
             },
             |node_config| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
-                node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
                     Some(format!("{}/vrf_key", node_config.node.working_dir));
             },
