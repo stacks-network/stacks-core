@@ -20,7 +20,7 @@ use super::types::TypeSignature;
 use crate::vm::analysis::{StaticCheckError, run_analysis};
 use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::QualifiedContractIdentifier;
 

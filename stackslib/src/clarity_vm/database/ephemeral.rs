@@ -34,7 +34,7 @@ use crate::clarity_vm::clarity::{
     ClarityMarfStore, ClarityMarfStoreTransaction, WritableMarfStore,
 };
 use crate::clarity_vm::database::marf::ReadOnlyMarfStore;
-use crate::clarity_vm::special::handle_contract_call_special_cases;
+use crate::clarity_vm::special::SPECIAL_CASE_HANDLER;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
 /// Ephemeral MARF store.
@@ -416,7 +416,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
 
     /// Get the special-case contract-call handlers (e.g. for PoX and .costs-voting)
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        Some(&handle_contract_call_special_cases)
+        Some(&SPECIAL_CASE_HANDLER)
     }
 
     /// Load a value associated with the give key from the MARF and its side-store.

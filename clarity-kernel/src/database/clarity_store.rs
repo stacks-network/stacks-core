@@ -14,38 +14,28 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::types::QualifiedContractIdentifier;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Connection;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::util::hash::{Sha512Trunc256Sum, hex_bytes, to_hex};
 
-use crate::vm::Value;
-use crate::vm::analysis::AnalysisDatabase;
-use crate::vm::contexts::GlobalContext;
-use crate::vm::database::{
+use crate::database::{
     ClarityDatabase, ClarityDeserializable, ClaritySerializable, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use crate::vm::errors::{VmExecutionError, VmInternalError};
-use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use crate::errors::{VmExecutionError, VmInternalError};
 
 pub struct NullBackingStore {}
 
-pub type SpecialCaseHandler = &'static dyn Fn(
-    // the current Clarity global context
-    &mut GlobalContext,
-    // the current sender
-    Option<&PrincipalData>,
-    // the current sponsor
-    Option<&PrincipalData>,
-    // the invoked contract
-    &QualifiedContractIdentifier,
-    // the invoked function name
-    &str,
-    // the function parameters
-    &[Value],
-    // the result of the function call
-    &Value,
-) -> Result<(), VmExecutionError>;
+/// Opaque host-provided hook invoked after specific contract calls (e.g. the
+/// PoX lock-handling logic in stacks-core).
+///
+/// The kernel only *carries* this token from the backing store to the engine;
+/// the engine downcasts it to its concrete function type (the legacy engine's
+/// `SpecialCaseHandlerFn`, which is typed over its `GlobalContext`). This is
+/// transitional: the hook will be typed against the kernel's
+/// transaction-context ABI once that exists.
+pub type SpecialCaseHandler = &'static (dyn std::any::Any + Send + Sync);
 
 // These functions generally _do not_ return errors, rather, any errors in the underlying storage
 //    will _panic_. The rationale for this is that under no condition should the interpreter
@@ -192,10 +182,6 @@ impl NullBackingStore {
 
     pub fn as_clarity_db(&mut self) -> ClarityDatabase<'_> {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
-    }
-
-    pub fn as_analysis_db(&mut self) -> AnalysisDatabase<'_> {
-        AnalysisDatabase::new(self)
     }
 }
 

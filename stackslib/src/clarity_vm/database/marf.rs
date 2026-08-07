@@ -39,7 +39,7 @@ use crate::clarity_vm::clarity::{
     ClarityMarfStore, ClarityMarfStoreTransaction, WritableMarfStore,
 };
 use crate::clarity_vm::database::ephemeral::EphemeralMarfStore;
-use crate::clarity_vm::special::handle_contract_call_special_cases;
+use crate::clarity_vm::special::SPECIAL_CASE_HANDLER;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
 
@@ -536,7 +536,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     }
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        Some(&handle_contract_call_special_cases)
+        Some(&SPECIAL_CASE_HANDLER)
     }
 
     /// Sets the chain tip at which queries will happen.  Used for `(at-block ..)`
@@ -826,7 +826,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
     }
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        Some(&handle_contract_call_special_cases)
+        Some(&SPECIAL_CASE_HANDLER)
     }
 
     fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {

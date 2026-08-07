@@ -16,6 +16,7 @@
 
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
+use clarity::vm::database::ClarityDatabaseExt;
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::{ClarityName, ContractName};

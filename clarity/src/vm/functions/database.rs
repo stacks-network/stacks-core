@@ -24,6 +24,7 @@ use crate::vm::callables::DefineType;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
+use crate::vm::database::ClarityDatabaseExt;
 use crate::vm::errors::{
     RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError, check_argument_count,
     check_arguments_at_least,

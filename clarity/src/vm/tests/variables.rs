@@ -18,6 +18,8 @@ use rstest::rstest;
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
+#[cfg(test)]
+use crate::vm::database::AsAnalysisDb;
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{

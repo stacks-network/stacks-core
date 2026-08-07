@@ -17,7 +17,7 @@
 pub mod analysis_db;
 pub mod arithmetic_checker;
 pub mod contract_interface_builder;
-pub mod errors;
+pub use clarity_kernel::errors::analysis as errors;
 pub mod read_only_checker;
 pub mod trait_checker;
 pub mod type_checker;
@@ -40,9 +40,9 @@ use crate::vm::ClarityVersion;
 #[cfg(feature = "rusqlite")]
 use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
-#[cfg(feature = "rusqlite")]
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
+#[cfg(feature = "rusqlite")]
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::resource_limiter::{ResourceLimitExceeded, ResourceLimiter};
 use crate::vm::types::QualifiedContractIdentifier;

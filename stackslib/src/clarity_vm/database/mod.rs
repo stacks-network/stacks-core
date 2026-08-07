@@ -31,7 +31,7 @@ use crate::chainstate::stacks::db::{ChainstateTx, StacksChainState, StacksDBConn
 use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::Error as ChainstateError;
-use crate::clarity_vm::special::handle_contract_call_special_cases;
+use crate::clarity_vm::special::SPECIAL_CASE_HANDLER;
 use crate::core::{StacksEpoch, StacksEpochId};
 use crate::util_lib::db::{DBConn, Error as DBError, FromColumn, FromRow};
 
@@ -1291,7 +1291,7 @@ impl ClarityBackingStore for MemoryBackingStore {
     }
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        Some(&handle_contract_call_special_cases)
+        Some(&SPECIAL_CASE_HANDLER)
     }
 
     fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {

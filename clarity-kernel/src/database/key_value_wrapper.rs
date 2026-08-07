@@ -17,17 +17,17 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
+use clarity_types::Value;
+use clarity_types::types::serialization::SerializationError;
+use clarity_types::types::{QualifiedContractIdentifier, TypeSignature};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::clarity_store::SpecialCaseHandler;
 use super::{ClarityBackingStore, ClarityDeserializable};
-use crate::vm::Value;
-use crate::vm::database::clarity_store::{ContractCommitment, make_contract_hash_key};
-use crate::vm::errors::{VmExecutionError, VmInternalError};
-use crate::vm::types::serialization::SerializationError;
-use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use crate::database::clarity_store::{ContractCommitment, make_contract_hash_key};
+use crate::errors::{VmExecutionError, VmInternalError};
 
 #[cfg(feature = "rollback_value_check")]
 type RollbackValueCheck = String;

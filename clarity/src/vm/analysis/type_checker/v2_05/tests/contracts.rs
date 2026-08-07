@@ -22,7 +22,7 @@ use crate::vm::ClarityVersion;
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::{mem_type_check, type_check};
 use crate::vm::ast::parse;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::errors::StaticCheckErrorKind;
 use crate::vm::types::QualifiedContractIdentifier;
 

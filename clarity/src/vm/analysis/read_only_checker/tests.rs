@@ -23,7 +23,7 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::ClarityVersion;
 use crate::vm::analysis::{mem_type_check as mem_run_analysis, type_check};
 use crate::vm::ast::parse;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::errors::StaticCheckErrorKind;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::tests::test_clarity_versions;

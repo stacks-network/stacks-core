@@ -26,7 +26,7 @@ use crate::vm::analysis::{
 };
 use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
 use crate::vm::types::QualifiedContractIdentifier;
 

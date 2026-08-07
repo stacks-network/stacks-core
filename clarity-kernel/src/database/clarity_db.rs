@@ -14,6 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::any::Any;
+
+use clarity_types::representations::ClarityName;
+use clarity_types::types::serialization::NONE_SERIALIZATION_LEN;
+use clarity_types::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, TypeSignature,
+    Value, byte_len_of_serialization,
+};
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -28,23 +36,13 @@ use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, to_hex};
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
-use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use crate::vm::contexts::ContractContext;
-use crate::vm::contracts::Contract;
-use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
-use crate::vm::database::caching::{CachedContract, ClarityExecutionCache};
-use crate::vm::database::structures::{
+use crate::costs::{CostOverflowingMath, ExecutionCost};
+use crate::database::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance, STXBalanceSnapshot,
 };
-use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
-use crate::vm::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
-use crate::vm::representations::ClarityName;
-use crate::vm::types::serialization::NONE_SERIALIZATION_LEN;
-use crate::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, TypeSignature,
-    Value, byte_len_of_serialization,
-};
+use crate::database::{ClarityBackingStore, RollbackWrapper};
+use crate::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 pub const TENURE_HEIGHT_KEY: &str = "_stx-data::tenure_height";
@@ -152,7 +150,11 @@ pub struct ClarityDatabase<'a> {
     /// Optional per-tx execution-cache container attached via [`Self::with_cache`].
     /// Exclusive borrow — the contained caches have no interior mutability, so the borrow
     /// checker enforces single-writer for the lifetime of this database.
-    execution_cache: Option<&'a mut ClarityExecutionCache>,
+    ///
+    /// The payload is engine-owned and opaque to the kernel: the engine that
+    /// attached it downcasts via [`Self::execution_cache`] /
+    /// [`Self::execution_cache_mut`].
+    execution_cache: Option<&'a mut dyn Any>,
 }
 
 pub trait HeadersDB {
@@ -498,10 +500,23 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
-    /// Attach a [`ClarityExecutionCache`] to this instance for the duration of its lifetime.
-    pub fn with_cache(mut self, cache: &'a mut ClarityExecutionCache) -> Self {
+    /// Attach an engine-owned execution cache to this instance for the
+    /// duration of its lifetime. The kernel does not interpret the payload;
+    /// the attaching engine downcasts it back via [`Self::execution_cache`] /
+    /// [`Self::execution_cache_mut`].
+    pub fn with_cache(mut self, cache: &'a mut dyn Any) -> Self {
         self.execution_cache = Some(cache);
         self
+    }
+
+    /// Borrow the attached engine-owned execution cache, if any.
+    pub fn execution_cache(&self) -> Option<&dyn Any> {
+        self.execution_cache.as_ref().map(|c| &**c)
+    }
+
+    /// Mutably borrow the attached engine-owned execution cache, if any.
+    pub fn execution_cache_mut(&mut self) -> Option<&mut dyn Any> {
+        self.execution_cache.as_deref_mut()
     }
 
     pub fn initialize(&mut self) {}
@@ -730,7 +745,7 @@ impl<'a> ClarityDatabase<'a> {
             .map_err(|e| e.into())
     }
 
-    fn insert_metadata<T: ClaritySerializable>(
+    pub fn insert_metadata<T: ClaritySerializable>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         key: &str,
@@ -748,7 +763,7 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
-    fn fetch_metadata<T>(
+    pub fn fetch_metadata<T>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         key: &str,
@@ -781,30 +796,12 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
-    // load contract analysis stored by an analysis_db instance.
-    //   in unit testing, where the interpreter is invoked without
-    //   an analysis pass, this function will fail to find contract
-    //   analysis data
-    pub fn load_contract_analysis(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<Option<ContractAnalysis>, VmExecutionError> {
-        self.store
-            .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
-            // treat NoSuchContract error thrown by get_metadata as an Option::None --
-            //    the analysis will propagate that as a StaticCheckError anyways.
-            .ok()
-            .flatten()
-            .map(|x| ContractAnalysis::deserialize(&x))
-            .transpose()
-    }
-
     /// Read and sum the `contract-size` and `contract-data-size` metadata entries for the given
     /// contract, returning the total size for the contract as needed for `LoadContract` cost
     /// calculations.
     ///
-    /// Reads through the rollback-aware metadata layer; does not consult or populate the cache.
-    fn read_contract_size(
+    /// Reads through the rollback-aware metadata layer; does not consult or populate any cache.
+    pub fn read_contract_size(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<u64, VmExecutionError> {
@@ -828,24 +825,6 @@ impl<'a> ClarityDatabase<'a> {
 
         // u64 overflow is _checked_ on insert into contract-data-size
         Ok(data_size + contract_size)
-    }
-
-    /// `LoadContract` cost size (`contract_size + data_size`).
-    ///
-    /// When a cache is attached to this instance and the store isn't retargeted by e.g. `at-block`,
-    /// this method attempts to serve values via a passive cache lookup. Cache hits do not update
-    /// FIFO counters, and misses fall through to reading from the backing store.
-    pub fn get_contract_size(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<u64, VmExecutionError> {
-        if !self.store.is_retargeted()
-            && let Some(cached) = self.peek_cached_contract(contract_identifier)
-        {
-            return Ok(cached.load_cost_size);
-        }
-
-        self.read_contract_size(contract_identifier)
     }
 
     /// used for adding the memory usage of `define-constant` variables.
@@ -875,17 +854,6 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
-    pub fn insert_contract(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        contract: Contract,
-    ) -> Result<(), VmExecutionError> {
-        let key = ContractDataVarName::Contract.metadata_key();
-
-        self.insert_metadata(contract_identifier, &key, &*contract)?;
-        Ok(())
-    }
-
     pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
         let key = ClarityDatabase::make_metadata_key(
             StoreType::Contract,
@@ -894,35 +862,11 @@ impl<'a> ClarityDatabase<'a> {
         self.store.has_metadata_entry(contract_identifier, &key)
     }
 
-    /// Read and deserialize the contract blob from the backing store, canonicalizing its types to
-    /// the current epoch.
-    ///
-    /// Reads through the rollback-aware metadata layer; does not consult or populate the contract
-    /// cache.
-    fn read_contract(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<Contract, VmExecutionError> {
-        let contract_key = ContractDataVarName::Contract.metadata_key();
-        let mut contract_context = self
-            .fetch_metadata::<ContractContext>(contract_identifier, &contract_key)?
-            .ok_or_else(|| {
-                VmInternalError::Expect(
-            "Failed to read non-consensus contract metadata, even though contract exists in MARF."
-            .into())
-            })?;
-
-        let epoch = self.get_clarity_epoch_version()?;
-        contract_context.canonicalize_types(&epoch)?;
-
-        Ok(contract_context.into())
-    }
-
     /// Check for any pending metadata writes to the metadata keys used for loading/materializing a
-    /// [`Contract`] from the backing store and calculating its `LoadContract` costs.
+    /// contract from the backing store and calculating its `LoadContract` costs.
     ///
-    /// This is used for defensive checks in e.g. [`Self::get_contract`].
-    fn has_pending_metadata_for_contract(
+    /// This is used for defensive checks in the engine's contract-loading path.
+    pub fn has_pending_metadata_for_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> bool {
@@ -934,79 +878,6 @@ impl<'a> ClarityDatabase<'a> {
             contract_identifier,
             &[&contract_key, &size_key, &data_size_key],
         )
-    }
-
-    /// Load a parsed contract, returning a canonicalized [`Contract`].
-    ///
-    /// Consults the attached cache when attached and the store is not retargeted; on a miss the
-    /// contract is read from the backing store and inserted into the cache before being returned.
-    ///
-    /// The cache is bypassed entirely during `(at-block ...)` retargeting; those reads hit the
-    /// backing store and are not cached, since they reflect a different chainstate view.
-    ///
-    /// Reads served from uncommitted pending metadata (e.g. a contract deployed earlier in the same
-    /// rollback layer but not yet committed to the backing store) are not cached.
-    pub fn get_contract(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<Contract, VmExecutionError> {
-        let retargeted = self.store.is_retargeted();
-
-        // Attempt to serve from cache ONLY if we are reading at chain tip (not retargeted).
-        if !retargeted && let Some(entry) = self.cached_contract(contract_identifier) {
-            return Ok(entry.contract.clone());
-        }
-
-        // Miss path: read from store, then (when applicable) populate the cache.
-        let contract = self.read_contract(contract_identifier)?;
-
-        // Defensive check: this is not expected on the ordinary contract-call path, but we include
-        // it conservatively as this is a lower-level DB API which can be reached while a rollback
-        // layer contains pending metadata (e.g., if the cache were ever reused across transaction
-        // boundaries).
-        let is_pending = self.has_pending_metadata_for_contract(contract_identifier);
-
-        // Only populate the cache on reads at tip and when there are no pending writes to relevant
-        // metadata keys.
-        if !retargeted && !is_pending {
-            let load_cost_size = self.read_contract_size(contract_identifier)?;
-
-            self.cache_contract(
-                contract_identifier.clone(),
-                CachedContract {
-                    contract: contract.clone(),
-                    load_cost_size,
-                },
-            );
-        }
-
-        Ok(contract)
-    }
-
-    /// Borrow the cached contract entry for the provided [`QualifiedContractIdentifier`] if a cache
-    /// is attached to this [`ClarityDatabase`] instance and the contract cache contains it.
-    ///
-    /// On cache hit, hit/miss counters are updated, but FIFO ordering is unchanged.
-    ///
-    /// Returns [`None`] if no cache is attached or the cache does not contain the entry.
-    fn cached_contract(&mut self, id: &QualifiedContractIdentifier) -> Option<&CachedContract> {
-        self.execution_cache.as_deref_mut()?.contracts.get(id)
-    }
-
-    /// Borrow the cached contract entry for the provided [`QualifiedContractIdentifier`] if a cache
-    /// is attached to this [`ClarityDatabase`] instance, without altering FIFO counters.
-    ///
-    /// Returns [`None`] if no cache is attached or the cache does not contain the entry.
-    fn peek_cached_contract(&self, id: &QualifiedContractIdentifier) -> Option<&CachedContract> {
-        self.execution_cache.as_deref()?.contracts.peek(id)
-    }
-
-    /// Insert an entry into the cache if one is attached; otherwise this is a no-op.
-    fn cache_contract(&mut self, id: QualifiedContractIdentifier, entry: CachedContract) {
-        let weight = entry.load_cost_size;
-        if let Some(cache) = self.execution_cache.as_deref_mut() {
-            cache.contracts.insert(id, entry, weight);
-        }
     }
 
     pub fn ustx_liquid_supply_key() -> &'static str {
@@ -1153,10 +1024,6 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn destroy(self) -> RollbackWrapper<'a> {
         self.store
-    }
-
-    pub fn is_in_regtest(&self) -> bool {
-        cfg!(test)
     }
 }
 
@@ -2638,8 +2505,8 @@ impl ClarityDatabase<'_> {
 
 #[test]
 fn increment_ustx_liquid_supply_overflow() {
-    use crate::vm::database::MemoryBackingStore;
-    use crate::vm::errors::{RuntimeError, VmExecutionError};
+    use crate::database::MemoryBackingStore;
+    use crate::errors::{RuntimeError, VmExecutionError};
 
     let mut store = MemoryBackingStore::new();
     let mut db = store.as_clarity_db();
@@ -2683,8 +2550,8 @@ fn increment_ustx_liquid_supply_overflow() {
 
 #[test]
 fn checked_decrease_token_supply_underflow() {
-    use crate::vm::database::{MemoryBackingStore, StoreType};
-    use crate::vm::errors::{RuntimeError, VmExecutionError};
+    use crate::database::{MemoryBackingStore, StoreType};
+    use crate::errors::{RuntimeError, VmExecutionError};
 
     let mut store = MemoryBackingStore::new();
     let mut db = store.as_clarity_db();
@@ -2742,206 +2609,10 @@ fn checked_decrease_token_supply_underflow() {
     db.commit().unwrap();
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::vm::database::{MemoryBackingStore, StoreType};
-    use crate::vm::version::ClarityVersion;
-
-    /// Deploy a minimal stub contract under `id` in its own committed db transaction.
-    #[track_caller]
-    fn deploy_stub_contract(db: &mut ClarityDatabase, id: &QualifiedContractIdentifier) {
-        db.begin();
-        let contract = ContractContext::new(id.clone(), ClarityVersion::Clarity2).into();
-        db.insert_contract_hash(id, "(define-public (noop) (ok true))")
-            .expect("insert_contract_hash");
-        db.set_contract_data_size(id, 0)
-            .expect("set_contract_data_size");
-        db.insert_contract(id, contract).expect("insert_contract");
-        db.commit().expect("commit stub contract");
-    }
-
-    #[test]
-    fn get_contract_populates_cache_on_miss() {
-        let mut cache = ClarityExecutionCache::default();
-        let mut store = MemoryBackingStore::new();
-        let id = QualifiedContractIdentifier::local("cached").unwrap();
-
-        // Deploy outside the cache attachment so the cache starts empty.
-        deploy_stub_contract(&mut store.as_clarity_db(), &id);
-
-        // Each `db` block scopes the exclusive borrow on `cache` so we can inspect counters
-        // between calls.
-        let first = {
-            let mut db = store.as_clarity_db().with_cache(&mut cache);
-            db.begin();
-            let entry = db.get_contract(&id).expect("load contract");
-            db.roll_back().unwrap();
-            entry
-        };
-        assert_eq!(first.contract_identifier, id);
-        assert_eq!(cache.contracts.misses(), 1);
-        assert_eq!(cache.contracts.hits(), 0);
-
-        let second = {
-            let mut db = store.as_clarity_db().with_cache(&mut cache);
-            db.begin();
-            let entry = db.get_contract(&id).expect("cached load");
-            db.roll_back().unwrap();
-            entry
-        };
-        // Both `Contract`s should deref to the same underlying `ContractContext`, confirming the
-        // cached entry's Arc was shared rather than deserialized fresh.
-        assert!(
-            std::ptr::eq(&*first, &*second),
-            "second call should share the cached Arc, not a fresh deserialization",
-        );
-        assert_eq!(cache.contracts.hits(), 1);
-        assert_eq!(cache.contracts.misses(), 1);
-    }
-
-    #[test]
-    fn get_contract_load_cost_size_serves_from_cache() {
-        let mut cache = ClarityExecutionCache::default();
-        let mut store = MemoryBackingStore::new();
-        let id = QualifiedContractIdentifier::local("size-cached").unwrap();
-        deploy_stub_contract(&mut store.as_clarity_db(), &id);
-
-        // Prime the cache via `get_contract`, then capture the expected size separately.
-        let expected_size = {
-            let mut db = store.as_clarity_db().with_cache(&mut cache);
-            db.begin();
-            let _contract = db.get_contract(&id).expect("prime cache");
-            let s = db.read_contract_size(&id).unwrap();
-            db.roll_back().unwrap();
-            s
-        };
-        let counters_after_prime = (cache.contracts.hits(), cache.contracts.misses());
-
-        // Subsequent `get_contract_size` must come from the cache, and being a passive `peek` it
-        // must not bump hit/miss counters.
-        let size = {
-            let mut db = store.as_clarity_db().with_cache(&mut cache);
-            db.begin();
-            let s = db.get_contract_size(&id).expect("load_cost_size");
-            db.roll_back().unwrap();
-            s
-        };
-        assert_eq!(size, expected_size);
-        assert_eq!(
-            (cache.contracts.hits(), cache.contracts.misses()),
-            counters_after_prime,
-            "passive size lookup must not alter hit/miss counters",
-        );
-    }
-
-    #[test]
-    fn get_contract_load_cost_size_falls_back_without_cache() {
-        let mut store = MemoryBackingStore::new();
-        let id = QualifiedContractIdentifier::local("no-cache").unwrap();
-        deploy_stub_contract(&mut store.as_clarity_db(), &id);
-
-        let mut db = store.as_clarity_db();
-        db.begin();
-        let size = db.get_contract_size(&id).expect("load_cost_size");
-        let expected = db.read_contract_size(&id).unwrap();
-        assert_eq!(size, expected);
-        db.roll_back().unwrap();
-    }
-
-    /// A contract deployed in an uncommitted rollback layer is visible via `get_contract` (pending
-    /// metadata is served), but it must not be cached: if the surrounding context rolls back, a
-    /// cached entry would point at a contract that no longer exists on the backing store, and the
-    /// next lookup in the same tx would falsely succeed.
-    #[test]
-    fn get_contract_does_not_cache_pending_writes() {
-        let mut cache = ClarityExecutionCache::default();
-        let mut store = MemoryBackingStore::new();
-        let id = QualifiedContractIdentifier::local("pending").unwrap();
-
-        // Deploy + load inside a rollback layer, then discard the layer.
-        {
-            let mut db = store.as_clarity_db().with_cache(&mut cache);
-            db.begin();
-            let contract = ContractContext::new(id.clone(), ClarityVersion::Clarity2).into();
-            db.insert_contract_hash(&id, "(define-public (noop) (ok true))")
-                .expect("insert_contract_hash");
-            db.set_contract_data_size(&id, 0)
-                .expect("set_contract_data_size");
-            db.insert_contract(&id, contract).expect("insert_contract");
-            let _ = db
-                .get_contract(&id)
-                .expect("pending-state load should succeed via uncommitted metadata");
-            db.roll_back().unwrap();
-        }
-
-        // The rolled-back contract must not be served from cache on a subsequent lookup. The
-        // backing store also doesn't have it (the deploy was never committed), so the lookup must
-        // error.
-        {
-            let mut db = store.as_clarity_db().with_cache(&mut cache);
-            db.begin();
-            let result = db.get_contract(&id);
-            assert!(
-                result.is_err(),
-                "rolled-back contract must not be served from cache after rollback",
-            );
-            db.roll_back().unwrap();
-        }
-    }
-
-    /// Guards that the DB read path applies the epoch gate, never returning a
-    /// type-unsound tuple from Epoch 4.1.
-    #[test]
-    fn get_value_epoch_gates_typed_tuple_fields() {
-        // `{a:int,b:int}` buffer with a duplicate `a` field; collapses to `{a: 2}`.
-        const DUPLICATE_FIELDS: &str = "0c000000020161000000000000000000000000000000000101610000000000000000000000000000000002";
-        const REDUCED_TUPLE: &str = "0c0000000101610000000000000000000000000000000002";
-
-        let mut store = MemoryBackingStore::new();
-        let mut db = store.as_clarity_db();
-        db.begin();
-
-        let contract = QualifiedContractIdentifier::transient();
-        let key = ClarityDatabase::make_key_for_trip(&contract, StoreType::Variable, "corrupt");
-        // Store raw bytes to bypass write-path sanitization and isolate the read path.
-        db.put_data(&key, &DUPLICATE_FIELDS.to_string())
-            .expect("failed to store raw value");
-
-        let expected_type = TypeSignature::type_of(&Value::from(
-            TupleData::from_data(vec![
-                (ClarityName::from_literal("a"), Value::Int(1)),
-                (ClarityName::from_literal("b"), Value::Int(2)),
-            ])
-            .unwrap(),
-        ))
-        .unwrap();
-
-        // Pre-Epoch 4.1: historical handling reduces the duplicate to one field.
-        // Epoch40 pins the activation boundary.
-        for epoch in [StacksEpochId::Epoch34, StacksEpochId::Epoch40] {
-            let legacy = db
-                .get_value(&key, &expected_type, &epoch)
-                .expect("legacy read should not error")
-                .expect("value should be present");
-            assert_eq!(legacy.value.serialize_to_hex().unwrap(), REDUCED_TUPLE);
-        }
-
-        // Epoch 4.1+: the read is rejected instead of returning a type-unsound tuple.
-        let strict = db.get_value(&key, &expected_type, &StacksEpochId::Epoch41);
-        assert!(
-            strict.is_err(),
-            "strict read should reject the malformed tuple, got {strict:?}"
-        );
-
-        db.commit().unwrap();
-    }
-}
-
 #[test]
 fn trigger_no_such_token_rust() {
-    use crate::vm::database::MemoryBackingStore;
-    use crate::vm::errors::{RuntimeError, VmExecutionError};
+    use crate::database::MemoryBackingStore;
+    use crate::errors::{RuntimeError, VmExecutionError};
     // Set up a memory backing store and Clarity database
     let mut store = MemoryBackingStore::default();
     let mut db = store.as_clarity_db();

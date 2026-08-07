@@ -21,8 +21,8 @@ use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::{TraitIdentifier, TupleTypeSignature, TypeSignature};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::costs::{CostErrors, ExecutionCost};
-use crate::vm::diagnostic::{DiagnosableError, Diagnostic};
+use crate::costs::{CostErrors, ExecutionCost};
+use crate::diagnostic::{DiagnosableError, Diagnostic};
 
 /// What kind of syntax binding was found to be in error?
 #[derive(Debug, PartialEq, Clone, Copy)]

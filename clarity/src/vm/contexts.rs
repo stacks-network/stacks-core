@@ -36,8 +36,8 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::execution_cost::ExecutionCost;
 use crate::vm::costs::{CostErrors, CostTracker, LimitedCostTracker, runtime_cost};
 use crate::vm::database::{
-    ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
-    NonFungibleTokenMetadata,
+    ClarityDatabase, ClarityDatabaseExt, DataMapMetadata, DataVariableMetadata,
+    FungibleTokenMetadata, NonFungibleTokenMetadata,
 };
 use crate::vm::errors::{
     ClarityEvalError, RuntimeCheckErrorKind, RuntimeError, StackTrace, VmExecutionError,
@@ -1457,7 +1457,18 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             match res {
                 Ok(value) => {
                     if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
-                        handler(
+                        // The kernel carries the handler as an opaque token;
+                        // this engine's concrete handler type is
+                        // `SpecialCaseHandlerFn`.
+                        let handler = handler
+                            .downcast_ref::<crate::vm::database::SpecialCaseHandlerFn>()
+                            .ok_or_else(|| {
+                                VmInternalError::Expect(
+                                    "Special-case handler token is not a SpecialCaseHandlerFn"
+                                        .into(),
+                                )
+                            })?;
+                        (handler.0)(
                             self.global_context,
                             invoke_ctx.sender.as_ref(),
                             invoke_ctx.sponsor.as_ref(),

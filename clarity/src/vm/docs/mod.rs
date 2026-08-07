@@ -3389,7 +3389,7 @@ mod test {
     use crate::vm::contexts::OwnedEnvironment;
     use crate::vm::costs::ExecutionCost;
     use crate::vm::database::{
-        BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
+        AsAnalysisDb, BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
     };
     use crate::vm::docs::get_output_type_string;
     use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
@@ -3404,8 +3404,12 @@ mod test {
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
 
-    impl MemoryBackingStore {
-        pub fn as_docs_clarity_db(&mut self) -> ClarityDatabase<'_> {
+    trait AsDocsClarityDb {
+        fn as_docs_clarity_db(&mut self) -> ClarityDatabase<'_>;
+    }
+
+    impl AsDocsClarityDb for MemoryBackingStore {
+        fn as_docs_clarity_db(&mut self) -> ClarityDatabase<'_> {
             ClarityDatabase::new(self, &DOC_HEADER_DB, &DOC_POX_STATE_DB)
         }
     }

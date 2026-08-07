@@ -16,6 +16,7 @@
 
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::database::ClarityDatabaseExt;
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, ResponseData, TupleData};
 use clarity::vm::Value;

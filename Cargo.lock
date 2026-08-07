@@ -875,6 +875,8 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "serde_stacker",
+ "slog",
  "stacks-common 0.0.1",
 ]
 

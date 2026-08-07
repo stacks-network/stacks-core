@@ -32,6 +32,7 @@ rusqlite = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
+clarity-kernel = { package = "clarity-kernel", path = "../clarity-kernel", default-features = false, features = ["testing"] }
 clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false, features = ["testing"] }
 mutants = "0.0.3"
 criterion = "0.8.2"
@@ -68,7 +69,7 @@ slog_json = ["stacks_common/slog_json", "clarity-kernel/slog_json"]
 rusqlite = ["stacks_common/rusqlite", "clarity-types/rusqlite", "clarity-kernel/rusqlite", "dep:rusqlite"]
 testing = ["rusqlite", "rstest", "rstest_reuse", "clarity-types/testing", "stacks_common/testing", "clarity-kernel/testing"]
 devtools = []
-rollback_value_check = []
+rollback_value_check = ["clarity-kernel/rollback_value_check"]
 disable-costs = []
 wasm-web = ["stacks_common/wasm-web", "clarity-types/wasm-web", "clarity-kernel/wasm-web"]
 

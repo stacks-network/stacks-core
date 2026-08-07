@@ -16,14 +16,12 @@
 
 use std::io::Write;
 
+use clarity_types::types::{PrincipalData, TypeSignature};
 use serde::Deserialize;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use crate::vm::analysis::ContractAnalysis;
-use crate::vm::contexts::ContractContext;
-use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
-use crate::vm::types::{PrincipalData, TypeSignature};
+use crate::database::ClarityDatabase;
+use crate::errors::{RuntimeError, VmExecutionError, VmInternalError};
 
 pub trait ClaritySerializable {
     fn serialize(&self) -> String;
@@ -47,7 +45,7 @@ impl ClarityDeserializable<String> for String {
 
 /// JSON deserialization helper for non-WASM targets.
 #[cfg(not(target_family = "wasm"))]
-fn deserialize_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, VmExecutionError> {
+pub fn deserialize_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, VmExecutionError> {
     let mut deserializer = serde_json::Deserializer::from_str(json);
 
     // serde's default 128 depth limit can be exhausted by a 64-stack-depth AST, so
@@ -63,7 +61,7 @@ fn deserialize_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, VmE
 /// JSON deserialization helper for WASM targets, which don't have access to
 /// `serde_stacker` and thus can't disable the recursion limit.
 #[cfg(target_family = "wasm")]
-fn deserialize_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, VmExecutionError> {
+pub fn deserialize_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, VmExecutionError> {
     serde_json::from_str(json)
         .map_err(|_| VmInternalError::Expect("Failed to deserialize vm.Value".into()).into())
 }
@@ -128,36 +126,23 @@ clarity_serializable!(i128);
 clarity_serializable!(u128);
 clarity_serializable!(u64);
 
-/// Handle serialization of [`ContractContext`] behind a wrapper struct with a single
-/// `contract_context` field.
-///
-/// This is for compatibility with the current on-disk format, where the `ContractContext` was
-/// previously serialized via the `Contract` type. This removes/isolates that dependency and
-/// allows us to work directly with `ContractContext`s.
-mod contract_context {
-    use super::*;
-
-    #[derive(Serialize, Deserialize)]
-    pub struct Wrapper<T> {
-        pub contract_context: T,
-    }
-
-    impl ClaritySerializable for ContractContext {
-        fn serialize(&self) -> String {
-            serde_json::to_string(&Wrapper {
-                contract_context: self,
-            })
-            .expect("Failed to serialize vm.Value")
-        }
-    }
-    impl ClarityDeserializable<ContractContext> for ContractContext {
-        fn deserialize(json: &str) -> Result<Self, VmExecutionError> {
-            deserialize_json::<Wrapper<ContractContext>>(json).map(|w| w.contract_context)
-        }
+impl ClaritySerializable for u32 {
+    fn serialize(&self) -> String {
+        to_hex(&self.to_be_bytes())
     }
 }
 
-clarity_serializable!(ContractAnalysis);
+impl ClarityDeserializable<u32> for u32 {
+    fn deserialize(input: &str) -> Result<Self, VmExecutionError> {
+        let bytes = hex_bytes(input).map_err(|_| {
+            VmInternalError::Expect("u32 deserialization: failed decoding bytes.".into())
+        })?;
+        assert_eq!(bytes.len(), 4);
+        Ok(u32::from_be_bytes(bytes[0..4].try_into().map_err(
+            |_| VmInternalError::Expect("u32 deserialization: failed reading.".into()),
+        )?))
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum STXBalance {

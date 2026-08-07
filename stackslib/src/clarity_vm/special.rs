@@ -15,8 +15,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::contexts::GlobalContext;
+use clarity::vm::database::SpecialCaseHandlerFn;
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+
+/// The [`SpecialCaseHandlerFn`] token returned by this crate's backing-store
+/// implementations from `get_cc_special_cases_handler`. The kernel carries it
+/// opaquely; the VM downcasts it back to `SpecialCaseHandlerFn` at the
+/// contract-call site.
+pub static SPECIAL_CASE_HANDLER: SpecialCaseHandlerFn =
+    SpecialCaseHandlerFn(handle_contract_call_special_cases);
 
 /// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
 pub fn handle_contract_call_special_cases(

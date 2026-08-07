@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity_types::errors::IncomparableError;
+use clarity_types::types::QualifiedContractIdentifier;
 use rusqlite::{Connection, OptionalExtension, params};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
@@ -26,9 +27,7 @@ use super::{
     ClarityBackingStore, ClarityDatabase, ClarityDeserializable, NULL_BURN_STATE_DB,
     NULL_HEADER_DB, SpecialCaseHandler,
 };
-use crate::vm::analysis::{AnalysisDatabase, RuntimeCheckErrorKind};
-use crate::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
-use crate::vm::types::QualifiedContractIdentifier;
+use crate::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 
@@ -385,10 +384,6 @@ impl MemoryBackingStore {
 
     pub fn as_clarity_db(&mut self) -> ClarityDatabase<'_> {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
-    }
-
-    pub fn as_analysis_db(&mut self) -> AnalysisDatabase<'_> {
-        AnalysisDatabase::new(self)
     }
 }
 
