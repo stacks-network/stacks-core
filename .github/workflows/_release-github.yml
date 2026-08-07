@@ -126,7 +126,7 @@ jobs:
   consolidate-digests:
     name: Consolidate Digest Artifacts
     needs: docker-images
-    if: !cancelled() && needs.docker-images.result != 'skipped'
+    if: "!cancelled() && needs.docker-images.result != 'skipped'"
     runs-on: ubuntu-latest
     steps:
       # Download all individual digest artifacts from all matrix jobs
