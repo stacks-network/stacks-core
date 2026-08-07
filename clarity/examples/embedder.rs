@@ -22,11 +22,12 @@
 //! Run with: `cargo run -p clarity --example embedder`
 
 use clarity::vm::database::MemoryBackingStore;
-use clarity::vm::engine::{Engine, LegacyEngine, TransactionContext};
+use clarity::vm::engine::{CostBudget, Engine, LegacyEngine, TransactionContext};
 use clarity_kernel::clarity_types::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
 use clarity_kernel::clarity_types::{ClarityName, ClarityVersion, ContractName, Value};
+use clarity_kernel::costs::ExecutionCost;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 
@@ -44,8 +45,19 @@ const COUNTER_CONTRACT: &str = r#"
 "#;
 
 fn main() {
-    // The host provides storage; here, an in-memory sqlite store.
+    let epoch = StacksEpochId::latest();
+
+    // The host provides storage; here, an in-memory sqlite store. Record the
+    // Clarity epoch in it so cost tracking resolves the current (Rust-native)
+    // cost functions.
     let mut store = MemoryBackingStore::new();
+    {
+        let mut db = store.as_clarity_db();
+        db.begin();
+        db.set_clarity_epoch_version(epoch)
+            .expect("failed to set epoch");
+        db.commit().expect("failed to commit epoch");
+    }
 
     // The engine is just a trait object — any implementation of the kernel
     // ABI (interpreter, Wasm backend, a future clarity-vNEXT) slots in here.
@@ -61,12 +73,10 @@ fn main() {
         QualifiedContractIdentifier::new(deployer.clone(), ContractName::from_literal("counter"));
     let sender: PrincipalData = deployer.into();
 
-    let mut ctx = TransactionContext::new(
-        store.as_clarity_db(),
-        false,
-        CHAIN_ID_TESTNET,
-        StacksEpochId::latest(),
-    );
+    // A real (metered) cost budget: the engine enforces it cumulatively
+    // across every interaction in this context.
+    let mut ctx = TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch)
+        .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
 
     // Deploy.
     let deploy = engine
@@ -78,7 +88,11 @@ fn main() {
             None,
         )
         .expect("deploy failed");
-    println!("deployed {contract_id} ({} events)", deploy.events.len());
+    println!(
+        "deployed {contract_id} ({} events, {} runtime cost units so far)",
+        deploy.events.len(),
+        deploy.cost.runtime
+    );
 
     // Call `increment` twice.
     for _ in 0..2 {
@@ -93,9 +107,10 @@ fn main() {
             )
             .expect("call failed");
         println!(
-            "increment -> {} ({} events)",
+            "increment -> {} ({} events, {} runtime cost units so far)",
             outcome.value,
-            outcome.events.len()
+            outcome.events.len(),
+            outcome.cost.runtime
         );
         for event in &outcome.events {
             println!(

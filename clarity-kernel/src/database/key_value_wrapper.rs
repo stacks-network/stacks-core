@@ -213,6 +213,18 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
+    /// Consume the wrapper, returning the underlying backing store.
+    ///
+    /// Must only be called at a transaction boundary: any uncommitted edits
+    /// in open rollback contexts are discarded.
+    pub fn into_store(self) -> &'a mut dyn ClarityBackingStore {
+        debug_assert!(
+            self.stack.is_empty(),
+            "BUG: converting a RollbackWrapper with open rollback contexts into its store"
+        );
+        self.store
+    }
+
     pub fn from_persisted_log(
         store: &'a mut dyn ClarityBackingStore,
         log: RollbackWrapperPersistedLog,

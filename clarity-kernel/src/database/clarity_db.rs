@@ -509,6 +509,20 @@ impl<'a> ClarityDatabase<'a> {
         self
     }
 
+    /// The chain-header view this database was constructed with. Together
+    /// with [`Self::get_burn_state_db`] and [`Self::destroy`] +
+    /// `RollbackWrapper::into_store`, this lets a caller take a database
+    /// apart and reassemble it (e.g. to run static analysis against the
+    /// bare backing store between transactions).
+    pub fn get_headers_db(&self) -> &'a dyn HeadersDB {
+        self.headers_db
+    }
+
+    /// The burnchain-state view this database was constructed with.
+    pub fn get_burn_state_db(&self) -> &'a dyn BurnStateDB {
+        self.burn_state_db
+    }
+
     /// Borrow the attached engine-owned execution cache, if any.
     pub fn execution_cache(&self) -> Option<&dyn Any> {
         self.execution_cache.as_ref().map(|c| &**c)

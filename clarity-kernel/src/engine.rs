@@ -29,24 +29,40 @@
 //!   in the engine's own serialized form; the kernel-owned stored-interface
 //!   format (the `ContractAnalysis` stored/working split) will let one
 //!   engine type-check calls into contracts deployed by another.
-//! - **Shared cost budget**: each call currently meters costs inside the
-//!   engine; a kernel-owned cost tracker handle will thread one budget
-//!   through all engines in a transaction.
+//! - **Shared cost budget**: the [`CostBudget`] is enforced across all
+//!   interactions in one [`TransactionContext`], but the tracker itself is
+//!   engine-owned state; a kernel-typed cost tracker handle (needed for one
+//!   budget spanning *different* engines in a transaction) is a later step.
 //! - **Cross-engine dispatch**: [`ContractDispatcher`] is defined but not yet
 //!   wired through engines' `contract-call?` paths; wiring it is the
 //!   mixed-engine milestone.
 //! - **Epoch inversion**: [`TransactionContext`] still carries a
 //!   `StacksEpochId`; it will become a kernel-owned ruleset identifier.
 
+use std::any::Any;
+
 use clarity_types::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity_types::{ClarityName, ClarityVersion, Value};
 use stacks_common::types::StacksEpochId;
 
 use crate::assets::AssetMap;
+use crate::costs::ExecutionCost;
 use crate::database::ClarityDatabase;
 use crate::diagnostic::Diagnostic;
 use crate::errors::{StaticCheckError, VmExecutionError};
 use crate::events::StacksTransactionEvent;
+
+/// The execution-cost budget for all engine interactions within one
+/// [`TransactionContext`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CostBudget {
+    /// No cost enforcement, no cost metering. Suitable for tooling and
+    /// read-only hosts; never for consensus.
+    Free,
+    /// Enforce this budget cumulatively across every interaction run in the
+    /// context. Exceeding it fails the interaction with a cost error.
+    Limited(ExecutionCost),
+}
 
 /// Errors crossing the engine ABI.
 #[derive(Debug)]
@@ -107,6 +123,13 @@ pub struct TransactionContext<'a> {
     pub epoch: StacksEpochId,
     pub mainnet: bool,
     pub chain_id: u32,
+    /// Cost budget for all interactions in this context. Defaults to
+    /// [`CostBudget::Free`]; set with [`Self::with_budget`].
+    pub budget: CostBudget,
+    /// Engine-owned state persisted between interactions in this context
+    /// (e.g. the legacy engine keeps its cost tracker here so the budget is
+    /// enforced cumulatively). Opaque to the kernel and the host.
+    engine_state: Option<Box<dyn Any>>,
 }
 
 impl<'a> TransactionContext<'a> {
@@ -121,7 +144,35 @@ impl<'a> TransactionContext<'a> {
             epoch,
             mainnet,
             chain_id,
+            budget: CostBudget::Free,
+            engine_state: None,
         }
+    }
+
+    /// Set the cost budget for this context. Must be set before the first
+    /// engine interaction; engines may cache budget-derived state in the
+    /// context after that.
+    pub fn with_budget(mut self, budget: CostBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    /// Take the engine-owned inter-interaction state, if it is present and
+    /// of type `T`.
+    pub fn take_engine_state<T: 'static>(&mut self) -> Option<Box<T>> {
+        // Only take the slot if the type matches, so a mismatched engine
+        // cannot destroy another engine's state.
+        if self.engine_state.as_ref().is_some_and(|s| s.is::<T>()) {
+            self.engine_state.take()?.downcast::<T>().ok()
+        } else {
+            None
+        }
+    }
+
+    /// Store engine-owned state to be retrieved by the same engine on its
+    /// next interaction in this context.
+    pub fn set_engine_state<T: 'static>(&mut self, state: T) {
+        self.engine_state = Some(Box::new(state));
     }
 
     /// Take ownership of the database for the duration of one engine
@@ -145,16 +196,24 @@ impl<'a> TransactionContext<'a> {
 
 /// What a contract deployment produced, for the host's post-condition and
 /// event processing.
+#[derive(Debug)]
 pub struct DeployOutcome {
     pub assets: AssetMap,
     pub events: Vec<StacksTransactionEvent>,
+    /// Cumulative cost consumed in this [`TransactionContext`] so far
+    /// (always zero under [`CostBudget::Free`]).
+    pub cost: ExecutionCost,
 }
 
 /// What a contract call produced.
+#[derive(Debug)]
 pub struct ExecutionOutcome {
     pub value: Value,
     pub assets: AssetMap,
     pub events: Vec<StacksTransactionEvent>,
+    /// Cumulative cost consumed in this [`TransactionContext`] so far
+    /// (always zero under [`CostBudget::Free`]).
+    pub cost: ExecutionCost,
 }
 
 /// A Clarity execution engine: parser, static checker, and evaluator for one
