@@ -1067,6 +1067,9 @@ impl Config {
                         events_keys,
                         timeout_ms: observer.timeout_ms.unwrap_or(1_000),
                         disable_retries: observer.disable_retries.unwrap_or(false),
+                        disable_contract_interface: observer
+                            .disable_contract_interface
+                            .unwrap_or(false),
                     });
                 }
                 observers
@@ -1081,6 +1084,7 @@ impl Config {
                 events_keys: vec![EventKeyType::AnyEvent],
                 timeout_ms: 1_000,
                 disable_retries: false,
+                disable_contract_interface: false,
             });
         };
 
@@ -2158,14 +2162,6 @@ pub struct NodeConfig {
     /// ---
     /// @default: `false`
     pub stacker: bool,
-    /// When `true`, the `contract_interface` (ABI) field of every transaction in
-    /// `new_block` and `new_microblocks` event payloads is emitted as `null`,
-    /// regardless of whether the transaction deployed a contract. This omits the
-    /// generated contract interface from the event stream sent to observers; it does
-    /// not affect consensus, block validation, or any other event field.
-    /// ---
-    /// @default: `false`
-    pub disable_contract_interface_in_events: bool,
     /// Enables a simulated mining mode, primarily for local testing and development.
     /// When `true`, the node may generate blocks locally without participating in the
     /// real bitcoin consensus or P2P block production process.
@@ -2611,7 +2607,6 @@ impl Default for NodeConfig {
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
             stacker: false,
-            disable_contract_interface_in_events: false,
             mock_mining: false,
             mock_mining_output_dir: None,
             mine_microblocks: true,
@@ -4135,7 +4130,6 @@ pub struct NodeConfigFile {
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
     pub stacker: Option<bool>,
-    pub disable_contract_interface_in_events: Option<bool>,
     pub mock_mining: Option<bool>,
     pub mock_mining_output_dir: Option<String>,
     pub mine_microblocks: Option<bool>,
@@ -4216,9 +4210,6 @@ impl NodeConfigFile {
             },
             miner,
             stacker,
-            disable_contract_interface_in_events: self
-                .disable_contract_interface_in_events
-                .unwrap_or(default_node_config.disable_contract_interface_in_events),
             mock_mining: self.mock_mining.unwrap_or(default_node_config.mock_mining),
             mock_mining_output_dir: self
                 .mock_mining_output_dir
@@ -4823,6 +4814,17 @@ pub struct EventObserverConfigFile {
     ///   - **Warning:** Setting this to `true` can lead to missed events if the
     ///     observer endpoint is temporarily unavailable or experiences issues.
     pub disable_retries: Option<bool>,
+    /// Controls whether the generated contract interface (ABI) is included in the
+    /// event payloads sent to this observer.
+    ///
+    /// If `true`, the `contract_interface` field of every transaction in `new_block`
+    /// and `new_microblocks` event payloads sent to this observer is emitted as
+    /// `null`, regardless of whether the transaction deployed a contract. This only
+    /// affects the event stream sent to this observer; it does not affect consensus,
+    /// block validation, other observers, or any other event field.
+    /// ---
+    /// @default: `false` (contract interfaces are included)
+    pub disable_contract_interface: Option<bool>,
 }
 
 #[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
@@ -4831,6 +4833,7 @@ pub struct EventObserverConfig {
     pub events_keys: Vec<EventKeyType>,
     pub timeout_ms: u64,
     pub disable_retries: bool,
+    pub disable_contract_interface: bool,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]

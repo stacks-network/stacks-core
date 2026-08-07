@@ -1787,6 +1787,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
             ],
             timeout_ms: 1000,
             disable_retries: false,
+            disable_contract_interface: false,
         });
     }
 
@@ -1804,6 +1805,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         ],
         timeout_ms: 1000,
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     // The signers need some initial balances in order to pay for epoch 2.5 transaction votes

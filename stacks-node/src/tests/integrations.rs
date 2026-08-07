@@ -1726,18 +1726,19 @@ fn mine_contract_twice() {
     run_loop.start(num_rounds).unwrap();
 }
 
-/// End-to-end check that `[node] disable_contract_interface_in_events = true`
-/// causes the `contract_interface` (ABI) field of every transaction in emitted
-/// `new_block` events to be `null`, even for a contract-publish transaction that
-/// would otherwise carry a fully populated interface. Mirrors `mine_contract_twice`,
-/// but drives a real event observer to inspect the emitted payloads.
+/// End-to-end check that `disable_contract_interface = true` on an
+/// `[[events_observer]]` entry causes the `contract_interface` (ABI) field of
+/// every transaction in the `new_block` events sent to that observer to be
+/// `null`, even for a contract-publish transaction that would otherwise carry a
+/// fully populated interface. Mirrors `mine_contract_twice`, but drives a real
+/// event observer to inspect the emitted payloads.
 #[ignore]
 #[test]
 fn contract_interface_omitted_from_block_events_when_disabled() {
     use std::thread::sleep;
     use std::time::{Duration, Instant};
 
-    use stacks::config::EventKeyType;
+    use stacks::config::{EventKeyType, EventObserverConfig};
 
     use super::neon_integrations::test_observer;
 
@@ -1747,13 +1748,18 @@ fn contract_interface_omitted_from_block_events_when_disabled() {
     conf.burnchain.commit_anchor_block_within = 1000;
     conf.add_initial_balance(to_addr(&contract_sk).to_string(), 1000);
 
-    // The behavior under test: the ABI must be stripped from all block events.
-    conf.node.disable_contract_interface_in_events = true;
-
-    // Capture `new_block` events with an in-process HTTP observer.
+    // Capture `new_block` events with an in-process HTTP observer. The behavior
+    // under test: the ABI must be stripped from block events sent to an observer
+    // configured with `disable_contract_interface`.
     test_observer::clear();
     test_observer::spawn();
-    test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
+    conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+        timeout_ms: 1000,
+        disable_retries: false,
+        disable_contract_interface: true,
+    });
 
     let num_rounds = 3;
     let mut run_loop = RunLoop::new(conf);
