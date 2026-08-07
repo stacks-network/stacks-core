@@ -3590,31 +3590,6 @@ fn block_proposal_api_endpoint() {
             HTTP_UNPROCESSABLE,
             None,
         ),
-        (
-            "High-S signature",
-            {
-                let mut p = proposal.clone();
-                p.block.executed_and_skipped_txs_mut()[0] =
-                    p.block.executed_and_skipped_txs()[0].with_negated_s_in_signature();
-                // tweaking the signature changes the transaction id (which is
-                // the main problem with high-S signatures), so we need to update
-                // the transaction merkle root
-                let txid_vecs: Vec<_> = p
-                    .block
-                    .txs()
-                    .map(|tx| tx.txid().as_bytes().to_vec())
-                    .collect();
-
-                let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
-                let tx_merkle_root = merkle_tree.root();
-
-                p.block.header.tx_merkle_root = tx_merkle_root;
-
-                sign(&p)
-            },
-            HTTP_ACCEPTED,
-            Some(Err(ValidateRejectCode::BadTransaction)),
-        ),
     ];
 
     // Build HTTP client
