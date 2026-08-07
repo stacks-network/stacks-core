@@ -28,6 +28,7 @@ use clarity_kernel::clarity_types::types::{
 };
 use clarity_kernel::clarity_types::{ClarityName, ClarityVersion, ContractName, Value};
 use clarity_kernel::costs::ExecutionCost;
+use clarity_kernel::resource_limiter::ResourceBudget;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 
@@ -104,6 +105,8 @@ fn main() {
                 &contract_id,
                 &ClarityName::from_literal("increment"),
                 &[],
+                None,
+                &ResourceBudget::unlimited(),
             )
             .expect("call failed");
         println!(

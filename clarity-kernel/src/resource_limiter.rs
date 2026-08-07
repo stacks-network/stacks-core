@@ -19,7 +19,7 @@ use stacks_common::alloc_tracker::{
     AllocationCounter, thread_allocated, tracking_allocator_installed,
 };
 
-use crate::vm::resource_limiter::MemoryTracker::{MaxAllocated, NoTracking};
+use crate::resource_limiter::MemoryTracker::{MaxAllocated, NoTracking};
 
 /// Tracks wall-clock time spent in a single execution phase of one transaction
 /// (Clarity evaluation *or* contract analysis) and signals when a configured

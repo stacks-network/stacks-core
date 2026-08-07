@@ -525,7 +525,7 @@ impl<'a> ClarityDatabase<'a> {
 
     /// Borrow the attached engine-owned execution cache, if any.
     pub fn execution_cache(&self) -> Option<&dyn Any> {
-        self.execution_cache.as_ref().map(|c| &**c)
+        self.execution_cache.as_deref()
     }
 
     /// Mutably borrow the attached engine-owned execution cache, if any.

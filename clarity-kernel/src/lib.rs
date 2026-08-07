@@ -51,6 +51,7 @@ pub mod diagnostic;
 pub mod engine;
 pub mod errors;
 pub mod events;
+pub mod resource_limiter;
 pub mod signatures;
 
 pub use clarity_types;

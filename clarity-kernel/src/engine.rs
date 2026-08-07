@@ -22,13 +22,19 @@
 //! [`Diagnostic`]s for static rejection. An engine's internal representation
 //! of contracts (interpreted AST, compiled Wasm, ...) never crosses.
 //!
-//! This is the v0 of the ABI, shaped by what the legacy interpreter can
-//! provide today. Known evolution points, in dependency order:
+//! The ABI models the production transaction flow: contract deploys are
+//! phased ([`Engine::analyze_contract`] → [`Engine::initialize_contract`] →
+//! [`Engine::save_analysis`], the same order as Stacks smart-contract
+//! transaction processing), hosts can reject otherwise-successful
+//! interactions before commit via [`AbortCallback`] (post-conditions), all
+//! interactions charge a per-transaction [`CostBudget`], and analysis and
+//! execution are bounded by host-supplied [`ResourceBudget`]s. Contract
+//! interfaces persist in the kernel-owned
+//! [`StoredContractAnalysis`] format, so engines can read
+//! each other's deployed contracts.
 //!
-//! - **Analysis across engines**: contract interfaces are currently persisted
-//!   in the engine's own serialized form; the kernel-owned stored-interface
-//!   format (the `ContractAnalysis` stored/working split) will let one
-//!   engine type-check calls into contracts deployed by another.
+//! Known evolution points, in dependency order:
+//!
 //! - **Shared cost budget**: the [`CostBudget`] is enforced across all
 //!   interactions in one [`TransactionContext`], but the tracker itself is
 //!   engine-owned state; a kernel-typed cost tracker handle (needed for one
@@ -45,12 +51,21 @@ use clarity_types::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity_types::{ClarityName, ClarityVersion, Value};
 use stacks_common::types::StacksEpochId;
 
+use crate::analysis::StoredContractAnalysis;
 use crate::assets::AssetMap;
 use crate::costs::ExecutionCost;
 use crate::database::ClarityDatabase;
 use crate::diagnostic::Diagnostic;
 use crate::errors::{StaticCheckError, VmExecutionError};
 use crate::events::StacksTransactionEvent;
+use crate::resource_limiter::ResourceBudget;
+
+/// Post-execution decision hook: after an interaction executes successfully,
+/// the host inspects the resulting asset movements (and may read chain
+/// state) *before* the changes commit — this is how Stacks post-conditions
+/// are enforced. Returning `Some(reason)` rolls the interaction back and
+/// surfaces [`EngineError::AbortedByCallback`].
+pub type AbortCallback<'x> = &'x mut dyn FnMut(&AssetMap, &mut ClarityDatabase) -> Option<String>;
 
 /// The execution-cost budget for all engine interactions within one
 /// [`TransactionContext`].
@@ -74,6 +89,19 @@ pub enum EngineError {
     Static(Box<StaticCheckError>),
     /// Runtime failure during evaluation.
     Execution(VmExecutionError),
+    /// The interaction executed successfully, but the host's
+    /// [`AbortCallback`] rejected it; all of its changes were rolled back.
+    /// Carries what the execution produced so the host can build receipts.
+    AbortedByCallback {
+        /// The call's return value (`None` for contract deploys).
+        output: Option<Box<Value>>,
+        /// The asset movements the rolled-back execution would have made.
+        assets: Box<AssetMap>,
+        /// The events the rolled-back execution emitted.
+        events: Vec<StacksTransactionEvent>,
+        /// The host-provided reason for the abort.
+        reason: String,
+    },
     /// The engine or host violated the ABI contract (e.g. the transaction
     /// context's database was not available).
     Internal(String),
@@ -91,6 +119,9 @@ impl std::fmt::Display for EngineError {
             }
             EngineError::Static(e) => write!(f, "Static check failure: {}", e.diagnostic),
             EngineError::Execution(e) => write!(f, "Execution failure: {e}"),
+            EngineError::AbortedByCallback { reason, .. } => {
+                write!(f, "Aborted by host callback: {reason}")
+            }
             EngineError::Internal(s) => write!(f, "Internal engine error: {s}"),
         }
     }
@@ -229,18 +260,59 @@ pub trait Engine {
     /// The language versions this engine can execute.
     fn supported_versions(&self) -> &'static [ClarityVersion];
 
-    /// Deploy a contract: parse, statically check, evaluate its top-level
-    /// forms, and persist it (and its interface metadata) to the database.
-    fn deploy_contract(
+    /// Parse and statically check a contract, without evaluating or
+    /// persisting anything. Returns the contract's stored-interface record;
+    /// the engine parks its richer working analysis in the context for a
+    /// following [`Self::initialize_contract`] / [`Self::save_analysis`].
+    ///
+    /// `analysis_budget` bounds wall-clock and allocation for parsing plus
+    /// analysis; hosts must pass [`ResourceBudget::unlimited`] on
+    /// deterministic replay/commit paths so consensus stays deterministic.
+    fn analyze_contract(
+        &self,
+        ctx: &mut TransactionContext,
+        contract: &QualifiedContractIdentifier,
+        source: &str,
+        version: ClarityVersion,
+        analysis_budget: &ResourceBudget,
+    ) -> Result<StoredContractAnalysis, EngineError>;
+
+    /// Evaluate a contract's top-level forms and persist the contract.
+    /// Reuses the analysis parked by a preceding [`Self::analyze_contract`]
+    /// for the same contract, or parses from scratch otherwise.
+    ///
+    /// If `abort` returns `Some(reason)` after successful evaluation, all
+    /// changes roll back and [`EngineError::AbortedByCallback`] is returned.
+    /// Note this does *not* persist the analysis — hosts call
+    /// [`Self::save_analysis`] after a successful initialization, matching
+    /// the Stacks deploy flow.
+    #[allow(clippy::too_many_arguments)]
+    fn initialize_contract(
         &self,
         ctx: &mut TransactionContext,
         contract: &QualifiedContractIdentifier,
         source: &str,
         version: ClarityVersion,
         sponsor: Option<PrincipalData>,
+        abort: Option<AbortCallback>,
+        execution_budget: &ResourceBudget,
     ) -> Result<DeployOutcome, EngineError>;
 
+    /// Persist the analysis parked by a preceding
+    /// [`Self::analyze_contract`] to the metadata store. Errors if no
+    /// analysis for `contract` is pending in the context.
+    fn save_analysis(
+        &self,
+        ctx: &mut TransactionContext,
+        contract: &QualifiedContractIdentifier,
+    ) -> Result<(), EngineError>;
+
     /// Execute one public-function call on a deployed contract.
+    ///
+    /// If `abort` returns `Some(reason)` after successful execution, all
+    /// changes roll back and [`EngineError::AbortedByCallback`] is returned
+    /// (carrying the call's output, assets, and events for receipts).
+    #[allow(clippy::too_many_arguments)]
     fn execute_call(
         &self,
         ctx: &mut TransactionContext,
@@ -249,6 +321,8 @@ pub trait Engine {
         contract: &QualifiedContractIdentifier,
         function: &ClarityName,
         args: &[Value],
+        abort: Option<AbortCallback>,
+        execution_budget: &ResourceBudget,
     ) -> Result<ExecutionOutcome, EngineError>;
 
     /// Evaluate a read-only snippet in the context of a deployed contract.
@@ -258,6 +332,31 @@ pub trait Engine {
         contract: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Value, EngineError>;
+
+    /// Convenience: the full deploy pipeline — analyze, initialize, persist
+    /// the analysis — with unlimited resource budgets and no abort hook.
+    /// Hosts running real transactions drive the three phases themselves.
+    fn deploy_contract(
+        &self,
+        ctx: &mut TransactionContext,
+        contract: &QualifiedContractIdentifier,
+        source: &str,
+        version: ClarityVersion,
+        sponsor: Option<PrincipalData>,
+    ) -> Result<DeployOutcome, EngineError> {
+        self.analyze_contract(ctx, contract, source, version, &ResourceBudget::unlimited())?;
+        let outcome = self.initialize_contract(
+            ctx,
+            contract,
+            source,
+            version,
+            sponsor,
+            None,
+            &ResourceBudget::unlimited(),
+        )?;
+        self.save_analysis(ctx, contract)?;
+        Ok(outcome)
+    }
 }
 
 /// Cross-engine contract-call routing: when an engine's `contract-call?`

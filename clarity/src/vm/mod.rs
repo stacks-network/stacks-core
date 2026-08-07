@@ -32,7 +32,7 @@ pub mod representations;
 
 pub mod callables;
 pub mod functions;
-pub mod resource_limiter;
+pub use clarity_kernel::resource_limiter;
 pub mod variables;
 
 pub mod analysis;
