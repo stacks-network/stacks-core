@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
 
-use crate::vm::costs::execution_cost::ExecutionCost;
+use super::execution_cost::ExecutionCost;
 
 /// Errors related to cost tracking and resource accounting in the Clarity VM.
 ///
@@ -72,5 +72,28 @@ impl fmt::Display for CostErrors {
 impl CostErrors {
     pub fn rejectable(&self) -> bool {
         matches!(self, CostErrors::InterpreterFailure | CostErrors::Expect(_))
+    }
+}
+
+/// Errors produced by the pure cost functions ([`super::cost_functions::CostValues`]
+/// implementations and the `logn`/`nlogn` helpers).
+///
+/// This type is a plain data carrier: the embedding VM converts it into its
+/// own error representation (e.g. the legacy engine maps it back onto the
+/// exact `VmExecutionError` values these functions produced historically).
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum CostFunctionError {
+    /// Arithmetic error (e.g. log2 of a non-positive integer).
+    Arithmetic(String),
+    /// The cost function is not implemented in this cost-contract version.
+    NotImplemented,
+}
+
+impl fmt::Display for CostFunctionError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CostFunctionError::Arithmetic(s) => write!(f, "Arithmetic error: {s}"),
+            CostFunctionError::NotImplemented => write!(f, "Cost function not implemented"),
+        }
     }
 }

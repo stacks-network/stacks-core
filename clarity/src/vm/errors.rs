@@ -265,6 +265,22 @@ impl From<RuntimeError> for VmExecutionError {
     }
 }
 
+impl From<clarity_kernel::costs::CostFunctionError> for VmExecutionError {
+    fn from(err: clarity_kernel::costs::CostFunctionError) -> Self {
+        use clarity_kernel::costs::CostFunctionError;
+        // These conversions reproduce the exact error values the pure cost
+        // functions constructed before they moved to `clarity-kernel`.
+        match err {
+            CostFunctionError::Arithmetic(msg) => {
+                VmExecutionError::Runtime(RuntimeError::Arithmetic(msg), Some(vec![]))
+            }
+            CostFunctionError::NotImplemented => {
+                VmExecutionError::Runtime(RuntimeError::NotImplemented, None)
+            }
+        }
+    }
+}
+
 impl From<CommonCheckErrorKind> for VmExecutionError {
     fn from(err: CommonCheckErrorKind) -> Self {
         VmExecutionError::RuntimeCheck(err.into())

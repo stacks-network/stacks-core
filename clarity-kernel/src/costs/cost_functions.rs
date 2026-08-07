@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use super::ExecutionCost;
-use crate::vm::errors::{RuntimeError, VmExecutionError};
+use super::errors::CostFunctionError;
 
 define_named_enum!(ClarityCostFunction {
     AnalysisTypeAnnotate("cost_analysis_type_annotate"),
@@ -173,25 +173,23 @@ define_named_enum!(ClarityCostFunction {
 pub fn linear(n: u64, a: u64, b: u64) -> u64 {
     a.saturating_mul(n).saturating_add(b)
 }
-pub fn logn(n: u64, a: u64, b: u64) -> Result<u64, VmExecutionError> {
+pub fn logn(n: u64, a: u64, b: u64) -> Result<u64, CostFunctionError> {
     if n < 1 {
         // This branch is **unreachable** in standard Clarity execution:
         // - `logn` is only called from tuple access operations.
         // - Tuples must have at least one field, so `n >= 1` is always true (this is enforced via static checks).
         // - Hitting this branch requires manual VM manipulation or internal test harnesses.
-        return Err(VmExecutionError::Runtime(
-            RuntimeError::Arithmetic("log2 must be passed a positive integer".to_string()),
-            Some(vec![]),
+        return Err(CostFunctionError::Arithmetic(
+            "log2 must be passed a positive integer".to_string(),
         ));
     }
     let nlog2 = u64::from(64 - 1 - n.leading_zeros());
     Ok(a.saturating_mul(nlog2).saturating_add(b))
 }
-pub fn nlogn(n: u64, a: u64, b: u64) -> Result<u64, VmExecutionError> {
+pub fn nlogn(n: u64, a: u64, b: u64) -> Result<u64, CostFunctionError> {
     if n < 1 {
-        return Err(VmExecutionError::Runtime(
-            RuntimeError::Arithmetic("log2 must be passed a positive integer".to_string()),
-            Some(vec![]),
+        return Err(CostFunctionError::Arithmetic(
+            "log2 must be passed a positive integer".to_string(),
         ));
     }
     let nlog2 = u64::from(64 - 1 - n.leading_zeros());
@@ -199,158 +197,158 @@ pub fn nlogn(n: u64, a: u64, b: u64) -> Result<u64, VmExecutionError> {
 }
 
 pub trait CostValues {
-    fn cost_analysis_type_annotate(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_type_check(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_type_lookup(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_visit(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_iterable_func(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_option_cons(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_option_check(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_bind_name(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_list_items_check(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_check_tuple_get(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_check_tuple_merge(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_check_tuple_cons(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_tuple_items_check(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_check_let(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_lookup_function(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_lookup_function_types(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_lookup_variable_const(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_lookup_variable_depth(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_ast_parse(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_ast_cycle_detection(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_storage(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_use_trait_entry(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_get_function_entry(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_analysis_fetch_contract_entry(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_lookup_variable_depth(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_lookup_variable_size(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_lookup_function(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_bind_name(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_inner_type_check_cost(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_user_function_application(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_let(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_if(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_asserts(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_map(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_filter(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_len(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_element_at(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_index_of(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_fold(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_list_cons(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_type_parse_step(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_tuple_get(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_tuple_merge(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_tuple_cons(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_add(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_sub(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_mul(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_div(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_geq(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_leq(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_le(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_ge(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_int_cast(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_mod(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_pow(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_sqrti(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_log2(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_xor(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_not(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_eq(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_begin(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_hash160(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_sha256(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_sha512(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_sha512t256(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_keccak256(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_secp256k1recover(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_secp256k1verify(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_print(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_some_cons(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_ok_cons(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_err_cons(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_default_to(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_unwrap_ret(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_unwrap_err_or_ret(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_is_okay(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_is_none(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_is_err(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_is_some(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_unwrap(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_unwrap_err(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_try_ret(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_match(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_or(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_and(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_append(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_concat(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_as_max_len(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_contract_call(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_contract_of(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_principal_of(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_at_block(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_load_contract(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_create_map(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_create_var(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_create_nft(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_create_ft(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_fetch_entry(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_set_entry(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_fetch_var(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_set_var(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_contract_storage(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_block_info(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_stx_balance(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_stx_transfer(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_ft_mint(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_ft_transfer(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_ft_balance(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_ft_get_supply(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_ft_burn(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_nft_mint(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_nft_transfer(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_nft_owner(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_nft_burn(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn poison_microblock(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_buff_to_int_le(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_buff_to_uint_le(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_buff_to_int_be(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_buff_to_uint_be(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_is_standard(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_principal_destruct(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_principal_construct(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_string_to_int(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_string_to_uint(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_int_to_ascii(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_int_to_utf8(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_burn_block_info(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_stx_account(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_slice(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_to_consensus_buff(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_from_consensus_buff(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_stx_transfer_memo(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_replace_at(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_as_contract(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_bitwise_and(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_bitwise_or(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_bitwise_not(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_bitwise_left_shift(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_bitwise_right_shift(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_contract_hash(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_to_ascii(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_restrict_assets(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_as_contract_safe(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_secp256r1verify(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_verify_merkle_proof(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_get_bitcoin_tx_output(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_ed25519verify(n: u64) -> Result<ExecutionCost, VmExecutionError>;
-    fn cost_secp256k1decompress(n: u64) -> Result<ExecutionCost, VmExecutionError>;
+    fn cost_analysis_type_annotate(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_type_check(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_type_lookup(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_visit(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_iterable_func(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_option_cons(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_option_check(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_bind_name(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_list_items_check(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_check_tuple_get(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_check_tuple_merge(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_check_tuple_cons(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_tuple_items_check(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_check_let(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_lookup_function(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_lookup_function_types(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_lookup_variable_const(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_lookup_variable_depth(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_ast_parse(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_ast_cycle_detection(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_storage(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_use_trait_entry(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_get_function_entry(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_analysis_fetch_contract_entry(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_lookup_variable_depth(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_lookup_variable_size(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_lookup_function(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_bind_name(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_inner_type_check_cost(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_user_function_application(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_let(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_if(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_asserts(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_map(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_filter(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_len(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_element_at(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_index_of(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_fold(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_list_cons(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_type_parse_step(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_tuple_get(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_tuple_merge(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_tuple_cons(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_add(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_sub(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_mul(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_div(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_geq(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_leq(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_le(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_ge(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_int_cast(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_mod(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_pow(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_sqrti(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_log2(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_xor(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_not(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_eq(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_begin(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_hash160(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_sha256(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_sha512(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_sha512t256(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_keccak256(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_secp256k1recover(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_secp256k1verify(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_print(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_some_cons(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_ok_cons(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_err_cons(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_default_to(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_unwrap_ret(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_unwrap_err_or_ret(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_is_okay(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_is_none(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_is_err(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_is_some(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_unwrap(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_unwrap_err(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_try_ret(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_match(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_or(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_and(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_append(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_concat(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_as_max_len(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_contract_call(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_contract_of(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_principal_of(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_at_block(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_load_contract(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_create_map(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_create_var(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_create_nft(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_create_ft(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_fetch_entry(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_set_entry(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_fetch_var(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_set_var(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_contract_storage(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_block_info(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_stx_balance(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_stx_transfer(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_ft_mint(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_ft_transfer(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_ft_balance(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_ft_get_supply(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_ft_burn(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_nft_mint(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_nft_transfer(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_nft_owner(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_nft_burn(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn poison_microblock(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_buff_to_int_le(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_buff_to_uint_le(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_buff_to_int_be(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_buff_to_uint_be(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_is_standard(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_principal_destruct(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_principal_construct(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_string_to_int(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_string_to_uint(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_int_to_ascii(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_int_to_utf8(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_burn_block_info(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_stx_account(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_slice(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_to_consensus_buff(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_from_consensus_buff(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_stx_transfer_memo(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_replace_at(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_as_contract(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_bitwise_and(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_bitwise_or(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_bitwise_not(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_bitwise_left_shift(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_bitwise_right_shift(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_contract_hash(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_to_ascii(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_restrict_assets(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_as_contract_safe(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_secp256r1verify(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_verify_merkle_proof(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_get_bitcoin_tx_output(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_ed25519verify(n: u64) -> Result<ExecutionCost, CostFunctionError>;
+    fn cost_secp256k1decompress(n: u64) -> Result<ExecutionCost, CostFunctionError>;
 }
 
 impl ClarityCostFunction {
-    pub fn eval<C: CostValues>(&self, n: u64) -> Result<ExecutionCost, VmExecutionError> {
+    pub fn eval<C: CostValues>(&self, n: u64) -> Result<ExecutionCost, CostFunctionError> {
         match self {
             ClarityCostFunction::AnalysisTypeAnnotate => C::cost_analysis_type_annotate(n),
             ClarityCostFunction::AnalysisTypeCheck => C::cost_analysis_type_check(n),
@@ -508,7 +506,7 @@ impl ClarityCostFunction {
             ClarityCostFunction::GetBitcoinTxOutput => C::cost_get_bitcoin_tx_output(n),
             ClarityCostFunction::Ed25519verify => C::cost_ed25519verify(n),
             ClarityCostFunction::Secp256k1decompress => C::cost_secp256k1decompress(n),
-            ClarityCostFunction::Unimplemented => Err(RuntimeError::NotImplemented.into()),
+            ClarityCostFunction::Unimplemented => Err(CostFunctionError::NotImplemented),
         }
     }
 }

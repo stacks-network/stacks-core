@@ -38,7 +38,7 @@ pub mod analysis;
 pub mod docs;
 pub mod version;
 
-pub mod events;
+pub use clarity_kernel::events;
 
 #[cfg(feature = "rusqlite")]
 pub mod tooling;

@@ -15,14 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::{cmp, fmt};
+use std::fmt;
 
-use costs_1::Costs1;
-use costs_2::Costs2;
-use costs_2_testnet::Costs2Testnet;
-use costs_3::Costs3;
-use costs_4::Costs4;
-use costs_5::Costs5;
+use clarity_kernel::costs::costs_1::Costs1;
+use clarity_kernel::costs::costs_2::Costs2;
+use clarity_kernel::costs::costs_2_testnet::Costs2Testnet;
+use clarity_kernel::costs::costs_3::Costs3;
+use clarity_kernel::costs::costs_4::Costs4;
+use clarity_kernel::costs::costs_5::Costs5;
+// The pure cost layer (cost functions, execution-cost arithmetic, the
+// `CostTracker` interface) lives in `clarity-kernel`; it is re-exported here
+// so all pre-existing `crate::vm::costs::...` paths keep working.
+pub use clarity_kernel::costs::{
+    CLARITY_MEMORY_LIMIT, CostTracker, MemoryConsumer, analysis_typecheck_cost, constants,
+    cost_functions, costs_1, costs_2, costs_2_testnet, costs_3, costs_4, costs_5, errors,
+    execution_cost, runtime_cost,
+};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
@@ -44,23 +52,6 @@ use crate::vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
 };
 use crate::vm::{CallStack, ClarityName, LocalContext, SymbolicExpression, Value};
-pub mod constants;
-pub mod cost_functions;
-#[allow(unused_variables)]
-pub mod costs_1;
-#[allow(unused_variables)]
-pub mod costs_2;
-#[allow(unused_variables)]
-pub mod costs_2_testnet;
-#[allow(unused_variables)]
-pub mod costs_3;
-#[allow(unused_variables)]
-pub mod costs_4;
-pub mod costs_5;
-pub mod errors;
-pub mod execution_cost;
-
-pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 
 // TODO: factor out into a boot lib?
 pub const COSTS_1_NAME: &str = "costs";
@@ -100,100 +91,12 @@ lazy_static! {
     };
 }
 
-pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
-    cost_function: ClarityCostFunction,
-    tracker: &mut C,
-    input: T,
-) -> Result<(), CostErrors> {
-    let size: u64 = input.try_into().map_err(|_| CostErrors::CostOverflow)?;
-    let cost = tracker.compute_cost(cost_function, &[size])?;
-
-    tracker.add_cost(cost)
-}
-
 macro_rules! finally_drop_memory {
     ( $gc: expr, $used_mem:expr; $exec:expr ) => {{
         let result = (|| $exec)();
         $gc.drop_memory($used_mem)?;
         result
     }};
-}
-
-pub fn analysis_typecheck_cost<T: CostTracker>(
-    track: &mut T,
-    t1: &TypeSignature,
-    t2: &TypeSignature,
-) -> Result<(), CostErrors> {
-    let t1_size = t1.type_size().map_err(|_| CostErrors::CostOverflow)?;
-    let t2_size = t2.type_size().map_err(|_| CostErrors::CostOverflow)?;
-    let cost = track.compute_cost(
-        ClarityCostFunction::AnalysisTypeCheck,
-        &[cmp::max(t1_size, t2_size) as u64],
-    )?;
-    track.add_cost(cost)
-}
-
-pub trait MemoryConsumer {
-    fn get_memory_use(&self) -> Result<u64, CostErrors>;
-}
-
-impl MemoryConsumer for Value {
-    fn get_memory_use(&self) -> Result<u64, CostErrors> {
-        Ok(self
-            .size()
-            .map_err(|_| CostErrors::InterpreterFailure)?
-            .into())
-    }
-}
-
-pub trait CostTracker {
-    fn compute_cost(
-        &mut self,
-        cost_function: ClarityCostFunction,
-        input: &[u64],
-    ) -> Result<ExecutionCost, CostErrors>;
-    fn add_cost(&mut self, cost: ExecutionCost) -> Result<(), CostErrors>;
-    fn add_memory(&mut self, memory: u64) -> Result<(), CostErrors>;
-    fn drop_memory(&mut self, memory: u64) -> Result<(), CostErrors>;
-    fn reset_memory(&mut self);
-    /// Check if the given contract-call should be short-circuited.
-    ///  If so: this charges the cost to the CostTracker, and return true
-    ///  If not: return false
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> Result<bool, CostErrors>;
-}
-
-// Don't track!
-impl CostTracker for () {
-    fn compute_cost(
-        &mut self,
-        _cost_function: ClarityCostFunction,
-        _input: &[u64],
-    ) -> Result<ExecutionCost, CostErrors> {
-        Ok(ExecutionCost::ZERO)
-    }
-    fn add_cost(&mut self, _cost: ExecutionCost) -> Result<(), CostErrors> {
-        Ok(())
-    }
-    fn add_memory(&mut self, _memory: u64) -> Result<(), CostErrors> {
-        Ok(())
-    }
-    fn drop_memory(&mut self, _memory: u64) -> Result<(), CostErrors> {
-        Ok(())
-    }
-    fn reset_memory(&mut self) {}
-    fn short_circuit_contract_call(
-        &mut self,
-        _contract: &QualifiedContractIdentifier,
-        _function: &ClarityName,
-        _input: &[u64],
-    ) -> Result<bool, CostErrors> {
-        Ok(false)
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
@@ -236,6 +139,10 @@ impl DefaultVersion {
             DefaultVersion::Costs4 => f.eval::<Costs4>(*n),
             DefaultVersion::Costs5 => f.eval::<Costs5>(*n),
         };
+        // Convert the kernel's cost-function error back into the exact
+        // legacy error values, so the mapping below (and the resulting
+        // error strings) are unchanged.
+        let r = r.map_err(VmExecutionError::from);
         r.map_err(|e| {
             let e = match e {
                 VmExecutionError::Runtime(RuntimeError::NotImplemented, _) => {

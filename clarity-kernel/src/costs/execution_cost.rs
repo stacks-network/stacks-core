@@ -20,7 +20,7 @@ use rusqlite::{
     types::{FromSql, FromSqlResult, ToSqlOutput, ValueRef},
 };
 
-use crate::vm::costs::CostErrors;
+use super::CostErrors;
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Hash)]
 pub struct ExecutionCost {

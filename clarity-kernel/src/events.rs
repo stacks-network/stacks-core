@@ -14,13 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use serde_json::json;
-use stacks_common::util::hash::to_hex_prefixed;
-
-use super::types::serialization::SerializationError;
-use crate::vm::types::{
+use clarity_types::types::serialization::SerializationError;
+use clarity_types::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, Value,
 };
+use serde_json::json;
+use stacks_common::util::hash::to_hex_prefixed;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StacksTransactionEvent {
@@ -346,9 +345,10 @@ impl SmartContractEventData {
 
 #[cfg(test)]
 mod tests {
+    use clarity_types::types::StandardPrincipalData;
+    use clarity_types::{ClarityName, ContractName};
+
     use super::*;
-    use crate::vm::types::StandardPrincipalData;
-    use crate::vm::{ClarityName, ContractName};
 
     fn test_principal() -> PrincipalData {
         PrincipalData::Standard(StandardPrincipalData::null_principal())

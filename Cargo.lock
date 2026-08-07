@@ -805,6 +805,7 @@ name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff 1.1.0",
+ "clarity-kernel",
  "clarity-types 0.0.1",
  "criterion",
  "integer-sqrt",
@@ -860,6 +861,21 @@ dependencies = [
  "slog",
  "stacks-common 0.0.1",
  "stackslib 0.0.1",
+]
+
+[[package]]
+name = "clarity-kernel"
+version = "0.0.1"
+dependencies = [
+ "clarity-types 0.0.1",
+ "lazy_static",
+ "mutants",
+ "rstest",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "stacks-common 0.0.1",
 ]
 
 [[package]]

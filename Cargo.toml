@@ -6,6 +6,7 @@ members = [
     "stacks-codec",
     "pox-locking",
     "clarity-types",
+    "clarity-kernel",
     "clarity",
     "stx-genesis",
     "libstackerdb",
