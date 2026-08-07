@@ -147,7 +147,9 @@ impl RPCTransactionSimulateRequestHandler {
         tenure_tx.reset_cost(ExecutionCost::ZERO);
         let Some(execution_limit) = tenure_tx.block_limit() else {
             tenure_tx.rollback_block();
-            return Err(ChainError::InvalidStacksBlock(
+            // this is an internal invariant violation, not something the
+            // caller can provoke, so it must not be reported as a client error
+            return Err(ChainError::Expects(
                 "Cost tracker unavailable for simulated block".into(),
             ));
         };
@@ -418,6 +420,17 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
                 return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpBadRequest::new(format!("Failed to simulate transaction: {reason}\n")),
+                )
+                .try_into_contents()
+                .map_err(NetError::from)
+            }
+            // the caller picked a tip that exists but cannot be extended (e.g.
+            // an epoch-2.x block, or a shadow tenure); that's a client error,
+            // not a node fault
+            Err(ChainError::InvalidStacksBlock(reason)) => {
+                return StacksHttpResponse::new_error(
+                    &preamble,
+                    &HttpBadRequest::new(format!("Cannot simulate at this chain tip: {reason}\n")),
                 )
                 .try_into_contents()
                 .map_err(NetError::from)

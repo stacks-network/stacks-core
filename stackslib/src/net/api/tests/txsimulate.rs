@@ -22,6 +22,7 @@ use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 
+use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::core::test_util::{make_contract_call_tx, make_contract_publish_tx, to_addr};
 use crate::net::api::tests::TestRPC;
@@ -84,10 +85,28 @@ fn test_try_parse_request() {
     assert_eq!(&preamble, request.preamble());
 }
 
+/// Return the index block hash of the highest epoch-2.x block in this
+/// chainstate.  The Nakamoto boot plan mines an epoch-2.x chain before
+/// activating Nakamoto, so these blocks are present in the headers DB and can
+/// be named by a client via the `tip` query parameter -- but they cannot be
+/// extended by the simulation endpoint, which builds a Nakamoto block.
+fn last_epoch2_block_id(chainstate: &StacksChainState) -> StacksBlockId {
+    chainstate
+        .db()
+        .query_row(
+            "SELECT index_block_hash FROM block_headers ORDER BY block_height DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("FATAL: no epoch-2.x blocks in the test chainstate")
+}
+
 #[test]
 fn test_transaction_simulate_errors() {
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+
+    let epoch2_tip = last_epoch2_block_id(rpc_test.peer_1.chainstate_ref());
 
     let sort_db = rpc_test.peer_1.chain.sortdb.take().unwrap();
     let chainstate = rpc_test.peer_1.chainstate();
@@ -117,6 +136,24 @@ fn test_transaction_simulate_errors() {
     .unwrap();
 
     assert!(matches!(err, ChainError::NoSuchBlockError));
+
+    // an epoch-2.x tip exists, but cannot be extended by a Nakamoto block
+    let err = txsimulate::RPCTransactionSimulateRequestHandler::transaction_simulate(
+        &tx,
+        &epoch2_tip,
+        &sort_db,
+        chainstate,
+        Duration::from_secs(30),
+        Duration::from_secs(30),
+        0,
+    )
+    .err()
+    .unwrap();
+
+    let ChainError::InvalidStacksBlock(reason) = err else {
+        panic!("Expected InvalidStacksBlock for an epoch-2.x tip, got {err:?}");
+    };
+    assert_eq!(reason, "Chain tip is not a Nakamoto block");
 }
 
 /// Simulate a successful contract-call at the chain tip and check the
@@ -238,6 +275,17 @@ fn test_try_make_response() {
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
+    // an epoch-2.x `tip` exists but cannot be extended, so it yields a 400
+    // rather than a 500 -- the caller chose the tip, so it is a client error
+    let epoch2_tip = last_epoch2_block_id(rpc_test.peer_1.chainstate_ref());
+    let mut request = StacksHttpRequest::new_transaction_simulate(
+        addr.into(),
+        &contract_call,
+        TipRequest::SpecificTip(epoch2_tip),
+    );
+    request.add_header("authorization".into(), "password".into());
+    requests.push(request);
+
     let mut responses = rpc_test.run(requests);
 
     let tip_block = test_observer.get_blocks().last().unwrap().clone();
@@ -312,4 +360,18 @@ fn test_try_make_response() {
     );
     let (preamble, _body) = response.destruct();
     assert_eq!(preamble.status_code, 404);
+
+    // an epoch-2.x `tip` yields a 400, not a 500
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+    let (preamble, contents) = response.destruct();
+    assert_eq!(preamble.status_code, 400);
+    let body: String = contents.try_into().unwrap();
+    assert!(
+        body.contains("Chain tip is not a Nakamoto block"),
+        "Unexpected body: {body}"
+    );
 }

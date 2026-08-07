@@ -2531,6 +2531,10 @@ paths:
         `block_proposal_max_tx_analysis_time_secs`, and
         `block_proposal_max_tx_mem_bytes` options), so a transaction which
         exceeds them fails to simulate.
+
+        A `tip` naming a block that does not exist returns 404. A `tip` naming
+        a block that exists but cannot be simulated by this endpoint (for
+        example an epoch-2.x block) returns 400.
       requestBody:
         required: true
         content:
