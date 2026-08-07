@@ -60,7 +60,7 @@ use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFPublicKey;
 
-use super::{BurnchainController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
+use super::{BitcoinRegtestController, BurnchainTip, Config, EventDispatcher, Keychain, Tenure};
 use crate::burnchains::make_bitcoin_indexer;
 use crate::genesis_data::USE_TEST_GENESIS_CHAINSTATE;
 use crate::run_loop;
@@ -166,7 +166,7 @@ pub fn get_names(use_test_chainstate_data: bool) -> Box<dyn Iterator<Item = Chai
     )
 }
 
-// This function is called for helium and mocknet.
+// This function is called for helium.
 #[allow(clippy::too_many_arguments)]
 fn spawn_peer(
     is_mainnet: bool,
@@ -292,11 +292,7 @@ pub fn use_test_genesis_chainstate(config: &Config) -> bool {
 impl Node {
     /// Instantiate and initialize a new node, given a config
     pub fn new(config: Config, boot_block_exec: Box<dyn FnOnce(&mut ClarityTx)>) -> Self {
-        let use_test_genesis_data = if config.burnchain.mode == "mocknet" {
-            use_test_genesis_chainstate(&config)
-        } else {
-            USE_TEST_GENESIS_CHAINSTATE
-        };
+        let use_test_genesis_data = use_test_genesis_chainstate(&config);
 
         let keychain = Keychain::default(config.node.seed.clone());
 
@@ -414,7 +410,7 @@ impl Node {
         .unwrap()
     }
 
-    // This function is used for helium and mocknet.
+    // This function is used for helium.
     pub fn spawn_peer_server(&mut self) {
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -553,7 +549,7 @@ impl Node {
         info!("Start P2P server on: {}", &self.config.node.p2p_bind);
     }
 
-    pub fn setup(&mut self, burnchain_controller: &mut Box<dyn BurnchainController>) {
+    pub fn setup(&mut self, burnchain_controller: &mut BitcoinRegtestController) {
         // Register a new key
         let burnchain_tip = burnchain_controller.get_chain_tip();
         let (vrf_pk, _) = self
@@ -754,7 +750,7 @@ impl Node {
         &mut self,
         anchored_block_from_ongoing_tenure: &StacksBlock,
         burnchain_tip: &BurnchainTip,
-        burnchain_controller: &mut Box<dyn BurnchainController>,
+        burnchain_controller: &mut BitcoinRegtestController,
         burn_fee: u64,
     ) {
         if self.active_registered_key.is_some() {

@@ -1,0 +1,1 @@
+`burnchain.mode` is now a required setting in the config file (no implicit default; it previously defaulted to `mocknet`). A config file without an explicit `[burnchain] mode` is rejected with a clear error, and `mode = "mocknet"` (removed) is rejected as an unsupported mode.

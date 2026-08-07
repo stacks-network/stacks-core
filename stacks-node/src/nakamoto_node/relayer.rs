@@ -64,7 +64,6 @@ use super::miner::MinerReason;
 use super::{
     Config, Error as NakamotoNodeError, EventDispatcher, Keychain, BLOCK_PROCESSOR_STACK_SIZE,
 };
-use crate::burnchains::BurnchainController;
 use crate::nakamoto_node::miner::{BlockMinerThread, MinerDirective};
 use crate::neon_node::{
     fault_injection_skip_mining, open_chainstate_with_faults, LeaderKeyRegistrationState,

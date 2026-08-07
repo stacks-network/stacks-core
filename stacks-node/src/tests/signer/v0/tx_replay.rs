@@ -40,7 +40,7 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, test_observer, wait_for_tenure_change_tx,
 };
 use crate::tests::{self};
-use crate::{BitcoinRegtestController, BurnchainController, Keychain};
+use crate::{BitcoinRegtestController, Keychain};
 #[test]
 #[ignore]
 /// Trigger a Bitcoin fork and ensure that the signer

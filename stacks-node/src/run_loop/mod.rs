@@ -16,7 +16,7 @@ use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::stacks::chainstate::coordinator::BlockEventDispatcher;
 use crate::stacks::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::{BurnchainController, BurnchainTip, ChainTip, EventDispatcher, Tenure};
+use crate::{BitcoinRegtestController, BurnchainTip, ChainTip, EventDispatcher, Tenure};
 
 macro_rules! info_blue {
     ($($arg:tt)*) => ({
@@ -39,7 +39,7 @@ macro_rules! info_green {
 
 #[allow(clippy::type_complexity)]
 pub struct RunLoopCallbacks {
-    on_burn_chain_initialized: Option<fn(&mut Box<dyn BurnchainController>)>,
+    on_burn_chain_initialized: Option<fn(&mut BitcoinRegtestController)>,
     on_new_burn_chain_state: Option<fn(u64, &BurnchainTip, &ChainTip)>,
     on_new_stacks_chain_state:
         Option<fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState, &dyn BurnStateDB)>,
@@ -62,7 +62,7 @@ impl RunLoopCallbacks {
         }
     }
 
-    pub fn on_burn_chain_initialized(&mut self, callback: fn(&mut Box<dyn BurnchainController>)) {
+    pub fn on_burn_chain_initialized(&mut self, callback: fn(&mut BitcoinRegtestController)) {
         self.on_burn_chain_initialized = Some(callback);
     }
 
@@ -81,7 +81,7 @@ impl RunLoopCallbacks {
         self.on_new_tenure = Some(callback);
     }
 
-    pub fn invoke_burn_chain_initialized(&self, burnchain: &mut Box<dyn BurnchainController>) {
+    pub fn invoke_burn_chain_initialized(&self, burnchain: &mut BitcoinRegtestController) {
         if let Some(cb) = self.on_burn_chain_initialized {
             cb(burnchain);
         }
