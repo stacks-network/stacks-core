@@ -131,7 +131,6 @@ pub mod signers_consider_consensus_blocks;
 pub mod signers_consider_late_proposals;
 pub mod signers_wait_for_validation;
 pub mod tenure_extend;
-pub mod tx_replay;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Poll until the reward set for the next reward cycle is available.

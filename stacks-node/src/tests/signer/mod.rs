@@ -35,7 +35,6 @@ use libsigner::v0::messages::{
 use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use serde::{Deserialize, Serialize};
-use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::NakamotoBlock;
@@ -45,7 +44,6 @@ use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, In
 use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_stacks_transfer_serialized,
 };
-use stacks::net::api::getpoxinfo::RPCPoxInfoData;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
@@ -1106,35 +1104,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .collect()
     }
 
-    /// Wait for a certain condition to be met for each signer's state machine
-    pub fn wait_for_signer_state_check(
-        &self,
-        timeout: u64,
-        mut f: impl FnMut(&LocalStateMachine) -> Result<bool, String>,
-    ) -> Result<(), String> {
-        wait_for(timeout, || {
-            let (signer_states, _) = self.get_burn_updated_states();
-            let all_pass = signer_states
-                .iter()
-                .all(|state| f(state).map_or(false, |ok| ok));
-            Ok(all_pass)
-        })
-    }
-
-    pub fn wait_for_replay_set_eq(&self, timeout: u64, expected_txids: Vec<String>) {
-        self.wait_for_signer_state_check(timeout, |state| {
-            let Some(replay_set) = state.get_tx_replay_set() else {
-                return Ok(false);
-            };
-            let txids = replay_set
-                .iter()
-                .map(|tx| tx.txid().to_hex())
-                .collect::<Vec<_>>();
-            Ok(txids == expected_txids)
-        })
-        .expect("Timed out waiting for replay set to be equal to expected txids");
-    }
-
     /// Replace the test's configured signer st
     pub fn replace_signers(
         &mut self,
@@ -1649,13 +1618,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .expect("Failed to get peer info")
     }
 
-    /// Get /v2/pox from the node
-    pub fn get_pox_data(&self) -> RPCPoxInfoData {
-        self.stacks_client
-            .get_pox_data()
-            .expect("Failed to get pox info")
-    }
-
     pub fn readonly_stackerdb_client(&self, reward_cycle: u64) -> StackerDB<MessageSlotID> {
         StackerDB::new_normal(
             &self.running_nodes.conf.node.rpc_bind,
@@ -1726,30 +1688,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .expect("Failed to send accept signature");
     }
 
-    /// Get the txid of the parent block commit transaction for the given miner
-    pub fn get_parent_block_commit_txid(&self, miner_pk: &StacksPublicKey) -> Option<Txid> {
-        let Some(confirmed_utxo) = self
-            .running_nodes
-            .btc_regtest_controller
-            .get_all_utxos(&miner_pk)
-            .into_iter()
-            .find(|utxo| utxo.confirmations == 0)
-        else {
-            return None;
-        };
-        let unconfirmed_txid = Txid::from_bitcoin_tx_hash(&confirmed_utxo.txid);
-        let unconfirmed_tx = self
-            .running_nodes
-            .btc_regtest_controller
-            .get_raw_transaction(&unconfirmed_txid);
-        let parent_txid = &unconfirmed_tx
-            .input
-            .get(0)
-            .expect("First input should exist")
-            .previous_output
-            .txid;
-        Some(Txid::from_bitcoin_tx_hash(parent_txid))
-    }
     /// Restart the signer at `idx` with a new supported protocol version.
     pub fn restart_signer_with_supported_version(&mut self, idx: usize, version: u64) {
         let mut cfg = self.stop_signer(idx);
