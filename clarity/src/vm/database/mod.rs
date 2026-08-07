@@ -89,15 +89,20 @@ impl ClarityDeserializable<ContractContext> for ContractContext {
     }
 }
 
+// Contract analyses are persisted in the kernel-owned stored-interface
+// format ([`clarity_kernel::analysis::StoredContractAnalysis`], a serde-exact
+// mirror of this engine's serialized subset), so the stored bytes are
+// unchanged and other engines can read them without this engine's types.
 impl ClaritySerializable for ContractAnalysis {
     fn serialize(&self) -> String {
-        serde_json::to_string(self).expect("Failed to serialize vm.Value")
+        self.to_stored().serialize()
     }
 }
 
 impl ClarityDeserializable<ContractAnalysis> for ContractAnalysis {
     fn deserialize(json: &str) -> Result<Self, VmExecutionError> {
-        deserialize_json(json)
+        clarity_kernel::analysis::StoredContractAnalysis::deserialize(json)
+            .map(ContractAnalysis::from_stored)
     }
 }
 

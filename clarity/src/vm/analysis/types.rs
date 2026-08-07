@@ -16,6 +16,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub use clarity_kernel::analysis::StoredContractAnalysis;
 use clarity_types::representations::ClarityName;
 use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use stacks_common::types::StacksEpochId;
@@ -74,6 +75,55 @@ pub struct ContractAnalysis {
 }
 
 impl ContractAnalysis {
+    /// Convert to the kernel's stored-interface record (the serialized
+    /// subset of this analysis; see [`StoredContractAnalysis`] for the
+    /// format-stability contract).
+    pub fn to_stored(&self) -> StoredContractAnalysis {
+        StoredContractAnalysis {
+            contract_identifier: self.contract_identifier.clone(),
+            private_function_types: self.private_function_types.clone(),
+            variable_types: self.variable_types.clone(),
+            public_function_types: self.public_function_types.clone(),
+            read_only_function_types: self.read_only_function_types.clone(),
+            map_types: self.map_types.clone(),
+            persisted_variable_types: self.persisted_variable_types.clone(),
+            fungible_tokens: self.fungible_tokens.clone(),
+            non_fungible_tokens: self.non_fungible_tokens.clone(),
+            defined_traits: self.defined_traits.clone(),
+            implemented_traits: self.implemented_traits.clone(),
+            contract_interface: self.contract_interface.clone(),
+            is_cost_contract_eligible: self.is_cost_contract_eligible,
+            epoch: self.epoch,
+            clarity_version: self.clarity_version,
+        }
+    }
+
+    /// Rehydrate a working analysis from the stored-interface record. The
+    /// engine-side working state (`expressions`, `type_map`, `cost_track`)
+    /// starts empty, exactly as when deserializing the record directly.
+    pub fn from_stored(stored: StoredContractAnalysis) -> ContractAnalysis {
+        ContractAnalysis {
+            contract_identifier: stored.contract_identifier,
+            private_function_types: stored.private_function_types,
+            variable_types: stored.variable_types,
+            public_function_types: stored.public_function_types,
+            read_only_function_types: stored.read_only_function_types,
+            map_types: stored.map_types,
+            persisted_variable_types: stored.persisted_variable_types,
+            fungible_tokens: stored.fungible_tokens,
+            non_fungible_tokens: stored.non_fungible_tokens,
+            defined_traits: stored.defined_traits,
+            implemented_traits: stored.implemented_traits,
+            contract_interface: stored.contract_interface,
+            is_cost_contract_eligible: stored.is_cost_contract_eligible,
+            epoch: stored.epoch,
+            clarity_version: stored.clarity_version,
+            expressions: Vec::new(),
+            type_map: None,
+            cost_track: None,
+        }
+    }
+
     pub fn new(
         contract_identifier: QualifiedContractIdentifier,
         expressions: Vec<SymbolicExpression>,

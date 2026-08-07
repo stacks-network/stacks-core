@@ -392,6 +392,46 @@ mod tests {
         db.roll_back().unwrap();
     }
 
+    /// The kernel's `StoredContractAnalysis` must serialize byte-identically
+    /// to the direct serde output of this engine's `ContractAnalysis` — the
+    /// stored metadata format must not change. Exercises functions, maps,
+    /// variables, tokens, traits, and a built contract interface.
+    #[test]
+    fn stored_format_is_byte_identical() {
+        use clarity_kernel::analysis::StoredContractAnalysis;
+
+        use crate::vm::analysis::contract_interface_builder::build_contract_interface;
+        use crate::vm::analysis::{ContractAnalysis, mem_type_check};
+        use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
+
+        let source = "(define-trait exchange ((swap (uint uint) (response uint uint))))
+             (define-map orders { id: uint } { amount: uint, who: (optional principal) })
+             (define-data-var order-count uint u0)
+             (define-fungible-token points)
+             (define-non-fungible-token badge (string-ascii 32))
+             (define-read-only (get-order (id uint)) (map-get? orders { id: id }))
+             (define-private (bump) (var-set order-count (+ (var-get order-count) u1)))
+             (define-public (place (id uint) (amount uint))
+               (begin (bump) (ok (map-insert orders { id: id } { amount: amount, who: none }))))";
+        let epoch = StacksEpochId::latest();
+        let (_, mut analysis) = mem_type_check(source, ClarityVersion::latest(), epoch).unwrap();
+        analysis.contract_interface = Some(build_contract_interface(&analysis).unwrap());
+
+        let direct = serde_json::to_string(&analysis).unwrap();
+        let via_stored = ClaritySerializable::serialize(&analysis);
+        assert_eq!(direct, via_stored, "stored analysis format changed!");
+
+        // And the load path round-trips through the kernel type.
+        let stored = StoredContractAnalysis::deserialize(&via_stored).unwrap();
+        assert_eq!(analysis.to_stored(), stored);
+        let rehydrated = ContractAnalysis::from_stored(stored);
+        assert_eq!(
+            serde_json::to_string(&rehydrated).unwrap(),
+            direct,
+            "round-trip through the stored form must be lossless"
+        );
+    }
+
     #[test]
     fn parse_failure_carries_diagnostics() {
         let epoch = StacksEpochId::latest();

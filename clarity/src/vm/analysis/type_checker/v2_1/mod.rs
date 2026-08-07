@@ -30,6 +30,7 @@ pub use crate::vm::analysis::errors::{
     StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, check_argument_count,
     check_arguments_at_least, check_arguments_at_most,
 };
+use crate::vm::analysis::type_checker::FunctionTypeExt;
 use crate::vm::analysis::{AnalysisDatabase, check_analysis_resource_limits};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
@@ -177,18 +178,58 @@ pub fn compute_typecheck_cost<T: CostTracker>(
     )
 }
 
-impl FunctionType {
-    #[allow(clippy::type_complexity)]
-    pub fn check_args_visitor_2_1<T: CostTracker>(
+/// Return of [`FunctionTypeExtV21::check_args_visitor_2_1`]: the cost
+/// charged for visiting this argument (if any was incurred), alongside the
+/// accumulated type so far (or `None` when the function type imposes no
+/// accumulated type).
+pub type VisitorCheckResult = (
+    Option<Result<ExecutionCost, CostErrors>>,
+    Result<Option<TypeSignature>, StaticCheckError>,
+);
+
+/// Epoch-2.1+ argument-checking rules for [`FunctionType`] (extension
+/// trait; see `type_checker::FunctionTypeExt`).
+pub trait FunctionTypeExtV21 {
+    fn check_args_visitor_2_1<T: CostTracker>(
         &self,
         accounting: &mut T,
         arg_type: &TypeSignature,
         arg_index: usize,
         accumulated_type: Option<&TypeSignature>,
-    ) -> (
-        Option<Result<ExecutionCost, CostErrors>>,
-        Result<Option<TypeSignature>, StaticCheckError>,
-    ) {
+    ) -> VisitorCheckResult;
+    fn check_args_2_1<T: CostTracker>(
+        &self,
+        accounting: &mut T,
+        args: &[TypeSignature],
+        clarity_version: ClarityVersion,
+    ) -> Result<TypeSignature, StaticCheckError>;
+    fn principal_to_callable_type(
+        &self,
+        value: &Value,
+        depth: u8,
+        clarity_version: ClarityVersion,
+    ) -> Result<TypeSignature, StaticCheckError>;
+    fn clarity2_principal_to_callable_type(
+        &self,
+        value: &Value,
+        depth: u8,
+    ) -> Result<TypeSignature, StaticCheckError>;
+    fn check_args_by_allowing_trait_cast_2_1(
+        &self,
+        db: &mut AnalysisDatabase,
+        clarity_version: ClarityVersion,
+        func_args: &[Value],
+    ) -> Result<TypeSignature, StaticCheckError>;
+}
+
+impl FunctionTypeExtV21 for FunctionType {
+    fn check_args_visitor_2_1<T: CostTracker>(
+        &self,
+        accounting: &mut T,
+        arg_type: &TypeSignature,
+        arg_index: usize,
+        accumulated_type: Option<&TypeSignature>,
+    ) -> VisitorCheckResult {
         match self {
             // variadic stops checking cost at the first error...
             FunctionType::Variadic(expected_type, _) => {
@@ -290,7 +331,7 @@ impl FunctionType {
         }
     }
 
-    pub fn check_args_2_1<T: CostTracker>(
+    fn check_args_2_1<T: CostTracker>(
         &self,
         accounting: &mut T,
         args: &[TypeSignature],
@@ -477,7 +518,7 @@ impl FunctionType {
     /// types to callable types. In an initial transaction, arguments are typed
     /// as contract principals, but they must be principal literals, so they
     /// may be used to call into a contract.
-    pub fn principal_to_callable_type(
+    fn principal_to_callable_type(
         &self,
         value: &Value,
         depth: u8,
@@ -568,7 +609,7 @@ impl FunctionType {
     /// cost of evaluating these type checks are not tracked.
     /// WARNING: This is not consensus-critical code, and should never be
     ///          called from consensus-critical code.
-    pub fn check_args_by_allowing_trait_cast_2_1(
+    fn check_args_by_allowing_trait_cast_2_1(
         &self,
         db: &mut AnalysisDatabase,
         clarity_version: ClarityVersion,

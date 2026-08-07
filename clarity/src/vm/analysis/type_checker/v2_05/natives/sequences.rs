@@ -18,6 +18,7 @@ use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use crate::vm::ClarityVersion;
+use crate::vm::analysis::type_checker::FunctionTypeExt;
 use crate::vm::analysis::type_checker::v2_05::{
     StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext, check_argument_count,
     check_arguments_at_least,
