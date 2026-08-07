@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 
 use clarity::types::net::PeerHost;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::serialization::TypePrefix;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ContractName;
 use libstackerdb::SlotMetadata;
@@ -172,6 +173,13 @@ const TEST_CONTRACT_UNCONFIRMED: &str = "
 (map-set test-map-unconfirmed 3 4)
 (define-public (do-test) (ok u1))
 ";
+
+fn bool_list_hex(len: u32) -> String {
+    let mut data = vec![TypePrefix::List as u8];
+    data.extend_from_slice(&len.to_be_bytes());
+    data.extend(std::iter::repeat(TypePrefix::BoolTrue as u8).take(len as usize));
+    to_hex(&data)
+}
 
 /// This helper function drives I/O between a sender and receiver Http conversation.
 fn convo_send_recv(sender: &mut ConversationHttp, receiver: &mut ConversationHttp) {

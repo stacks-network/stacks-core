@@ -23,13 +23,15 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::errors::VmExecutionError::{self, RuntimeCheck};
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
-use clarity::vm::resource_limiter::ResourceBudget;
+use clarity::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 
+pub use crate::net::api::read_only_parse::CallReadOnlyRequestBody;
+use crate::net::api::read_only_parse::{parse_read_only_call_body, remaining_execution_mem_budget};
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
     HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
@@ -40,14 +42,6 @@ use crate::net::httpcore::{
     StacksHttpResponse,
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct CallReadOnlyRequestBody {
-    pub sender: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sponsor: Option<String>,
-    pub arguments: Vec<String>,
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallReadOnlyResponse {
@@ -62,10 +56,11 @@ pub struct CallReadOnlyResponse {
 
 #[derive(Clone)]
 pub struct RPCCallReadOnlyRequestHandler {
+    /// Maximum encoded HTTP body size accepted by the endpoint.
     pub maximum_call_argument_size: u32,
     read_only_call_limit: ExecutionCost,
     read_only_max_execution_time: Duration,
-    read_only_call_max_mem_bytes: u64,
+    pub read_only_call_max_mem_bytes: u64,
 
     /// Runtime fields
     pub contract_identifier: Option<QualifiedContractIdentifier>,
@@ -73,6 +68,8 @@ pub struct RPCCallReadOnlyRequestHandler {
     pub sender: Option<PrincipalData>,
     pub sponsor: Option<PrincipalData>,
     pub arguments: Option<Vec<Value>>,
+    /// Net bytes retained by parsing, deducted from the execution budget.
+    pub parse_retained_mem_bytes: u64,
 }
 
 impl RPCCallReadOnlyRequestHandler {
@@ -92,7 +89,20 @@ impl RPCCallReadOnlyRequestHandler {
             sender: None,
             sponsor: None,
             arguments: None,
+            parse_retained_mem_bytes: 0,
         }
+    }
+
+    /// Starts tracking at call time: build it before any execution-side
+    /// allocation, e.g. converting the arguments.
+    pub fn execution_resource_limiter(&self) -> ResourceLimiter {
+        ResourceBudget::new()
+            .with_max_duration(Some(self.read_only_max_execution_time))
+            .with_max_memory_use(remaining_execution_mem_budget(
+                self.read_only_call_max_mem_bytes,
+                self.parse_retained_mem_bytes,
+            ))
+            .start_tracking()
     }
 }
 
@@ -138,34 +148,14 @@ impl HttpRequest for RPCCallReadOnlyRequestHandler {
 
         let contract_identifier = request::get_contract_address(captures, "address", "contract")?;
         let function = request::get_clarity_name(captures, "function")?;
-        let body: CallReadOnlyRequestBody = serde_json::from_slice(body)
-            .map_err(|_e| Error::DecodeError("Failed to parse JSON body".into()))?;
-
-        let sender = PrincipalData::parse(&body.sender)
-            .map_err(|_e| Error::DecodeError("Failed to parse sender principal".into()))?;
-
-        let sponsor = if let Some(sponsor) = body.sponsor {
-            Some(
-                PrincipalData::parse(&sponsor)
-                    .map_err(|_e| Error::DecodeError("Failed to parse sponsor principal".into()))?,
-            )
-        } else {
-            None
-        };
-
-        // arguments must be valid Clarity values
-        let arguments = body
-            .arguments
-            .into_iter()
-            .map(|hex| Value::try_deserialize_hex_untyped(&hex).ok())
-            .collect::<Option<Vec<Value>>>()
-            .ok_or_else(|| Error::DecodeError("Failed to deserialize argument value".into()))?;
+        let parsed = parse_read_only_call_body(body, self.read_only_call_max_mem_bytes)?;
 
         self.contract_identifier = Some(contract_identifier);
         self.function = Some(function);
-        self.sender = Some(sender);
-        self.sponsor = sponsor;
-        self.arguments = Some(arguments);
+        self.sender = Some(parsed.sender);
+        self.sponsor = parsed.sponsor;
+        self.arguments = Some(parsed.arguments);
+        self.parse_retained_mem_bytes = parsed.retained_mem_bytes;
 
         Ok(HttpRequestContents::new().query_string(query))
     }
@@ -180,6 +170,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
         self.sender = None;
         self.sponsor = None;
         self.arguments = None;
+        self.parse_retained_mem_bytes = 0;
     }
 
     /// Make the response
@@ -208,18 +199,21 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
             .sender
             .take()
             .ok_or(NetError::SendError("Missing `sender`".into()))?;
-        let sponsor = self.sponsor.clone();
+        let sponsor = self.sponsor.take();
         let arguments = self
             .arguments
             .take()
             .ok_or(NetError::SendError("Missing `arguments`".into()))?;
 
+        // Started before the argument conversion so it counts against execution.
+        let resource_limiter = self.execution_resource_limiter();
+
         // run the read-only call
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 let args: Vec<_> = arguments
-                    .iter()
-                    .map(|x| SymbolicExpression::atom_value(x.clone()))
+                    .into_iter()
+                    .map(SymbolicExpression::atom_value)
                     .collect();
 
                 let mainnet = chainstate.mainnet;
@@ -248,12 +242,9 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                             sponsor,
                             cost_track,
                             |exec_state, invoke_ctx| {
-                                let budget = ResourceBudget::new()
-                                    .with_max_duration(Some(self.read_only_max_execution_time))
-                                    .with_max_memory_use(Some(self.read_only_call_max_mem_bytes));
                                 exec_state
                                     .global_context
-                                    .set_execution_resource_limiter(budget.start_tracking());
+                                    .set_execution_resource_limiter(resource_limiter);
 
                                 // we want to execute any function as long as no actual writes are made as
                                 // opposed to be limited to purely calling `define-read-only` functions,

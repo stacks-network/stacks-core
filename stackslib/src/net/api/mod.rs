@@ -69,6 +69,7 @@ pub mod postmempoolquery;
 pub mod postmicroblock;
 pub mod poststackerdbchunk;
 pub mod posttransaction;
+mod read_only_parse;
 
 #[cfg(test)]
 mod tests;
@@ -112,7 +113,9 @@ impl StacksHttp {
         self.register_rpc_endpoint(
             getistraitimplemented::RPCGetIsTraitImplementedRequestHandler::new(),
         );
-        self.register_rpc_endpoint(getmapentry::RPCGetMapEntryRequestHandler::new());
+        self.register_rpc_endpoint(getmapentry::RPCGetMapEntryRequestHandler::new(
+            self.read_only_call_max_mem_bytes,
+        ));
         self.register_rpc_endpoint(
             getmicroblocks_confirmed::RPCMicroblocksConfirmedRequestHandler::new(),
         );
