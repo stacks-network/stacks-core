@@ -42,9 +42,11 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+pub mod assets;
 pub mod costs;
 pub mod database;
 pub mod diagnostic;
+pub mod engine;
 pub mod errors;
 pub mod events;
 
