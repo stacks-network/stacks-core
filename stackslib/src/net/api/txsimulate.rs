@@ -16,8 +16,8 @@
 use std::time::Duration;
 
 use clarity::util::hash::bytes_to_hex;
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::Value;
 use regex::{Captures, Regex};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
@@ -28,13 +28,13 @@ use stacks_common::util::serde_serializers::prefix_hex_codec;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::miner::{
-    make_mem_abort_callback, MinerTenureInfoCause, NakamotoBlockBuilder,
-};
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use crate::chainstate::stacks::miner::{
+    BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
+};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction};
 use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::net::http::{
@@ -131,7 +131,7 @@ impl RPCTransactionSimulateRequestHandler {
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )?;
 
         let mut miner_tenure_info = builder.load_ephemeral_tenure_info(
@@ -154,9 +154,22 @@ impl RPCTransactionSimulateRequestHandler {
 
         let block_height = builder.header.chain_length;
 
-        if max_tx_mem_bytes > 0 {
-            tenure_tx.set_abort_callback(make_mem_abort_callback(max_tx_mem_bytes));
-        }
+        let max_tx_mem_bytes_opt = if max_tx_mem_bytes > 0 {
+            Some(max_tx_mem_bytes)
+        } else {
+            None
+        };
+        let resource_budgets = TransactionResourceBudgets::new()
+            .with_execution_budget(
+                ResourceBudget::new()
+                    .with_max_duration(Some(max_tx_execution_time))
+                    .with_max_memory_use(max_tx_mem_bytes_opt),
+            )
+            .with_analysis_budget(
+                ResourceBudget::new()
+                    .with_max_duration(Some(max_tx_analysis_time))
+                    .with_max_memory_use(max_tx_mem_bytes_opt),
+            );
 
         let mut total_receipts = 0;
         let tx_result = builder.try_mine_tx_with_len(
@@ -164,12 +177,9 @@ impl RPCTransactionSimulateRequestHandler {
             tx,
             tx.tx_len(),
             &BlockLimitFunction::NO_LIMIT_HIT,
-            Some(max_tx_execution_time),
-            Some(max_tx_analysis_time),
+            &resource_budgets,
             &mut total_receipts,
         );
-
-        tenure_tx.set_abort_callback(AbortCallback::None);
 
         let receipt = match tx_result {
             TransactionResult::Success(tx_result) => tx_result.receipt,
