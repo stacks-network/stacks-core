@@ -26,7 +26,7 @@ use clarity::vm::engine::{CostBudget, Engine, LegacyEngine, TransactionContext};
 use clarity_kernel::clarity_types::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
-use clarity_kernel::clarity_types::{ClarityName, ClarityVersion, ContractName, Value};
+use clarity_kernel::clarity_types::{ClarityVersion, ContractName, Value};
 use clarity_kernel::costs::ExecutionCost;
 use clarity_kernel::resource_limiter::ResourceBudget;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -103,7 +103,7 @@ fn main() {
                 sender.clone(),
                 None,
                 &contract_id,
-                &ClarityName::from_literal("increment"),
+                "increment",
                 &[],
                 None,
                 &ResourceBudget::unlimited(),

@@ -21,6 +21,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, ExecutionState, InvocationContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
+use clarity::vm::engine::LegacyEngine;
 use clarity::vm::errors::{VmExecutionError, VmInternalError};
 use clarity::vm::representations::ClarityName;
 use clarity::vm::resource_limiter::ResourceBudget;
@@ -1613,6 +1614,16 @@ impl StacksChainState {
                     }
                 };
 
+                // Keep the legacy analysis entry point for now: block
+                // validation relies on its exact parser/static-check error
+                // taxonomy. Once analysis succeeds, bind every deploy phase
+                // to one immutable engine handle.
+                let analyzed_contract = LegacyEngine::from_legacy_parts(
+                    contract_code_str,
+                    contract_ast,
+                    contract_analysis,
+                );
+
                 let mut analysis_cost = clarity_tx.cost_so_far();
                 analysis_cost
                     .sub(&cost_before)
@@ -1621,11 +1632,8 @@ impl StacksChainState {
 
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
-                let initialize_resp = clarity_tx.initialize_smart_contract(
-                    &contract_id,
-                    clarity_version,
-                    &contract_ast,
-                    &contract_code_str,
+                let initialize_resp = clarity_tx.initialize_smart_contract_via_engine(
+                    &analyzed_contract,
                     sponsor,
                     |asset_map, _| {
                         StacksChainState::check_transaction_postconditions(
@@ -1646,15 +1654,21 @@ impl StacksChainState {
                     .sub(&cost_before)
                     .expect("BUG: total block cost decreased");
 
-                let (asset_map, events) = match initialize_resp {
+                let (asset_map, events, contract_analysis) = match initialize_resp {
                     Ok(x) => {
-                        // store analysis -- if this fails, then the have some pretty bad problems
+                        // Store analysis -- failure here indicates a fatal consistency problem.
                         clarity_tx
-                            .save_analysis(&contract_id, &contract_analysis)
+                            .save_analysis_via_engine(&analyzed_contract)
                             .expect("FATAL: failed to store contract analysis");
-                        x
+                        let (_, contract_analysis) =
+                            LegacyEngine::into_legacy_parts(analyzed_contract)
+                                .expect("BUG: legacy engine could not recover its analysis");
+                        (x.0, x.1, contract_analysis)
                     }
                     Err(e) => {
+                        let (_, contract_analysis) =
+                            LegacyEngine::into_legacy_parts(analyzed_contract)
+                                .expect("BUG: legacy engine could not recover its analysis");
                         log_unreachable_error(&e, &tx.txid());
                         match handle_clarity_runtime_error(e) {
                             ClarityRuntimeTxError::Acceptable { error, err_type } => {
@@ -3043,6 +3057,74 @@ pub mod test {
 
             assert_eq!(fee, 0);
             assert!(contract_res.is_ok());
+        }
+    }
+
+    #[test]
+    fn process_smart_contract_deploy_post_condition_abort_rolls_back() {
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!()).build();
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let recipient = StacksAddress::new(1, Hash160([0xff; 20])).unwrap();
+        let contract = format!("(unwrap-panic (stx-transfer? u1 tx-sender '{}))", recipient);
+
+        let mut tx_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::new_smart_contract("post-condition-abort", &contract, None)
+                .unwrap(),
+        );
+        tx_contract.chain_id = 0x80000000;
+        tx_contract.post_condition_mode = TransactionPostConditionMode::Deny;
+        tx_contract.set_tx_fee(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx_contract);
+        signer.sign_origin(&privk).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        for (dbi, burn_db) in ALL_BURN_DBS.iter().enumerate() {
+            let mut conn = chainstate.block_begin(
+                *burn_db,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+                &ConsensusHash([(dbi + 1) as u8; 20]),
+                &BlockHeaderHash([(dbi + 1) as u8; 32]),
+            );
+            conn.connection().as_transaction(|tx| {
+                StacksChainState::account_credit(tx, &addr.to_account_principal(), 1)
+            });
+
+            let (_, receipt) =
+                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+
+            let contract_id = QualifiedContractIdentifier::new(
+                StandardPrincipalData::from(addr.clone()),
+                ContractName::from_literal("post-condition-abort"),
+            );
+            assert!(receipt.post_condition_aborted);
+            assert!(receipt.contract_analysis.is_some());
+            assert!(StacksChainState::get_contract(&mut conn, &contract_id)
+                .unwrap()
+                .is_none());
+            assert_eq!(
+                StacksChainState::get_account(&mut conn, &addr.to_account_principal())
+                    .stx_balance
+                    .amount_unlocked(),
+                1
+            );
+            assert_eq!(
+                StacksChainState::get_account(&mut conn, &recipient.to_account_principal())
+                    .stx_balance
+                    .amount_unlocked(),
+                0
+            );
+
+            conn.commit_block();
         }
     }
 

@@ -27,6 +27,9 @@ use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, ClarityExecutionCache, HeadersDB,
     RollbackWrapper, RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
+use clarity::vm::engine::{
+    AnalyzedContract, Engine, EngineError, LegacyEngine, TransactionContext,
+};
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::representations::SymbolicExpression;
@@ -2386,7 +2389,83 @@ impl Drop for ClarityTransactionConnection<'_, '_> {
     }
 }
 
+/// Map an engine ABI error onto this host's error type.
+///
+/// `Execution` errors go through `ClarityError::from`, which is what
+/// preserves the cost-budget and execution-resource-budget classifications
+/// that block processing depends on — do not shortcut it.
+fn engine_error_to_clarity(err: EngineError) -> ClarityError {
+    match err {
+        EngineError::Execution(e) => ClarityError::from(e),
+        EngineError::Static(e) => ClarityError::from(*e),
+        EngineError::AbortedByCallback {
+            output,
+            assets,
+            events,
+            reason,
+        } => ClarityError::AbortedByCallback {
+            output,
+            assets_modified: assets,
+            tx_events: events,
+            reason,
+        },
+        // Neither is reachable from a contract call (nothing is parsed, and
+        // static checks ran at deploy time); both are mapped defensively
+        // rather than panicking. `ParseError` cannot be reconstructed from
+        // diagnostics, so parse failures surface as bad transactions.
+        EngineError::Parse(diagnostics) => {
+            ClarityError::BadTransaction(format!("Parse failure: {diagnostics:?}"))
+        }
+        EngineError::Internal(s) => ClarityError::BadTransaction(s),
+    }
+}
+
 impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
+    /// Execute a contract call through the Clarity engine ABI, overriding the
+    /// trait's `with_abort_callback`-based default.
+    ///
+    /// Behavior is unchanged: the engine applies the same outer savepoint,
+    /// runs the same interpreter, and rolls back on either a runtime error or
+    /// an `abort_call_back` rejection (post-conditions), committing otherwise.
+    fn run_contract_call<F>(
+        &mut self,
+        sender: &PrincipalData,
+        sponsor: Option<&PrincipalData>,
+        contract: &QualifiedContractIdentifier,
+        public_function: &str,
+        args: &[Value],
+        abort_call_back: F,
+        resource_budget: &ResourceBudget,
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
+    where
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+    {
+        // The ABI's abort hook is `FnMut` (an engine may hold it across a
+        // call frame); the trait's is `FnOnce`. Adapt by consuming on the
+        // first invocation — the engine calls it at most once.
+        let mut abort_call_back = Some(abort_call_back);
+        let mut abort = move |assets: &AssetMap, db: &mut ClarityDatabase| -> Option<String> {
+            abort_call_back.take().and_then(|cb| cb(assets, db))
+        };
+
+        let outcome = self.with_engine(|engine, ctx| {
+            engine.execute_call(
+                ctx,
+                sender.clone(),
+                sponsor.cloned(),
+                contract,
+                public_function,
+                args,
+                Some(&mut abort),
+                resource_budget,
+            )
+        });
+
+        outcome
+            .map(|outcome| (outcome.value, outcome.assets, outcome.events))
+            .map_err(engine_error_to_clarity)
+    }
+
     fn with_abort_callback<'hooks, F, A, R, E>(
         &'hooks mut self,
         to_do: F,
@@ -2469,6 +2548,92 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
 }
 
 impl ClarityTransactionConnection<'_, '_> {
+    /// Run one interaction against this connection's state through the
+    /// Clarity engine ABI.
+    ///
+    /// Rebuilds a `ClarityDatabase` from the persisted rollback log with the
+    /// per-tx cache attached, wraps it in a `TransactionContext`, and lends
+    /// the block's cost tracker to the engine — then tears everything back
+    /// down. This is the same take/replace discipline as
+    /// [`Self::with_abort_callback`], which it replaces for ABI-routed work;
+    /// the engine owns the transaction framing (outer savepoint, abort
+    /// handling, commit/rollback) that used to live in that method.
+    ///
+    /// Memory usage is deliberately *not* reset here: that happens only when
+    /// the transaction commits (see `commit()` and `Drop`).
+    fn with_engine<F, R>(&mut self, to_do: F) -> R
+    where
+        F: FnOnce(&LegacyEngine, &mut TransactionContext) -> R,
+    {
+        using!(self.log, "log", |log| {
+            using!(self.cost_track, "cost tracker", |cost_track| {
+                let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+                let db = ClarityDatabase::new_with_rollback_wrapper(
+                    rollback_wrapper,
+                    self.header_db,
+                    self.burn_state_db,
+                )
+                .with_cache(&mut self.cache);
+
+                let mut ctx = TransactionContext::new(db, self.mainnet, self.chain_id, self.epoch);
+                LegacyEngine::install_cost_tracker(&mut ctx, cost_track);
+
+                let result = to_do(&LegacyEngine, &mut ctx);
+
+                // The engine restores both before returning, on every path.
+                let cost_track = LegacyEngine::take_cost_tracker(&mut ctx)
+                    .expect("BUG: Clarity engine lost the block's cost tracker.");
+                let db = ctx
+                    .into_db()
+                    .expect("BUG: Clarity engine failed to restore the database.");
+                (cost_track, (db.destroy().into(), result))
+            })
+        })
+    }
+
+    /// Initialize a previously analyzed contract through the engine ABI.
+    ///
+    /// The handle binds the AST to the exact contract identity, language
+    /// version, source, and stored interface that produced it, so callers
+    /// cannot accidentally initialize different source than they analyzed.
+    pub fn initialize_smart_contract_via_engine<F>(
+        &mut self,
+        analyzed: &AnalyzedContract,
+        sponsor: Option<PrincipalData>,
+        abort_call_back: F,
+        execution_resource_budget: &ResourceBudget,
+    ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), ClarityError>
+    where
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+    {
+        let mut abort_call_back = Some(abort_call_back);
+        let mut abort = move |assets: &AssetMap, db: &mut ClarityDatabase| -> Option<String> {
+            abort_call_back.take().and_then(|cb| cb(assets, db))
+        };
+
+        self.with_engine(|engine, ctx| {
+            engine.initialize_contract(
+                ctx,
+                analyzed,
+                sponsor,
+                Some(&mut abort),
+                execution_resource_budget,
+            )
+        })
+        .map(|outcome| (outcome.assets, outcome.events))
+        .map_err(engine_error_to_clarity)
+    }
+
+    /// Persist a previously analyzed contract's interface through the engine
+    /// ABI after initialization succeeds.
+    pub fn save_analysis_via_engine(
+        &mut self,
+        analyzed: &AnalyzedContract,
+    ) -> Result<(), ClarityError> {
+        self.with_engine(|engine, ctx| engine.save_analysis(ctx, analyzed))
+            .map_err(engine_error_to_clarity)
+    }
+
     /// Do something to the underlying DB that involves writing.
     pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, ClarityError>
     where

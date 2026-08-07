@@ -37,7 +37,7 @@ use stacks_common::types::StacksEpochId;
 use crate::contract_interface::ContractInterface;
 use crate::database::structures::deserialize_json;
 use crate::database::{ClarityDatabase, ClarityDeserializable, ClaritySerializable};
-use crate::errors::VmExecutionError;
+use crate::errors::{RuntimeCheckErrorKind, VmExecutionError};
 use crate::signatures::{FunctionSignature, FunctionType};
 
 /// The metadata key under which the stored analysis is persisted.
@@ -92,9 +92,14 @@ impl StoredContractAnalysis {
     ) -> Result<Option<StoredContractAnalysis>, VmExecutionError> {
         db.store
             .get_metadata(contract_identifier, ANALYSIS_METADATA_KEY)
-            // treat NoSuchContract as None: absence is not an error here.
-            .ok()
-            .flatten()
+            .or_else(|error| match error {
+                // Absence is not an error here, but storage and corruption
+                // failures must remain visible to callers.
+                VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchContract(_)) => {
+                    Ok(None)
+                }
+                other => Err(other),
+            })?
             .map(|x| StoredContractAnalysis::deserialize(&x))
             .transpose()
     }

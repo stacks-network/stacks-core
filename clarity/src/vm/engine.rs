@@ -24,9 +24,15 @@
 //! aborts hold an outer rollback layer open across the interaction and roll
 //! it back when the host's [`AbortCallback`] rejects the asset movements.
 //!
-//! All phases charge the context's [`CostBudget`]; the cost tracker and any
-//! pending (analyzed-but-not-initialized) deploy live in the context's
-//! engine-state slot between interactions.
+//! `analyze_contract` hands back an [`AnalyzedContract`] that the host holds
+//! across the phases (mirroring how the node's transaction path already
+//! carries a parsed contract from analysis to storage); this engine's AST and
+//! working analysis ride inside it opaquely.
+//!
+//! All phases charge the context's [`CostBudget`]. The cost tracker lives in
+//! the context's engine-state slot between interactions, so one budget spans
+//! a whole transaction; hosts that own a longer-lived tracker (a Stacks block
+//! budget) install it with [`LegacyEngine::install_cost_tracker`].
 //!
 //! Caveats, tracked in the extraction plan:
 //! - A [`CostBudget::Limited`] tracker resolves cost functions from the
@@ -37,17 +43,16 @@
 //! - `contract-call?` between contracts stays inside this engine; routing
 //!   through [`ContractDispatcher`] is the mixed-engine milestone.
 
-use clarity_kernel::analysis::StoredContractAnalysis;
 use clarity_kernel::assets::AssetMap;
 use clarity_kernel::costs::ExecutionCost;
 pub use clarity_kernel::engine::{
-    AbortCallback, ContractDispatcher, CostBudget, DeployOutcome, Engine, EngineError,
-    ExecutionOutcome, TransactionContext,
+    AbortCallback, AnalyzedContract, ContractDispatcher, CostBudget, DeployOutcome, Engine,
+    EngineError, ExecutionOutcome, TransactionContext,
 };
 use clarity_kernel::events::StacksTransactionEvent;
 use clarity_kernel::resource_limiter::ResourceBudget;
 use clarity_types::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity_types::{ClarityName, ClarityVersion, Value};
+use clarity_types::{ClarityVersion, Value};
 
 use crate::vm::SymbolicExpression;
 use crate::vm::analysis::types::ContractAnalysis;
@@ -61,21 +66,18 @@ use crate::vm::errors::ClarityEvalError;
 /// The interpreter-backed engine for all legacy Clarity versions.
 pub struct LegacyEngine;
 
-/// An analyzed deploy, parked in the context between
-/// [`Engine::analyze_contract`] and
-/// [`Engine::initialize_contract`]/[`Engine::save_analysis`]. The AST is
-/// consumed by initialization; the analysis stays for `save_analysis`.
-struct PendingDeploy {
-    contract: QualifiedContractIdentifier,
-    ast: Option<ContractAST>,
+/// This engine's private payload inside an [`AnalyzedContract`]: the parsed
+/// AST that initialization evaluates, and the working analysis (type map,
+/// interface) that `save_analysis` persists.
+pub struct LegacyAnalysis {
+    ast: ContractAST,
     analysis: ContractAnalysis,
 }
 
 /// This engine's inter-interaction state, kept in the context's engine-state
-/// slot.
+/// slot: the cost tracker, so one [`CostBudget`] spans a whole transaction.
 struct EngineState {
     tracker: LimitedCostTracker,
-    pending_deploy: Option<PendingDeploy>,
 }
 
 /// The engine's working parts, taken out of a [`TransactionContext`] for the
@@ -120,10 +122,57 @@ impl LegacyEngine {
                     })?
             }
         };
-        Ok(EngineState {
-            tracker,
-            pending_deploy: None,
-        })
+        Ok(EngineState { tracker })
+    }
+
+    /// Install a host-owned cost tracker into the context.
+    ///
+    /// Hosts that thread one tracker across many transactions — a Stacks
+    /// block connection carries a single [`LimitedCostTracker`] for its
+    /// whole block budget — install it here instead of letting the engine
+    /// build a fresh one from [`CostBudget`], then recover it afterwards
+    /// with [`Self::take_cost_tracker`].
+    pub fn install_cost_tracker(ctx: &mut TransactionContext, tracker: LimitedCostTracker) {
+        ctx.set_engine_state(EngineState { tracker });
+    }
+
+    /// Recover the cost tracker from the context (whether installed by
+    /// [`Self::install_cost_tracker`] or built from the context's budget).
+    pub fn take_cost_tracker(ctx: &mut TransactionContext) -> Option<LimitedCostTracker> {
+        ctx.take_engine_state::<EngineState>()
+            .map(|state| state.tracker)
+    }
+
+    /// Unwrap an [`AnalyzedContract`] this engine produced back into the
+    /// interpreter's own types.
+    ///
+    /// Transitional: it lets a host route analysis through the ABI while its
+    /// own API still hands `ContractAST`/`ContractAnalysis` around. Hosts
+    /// that only need the contract's interface should read
+    /// [`AnalyzedContract::interface`] instead, which is engine-agnostic.
+    /// Returns `None` if the handle came from a different engine.
+    pub fn into_legacy_parts(
+        analyzed: AnalyzedContract,
+    ) -> Option<(ContractAST, ContractAnalysis)> {
+        analyzed
+            .into_engine_data::<LegacyAnalysis>()
+            .map(|legacy| (legacy.ast, legacy.analysis))
+    }
+
+    /// Wrap analysis performed through the legacy transaction API in the
+    /// engine-neutral handle used by the ABI's state-changing deploy phases.
+    ///
+    /// This is a migration bridge for hosts that must preserve the legacy
+    /// parser error taxonomy while moving initialization and persistence
+    /// behind [`Engine`]. New hosts should call [`Engine::analyze_contract`]
+    /// directly.
+    pub fn from_legacy_parts(
+        source: String,
+        ast: ContractAST,
+        analysis: ContractAnalysis,
+    ) -> AnalyzedContract {
+        let interface = analysis.to_stored();
+        AnalyzedContract::new(source, interface, LegacyAnalysis { ast, analysis })
     }
 
     /// Take the database and this engine's state out of the context for one
@@ -242,7 +291,7 @@ impl Engine for LegacyEngine {
         source: &str,
         version: ClarityVersion,
         analysis_budget: &ResourceBudget,
-    ) -> Result<StoredContractAnalysis, EngineError> {
+    ) -> Result<AnalyzedContract, EngineError> {
         let TakenParts { mut state, db } = self.take_parts(ctx)?;
 
         // Mirror the production flow: the resource clock starts before AST
@@ -259,38 +308,42 @@ impl Engine for LegacyEngine {
             }
         };
 
-        // 2) Static analysis, without persisting anything: the analysis
-        // database wraps the bare backing store, so take the database apart
-        // and reassemble it afterwards.
+        // 2) Static analysis, without persisting anything. The analysis
+        // database is a different view over the *same* rollback state, so
+        // hand the rollback wrapper across rather than the bare store —
+        // uncommitted edits in open savepoints (e.g. a host's block-level
+        // layer) must survive this round trip.
         let headers_db = db.get_headers_db();
         let burn_state_db = db.get_burn_state_db();
-        let store = db.destroy().into_store();
-        let analysis_result = {
-            let mut analysis_db = AnalysisDatabase::new(&mut *store);
-            run_analysis(
-                contract,
-                &ast.expressions,
-                &mut analysis_db,
-                false,
-                state.tracker,
-                ctx.epoch,
-                version,
-                false,
-                resource_limiter,
-            )
-        };
-        ctx.restore_db(ClarityDatabase::new(&mut *store, headers_db, burn_state_db));
+        let mut analysis_db = AnalysisDatabase::new_with_rollback_wrapper(db.destroy());
+        let analysis_result = run_analysis(
+            contract,
+            &ast.expressions,
+            &mut analysis_db,
+            false,
+            state.tracker,
+            ctx.epoch,
+            version,
+            false,
+            resource_limiter,
+        );
+        ctx.restore_db(ClarityDatabase::new_with_rollback_wrapper(
+            analysis_db.destroy(),
+            headers_db,
+            burn_state_db,
+        ));
         match analysis_result {
             Ok(mut analysis) => {
                 state.tracker = analysis.take_contract_cost_tracker();
-                let stored = analysis.to_stored();
-                state.pending_deploy = Some(PendingDeploy {
-                    contract: contract.clone(),
-                    ast: Some(ast),
-                    analysis,
-                });
+                let interface = analysis.to_stored();
                 self.park_state(ctx, state);
-                Ok(stored)
+                debug_assert_eq!(interface.contract_identifier, *contract);
+                debug_assert_eq!(interface.clarity_version, version);
+                Ok(AnalyzedContract::new(
+                    source.to_owned(),
+                    interface,
+                    LegacyAnalysis { ast, analysis },
+                ))
             }
             Err(boxed) => {
                 let (check_error, tracker) = *boxed;
@@ -304,46 +357,35 @@ impl Engine for LegacyEngine {
     fn initialize_contract(
         &self,
         ctx: &mut TransactionContext,
-        contract: &QualifiedContractIdentifier,
-        source: &str,
-        version: ClarityVersion,
+        analyzed: &AnalyzedContract,
         sponsor: Option<PrincipalData>,
         abort: Option<AbortCallback>,
         execution_budget: &ResourceBudget,
     ) -> Result<DeployOutcome, EngineError> {
-        let TakenParts { mut state, db } = self.take_parts(ctx)?;
-
-        // Consume the AST parked by a preceding `analyze_contract` for this
-        // contract; parse from scratch otherwise. The pending deploy's
-        // analysis stays parked for a subsequent `save_analysis`.
-        let parked_ast = match &mut state.pending_deploy {
-            Some(pending) if &pending.contract == contract => pending.ast.take(),
-            _ => None,
-        };
-        let ast_for_init = match parked_ast {
-            Some(ast) => ast,
-            None => match build_ast(contract, source, &mut state.tracker, version, ctx.epoch) {
-                Ok(ast) => ast,
-                Err(e) => {
-                    ctx.restore_db(db);
-                    self.park_state(ctx, state);
-                    return Err(EngineError::Parse(vec![e.diagnostic]));
-                }
-            },
+        let parts = self.take_parts(ctx)?;
+        let legacy = match analyzed.engine_data::<LegacyAnalysis>() {
+            Some(legacy) => legacy,
+            None => {
+                ctx.restore_db(parts.db);
+                self.park_state(ctx, parts.state);
+                return Err(EngineError::Internal(
+                    "AnalyzedContract was produced by a different engine".into(),
+                ));
+            }
         };
 
         let (((), assets, events), cost) = self.with_abortable_env(
             ctx,
-            TakenParts { state, db },
+            parts,
             execution_budget,
             abort,
             |_: &()| None,
             |env| {
                 env.initialize_contract_from_ast(
-                    contract.clone(),
-                    version,
-                    &ast_for_init,
-                    source,
+                    analyzed.contract().clone(),
+                    analyzed.version(),
+                    &legacy.ast,
+                    analyzed.source(),
                     sponsor,
                 )
                 .map_err(EngineError::Execution)
@@ -359,40 +401,42 @@ impl Engine for LegacyEngine {
     fn save_analysis(
         &self,
         ctx: &mut TransactionContext,
-        contract: &QualifiedContractIdentifier,
+        analyzed: &AnalyzedContract,
     ) -> Result<(), EngineError> {
-        let TakenParts { mut state, db } = self.take_parts(ctx)?;
-        let pending = match state.pending_deploy.take() {
-            Some(pending) if &pending.contract == contract => pending,
-            other => {
-                state.pending_deploy = other;
+        let TakenParts { state, db } = self.take_parts(ctx)?;
+        let legacy = match analyzed.engine_data::<LegacyAnalysis>() {
+            Some(legacy) => legacy,
+            None => {
                 ctx.restore_db(db);
                 self.park_state(ctx, state);
-                return Err(EngineError::Internal(format!(
-                    "No pending analysis for contract {contract}"
-                )));
+                return Err(EngineError::Internal(
+                    "AnalyzedContract was produced by a different engine".into(),
+                ));
             }
         };
 
+        // As in `analyze_contract`: hand the rollback wrapper across so any
+        // uncommitted edits in open savepoints survive the round trip.
         let headers_db = db.get_headers_db();
         let burn_state_db = db.get_burn_state_db();
-        let store = db.destroy().into_store();
-        let result = {
-            let mut analysis_db = AnalysisDatabase::new(&mut *store);
-            analysis_db.begin();
-            match analysis_db.insert_contract(contract, &pending.analysis) {
-                Ok(()) => analysis_db
-                    .commit()
-                    .map_err(|e| EngineError::Static(Box::new(e))),
-                Err(e) => {
-                    let rolled_back = analysis_db
-                        .roll_back()
-                        .map_err(|e| EngineError::Static(Box::new(e)));
-                    rolled_back.and(Err(EngineError::Static(Box::new(e))))
-                }
+        let mut analysis_db = AnalysisDatabase::new_with_rollback_wrapper(db.destroy());
+        analysis_db.begin();
+        let result = match analysis_db.insert_contract(analyzed.contract(), &legacy.analysis) {
+            Ok(()) => analysis_db
+                .commit()
+                .map_err(|e| EngineError::Static(Box::new(e))),
+            Err(e) => {
+                let rolled_back = analysis_db
+                    .roll_back()
+                    .map_err(|e| EngineError::Static(Box::new(e)));
+                rolled_back.and(Err(EngineError::Static(Box::new(e))))
             }
         };
-        ctx.restore_db(ClarityDatabase::new(&mut *store, headers_db, burn_state_db));
+        ctx.restore_db(ClarityDatabase::new_with_rollback_wrapper(
+            analysis_db.destroy(),
+            headers_db,
+            burn_state_db,
+        ));
         self.park_state(ctx, state);
         result
     }
@@ -403,7 +447,7 @@ impl Engine for LegacyEngine {
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
+        function: &str,
         args: &[Value],
         abort: Option<AbortCallback>,
         execution_budget: &ResourceBudget,
@@ -514,7 +558,7 @@ mod tests {
                 sender,
                 None,
                 &id,
-                &ClarityName::from_literal("increment"),
+                "increment",
                 &[],
                 None,
                 &ResourceBudget::unlimited(),
@@ -698,7 +742,7 @@ mod tests {
                 sender,
                 None,
                 &id,
-                &ClarityName::from_literal("increment"),
+                "increment",
                 &[],
                 Some(&mut abort),
                 &ResourceBudget::unlimited(),
@@ -727,8 +771,9 @@ mod tests {
         let mut ctx =
             TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
 
-        // Phase 1: analyze — nothing persisted yet.
-        let stored = engine
+        // Phase 1: analyze — nothing persisted yet. The host holds the
+        // handle across the phases, as the node's transaction path does.
+        let analyzed = engine
             .analyze_contract(
                 &mut ctx,
                 &id,
@@ -737,15 +782,21 @@ mod tests {
                 &ResourceBudget::unlimited(),
             )
             .unwrap();
-        assert!(stored.public_function_types.contains_key("increment"));
+        assert!(
+            analyzed
+                .interface()
+                .public_function_types
+                .contains_key("increment")
+        );
+        assert_eq!(analyzed.contract(), &id);
+        assert_eq!(analyzed.version(), ClarityVersion::latest());
+        assert_eq!(analyzed.source(), COUNTER);
 
-        // Phase 2: initialize (reuses the parked AST).
+        // Phase 2: initialize (reuses the analyzed contract's AST).
         engine
             .initialize_contract(
                 &mut ctx,
-                &id,
-                COUNTER,
-                ClarityVersion::latest(),
+                &analyzed,
                 None,
                 None,
                 &ResourceBudget::unlimited(),
@@ -753,7 +804,7 @@ mod tests {
             .unwrap();
 
         // Phase 3: persist the analysis.
-        engine.save_analysis(&mut ctx, &id).unwrap();
+        engine.save_analysis(&mut ctx, &analyzed).unwrap();
 
         let mut db = ctx.into_db().unwrap();
         db.begin();
@@ -772,7 +823,7 @@ mod tests {
 
         let mut ctx =
             TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
-        engine
+        let analyzed = engine
             .analyze_contract(
                 &mut ctx,
                 &id,
@@ -788,9 +839,7 @@ mod tests {
         let err = engine
             .initialize_contract(
                 &mut ctx,
-                &id,
-                COUNTER,
-                ClarityVersion::latest(),
+                &analyzed,
                 None,
                 Some(&mut abort),
                 &ResourceBudget::unlimited(),
@@ -804,19 +853,122 @@ mod tests {
         db.roll_back().unwrap();
     }
 
+    /// Hosts run the ABI against a database with an *open* savepoint holding
+    /// uncommitted work — `ClarityTransactionConnection` keeps exactly that
+    /// shape (a persisted rollback log at depth 1) across a block. The
+    /// analysis phases swap the `ClarityDatabase` for an `AnalysisDatabase`
+    /// view, and must carry the rollback state across rather than dropping
+    /// back to the bare backing store.
     #[test]
-    fn save_analysis_without_analyze_errors() {
+    fn analysis_preserves_uncommitted_rollback_state() {
         let epoch = StacksEpochId::latest();
         let mut store = setup_store(epoch);
         let engine = LegacyEngine;
+        let first = contract_id("first");
+        let second = contract_id("second");
+
+        let mut db = store.as_clarity_db();
+        // The host's outer, uncommitted layer.
+        db.begin();
+        let mut ctx = TransactionContext::new(db, false, CHAIN_ID_TESTNET, epoch);
+
+        // Deploy inside the uncommitted layer.
+        engine
+            .deploy_contract(&mut ctx, &first, COUNTER, ClarityVersion::latest(), None)
+            .unwrap();
+
+        // Analyzing another contract must not disturb the open layer.
+        engine
+            .analyze_contract(
+                &mut ctx,
+                &second,
+                COUNTER,
+                ClarityVersion::latest(),
+                &ResourceBudget::unlimited(),
+            )
+            .unwrap();
+
+        let mut db = ctx.into_db().unwrap();
+        assert!(
+            db.has_contract(&first),
+            "uncommitted deploy must survive a later analysis"
+        );
+
+        // And it really was uncommitted: rolling the outer layer back drops it.
+        db.roll_back().unwrap();
+        assert!(!db.has_contract(&first));
+    }
+
+    /// A handle produced by another engine must be rejected, not silently
+    /// mis-executed.
+    #[test]
+    fn foreign_analyzed_contract_is_rejected() {
+        let epoch = StacksEpochId::latest();
+        let mut store = setup_store(epoch);
+        let engine = LegacyEngine;
+        let id = contract_id("foreign");
 
         let mut ctx =
             TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
-        let err = engine
-            .save_analysis(&mut ctx, &contract_id("never-analyzed"))
-            .unwrap_err();
+        // Some other engine's payload.
+        let analyzed = engine
+            .analyze_contract(
+                &mut ctx,
+                &id,
+                COUNTER,
+                ClarityVersion::latest(),
+                &ResourceBudget::unlimited(),
+            )
+            .unwrap();
+        let foreign = AnalyzedContract::new(
+            COUNTER.to_owned(),
+            analyzed.interface().clone(),
+            "not-a-legacy-analysis",
+        );
+
+        let err = engine.save_analysis(&mut ctx, &foreign).unwrap_err();
         assert!(matches!(err, EngineError::Internal(_)));
         // The context stays usable.
         assert!(ctx.into_db().is_some());
+    }
+
+    /// A host can thread its own (e.g. block-level) cost tracker through the
+    /// engine rather than having one built from the context's budget.
+    #[test]
+    fn host_installed_cost_tracker_is_used_and_recovered() {
+        use crate::vm::costs::LimitedCostTracker;
+
+        let epoch = StacksEpochId::latest();
+        let mut store = setup_store(epoch);
+        let engine = LegacyEngine;
+        let id = contract_id("host-tracker");
+
+        let mut ctx =
+            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
+        let tracker = {
+            let mut db = ctx.take_db().unwrap();
+            let tracker = LimitedCostTracker::new(
+                false,
+                CHAIN_ID_TESTNET,
+                ExecutionCost::max_value(),
+                &mut db,
+                epoch,
+            )
+            .unwrap();
+            ctx.restore_db(db);
+            tracker
+        };
+        LegacyEngine::install_cost_tracker(&mut ctx, tracker);
+
+        engine
+            .deploy_contract(&mut ctx, &id, COUNTER, ClarityVersion::latest(), None)
+            .unwrap();
+
+        let recovered = LegacyEngine::take_cost_tracker(&mut ctx)
+            .expect("host must be able to recover its tracker");
+        assert!(
+            recovered.get_total().runtime > 0,
+            "the host's tracker must be the one that was charged"
+        );
     }
 }

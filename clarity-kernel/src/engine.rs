@@ -25,7 +25,8 @@
 //! The ABI models the production transaction flow: contract deploys are
 //! phased ([`Engine::analyze_contract`] → [`Engine::initialize_contract`] →
 //! [`Engine::save_analysis`], the same order as Stacks smart-contract
-//! transaction processing), hosts can reject otherwise-successful
+//! transaction processing, with the host holding an [`AnalyzedContract`]
+//! handle across the phases), hosts can reject otherwise-successful
 //! interactions before commit via [`AbortCallback`] (post-conditions), all
 //! interactions charge a per-transaction [`CostBudget`], and analysis and
 //! execution are bounded by host-supplied [`ResourceBudget`]s. Contract
@@ -48,7 +49,7 @@
 use std::any::Any;
 
 use clarity_types::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity_types::{ClarityName, ClarityVersion, Value};
+use clarity_types::{ClarityVersion, Value};
 use stacks_common::types::StacksEpochId;
 
 use crate::analysis::StoredContractAnalysis;
@@ -225,6 +226,72 @@ impl<'a> TransactionContext<'a> {
     }
 }
 
+/// A contract that has been parsed and statically checked, ready to be
+/// initialized and persisted.
+///
+/// The host holds this between the deploy phases and hands it back — the
+/// same shape as the Stacks transaction path, which already carries the
+/// parsed contract from analysis through initialization to storage. The
+/// engine's own representation (an AST, a compiled module, ...) rides along
+/// opaquely in `engine_data`; the host sees only the kernel-format
+/// [`interface`](Self::interface).
+pub struct AnalyzedContract {
+    source: String,
+    /// The contract's stored-interface record, readable by any engine.
+    interface: StoredContractAnalysis,
+    engine_data: Box<dyn Any>,
+}
+
+impl AnalyzedContract {
+    pub fn new<T: 'static>(
+        source: String,
+        interface: StoredContractAnalysis,
+        engine_data: T,
+    ) -> Self {
+        AnalyzedContract {
+            source,
+            interface,
+            engine_data: Box::new(engine_data),
+        }
+    }
+
+    /// The identifier whose source and interface were analyzed.
+    pub fn contract(&self) -> &QualifiedContractIdentifier {
+        &self.interface.contract_identifier
+    }
+
+    /// The language version under which the source was analyzed.
+    pub fn version(&self) -> ClarityVersion {
+        self.interface.clarity_version
+    }
+
+    /// The exact source that produced this analysis.
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    /// The engine-neutral stored interface produced by analysis.
+    pub fn interface(&self) -> &StoredContractAnalysis {
+        &self.interface
+    }
+
+    /// Borrow the producing engine's private representation. Returns `None`
+    /// if this handle came from a different engine.
+    pub fn engine_data<T: 'static>(&self) -> Option<&T> {
+        self.engine_data.downcast_ref::<T>()
+    }
+
+    /// Consume the handle and take the producing engine's private
+    /// representation. Returns `None` (dropping the payload) if this handle
+    /// came from a different engine.
+    ///
+    /// Used by engines offering hosts a way back to their own types — e.g.
+    /// a host mid-migration that still threads an engine's AST directly.
+    pub fn into_engine_data<T: 'static>(self) -> Option<Box<T>> {
+        self.engine_data.downcast::<T>().ok()
+    }
+}
+
 /// What a contract deployment produced, for the host's post-condition and
 /// event processing.
 #[derive(Debug)]
@@ -261,9 +328,8 @@ pub trait Engine {
     fn supported_versions(&self) -> &'static [ClarityVersion];
 
     /// Parse and statically check a contract, without evaluating or
-    /// persisting anything. Returns the contract's stored-interface record;
-    /// the engine parks its richer working analysis in the context for a
-    /// following [`Self::initialize_contract`] / [`Self::save_analysis`].
+    /// persisting anything. The returned handle is passed back to
+    /// [`Self::initialize_contract`] and [`Self::save_analysis`].
     ///
     /// `analysis_budget` bounds wall-clock and allocation for parsing plus
     /// analysis; hosts must pass [`ResourceBudget::unlimited`] on
@@ -275,36 +341,31 @@ pub trait Engine {
         source: &str,
         version: ClarityVersion,
         analysis_budget: &ResourceBudget,
-    ) -> Result<StoredContractAnalysis, EngineError>;
+    ) -> Result<AnalyzedContract, EngineError>;
 
-    /// Evaluate a contract's top-level forms and persist the contract.
-    /// Reuses the analysis parked by a preceding [`Self::analyze_contract`]
-    /// for the same contract, or parses from scratch otherwise.
+    /// Evaluate an analyzed contract's top-level forms and persist the
+    /// contract itself.
     ///
     /// If `abort` returns `Some(reason)` after successful evaluation, all
     /// changes roll back and [`EngineError::AbortedByCallback`] is returned.
-    /// Note this does *not* persist the analysis — hosts call
+    /// This does *not* persist the analysis — hosts call
     /// [`Self::save_analysis`] after a successful initialization, matching
-    /// the Stacks deploy flow.
-    #[allow(clippy::too_many_arguments)]
+    /// the Stacks deploy flow (a runtime failure in top-level code leaves
+    /// the contract unmaterialized, so its interface must not be stored).
     fn initialize_contract(
         &self,
         ctx: &mut TransactionContext,
-        contract: &QualifiedContractIdentifier,
-        source: &str,
-        version: ClarityVersion,
+        analyzed: &AnalyzedContract,
         sponsor: Option<PrincipalData>,
         abort: Option<AbortCallback>,
         execution_budget: &ResourceBudget,
     ) -> Result<DeployOutcome, EngineError>;
 
-    /// Persist the analysis parked by a preceding
-    /// [`Self::analyze_contract`] to the metadata store. Errors if no
-    /// analysis for `contract` is pending in the context.
+    /// Persist an analyzed contract's interface to the metadata store.
     fn save_analysis(
         &self,
         ctx: &mut TransactionContext,
-        contract: &QualifiedContractIdentifier,
+        analyzed: &AnalyzedContract,
     ) -> Result<(), EngineError>;
 
     /// Execute one public-function call on a deployed contract.
@@ -319,7 +380,7 @@ pub trait Engine {
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
+        function: &str,
         args: &[Value],
         abort: Option<AbortCallback>,
         execution_budget: &ResourceBudget,
@@ -344,17 +405,11 @@ pub trait Engine {
         version: ClarityVersion,
         sponsor: Option<PrincipalData>,
     ) -> Result<DeployOutcome, EngineError> {
-        self.analyze_contract(ctx, contract, source, version, &ResourceBudget::unlimited())?;
-        let outcome = self.initialize_contract(
-            ctx,
-            contract,
-            source,
-            version,
-            sponsor,
-            None,
-            &ResourceBudget::unlimited(),
-        )?;
-        self.save_analysis(ctx, contract)?;
+        let analyzed =
+            self.analyze_contract(ctx, contract, source, version, &ResourceBudget::unlimited())?;
+        let outcome =
+            self.initialize_contract(ctx, &analyzed, sponsor, None, &ResourceBudget::unlimited())?;
+        self.save_analysis(ctx, &analyzed)?;
         Ok(outcome)
     }
 }
@@ -375,7 +430,7 @@ pub trait ContractDispatcher {
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
+        function: &str,
         args: &[Value],
     ) -> Result<Value, EngineError>;
 }
