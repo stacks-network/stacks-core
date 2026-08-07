@@ -15,6 +15,13 @@
 # header in each CHANGELOG.md. Fragment files are deleted after assembly.
 # If a changelog directory has no fragments, it is skipped.
 #
+# Fragments are grouped by their file extension into sections, in this order:
+#   .breaking -> "### ⚠️ Breaking Changes"  (first, so it can't be missed)
+#   .added    -> "### Added"
+#   .changed  -> "### Changed"
+#   .fixed    -> "### Fixed"
+#   .removed  -> "### Removed"
+#
 # Examples:
 #   ./contrib/tools/assemble-changelog.sh 3.3.0.0.7           # node [3.3.0.0.7] + signer [3.3.0.0.7.0]
 #   ./contrib/tools/assemble-changelog.sh 3.3.0.0.7.1 --signer  # signer [3.3.0.0.7.1] only
@@ -41,6 +48,11 @@ done
 
 shopt -s nullglob
 
+# Fragment file extensions, in the order their sections are emitted.
+# `breaking` is emitted first so that breaking changes are the first thing a
+# reader (or release-notes reader) sees for a version.
+CATEGORIES=(breaking added changed fixed removed)
+
 # assemble_changelog <fragment_dir> <changelog_file> <version>
 assemble_changelog() {
     local fragment_dir="$1"
@@ -48,13 +60,14 @@ assemble_changelog() {
     local version="$3"
 
     # --- Collect fragments by category ---
+    local -a BREAKING=()
     local -a ADDED=()
     local -a CHANGED=()
     local -a FIXED=()
     local -a REMOVED=()
     local found_any=false
 
-    for ext in added changed fixed removed; do
+    for ext in "${CATEGORIES[@]}"; do
         for f in "$fragment_dir"/*."$ext"; do
             [ -f "$f" ] || continue
             found_any=true
@@ -67,10 +80,11 @@ assemble_changelog() {
                     line="* $line"
                 fi
                 case "$ext" in
-                    added)   ADDED+=("$line") ;;
-                    changed) CHANGED+=("$line") ;;
-                    fixed)   FIXED+=("$line") ;;
-                    removed) REMOVED+=("$line") ;;
+                    breaking) BREAKING+=("$line") ;;
+                    added)    ADDED+=("$line") ;;
+                    changed)  CHANGED+=("$line") ;;
+                    fixed)    FIXED+=("$line") ;;
+                    removed)  REMOVED+=("$line") ;;
                 esac
             done < "$f"
         done
@@ -84,17 +98,19 @@ assemble_changelog() {
     # --- Build the new section ---
     local new_section="## [$version]"
 
-    for category_name in Added Changed Fixed Removed; do
+    for category in "${CATEGORIES[@]}"; do
         local -a entries=()
-        case "$category_name" in
-            Added)   entries=("${ADDED[@]+"${ADDED[@]}"}") ;;
-            Changed) entries=("${CHANGED[@]+"${CHANGED[@]}"}") ;;
-            Fixed)   entries=("${FIXED[@]+"${FIXED[@]}"}") ;;
-            Removed) entries=("${REMOVED[@]+"${REMOVED[@]}"}") ;;
+        local heading=""
+        case "$category" in
+            breaking) entries=("${BREAKING[@]+"${BREAKING[@]}"}"); heading="⚠️ Breaking Changes" ;;
+            added)    entries=("${ADDED[@]+"${ADDED[@]}"}");    heading="Added" ;;
+            changed)  entries=("${CHANGED[@]+"${CHANGED[@]}"}");  heading="Changed" ;;
+            fixed)    entries=("${FIXED[@]+"${FIXED[@]}"}");    heading="Fixed" ;;
+            removed)  entries=("${REMOVED[@]+"${REMOVED[@]}"}");  heading="Removed" ;;
         esac
 
         if [ ${#entries[@]} -gt 0 ] && [ -n "${entries[0]}" ]; then
-            new_section+=$'\n\n'"### $category_name"$'\n'
+            new_section+=$'\n\n'"### $heading"$'\n'
             for entry in "${entries[@]}"; do
                 new_section+=$'\n'"$entry"
             done
@@ -123,7 +139,7 @@ assemble_changelog() {
     rm -f "$section_file"
 
     # --- Delete assembled fragments ---
-    for ext in added changed fixed removed; do
+    for ext in "${CATEGORIES[@]}"; do
         for f in "$fragment_dir"/*."$ext"; do
             [ -f "$f" ] || continue
             rm "$f"
