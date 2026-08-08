@@ -27,9 +27,9 @@ use clarity_kernel::costs::costs_5::Costs5;
 // `CostTracker` interface) lives in `clarity-kernel`; it is re-exported here
 // so all pre-existing `crate::vm::costs::...` paths keep working.
 pub use clarity_kernel::costs::{
-    CLARITY_MEMORY_LIMIT, CostTracker, MemoryConsumer, analysis_typecheck_cost, constants,
-    cost_functions, costs_1, costs_2, costs_2_testnet, costs_3, costs_4, costs_5, errors,
-    execution_cost, runtime_cost,
+    CLARITY_MEMORY_LIMIT, CostTracker, CostTrackerHandle, CostTrackerMetrics, MemoryConsumer,
+    analysis_typecheck_cost, constants, cost_functions, costs_1, costs_2, costs_2_testnet, costs_3,
+    costs_4, costs_5, errors, execution_cost, runtime_cost,
 };
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -1225,6 +1225,24 @@ impl CostTracker for LimitedCostTracker {
                 }
             }
         }
+    }
+}
+
+impl CostTrackerMetrics for LimitedCostTracker {
+    fn get_total(&self) -> ExecutionCost {
+        LimitedCostTracker::get_total(self)
+    }
+
+    fn get_limit(&self) -> ExecutionCost {
+        LimitedCostTracker::get_limit(self)
+    }
+
+    fn get_memory(&self) -> u64 {
+        LimitedCostTracker::get_memory(self)
+    }
+
+    fn get_memory_limit(&self) -> u64 {
+        LimitedCostTracker::get_memory_limit(self)
     }
 }
 

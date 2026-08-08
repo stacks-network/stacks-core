@@ -2586,18 +2586,18 @@ impl ClarityTransactionConnection<'_, '_> {
                 .with_cache(&mut self.cache);
 
                 let mut ctx = TransactionContext::new(db, self.mainnet, self.chain_id, self.epoch);
-                selected.install_cost_tracker(&mut ctx, cost_track);
+                ctx.install_cost_tracker(cost_track);
 
                 let result = to_do(selected.engine(), &mut ctx);
 
                 // The engine restores both before returning, on every path.
-                let cost_track = selected
-                    .take_cost_tracker(&mut ctx)
+                let cost_track = ctx
+                    .take_cost_tracker_as::<LimitedCostTracker>()
                     .expect("BUG: Clarity engine lost the block's cost tracker.");
                 let db = ctx
                     .into_db()
                     .expect("BUG: Clarity engine failed to restore the database.");
-                (cost_track, (db.destroy().into(), result))
+                (*cost_track, (db.destroy().into(), result))
             })
         })
     }

@@ -31,7 +31,9 @@ use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::execution_cost::ExecutionCost;
-use crate::vm::costs::{CostErrors, CostTracker, LimitedCostTracker, runtime_cost};
+use crate::vm::costs::{
+    CostErrors, CostTracker, CostTrackerHandle, LimitedCostTracker, runtime_cost,
+};
 use crate::vm::database::{
     ClarityDatabase, ClarityDatabaseExt, DataMapMetadata, DataVariableMetadata,
     FungibleTokenMetadata, NonFungibleTokenMetadata,
@@ -209,7 +211,7 @@ pub struct GlobalContext<'a, 'hooks> {
     pub event_batches: Vec<(EventBatch, u64)>,
     pub database: ClarityDatabase<'a>,
     read_only: Vec<bool>,
-    pub cost_track: LimitedCostTracker,
+    pub cost_track: CostTrackerHandle,
     pub mainnet: bool,
     /// This is the epoch of the block that this transaction is executing within.
     pub epoch_id: StacksEpochId,
@@ -354,8 +356,33 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         cost_tracker: LimitedCostTracker,
         epoch_id: StacksEpochId,
     ) -> OwnedEnvironment<'a, 'a> {
+        Self::new_with_cost_tracker_handle(
+            mainnet,
+            chain_id,
+            database,
+            CostTrackerHandle::new(cost_tracker),
+            epoch_id,
+        )
+    }
+
+    /// Build an environment around the kernel-owned transaction tracker.
+    /// Unlike [`Self::new_cost_limited`], this preserves the concrete tracker
+    /// opaquely so it can cross into another engine unchanged.
+    pub fn new_with_cost_tracker_handle(
+        mainnet: bool,
+        chain_id: u32,
+        database: ClarityDatabase<'a>,
+        cost_tracker: CostTrackerHandle,
+        epoch_id: StacksEpochId,
+    ) -> OwnedEnvironment<'a, 'a> {
         OwnedEnvironment {
-            context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
+            context: GlobalContext::new_with_cost_tracker_handle(
+                mainnet,
+                chain_id,
+                database,
+                cost_tracker,
+                epoch_id,
+            ),
             call_stack: CallStack::new(),
         }
     }
@@ -609,13 +636,25 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn mut_cost_tracker(&mut self) -> &mut LimitedCostTracker {
-        &mut self.context.cost_track
+        self.context
+            .cost_track
+            .downcast_mut()
+            .expect("test environment does not contain a LimitedCostTracker")
     }
 
     /// Destroys this environment, returning ownership of its database reference.
     ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
     ///   because the database is not guaranteed to be in a sane state.
     pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
+        let (db, tracker) = self.context.destruct()?;
+        let tracker = tracker.into_inner::<LimitedCostTracker>().ok()?;
+        Some((db, *tracker))
+    }
+
+    /// Destroy this environment without exposing the concrete shared tracker.
+    pub fn destruct_with_cost_tracker_handle(
+        self,
+    ) -> Option<(ClarityDatabase<'a>, CostTrackerHandle)> {
         self.context.destruct()
     }
 }
@@ -695,7 +734,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
     {
         let original_tracker = replace(
             &mut self.global_context.cost_track,
-            LimitedCostTracker::new_free(),
+            CostTrackerHandle::free(),
         );
         // note: it is important that this method not return until original_tracker has been
         //  restored. DO NOT use the try syntax (?).
@@ -1435,6 +1474,22 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         cost_track: LimitedCostTracker,
         epoch_id: StacksEpochId,
     ) -> GlobalContext<'a, 'hooks> {
+        Self::new_with_cost_tracker_handle(
+            mainnet,
+            chain_id,
+            database,
+            CostTrackerHandle::new(cost_track),
+            epoch_id,
+        )
+    }
+
+    pub fn new_with_cost_tracker_handle(
+        mainnet: bool,
+        chain_id: u32,
+        database: ClarityDatabase<'a>,
+        cost_track: CostTrackerHandle,
+        epoch_id: StacksEpochId,
+    ) -> GlobalContext<'a, 'hooks> {
         GlobalContext {
             database,
             cost_track,
@@ -1719,7 +1774,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     /// Destroys this context, returning ownership of its database reference.
     ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
     ///   because the database is not guaranteed to be in a sane state.
-    pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
+    pub fn destruct(self) -> Option<(ClarityDatabase<'a>, CostTrackerHandle)> {
         if self.is_top_level() {
             Some((self.database, self.cost_track))
         } else {

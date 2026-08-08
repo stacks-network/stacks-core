@@ -35,8 +35,7 @@
 
 use std::fmt;
 
-use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::engine::{Engine, LegacyEngine, TransactionContext};
+use clarity::vm::engine::{Engine, LegacyEngine};
 use clarity::vm::ClarityVersion;
 use stacks_common::types::StacksEpochId;
 
@@ -65,22 +64,6 @@ impl SelectedEngine {
     pub fn engine(self) -> &'static dyn Engine {
         match self.revision {
             EngineRevision::LegacyV1 => &LEGACY_V1,
-        }
-    }
-
-    /// Transitional adapter while the block-wide cost tracker remains a
-    /// legacy-engine type. This moves into kernel-owned transaction state
-    /// before a second engine can participate in one transaction.
-    pub fn install_cost_tracker(self, ctx: &mut TransactionContext, tracker: LimitedCostTracker) {
-        match self.revision {
-            EngineRevision::LegacyV1 => LegacyEngine::install_cost_tracker(ctx, tracker),
-        }
-    }
-
-    /// Recover the host's block-wide tracker after an engine interaction.
-    pub fn take_cost_tracker(self, ctx: &mut TransactionContext) -> Option<LimitedCostTracker> {
-        match self.revision {
-            EngineRevision::LegacyV1 => LegacyEngine::take_cost_tracker(ctx),
         }
     }
 }

@@ -36,10 +36,6 @@
 //!
 //! Known evolution points, in dependency order:
 //!
-//! - **Shared cost budget**: the [`CostBudget`] is enforced across all
-//!   interactions in one [`TransactionContext`], but the tracker itself is
-//!   engine-owned state; a kernel-typed cost tracker handle (needed for one
-//!   budget spanning *different* engines in a transaction) is a later step.
 //! - **Cross-engine dispatch**: [`ContractDispatcher`] is defined but not yet
 //!   wired through engines' `contract-call?` paths; wiring it is the
 //!   mixed-engine milestone.
@@ -55,7 +51,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::analysis::StoredContractAnalysis;
 use crate::assets::AssetMap;
-use crate::costs::ExecutionCost;
+use crate::costs::{CostTracker, CostTrackerHandle, CostTrackerMetrics, ExecutionCost};
 use crate::database::ClarityDatabase;
 use crate::diagnostic::Diagnostic;
 use crate::errors::{StaticCheckError, VmExecutionError};
@@ -151,6 +147,10 @@ impl From<StaticCheckError> for EngineError {
 /// returning — including on error paths.
 pub struct TransactionContext<'a> {
     db: Option<ClarityDatabase<'a>>,
+    /// The one cumulative cost tracker shared by every engine participating
+    /// in this transaction. It is type-erased so historical engine-specific
+    /// schedules can remain outside the kernel.
+    cost_tracker: Option<CostTrackerHandle>,
     /// Transitional: epochs are a Stacks-host concept; this becomes a
     /// kernel-owned ruleset identifier at the epoch-inversion step.
     pub epoch: StacksEpochId,
@@ -163,9 +163,9 @@ pub struct TransactionContext<'a> {
     /// keyed by its concrete type. Multiple engines may park private state
     /// without overwriting one another. Opaque to the kernel and the host.
     ///
-    /// Consensus-shared state such as the cumulative cost budget must not
-    /// live here; it moves to explicit kernel fields before mixed-engine
-    /// nested calls are enabled.
+    /// Consensus-shared state must not live here; the cumulative cost tracker
+    /// is an explicit field above, and the remaining live call frame follows
+    /// before mixed-engine nested calls are enabled.
     engine_states: HashMap<TypeId, Box<dyn Any>>,
 }
 
@@ -178,6 +178,7 @@ impl<'a> TransactionContext<'a> {
     ) -> Self {
         TransactionContext {
             db: Some(db),
+            cost_tracker: None,
             epoch,
             mainnet,
             chain_id,
@@ -192,6 +193,40 @@ impl<'a> TransactionContext<'a> {
     pub fn with_budget(mut self, budget: CostBudget) -> Self {
         self.budget = budget;
         self
+    }
+
+    /// Install a concrete tracker as this transaction's shared cumulative
+    /// meter. Hosts use this to lend their block-wide tracker to the engine
+    /// ABI without exposing its concrete type to other engines.
+    pub fn install_cost_tracker<T>(&mut self, tracker: T)
+    where
+        T: CostTracker + CostTrackerMetrics + 'static,
+    {
+        self.cost_tracker = Some(CostTrackerHandle::new(tracker));
+    }
+
+    /// Install an already-erased shared tracker.
+    pub fn restore_cost_tracker(&mut self, tracker: CostTrackerHandle) {
+        self.cost_tracker = Some(tracker);
+    }
+
+    /// Take the shared tracker for the duration of one engine interaction.
+    /// Engines must restore it on every return path.
+    pub fn take_cost_tracker(&mut self) -> Option<CostTrackerHandle> {
+        self.cost_tracker.take()
+    }
+
+    /// Recover a concrete host tracker without losing an unexpected tracker
+    /// type. A failed downcast leaves the shared handle installed.
+    pub fn take_cost_tracker_as<T: 'static>(&mut self) -> Option<Box<T>> {
+        let tracker = self.take_cost_tracker()?;
+        match tracker.into_inner::<T>() {
+            Ok(tracker) => Some(tracker),
+            Err(tracker) => {
+                self.restore_cost_tracker(tracker);
+                None
+            }
+        }
     }
 
     /// Take this engine-owned inter-interaction state, if present.
