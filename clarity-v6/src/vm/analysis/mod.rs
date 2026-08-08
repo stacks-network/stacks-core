@@ -36,6 +36,7 @@ use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 pub use self::types::{AnalysisPass, ContractAnalysis, StoredContractAnalysis};
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::ClarityVersion;
 #[cfg(feature = "rusqlite")]
 use crate::vm::ast::build_ast;
@@ -82,11 +83,11 @@ pub(crate) fn check_analysis_resource_limits(
 #[cfg(feature = "rusqlite")]
 pub fn mem_type_check(
     snippet: &str,
-    version: ClarityVersion,
+    _version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticCheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
+    let contract = build_ast(&contract_identifier, snippet, &mut ())
         .map_err(|e| StaticCheckErrorKind::Unreachable(format!("Failed to build AST: {e}")))?
         .expressions;
 
@@ -100,7 +101,6 @@ pub fn mem_type_check(
         false,
         cost_tracker,
         epoch,
-        version,
         true,
         ResourceLimiter::unlimited(),
     ) {
@@ -141,7 +141,6 @@ pub fn type_check(
         //  matter: the costs in those tests are all free anyways.
         CostTrackerHandle::new(LimitedCostTracker::new_free()),
         *epoch,
-        *version,
         true,
         ResourceLimiter::unlimited(),
     )
@@ -162,9 +161,8 @@ pub fn type_check(
 /// * `cost_tracker` - Cost meter bounding the work performed by the analysis. It is
 ///   threaded through the passes and handed back to the caller (on both success and
 ///   failure) so the consumed budget is preserved.
-/// * `epoch` - Stacks epoch, which selects the type-checker implementation
-///   (2.05 vs 2.1+) and epoch-specific analysis rules.
-/// * `version` - Clarity language version of the contract.
+/// * `recorded_epoch` - Host execution epoch retained in stored analysis
+///   metadata for wire compatibility. It does not select analysis semantics.
 /// * `build_type_map` - When `true`, the type checker records a full expression →
 ///   type map on the resulting analysis (needed by tooling/tests); when `false`, the
 ///   map is skipped to save work.
@@ -187,8 +185,7 @@ pub fn run_analysis(
     analysis_db: &mut AnalysisDatabase,
     save_contract: bool,
     cost_tracker: CostTrackerHandle,
-    epoch: StacksEpochId,
-    version: ClarityVersion,
+    recorded_epoch: StacksEpochId,
     build_type_map: bool,
     resource_limiter: ResourceLimiter,
 ) -> Result<ContractAnalysis, Box<(StaticCheckError, CostTrackerHandle)>> {
@@ -196,19 +193,29 @@ pub fn run_analysis(
         contract_identifier.clone(),
         expressions.to_vec(),
         cost_tracker,
-        epoch,
-        version,
+        recorded_epoch,
+        ClarityVersion::Clarity6,
     );
     let result = analysis_db.execute(|db| {
-        ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
+        ReadOnlyChecker::run_pass(
+            &CLARITY6_BASELINE_EPOCH,
+            &mut contract_analysis,
+            db,
+            resource_limiter,
+        )?;
         TypeChecker2_1::run_pass(
-            &StacksEpochId::Epoch40,
+            &CLARITY6_BASELINE_EPOCH,
             &mut contract_analysis,
             db,
             build_type_map,
             resource_limiter,
         )?;
-        TraitChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
+        TraitChecker::run_pass(
+            &CLARITY6_BASELINE_EPOCH,
+            &mut contract_analysis,
+            db,
+            resource_limiter,
+        )?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 
         // Final boundary check on the analysis passes

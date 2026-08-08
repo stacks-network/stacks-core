@@ -17,7 +17,6 @@
 use std::{error, fmt};
 
 use clarity_types::representations::{PreSymbolicExpression, Span};
-use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::parser::v2::lexer::error::LexerError;
 use crate::vm::ast::parser::v2::lexer::token::Token;
@@ -202,13 +201,13 @@ impl ParseError {
         }
     }
 
-    pub fn rejectable_in_epoch(&self, epoch: StacksEpochId) -> bool {
+    /// Whether this Clarity 6 parser failure makes a transaction
+    /// unincludable rather than a paid analysis failure.
+    pub fn rejectable(&self) -> bool {
         match *self.err {
             ParseErrorKind::InterpreterFailure => true,
             ParseErrorKind::ExpressionStackDepthTooDeep { .. }
-            | ParseErrorKind::VaryExpressionStackDepthTooDeep { .. } => {
-                epoch.rejects_parse_depth_errors()
-            }
+            | ParseErrorKind::VaryExpressionStackDepthTooDeep { .. } => false,
             _ => false,
         }
     }

@@ -873,7 +873,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Value, ClarityEvalError> {
-        let parsed = self.parse_nonempty_program(invoke_ctx, contract_identifier, program)?;
+        let parsed = self.parse_nonempty_program(contract_identifier, program)?;
 
         self.global_context.begin();
 
@@ -908,11 +908,8 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         invoke_ctx: &InvocationContext,
         program: &str,
     ) -> Result<Value, ClarityEvalError> {
-        let parsed = self.parse_nonempty_program(
-            invoke_ctx,
-            &QualifiedContractIdentifier::transient(),
-            program,
-        )?;
+        let parsed =
+            self.parse_nonempty_program(&QualifiedContractIdentifier::transient(), program)?;
         let local_context = LocalContext::new();
         eval(&parsed[0], self, invoke_ctx, &local_context)
             .and_then(|value| value.clone_with_cost(self))
@@ -935,18 +932,10 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
     /// callers that bypass normal validation paths.
     fn parse_nonempty_program(
         &mut self,
-        invoke_ctx: &InvocationContext,
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Vec<SymbolicExpression>, ClarityEvalError> {
-        let expressions = ast::build_ast(
-            contract_identifier,
-            program,
-            self,
-            invoke_ctx.contract_context.clarity_version,
-            self.global_context.epoch_id,
-        )?
-        .expressions;
+        let expressions = ast::build_ast(contract_identifier, program, self)?.expressions;
 
         if expressions.is_empty() {
             return Err(ParseError::from(ParseErrorKind::UnexpectedParserFailure).into());
@@ -1208,13 +1197,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
     ) -> Result<(), ClarityEvalError> {
         let clarity_version = invoke_ctx.contract_context.clarity_version;
 
-        let contract_ast = ast::build_ast(
-            &contract_identifier,
-            contract_content,
-            self,
-            clarity_version,
-            self.global_context.epoch_id,
-        )?;
+        let contract_ast = ast::build_ast(&contract_identifier, contract_content, self)?;
         self.initialize_contract_from_ast(
             invoke_ctx,
             contract_identifier,

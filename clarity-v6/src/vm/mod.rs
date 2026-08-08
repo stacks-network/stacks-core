@@ -792,14 +792,8 @@ where
         epoch,
     );
 
-    let parsed = ast::build_ast(
-        &contract_id,
-        program,
-        &mut *global_context.cost_track,
-        clarity_version,
-        epoch,
-    )?
-    .expressions;
+    let parsed =
+        ast::build_ast(&contract_id, program, &mut *global_context.cost_track)?.expressions;
 
     global_context
         .execute(|g| {

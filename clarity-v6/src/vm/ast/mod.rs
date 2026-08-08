@@ -23,6 +23,7 @@ pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
+#[cfg(any(test, feature = "testing"))]
 use stacks_common::types::StacksEpochId;
 
 use self::definition_sorter::DefinitionSorter;
@@ -34,6 +35,7 @@ use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::ClarityVersion;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, runtime_cost};
@@ -46,19 +48,19 @@ use crate::vm::types::QualifiedContractIdentifier;
 pub fn parse(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
-    version: ClarityVersion,
-    epoch: StacksEpochId,
+    _version: ClarityVersion,
+    _epoch: StacksEpochId,
 ) -> Result<Vec<crate::vm::representations::SymbolicExpression>, crate::vm::ast::errors::ParseError>
 {
-    let ast = build_ast(contract_identifier, source_code, &mut (), version, epoch)?;
+    let ast = build_ast(contract_identifier, source_code, &mut ())?;
     Ok(ast.expressions)
 }
 
-/// Parse a program based on which epoch is active
+/// Parse a program with the single Clarity 6 grammar and depth limits.
 fn parse_clarity6(source_code: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
     parse_v2(
         source_code,
-        StackDepthLimits::for_epoch(StacksEpochId::Epoch40),
+        StackDepthLimits::for_epoch(CLARITY6_BASELINE_EPOCH),
     )
 }
 
@@ -68,20 +70,18 @@ fn parse_clarity6(source_code: &str) -> ParseResult<Vec<PreSymbolicExpression>> 
 pub fn ast_check_size(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
-    _clarity_version: ClarityVersion,
-    _epoch_id: StacksEpochId,
 ) -> ParseResult<ContractAST> {
     let pre_expressions = parse_clarity6(source_code)?;
     let mut contract_ast = ContractAST::new(contract_identifier.clone(), pre_expressions);
     StackDepthChecker::run_pass(
         &mut contract_ast,
         ClarityVersion::Clarity6,
-        StacksEpochId::Epoch40,
+        CLARITY6_BASELINE_EPOCH,
     )?;
     VaryStackDepthChecker::run_pass(
         &mut contract_ast,
         ClarityVersion::Clarity6,
-        StacksEpochId::Epoch40,
+        CLARITY6_BASELINE_EPOCH,
     )?;
     Ok(contract_ast)
 }
@@ -95,26 +95,14 @@ pub fn build_ast_with_diagnostics<T: CostTracker>(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
     cost_track: &mut T,
-    _clarity_version: ClarityVersion,
-    _epoch: StacksEpochId,
 ) -> (ContractAST, Vec<Diagnostic>, bool) {
-    inner_build_ast(
-        contract_identifier,
-        source_code,
-        cost_track,
-        ClarityVersion::Clarity6,
-        StacksEpochId::Epoch40,
-        false,
-    )
-    .unwrap()
+    inner_build_ast(contract_identifier, source_code, cost_track, false).unwrap()
 }
 
 fn inner_build_ast<T: CostTracker>(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
     cost_track: &mut T,
-    _clarity_version: ClarityVersion,
-    _epoch: StacksEpochId,
     error_early: bool,
 ) -> ParseResult<(ContractAST, Vec<Diagnostic>, bool)> {
     let cost_err = match runtime_cost(
@@ -127,7 +115,7 @@ fn inner_build_ast<T: CostTracker>(
         _ => None,
     };
 
-    let depth_limits = StackDepthLimits::for_epoch(StacksEpochId::Epoch40);
+    let depth_limits = StackDepthLimits::for_epoch(CLARITY6_BASELINE_EPOCH);
 
     let (pre_expressions, mut diagnostics, mut success) = if error_early {
         let exprs = parse_v2(source_code, depth_limits)?;
@@ -152,7 +140,7 @@ fn inner_build_ast<T: CostTracker>(
     match StackDepthChecker::run_pass(
         &mut contract_ast,
         ClarityVersion::Clarity6,
-        StacksEpochId::Epoch40,
+        CLARITY6_BASELINE_EPOCH,
     ) {
         Err(e) if error_early => return Err(e),
         Err(e) => {
@@ -166,7 +154,7 @@ fn inner_build_ast<T: CostTracker>(
     match VaryStackDepthChecker::run_pass(
         &mut contract_ast,
         ClarityVersion::Clarity6,
-        StacksEpochId::Epoch40,
+        CLARITY6_BASELINE_EPOCH,
     ) {
         Err(e) if error_early => return Err(e),
         Err(e) => {
@@ -196,7 +184,7 @@ fn inner_build_ast<T: CostTracker>(
     match TraitsResolver::run_pass(
         &mut contract_ast,
         ClarityVersion::Clarity6,
-        StacksEpochId::Epoch40,
+        CLARITY6_BASELINE_EPOCH,
     ) {
         Err(e) if error_early => return Err(e),
         Err(e) => {
@@ -208,7 +196,7 @@ fn inner_build_ast<T: CostTracker>(
     match SugarExpander::run_pass(
         &mut contract_ast,
         ClarityVersion::Clarity6,
-        StacksEpochId::Epoch40,
+        CLARITY6_BASELINE_EPOCH,
     ) {
         Err(e) if error_early => return Err(e),
         Err(e) => {
@@ -233,17 +221,8 @@ pub fn build_ast<T: CostTracker>(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
     cost_track: &mut T,
-    _clarity_version: ClarityVersion,
-    _epoch: StacksEpochId,
 ) -> ParseResult<ContractAST> {
-    let (contract, _, _) = inner_build_ast(
-        contract_identifier,
-        source_code,
-        cost_track,
-        ClarityVersion::Clarity6,
-        StacksEpochId::Epoch40,
-        true,
-    )?;
+    let (contract, _, _) = inner_build_ast(contract_identifier, source_code, cost_track, true)?;
     Ok(contract)
 }
 

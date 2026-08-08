@@ -95,6 +95,11 @@ use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::ClarityEvalError;
 
 const SUPPORTED_VERSIONS: &[ClarityVersion] = &[ClarityVersion::Clarity6];
+/// The single parser, analyzer, and evaluator semantic profile implemented by
+/// this engine revision. The host epoch may still be recorded in shared
+/// metadata and passed to transitional runtime framing, but it does not select
+/// Clarity 6 language behavior.
+pub(crate) const CLARITY6_BASELINE_EPOCH: StacksEpochId = StacksEpochId::Epoch40;
 
 /// The first separately linkable Clarity 6 consensus revision.
 pub struct Clarity6Engine;
@@ -124,7 +129,7 @@ struct ExecutionParts<'a> {
 type Produced<R> = (R, AssetMap, Vec<StacksTransactionEvent>);
 type InteractionOutcome<R> = Result<(Produced<R>, ExecutionCost), EngineError>;
 
-fn parse_engine_error(err: ParseError, epoch: StacksEpochId) -> EngineError {
+fn parse_engine_error(err: ParseError) -> EngineError {
     match &*err.err {
         ParseErrorKind::CostOverflow | ParseErrorKind::MemoryBalanceExceeded(..) => {
             EngineError::Cost(ExecutionCost::max_value(), ExecutionCost::max_value())
@@ -133,16 +138,16 @@ fn parse_engine_error(err: ParseError, epoch: StacksEpochId) -> EngineError {
             EngineError::Cost(total.clone(), limit.clone())
         }
         _ => EngineError::Parse {
-            rejectable: err.rejectable_in_epoch(epoch),
+            rejectable: err.rejectable(),
             diagnostics: vec![err.diagnostic],
         },
     }
 }
 
-fn engine_error(err: ClarityEvalError, epoch: StacksEpochId) -> EngineError {
+fn engine_error(err: ClarityEvalError) -> EngineError {
     match err {
         ClarityEvalError::Vm(e) => EngineError::Execution(e),
-        ClarityEvalError::Parse(e) => parse_engine_error(e, epoch),
+        ClarityEvalError::Parse(e) => parse_engine_error(e),
     }
 }
 
@@ -337,18 +342,12 @@ impl Engine for Clarity6Engine {
         let TakenParts { mut tracker, db } = self.take_parts(ctx)?;
         let resource_limiter = analysis_budget.start_tracking();
 
-        let ast = match build_ast(
-            contract,
-            source,
-            &mut tracker,
-            ClarityVersion::Clarity6,
-            ctx.epoch,
-        ) {
+        let ast = match build_ast(contract, source, &mut tracker) {
             Ok(ast) => ast,
             Err(e) => {
                 ctx.restore_db(db);
                 self.park_tracker(ctx, tracker);
-                return Err(parse_engine_error(e, ctx.epoch));
+                return Err(parse_engine_error(e));
             }
         };
 
@@ -362,7 +361,6 @@ impl Engine for Clarity6Engine {
             false,
             tracker,
             ctx.epoch,
-            ClarityVersion::Clarity6,
             false,
             resource_limiter,
         );
@@ -585,9 +583,7 @@ impl Engine for Clarity6Engine {
             ctx.ruleset(),
             dispatcher_ref,
         );
-        let result = env
-            .eval_read_only(contract, program)
-            .map_err(|err| engine_error(err, ctx.epoch));
+        let result = env.eval_read_only(contract, program).map_err(engine_error);
         let (db, tracker, transaction, call_stack) = env
             .destruct_with_shared_transaction()
             .ok_or_else(|| EngineError::Internal("OwnedEnvironment failed to destruct".into()))?;
@@ -714,6 +710,85 @@ mod tests {
             Ok(_) => panic!("zero parser budget unexpectedly succeeded"),
         };
         assert!(matches!(error, EngineError::Cost(..)));
+    }
+
+    #[test]
+    fn parser_rejection_policy_does_not_follow_the_host_epoch() {
+        let mut body = "u0".to_string();
+        for _ in 0..140 {
+            body = format!("(begin {body})");
+        }
+        let source = format!("(define-public (deep) (ok {body}))");
+        let mut store = setup_store(StacksEpochId::Epoch20);
+        let id = QualifiedContractIdentifier::local("clarity6-deep").unwrap();
+        let mut ctx = TransactionContext::new(
+            store.as_clarity_db(),
+            false,
+            CHAIN_ID_TESTNET,
+            // Deliberately older than Clarity 6. The direct engine call proves
+            // parser policy follows the pinned revision, not this host field.
+            StacksEpochId::Epoch20,
+            clarity_kernel::rules::KernelRuleset::V3,
+        )
+        .with_budget(CostBudget::Free);
+
+        let error = match Clarity6Engine.analyze_contract(
+            &mut ctx,
+            &id,
+            &source,
+            ClarityVersion::Clarity6,
+            &ResourceBudget::unlimited(),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("over-depth parser input unexpectedly succeeded"),
+        };
+        assert!(matches!(
+            error,
+            EngineError::Parse {
+                rejectable: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn analysis_semantics_are_pinned_while_recorded_epoch_is_preserved() {
+        let analyze = |epoch| {
+            let mut store = setup_store(epoch);
+            let id = QualifiedContractIdentifier::local("clarity6-analysis-profile").unwrap();
+            let mut ctx = TransactionContext::new(
+                store.as_clarity_db(),
+                false,
+                CHAIN_ID_TESTNET,
+                epoch,
+                test_ruleset(epoch),
+            )
+            .with_budget(CostBudget::Free);
+            Clarity6Engine
+                .analyze_contract(
+                    &mut ctx,
+                    &id,
+                    COUNTER,
+                    ClarityVersion::Clarity6,
+                    &ResourceBudget::unlimited(),
+                )
+                .unwrap()
+                .interface()
+                .clone()
+        };
+
+        let mut old_host = analyze(StacksEpochId::Epoch20);
+        let current_host = analyze(StacksEpochId::Epoch41);
+        assert_eq!(old_host.epoch, StacksEpochId::Epoch20);
+        assert_eq!(current_host.epoch, StacksEpochId::Epoch41);
+
+        old_host.epoch = current_host.epoch;
+        old_host
+            .contract_interface
+            .as_mut()
+            .expect("analysis should include a contract interface")
+            .epoch = current_host.epoch;
+        assert_eq!(old_host, current_host);
     }
 
     #[test]
