@@ -959,6 +959,7 @@ mod tests {
             tracker
         };
         LegacyEngine::install_cost_tracker(&mut ctx, tracker);
+        ctx.set_engine_state::<String>("another engine's state".into());
 
         engine
             .deploy_contract(&mut ctx, &id, COUNTER, ClarityVersion::latest(), None)
@@ -969,6 +970,11 @@ mod tests {
         assert!(
             recovered.get_total().runtime > 0,
             "the host's tracker must be the one that was charged"
+        );
+        assert_eq!(
+            *ctx.take_engine_state::<String>()
+                .expect("one engine must not overwrite another engine's state"),
+            "another engine's state"
         );
     }
 }

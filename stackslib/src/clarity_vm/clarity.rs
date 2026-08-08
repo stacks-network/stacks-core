@@ -24,12 +24,11 @@ pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, ClarityExecutionCache, HeadersDB,
-    RollbackWrapper, RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    BurnStateDB, ClarityBackingStore, ClarityDatabase, ClarityDatabaseExt, ClarityExecutionCache,
+    HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB,
+    NULL_HEADER_DB,
 };
-use clarity::vm::engine::{
-    AnalyzedContract, Engine, EngineError, LegacyEngine, TransactionContext,
-};
+use clarity::vm::engine::{AnalyzedContract, Engine, EngineError, TransactionContext};
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::representations::SymbolicExpression;
@@ -61,6 +60,7 @@ use crate::chainstate::stacks::{
 use crate::clarity_vm::database::marf::{
     BoxedClarityMarfStoreTransaction, MarfedKV, ReadOnlyMarfStore,
 };
+use crate::clarity_vm::engine::ClarityEngineManifest;
 use crate::core::{StacksEpoch, StacksEpochId, FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::Error as DatabaseError;
@@ -2440,6 +2440,12 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
+        let clarity_version = self.with_clarity_db_readonly(|db| {
+            db.get_contract(contract)
+                .map(|contract| *contract.get_clarity_version())
+                .map_err(ClarityError::from)
+        })?;
+
         // The ABI's abort hook is `FnMut` (an engine may hold it across a
         // call frame); the trait's is `FnOnce`. Adapt by consuming on the
         // first invocation — the engine calls it at most once.
@@ -2448,7 +2454,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
             abort_call_back.take().and_then(|cb| cb(assets, db))
         };
 
-        let outcome = self.with_engine(|engine, ctx| {
+        let outcome = self.with_engine(clarity_version, |engine, ctx| {
             engine.execute_call(
                 ctx,
                 sender.clone(),
@@ -2561,10 +2567,14 @@ impl ClarityTransactionConnection<'_, '_> {
     ///
     /// Memory usage is deliberately *not* reset here: that happens only when
     /// the transaction commits (see `commit()` and `Drop`).
-    fn with_engine<F, R>(&mut self, to_do: F) -> R
+    fn with_engine<F, R>(&mut self, version: ClarityVersion, to_do: F) -> Result<R, EngineError>
     where
-        F: FnOnce(&LegacyEngine, &mut TransactionContext) -> R,
+        F: FnOnce(&dyn Engine, &mut TransactionContext) -> Result<R, EngineError>,
     {
+        let selected = ClarityEngineManifest::for_epoch(self.epoch)
+            .select(version)
+            .map_err(|e| EngineError::Internal(e.to_string()))?;
+
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
@@ -2576,12 +2586,13 @@ impl ClarityTransactionConnection<'_, '_> {
                 .with_cache(&mut self.cache);
 
                 let mut ctx = TransactionContext::new(db, self.mainnet, self.chain_id, self.epoch);
-                LegacyEngine::install_cost_tracker(&mut ctx, cost_track);
+                selected.install_cost_tracker(&mut ctx, cost_track);
 
-                let result = to_do(&LegacyEngine, &mut ctx);
+                let result = to_do(selected.engine(), &mut ctx);
 
                 // The engine restores both before returning, on every path.
-                let cost_track = LegacyEngine::take_cost_tracker(&mut ctx)
+                let cost_track = selected
+                    .take_cost_tracker(&mut ctx)
                     .expect("BUG: Clarity engine lost the block's cost tracker.");
                 let db = ctx
                     .into_db()
@@ -2611,7 +2622,7 @@ impl ClarityTransactionConnection<'_, '_> {
             abort_call_back.take().and_then(|cb| cb(assets, db))
         };
 
-        self.with_engine(|engine, ctx| {
+        self.with_engine(analyzed.version(), |engine, ctx| {
             engine.initialize_contract(
                 ctx,
                 analyzed,
@@ -2630,8 +2641,10 @@ impl ClarityTransactionConnection<'_, '_> {
         &mut self,
         analyzed: &AnalyzedContract,
     ) -> Result<(), ClarityError> {
-        self.with_engine(|engine, ctx| engine.save_analysis(ctx, analyzed))
-            .map_err(engine_error_to_clarity)
+        self.with_engine(analyzed.version(), |engine, ctx| {
+            engine.save_analysis(ctx, analyzed)
+        })
+        .map_err(engine_error_to_clarity)
     }
 
     /// Do something to the underlying DB that involves writing.

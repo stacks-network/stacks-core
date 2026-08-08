@@ -46,7 +46,8 @@
 //! - **Epoch inversion**: [`TransactionContext`] still carries a
 //!   `StacksEpochId`; it will become a kernel-owned ruleset identifier.
 
-use std::any::Any;
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
 
 use clarity_types::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity_types::{ClarityVersion, Value};
@@ -158,10 +159,14 @@ pub struct TransactionContext<'a> {
     /// Cost budget for all interactions in this context. Defaults to
     /// [`CostBudget::Free`]; set with [`Self::with_budget`].
     pub budget: CostBudget,
-    /// Engine-owned state persisted between interactions in this context
-    /// (e.g. the legacy engine keeps its cost tracker here so the budget is
-    /// enforced cumulatively). Opaque to the kernel and the host.
-    engine_state: Option<Box<dyn Any>>,
+    /// Engine-owned state persisted between interactions in this context,
+    /// keyed by its concrete type. Multiple engines may park private state
+    /// without overwriting one another. Opaque to the kernel and the host.
+    ///
+    /// Consensus-shared state such as the cumulative cost budget must not
+    /// live here; it moves to explicit kernel fields before mixed-engine
+    /// nested calls are enabled.
+    engine_states: HashMap<TypeId, Box<dyn Any>>,
 }
 
 impl<'a> TransactionContext<'a> {
@@ -177,7 +182,7 @@ impl<'a> TransactionContext<'a> {
             mainnet,
             chain_id,
             budget: CostBudget::Free,
-            engine_state: None,
+            engine_states: HashMap::new(),
         }
     }
 
@@ -189,22 +194,20 @@ impl<'a> TransactionContext<'a> {
         self
     }
 
-    /// Take the engine-owned inter-interaction state, if it is present and
-    /// of type `T`.
+    /// Take this engine-owned inter-interaction state, if present.
     pub fn take_engine_state<T: 'static>(&mut self) -> Option<Box<T>> {
-        // Only take the slot if the type matches, so a mismatched engine
-        // cannot destroy another engine's state.
-        if self.engine_state.as_ref().is_some_and(|s| s.is::<T>()) {
-            self.engine_state.take()?.downcast::<T>().ok()
-        } else {
-            None
-        }
+        self.engine_states
+            .remove(&TypeId::of::<T>())?
+            .downcast::<T>()
+            .ok()
     }
 
     /// Store engine-owned state to be retrieved by the same engine on its
-    /// next interaction in this context.
+    /// next interaction in this context. This replaces only that concrete
+    /// state's previous value; other engines' state remains parked.
     pub fn set_engine_state<T: 'static>(&mut self, state: T) {
-        self.engine_state = Some(Box::new(state));
+        self.engine_states
+            .insert(TypeId::of::<T>(), Box::new(state));
     }
 
     /// Take ownership of the database for the duration of one engine
