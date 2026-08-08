@@ -28,6 +28,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use super::hooks::{
     CallArguments, CallHook, CallTraceFrame, EvalHook, EvalHookNotifier, ExecutionOutcome,
 };
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::callables::DefinedFunction;
@@ -222,8 +223,13 @@ pub struct GlobalContext<'a, 'hooks> {
     pub database: RuntimeSlot<ClarityDatabase<'a>>,
     pub cost_track: RuntimeSlot<CostTrackerHandle>,
     pub mainnet: bool,
-    /// This is the epoch of the block that this transaction is executing within.
-    pub epoch_id: StacksEpochId,
+    /// Fixed epoch-shaped compatibility value used by copied interpreter APIs
+    /// to select the one Clarity 6 semantic profile.
+    pub(crate) semantic_epoch: StacksEpochId,
+    /// Actual epoch of the block executing this transaction. This is host
+    /// routing context only: nested calls pass it to the selected callee
+    /// engine, but Clarity 6 semantics must not consult it.
+    pub(crate) host_epoch: StacksEpochId,
     /// Host-selected consensus behavior shared across engine boundaries.
     pub kernel_ruleset: KernelRuleset,
     /// This is the chain ID of the transaction
@@ -416,7 +422,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         cost_tracker: CostTrackerHandle,
         transaction: TransactionFrame,
         call_stack: CallStack,
-        epoch_id: StacksEpochId,
+        host_epoch: StacksEpochId,
         kernel_ruleset: KernelRuleset,
         dispatcher: Option<&'hooks mut (dyn ContractDispatcher + 'hooks)>,
     ) -> OwnedEnvironment<'a, 'hooks> {
@@ -427,7 +433,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 database,
                 cost_tracker,
                 transaction,
-                epoch_id,
+                host_epoch,
                 kernel_ruleset,
             ),
             call_stack: RuntimeSlot::new(call_stack),
@@ -944,13 +950,10 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         Ok(expressions)
     }
 
-    /// This is the epoch of the block that this transaction is executing within.
-    /// Note: in the current plans for 2.1, there is also a contract-specific **Clarity version**
-    ///  which governs which native functions are available / defined. That is separate from this
-    ///  epoch identifier, and most Clarity VM changes should consult that value instead. This
-    ///  epoch identifier is used for determining how cost functions should be applied.
+    /// The fixed epoch-shaped input for copied runtime helpers. It represents
+    /// the Clarity 6 revision, not the host block epoch.
     pub fn epoch(&self) -> &StacksEpochId {
-        &self.global_context.epoch_id
+        &self.global_context.semantic_epoch
     }
 
     pub fn kernel_ruleset(&self) -> KernelRuleset {
@@ -981,7 +984,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             call_stack: self.call_stack,
             execution_resource_limiter: self.global_context.execution_resource_limiter,
             ruleset: self.global_context.kernel_ruleset,
-            epoch: self.global_context.epoch_id,
+            epoch: self.global_context.host_epoch,
             mainnet: self.global_context.mainnet,
             chain_id: self.global_context.chain_id,
         };
@@ -1652,7 +1655,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         database: ClarityDatabase<'a>,
         cost_track: CostTrackerHandle,
         transaction: TransactionFrame,
-        epoch_id: StacksEpochId,
+        host_epoch: StacksEpochId,
         kernel_ruleset: KernelRuleset,
     ) -> GlobalContext<'a, 'hooks> {
         GlobalContext {
@@ -1660,7 +1663,8 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             cost_track: RuntimeSlot::new(cost_track),
             transaction: RuntimeSlot::new(transaction),
             mainnet,
-            epoch_id,
+            semantic_epoch: CLARITY6_BASELINE_EPOCH,
+            host_epoch,
             kernel_ruleset,
             chain_id,
             eval_hooks: None,
@@ -1737,7 +1741,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         sender: &PrincipalData,
         amount: u128,
     ) -> Result<(), VmExecutionError> {
-        let epoch = self.epoch_id;
+        let epoch = self.semantic_epoch;
         self.get_asset_map()?.add_stacking(sender, amount, epoch)
     }
 
@@ -1835,7 +1839,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
 
     pub fn commit(&mut self) -> Result<(Option<AssetMap>, Option<EventBatch>), VmExecutionError> {
         trace!("Calling commit");
-        let result = match self.transaction.commit(self.epoch_id) {
+        let result = match self.transaction.commit(self.semantic_epoch) {
             Ok(result) => result,
             Err(e) => {
                 self.database.roll_back()?;

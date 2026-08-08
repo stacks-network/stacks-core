@@ -654,7 +654,7 @@ pub fn eval_all(
                     global_context.add_memory(value.size()?.into())?;
 
                     let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type)?;
-                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &global_context.epoch_id)?;
+                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &global_context.semantic_epoch)?;
 
                     contract_context.meta_data_var.insert(name, data_type);
                 },

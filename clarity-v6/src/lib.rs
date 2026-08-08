@@ -97,7 +97,7 @@ use crate::vm::errors::ClarityEvalError;
 const SUPPORTED_VERSIONS: &[ClarityVersion] = &[ClarityVersion::Clarity6];
 /// The single parser, analyzer, and evaluator semantic profile implemented by
 /// this engine revision. The host epoch may still be recorded in shared
-/// metadata and passed to transitional runtime framing, but it does not select
+/// metadata and forwarded across nested dispatch, but it does not select
 /// Clarity 6 language behavior.
 pub(crate) const CLARITY6_BASELINE_EPOCH: StacksEpochId = StacksEpochId::Epoch40;
 
@@ -789,6 +789,84 @@ mod tests {
             .expect("analysis should include a contract interface")
             .epoch = current_host.epoch;
         assert_eq!(old_host, current_host);
+    }
+
+    #[test]
+    fn runtime_semantics_are_separate_from_nested_dispatch_epoch() {
+        let mut store = setup_store(StacksEpochId::Epoch20);
+        let env = OwnedEnvironment::new_with_dispatcher(
+            false,
+            CHAIN_ID_TESTNET,
+            store.as_clarity_db(),
+            CostTrackerHandle::new(LimitedCostTracker::new_free()),
+            TransactionFrame::new(),
+            CallStack::new(),
+            // Deliberately older than Clarity 6. Runtime helpers must still
+            // use the revision baseline, while a nested legacy callee must
+            // receive this actual host epoch.
+            StacksEpochId::Epoch20,
+            clarity_kernel::rules::KernelRuleset::V3,
+            None,
+        );
+
+        assert_eq!(env.context.semantic_epoch, CLARITY6_BASELINE_EPOCH);
+        assert_eq!(env.context.host_epoch, StacksEpochId::Epoch20);
+        assert_eq!(
+            env.context.kernel_ruleset,
+            clarity_kernel::rules::KernelRuleset::V3
+        );
+    }
+
+    #[test]
+    fn runtime_behavior_does_not_follow_the_host_epoch() {
+        let execute = |host_epoch| {
+            let mut store = setup_store(host_epoch);
+            let id = QualifiedContractIdentifier::local("clarity6-runtime-profile").unwrap();
+            let sender: PrincipalData = StandardPrincipalData::transient().into();
+            let mut ctx = TransactionContext::new(
+                store.as_clarity_db(),
+                false,
+                CHAIN_ID_TESTNET,
+                host_epoch,
+                // Hold shared kernel policy constant so this comparison
+                // isolates the engine's use of the host epoch.
+                clarity_kernel::rules::KernelRuleset::V3,
+            )
+            .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
+
+            let deployed = Clarity6Engine
+                .deploy_contract(&mut ctx, &id, COUNTER, ClarityVersion::Clarity6, None)
+                .unwrap();
+            let called = Clarity6Engine
+                .execute_call(
+                    &mut ctx,
+                    sender,
+                    None,
+                    &id,
+                    "increment",
+                    &[],
+                    None,
+                    &ResourceBudget::unlimited(),
+                )
+                .unwrap();
+            let count = Clarity6Engine
+                .eval_read_only(&mut ctx, &id, "(get-count)")
+                .unwrap();
+
+            (
+                deployed.cost,
+                called.value,
+                called.assets,
+                called.events,
+                called.cost,
+                count,
+            )
+        };
+
+        assert_eq!(
+            execute(StacksEpochId::Epoch20),
+            execute(StacksEpochId::Epoch41)
+        );
     }
 
     #[test]
