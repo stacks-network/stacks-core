@@ -200,7 +200,122 @@ impl fmt::Display for EngineSelectionError {
 
 #[cfg(test)]
 mod tests {
+    use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+    use clarity::vm::database::MemoryBackingStore;
+    use clarity::vm::engine::{CostBudget, TransactionContext};
+    use clarity::vm::resource_limiter::ResourceBudget;
+    use clarity::vm::types::{PrincipalData, StandardPrincipalData, Value};
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+
     use super::*;
+
+    const CALLEE: &str = "
+        (define-data-var calls uint u0)
+        (define-read-only (get-calls) (var-get calls))
+        (define-public (record)
+          (begin
+            (var-set calls (+ (var-get calls) u1))
+            (print contract-caller)
+            (ok contract-caller)))";
+
+    const CALLER: &str = "
+        (define-public (run)
+          (contract-call? .callee record))";
+
+    const FAILING_CALLER: &str = "
+        (define-public (run)
+          (begin
+            (unwrap-panic (contract-call? .callee record))
+            (/ u1 u0)
+            (ok true)))";
+
+    fn setup_store() -> MemoryBackingStore {
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        db.begin();
+        db.set_clarity_epoch_version(StacksEpochId::Epoch40)
+            .unwrap();
+        db.commit().unwrap();
+        store
+    }
+
+    fn contract_id(name: &str) -> QualifiedContractIdentifier {
+        QualifiedContractIdentifier::new(
+            StandardPrincipalData::transient(),
+            name.to_string().try_into().unwrap(),
+        )
+    }
+
+    fn deploy(
+        manifest: ClarityEngineManifest,
+        context: &mut TransactionContext,
+        id: &QualifiedContractIdentifier,
+        source: &str,
+        version: ClarityVersion,
+    ) {
+        manifest
+            .select(version)
+            .unwrap()
+            .engine()
+            .deploy_contract(context, id, source, version, None)
+            .unwrap();
+    }
+
+    fn run_mixed_call(
+        caller_version: ClarityVersion,
+        callee_version: ClarityVersion,
+        caller_source: &str,
+    ) -> (Result<Value, EngineError>, Value, usize) {
+        let manifest = ClarityEngineManifest::for_epoch(StacksEpochId::Epoch40);
+        let mut store = setup_store();
+        let mut context = TransactionContext::new(
+            store.as_clarity_db(),
+            false,
+            CHAIN_ID_TESTNET,
+            StacksEpochId::Epoch40,
+        )
+        .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
+        context.install_cost_tracker(LimitedCostTracker::new_free());
+        let callee = contract_id("callee");
+        let caller = contract_id("caller");
+        deploy(manifest, &mut context, &callee, CALLEE, callee_version);
+        deploy(
+            manifest,
+            &mut context,
+            &caller,
+            caller_source,
+            caller_version,
+        );
+
+        context.install_dispatcher(ClarityEngineDispatcher::for_epoch(StacksEpochId::Epoch40));
+        let sender: PrincipalData = StandardPrincipalData::transient().into();
+        let call = manifest
+            .select(caller_version)
+            .unwrap()
+            .engine()
+            .execute_call(
+                &mut context,
+                sender,
+                None,
+                &caller,
+                "run",
+                &[],
+                None,
+                &ResourceBudget::unlimited(),
+            );
+        let event_count = call
+            .as_ref()
+            .map(|outcome| outcome.events.len())
+            .unwrap_or(0);
+        let value = call.map(|outcome| outcome.value);
+        let calls = manifest
+            .select(callee_version)
+            .unwrap()
+            .engine()
+            .eval_read_only(&mut context, &callee, "(get-calls)")
+            .unwrap();
+        (value, calls, event_count)
+    }
 
     #[test]
     fn manifest_selects_every_historically_available_version() {
@@ -249,5 +364,39 @@ mod tests {
             selected.engine().supported_versions(),
             &[ClarityVersion::Clarity6]
         );
+    }
+
+    #[test]
+    fn nested_calls_cross_the_legacy_clarity6_boundary_both_ways() {
+        for (caller_version, callee_version) in [
+            (ClarityVersion::Clarity5, ClarityVersion::Clarity6),
+            (ClarityVersion::Clarity6, ClarityVersion::Clarity5),
+        ] {
+            let (value, calls, event_count) =
+                run_mixed_call(caller_version, callee_version, CALLER);
+            assert_eq!(
+                value.unwrap(),
+                Value::okay(Value::Principal(PrincipalData::Contract(contract_id(
+                    "caller"
+                ))))
+                .unwrap()
+            );
+            assert_eq!(calls, Value::UInt(1));
+            assert_eq!(event_count, 1);
+        }
+    }
+
+    #[test]
+    fn mixed_engine_nested_writes_roll_back_with_the_outer_call() {
+        for (caller_version, callee_version) in [
+            (ClarityVersion::Clarity5, ClarityVersion::Clarity6),
+            (ClarityVersion::Clarity6, ClarityVersion::Clarity5),
+        ] {
+            let (value, calls, event_count) =
+                run_mixed_call(caller_version, callee_version, FAILING_CALLER);
+            assert!(matches!(value, Err(EngineError::Execution(_))));
+            assert_eq!(calls, Value::UInt(0));
+            assert_eq!(event_count, 0);
+        }
     }
 }
