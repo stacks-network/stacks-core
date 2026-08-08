@@ -1,0 +1,14 @@
+[package]
+name = "clarity-conformance"
+version = "0.0.1"
+edition = "2024"
+publish = false
+description = "Engine-agnostic Clarity conformance vector schema and runner"
+license = "GPLv3"
+
+[dependencies]
+clarity-kernel = { path = "../clarity-kernel", features = ["rusqlite"] }
+clarity-types = { path = "../clarity-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+stacks-common = { path = "../stacks-common" }

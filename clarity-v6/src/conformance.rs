@@ -29,6 +29,7 @@ use crate::Clarity6Engine;
 
 static LEGACY: LegacyEngine = LegacyEngine;
 static CLARITY6: Clarity6Engine = Clarity6Engine;
+const GOLDEN_VECTORS: &str = include_str!("../tests/vectors/clarity6-v1.json");
 
 const ANALYSIS_SURFACE: &str = "
     (define-trait balance-trait
@@ -364,4 +365,111 @@ fn host_aborts_assets_events_and_rollback_match_legacy_clarity6() {
         assert_eq!(clarity6.1, Value::UInt(7));
         assert_eq!(clarity6.2, Value::UInt(0));
     }
+}
+
+#[test]
+fn checked_in_vectors_match_the_frozen_legacy_oracle() {
+    let suite = clarity_conformance::parse_suite(GOLDEN_VECTORS).unwrap();
+    clarity_conformance::verify_suite(&LEGACY, &suite).unwrap();
+}
+
+/// Maintainer utility: run this ignored test with `--nocapture` to inspect a
+/// recording. Set `CLARITY_V6_UPDATE_VECTORS` to a path to update a fixture.
+#[test]
+#[ignore = "prints regenerated conformance vectors"]
+fn print_vectors_recorded_from_the_legacy_oracle() {
+    let suite = clarity_conformance::parse_suite(GOLDEN_VECTORS).unwrap();
+    let recorded = clarity_conformance::record_suite(&LEGACY, &suite).unwrap();
+    let json = format!("{}\n", serde_json::to_string_pretty(&recorded).unwrap());
+    if let Ok(path) = std::env::var("CLARITY_V6_UPDATE_VECTORS") {
+        std::fs::write(path, &json).unwrap();
+    }
+    println!("{json}");
+}
+
+#[test]
+fn generated_state_machine_cases_match_the_rust_model() {
+    use clarity_conformance::{ObservationResult, VectorCase, VectorStep};
+    use proptest::test_runner::{Config, TestRng, TestRunner};
+
+    let config = Config {
+        cases: 64,
+        failure_persistence: None,
+        ..Config::default()
+    };
+    let algorithm = config.rng_algorithm;
+    let mut runner = TestRunner::new_with_rng(config, TestRng::deterministic_rng(algorithm));
+    let strategy = (0u64..10_000, 0u64..10_000, 0usize..=6, proptest::bool::ANY);
+
+    runner
+        .run(&strategy, |(initial, delta, repetitions, epoch_41)| {
+            let epoch = if epoch_41 {
+                StacksEpochId::Epoch41
+            } else {
+                StacksEpochId::Epoch40
+            };
+            let source = format!(
+                "(define-data-var total uint u{initial})\n\
+             (define-read-only (get-total) (var-get total))\n\
+             (define-public (add-to-total (amount uint)) \n\
+               (begin \n\
+                 (var-set total (+ (var-get total) amount)) \n\
+                 (ok (var-get total))))"
+            );
+            let mut steps = vec![
+                VectorStep::Analyze,
+                VectorStep::Initialize,
+                VectorStep::SaveAnalysis,
+            ];
+            steps.extend((0..repetitions).map(|_| VectorStep::Call {
+                function: "add-to-total".into(),
+                args: vec![clarity_conformance::encode_value(&Value::UInt(
+                    delta.into(),
+                ))],
+                sender: None,
+                sponsor: None,
+                abort_reason: None,
+            }));
+            steps.push(VectorStep::ReadOnly {
+                expression: "(get-total)".into(),
+            });
+            let case = VectorCase {
+                name: "generated state machine".into(),
+                epoch,
+                language_version: ClarityVersion::Clarity6,
+                contract_name: "generated-state".into(),
+                source,
+                steps,
+                expected: vec![],
+            };
+
+            // Generated inputs exercise the same serialized format consumed by
+            // checked-in vectors, not a privileged in-memory-only path.
+            let serialized = serde_json::to_string(&case).unwrap();
+            let case: VectorCase = serde_json::from_str(&serialized).unwrap();
+            let observations = clarity_conformance::run_case(&CLARITY6, &case).unwrap();
+
+            for (index, observation) in observations[3..3 + repetitions].iter().enumerate() {
+                let expected = u128::from(initial) + u128::from(delta) * (index as u128 + 1);
+                assert!(matches!(
+                    &observation.result,
+                    ObservationResult::Execution { value, assets, events }
+                        if value == &format!("(ok u{expected})")
+                            && assets == &AssetMap::new().to_json()
+                            && events.is_empty()
+                ));
+            }
+            let expected = u128::from(initial) + u128::from(delta) * repetitions as u128;
+            assert!(matches!(
+                &observations.last().unwrap().result,
+                ObservationResult::ReadOnly { value } if value == &format!("u{expected}")
+            ));
+            assert!(
+                observations
+                    .windows(2)
+                    .all(|pair| pair[0].cumulative_cost.runtime <= pair[1].cumulative_cost.runtime)
+            );
+            Ok(())
+        })
+        .unwrap();
 }

@@ -1,0 +1,29 @@
+[package]
+name = "clarity-v6-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+clarity-conformance = { path = "../../clarity-conformance" }
+clarity-types = { path = "../../clarity-types" }
+clarity-v6 = { path = ".." }
+libfuzzer-sys = "0.4"
+stacks-common = { path = "../../stacks-common" }
+
+# Keep the fuzz package out of the root workspace, as required by cargo-fuzz.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "analyze_conformance_raw"
+path = "fuzz_targets/analyze_conformance_raw.rs"
+test = false
+doc = false
+bench = false

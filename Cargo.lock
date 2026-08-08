@@ -864,6 +864,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "clarity-conformance"
+version = "0.0.1"
+dependencies = [
+ "clarity-kernel",
+ "clarity-types 0.0.1",
+ "serde",
+ "serde_json",
+ "stacks-common 0.0.1",
+]
+
+[[package]]
 name = "clarity-kernel"
 version = "0.0.1"
 dependencies = [
@@ -917,10 +928,12 @@ name = "clarity-v6"
 version = "1.0.0"
 dependencies = [
  "clarity 0.0.1",
+ "clarity-conformance",
  "clarity-kernel",
  "clarity-types 0.0.1",
  "integer-sqrt",
  "lazy_static",
+ "proptest",
  "regex",
  "rstest",
  "rstest_reuse",

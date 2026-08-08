@@ -1,0 +1,1068 @@
+{
+  "schema_version": 1,
+  "target": "clarity-v6-revision-1",
+  "cases": [
+    {
+      "name": "rich analysis surface, epoch 4.0",
+      "epoch": "Epoch40",
+      "language_version": "Clarity6",
+      "contract_name": "analysis-e40",
+      "source": "(define-trait balance-trait ((balance-of (principal) (response uint uint))))\n(define-data-var owner principal tx-sender)\n(define-map balances principal uint)\n(define-fungible-token coin)\n(define-non-fungible-token collectible uint)\n(define-private (next (amount uint)) (+ amount u1))\n(define-read-only (read (who principal)) (default-to u0 (map-get? balances who)))\n(define-public (write (amount uint)) (begin (map-set balances tx-sender amount) (ok (next amount))))",
+      "steps": [
+        {
+          "operation": "analyze"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "analysis",
+            "interface_sha256": "6b67f5eb38ed3999d9a46b285493c6a4bee848352aa5163ea00ebc3508aca848"
+          },
+          "cumulative_cost": {
+            "write_length": 74,
+            "write_count": 1,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 15243
+          }
+        }
+      ]
+    },
+    {
+      "name": "rich analysis surface, epoch 4.1",
+      "epoch": "Epoch41",
+      "language_version": "Clarity6",
+      "contract_name": "analysis-e41",
+      "source": "(define-trait balance-trait ((balance-of (principal) (response uint uint))))\n(define-data-var owner principal tx-sender)\n(define-map balances principal uint)\n(define-fungible-token coin)\n(define-non-fungible-token collectible uint)\n(define-private (next (amount uint)) (+ amount u1))\n(define-read-only (read (who principal)) (default-to u0 (map-get? balances who)))\n(define-public (write (amount uint)) (begin (map-set balances tx-sender amount) (ok (next amount))))",
+      "steps": [
+        {
+          "operation": "analyze"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "analysis",
+            "interface_sha256": "3bf61ea7b6421bf896967890723362784f1559f9acc6996b4e3ab979331edd04"
+          },
+          "cumulative_cost": {
+            "write_length": 74,
+            "write_count": 1,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 15243
+          }
+        }
+      ]
+    },
+    {
+      "name": "static rejection, epoch 4.0",
+      "epoch": "Epoch40",
+      "language_version": "Clarity6",
+      "contract_name": "static-e40",
+      "source": "(define-public (broken) (ok (+ true u1)))",
+      "steps": [
+        {
+          "operation": "analyze"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "error",
+            "error": {
+              "kind": "static",
+              "message": "expecting expression of type 'int' or 'uint', found 'bool'"
+            }
+          },
+          "cumulative_cost": {
+            "write_length": 11,
+            "write_count": 1,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 1532
+          }
+        }
+      ]
+    },
+    {
+      "name": "static rejection, epoch 4.1",
+      "epoch": "Epoch41",
+      "language_version": "Clarity6",
+      "contract_name": "static-e41",
+      "source": "(define-public (broken) (ok (+ true u1)))",
+      "steps": [
+        {
+          "operation": "analyze"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "error",
+            "error": {
+              "kind": "static",
+              "message": "expecting expression of type 'int' or 'uint', found 'bool'"
+            }
+          },
+          "cumulative_cost": {
+            "write_length": 11,
+            "write_count": 1,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 1532
+          }
+        }
+      ]
+    },
+    {
+      "name": "parse rejection, epoch 4.0",
+      "epoch": "Epoch40",
+      "language_version": "Clarity6",
+      "contract_name": "parse-e40",
+      "source": "(define-public (unterminated) (ok true)",
+      "steps": [
+        {
+          "operation": "analyze"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "error",
+            "error": {
+              "kind": "parse",
+              "rejectable": false,
+              "messages": [
+                "expected closing ')'"
+              ]
+            }
+          },
+          "cumulative_cost": {
+            "write_length": 0,
+            "write_count": 0,
+            "read_length": 0,
+            "read_count": 0,
+            "runtime": 1134
+          }
+        }
+      ]
+    },
+    {
+      "name": "parse rejection, epoch 4.1",
+      "epoch": "Epoch41",
+      "language_version": "Clarity6",
+      "contract_name": "parse-e41",
+      "source": "(define-public (unterminated) (ok true)",
+      "steps": [
+        {
+          "operation": "analyze"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "error",
+            "error": {
+              "kind": "parse",
+              "rejectable": false,
+              "messages": [
+                "expected closing ')'"
+              ]
+            }
+          },
+          "cumulative_cost": {
+            "write_length": 0,
+            "write_count": 0,
+            "read_length": 0,
+            "read_count": 0,
+            "runtime": 1134
+          }
+        }
+      ]
+    },
+    {
+      "name": "state assets events and values, epoch 4.0",
+      "epoch": "Epoch40",
+      "language_version": "Clarity6",
+      "contract_name": "runtime-e40",
+      "source": "(define-data-var count uint u0)\n(define-fungible-token coin)\n(define-read-only (get-count) (var-get count))\n(define-read-only (get-balance) (ft-get-balance coin tx-sender))\n(define-public (exercise) (begin (print u7) (var-set count (+ (var-get count) u7)) (try! (ft-mint? coin u7 tx-sender)) (ok { count: (var-get count), values: (concat (list u1) (list u2 u3) (list u4)) })))",
+      "steps": [
+        {
+          "operation": "analyze"
+        },
+        {
+          "operation": "initialize"
+        },
+        {
+          "operation": "save_analysis"
+        },
+        {
+          "operation": "call",
+          "function": "exercise",
+          "args": [],
+          "sender": null,
+          "sponsor": null,
+          "abort_reason": null
+        },
+        {
+          "operation": "read_only",
+          "expression": "(get-count)"
+        },
+        {
+          "operation": "read_only",
+          "expression": "(get-balance)"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "analysis",
+            "interface_sha256": "af219309ab1f8d8347053fb484db91b98f02791cb61c8f1ce8abdfbfd14bdf9e"
+          },
+          "cumulative_cost": {
+            "write_length": 72,
+            "write_count": 1,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 14758
+          }
+        },
+        {
+          "result": {
+            "kind": "deployment",
+            "assets": {
+              "assets": {},
+              "burns": {},
+              "pox": [],
+              "stacking": {},
+              "stx": {},
+              "tokens": {}
+            },
+            "events": []
+          },
+          "cumulative_cost": {
+            "write_length": 467,
+            "write_count": 6,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 30679
+          }
+        },
+        {
+          "result": {
+            "kind": "analysis_saved"
+          },
+          "cumulative_cost": {
+            "write_length": 467,
+            "write_count": 6,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 30679
+          }
+        },
+        {
+          "result": {
+            "kind": "execution",
+            "value": "(ok (tuple (count u7) (values (u1 u2 u3 u4))))",
+            "assets": {
+              "assets": {},
+              "burns": {},
+              "pox": [],
+              "stacking": {},
+              "stx": {},
+              "tokens": {}
+            },
+            "events": [
+              {
+                "contract_event": {
+                  "contract_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.runtime-e40",
+                  "raw_value": "0x0100000000000000000000000000000007",
+                  "topic": "print"
+                },
+                "type": "contract_event"
+              },
+              {
+                "ft_mint_event": {
+                  "amount": "7",
+                  "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.runtime-e40::coin",
+                  "recipient": "S1G2081040G2081040G2081040G208105NK8PE5"
+                },
+                "type": "ft_mint_event"
+              }
+            ]
+          },
+          "cumulative_cost": {
+            "write_length": 486,
+            "write_count": 9,
+            "read_length": 415,
+            "read_count": 9,
+            "runtime": 33290
+          }
+        },
+        {
+          "result": {
+            "kind": "read_only",
+            "value": "u7"
+          },
+          "cumulative_cost": {
+            "write_length": 486,
+            "write_count": 9,
+            "read_length": 433,
+            "read_count": 10,
+            "runtime": 33821
+          }
+        },
+        {
+          "result": {
+            "kind": "read_only",
+            "value": "u7"
+          },
+          "cumulative_cost": {
+            "write_length": 486,
+            "write_count": 9,
+            "read_length": 434,
+            "read_count": 11,
+            "runtime": 34841
+          }
+        }
+      ]
+    },
+    {
+      "name": "state assets events and values, epoch 4.1",
+      "epoch": "Epoch41",
+      "language_version": "Clarity6",
+      "contract_name": "runtime-e41",
+      "source": "(define-data-var count uint u0)\n(define-fungible-token coin)\n(define-read-only (get-count) (var-get count))\n(define-read-only (get-balance) (ft-get-balance coin tx-sender))\n(define-public (exercise) (begin (print u7) (var-set count (+ (var-get count) u7)) (try! (ft-mint? coin u7 tx-sender)) (ok { count: (var-get count), values: (concat (list u1) (list u2 u3) (list u4)) })))",
+      "steps": [
+        {
+          "operation": "analyze"
+        },
+        {
+          "operation": "initialize"
+        },
+        {
+          "operation": "save_analysis"
+        },
+        {
+          "operation": "call",
+          "function": "exercise",
+          "args": [],
+          "sender": null,
+          "sponsor": null,
+          "abort_reason": null
+        },
+        {
+          "operation": "read_only",
+          "expression": "(get-count)"
+        },
+        {
+          "operation": "read_only",
+          "expression": "(get-balance)"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "analysis",
+            "interface_sha256": "82a3261991d405f7a44054131ee47b3e427e74f65e17e8e2c755fcc65dc018b2"
+          },
+          "cumulative_cost": {
+            "write_length": 72,
+            "write_count": 1,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 14758
+          }
+        },
+        {
+          "result": {
+            "kind": "deployment",
+            "assets": {
+              "assets": {},
+              "burns": {},
+              "pox": [],
+              "stacking": {},
+              "stx": {},
+              "tokens": {}
+            },
+            "events": []
+          },
+          "cumulative_cost": {
+            "write_length": 467,
+            "write_count": 6,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 30679
+          }
+        },
+        {
+          "result": {
+            "kind": "analysis_saved"
+          },
+          "cumulative_cost": {
+            "write_length": 467,
+            "write_count": 6,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 30679
+          }
+        },
+        {
+          "result": {
+            "kind": "execution",
+            "value": "(ok (tuple (count u7) (values (u1 u2 u3 u4))))",
+            "assets": {
+              "assets": {},
+              "burns": {},
+              "pox": [],
+              "stacking": {},
+              "stx": {},
+              "tokens": {}
+            },
+            "events": [
+              {
+                "contract_event": {
+                  "contract_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.runtime-e41",
+                  "raw_value": "0x0100000000000000000000000000000007",
+                  "topic": "print"
+                },
+                "type": "contract_event"
+              },
+              {
+                "ft_mint_event": {
+                  "amount": "7",
+                  "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.runtime-e41::coin",
+                  "recipient": "S1G2081040G2081040G2081040G208105NK8PE5"
+                },
+                "type": "ft_mint_event"
+              }
+            ]
+          },
+          "cumulative_cost": {
+            "write_length": 486,
+            "write_count": 9,
+            "read_length": 415,
+            "read_count": 9,
+            "runtime": 33290
+          }
+        },
+        {
+          "result": {
+            "kind": "read_only",
+            "value": "u7"
+          },
+          "cumulative_cost": {
+            "write_length": 486,
+            "write_count": 9,
+            "read_length": 433,
+            "read_count": 10,
+            "runtime": 33821
+          }
+        },
+        {
+          "result": {
+            "kind": "read_only",
+            "value": "u7"
+          },
+          "cumulative_cost": {
+            "write_length": 486,
+            "write_count": 9,
+            "read_length": 434,
+            "read_count": 11,
+            "runtime": 34841
+          }
+        }
+      ]
+    },
+    {
+      "name": "runtime rollback, epoch 4.0",
+      "epoch": "Epoch40",
+      "language_version": "Clarity6",
+      "contract_name": "rollback-e40",
+      "source": "(define-data-var count uint u0)\n(define-read-only (get-count) (var-get count))\n(define-public (fail-after-write) (begin (var-set count u1) (/ u1 u0) (ok true)))",
+      "steps": [
+        {
+          "operation": "analyze"
+        },
+        {
+          "operation": "initialize"
+        },
+        {
+          "operation": "save_analysis"
+        },
+        {
+          "operation": "call",
+          "function": "fail-after-write",
+          "args": [],
+          "sender": null,
+          "sponsor": null,
+          "abort_reason": null
+        },
+        {
+          "operation": "read_only",
+          "expression": "(get-count)"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "analysis",
+            "interface_sha256": "e299cb30b5324191204a3523f4c28342ee4e4b858b475f9aa3e6b209c5f6f14d"
+          },
+          "cumulative_cost": {
+            "write_length": 30,
+            "write_count": 1,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 5688
+          }
+        },
+        {
+          "result": {
+            "kind": "deployment",
+            "assets": {
+              "assets": {},
+              "burns": {},
+              "pox": [],
+              "stacking": {},
+              "stx": {},
+              "tokens": {}
+            },
+            "events": []
+          },
+          "cumulative_cost": {
+            "write_length": 208,
+            "write_count": 4,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 17186
+          }
+        },
+        {
+          "result": {
+            "kind": "analysis_saved"
+          },
+          "cumulative_cost": {
+            "write_length": 208,
+            "write_count": 4,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 17186
+          }
+        },
+        {
+          "result": {
+            "kind": "error",
+            "error": {
+              "kind": "execution",
+              "message": "DivisionByZero"
+            }
+          },
+          "cumulative_cost": {
+            "write_length": 226,
+            "write_count": 5,
+            "read_length": 162,
+            "read_count": 5,
+            "runtime": 17556
+          }
+        },
+        {
+          "result": {
+            "kind": "read_only",
+            "value": "u0"
+          },
+          "cumulative_cost": {
+            "write_length": 226,
+            "write_count": 5,
+            "read_length": 180,
+            "read_count": 6,
+            "runtime": 18087
+          }
+        }
+      ]
+    },
+    {
+      "name": "runtime rollback, epoch 4.1",
+      "epoch": "Epoch41",
+      "language_version": "Clarity6",
+      "contract_name": "rollback-e41",
+      "source": "(define-data-var count uint u0)\n(define-read-only (get-count) (var-get count))\n(define-public (fail-after-write) (begin (var-set count u1) (/ u1 u0) (ok true)))",
+      "steps": [
+        {
+          "operation": "analyze"
+        },
+        {
+          "operation": "initialize"
+        },
+        {
+          "operation": "save_analysis"
+        },
+        {
+          "operation": "call",
+          "function": "fail-after-write",
+          "args": [],
+          "sender": null,
+          "sponsor": null,
+          "abort_reason": null
+        },
+        {
+          "operation": "read_only",
+          "expression": "(get-count)"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "analysis",
+            "interface_sha256": "79f5f172fb2f941dd58d4623bcfc7e9dba7ecb78933007b176b8beab97f29670"
+          },
+          "cumulative_cost": {
+            "write_length": 30,
+            "write_count": 1,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 5688
+          }
+        },
+        {
+          "result": {
+            "kind": "deployment",
+            "assets": {
+              "assets": {},
+              "burns": {},
+              "pox": [],
+              "stacking": {},
+              "stx": {},
+              "tokens": {}
+            },
+            "events": []
+          },
+          "cumulative_cost": {
+            "write_length": 208,
+            "write_count": 4,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 17186
+          }
+        },
+        {
+          "result": {
+            "kind": "analysis_saved"
+          },
+          "cumulative_cost": {
+            "write_length": 208,
+            "write_count": 4,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 17186
+          }
+        },
+        {
+          "result": {
+            "kind": "error",
+            "error": {
+              "kind": "execution",
+              "message": "DivisionByZero"
+            }
+          },
+          "cumulative_cost": {
+            "write_length": 226,
+            "write_count": 5,
+            "read_length": 162,
+            "read_count": 5,
+            "runtime": 17556
+          }
+        },
+        {
+          "result": {
+            "kind": "read_only",
+            "value": "u0"
+          },
+          "cumulative_cost": {
+            "write_length": 226,
+            "write_count": 5,
+            "read_length": 180,
+            "read_count": 6,
+            "runtime": 18087
+          }
+        }
+      ]
+    },
+    {
+      "name": "host abort rollback, epoch 4.0",
+      "epoch": "Epoch40",
+      "language_version": "Clarity6",
+      "contract_name": "abort-e40",
+      "source": "(define-data-var count uint u0)\n(define-fungible-token coin)\n(define-read-only (get-count) (var-get count))\n(define-read-only (get-balance) (ft-get-balance coin tx-sender))\n(define-public (mint) (begin (var-set count u7) (ft-mint? coin u7 tx-sender)))\n(define-public (transfer) (ft-transfer? coin u3 tx-sender 'ST000000000000000000002AMW42H.recipient))",
+      "steps": [
+        {
+          "operation": "analyze"
+        },
+        {
+          "operation": "initialize"
+        },
+        {
+          "operation": "save_analysis"
+        },
+        {
+          "operation": "call",
+          "function": "mint",
+          "args": [],
+          "sender": null,
+          "sponsor": null,
+          "abort_reason": null
+        },
+        {
+          "operation": "call",
+          "function": "transfer",
+          "args": [],
+          "sender": null,
+          "sponsor": null,
+          "abort_reason": "conformance abort"
+        },
+        {
+          "operation": "read_only",
+          "expression": "(get-count)"
+        },
+        {
+          "operation": "read_only",
+          "expression": "(get-balance)"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "analysis",
+            "interface_sha256": "109761a10e5b0630adc93a9cbaefad7f7f3200e266377dad8d54f58ec06afcd0"
+          },
+          "cumulative_cost": {
+            "write_length": 49,
+            "write_count": 1,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 12051
+          }
+        },
+        {
+          "result": {
+            "kind": "deployment",
+            "assets": {
+              "assets": {},
+              "burns": {},
+              "pox": [],
+              "stacking": {},
+              "stx": {},
+              "tokens": {}
+            },
+            "events": []
+          },
+          "cumulative_cost": {
+            "write_length": 420,
+            "write_count": 6,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 27924
+          }
+        },
+        {
+          "result": {
+            "kind": "analysis_saved"
+          },
+          "cumulative_cost": {
+            "write_length": 420,
+            "write_count": 6,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 27924
+          }
+        },
+        {
+          "result": {
+            "kind": "execution",
+            "value": "(ok true)",
+            "assets": {
+              "assets": {},
+              "burns": {},
+              "pox": [],
+              "stacking": {},
+              "stx": {},
+              "tokens": {}
+            },
+            "events": [
+              {
+                "ft_mint_event": {
+                  "amount": "7",
+                  "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.abort-e40::coin",
+                  "recipient": "S1G2081040G2081040G2081040G208105NK8PE5"
+                },
+                "type": "ft_mint_event"
+              }
+            ]
+          },
+          "cumulative_cost": {
+            "write_length": 439,
+            "write_count": 9,
+            "read_length": 355,
+            "read_count": 7,
+            "runtime": 29964
+          }
+        },
+        {
+          "result": {
+            "kind": "error",
+            "error": {
+              "kind": "aborted",
+              "output": "(ok true)",
+              "assets": {
+                "assets": {},
+                "burns": {},
+                "pox": [],
+                "stacking": {},
+                "stx": {},
+                "tokens": {
+                  "S1G2081040G2081040G2081040G208105NK8PE5": {
+                    "S1G2081040G2081040G2081040G208105NK8PE5.abort-e40::coin": "3"
+                  }
+                }
+              },
+              "events": [
+                {
+                  "ft_transfer_event": {
+                    "amount": "3",
+                    "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.abort-e40::coin",
+                    "recipient": "ST000000000000000000002AMW42H.recipient",
+                    "sender": "S1G2081040G2081040G2081040G208105NK8PE5"
+                  },
+                  "type": "ft_transfer_event"
+                }
+              ],
+              "reason": "conformance abort"
+            }
+          },
+          "cumulative_cost": {
+            "write_length": 440,
+            "write_count": 11,
+            "read_length": 709,
+            "read_count": 12,
+            "runtime": 30966
+          }
+        },
+        {
+          "result": {
+            "kind": "read_only",
+            "value": "u7"
+          },
+          "cumulative_cost": {
+            "write_length": 440,
+            "write_count": 11,
+            "read_length": 727,
+            "read_count": 13,
+            "runtime": 31497
+          }
+        },
+        {
+          "result": {
+            "kind": "read_only",
+            "value": "u7"
+          },
+          "cumulative_cost": {
+            "write_length": 440,
+            "write_count": 11,
+            "read_length": 728,
+            "read_count": 14,
+            "runtime": 32517
+          }
+        }
+      ]
+    },
+    {
+      "name": "host abort rollback, epoch 4.1",
+      "epoch": "Epoch41",
+      "language_version": "Clarity6",
+      "contract_name": "abort-e41",
+      "source": "(define-data-var count uint u0)\n(define-fungible-token coin)\n(define-read-only (get-count) (var-get count))\n(define-read-only (get-balance) (ft-get-balance coin tx-sender))\n(define-public (mint) (begin (var-set count u7) (ft-mint? coin u7 tx-sender)))\n(define-public (transfer) (ft-transfer? coin u3 tx-sender 'ST000000000000000000002AMW42H.recipient))",
+      "steps": [
+        {
+          "operation": "analyze"
+        },
+        {
+          "operation": "initialize"
+        },
+        {
+          "operation": "save_analysis"
+        },
+        {
+          "operation": "call",
+          "function": "mint",
+          "args": [],
+          "sender": null,
+          "sponsor": null,
+          "abort_reason": null
+        },
+        {
+          "operation": "call",
+          "function": "transfer",
+          "args": [],
+          "sender": null,
+          "sponsor": null,
+          "abort_reason": "conformance abort"
+        },
+        {
+          "operation": "read_only",
+          "expression": "(get-count)"
+        },
+        {
+          "operation": "read_only",
+          "expression": "(get-balance)"
+        }
+      ],
+      "expected": [
+        {
+          "result": {
+            "kind": "analysis",
+            "interface_sha256": "29205a765f113acca98badecfacc99d9f2b48179da739c0268cc37ae40863639"
+          },
+          "cumulative_cost": {
+            "write_length": 49,
+            "write_count": 1,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 12051
+          }
+        },
+        {
+          "result": {
+            "kind": "deployment",
+            "assets": {
+              "assets": {},
+              "burns": {},
+              "pox": [],
+              "stacking": {},
+              "stx": {},
+              "tokens": {}
+            },
+            "events": []
+          },
+          "cumulative_cost": {
+            "write_length": 420,
+            "write_count": 6,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 27924
+          }
+        },
+        {
+          "result": {
+            "kind": "analysis_saved"
+          },
+          "cumulative_cost": {
+            "write_length": 420,
+            "write_count": 6,
+            "read_length": 1,
+            "read_count": 1,
+            "runtime": 27924
+          }
+        },
+        {
+          "result": {
+            "kind": "execution",
+            "value": "(ok true)",
+            "assets": {
+              "assets": {},
+              "burns": {},
+              "pox": [],
+              "stacking": {},
+              "stx": {},
+              "tokens": {}
+            },
+            "events": [
+              {
+                "ft_mint_event": {
+                  "amount": "7",
+                  "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.abort-e41::coin",
+                  "recipient": "S1G2081040G2081040G2081040G208105NK8PE5"
+                },
+                "type": "ft_mint_event"
+              }
+            ]
+          },
+          "cumulative_cost": {
+            "write_length": 439,
+            "write_count": 9,
+            "read_length": 355,
+            "read_count": 7,
+            "runtime": 29964
+          }
+        },
+        {
+          "result": {
+            "kind": "error",
+            "error": {
+              "kind": "aborted",
+              "output": "(ok true)",
+              "assets": {
+                "assets": {},
+                "burns": {},
+                "pox": [],
+                "stacking": {},
+                "stx": {},
+                "tokens": {
+                  "S1G2081040G2081040G2081040G208105NK8PE5": {
+                    "S1G2081040G2081040G2081040G208105NK8PE5.abort-e41::coin": "3"
+                  }
+                }
+              },
+              "events": [
+                {
+                  "ft_transfer_event": {
+                    "amount": "3",
+                    "asset_identifier": "S1G2081040G2081040G2081040G208105NK8PE5.abort-e41::coin",
+                    "recipient": "ST000000000000000000002AMW42H.recipient",
+                    "sender": "S1G2081040G2081040G2081040G208105NK8PE5"
+                  },
+                  "type": "ft_transfer_event"
+                }
+              ],
+              "reason": "conformance abort"
+            }
+          },
+          "cumulative_cost": {
+            "write_length": 440,
+            "write_count": 11,
+            "read_length": 709,
+            "read_count": 12,
+            "runtime": 30966
+          }
+        },
+        {
+          "result": {
+            "kind": "read_only",
+            "value": "u7"
+          },
+          "cumulative_cost": {
+            "write_length": 440,
+            "write_count": 11,
+            "read_length": 727,
+            "read_count": 13,
+            "runtime": 31497
+          }
+        },
+        {
+          "result": {
+            "kind": "read_only",
+            "value": "u7"
+          },
+          "cumulative_cost": {
+            "write_length": 440,
+            "write_count": 11,
+            "read_length": 728,
+            "read_count": 14,
+            "runtime": 32517
+          }
+        }
+      ]
+    }
+  ]
+}

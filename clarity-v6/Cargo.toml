@@ -25,6 +25,8 @@ stacks-common = { path = "../stacks-common", default-features = false }
 
 [dev-dependencies]
 clarity = { path = "../clarity", default-features = false, features = ["testing"] }
+clarity-conformance = { path = "../clarity-conformance" }
+proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 
 [features]
 default = ["rusqlite"]
