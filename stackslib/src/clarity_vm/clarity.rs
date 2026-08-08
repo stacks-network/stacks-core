@@ -60,7 +60,7 @@ use crate::chainstate::stacks::{
 use crate::clarity_vm::database::marf::{
     BoxedClarityMarfStoreTransaction, MarfedKV, ReadOnlyMarfStore,
 };
-use crate::clarity_vm::engine::ClarityEngineManifest;
+use crate::clarity_vm::engine::{ClarityEngineDispatcher, ClarityEngineManifest};
 use crate::core::{StacksEpoch, StacksEpochId, FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::Error as DatabaseError;
@@ -2587,6 +2587,7 @@ impl ClarityTransactionConnection<'_, '_> {
 
                 let mut ctx = TransactionContext::new(db, self.mainnet, self.chain_id, self.epoch);
                 ctx.install_cost_tracker(cost_track);
+                ctx.install_dispatcher(ClarityEngineDispatcher::for_epoch(self.epoch));
 
                 let result = to_do(selected.engine(), &mut ctx);
 

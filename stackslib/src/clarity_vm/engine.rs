@@ -35,7 +35,9 @@
 
 use std::fmt;
 
-use clarity::vm::engine::{Engine, LegacyEngine};
+use clarity::vm::database::ClarityDatabaseExt;
+use clarity::vm::engine::{ContractDispatcher, Engine, EngineError, LegacyEngine, RuntimeContext};
+use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ClarityVersion;
 use stacks_common::types::StacksEpochId;
 
@@ -72,6 +74,39 @@ impl SelectedEngine {
 #[derive(Debug, Clone, Copy)]
 pub struct ClarityEngineManifest {
     epoch: StacksEpochId,
+}
+
+/// Nested-call router installed in every production transaction context.
+/// It reads the callee's stored language version from the shared database and
+/// applies the same epoch manifest used for top-level calls.
+pub struct ClarityEngineDispatcher {
+    manifest: ClarityEngineManifest,
+}
+
+impl ClarityEngineDispatcher {
+    pub fn for_epoch(epoch: StacksEpochId) -> Self {
+        Self {
+            manifest: ClarityEngineManifest::for_epoch(epoch),
+        }
+    }
+}
+
+impl ContractDispatcher for ClarityEngineDispatcher {
+    fn select_engine(
+        &mut self,
+        runtime: &mut RuntimeContext,
+        contract: &QualifiedContractIdentifier,
+    ) -> Result<&'static dyn Engine, EngineError> {
+        let version = runtime
+            .db
+            .get_contract(contract)
+            .map(|contract| *contract.get_clarity_version())
+            .map_err(EngineError::Execution)?;
+        self.manifest
+            .select(version)
+            .map(SelectedEngine::engine)
+            .map_err(|e| EngineError::Internal(e.to_string()))
+    }
 }
 
 impl ClarityEngineManifest {

@@ -378,7 +378,7 @@ fn handle_lockup_pox_v5(
     );
     runtime_cost(
         ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         1,
     )?;
 
@@ -454,7 +454,7 @@ fn handle_stake_lockup_update_pox_v5(
 
     runtime_cost(
         ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         1,
     )?;
 
@@ -512,7 +512,7 @@ fn handle_unstake_pox_v5(
 
     runtime_cost(
         ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         1,
     )?;
 

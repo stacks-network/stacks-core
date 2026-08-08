@@ -41,14 +41,15 @@
 //!   this requires the stored Clarity epoch to be 4.0 or later (where cost
 //!   functions are Rust-implemented boot defaults rather than deployed
 //!   contracts).
-//! - `contract-call?` between contracts stays inside this engine; routing
-//!   through [`ContractDispatcher`] is the mixed-engine milestone.
+//! - nested `contract-call?` re-enters the host's [`ContractDispatcher`]
+//!   when one is installed; standalone embedders retain direct legacy
+//!   recursion until they opt into a dispatcher.
 
 use clarity_kernel::assets::AssetMap;
 use clarity_kernel::costs::{CostTrackerHandle, ExecutionCost};
 pub use clarity_kernel::engine::{
     AbortCallback, AnalyzedContract, ContractDispatcher, CostBudget, DeployOutcome, Engine,
-    EngineError, ExecutionOutcome, TransactionContext,
+    EngineError, ExecutionOutcome, RuntimeContext, RuntimeSlot, TransactionContext,
 };
 use clarity_kernel::events::StacksTransactionEvent;
 use clarity_kernel::resource_limiter::ResourceBudget;
@@ -87,6 +88,7 @@ struct ExecutionParts<'a> {
     core: TakenParts<'a>,
     transaction: TransactionFrame,
     call_stack: CallStack,
+    dispatcher: Option<Box<dyn ContractDispatcher>>,
 }
 
 /// What an interaction produces: a value, plus the asset movements and
@@ -219,6 +221,7 @@ impl LegacyEngine {
             core,
             transaction,
             call_stack,
+            dispatcher: ctx.take_dispatcher(),
         })
     }
 
@@ -240,9 +243,13 @@ impl LegacyEngine {
         tracker: CostTrackerHandle,
         transaction: TransactionFrame,
         call_stack: CallStack,
+        dispatcher: Option<Box<dyn ContractDispatcher>>,
     ) -> ExecutionCost {
         ctx.restore_transaction_frame(transaction);
         ctx.restore_call_stack(call_stack);
+        if let Some(dispatcher) = dispatcher {
+            ctx.restore_dispatcher(dispatcher);
+        }
         self.park_tracker(ctx, tracker)
     }
 
@@ -271,9 +278,13 @@ impl LegacyEngine {
             core: TakenParts { tracker, mut db },
             transaction,
             call_stack,
+            mut dispatcher,
         } = parts;
         db.begin();
-        let mut env = OwnedEnvironment::new_with_shared_transaction(
+        let dispatcher_ref = dispatcher
+            .as_mut()
+            .map(|dispatcher| &mut **dispatcher as &mut (dyn ContractDispatcher + '_));
+        let mut env = OwnedEnvironment::new_with_dispatcher(
             ctx.mainnet,
             ctx.chain_id,
             db,
@@ -281,6 +292,7 @@ impl LegacyEngine {
             transaction,
             call_stack,
             ctx.epoch,
+            dispatcher_ref,
         );
         env.set_execution_resource_limiter(execution_budget.start_tracking());
         let result = interact(&mut env);
@@ -298,7 +310,7 @@ impl LegacyEngine {
                     Some(reason) => {
                         let rolled_back = db.roll_back().map_err(EngineError::Execution);
                         ctx.restore_db(db);
-                        self.park_runtime(ctx, tracker, transaction, call_stack);
+                        self.park_runtime(ctx, tracker, transaction, call_stack, dispatcher);
                         rolled_back?;
                         Err(EngineError::AbortedByCallback {
                             output: output_for_abort(&value),
@@ -310,7 +322,8 @@ impl LegacyEngine {
                     None => {
                         let committed = db.commit().map_err(EngineError::Execution);
                         ctx.restore_db(db);
-                        let cost = self.park_runtime(ctx, tracker, transaction, call_stack);
+                        let cost =
+                            self.park_runtime(ctx, tracker, transaction, call_stack, dispatcher);
                         committed?;
                         Ok(((value, assets, events), cost))
                     }
@@ -319,7 +332,7 @@ impl LegacyEngine {
             Err(e) => {
                 let rolled_back = db.roll_back().map_err(EngineError::Execution);
                 ctx.restore_db(db);
-                self.park_runtime(ctx, tracker, transaction, call_stack);
+                self.park_runtime(ctx, tracker, transaction, call_stack, dispatcher);
                 rolled_back?;
                 Err(e)
             }
@@ -428,7 +441,13 @@ impl Engine for LegacyEngine {
             Some(legacy) => legacy,
             None => {
                 ctx.restore_db(parts.core.db);
-                self.park_runtime(ctx, parts.core.tracker, parts.transaction, parts.call_stack);
+                self.park_runtime(
+                    ctx,
+                    parts.core.tracker,
+                    parts.transaction,
+                    parts.call_stack,
+                    parts.dispatcher,
+                );
                 return Err(EngineError::Internal(
                     "AnalyzedContract was produced by a different engine".into(),
                 ));
@@ -537,6 +556,49 @@ impl Engine for LegacyEngine {
         })
     }
 
+    fn execute_nested_call(
+        &self,
+        ctx: &mut TransactionContext,
+        dispatcher: &mut dyn ContractDispatcher,
+        sender: Option<PrincipalData>,
+        caller: Option<PrincipalData>,
+        sponsor: Option<PrincipalData>,
+        contract: &QualifiedContractIdentifier,
+        function: &str,
+        args: &[Value],
+    ) -> Result<Value, EngineError> {
+        let ExecutionParts {
+            core: TakenParts { tracker, db },
+            transaction,
+            call_stack,
+            dispatcher: parked_dispatcher,
+        } = self.take_execution_parts(ctx)?;
+        let mut env = OwnedEnvironment::new_with_dispatcher(
+            ctx.mainnet,
+            ctx.chain_id,
+            db,
+            tracker,
+            transaction,
+            call_stack,
+            ctx.epoch,
+            Some(dispatcher),
+        );
+        env.set_execution_resource_limiter(ctx.execution_resource_limiter());
+        let expr_args: Vec<_> = args
+            .iter()
+            .map(|arg| SymbolicExpression::atom_value(arg.clone()))
+            .collect();
+        let result = env
+            .execute_nested_transaction(sender, caller, sponsor, contract, function, &expr_args)
+            .map_err(EngineError::Execution);
+        let (db, tracker, transaction, call_stack) = env
+            .destruct_nested_with_shared_transaction()
+            .ok_or_else(|| EngineError::Internal("OwnedEnvironment failed to destruct".into()))?;
+        ctx.restore_db(db);
+        self.park_runtime(ctx, tracker, transaction, call_stack, parked_dispatcher);
+        result
+    }
+
     fn eval_read_only(
         &self,
         ctx: &mut TransactionContext,
@@ -547,8 +609,12 @@ impl Engine for LegacyEngine {
             core: TakenParts { tracker, db },
             transaction,
             call_stack,
+            mut dispatcher,
         } = self.take_execution_parts(ctx)?;
-        let mut env = OwnedEnvironment::new_with_shared_transaction(
+        let dispatcher_ref = dispatcher
+            .as_mut()
+            .map(|dispatcher| &mut **dispatcher as &mut (dyn ContractDispatcher + '_));
+        let mut env = OwnedEnvironment::new_with_dispatcher(
             ctx.mainnet,
             ctx.chain_id,
             db,
@@ -556,19 +622,23 @@ impl Engine for LegacyEngine {
             transaction,
             call_stack,
             ctx.epoch,
+            dispatcher_ref,
         );
         let result = env.eval_read_only(contract, program).map_err(engine_error);
         let (db, tracker, transaction, call_stack) = env
             .destruct_with_shared_transaction()
             .ok_or_else(|| EngineError::Internal("OwnedEnvironment failed to destruct".into()))?;
         ctx.restore_db(db);
-        self.park_runtime(ctx, tracker, transaction, call_stack);
+        self.park_runtime(ctx, tracker, transaction, call_stack, dispatcher);
         result.map(|(value, _assets, _events)| value)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use clarity_kernel::costs::ExecutionCost;
     use clarity_kernel::resource_limiter::ResourceBudget;
     use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -599,6 +669,24 @@ mod tests {
             StandardPrincipalData::transient(),
             name.to_string().try_into().unwrap(),
         )
+    }
+
+    static TEST_ENGINE: LegacyEngine = LegacyEngine;
+
+    struct RecordingDispatcher {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl ContractDispatcher for RecordingDispatcher {
+        fn select_engine(
+            &mut self,
+            runtime: &mut RuntimeContext,
+            _contract: &QualifiedContractIdentifier,
+        ) -> Result<&'static dyn Engine, EngineError> {
+            assert!(runtime.transaction_frame.depth() > 0);
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(&TEST_ENGINE)
+        }
     }
 
     #[test]
@@ -638,6 +726,75 @@ mod tests {
 
         let count = engine.eval_read_only(&mut ctx, &id, "(get-count)").unwrap();
         assert_eq!(count, Value::UInt(1));
+    }
+
+    #[test]
+    fn nested_calls_route_over_the_shared_runtime() {
+        let epoch = StacksEpochId::latest();
+        let mut store = setup_store(epoch);
+        let engine = LegacyEngine;
+        let callee = contract_id("callee");
+        let caller = contract_id("caller");
+        let sender: PrincipalData = StandardPrincipalData::transient().into();
+        let callee_source = "(define-data-var calls uint u0)
+            (define-read-only (get-calls) (var-get calls))
+            (define-public (record)
+              (begin
+                (var-set calls (+ (var-get calls) u1))
+                (print contract-caller)
+                (ok contract-caller)))";
+        let caller_source = "(define-public (run) (contract-call? .callee record))";
+
+        let mut ctx =
+            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch)
+                .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
+        engine
+            .deploy_contract(
+                &mut ctx,
+                &callee,
+                callee_source,
+                ClarityVersion::latest(),
+                None,
+            )
+            .unwrap();
+        engine
+            .deploy_contract(
+                &mut ctx,
+                &caller,
+                caller_source,
+                ClarityVersion::latest(),
+                None,
+            )
+            .unwrap();
+
+        let dispatch_calls = Arc::new(AtomicUsize::new(0));
+        ctx.install_dispatcher(RecordingDispatcher {
+            calls: Arc::clone(&dispatch_calls),
+        });
+        let outcome = engine
+            .execute_call(
+                &mut ctx,
+                sender,
+                None,
+                &caller,
+                "run",
+                &[],
+                None,
+                &ResourceBudget::unlimited(),
+            )
+            .unwrap();
+
+        assert_eq!(dispatch_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            outcome.value,
+            Value::okay(Value::Principal(PrincipalData::Contract(caller))).unwrap()
+        );
+        assert_eq!(outcome.events.len(), 1);
+        assert!(outcome.cost.runtime > 0);
+        let calls = engine
+            .eval_read_only(&mut ctx, &callee, "(get-calls)")
+            .unwrap();
+        assert_eq!(calls, Value::UInt(1));
     }
 
     #[test]

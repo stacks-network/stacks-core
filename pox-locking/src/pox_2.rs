@@ -303,7 +303,7 @@ fn handle_stack_lockup_pox_v2(
     // applying a pox lock at this point is equivalent to evaluating a transfer
     runtime_cost(
         ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         1,
     )?;
 
@@ -374,7 +374,7 @@ fn handle_stack_lockup_extension_pox_v2(
 
     runtime_cost(
         ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         1,
     )?;
 
@@ -438,7 +438,7 @@ fn handle_stack_lockup_increase_pox_v2(
 
     runtime_cost(
         ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         1,
     )?;
 

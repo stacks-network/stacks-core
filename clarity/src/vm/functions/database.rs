@@ -239,20 +239,51 @@ pub fn special_contract_call(
         .into();
 
     let nested_ctx = invoke_ctx.with_caller(contract_principal);
+    let value_args: Vec<_> = rest_args
+        .iter()
+        .map(|arg| {
+            arg.match_atom_value().cloned().ok_or_else(|| {
+                VmInternalError::InvariantViolation(
+                    "contract-call? evaluated argument was not a value".into(),
+                )
+                .into()
+            })
+        })
+        .collect::<Result<_, VmExecutionError>>()?;
     let result = if exec_state.short_circuit_contract_call(
         &contract_identifier,
         function_name,
         &rest_args_sizes,
     )? {
         exec_state.run_free(&nested_ctx, |free_exec_state, nested_ctx| {
-            free_exec_state.execute_contract(
-                nested_ctx,
-                &contract_identifier,
-                function_name,
-                &rest_args,
-                false,
-            )
+            if free_exec_state.has_contract_dispatcher() {
+                free_exec_state.dispatch_contract_call(
+                    nested_ctx.sender.clone(),
+                    nested_ctx.caller.clone(),
+                    nested_ctx.sponsor.clone(),
+                    &contract_identifier,
+                    function_name,
+                    &value_args,
+                )
+            } else {
+                free_exec_state.execute_contract(
+                    nested_ctx,
+                    &contract_identifier,
+                    function_name,
+                    &rest_args,
+                    false,
+                )
+            }
         })
+    } else if exec_state.has_contract_dispatcher() {
+        exec_state.dispatch_contract_call(
+            nested_ctx.sender.clone(),
+            nested_ctx.caller.clone(),
+            nested_ctx.sponsor.clone(),
+            &contract_identifier,
+            function_name,
+            &value_args,
+        )
     } else {
         exec_state.execute_contract(
             &nested_ctx,

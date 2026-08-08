@@ -820,7 +820,7 @@ where
     let parsed = ast::build_ast(
         &contract_id,
         program,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         clarity_version,
         epoch,
     )?

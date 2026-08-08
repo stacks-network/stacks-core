@@ -145,7 +145,7 @@ pub fn handle_contract_call(
     // applying a pox lock at this point is equivalent to evaluating a transfer
     runtime_cost(
         ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         1,
     )?;
 

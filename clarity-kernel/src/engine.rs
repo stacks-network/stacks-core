@@ -36,9 +36,6 @@
 //!
 //! Known evolution points, in dependency order:
 //!
-//! - **Cross-engine dispatch**: [`ContractDispatcher`] is defined but not yet
-//!   wired through engines' `contract-call?` paths; wiring it is the
-//!   mixed-engine milestone.
 //! - **Epoch inversion**: [`TransactionContext`] still carries a
 //!   `StacksEpochId`; it will become a kernel-owned ruleset identifier.
 
@@ -56,8 +53,143 @@ use crate::database::ClarityDatabase;
 use crate::diagnostic::Diagnostic;
 use crate::errors::{StaticCheckError, VmExecutionError};
 use crate::events::StacksTransactionEvent;
-use crate::resource_limiter::ResourceBudget;
+use crate::resource_limiter::{ResourceBudget, ResourceLimiter};
 use crate::transaction::{CallStack, TransactionFrame};
+
+/// An owned runtime component that may be temporarily lent across an engine
+/// boundary. Dereferencing an empty slot is an ABI violation; dispatch code
+/// uses [`Self::take`] and [`Self::restore`] to make suspension explicit.
+pub struct RuntimeSlot<T> {
+    value: Option<T>,
+}
+
+impl<T> RuntimeSlot<T> {
+    pub fn new(value: T) -> Self {
+        Self { value: Some(value) }
+    }
+
+    pub fn take(&mut self, name: &str) -> Result<T, EngineError> {
+        self.value.take().ok_or_else(|| {
+            EngineError::Internal(format!("Runtime {name} was taken and not restored"))
+        })
+    }
+
+    pub fn restore(&mut self, value: T) {
+        self.value = Some(value);
+    }
+
+    pub fn into_inner(self) -> Option<T> {
+        self.value
+    }
+}
+
+impl<T> std::ops::Deref for RuntimeSlot<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.value
+            .as_ref()
+            .expect("BUG: accessed a suspended Clarity runtime slot")
+    }
+}
+
+impl<T> std::ops::DerefMut for RuntimeSlot<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.value
+            .as_mut()
+            .expect("BUG: accessed a suspended Clarity runtime slot")
+    }
+}
+
+/// A short-lived view of the shared state at a nested contract-call boundary.
+///
+/// The outer engine retains the slots themselves. The dispatch path
+/// temporarily takes their contents, invokes the selected engine, and restores
+/// them before returning to the suspended caller.
+pub struct RuntimeContext<'runtime, 'db> {
+    pub db: &'runtime mut RuntimeSlot<ClarityDatabase<'db>>,
+    pub cost_tracker: &'runtime mut RuntimeSlot<CostTrackerHandle>,
+    pub transaction_frame: &'runtime mut RuntimeSlot<TransactionFrame>,
+    pub call_stack: &'runtime mut CallStack,
+    pub execution_resource_limiter: ResourceLimiter,
+    pub epoch: StacksEpochId,
+    pub mainnet: bool,
+    pub chain_id: u32,
+}
+
+impl<'db> RuntimeContext<'_, 'db> {
+    /// Suspend the outer engine and collect its shared state in the ordinary
+    /// engine ABI context. Any partial failure restores already-taken slots.
+    pub fn take_transaction_context(&mut self) -> Result<TransactionContext<'db>, EngineError> {
+        let db = self.db.take("database")?;
+        let tracker = match self.cost_tracker.take("cost tracker") {
+            Ok(tracker) => tracker,
+            Err(e) => {
+                self.db.restore(db);
+                return Err(e);
+            }
+        };
+        let frame = match self.transaction_frame.take("transaction frame") {
+            Ok(frame) => frame,
+            Err(e) => {
+                self.cost_tracker.restore(tracker);
+                self.db.restore(db);
+                return Err(e);
+            }
+        };
+        let call_stack = std::mem::take(self.call_stack);
+
+        Ok(TransactionContext::from_runtime(
+            db,
+            tracker,
+            frame,
+            call_stack,
+            self.execution_resource_limiter,
+            self.mainnet,
+            self.chain_id,
+            self.epoch,
+        ))
+    }
+
+    /// Resume the suspended outer engine after a nested engine returns.
+    pub fn restore_transaction_context(
+        &mut self,
+        ctx: TransactionContext<'db>,
+    ) -> Result<(), EngineError> {
+        let TransactionContext {
+            db,
+            cost_tracker,
+            transaction_frame,
+            call_stack,
+            ..
+        } = ctx;
+        let missing_call_stack = call_stack.is_none();
+        if let Some(db) = db {
+            self.db.restore(db);
+        }
+        if let Some(tracker) = cost_tracker {
+            self.cost_tracker.restore(tracker);
+        }
+        if let Some(frame) = transaction_frame {
+            self.transaction_frame.restore(frame);
+        }
+        if let Some(call_stack) = call_stack {
+            *self.call_stack = call_stack;
+        }
+
+        if self.db.value.is_none()
+            || self.cost_tracker.value.is_none()
+            || self.transaction_frame.value.is_none()
+            || missing_call_stack
+        {
+            Err(EngineError::Internal(
+                "Nested engine failed to restore shared runtime state".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
 
 /// Post-execution decision hook: after an interaction executes successfully,
 /// the host inspects the resulting asset movements (and may read chain
@@ -157,6 +289,8 @@ pub struct TransactionContext<'a> {
     transaction_frame: Option<TransactionFrame>,
     /// Function and expression depth shared across engine call boundaries.
     call_stack: Option<CallStack>,
+    dispatcher: Option<Box<dyn ContractDispatcher>>,
+    execution_resource_limiter: ResourceLimiter,
     /// Transitional: epochs are a Stacks-host concept; this becomes a
     /// kernel-owned ruleset identifier at the epoch-inversion step.
     pub epoch: StacksEpochId,
@@ -169,9 +303,8 @@ pub struct TransactionContext<'a> {
     /// keyed by its concrete type. Multiple engines may park private state
     /// without overwriting one another. Opaque to the kernel and the host.
     ///
-    /// Consensus-shared state must not live here; the cumulative cost tracker
-    /// is an explicit field above, and the remaining live call frame follows
-    /// before mixed-engine nested calls are enabled.
+    /// Consensus-shared state must not live here; the cumulative tracker and
+    /// live nested-call frame are explicit fields above.
     engine_states: HashMap<TypeId, Box<dyn Any>>,
 }
 
@@ -187,12 +320,57 @@ impl<'a> TransactionContext<'a> {
             cost_tracker: None,
             transaction_frame: Some(TransactionFrame::new()),
             call_stack: Some(CallStack::new()),
+            dispatcher: None,
+            execution_resource_limiter: ResourceLimiter::unlimited(),
             epoch,
             mainnet,
             chain_id,
             budget: CostBudget::Free,
             engine_states: HashMap::new(),
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn from_runtime(
+        db: ClarityDatabase<'a>,
+        cost_tracker: CostTrackerHandle,
+        transaction_frame: TransactionFrame,
+        call_stack: CallStack,
+        execution_resource_limiter: ResourceLimiter,
+        mainnet: bool,
+        chain_id: u32,
+        epoch: StacksEpochId,
+    ) -> Self {
+        Self {
+            db: Some(db),
+            cost_tracker: Some(cost_tracker),
+            transaction_frame: Some(transaction_frame),
+            call_stack: Some(call_stack),
+            dispatcher: None,
+            execution_resource_limiter,
+            epoch,
+            mainnet,
+            chain_id,
+            budget: CostBudget::Free,
+            engine_states: HashMap::new(),
+        }
+    }
+
+    pub fn execution_resource_limiter(&self) -> ResourceLimiter {
+        self.execution_resource_limiter
+    }
+
+    /// Install the host-owned nested-call router for this interaction.
+    pub fn install_dispatcher<D: ContractDispatcher + 'static>(&mut self, dispatcher: D) {
+        self.dispatcher = Some(Box::new(dispatcher));
+    }
+
+    pub fn take_dispatcher(&mut self) -> Option<Box<dyn ContractDispatcher>> {
+        self.dispatcher.take()
+    }
+
+    pub fn restore_dispatcher(&mut self, dispatcher: Box<dyn ContractDispatcher>) {
+        self.dispatcher = Some(dispatcher);
     }
 
     /// Set the cost budget for this context. Must be set before the first
@@ -452,6 +630,22 @@ pub trait Engine {
         execution_budget: &ResourceBudget,
     ) -> Result<ExecutionOutcome, EngineError>;
 
+    /// Execute a call from another engine over an already-open transaction
+    /// frame. Unlike [`Self::execute_call`], this does not create a top-level
+    /// interaction boundary or run a host abort callback.
+    #[allow(clippy::too_many_arguments)]
+    fn execute_nested_call(
+        &self,
+        ctx: &mut TransactionContext,
+        dispatcher: &mut dyn ContractDispatcher,
+        sender: Option<PrincipalData>,
+        caller: Option<PrincipalData>,
+        sponsor: Option<PrincipalData>,
+        contract: &QualifiedContractIdentifier,
+        function: &str,
+        args: &[Value],
+    ) -> Result<Value, EngineError>;
+
     /// Evaluate a read-only snippet in the context of a deployed contract.
     fn eval_read_only(
         &self,
@@ -480,23 +674,14 @@ pub trait Engine {
     }
 }
 
-/// Cross-engine contract-call routing: when an engine's `contract-call?`
-/// targets a contract whose declared language version it does not execute,
-/// it re-enters the host through this trait, and the host routes the call to
-/// the right engine over the same shared transaction state.
+/// Cross-engine contract-call routing: every hosted `contract-call?` re-enters
+/// this selector, and the host chooses the callee's engine from its stored
+/// language version while preserving the same shared transaction state.
 ///
-/// Defined as part of the ABI now so engines can be written against it, but
-/// not yet wired through the legacy interpreter's `contract-call?` path —
-/// that wiring (together with kernel-enforced reentrancy and call-depth
-/// checks) is the mixed-engine milestone.
 pub trait ContractDispatcher {
-    fn call_contract(
+    fn select_engine(
         &mut self,
-        ctx: &mut TransactionContext,
-        sender: PrincipalData,
-        sponsor: Option<PrincipalData>,
+        runtime: &mut RuntimeContext,
         contract: &QualifiedContractIdentifier,
-        function: &str,
-        args: &[Value],
-    ) -> Result<Value, EngineError>;
+    ) -> Result<&'static dyn Engine, EngineError>;
 }

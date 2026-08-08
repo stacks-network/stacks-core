@@ -17,6 +17,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem::replace;
 
+use clarity_kernel::engine::{ContractDispatcher, RuntimeContext, RuntimeSlot};
 pub use clarity_kernel::transaction::{CallStack, EventBatch, TransactionFrame};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
@@ -189,7 +190,7 @@ pub struct ExecutionState<'a, 'b, 'hooks> {
 
 pub struct OwnedEnvironment<'a, 'hooks> {
     pub(crate) context: GlobalContext<'a, 'hooks>,
-    call_stack: CallStack,
+    call_stack: RuntimeSlot<CallStack>,
 }
 
 pub use clarity_kernel::assets::{AssetMap, AssetMapEntry};
@@ -201,15 +202,16 @@ pub use clarity_kernel::assets::{AssetMap, AssetMapEntry};
      abort.
 */
 pub struct GlobalContext<'a, 'hooks> {
-    pub transaction: TransactionFrame,
-    pub database: ClarityDatabase<'a>,
-    pub cost_track: CostTrackerHandle,
+    pub transaction: RuntimeSlot<TransactionFrame>,
+    pub database: RuntimeSlot<ClarityDatabase<'a>>,
+    pub cost_track: RuntimeSlot<CostTrackerHandle>,
     pub mainnet: bool,
     /// This is the epoch of the block that this transaction is executing within.
     pub epoch_id: StacksEpochId,
     /// This is the chain ID of the transaction
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
+    pub dispatcher: Option<&'hooks mut (dyn ContractDispatcher + 'hooks)>,
     /// A resource limiter that will be polled on every `eval` to check that execution
     /// time and heap allocation don't exceed configured maximums
     pub execution_resource_limiter: ResourceLimiter,
@@ -270,7 +272,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 LimitedCostTracker::new_free(),
                 epoch,
             ),
-            call_stack: CallStack::new(),
+            call_stack: RuntimeSlot::new(CallStack::new()),
         }
     }
 
@@ -290,7 +292,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 LimitedCostTracker::new_free(),
                 epoch,
             ),
-            call_stack: CallStack::new(),
+            call_stack: RuntimeSlot::new(CallStack::new()),
         }
     }
 
@@ -307,7 +309,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
 
         OwnedEnvironment {
             context: GlobalContext::new(use_mainnet, chain_id, database, cost_track, epoch),
-            call_stack: CallStack::new(),
+            call_stack: RuntimeSlot::new(CallStack::new()),
         }
     }
 
@@ -325,7 +327,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 LimitedCostTracker::new_free(),
                 epoch_id,
             ),
-            call_stack: CallStack::new(),
+            call_stack: RuntimeSlot::new(CallStack::new()),
         }
     }
 
@@ -385,8 +387,41 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 transaction,
                 epoch_id,
             ),
-            call_stack,
+            call_stack: RuntimeSlot::new(call_stack),
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_dispatcher(
+        mainnet: bool,
+        chain_id: u32,
+        database: ClarityDatabase<'a>,
+        cost_tracker: CostTrackerHandle,
+        transaction: TransactionFrame,
+        call_stack: CallStack,
+        epoch_id: StacksEpochId,
+        dispatcher: Option<&'hooks mut (dyn ContractDispatcher + 'hooks)>,
+    ) -> OwnedEnvironment<'a, 'hooks> {
+        OwnedEnvironment {
+            context: GlobalContext::new_with_transaction_frame(
+                mainnet,
+                chain_id,
+                database,
+                cost_tracker,
+                transaction,
+                epoch_id,
+            ),
+            call_stack: RuntimeSlot::new(call_stack),
+        }
+        .with_dispatcher(dispatcher)
+    }
+
+    fn with_dispatcher(
+        mut self,
+        dispatcher: Option<&'hooks mut (dyn ContractDispatcher + 'hooks)>,
+    ) -> Self {
+        self.context.dispatcher = dispatcher;
+        self
     }
 
     /// Registers an evaluation hook for this environment.
@@ -410,6 +445,16 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         sponsor: Option<PrincipalData>,
         context: &'b ContractContext,
     ) -> (ExecutionState<'b, 'a, 'hooks>, InvocationContext<'b>) {
+        self.get_exec_environment_with_caller(sender.clone(), sender, sponsor, context)
+    }
+
+    pub fn get_exec_environment_with_caller<'b>(
+        &'b mut self,
+        sender: Option<PrincipalData>,
+        caller: Option<PrincipalData>,
+        sponsor: Option<PrincipalData>,
+        context: &'b ContractContext,
+    ) -> (ExecutionState<'b, 'a, 'hooks>, InvocationContext<'b>) {
         (
             ExecutionState {
                 global_context: &mut self.context,
@@ -417,8 +462,8 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             },
             InvocationContext {
                 contract_context: context,
-                sender: sender.clone(),
-                caller: sender,
+                sender,
+                caller,
                 sponsor,
             },
         )
@@ -549,6 +594,27 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         })
     }
 
+    /// Enter a contract from another engine without creating a new top-level
+    /// interaction frame. The caller supplied by the outer engine is retained
+    /// verbatim for `contract-caller` and `tx-sender` semantics.
+    pub fn execute_nested_transaction(
+        &mut self,
+        sender: Option<PrincipalData>,
+        caller: Option<PrincipalData>,
+        sponsor: Option<PrincipalData>,
+        contract_identifier: &QualifiedContractIdentifier,
+        tx_name: &str,
+        args: &[SymbolicExpression],
+    ) -> Result<Value, VmExecutionError> {
+        let initial_context = ContractContext::new(
+            QualifiedContractIdentifier::transient(),
+            ClarityVersion::Clarity1,
+        );
+        let (mut exec_state, invoke_ctx) =
+            self.get_exec_environment_with_caller(sender, caller, sponsor, &initial_context);
+        exec_state.execute_contract(&invoke_ctx, contract_identifier, tx_name, args, false)
+    }
+
     pub fn stx_transfer(
         &mut self,
         from: &PrincipalData,
@@ -674,7 +740,23 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             call_stack,
         } = self;
         let (db, tracker, transaction) = context.destruct()?;
-        Some((db, tracker, transaction, call_stack))
+        Some((db, tracker, transaction, call_stack.into_inner()?))
+    }
+
+    pub(crate) fn destruct_nested_with_shared_transaction(
+        self,
+    ) -> Option<(
+        ClarityDatabase<'a>,
+        CostTrackerHandle,
+        TransactionFrame,
+        CallStack,
+    )> {
+        let Self {
+            context,
+            call_stack,
+        } = self;
+        let (db, tracker, transaction) = context.into_runtime_parts()?;
+        Some((db, tracker, transaction, call_stack.into_inner()?))
     }
 }
 
@@ -752,13 +834,13 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         F: FnOnce(&mut ExecutionState, &InvocationContext) -> A,
     {
         let original_tracker = replace(
-            &mut self.global_context.cost_track,
+            &mut *self.global_context.cost_track,
             CostTrackerHandle::free(),
         );
         // note: it is important that this method not return until original_tracker has been
         //  restored. DO NOT use the try syntax (?).
         let result = to_run(self, invoke_ctx);
-        self.global_context.cost_track = original_tracker;
+        *self.global_context.cost_track = original_tracker;
         result
     }
 
@@ -857,6 +939,51 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
     ///  epoch identifier is used for determining how cost functions should be applied.
     pub fn epoch(&self) -> &StacksEpochId {
         &self.global_context.epoch_id
+    }
+
+    pub fn has_contract_dispatcher(&self) -> bool {
+        self.global_context.dispatcher.is_some()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispatch_contract_call(
+        &mut self,
+        sender: Option<PrincipalData>,
+        caller: Option<PrincipalData>,
+        sponsor: Option<PrincipalData>,
+        contract: &QualifiedContractIdentifier,
+        function: &str,
+        args: &[Value],
+    ) -> Result<Value, VmExecutionError> {
+        let dispatcher = self.global_context.dispatcher.take().ok_or_else(|| {
+            VmInternalError::Expect("Contract dispatcher was not installed".into())
+        })?;
+        let mut runtime = RuntimeContext {
+            db: &mut self.global_context.database,
+            cost_tracker: &mut self.global_context.cost_track,
+            transaction_frame: &mut self.global_context.transaction,
+            call_stack: self.call_stack,
+            execution_resource_limiter: self.global_context.execution_resource_limiter,
+            epoch: self.global_context.epoch_id,
+            mainnet: self.global_context.mainnet,
+            chain_id: self.global_context.chain_id,
+        };
+        let result = (|| {
+            let engine = dispatcher.select_engine(&mut runtime, contract)?;
+            let mut ctx = runtime.take_transaction_context()?;
+            let result = engine.execute_nested_call(
+                &mut ctx, dispatcher, sender, caller, sponsor, contract, function, args,
+            );
+            runtime.restore_transaction_context(ctx)?;
+            result
+        })();
+        self.global_context.dispatcher = Some(dispatcher);
+        result.map_err(|e| match e {
+            clarity_kernel::engine::EngineError::Execution(e) => e,
+            other => {
+                VmInternalError::Expect(format!("Nested engine dispatch failed: {other}")).into()
+            }
+        })
     }
 
     pub fn execute_contract(
@@ -1520,13 +1647,14 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         epoch_id: StacksEpochId,
     ) -> GlobalContext<'a, 'hooks> {
         GlobalContext {
-            database,
-            cost_track,
-            transaction,
+            database: RuntimeSlot::new(database),
+            cost_track: RuntimeSlot::new(cost_track),
+            transaction: RuntimeSlot::new(transaction),
             mainnet,
             epoch_id,
             chain_id,
             eval_hooks: None,
+            dispatcher: None,
             execution_resource_limiter: ResourceLimiter::unlimited(),
         }
     }
@@ -1751,10 +1879,20 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     ///   because the database is not guaranteed to be in a sane state.
     pub fn destruct(self) -> Option<(ClarityDatabase<'a>, CostTrackerHandle, TransactionFrame)> {
         if self.is_top_level() {
-            Some((self.database, self.cost_track, self.transaction))
+            self.into_runtime_parts()
         } else {
             None
         }
+    }
+
+    fn into_runtime_parts(
+        self,
+    ) -> Option<(ClarityDatabase<'a>, CostTrackerHandle, TransactionFrame)> {
+        Some((
+            self.database.into_inner()?,
+            self.cost_track.into_inner()?,
+            self.transaction.into_inner()?,
+        ))
     }
 }
 
