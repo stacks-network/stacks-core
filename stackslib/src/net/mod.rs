@@ -3159,6 +3159,15 @@ pub mod test {
             ibd: bool,
             dns_client: Option<&mut DNSClient>,
         ) -> Result<NetworkResult, net_error> {
+            self.step_with_ibd_dns_poll(ibd, dns_client, 100)
+        }
+
+        pub fn step_with_ibd_dns_poll(
+            &mut self,
+            ibd: bool,
+            dns_client: Option<&mut DNSClient>,
+            poll_timeout: u64,
+        ) -> Result<NetworkResult, net_error> {
             let sortdb = self.chain.sortdb.take().unwrap();
             let mut stacks_node = self.chain.stacks_node.take().unwrap();
             let mut mempool = self.mempool.take().unwrap();
@@ -3183,7 +3192,7 @@ pub mod test {
                 dns_client,
                 false,
                 ibd,
-                100,
+                poll_timeout,
                 &rpc_handler_args,
                 self.config.chain_config.txindex,
             );
