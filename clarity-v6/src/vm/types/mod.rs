@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+pub mod clarity6;
 pub mod serialization;
 pub mod signatures;
 
@@ -26,6 +27,10 @@ pub use clarity_types::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
     SequencedValue, StacksAddressExtensions, TraitIdentifier, TupleData, UTF8Data, Value,
     WRAPPER_VALUE_SIZE, byte_len_of_serialization,
+};
+pub use clarity6::{
+    Clarity6FunctionSignature, Clarity6SequenceData, Clarity6TypeSignature, Clarity6Value,
+    parse_name_type_pairs_clarity6,
 };
 
 pub use self::std_principals::StandardPrincipalData;

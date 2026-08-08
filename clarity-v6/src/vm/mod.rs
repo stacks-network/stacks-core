@@ -30,6 +30,7 @@ pub mod hooks;
 pub mod representations;
 
 pub mod callables;
+pub(crate) mod clarity6;
 pub mod functions;
 pub use clarity_kernel::resource_limiter;
 pub mod variables;
@@ -64,7 +65,6 @@ use self::analysis::ContractAnalysis;
 use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
-use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::callables::{BuiltinKind, CallableType, FunctionIdentifier};
 pub use crate::vm::contexts::{CallStack, ContractContext, LocalContext, MAX_CONTEXT_DEPTH};
 use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
@@ -72,6 +72,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
 };
+use crate::vm::database::Clarity6DatabaseExt as _;
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
 #[cfg(any(test, feature = "testing"))]
@@ -655,7 +656,7 @@ pub fn eval_all(
                     global_context.add_memory(value.size()?.into())?;
 
                     let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type)?;
-                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &CLARITY6_BASELINE_EPOCH)?;
+                    global_context.database.set_variable_clarity6(&contract_context.contract_identifier, &name, value, &data_type)?;
 
                     contract_context.meta_data_var.insert(name, data_type);
                 },

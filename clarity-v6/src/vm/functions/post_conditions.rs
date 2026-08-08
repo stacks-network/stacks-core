@@ -17,9 +17,7 @@ use std::collections::HashMap;
 
 use clarity_types::ClarityName;
 use clarity_types::types::{AssetIdentifier, PrincipalData, StandardPrincipalData};
-use stacks_common::types::StacksEpochId;
 
-use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::{AssetMap, ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -382,7 +380,6 @@ fn evaluate_body_with_allowance_check(
     exec_state: &mut ExecutionState,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    let epoch = CLARITY6_BASELINE_EPOCH;
     exec_state.global_context.begin();
 
     // Evaluate the body expressions inside a closure so `?` only exits the closure
@@ -402,7 +399,7 @@ fn evaluate_body_with_allowance_check(
     // If the allowances are violated:
     // - Rollback the context
     // - Return an error with the index of the violated allowance
-    match check_allowances(asset_owner, allowances, asset_maps, epoch) {
+    match check_allowances(asset_owner, allowances, asset_maps) {
         Ok(None) => {}
         Ok(Some(violation_index)) => {
             exec_state.global_context.roll_back()?;
@@ -497,7 +494,6 @@ fn check_allowances(
     owner: &PrincipalData,
     allowances: Vec<Allowance>,
     assets: &AssetMap,
-    _epoch: StacksEpochId,
 ) -> Result<Option<u128>, VmExecutionError> {
     let mut earliest_violation: Option<u128> = None;
     let record_violation = |earliest: &mut Option<u128>, candidate: u128| {

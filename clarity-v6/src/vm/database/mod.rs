@@ -26,12 +26,13 @@ pub use clarity_kernel::database::*;
 
 use self::caching::CachedContract;
 pub use self::caching::ClarityExecutionCache;
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::contracts::Contract;
 use crate::vm::database::structures::deserialize_json;
 use crate::vm::errors::{VmExecutionError, VmInternalError};
-use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, TypeSignature, Value};
 
 mod caching;
 
@@ -115,6 +116,236 @@ pub trait AsAnalysisDb: ClarityBackingStore + Sized {
 }
 
 impl<T: ClarityBackingStore + Sized> AsAnalysisDb for T {}
+
+/// Clarity 6's epoch-free view of the shared database value APIs.
+///
+/// The kernel keeps explicit admission/serialization inputs because the
+/// frozen legacy engine must replay several historical profiles. This adapter
+/// is the only place the Clarity 6 engine supplies its single pinned profile.
+pub trait Clarity6DatabaseExt {
+    fn lookup_variable_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        descriptor: &DataVariableMetadata,
+    ) -> Result<Value, VmExecutionError>;
+
+    fn lookup_variable_with_size_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        descriptor: &DataVariableMetadata,
+    ) -> Result<ValueResult, VmExecutionError>;
+
+    fn set_variable_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        value: Value,
+        descriptor: &DataVariableMetadata,
+    ) -> Result<ValueResult, VmExecutionError>;
+
+    fn fetch_entry_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        key: &Value,
+        descriptor: &DataMapMetadata,
+    ) -> Result<Value, VmExecutionError>;
+
+    fn fetch_entry_with_size_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        key: &Value,
+        descriptor: &DataMapMetadata,
+    ) -> Result<ValueResult, VmExecutionError>;
+
+    fn set_entry_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        key: Value,
+        value: Value,
+        descriptor: &DataMapMetadata,
+    ) -> Result<ValueResult, VmExecutionError>;
+
+    fn insert_entry_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        key: Value,
+        value: Value,
+        descriptor: &DataMapMetadata,
+    ) -> Result<ValueResult, VmExecutionError>;
+
+    fn delete_entry_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        key: &Value,
+        descriptor: &DataMapMetadata,
+    ) -> Result<ValueResult, VmExecutionError>;
+
+    fn get_nft_owner_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        asset: &Value,
+        key_type: &TypeSignature,
+    ) -> Result<PrincipalData, VmExecutionError>;
+
+    fn set_nft_owner_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        asset: &Value,
+        principal: &PrincipalData,
+        key_type: &TypeSignature,
+    ) -> Result<(), VmExecutionError>;
+
+    fn burn_nft_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        asset: &Value,
+        key_type: &TypeSignature,
+    ) -> Result<(), VmExecutionError>;
+}
+
+impl Clarity6DatabaseExt for ClarityDatabase<'_> {
+    fn lookup_variable_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        descriptor: &DataVariableMetadata,
+    ) -> Result<Value, VmExecutionError> {
+        self.lookup_variable(contract, name, descriptor, &CLARITY6_BASELINE_EPOCH)
+    }
+
+    fn lookup_variable_with_size_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        descriptor: &DataVariableMetadata,
+    ) -> Result<ValueResult, VmExecutionError> {
+        self.lookup_variable_with_size(contract, name, descriptor, &CLARITY6_BASELINE_EPOCH)
+    }
+
+    fn set_variable_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        value: Value,
+        descriptor: &DataVariableMetadata,
+    ) -> Result<ValueResult, VmExecutionError> {
+        self.set_variable(contract, name, value, descriptor, &CLARITY6_BASELINE_EPOCH)
+    }
+
+    fn fetch_entry_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        key: &Value,
+        descriptor: &DataMapMetadata,
+    ) -> Result<Value, VmExecutionError> {
+        self.fetch_entry(contract, name, key, descriptor, &CLARITY6_BASELINE_EPOCH)
+    }
+
+    fn fetch_entry_with_size_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        key: &Value,
+        descriptor: &DataMapMetadata,
+    ) -> Result<ValueResult, VmExecutionError> {
+        self.fetch_entry_with_size(contract, name, key, descriptor, &CLARITY6_BASELINE_EPOCH)
+    }
+
+    fn set_entry_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        key: Value,
+        value: Value,
+        descriptor: &DataMapMetadata,
+    ) -> Result<ValueResult, VmExecutionError> {
+        self.set_entry(
+            contract,
+            name,
+            key,
+            value,
+            descriptor,
+            &CLARITY6_BASELINE_EPOCH,
+        )
+    }
+
+    fn insert_entry_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        key: Value,
+        value: Value,
+        descriptor: &DataMapMetadata,
+    ) -> Result<ValueResult, VmExecutionError> {
+        self.insert_entry(
+            contract,
+            name,
+            key,
+            value,
+            descriptor,
+            &CLARITY6_BASELINE_EPOCH,
+        )
+    }
+
+    fn delete_entry_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        key: &Value,
+        descriptor: &DataMapMetadata,
+    ) -> Result<ValueResult, VmExecutionError> {
+        self.delete_entry(contract, name, key, descriptor, &CLARITY6_BASELINE_EPOCH)
+    }
+
+    fn get_nft_owner_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        asset: &Value,
+        key_type: &TypeSignature,
+    ) -> Result<PrincipalData, VmExecutionError> {
+        self.get_nft_owner_at_epoch(contract, name, asset, key_type, &CLARITY6_BASELINE_EPOCH)
+    }
+
+    fn set_nft_owner_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        asset: &Value,
+        principal: &PrincipalData,
+        key_type: &TypeSignature,
+    ) -> Result<(), VmExecutionError> {
+        self.set_nft_owner(
+            contract,
+            name,
+            asset,
+            principal,
+            key_type,
+            &CLARITY6_BASELINE_EPOCH,
+        )
+    }
+
+    fn burn_nft_clarity6(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        name: &str,
+        asset: &Value,
+        key_type: &TypeSignature,
+    ) -> Result<(), VmExecutionError> {
+        self.burn_nft(contract, name, asset, key_type, &CLARITY6_BASELINE_EPOCH)
+    }
+}
 
 /// Borrow the cached contract entry, updating hit/miss counters but not FIFO
 /// ordering. Returns [`None`] if no cache is attached or the entry is absent.
@@ -286,7 +517,7 @@ impl ClarityDatabaseExt for ClarityDatabase<'_> {
 }
 
 /// Read and deserialize the contract blob from the backing store, canonicalizing its types to
-/// the current epoch.
+/// the Clarity 6 semantic profile.
 ///
 /// Reads through the rollback-aware metadata layer; does not consult or populate the contract
 /// cache.
@@ -304,8 +535,7 @@ fn read_contract(
         })?;
     let mut contract_context = ContractContext::deserialize(artifact.as_str())?;
 
-    let epoch = db.get_clarity_epoch_version()?;
-    contract_context.canonicalize_types(&epoch)?;
+    contract_context.canonicalize_types()?;
 
     Ok(contract_context.into())
 }

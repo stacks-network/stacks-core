@@ -16,7 +16,6 @@
 
 use std::collections::BTreeMap;
 
-use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, ExecutionState, InvocationContext, LocalContext};
 use crate::vm::errors::{
@@ -28,7 +27,8 @@ use crate::vm::representations::SymbolicExpressionType::Field;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
-    TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value, parse_name_type_pairs,
+    Clarity6TypeSignature as _, TraitIdentifier, TypeSignature, Value,
+    parse_name_type_pairs_clarity6,
 };
 
 define_named_enum!(DefineFunctions {
@@ -167,8 +167,7 @@ fn handle_define_function(
 
     check_legal_define(function_name, invoke_ctx.contract_context)?;
 
-    let arguments = parse_name_type_pairs::<_, RuntimeCheckErrorKind>(
-        CLARITY6_BASELINE_EPOCH,
+    let arguments = parse_name_type_pairs_clarity6::<_, RuntimeCheckErrorKind>(
         arg_symbols,
         SyntaxBindingErrorType::Eval,
         exec_state,
@@ -198,8 +197,7 @@ fn handle_define_persisted_variable(
 ) -> Result<DefineResult, VmExecutionError> {
     check_legal_define(variable_str, invoke_ctx.contract_context)?;
 
-    let value_type_signature =
-        TypeSignature::parse_type_repr(CLARITY6_BASELINE_EPOCH, value_type, exec_state)?;
+    let value_type_signature = TypeSignature::parse_type_repr_clarity6(value_type, exec_state)?;
 
     let context = LocalContext::new();
     let value = eval(value, exec_state, invoke_ctx, &context)?.clone_with_cost(exec_state)?;
@@ -219,8 +217,7 @@ fn handle_define_nonfungible_asset(
 ) -> Result<DefineResult, VmExecutionError> {
     check_legal_define(asset_name, invoke_ctx.contract_context)?;
 
-    let key_type_signature =
-        TypeSignature::parse_type_repr(CLARITY6_BASELINE_EPOCH, key_type, exec_state)?;
+    let key_type_signature = TypeSignature::parse_type_repr_clarity6(key_type, exec_state)?;
 
     Ok(DefineResult::NonFungibleAsset(
         asset_name.clone(),
@@ -265,10 +262,8 @@ fn handle_define_map(
 ) -> Result<DefineResult, VmExecutionError> {
     check_legal_define(map_str, invoke_ctx.contract_context)?;
 
-    let key_type_signature =
-        TypeSignature::parse_type_repr(CLARITY6_BASELINE_EPOCH, key_type, exec_state)?;
-    let value_type_signature =
-        TypeSignature::parse_type_repr(CLARITY6_BASELINE_EPOCH, value_type, exec_state)?;
+    let key_type_signature = TypeSignature::parse_type_repr_clarity6(key_type, exec_state)?;
+    let value_type_signature = TypeSignature::parse_type_repr_clarity6(value_type, exec_state)?;
 
     Ok(DefineResult::Map(
         map_str.clone(),
@@ -285,12 +280,7 @@ fn handle_define_trait(
 ) -> Result<DefineResult, VmExecutionError> {
     check_legal_define(name, invoke_ctx.contract_context)?;
 
-    let trait_signature = TypeSignature::parse_trait_type_repr(
-        functions,
-        exec_state,
-        CLARITY6_BASELINE_EPOCH,
-        *invoke_ctx.contract_context.get_clarity_version(),
-    )?;
+    let trait_signature = TypeSignature::parse_trait_type_repr_clarity6(functions, exec_state)?;
 
     Ok(DefineResult::Trait(name.clone(), trait_signature))
 }

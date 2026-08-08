@@ -18,12 +18,10 @@ use std::collections::BTreeMap;
 
 use clarity_types::representations::ClarityName;
 pub use clarity_types::types::FunctionIdentifier;
-use stacks_common::types::StacksEpochId;
 
 use super::costs::{CostErrors, CostOverflowingMath};
 use super::errors::VmInternalError;
 use super::types::signatures::CallableSubtype;
-use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::contexts::{
     ContractContext, ExecutionState, FunctionExecutionOptions, InvocationContext,
 };
@@ -33,7 +31,8 @@ use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, check_argument_
 use crate::vm::hooks::CallHook;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
-    CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
+    CallableData, Clarity6FunctionSignature as _, Clarity6TypeSignature as _, Clarity6Value as _,
+    ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
     SequenceSubtype, TraitIdentifier, TupleData, TypeSignature,
 };
 use crate::vm::{LocalContext, Value, eval};
@@ -246,13 +245,12 @@ impl DefinedFunction {
                 // and traits can be implicitly cast to sub-traits
                 // e.g. `<foo-and-bar>` to `<foo>`
                 let cast_value = clarity2_implicit_cast(type_sig, value)?;
-                let cast_value =
-                    Value::sanitize_value(&CLARITY6_BASELINE_EPOCH, type_sig, cast_value)
-                        .ok_or(RuntimeCheckErrorKind::TypeValueError(
-                            Box::new(type_sig.clone()),
-                            value.to_error_string(),
-                        ))?
-                        .0;
+                let cast_value = Value::sanitize_value_clarity6(type_sig, cast_value)
+                    .ok_or(RuntimeCheckErrorKind::TypeValueError(
+                        Box::new(type_sig.clone()),
+                        value.to_error_string(),
+                    ))?
+                    .0;
 
                 match (&type_sig, &cast_value) {
                     (
@@ -274,7 +272,7 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(&CLARITY6_BASELINE_EPOCH, &cast_value)? {
+                        if !type_sig.admits_clarity6(&cast_value)? {
                             return Err(RuntimeCheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
                                 cast_value.to_error_string(),
@@ -305,7 +303,6 @@ impl DefinedFunction {
 
     pub fn check_trait_expectations(
         &self,
-        epoch: &StacksEpochId,
         contract_defining_trait: &ContractContext,
         trait_identifier: &TraitIdentifier,
     ) -> Result<(), VmExecutionError> {
@@ -324,7 +321,7 @@ impl DefinedFunction {
                 ))?;
 
         let args = self.arg_types.to_vec();
-        if !expected_sig.check_args_trait_compliance(epoch, args)? {
+        if !expected_sig.check_args_trait_compliance_clarity6(args)? {
             return Err(RuntimeCheckErrorKind::BadTraitImplementation(
                 trait_name,
                 self.name.to_string(),
@@ -379,9 +376,9 @@ impl DefinedFunction {
         &self.arg_types
     }
 
-    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
+    pub fn canonicalize_types(&mut self) {
         for i in 0..self.arguments.len() {
-            self.arg_types[i] = self.arg_types[i].canonicalize(epoch);
+            self.arg_types[i] = self.arg_types[i].canonicalize_clarity6();
         }
     }
 
@@ -776,7 +773,7 @@ mod test {
             &ClarityName::from_literal("foo"),
             "testing",
         );
-        f.canonicalize_types(&StacksEpochId::Epoch21);
+        f.canonicalize_types();
         assert_eq!(
             f.arg_types[0],
             TypeSignature::CallableType(CallableSubtype::Trait(trait_id))

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::Value::CallableContract;
 use crate::vm::analysis::errors::CommonCheckErrorKind;
 use crate::vm::callables::{CallableType, NativeHandle, cost_input_sized_vararg};
@@ -27,7 +26,9 @@ use crate::vm::errors::{
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{BuffData, PrincipalData, SequenceData, TypeSignature, Value};
+use crate::vm::types::{
+    BuffData, Clarity6TypeSignature as _, PrincipalData, SequenceData, TypeSignature, Value,
+};
 use crate::vm::{LocalContext, eval, is_reserved};
 
 macro_rules! switch_on_global_epoch {
@@ -616,11 +617,8 @@ fn native_eq(
         // check types:
         let mut arg_type = TypeSignature::type_of(first)?;
         for x in args.iter() {
-            arg_type = TypeSignature::least_supertype(
-                &CLARITY6_BASELINE_EPOCH,
-                &TypeSignature::type_of(x)?,
-                &arg_type,
-            )?;
+            arg_type =
+                TypeSignature::least_supertype_clarity6(&TypeSignature::type_of(x)?, &arg_type)?;
             if x != first {
                 return Ok(Value::Bool(false));
             }

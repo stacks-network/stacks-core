@@ -28,10 +28,10 @@ use stacks_common::types::chainstate::StacksBlockId;
 use super::hooks::{
     CallArguments, CallHook, CallTraceFrame, EvalHook, EvalHookNotifier, ExecutionOutcome,
 };
-use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::callables::DefinedFunction;
+use crate::vm::clarity6::{Clarity6AssetMap as _, Clarity6TransactionFrame as _};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::execution_cost::ExecutionCost;
@@ -50,8 +50,8 @@ use crate::vm::representations::SymbolicExpression;
 use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
-    AssetIdentifier, BuffData, CallableData, PrincipalData, QualifiedContractIdentifier,
-    TraitIdentifier, TypeSignature, Value,
+    AssetIdentifier, BuffData, CallableData, Clarity6FunctionSignature as _, Clarity6Value as _,
+    PrincipalData, QualifiedContractIdentifier, TraitIdentifier, TypeSignature, Value,
 };
 use crate::vm::version::ClarityVersion;
 use crate::vm::{ValueRef, ast, eval, is_reserved, stx_transfer_consolidated};
@@ -1066,8 +1066,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                     // sanitize contract-call inputs in epochs >= 2.4
                     // testing todo: ensure sanitize_value() preserves trait callability!
                     let expected_type = TypeSignature::type_of(value)?;
-                    let (sanitized_value, _) = Value::sanitize_value(
-                        &CLARITY6_BASELINE_EPOCH,
+                    let (sanitized_value, _) = Value::sanitize_value_clarity6(
                         &expected_type,
                         value.clone(),
                     ).ok_or_else(|| RuntimeCheckErrorKind::TypeValueError(
@@ -1731,8 +1730,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         sender: &PrincipalData,
         amount: u128,
     ) -> Result<(), VmExecutionError> {
-        let epoch = CLARITY6_BASELINE_EPOCH;
-        self.get_asset_map()?.add_stacking(sender, amount, epoch)
+        self.get_asset_map()?.add_stacking_clarity6(sender, amount)
     }
 
     pub fn log_pox_action(&mut self, sender: &PrincipalData) -> Result<(), VmExecutionError> {
@@ -1829,7 +1827,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
 
     pub fn commit(&mut self) -> Result<(Option<AssetMap>, Option<EventBatch>), VmExecutionError> {
         trace!("Calling commit");
-        let result = match self.transaction.commit(CLARITY6_BASELINE_EPOCH) {
+        let result = match self.transaction.commit_clarity6() {
             Ok(result) => result,
             Err(e) => {
                 self.database.roll_back()?;
@@ -1954,25 +1952,23 @@ impl ContractContext {
         &self.clarity_version
     }
 
-    /// Canonicalize the types for the specified epoch. Only functions and
-    /// defined traits are exposed externally, so other types are not
-    /// canonicalized.
-    pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) -> Result<(), VmExecutionError> {
+    /// Canonicalize externally-visible types to the Clarity 6 semantic profile.
+    pub fn canonicalize_types(&mut self) -> Result<(), VmExecutionError> {
         for (_, function) in self.functions.iter_mut() {
-            function.canonicalize_types(epoch);
+            function.canonicalize_types();
         }
 
         for trait_def in self.defined_traits.values_mut() {
             for (_, function) in trait_def.iter_mut() {
-                *function = function.canonicalize(epoch);
+                *function = function.canonicalize_clarity6();
             }
         }
 
         for (_, value) in self.variables.iter_mut() {
             let owned = std::mem::replace(value, Value::none());
             let (sanitized, _) =
-                Value::sanitize_value(epoch, &TypeSignature::type_of(&owned)?, owned)
-                    .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+                Value::sanitize_value_clarity6(&TypeSignature::type_of(&owned)?, owned)
+                    .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
             *value = sanitized;
         }
 
@@ -2328,9 +2324,7 @@ mod test {
             .defined_traits
             .insert(ClarityName::from_literal("bar"), trait_functions);
 
-        contract_context
-            .canonicalize_types(&StacksEpochId::Epoch21)
-            .unwrap();
+        contract_context.canonicalize_types().unwrap();
 
         assert_eq!(
             contract_context.functions["foo"].get_arg_types()[0],

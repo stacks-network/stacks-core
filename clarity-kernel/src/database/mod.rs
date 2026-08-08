@@ -21,7 +21,7 @@ pub use self::clarity_db::{
     STORE_CONTRACT_SRC_INTERFACE, StoreType,
 };
 pub use self::clarity_store::{ClarityBackingStore, SpecialCaseHandler};
-pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog};
+pub use self::key_value_wrapper::{RollbackWrapper, RollbackWrapperPersistedLog, ValueResult};
 #[cfg(feature = "rusqlite")]
 pub use self::sqlite::{DATA_TABLE_NAME, METADATA_TABLE_NAME, MetadataRow, SqliteConnection};
 pub use self::structures::{

@@ -18,7 +18,6 @@ use std::cmp;
 
 use clarity_types::types::RetainValuesError;
 
-use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostOverflowingMath, runtime_cost};
@@ -29,7 +28,10 @@ use crate::vm::errors::{
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::TypeSignature::BoolType;
 use crate::vm::types::signatures::ListTypeData;
-use crate::vm::types::{ListData, SequenceData, TypeSignature, Value};
+use crate::vm::types::{
+    Clarity6SequenceData as _, Clarity6TypeSignature as _, Clarity6Value as _, ListData,
+    SequenceData, TypeSignature, Value,
+};
 use crate::vm::{LocalContext, apply_evaluated, eval, lookup_function};
 
 pub fn list_cons(
@@ -53,7 +55,7 @@ pub fn list_cons(
 
     runtime_cost(ClarityCostFunction::ListCons, exec_state, arg_size)?;
 
-    let value = Value::cons_list(args, &CLARITY6_BASELINE_EPOCH)?;
+    let value = Value::cons_list_clarity6(args)?;
     Ok(value)
 }
 
@@ -194,99 +196,6 @@ pub fn special_map(
     invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    special_map_v400(args, exec_state, invoke_ctx, context)
-}
-
-/// Legacy `map` implementation for Epoch [2.0 .. 3.4].
-///
-/// This re-arranges the input sequences into per-index argument tuples before
-/// applying the function. It contains a known off-by-one in the shortest-
-/// sequence bound (`apply_index > min_args_len` instead of `>=`), which is
-/// preserved here for consensus compatibility. The fixed behavior lives in
-/// [`special_map_v400`] and is gated to Epoch 4.0+.
-pub fn special_map_v200(
-    args: &[SymbolicExpression],
-    exec_state: &mut ExecutionState,
-    invoke_ctx: &InvocationContext,
-    context: &LocalContext,
-) -> Result<Value, VmExecutionError> {
-    check_arguments_at_least(2, args)?;
-
-    runtime_cost(ClarityCostFunction::Map, exec_state, args.len())?;
-
-    let function_name = args[0]
-        .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
-    let function = lookup_function(function_name, exec_state, invoke_ctx)?;
-
-    // Let's consider a function f (f a b c ...)
-    // We will first re-arrange our sequences [a0, a1, ...] [b0, b1, ...] [c0, c1, ...] ...
-    // To get something like: [a0, b0, c0, ...] [a1, b1, c1, ...]
-    let mut mapped_func_args: Vec<Vec<Value>> = vec![];
-    let mut min_args_len = usize::MAX;
-    for map_arg in args[1..].iter() {
-        let sequence =
-            eval(map_arg, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
-        let Value::Sequence(seq) = sequence else {
-            return Err(RuntimeCheckErrorKind::Unreachable(format!(
-                "Expected sequence: {}",
-                TypeSignature::type_of(&sequence)?
-            ))
-            .into());
-        };
-        let seq_len = seq.len();
-        min_args_len = min_args_len.min(seq_len);
-        for (apply_index, element_result) in seq.into_iter().enumerate() {
-            let value = element_result.map_err(|_| {
-                VmInternalError::Expect(
-                    "ERROR: Invalid sequence data successfully constructed".into(),
-                )
-            })?;
-            if apply_index > min_args_len {
-                break;
-            }
-            if apply_index >= mapped_func_args.len() {
-                mapped_func_args.push(vec![value]);
-            } else {
-                mapped_func_args[apply_index].push(value);
-            }
-        }
-    }
-
-    // We can now apply the map
-    let mut mapped_results = vec![];
-    let mut previous_len = None;
-    for arguments in mapped_func_args.into_iter() {
-        // Stop iterating when we are done with the shortest sequence
-        if let Some(previous_len) = previous_len {
-            if previous_len != arguments.len() {
-                break;
-            }
-        } else {
-            previous_len = Some(arguments.len());
-        }
-        let res = apply_evaluated(&function, arguments, exec_state, invoke_ctx, context)?;
-        mapped_results.push(res);
-    }
-
-    let value = Value::cons_list(mapped_results, &CLARITY6_BASELINE_EPOCH)?;
-    Ok(value)
-}
-
-/// Fixed `map` implementation introduced in Clarity 6 (Epoch 4.0+).
-///
-/// Evaluates each sequence argument into an iterator, records its length, and
-/// applies the function exactly `min_args_len` times — the length of the
-/// shortest input sequence — pulling one element from each iterator per call.
-/// This corrects the off-by-one in [`special_map_v200`].
-pub fn special_map_v400(
-    args: &[SymbolicExpression],
-    exec_state: &mut ExecutionState,
-    invoke_ctx: &InvocationContext,
-    context: &LocalContext,
-) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(2, args)?;
 
     runtime_cost(ClarityCostFunction::Map, exec_state, args.len())?;
@@ -339,7 +248,7 @@ pub fn special_map_v400(
         mapped_results.push(res);
     }
 
-    let value = Value::cons_list(mapped_results, &CLARITY6_BASELINE_EPOCH)?;
+    let value = Value::cons_list_clarity6(mapped_results)?;
     Ok(value)
 }
 
@@ -369,17 +278,13 @@ pub fn special_append(
             let element = element.clone_with_cost(exec_state)?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
-                return Ok(Value::cons_list(vec![element], &CLARITY6_BASELINE_EPOCH)?);
+                return Ok(Value::cons_list_clarity6(vec![element])?);
             }
 
-            let next_entry_type = TypeSignature::least_supertype(
-                &CLARITY6_BASELINE_EPOCH,
-                &entry_type,
-                &element_type,
-            )?;
-            let (element, _) =
-                Value::sanitize_value(&CLARITY6_BASELINE_EPOCH, &next_entry_type, element)
-                    .ok_or_else(|| RuntimeCheckErrorKind::ListTypesMustMatch)?;
+            let next_entry_type =
+                TypeSignature::least_supertype_clarity6(&entry_type, &element_type)?;
+            let (element, _) = Value::sanitize_value_clarity6(&next_entry_type, element)
+                .ok_or(RuntimeCheckErrorKind::ListTypesMustMatch)?;
 
             let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
             data.push(element);
@@ -394,114 +299,16 @@ pub fn special_append(
     }
 }
 
-/// Clarity 6 variadic `concat`.
-pub fn special_concat(
-    args: &[SymbolicExpression],
-    exec_state: &mut ExecutionState,
-    invoke_ctx: &InvocationContext,
-    context: &LocalContext,
-) -> Result<Value, VmExecutionError> {
-    special_concat_v400(args, exec_state, invoke_ctx, context)
-}
-
-pub fn special_concat_v200(
-    args: &[SymbolicExpression],
-    exec_state: &mut ExecutionState,
-    invoke_ctx: &InvocationContext,
-    context: &LocalContext,
-) -> Result<Value, VmExecutionError> {
-    check_argument_count(2, args)?;
-
-    let mut wrapped_seq =
-        eval(&args[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
-    let other_wrapped_seq =
-        eval(&args[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
-
-    runtime_cost(
-        ClarityCostFunction::Concat,
-        exec_state,
-        u64::from(wrapped_seq.size()?).cost_overflow_add(u64::from(other_wrapped_seq.size()?))?,
-    )?;
-
-    match (&mut wrapped_seq, other_wrapped_seq) {
-        (Value::Sequence(seq), Value::Sequence(other_seq)) => {
-            seq.concat(&CLARITY6_BASELINE_EPOCH, other_seq)?
-        }
-        (Value::Sequence(_), other_value) => {
-            // The first value is a sequence, but the second is not
-            return Err(RuntimeCheckErrorKind::Unreachable(format!(
-                "Expected sequence: {}",
-                TypeSignature::type_of(&other_value)?
-            ))
-            .into());
-        }
-        (value, _) => {
-            // The first value is not a sequence (the other may not be as well, but just error on the first)
-            return Err(RuntimeCheckErrorKind::Unreachable(format!(
-                "Expected sequence: {}",
-                TypeSignature::type_of(value)?
-            ))
-            .into());
-        }
-    };
-
-    Ok(wrapped_seq)
-}
-
-pub fn special_concat_v205(
-    args: &[SymbolicExpression],
-    exec_state: &mut ExecutionState,
-    invoke_ctx: &InvocationContext,
-    context: &LocalContext,
-) -> Result<Value, VmExecutionError> {
-    check_argument_count(2, args)?;
-
-    let mut wrapped_seq =
-        eval(&args[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
-    let other_wrapped_seq =
-        eval(&args[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
-
-    match (&mut wrapped_seq, other_wrapped_seq) {
-        (Value::Sequence(seq), Value::Sequence(other_seq)) => {
-            runtime_cost(
-                ClarityCostFunction::Concat,
-                exec_state,
-                (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
-            )?;
-
-            seq.concat(&CLARITY6_BASELINE_EPOCH, other_seq)?
-        }
-        (Value::Sequence(seq_data), other_value) => {
-            runtime_cost(ClarityCostFunction::Concat, exec_state, 1)?;
-            return Err(RuntimeCheckErrorKind::TypeValueError(
-                Box::new(seq_data.type_signature()?),
-                other_value.to_error_string(),
-            )
-            .into());
-        }
-        _ => {
-            runtime_cost(ClarityCostFunction::Concat, exec_state, 1)?;
-            return Err(RuntimeCheckErrorKind::Unreachable(format!(
-                "Expected sequence: {}",
-                TypeSignature::type_of(&wrapped_seq)?,
-            ))
-            .into());
-        }
-    };
-
-    Ok(wrapped_seq)
-}
-
-/// Variadic `concat` introduced in Clarity 6 (Epoch 4.0+).
+/// Variadic `concat` introduced in Clarity 6.
 ///
 /// Accepts 2 or more sequence arguments and concatenates them in a single
 /// pass with linear cost. The 2-argument case is byte-for-byte equivalent
-/// to v205.
+/// to the prior binary implementation.
 ///
 /// # Cost model
 ///
-/// This deliberately departs from the per-step cost charged by v205. With
-/// the v205 formula applied per fold step, `(concat a b c d)` would charge
+/// This deliberately departs from the cost of repeatedly applying binary
+/// concat. A nested `(concat a (concat b (concat c d)))` would charge
 /// `len(a)+len(b)` then `len(a+b)+len(c)` then `len(a+b+c)+len(d)` — roughly
 /// `O(N² · L)` in number of args. The runtime work is amortized linear, so
 /// that pricing over-charges users for work the runtime doesn't actually do.
@@ -518,19 +325,16 @@ pub fn special_concat_v205(
 /// length. Phase 2 charges cost once, takes the first arg as the accumulator,
 /// pre-reserves capacity to fit the final result, and appends the remaining
 /// args. Pre-reservation means the underlying `Vec` does not reallocate as
-/// we concat — exactly one allocation per `special_concat_v400` call.
+/// we concat — exactly one allocation per `special_concat` call.
 ///
 /// Peak memory during phase 1 is bounded by the type checker's sequence-
 /// length limits: every arg is ≤ `MAX_VALUE_SIZE`, and the type checker
 /// also bounds the *combined* length to that same ceiling, so we hold at
 /// most ~`MAX_VALUE_SIZE` bytes of args alive.
 ///
-/// The type checker (`check_special_concat`) rejects variadic calls from
-/// contracts at `ClarityVersion < Clarity6`, so at this epoch a Clarity 1-5
-/// contract only ever reaches this function with exactly two arguments —
-/// in which case the two-pass form collapses to the same work and cost as
-/// v205.
-pub fn special_concat_v400(
+/// The Clarity 6 type checker bounds the combined sequence length to the
+/// same maximum enforced by the runtime.
+pub fn special_concat(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
     invoke_ctx: &InvocationContext,
@@ -580,7 +384,7 @@ pub fn special_concat_v400(
     for other in values_iter {
         match (&mut result, other) {
             (Value::Sequence(seq), Value::Sequence(other_seq)) => {
-                seq.concat(&CLARITY6_BASELINE_EPOCH, other_seq)?;
+                seq.concat_clarity6(other_seq)?;
             }
             (Value::Sequence(seq_data), other_value) => {
                 return Err(RuntimeCheckErrorKind::TypeValueError(
@@ -735,11 +539,8 @@ pub fn special_slice(
                     exec_state,
                     (right_position - left_position) * seq.element_size()?,
                 )?;
-                let seq_value = seq.slice(
-                    &CLARITY6_BASELINE_EPOCH,
-                    left_position as usize,
-                    right_position as usize,
-                )?;
+                let seq_value =
+                    seq.slice_clarity6(left_position as usize, right_position as usize)?;
                 Ok(Value::some(seq_value)?)
             }
             _ => Err(RuntimeCheckErrorKind::Unreachable("Bad type construction".into()).into()),
@@ -780,7 +581,7 @@ pub fn special_replace_at(
     let new_element = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     if expected_elem_type != TypeSignature::NoType
-        && !expected_elem_type.admits(&CLARITY6_BASELINE_EPOCH, new_element.as_ref())?
+        && !expected_elem_type.admits_clarity6(new_element.as_ref())?
     {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_elem_type),
@@ -813,5 +614,5 @@ pub fn special_replace_at(
         return Ok(Value::none());
     }
     let new_element = new_element.clone_with_cost(exec_state)?;
-    Ok(data.replace_at(&CLARITY6_BASELINE_EPOCH, index, new_element)?)
+    Ok(data.replace_at_clarity6(index, new_element)?)
 }

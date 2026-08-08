@@ -1708,10 +1708,7 @@ impl ClarityDatabase<'_> {
         variable_descriptor: &DataVariableMetadata,
         epoch: &StacksEpochId,
     ) -> Result<ValueResult, VmExecutionError> {
-        if !variable_descriptor
-            .value_type
-            .admits(&self.get_clarity_epoch_version()?, &value)?
-        {
+        if !variable_descriptor.value_type.admits(epoch, &value)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(variable_descriptor.value_type.clone()),
                 value.to_error_string(),
@@ -1869,10 +1866,7 @@ impl ClarityDatabase<'_> {
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
     ) -> Result<Value, VmExecutionError> {
-        if !map_descriptor
-            .key_type
-            .admits(&self.get_clarity_epoch_version()?, key_value)?
-        {
+        if !map_descriptor.key_type.admits(epoch, key_value)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 key_value.to_error_string(),
@@ -1900,10 +1894,7 @@ impl ClarityDatabase<'_> {
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
     ) -> Result<ValueResult, VmExecutionError> {
-        if !map_descriptor
-            .key_type
-            .admits(&self.get_clarity_epoch_version()?, key_value)?
-        {
+        if !map_descriptor.key_type.admits(epoch, key_value)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 key_value.to_error_string(),
@@ -2045,20 +2036,14 @@ impl ClarityDatabase<'_> {
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
     ) -> Result<ValueResult, VmExecutionError> {
-        if !map_descriptor
-            .key_type
-            .admits(&self.get_clarity_epoch_version()?, &key_value)?
-        {
+        if !map_descriptor.key_type.admits(epoch, &key_value)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 key_value.to_error_string(),
             )
             .into());
         }
-        if !map_descriptor
-            .value_type
-            .admits(&self.get_clarity_epoch_version()?, &value)?
-        {
+        if !map_descriptor.value_type.admits(epoch, &value)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.value_type.clone()),
                 value.to_error_string(),
@@ -2106,10 +2091,7 @@ impl ClarityDatabase<'_> {
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
     ) -> Result<ValueResult, VmExecutionError> {
-        if !map_descriptor
-            .key_type
-            .admits(&self.get_clarity_epoch_version()?, key_value)?
-        {
+        if !map_descriptor.key_type.admits(epoch, key_value)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 key_value.to_error_string(),
@@ -2333,7 +2315,22 @@ impl ClarityDatabase<'_> {
         asset: &Value,
         key_type: &TypeSignature,
     ) -> Result<PrincipalData, VmExecutionError> {
-        if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
+        let epoch = self.get_clarity_epoch_version()?;
+        self.get_nft_owner_at_epoch(contract_identifier, asset_name, asset, key_type, &epoch)
+    }
+
+    /// Load an NFT owner using an explicit engine type-admission profile.
+    /// The ordinary compatibility entry point above derives this from the
+    /// database epoch; clean engines pass their pinned profile directly.
+    pub fn get_nft_owner_at_epoch(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        asset_name: &str,
+        asset: &Value,
+        key_type: &TypeSignature,
+        epoch: &StacksEpochId,
+    ) -> Result<PrincipalData, VmExecutionError> {
+        if !key_type.admits(epoch, asset)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 asset.to_error_string(),
@@ -2350,12 +2347,11 @@ impl ClarityDatabase<'_> {
                 .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?,
         );
 
-        let epoch = self.get_clarity_epoch_version()?;
         let value: Option<ValueResult> = self.get_value(
             &key,
             &TypeSignature::new_option(TypeSignature::PrincipalType)
                 .map_err(|_| VmInternalError::Expect("Unexpected type failure".into()))?,
-            &epoch,
+            epoch,
         )?;
         let owner = match value {
             Some(owner) => owner
@@ -2393,7 +2389,7 @@ impl ClarityDatabase<'_> {
         key_type: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<(), VmExecutionError> {
-        if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
+        if !key_type.admits(epoch, asset)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 asset.to_error_string(),
@@ -2424,7 +2420,7 @@ impl ClarityDatabase<'_> {
         key_type: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<(), VmExecutionError> {
-        if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
+        if !key_type.admits(epoch, asset)? {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(key_type.clone()),
                 asset.to_error_string(),
@@ -2617,6 +2613,58 @@ fn contract_artifact_round_trips_opaque_payload() {
         .expect("load opaque contract artifact")
         .expect("contract artifact should exist");
     assert_eq!(loaded.as_str().as_bytes(), payload.as_bytes());
+    db.roll_back().unwrap();
+}
+
+#[test]
+fn explicit_database_epoch_controls_type_admission() {
+    use clarity_types::types::signatures::CallableSubtype;
+    use clarity_types::types::{CallableData, TraitIdentifier};
+
+    use crate::database::MemoryBackingStore;
+
+    let mut store = MemoryBackingStore::new();
+    let mut db = store.as_clarity_db();
+    let contract = QualifiedContractIdentifier::local("epoch-admission").unwrap();
+    let trait_identifier = TraitIdentifier {
+        name: ClarityName::from_literal("trait"),
+        contract_identifier: QualifiedContractIdentifier::local("trait-contract").unwrap(),
+    };
+    let descriptor = DataVariableMetadata {
+        value_type: TypeSignature::CallableType(CallableSubtype::Trait(trait_identifier.clone())),
+    };
+    let callable = Value::CallableContract(CallableData {
+        contract_identifier: QualifiedContractIdentifier::local("callee").unwrap(),
+        trait_identifier: Some(Box::new(trait_identifier)),
+    });
+
+    db.begin();
+    db.set_clarity_epoch_version(StacksEpochId::Epoch20)
+        .unwrap();
+
+    // Callable contract values are admitted by the post-2.1 type system. The
+    // explicit input must win over the older epoch stored in the DB.
+    db.set_variable(
+        &contract,
+        "modern",
+        callable.clone(),
+        &descriptor,
+        &StacksEpochId::Epoch40,
+    )
+    .expect("explicit modern admission profile should accept callable as principal");
+
+    let legacy = db.set_variable(
+        &contract,
+        "legacy",
+        callable,
+        &descriptor,
+        &StacksEpochId::Epoch20,
+    );
+    assert!(
+        legacy.is_err(),
+        "legacy admission profile should reject callable"
+    );
+
     db.roll_back().unwrap();
 }
 
