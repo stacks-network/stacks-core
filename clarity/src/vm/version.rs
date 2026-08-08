@@ -18,3 +18,30 @@
 // Existing callers that imported `clarity::vm::ClarityVersion` continue to work
 // via this re-export.
 pub use clarity_types::version::ClarityVersion;
+use stacks_common::types::StacksEpochId;
+
+/// Historical epoch-to-language mapping retained by the frozen legacy
+/// interpreter's compatibility APIs. Production protocol policy lives in
+/// stackslib's Clarity engine manifest.
+pub(crate) fn legacy_default_clarity_version_for_epoch(epoch: StacksEpochId) -> ClarityVersion {
+    match epoch {
+        StacksEpochId::Epoch10 => {
+            warn!(
+                "Attempted to get default Clarity version for Epoch 1.0 where Clarity does not exist"
+            );
+            ClarityVersion::Clarity1
+        }
+        StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => ClarityVersion::Clarity1,
+        StacksEpochId::Epoch21
+        | StacksEpochId::Epoch22
+        | StacksEpochId::Epoch23
+        | StacksEpochId::Epoch24
+        | StacksEpochId::Epoch25 => ClarityVersion::Clarity2,
+        StacksEpochId::Epoch30 | StacksEpochId::Epoch31 | StacksEpochId::Epoch32 => {
+            ClarityVersion::Clarity3
+        }
+        StacksEpochId::Epoch33 => ClarityVersion::Clarity4,
+        StacksEpochId::Epoch34 => ClarityVersion::Clarity5,
+        StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => ClarityVersion::Clarity6,
+    }
+}

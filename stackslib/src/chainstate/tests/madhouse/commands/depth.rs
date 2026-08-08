@@ -16,7 +16,6 @@
 use std::sync::Arc;
 
 use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
-use clarity::vm::ClarityVersion;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
 
@@ -26,6 +25,7 @@ use crate::chainstate::tests::consensus::{
 };
 use crate::chainstate::tests::madhouse::context::Epoch33ToEpoch34TestContext;
 use crate::chainstate::tests::madhouse::state::Epoch33ToEpoch34TestState;
+use crate::clarity_vm::engine::default_clarity_version_for_epoch;
 use crate::core::test_util::to_addr;
 
 /// N=33 contracts -> stack depth 2*33-1=65. Exceeds Epoch33 limit (64), fits
@@ -45,7 +45,7 @@ const CHAIN_OVER_DEPTH: usize = CHAIN_LONG_DEPTH + 1;
 /// `contract-(i-1).ping`.
 fn deploy_call_chain(state: &mut Epoch33ToEpoch34TestState, tag: &str, depth: usize) {
     let faucet_addr = to_addr(&FAUCET_PRIV_KEY);
-    let version = ClarityVersion::default_for_epoch(state.current_epoch);
+    let version = default_clarity_version_for_epoch(state.current_epoch);
 
     for i in 0..depth {
         let name = format!("{tag}-{i}");

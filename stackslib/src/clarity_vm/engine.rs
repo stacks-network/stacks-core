@@ -103,6 +103,45 @@ pub const fn kernel_ruleset_for_epoch(epoch: StacksEpochId) -> KernelRuleset {
     }
 }
 
+/// The newest contract language version deployable in a Stacks protocol
+/// epoch. `None` represents epochs in which Clarity is not available.
+///
+/// This protocol-policy mapping belongs to the Stacks host, rather than to
+/// the engine-neutral [`ClarityVersion`] value type. Keep the match exhaustive
+/// so adding a protocol epoch requires an explicit language-version decision.
+pub const fn maximum_clarity_version_for_epoch(epoch: StacksEpochId) -> Option<ClarityVersion> {
+    match epoch {
+        StacksEpochId::Epoch10 => None,
+        StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Some(ClarityVersion::Clarity1),
+        StacksEpochId::Epoch21
+        | StacksEpochId::Epoch22
+        | StacksEpochId::Epoch23
+        | StacksEpochId::Epoch24
+        | StacksEpochId::Epoch25 => Some(ClarityVersion::Clarity2),
+        StacksEpochId::Epoch30 | StacksEpochId::Epoch31 | StacksEpochId::Epoch32 => {
+            Some(ClarityVersion::Clarity3)
+        }
+        StacksEpochId::Epoch33 => Some(ClarityVersion::Clarity4),
+        StacksEpochId::Epoch34 => Some(ClarityVersion::Clarity5),
+        StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => Some(ClarityVersion::Clarity6),
+    }
+}
+
+/// Return the implicit contract language version for an epoch.
+///
+/// Epoch 1.0 predates Clarity. The Clarity 1 fallback preserves the historical
+/// behavior of pre-manifest compatibility paths; consensus-facing selection
+/// should use [`ClarityEngineManifest::default_version`] so unavailability is
+/// represented explicitly.
+pub fn default_clarity_version_for_epoch(epoch: StacksEpochId) -> ClarityVersion {
+    maximum_clarity_version_for_epoch(epoch).unwrap_or_else(|| {
+        warn!(
+            "Attempted to get default Clarity version for Epoch 1.0 where Clarity does not exist"
+        );
+        ClarityVersion::Clarity1
+    })
+}
+
 /// Nested-call router installed in every production transaction context.
 /// It reads the callee's stored language version from the shared database and
 /// applies the same epoch manifest used for top-level calls.
@@ -158,11 +197,7 @@ impl ClarityEngineManifest {
 
     /// The newest contract language version deployable in this epoch.
     pub fn default_version(self) -> Option<ClarityVersion> {
-        if self.epoch == StacksEpochId::Epoch10 {
-            None
-        } else {
-            Some(ClarityVersion::default_for_epoch(self.epoch))
-        }
+        maximum_clarity_version_for_epoch(self.epoch)
     }
 
     /// Map a language version to its independently linkable engine revision.
@@ -377,6 +412,35 @@ mod tests {
                 } else {
                     assert!(selected.is_err());
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn host_maps_every_epoch_to_its_default_clarity_version() {
+        for &epoch in StacksEpochId::ALL {
+            let expected = match epoch {
+                StacksEpochId::Epoch10 => None,
+                StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Some(ClarityVersion::Clarity1),
+                StacksEpochId::Epoch21
+                | StacksEpochId::Epoch22
+                | StacksEpochId::Epoch23
+                | StacksEpochId::Epoch24
+                | StacksEpochId::Epoch25 => Some(ClarityVersion::Clarity2),
+                StacksEpochId::Epoch30 | StacksEpochId::Epoch31 | StacksEpochId::Epoch32 => {
+                    Some(ClarityVersion::Clarity3)
+                }
+                StacksEpochId::Epoch33 => Some(ClarityVersion::Clarity4),
+                StacksEpochId::Epoch34 => Some(ClarityVersion::Clarity5),
+                StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => Some(ClarityVersion::Clarity6),
+            };
+            assert_eq!(maximum_clarity_version_for_epoch(epoch), expected);
+            assert_eq!(
+                ClarityEngineManifest::for_epoch(epoch).default_version(),
+                expected
+            );
+            if let Some(version) = expected {
+                assert_eq!(default_clarity_version_for_epoch(epoch), version);
             }
         }
     }

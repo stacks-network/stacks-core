@@ -59,6 +59,8 @@ use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
 use stackslib::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
 use stackslib::clarity_vm::database::MemoryBackingStore;
 use stackslib::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
+#[cfg(test)]
+use stackslib::clarity_vm::engine::default_clarity_version_for_epoch;
 use stackslib::core::{BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20, StacksEpochId};
 use stackslib::util_lib::boot::{boot_code_addr, boot_code_id};
 use stackslib::util_lib::db::{FromColumn, sqlite_open};
@@ -1651,7 +1653,7 @@ mod test {
             false,
             false,
             DEFAULT_CLI_EPOCH,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
         );
 
@@ -1718,7 +1720,7 @@ mod test {
             false,
             false,
             true,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             DEFAULT_CLI_EPOCH,
             None, // no db_path
             false,
@@ -1737,7 +1739,7 @@ mod test {
             false,
             false,
             true,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             DEFAULT_CLI_EPOCH,
             Some(&db_name),
             false,
@@ -1759,7 +1761,7 @@ mod test {
             false,
             false,
             DEFAULT_CLI_EPOCH,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
         );
 
@@ -1776,7 +1778,7 @@ mod test {
             false,
             false,
             true,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             DEFAULT_CLI_EPOCH,
             Some(&db_name),
             false,
@@ -1797,7 +1799,7 @@ mod test {
             false,
             false,
             true,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             DEFAULT_CLI_EPOCH,
             Some(&db_name),
             false,
@@ -1816,7 +1818,7 @@ mod test {
             true,
             false,
             true,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             DEFAULT_CLI_EPOCH,
             Some(&db_name),
             false,
@@ -1837,7 +1839,7 @@ mod test {
             false,
             true,
             true,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             DEFAULT_CLI_EPOCH,
             Some(&db_name),
             false,
@@ -1862,7 +1864,7 @@ mod test {
             true,
             false,
             DEFAULT_CLI_EPOCH,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
         );
 
@@ -1882,7 +1884,7 @@ mod test {
                 .expect("Failed to parse sender");
         let arg_parsed = vm_execute_in_epoch(
             "(+ u900 u100)",
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             DEFAULT_CLI_EPOCH,
         )
         .expect("Failed to parse argument")
@@ -1918,7 +1920,7 @@ mod test {
             &snippet,
             false,
             DEFAULT_CLI_EPOCH,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
         );
 
@@ -1949,7 +1951,7 @@ mod test {
             &snippet,
             true,
             DEFAULT_CLI_EPOCH,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
         );
 
@@ -1981,7 +1983,7 @@ mod test {
             &snippet,
             false,
             DEFAULT_CLI_EPOCH,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
         );
 
@@ -2012,7 +2014,7 @@ mod test {
             &snippet,
             true,
             DEFAULT_CLI_EPOCH,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
         );
 
@@ -2050,7 +2052,7 @@ mod test {
             false,
             false,
             true,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             DEFAULT_CLI_EPOCH,
             None,
             false,
@@ -2072,7 +2074,7 @@ mod test {
             true,
             false,
             DEFAULT_CLI_EPOCH,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
         );
 
@@ -2400,7 +2402,7 @@ mod test {
             false,
             false,
             DEFAULT_CLI_EPOCH,
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH),
+            default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH),
             &db_name,
         );
 

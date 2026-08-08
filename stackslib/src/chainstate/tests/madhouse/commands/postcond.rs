@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use clarity::vm::types::ResponseData;
-use clarity::vm::{ClarityVersion, Value};
+use clarity::vm::Value;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::Strategy;
 
@@ -24,6 +24,7 @@ use super::{ok_true, unwrap_block_failure, unwrap_single_tx_success};
 use crate::chainstate::tests::consensus::{ConsensusUtils, TestBlock};
 use crate::chainstate::tests::madhouse::context::Epoch33ToEpoch34TestContext;
 use crate::chainstate::tests::madhouse::state::Epoch33ToEpoch34TestState;
+use crate::clarity_vm::engine::default_clarity_version_for_epoch;
 
 fn err_u0() -> Value {
     Value::Response(ResponseData {
@@ -97,7 +98,7 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext>
     }
 
     fn apply(&self, state: &mut Epoch33ToEpoch34TestState) {
-        let version = ClarityVersion::default_for_epoch(state.current_epoch);
+        let version = default_clarity_version_for_epoch(state.current_epoch);
         let code = with_stx_contract_code(self.fund_amount);
         let deploy_tx =
             ConsensusUtils::new_deploy_tx(state.next_nonce, "with-stx", &code, Some(version));

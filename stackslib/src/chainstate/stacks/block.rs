@@ -34,6 +34,7 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{ConsensusHash, *};
 use crate::chainstate::stacks::db::StacksBlockHeaderTypes;
 use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
+use crate::clarity_vm::engine::default_clarity_version_for_epoch;
 use crate::core::*;
 use crate::net::Error as net_error;
 
@@ -625,7 +626,7 @@ impl StacksBlock {
                     error!("Versioned smart contracts not supported before Stacks 2.1"; "txid" => %tx.txid());
                     return false;
                 }
-                if *version > ClarityVersion::default_for_epoch(epoch_id) {
+                if *version > default_clarity_version_for_epoch(epoch_id) {
                     // not supported
                     error!("Smart contract version {version} not supported in Epoch {epoch_id}"; "txid" => %tx.txid());
                     return false;

@@ -33,6 +33,7 @@ use stackslib::chainstate::stacks::{
     StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionAuthVerificationMode, TransactionPayload, TransactionVersion,
 };
+use stackslib::clarity_vm::engine::default_clarity_version_for_epoch;
 use stackslib::config::{Config, ConfigFile};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
@@ -85,7 +86,6 @@ use stackslib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stackslib::chainstate::stacks::StacksBlockHeader;
 use stackslib::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnection};
-use stackslib::clarity::vm::ClarityVersion;
 use stackslib::clarity::vm::costs::ExecutionCost;
 use stackslib::core::MemPoolDB;
 use stackslib::cost_estimates::UnitEstimator;
@@ -1176,7 +1176,7 @@ fn main() {
         Command::ExecProgram { program_file } => {
             let program: String = fs::read_to_string(&program_file)
                 .unwrap_or_else(|_| panic!("Error reading file: {}", program_file));
-            let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
+            let clarity_version = default_clarity_version_for_epoch(DEFAULT_CLI_EPOCH);
             match vm_execute(&program, clarity_version) {
                 Ok(Some(result)) => println!("{result}"),
                 Ok(None) => println!(),

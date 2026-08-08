@@ -37,6 +37,7 @@ use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::{TransactionResourceBudgets, TransactionResult};
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityError, ClarityTransactionConnection};
+use crate::clarity_vm::engine::default_clarity_version_for_epoch;
 use crate::monitoring::increment_unreachable_errors_counter;
 use crate::util_lib::strings::VecDisplay;
 
@@ -869,7 +870,7 @@ impl StacksChainState {
         // newer than the epoch allows is statically invalid, so reject it
         // here.
         if let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload {
-            let max_version = ClarityVersion::default_for_epoch(epoch_id);
+            let max_version = default_clarity_version_for_epoch(epoch_id);
             if *clarity_version > max_version {
                 let msg = format!(
                     "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch_id} only supports up to {max_version}",
@@ -1613,7 +1614,7 @@ impl StacksChainState {
             TransactionPayload::SmartContract(ref smart_contract, ref version_opt) => {
                 let epoch_id = clarity_tx.get_epoch();
                 let clarity_version = version_opt
-                    .unwrap_or(ClarityVersion::default_for_epoch(clarity_tx.get_epoch()));
+                    .unwrap_or(default_clarity_version_for_epoch(clarity_tx.get_epoch()));
                 let issuer_principal = match origin_account.principal {
                     PrincipalData::Standard(ref p) => p.clone(),
                     _ => {
@@ -1963,11 +1964,11 @@ impl StacksChainState {
         let clarity_version = match &tx.payload {
             TransactionPayload::SmartContract(_, ref version_opt) => {
                 // did the caller want to run a particular version of Clarity?
-                version_opt.unwrap_or(ClarityVersion::default_for_epoch(clarity_block.get_epoch()))
+                version_opt.unwrap_or(default_clarity_version_for_epoch(clarity_block.get_epoch()))
             }
             _ => {
                 // whatever the epoch default is, since no Clarity code will be executed anyway
-                ClarityVersion::default_for_epoch(clarity_block.get_epoch())
+                default_clarity_version_for_epoch(clarity_block.get_epoch())
             }
         };
         Ok(clarity_version)

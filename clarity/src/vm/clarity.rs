@@ -221,7 +221,8 @@ pub trait ClarityConnection {
         F: FnOnce(&mut ExecutionState, &InvocationContext) -> Result<R, ClarityEvalError>,
     {
         let epoch_id = self.get_epoch();
-        let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
+        let clarity_version =
+            crate::vm::version::legacy_default_clarity_version_for_epoch(epoch_id);
         self.with_clarity_db_readonly_owned(|clarity_db| {
             let initial_context =
                 ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);

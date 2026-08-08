@@ -298,7 +298,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, 'a> {
         database.begin();
         let epoch = database.get_clarity_epoch_version().unwrap();
-        let version = ClarityVersion::default_for_epoch(epoch);
+        let version = crate::vm::version::legacy_default_clarity_version_for_epoch(epoch);
         database.roll_back().unwrap();
 
         debug!("Begin OwnedEnvironment(epoch = {epoch}, version = {version})");

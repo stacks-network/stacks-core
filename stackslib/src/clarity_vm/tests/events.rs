@@ -20,7 +20,7 @@ use clarity::vm::tests::{
     execute, test_only_mainnet_to_chain_id, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use clarity::vm::types::{AssetIdentifier, BuffData, QualifiedContractIdentifier, Value};
-use clarity::vm::{ClarityName, ClarityVersion, ContractContext};
+use clarity::vm::{ClarityName, ContractContext};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
@@ -28,6 +28,7 @@ use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::clarity::{ClarityInstance, ClarityMarfStore};
 use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::engine::default_clarity_version_for_epoch;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {
@@ -95,7 +96,7 @@ fn helper_execute_epoch(
     );
     let placeholder_context = ContractContext::new(
         QualifiedContractIdentifier::transient(),
-        ClarityVersion::default_for_epoch(epoch),
+        default_clarity_version_for_epoch(epoch),
     );
 
     {

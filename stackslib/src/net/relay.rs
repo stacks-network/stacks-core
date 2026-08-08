@@ -20,7 +20,6 @@ use std::mem;
 use clarity::vm::ast::ast_check_size;
 use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
-use clarity::vm::ClarityVersion;
 use rand::prelude::*;
 use rand::{thread_rng, Rng};
 use stacks_common::codec::MAX_PAYLOAD_LEN;
@@ -40,6 +39,7 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{StacksBlockHeader, TransactionPayload};
+use crate::clarity_vm::engine::default_clarity_version_for_epoch;
 use crate::core::mempool::{MemPoolDB, *};
 use crate::monitoring::update_stacks_tip_height;
 use crate::net::chat::*;
@@ -1786,7 +1786,7 @@ impl Relayer {
                 tx.payload
             {
                 let clarity_version =
-                    clarity_version_opt.unwrap_or(ClarityVersion::default_for_epoch(epoch_id));
+                    clarity_version_opt.unwrap_or(default_clarity_version_for_epoch(epoch_id));
 
                 let origin = tx.get_origin();
                 let issuer_principal = {
