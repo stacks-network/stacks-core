@@ -17,6 +17,7 @@
 use clarity_types::ClarityName;
 use clarity_types::types::CallableData;
 
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::callables::DefineType;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -191,7 +192,7 @@ pub fn special_contract_call(
 
                         // If this check succeeds, the subsequent trait reference and method checks cannot fail
                         function_to_check.check_trait_expectations(
-                            exec_state.epoch(),
+                            &CLARITY6_BASELINE_EPOCH,
                             &contract_defining_trait,
                             &trait_identifier,
                         )?;
@@ -283,14 +284,14 @@ pub fn special_contract_call(
 
     // sanitize contract-call outputs in epochs >= 2.4
     let result_type = TypeSignature::type_of(&result)?;
-    let (result, _) = Value::sanitize_value(exec_state.epoch(), &result_type, result)
+    let (result, _) = Value::sanitize_value(&CLARITY6_BASELINE_EPOCH, &result_type, result)
         .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
     if let Some(returns_type_signature) = type_returns_constraint {
         let actual_returns = TypeSignature::type_of(&result)?;
-        if !returns_type_signature.admits_type(exec_state.epoch(), &actual_returns)? {
+        if !returns_type_signature.admits_type(&CLARITY6_BASELINE_EPOCH, &actual_returns)? {
             return Err(RuntimeCheckErrorKind::ReturnTypesMustMatch(
                 Box::new(returns_type_signature),
                 Box::new(actual_returns),
@@ -332,7 +333,7 @@ pub fn special_fetch_variable_v200(
         data_types.value_type.size()?,
     )?;
 
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     exec_state
         .global_context
         .database
@@ -365,7 +366,7 @@ pub fn special_fetch_variable_v205(
             "No such data variable: {var_name}"
         )))?;
 
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     let result = exec_state
         .global_context
         .database
@@ -422,7 +423,7 @@ pub fn special_set_variable_v200(
     exec_state.add_memory(value.as_ref().get_memory_use()?)?;
 
     let value = value.clone_with_cost(exec_state)?;
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     exec_state
         .global_context
         .database
@@ -465,7 +466,7 @@ pub fn special_set_variable_v205(
         )))?;
 
     let value = value.clone_with_cost(exec_state)?;
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     let result = exec_state
         .global_context
         .database
@@ -515,7 +516,7 @@ pub fn special_fetch_entry_v200(
         data_types.value_type.size()? + data_types.key_type.size()?,
     )?;
 
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     exec_state.global_context.database.fetch_entry(
         contract,
         map_name,
@@ -553,7 +554,7 @@ pub fn special_fetch_entry_v205(
             "No such map: {map_name}"
         )))?;
 
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     let result = exec_state.global_context.database.fetch_entry_with_size(
         contract,
         map_name,
@@ -627,7 +628,7 @@ pub fn special_set_entry_v200(
 
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     exec_state
         .global_context
         .database
@@ -673,7 +674,7 @@ pub fn special_set_entry_v205(
 
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     let result = exec_state
         .global_context
         .database
@@ -734,7 +735,7 @@ pub fn special_insert_entry_v200(
     exec_state.add_memory(key.as_ref().get_memory_use()?)?;
     exec_state.add_memory(value.as_ref().get_memory_use()?)?;
 
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
 
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
@@ -783,7 +784,7 @@ pub fn special_insert_entry_v205(
 
     let key = key.clone_with_cost(exec_state)?;
     let value = value.clone_with_cost(exec_state)?;
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     let result = exec_state
         .global_context
         .database
@@ -841,7 +842,7 @@ pub fn special_delete_entry_v200(
 
     exec_state.add_memory(key.as_ref().get_memory_use()?)?;
 
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     exec_state
         .global_context
         .database
@@ -883,7 +884,7 @@ pub fn special_delete_entry_v205(
             "No such map: {map_name}"
         )))?;
 
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     let result = exec_state.global_context.database.delete_entry(
         contract,
         map_name,
@@ -1158,7 +1159,7 @@ pub fn special_get_burn_block_info(
                             ClarityName::from_literal("addrs"),
                             Value::cons_list(
                                 addrs.into_iter().map(Value::Tuple).collect(),
-                                exec_state.epoch(),
+                                &CLARITY6_BASELINE_EPOCH,
                             )
                             .map_err(|_| {
                                 VmInternalError::Expect(

@@ -23,6 +23,7 @@ use stacks_common::types::StacksEpochId;
 use super::costs::{CostErrors, CostOverflowingMath};
 use super::errors::VmInternalError;
 use super::types::signatures::CallableSubtype;
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::contexts::{
     ContractContext, ExecutionState, FunctionExecutionOptions, InvocationContext,
 };
@@ -245,12 +246,13 @@ impl DefinedFunction {
                 // and traits can be implicitly cast to sub-traits
                 // e.g. `<foo-and-bar>` to `<foo>`
                 let cast_value = clarity2_implicit_cast(type_sig, value)?;
-                let cast_value = Value::sanitize_value(exec_state.epoch(), type_sig, cast_value)
-                    .ok_or(RuntimeCheckErrorKind::TypeValueError(
-                        Box::new(type_sig.clone()),
-                        value.to_error_string(),
-                    ))?
-                    .0;
+                let cast_value =
+                    Value::sanitize_value(&CLARITY6_BASELINE_EPOCH, type_sig, cast_value)
+                        .ok_or(RuntimeCheckErrorKind::TypeValueError(
+                            Box::new(type_sig.clone()),
+                            value.to_error_string(),
+                        ))?
+                        .0;
 
                 match (&type_sig, &cast_value) {
                     (
@@ -272,7 +274,7 @@ impl DefinedFunction {
                         );
                     }
                     _ => {
-                        if !type_sig.admits(exec_state.epoch(), &cast_value)? {
+                        if !type_sig.admits(&CLARITY6_BASELINE_EPOCH, &cast_value)? {
                             return Err(RuntimeCheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
                                 cast_value.to_error_string(),

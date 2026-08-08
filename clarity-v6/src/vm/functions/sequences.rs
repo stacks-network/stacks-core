@@ -18,6 +18,7 @@ use std::cmp;
 
 use clarity_types::types::RetainValuesError;
 
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostOverflowingMath, runtime_cost};
@@ -52,7 +53,7 @@ pub fn list_cons(
 
     runtime_cost(ClarityCostFunction::ListCons, exec_state, arg_size)?;
 
-    let value = Value::cons_list(args, exec_state.epoch())?;
+    let value = Value::cons_list(args, &CLARITY6_BASELINE_EPOCH)?;
     Ok(value)
 }
 
@@ -270,7 +271,7 @@ pub fn special_map_v200(
         mapped_results.push(res);
     }
 
-    let value = Value::cons_list(mapped_results, exec_state.epoch())?;
+    let value = Value::cons_list(mapped_results, &CLARITY6_BASELINE_EPOCH)?;
     Ok(value)
 }
 
@@ -338,7 +339,7 @@ pub fn special_map_v400(
         mapped_results.push(res);
     }
 
-    let value = Value::cons_list(mapped_results, exec_state.epoch())?;
+    let value = Value::cons_list(mapped_results, &CLARITY6_BASELINE_EPOCH)?;
     Ok(value)
 }
 
@@ -368,13 +369,17 @@ pub fn special_append(
             let element = element.clone_with_cost(exec_state)?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
-                return Ok(Value::cons_list(vec![element], exec_state.epoch())?);
+                return Ok(Value::cons_list(vec![element], &CLARITY6_BASELINE_EPOCH)?);
             }
 
-            let next_entry_type =
-                TypeSignature::least_supertype(exec_state.epoch(), &entry_type, &element_type)?;
-            let (element, _) = Value::sanitize_value(exec_state.epoch(), &next_entry_type, element)
-                .ok_or_else(|| RuntimeCheckErrorKind::ListTypesMustMatch)?;
+            let next_entry_type = TypeSignature::least_supertype(
+                &CLARITY6_BASELINE_EPOCH,
+                &entry_type,
+                &element_type,
+            )?;
+            let (element, _) =
+                Value::sanitize_value(&CLARITY6_BASELINE_EPOCH, &next_entry_type, element)
+                    .ok_or_else(|| RuntimeCheckErrorKind::ListTypesMustMatch)?;
 
             let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
             data.push(element);
@@ -420,7 +425,7 @@ pub fn special_concat_v200(
 
     match (&mut wrapped_seq, other_wrapped_seq) {
         (Value::Sequence(seq), Value::Sequence(other_seq)) => {
-            seq.concat(exec_state.epoch(), other_seq)?
+            seq.concat(&CLARITY6_BASELINE_EPOCH, other_seq)?
         }
         (Value::Sequence(_), other_value) => {
             // The first value is a sequence, but the second is not
@@ -464,7 +469,7 @@ pub fn special_concat_v205(
                 (seq.len() as u64).cost_overflow_add(other_seq.len() as u64)?,
             )?;
 
-            seq.concat(exec_state.epoch(), other_seq)?
+            seq.concat(&CLARITY6_BASELINE_EPOCH, other_seq)?
         }
         (Value::Sequence(seq_data), other_value) => {
             runtime_cost(ClarityCostFunction::Concat, exec_state, 1)?;
@@ -575,7 +580,7 @@ pub fn special_concat_v400(
     for other in values_iter {
         match (&mut result, other) {
             (Value::Sequence(seq), Value::Sequence(other_seq)) => {
-                seq.concat(exec_state.epoch(), other_seq)?;
+                seq.concat(&CLARITY6_BASELINE_EPOCH, other_seq)?;
             }
             (Value::Sequence(seq_data), other_value) => {
                 return Err(RuntimeCheckErrorKind::TypeValueError(
@@ -731,7 +736,7 @@ pub fn special_slice(
                     (right_position - left_position) * seq.element_size()?,
                 )?;
                 let seq_value = seq.slice(
-                    exec_state.epoch(),
+                    &CLARITY6_BASELINE_EPOCH,
                     left_position as usize,
                     right_position as usize,
                 )?;
@@ -775,7 +780,7 @@ pub fn special_replace_at(
     let new_element = eval(&args[2], exec_state, invoke_ctx, context)?;
 
     if expected_elem_type != TypeSignature::NoType
-        && !expected_elem_type.admits(exec_state.epoch(), new_element.as_ref())?
+        && !expected_elem_type.admits(&CLARITY6_BASELINE_EPOCH, new_element.as_ref())?
     {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_elem_type),
@@ -808,5 +813,5 @@ pub fn special_replace_at(
         return Ok(Value::none());
     }
     let new_element = new_element.clone_with_cost(exec_state)?;
-    Ok(data.replace_at(exec_state.epoch(), index, new_element)?)
+    Ok(data.replace_at(&CLARITY6_BASELINE_EPOCH, index, new_element)?)
 }

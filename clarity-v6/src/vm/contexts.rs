@@ -223,9 +223,6 @@ pub struct GlobalContext<'a, 'hooks> {
     pub database: RuntimeSlot<ClarityDatabase<'a>>,
     pub cost_track: RuntimeSlot<CostTrackerHandle>,
     pub mainnet: bool,
-    /// Fixed epoch-shaped compatibility value used by copied interpreter APIs
-    /// to select the one Clarity 6 semantic profile.
-    pub(crate) semantic_epoch: StacksEpochId,
     /// Actual epoch of the block executing this transaction. This is host
     /// routing context only: nested calls pass it to the selected callee
     /// engine, but Clarity 6 semantics must not consult it.
@@ -950,12 +947,6 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         Ok(expressions)
     }
 
-    /// The fixed epoch-shaped input for copied runtime helpers. It represents
-    /// the Clarity 6 revision, not the host block epoch.
-    pub fn epoch(&self) -> &StacksEpochId {
-        &self.global_context.semantic_epoch
-    }
-
     pub fn kernel_ruleset(&self) -> KernelRuleset {
         self.global_context.kernel_ruleset
     }
@@ -1076,7 +1067,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                     // testing todo: ensure sanitize_value() preserves trait callability!
                     let expected_type = TypeSignature::type_of(value)?;
                     let (sanitized_value, _) = Value::sanitize_value(
-                        self.epoch(),
+                        &CLARITY6_BASELINE_EPOCH,
                         &expected_type,
                         value.clone(),
                     ).ok_or_else(|| RuntimeCheckErrorKind::TypeValueError(
@@ -1663,7 +1654,6 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             cost_track: RuntimeSlot::new(cost_track),
             transaction: RuntimeSlot::new(transaction),
             mainnet,
-            semantic_epoch: CLARITY6_BASELINE_EPOCH,
             host_epoch,
             kernel_ruleset,
             chain_id,
@@ -1741,7 +1731,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         sender: &PrincipalData,
         amount: u128,
     ) -> Result<(), VmExecutionError> {
-        let epoch = self.semantic_epoch;
+        let epoch = CLARITY6_BASELINE_EPOCH;
         self.get_asset_map()?.add_stacking(sender, amount, epoch)
     }
 
@@ -1839,7 +1829,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
 
     pub fn commit(&mut self) -> Result<(Option<AssetMap>, Option<EventBatch>), VmExecutionError> {
         trace!("Calling commit");
-        let result = match self.transaction.commit(self.semantic_epoch) {
+        let result = match self.transaction.commit(CLARITY6_BASELINE_EPOCH) {
             Ok(result) => result,
             Err(e) => {
                 self.database.roll_back()?;

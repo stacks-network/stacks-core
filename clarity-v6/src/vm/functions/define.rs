@@ -16,6 +16,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, ExecutionState, InvocationContext, LocalContext};
 use crate::vm::errors::{
@@ -167,7 +168,7 @@ fn handle_define_function(
     check_legal_define(function_name, invoke_ctx.contract_context)?;
 
     let arguments = parse_name_type_pairs::<_, RuntimeCheckErrorKind>(
-        *exec_state.epoch(),
+        CLARITY6_BASELINE_EPOCH,
         arg_symbols,
         SyntaxBindingErrorType::Eval,
         exec_state,
@@ -198,7 +199,7 @@ fn handle_define_persisted_variable(
     check_legal_define(variable_str, invoke_ctx.contract_context)?;
 
     let value_type_signature =
-        TypeSignature::parse_type_repr(*exec_state.epoch(), value_type, exec_state)?;
+        TypeSignature::parse_type_repr(CLARITY6_BASELINE_EPOCH, value_type, exec_state)?;
 
     let context = LocalContext::new();
     let value = eval(value, exec_state, invoke_ctx, &context)?.clone_with_cost(exec_state)?;
@@ -219,7 +220,7 @@ fn handle_define_nonfungible_asset(
     check_legal_define(asset_name, invoke_ctx.contract_context)?;
 
     let key_type_signature =
-        TypeSignature::parse_type_repr(*exec_state.epoch(), key_type, exec_state)?;
+        TypeSignature::parse_type_repr(CLARITY6_BASELINE_EPOCH, key_type, exec_state)?;
 
     Ok(DefineResult::NonFungibleAsset(
         asset_name.clone(),
@@ -265,9 +266,9 @@ fn handle_define_map(
     check_legal_define(map_str, invoke_ctx.contract_context)?;
 
     let key_type_signature =
-        TypeSignature::parse_type_repr(*exec_state.epoch(), key_type, exec_state)?;
+        TypeSignature::parse_type_repr(CLARITY6_BASELINE_EPOCH, key_type, exec_state)?;
     let value_type_signature =
-        TypeSignature::parse_type_repr(*exec_state.epoch(), value_type, exec_state)?;
+        TypeSignature::parse_type_repr(CLARITY6_BASELINE_EPOCH, value_type, exec_state)?;
 
     Ok(DefineResult::Map(
         map_str.clone(),
@@ -287,7 +288,7 @@ fn handle_define_trait(
     let trait_signature = TypeSignature::parse_trait_type_repr(
         functions,
         exec_state,
-        *exec_state.epoch(),
+        CLARITY6_BASELINE_EPOCH,
         *invoke_ctx.contract_context.get_clarity_version(),
     )?;
 

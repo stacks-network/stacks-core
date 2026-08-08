@@ -64,6 +64,7 @@ use self::analysis::ContractAnalysis;
 use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::callables::{BuiltinKind, CallableType, FunctionIdentifier};
 pub use crate::vm::contexts::{CallStack, ContractContext, LocalContext, MAX_CONTEXT_DEPTH};
 use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
@@ -654,7 +655,7 @@ pub fn eval_all(
                     global_context.add_memory(value.size()?.into())?;
 
                     let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type)?;
-                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &global_context.semantic_epoch)?;
+                    global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &CLARITY6_BASELINE_EPOCH)?;
 
                     contract_context.meta_data_var.insert(name, data_type);
                 },

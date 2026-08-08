@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::Value::CallableContract;
 use crate::vm::analysis::errors::CommonCheckErrorKind;
 use crate::vm::callables::{CallableType, NativeHandle, cost_input_sized_vararg};
@@ -601,7 +602,7 @@ pub fn lookup_reserved_functions(name: &str, _version: &ClarityVersion) -> Optio
 
 fn native_eq(
     args: Vec<Value>,
-    exec_state: &mut ExecutionState,
+    _exec_state: &mut ExecutionState,
     _invoke_ctx: &InvocationContext,
 ) -> Result<Value, VmExecutionError> {
     // TODO: this currently uses the derived equality checks of Value,
@@ -616,7 +617,7 @@ fn native_eq(
         let mut arg_type = TypeSignature::type_of(first)?;
         for x in args.iter() {
             arg_type = TypeSignature::least_supertype(
-                exec_state.epoch(),
+                &CLARITY6_BASELINE_EPOCH,
                 &TypeSignature::type_of(x)?,
                 &arg_type,
             )?;

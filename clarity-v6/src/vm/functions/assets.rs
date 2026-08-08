@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, runtime_cost};
@@ -439,7 +440,7 @@ pub fn special_mint_asset_v200(
         expected_asset_type.size()?,
     )?;
 
-    if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
+    if !expected_asset_type.admits(&CLARITY6_BASELINE_EPOCH, asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             asset.as_ref().to_error_string(),
@@ -462,7 +463,7 @@ pub fn special_mint_asset_v200(
         exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
         exec_state.add_memory(expected_asset_type.size()?.into())?;
 
-        let epoch = *exec_state.epoch();
+        let epoch = CLARITY6_BASELINE_EPOCH;
         exec_state.global_context.database.set_nft_owner(
             &invoke_ctx.contract_context.contract_identifier,
             asset_name,
@@ -519,7 +520,7 @@ pub fn special_mint_asset_v205(
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftMint, exec_state, asset_size)?;
 
-    if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
+    if !expected_asset_type.admits(&CLARITY6_BASELINE_EPOCH, asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             asset.as_ref().to_error_string(),
@@ -542,7 +543,7 @@ pub fn special_mint_asset_v205(
         exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
         exec_state.add_memory(asset_size)?;
 
-        let epoch = *exec_state.epoch();
+        let epoch = CLARITY6_BASELINE_EPOCH;
         exec_state.global_context.database.set_nft_owner(
             &invoke_ctx.contract_context.contract_identifier,
             asset_name,
@@ -598,7 +599,7 @@ pub fn special_transfer_asset_v200(
         expected_asset_type.size()?,
     )?;
 
-    if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
+    if !expected_asset_type.admits(&CLARITY6_BASELINE_EPOCH, asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             asset.as_ref().to_error_string(),
@@ -633,7 +634,7 @@ pub fn special_transfer_asset_v200(
         exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
         exec_state.add_memory(expected_asset_type.size()?.into())?;
 
-        let epoch = *exec_state.epoch();
+        let epoch = CLARITY6_BASELINE_EPOCH;
         exec_state.global_context.database.set_nft_owner(
             &invoke_ctx.contract_context.contract_identifier,
             asset_name,
@@ -699,7 +700,7 @@ pub fn special_transfer_asset_v205(
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftTransfer, exec_state, asset_size)?;
 
-    if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
+    if !expected_asset_type.admits(&CLARITY6_BASELINE_EPOCH, asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             asset.as_ref().to_error_string(),
@@ -734,7 +735,7 @@ pub fn special_transfer_asset_v205(
         exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
         exec_state.add_memory(asset_size)?;
 
-        let epoch = *exec_state.epoch();
+        let epoch = CLARITY6_BASELINE_EPOCH;
         exec_state.global_context.database.set_nft_owner(
             &invoke_ctx.contract_context.contract_identifier,
             asset_name,
@@ -938,7 +939,7 @@ pub fn special_get_owner_v200(
         expected_asset_type.size()?,
     )?;
 
-    if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
+    if !expected_asset_type.admits(&CLARITY6_BASELINE_EPOCH, asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             asset.as_ref().to_error_string(),
@@ -989,7 +990,7 @@ pub fn special_get_owner_v205(
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftOwner, exec_state, asset_size)?;
 
-    if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
+    if !expected_asset_type.admits(&CLARITY6_BASELINE_EPOCH, asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             asset.as_ref().to_error_string(),
@@ -1139,7 +1140,7 @@ pub fn special_burn_asset_v200(
         expected_asset_type.size()?,
     )?;
 
-    if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
+    if !expected_asset_type.admits(&CLARITY6_BASELINE_EPOCH, asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             asset.as_ref().to_error_string(),
@@ -1168,7 +1169,7 @@ pub fn special_burn_asset_v200(
         exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
         exec_state.add_memory(expected_asset_type.size()?.into())?;
 
-        let epoch = *exec_state.epoch();
+        let epoch = CLARITY6_BASELINE_EPOCH;
         exec_state.global_context.database.burn_nft(
             &invoke_ctx.contract_context.contract_identifier,
             asset_name,
@@ -1233,7 +1234,7 @@ pub fn special_burn_asset_v205(
         .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftBurn, exec_state, asset_size)?;
 
-    if !expected_asset_type.admits(exec_state.epoch(), asset.as_ref())? {
+    if !expected_asset_type.admits(&CLARITY6_BASELINE_EPOCH, asset.as_ref())? {
         return Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             asset.as_ref().to_error_string(),
@@ -1262,7 +1263,7 @@ pub fn special_burn_asset_v205(
         exec_state.add_memory(TypeSignature::PrincipalType.size()?.into())?;
         exec_state.add_memory(asset_size)?;
 
-        let epoch = *exec_state.epoch();
+        let epoch = CLARITY6_BASELINE_EPOCH;
         exec_state.global_context.database.burn_nft(
             &invoke_ctx.contract_context.contract_identifier,
             asset_name,

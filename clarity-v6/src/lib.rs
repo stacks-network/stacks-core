@@ -792,7 +792,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_semantics_are_separate_from_nested_dispatch_epoch() {
+    fn nested_dispatch_retains_the_host_epoch() {
         let mut store = setup_store(StacksEpochId::Epoch20);
         let env = OwnedEnvironment::new_with_dispatcher(
             false,
@@ -809,7 +809,6 @@ mod tests {
             None,
         );
 
-        assert_eq!(env.context.semantic_epoch, CLARITY6_BASELINE_EPOCH);
         assert_eq!(env.context.host_epoch, StacksEpochId::Epoch20);
         assert_eq!(
             env.context.kernel_ruleset,

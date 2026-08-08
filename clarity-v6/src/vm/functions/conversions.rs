@@ -17,6 +17,7 @@
 use clarity_types::errors::ClarityTypeError;
 use clarity_types::types::serialization::SerializationError;
 
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -324,7 +325,7 @@ pub fn from_consensus_buff(
 ) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
-    let type_arg = TypeSignature::parse_type_repr(*exec_state.epoch(), &args[0], exec_state)?;
+    let type_arg = TypeSignature::parse_type_repr(CLARITY6_BASELINE_EPOCH, &args[0], exec_state)?;
     let value = eval(&args[1], exec_state, invoke_ctx, context)?;
 
     // get the buffer bytes from the supplied value. if not passed a buffer,
@@ -355,7 +356,7 @@ pub fn from_consensus_buff(
         }
         Err(_) => return Ok(Value::none()),
     };
-    if !type_arg.admits(exec_state.epoch(), &result)? {
+    if !type_arg.admits(&CLARITY6_BASELINE_EPOCH, &result)? {
         return Ok(Value::none());
     }
 

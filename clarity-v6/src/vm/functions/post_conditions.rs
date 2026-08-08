@@ -19,6 +19,7 @@ use clarity_types::ClarityName;
 use clarity_types::types::{AssetIdentifier, PrincipalData, StandardPrincipalData};
 use stacks_common::types::StacksEpochId;
 
+use crate::CLARITY6_BASELINE_EPOCH;
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::{AssetMap, ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -381,7 +382,7 @@ fn evaluate_body_with_allowance_check(
     exec_state: &mut ExecutionState,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    let epoch = *exec_state.epoch();
+    let epoch = CLARITY6_BASELINE_EPOCH;
     exec_state.global_context.begin();
 
     // Evaluate the body expressions inside a closure so `?` only exits the closure
