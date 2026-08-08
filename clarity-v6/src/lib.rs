@@ -16,24 +16,33 @@
 //! The pinned Clarity 6 engine, introduced with Stacks epoch 4.0.
 //!
 //! Revision 1 establishes Clarity 6 as a separately linkable engine behind
-//! the kernel ABI. It initially delegates evaluation to the frozen legacy
-//! interpreter for byte-for-byte behavior parity while Clarity 6 semantics
-//! are extracted and their historical gates are replaced with fixed choices.
+//! the kernel ABI. The engine owns its ABI orchestration, parsed/analyzed
+//! contract representation, rollback lifecycle, and entry points. Its
+//! lower-level parser, analyzer, and evaluator modules are temporarily shared
+//! with the frozen interpreter while those semantic subsystems are extracted
+//! and their historical gates are replaced with fixed Clarity 6 choices.
 //! Real epoch-4.0 and epoch-4.1 contracts route through this engine, making
 //! every extraction step testable against mainnet history.
 
-use clarity::vm::analysis::ContractAnalysis;
-use clarity::vm::ast::ContractAST;
-use clarity::vm::engine::LegacyEngine;
+use clarity::vm::SymbolicExpression;
+use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis, run_analysis};
+use clarity::vm::ast::{ContractAST, build_ast};
+use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::database::ClarityDatabase;
+use clarity::vm::errors::ClarityEvalError;
+use clarity_kernel::assets::AssetMap;
+use clarity_kernel::costs::{CostTrackerHandle, ExecutionCost};
 use clarity_kernel::engine::{
-    AbortCallback, AnalyzedContract, ContractDispatcher, DeployOutcome, Engine, EngineError,
-    ExecutionOutcome, TransactionContext,
+    AbortCallback, AnalyzedContract, ContractDispatcher, CostBudget, DeployOutcome, Engine,
+    EngineError, ExecutionOutcome, TransactionContext,
 };
+use clarity_kernel::events::StacksTransactionEvent;
 use clarity_kernel::resource_limiter::ResourceBudget;
+use clarity_kernel::transaction::{CallStack, TransactionFrame};
 use clarity_types::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity_types::{ClarityVersion, Value};
 
-static LEGACY_EXECUTOR: LegacyEngine = LegacyEngine;
 const SUPPORTED_VERSIONS: &[ClarityVersion] = &[ClarityVersion::Clarity6];
 
 /// The first separately linkable Clarity 6 consensus revision.
@@ -41,28 +50,43 @@ pub struct Clarity6Engine;
 
 /// Clarity 6's private analyzed representation.
 ///
-/// Revision 1 carries the behavior-parity legacy representation internally;
-/// the host and other engines only see the kernel's stored interface.
+/// The host and other engines only see the kernel's stored interface.
 struct Clarity6Analysis {
-    legacy: AnalyzedContract,
+    ast: ContractAST,
+    analysis: ContractAnalysis,
+}
+
+/// The engine's working parts, taken out of a transaction context for one
+/// interaction and returned on every success and error path.
+struct TakenParts<'a> {
+    tracker: CostTrackerHandle,
+    db: ClarityDatabase<'a>,
+}
+
+struct ExecutionParts<'a> {
+    core: TakenParts<'a>,
+    transaction: TransactionFrame,
+    call_stack: CallStack,
+    dispatcher: Option<Box<dyn ContractDispatcher>>,
+}
+
+type Produced<R> = (R, AssetMap, Vec<StacksTransactionEvent>);
+type InteractionOutcome<R> = Result<(Produced<R>, ExecutionCost), EngineError>;
+
+fn engine_error(err: ClarityEvalError) -> EngineError {
+    match err {
+        ClarityEvalError::Vm(e) => EngineError::Execution(e),
+        ClarityEvalError::Parse(e) => EngineError::Parse(vec![e.diagnostic]),
+    }
 }
 
 impl Clarity6Engine {
-    fn wrap_legacy_analysis(legacy: AnalyzedContract) -> AnalyzedContract {
-        let source = legacy.source().to_owned();
-        let interface = legacy.interface().clone();
-        AnalyzedContract::new(source, interface, Clarity6Analysis { legacy })
-    }
-
-    fn analysis(analyzed: &AnalyzedContract) -> Result<&AnalyzedContract, EngineError> {
-        analyzed
-            .engine_data::<Clarity6Analysis>()
-            .map(|analysis| &analysis.legacy)
-            .ok_or_else(|| {
-                EngineError::Internal(
-                    "AnalyzedContract was not produced by clarity-v6 revision 1".into(),
-                )
-            })
+    fn analysis(analyzed: &AnalyzedContract) -> Result<&Clarity6Analysis, EngineError> {
+        analyzed.engine_data::<Clarity6Analysis>().ok_or_else(|| {
+            EngineError::Internal(
+                "AnalyzedContract was not produced by clarity-v6 revision 1".into(),
+            )
+        })
     }
 
     /// Wrap analysis performed through the legacy transaction API in a
@@ -75,7 +99,8 @@ impl Clarity6Engine {
         ast: ContractAST,
         analysis: ContractAnalysis,
     ) -> AnalyzedContract {
-        Self::wrap_legacy_analysis(LegacyEngine::from_legacy_parts(source, ast, analysis))
+        let interface = analysis.to_stored();
+        AnalyzedContract::new(source, interface, Clarity6Analysis { ast, analysis })
     }
 
     /// Recover the legacy working analysis needed by the transaction receipt
@@ -84,7 +109,174 @@ impl Clarity6Engine {
         analyzed: AnalyzedContract,
     ) -> Option<(ContractAST, ContractAnalysis)> {
         let analysis = analyzed.into_engine_data::<Clarity6Analysis>()?;
-        LegacyEngine::into_legacy_parts(analysis.legacy)
+        Some((analysis.ast, analysis.analysis))
+    }
+
+    fn take_or_create_tracker(
+        &self,
+        ctx: &mut TransactionContext,
+        db: &mut ClarityDatabase,
+    ) -> Result<CostTrackerHandle, EngineError> {
+        if let Some(tracker) = ctx.take_cost_tracker() {
+            return Ok(tracker);
+        }
+        let tracker = match &ctx.budget {
+            CostBudget::Free => LimitedCostTracker::new_free(),
+            CostBudget::Limited(limit) => {
+                LimitedCostTracker::new(ctx.mainnet, ctx.chain_id, limit.clone(), db, ctx.epoch)
+                    .map_err(|e| {
+                        EngineError::Internal(format!("Failed to initialize cost tracker: {e}"))
+                    })?
+            }
+        };
+        Ok(CostTrackerHandle::new(tracker))
+    }
+
+    fn take_parts<'a>(
+        &self,
+        ctx: &mut TransactionContext<'a>,
+    ) -> Result<TakenParts<'a>, EngineError> {
+        let mut db = ctx.take_db()?;
+        match self.take_or_create_tracker(ctx, &mut db) {
+            Ok(tracker) => Ok(TakenParts { tracker, db }),
+            Err(e) => {
+                ctx.restore_db(db);
+                Err(e)
+            }
+        }
+    }
+
+    fn take_execution_parts<'a>(
+        &self,
+        ctx: &mut TransactionContext<'a>,
+    ) -> Result<ExecutionParts<'a>, EngineError> {
+        let core = self.take_parts(ctx)?;
+        let transaction = match ctx.take_transaction_frame() {
+            Ok(transaction) => transaction,
+            Err(e) => {
+                ctx.restore_db(core.db);
+                self.park_tracker(ctx, core.tracker);
+                return Err(e);
+            }
+        };
+        let call_stack = match ctx.take_call_stack() {
+            Ok(call_stack) => call_stack,
+            Err(e) => {
+                ctx.restore_transaction_frame(transaction);
+                ctx.restore_db(core.db);
+                self.park_tracker(ctx, core.tracker);
+                return Err(e);
+            }
+        };
+        Ok(ExecutionParts {
+            core,
+            transaction,
+            call_stack,
+            dispatcher: ctx.take_dispatcher(),
+        })
+    }
+
+    fn park_tracker(
+        &self,
+        ctx: &mut TransactionContext,
+        tracker: CostTrackerHandle,
+    ) -> ExecutionCost {
+        let cost = tracker.get_total();
+        ctx.restore_cost_tracker(tracker);
+        cost
+    }
+
+    fn park_runtime(
+        &self,
+        ctx: &mut TransactionContext,
+        tracker: CostTrackerHandle,
+        transaction: TransactionFrame,
+        call_stack: CallStack,
+        dispatcher: Option<Box<dyn ContractDispatcher>>,
+    ) -> ExecutionCost {
+        ctx.restore_transaction_frame(transaction);
+        ctx.restore_call_stack(call_stack);
+        if let Some(dispatcher) = dispatcher {
+            ctx.restore_dispatcher(dispatcher);
+        }
+        self.park_tracker(ctx, tracker)
+    }
+
+    fn with_abortable_env<'a, F, R>(
+        &self,
+        ctx: &mut TransactionContext<'a>,
+        parts: ExecutionParts<'a>,
+        execution_budget: &ResourceBudget,
+        abort: Option<AbortCallback>,
+        output_for_abort: fn(&R) -> Option<Box<Value>>,
+        interact: F,
+    ) -> InteractionOutcome<R>
+    where
+        F: FnOnce(&mut OwnedEnvironment) -> Result<Produced<R>, EngineError>,
+    {
+        let ExecutionParts {
+            core: TakenParts { tracker, mut db },
+            transaction,
+            call_stack,
+            mut dispatcher,
+        } = parts;
+        db.begin();
+        let dispatcher_ref = dispatcher
+            .as_mut()
+            .map(|dispatcher| &mut **dispatcher as &mut (dyn ContractDispatcher + '_));
+        let mut env = OwnedEnvironment::new_with_dispatcher(
+            ctx.mainnet,
+            ctx.chain_id,
+            db,
+            tracker,
+            transaction,
+            call_stack,
+            ctx.epoch,
+            dispatcher_ref,
+        );
+        env.set_execution_resource_limiter(execution_budget.start_tracking());
+        let result = interact(&mut env);
+        let (mut db, tracker, transaction, call_stack) = env
+            .destruct_with_shared_transaction()
+            .ok_or_else(|| EngineError::Internal("OwnedEnvironment failed to destruct".into()))?;
+
+        match result {
+            Ok((value, assets, events)) => {
+                let abort_reason = match abort {
+                    Some(callback) => callback(&assets, &mut db),
+                    None => None,
+                };
+                match abort_reason {
+                    Some(reason) => {
+                        let rolled_back = db.roll_back().map_err(EngineError::Execution);
+                        ctx.restore_db(db);
+                        self.park_runtime(ctx, tracker, transaction, call_stack, dispatcher);
+                        rolled_back?;
+                        Err(EngineError::AbortedByCallback {
+                            output: output_for_abort(&value),
+                            assets: Box::new(assets),
+                            events,
+                            reason,
+                        })
+                    }
+                    None => {
+                        let committed = db.commit().map_err(EngineError::Execution);
+                        ctx.restore_db(db);
+                        let cost =
+                            self.park_runtime(ctx, tracker, transaction, call_stack, dispatcher);
+                        committed?;
+                        Ok(((value, assets, events), cost))
+                    }
+                }
+            }
+            Err(e) => {
+                let rolled_back = db.roll_back().map_err(EngineError::Execution);
+                ctx.restore_db(db);
+                self.park_runtime(ctx, tracker, transaction, call_stack, dispatcher);
+                rolled_back?;
+                Err(e)
+            }
+        }
     }
 }
 
@@ -112,14 +304,73 @@ impl Engine for Clarity6Engine {
             )));
         }
 
-        let legacy = LEGACY_EXECUTOR.analyze_contract(
-            ctx,
+        let TakenParts { tracker, db } = self.take_parts(ctx)?;
+        let mut tracker = match tracker.into_inner::<LimitedCostTracker>() {
+            Ok(tracker) => *tracker,
+            Err(tracker) => {
+                ctx.restore_db(db);
+                ctx.restore_cost_tracker(tracker);
+                return Err(EngineError::Internal(
+                    "Clarity 6 analysis requires a LimitedCostTracker".into(),
+                ));
+            }
+        };
+        let resource_limiter = analysis_budget.start_tracking();
+
+        let ast = match build_ast(
             contract,
             source,
+            &mut tracker,
             ClarityVersion::Clarity6,
-            analysis_budget,
-        )?;
-        Ok(Self::wrap_legacy_analysis(legacy))
+            ctx.epoch,
+        ) {
+            Ok(ast) => ast,
+            Err(e) => {
+                ctx.restore_db(db);
+                self.park_tracker(ctx, CostTrackerHandle::new(tracker));
+                return Err(EngineError::Parse(vec![e.diagnostic]));
+            }
+        };
+
+        let headers_db = db.get_headers_db();
+        let burn_state_db = db.get_burn_state_db();
+        let mut analysis_db = AnalysisDatabase::new_with_rollback_wrapper(db.destroy());
+        let analysis_result = run_analysis(
+            contract,
+            &ast.expressions,
+            &mut analysis_db,
+            false,
+            tracker,
+            ctx.epoch,
+            ClarityVersion::Clarity6,
+            false,
+            resource_limiter,
+        );
+        ctx.restore_db(ClarityDatabase::new_with_rollback_wrapper(
+            analysis_db.destroy(),
+            headers_db,
+            burn_state_db,
+        ));
+
+        match analysis_result {
+            Ok(mut analysis) => {
+                let tracker = analysis.take_contract_cost_tracker();
+                let interface = analysis.to_stored();
+                self.park_tracker(ctx, CostTrackerHandle::new(tracker));
+                debug_assert_eq!(interface.contract_identifier, *contract);
+                debug_assert_eq!(interface.clarity_version, ClarityVersion::Clarity6);
+                Ok(AnalyzedContract::new(
+                    source.to_owned(),
+                    interface,
+                    Clarity6Analysis { ast, analysis },
+                ))
+            }
+            Err(boxed) => {
+                let (check_error, tracker) = *boxed;
+                self.park_tracker(ctx, CostTrackerHandle::new(tracker));
+                Err(EngineError::Static(Box::new(check_error)))
+            }
+        }
     }
 
     fn initialize_contract(
@@ -130,13 +381,44 @@ impl Engine for Clarity6Engine {
         abort: Option<AbortCallback>,
         execution_budget: &ResourceBudget,
     ) -> Result<DeployOutcome, EngineError> {
-        LEGACY_EXECUTOR.initialize_contract(
+        let parts = self.take_execution_parts(ctx)?;
+        let analysis = match Self::analysis(analyzed) {
+            Ok(analysis) => analysis,
+            Err(e) => {
+                ctx.restore_db(parts.core.db);
+                self.park_runtime(
+                    ctx,
+                    parts.core.tracker,
+                    parts.transaction,
+                    parts.call_stack,
+                    parts.dispatcher,
+                );
+                return Err(e);
+            }
+        };
+
+        let (((), assets, events), cost) = self.with_abortable_env(
             ctx,
-            Self::analysis(analyzed)?,
-            sponsor,
-            abort,
+            parts,
             execution_budget,
-        )
+            abort,
+            |_: &()| None,
+            |env| {
+                env.initialize_contract_from_ast(
+                    analyzed.contract().clone(),
+                    ClarityVersion::Clarity6,
+                    &analysis.ast,
+                    analyzed.source(),
+                    sponsor,
+                )
+                .map_err(EngineError::Execution)
+            },
+        )?;
+        Ok(DeployOutcome {
+            assets,
+            events,
+            cost,
+        })
     }
 
     fn save_analysis(
@@ -144,7 +426,38 @@ impl Engine for Clarity6Engine {
         ctx: &mut TransactionContext,
         analyzed: &AnalyzedContract,
     ) -> Result<(), EngineError> {
-        LEGACY_EXECUTOR.save_analysis(ctx, Self::analysis(analyzed)?)
+        let TakenParts { tracker, db } = self.take_parts(ctx)?;
+        let analysis = match Self::analysis(analyzed) {
+            Ok(analysis) => analysis,
+            Err(e) => {
+                ctx.restore_db(db);
+                self.park_tracker(ctx, tracker);
+                return Err(e);
+            }
+        };
+
+        let headers_db = db.get_headers_db();
+        let burn_state_db = db.get_burn_state_db();
+        let mut analysis_db = AnalysisDatabase::new_with_rollback_wrapper(db.destroy());
+        analysis_db.begin();
+        let result = match analysis_db.insert_contract(analyzed.contract(), &analysis.analysis) {
+            Ok(()) => analysis_db
+                .commit()
+                .map_err(|e| EngineError::Static(Box::new(e))),
+            Err(e) => {
+                let rolled_back = analysis_db
+                    .roll_back()
+                    .map_err(|e| EngineError::Static(Box::new(e)));
+                rolled_back.and(Err(EngineError::Static(Box::new(e))))
+            }
+        };
+        ctx.restore_db(ClarityDatabase::new_with_rollback_wrapper(
+            analysis_db.destroy(),
+            headers_db,
+            burn_state_db,
+        ));
+        self.park_tracker(ctx, tracker);
+        result
     }
 
     fn execute_call(
@@ -158,16 +471,28 @@ impl Engine for Clarity6Engine {
         abort: Option<AbortCallback>,
         execution_budget: &ResourceBudget,
     ) -> Result<ExecutionOutcome, EngineError> {
-        LEGACY_EXECUTOR.execute_call(
+        let parts = self.take_execution_parts(ctx)?;
+        let expr_args: Vec<_> = args
+            .iter()
+            .map(|arg| SymbolicExpression::atom_value(arg.clone()))
+            .collect();
+        let ((value, assets, events), cost) = self.with_abortable_env(
             ctx,
-            sender,
-            sponsor,
-            contract,
-            function,
-            args,
-            abort,
+            parts,
             execution_budget,
-        )
+            abort,
+            |value: &Value| Some(Box::new(value.clone())),
+            |env| {
+                env.execute_transaction(sender, sponsor, contract.clone(), function, &expr_args)
+                    .map_err(EngineError::Execution)
+            },
+        )?;
+        Ok(ExecutionOutcome {
+            value,
+            assets,
+            events,
+            cost,
+        })
     }
 
     fn execute_nested_call(
@@ -181,9 +506,36 @@ impl Engine for Clarity6Engine {
         function: &str,
         args: &[Value],
     ) -> Result<Value, EngineError> {
-        LEGACY_EXECUTOR.execute_nested_call(
-            ctx, dispatcher, sender, caller, sponsor, contract, function, args,
-        )
+        let ExecutionParts {
+            core: TakenParts { tracker, db },
+            transaction,
+            call_stack,
+            dispatcher: parked_dispatcher,
+        } = self.take_execution_parts(ctx)?;
+        let mut env = OwnedEnvironment::new_with_dispatcher(
+            ctx.mainnet,
+            ctx.chain_id,
+            db,
+            tracker,
+            transaction,
+            call_stack,
+            ctx.epoch,
+            Some(dispatcher),
+        );
+        env.set_execution_resource_limiter(ctx.execution_resource_limiter());
+        let expr_args: Vec<_> = args
+            .iter()
+            .map(|arg| SymbolicExpression::atom_value(arg.clone()))
+            .collect();
+        let result = env
+            .execute_nested_transaction(sender, caller, sponsor, contract, function, &expr_args)
+            .map_err(EngineError::Execution);
+        let (db, tracker, transaction, call_stack) = env
+            .destruct_nested_with_shared_transaction()
+            .ok_or_else(|| EngineError::Internal("OwnedEnvironment failed to destruct".into()))?;
+        ctx.restore_db(db);
+        self.park_runtime(ctx, tracker, transaction, call_stack, parked_dispatcher);
+        result
     }
 
     fn eval_read_only(
@@ -192,13 +544,39 @@ impl Engine for Clarity6Engine {
         contract: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Value, EngineError> {
-        LEGACY_EXECUTOR.eval_read_only(ctx, contract, program)
+        let ExecutionParts {
+            core: TakenParts { tracker, db },
+            transaction,
+            call_stack,
+            mut dispatcher,
+        } = self.take_execution_parts(ctx)?;
+        let dispatcher_ref = dispatcher
+            .as_mut()
+            .map(|dispatcher| &mut **dispatcher as &mut (dyn ContractDispatcher + '_));
+        let mut env = OwnedEnvironment::new_with_dispatcher(
+            ctx.mainnet,
+            ctx.chain_id,
+            db,
+            tracker,
+            transaction,
+            call_stack,
+            ctx.epoch,
+            dispatcher_ref,
+        );
+        let result = env.eval_read_only(contract, program).map_err(engine_error);
+        let (db, tracker, transaction, call_stack) = env
+            .destruct_with_shared_transaction()
+            .ok_or_else(|| EngineError::Internal("OwnedEnvironment failed to destruct".into()))?;
+        ctx.restore_db(db);
+        self.park_runtime(ctx, tracker, transaction, call_stack, dispatcher);
+        result.map(|(value, _assets, _events)| value)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use clarity::vm::database::MemoryBackingStore;
+    use clarity::vm::engine::LegacyEngine;
     use clarity_kernel::costs::ExecutionCost;
     use clarity_kernel::engine::CostBudget;
     use clarity_types::types::StandardPrincipalData;
@@ -206,6 +584,8 @@ mod tests {
     use stacks_common::types::StacksEpochId;
 
     use super::*;
+
+    static LEGACY_EXECUTOR: LegacyEngine = LegacyEngine;
 
     const COUNTER: &str = "(define-data-var count uint u0)
         (define-read-only (get-count) (var-get count))

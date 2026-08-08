@@ -743,7 +743,11 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         Some((db, tracker, transaction, call_stack.into_inner()?))
     }
 
-    pub(crate) fn destruct_nested_with_shared_transaction(
+    /// Destroy a nested-call environment and recover the shared runtime
+    /// without requiring the database to have no open savepoints. External
+    /// engines use this to return state borrowed through the kernel ABI to
+    /// the suspended caller.
+    pub fn destruct_nested_with_shared_transaction(
         self,
     ) -> Option<(
         ClarityDatabase<'a>,
