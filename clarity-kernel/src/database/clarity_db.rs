@@ -19,8 +19,8 @@ use std::any::Any;
 use clarity_types::representations::ClarityName;
 use clarity_types::types::serialization::NONE_SERIALIZATION_LEN;
 use clarity_types::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, TypeSignature,
-    Value, byte_len_of_serialization,
+    PrincipalData, QualifiedContractIdentifier, SerializationRules, StandardPrincipalData,
+    TupleData, TypeSignature, Value, byte_len_of_serialization,
 };
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
@@ -193,6 +193,10 @@ pub struct ClarityDatabase<'a> {
     /// attached it downcasts via [`Self::execution_cache`] /
     /// [`Self::execution_cache_mut`].
     execution_cache: Option<&'a mut dyn Any>,
+    /// Host-selected shared serialization behavior. Direct legacy database
+    /// users that do not install it continue to derive behavior from the
+    /// explicit epoch arguments accepted by the compatibility API.
+    serialization_rules: Option<SerializationRules>,
 }
 
 pub trait HeadersDB {
@@ -522,6 +526,7 @@ impl<'a> ClarityDatabase<'a> {
             headers_db,
             burn_state_db,
             execution_cache: None,
+            serialization_rules: None,
         }
     }
 
@@ -535,7 +540,17 @@ impl<'a> ClarityDatabase<'a> {
             headers_db,
             burn_state_db,
             execution_cache: None,
+            serialization_rules: None,
         }
+    }
+
+    pub(crate) fn install_serialization_rules(&mut self, rules: SerializationRules) {
+        self.serialization_rules = Some(rules);
+    }
+
+    fn serialization_rules(&self, epoch: &StacksEpochId) -> SerializationRules {
+        self.serialization_rules
+            .unwrap_or_else(|| SerializationRules::from_epoch(epoch))
     }
 
     /// Attach an engine-owned execution cache to this instance for the
@@ -649,7 +664,8 @@ impl<'a> ClarityDatabase<'a> {
         value: Value,
         epoch: &StacksEpochId,
     ) -> Result<u64, VmExecutionError> {
-        let sanitize = epoch.value_sanitizing();
+        let rules = self.serialization_rules(epoch);
+        let sanitize = rules.sanitizes_values();
         let mut pre_sanitized_size = None;
 
         let serialized = if sanitize {
@@ -658,9 +674,13 @@ impl<'a> ClarityDatabase<'a> {
                 .map_err(|e| VmInternalError::Expect(e.to_string()))?
                 as u64;
 
-            let (sanitized_value, did_sanitize) =
-                Value::sanitize_value(epoch, &TypeSignature::type_of(&value)?, value)
-                    .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+            let (sanitized_value, did_sanitize) = Value::sanitize_value_with_rules(
+                epoch,
+                rules,
+                &TypeSignature::type_of(&value)?,
+                value,
+            )
+            .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
             // if data needed to be sanitized *charge* for the unsanitized cost
             if did_sanitize {
                 pre_sanitized_size = Some(value_size);
@@ -687,8 +707,9 @@ impl<'a> ClarityDatabase<'a> {
         expected: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<Option<ValueResult>, VmExecutionError> {
+        let rules = self.serialization_rules(epoch);
         self.store
-            .get_value(key, expected, epoch)
+            .get_value_with_rules(key, expected, rules)
             .map_err(|e| VmInternalError::DBError(e.to_string()).into())
     }
 

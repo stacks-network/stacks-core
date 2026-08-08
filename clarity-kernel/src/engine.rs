@@ -34,10 +34,9 @@
 //! [`StoredContractAnalysis`] format, so engines can read
 //! each other's deployed contracts.
 //!
-//! Known evolution points, in dependency order:
-//!
-//! - **Epoch inversion**: [`TransactionContext`] still carries a
-//!   `StacksEpochId`; it will become a kernel-owned ruleset identifier.
+//! The host supplies both its protocol epoch (transitionally retained for the
+//! frozen legacy engine) and a kernel-owned ruleset. Gate-free engines and
+//! shared kernel behavior consult only the ruleset.
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -54,6 +53,7 @@ use crate::diagnostic::Diagnostic;
 use crate::errors::{StaticCheckError, VmExecutionError};
 use crate::events::StacksTransactionEvent;
 use crate::resource_limiter::{ResourceBudget, ResourceLimiter};
+use crate::rules::KernelRuleset;
 use crate::transaction::{CallStack, TransactionFrame};
 
 /// An owned runtime component that may be temporarily lent across an engine
@@ -112,6 +112,7 @@ pub struct RuntimeContext<'runtime, 'db> {
     pub transaction_frame: &'runtime mut RuntimeSlot<TransactionFrame>,
     pub call_stack: &'runtime mut CallStack,
     pub execution_resource_limiter: ResourceLimiter,
+    pub ruleset: KernelRuleset,
     pub epoch: StacksEpochId,
     pub mainnet: bool,
     pub chain_id: u32,
@@ -148,6 +149,7 @@ impl<'db> RuntimeContext<'_, 'db> {
             self.mainnet,
             self.chain_id,
             self.epoch,
+            self.ruleset,
         ))
     }
 
@@ -301,9 +303,11 @@ pub struct TransactionContext<'a> {
     call_stack: Option<CallStack>,
     dispatcher: Option<Box<dyn ContractDispatcher>>,
     execution_resource_limiter: ResourceLimiter,
-    /// Transitional: epochs are a Stacks-host concept; this becomes a
-    /// kernel-owned ruleset identifier at the epoch-inversion step.
+    /// Transitional host epoch retained for the frozen legacy engine's
+    /// historical language and cost gates.
     pub epoch: StacksEpochId,
+    /// Consensus behavior shared by every engine in this transaction.
+    ruleset: KernelRuleset,
     pub mainnet: bool,
     pub chain_id: u32,
     /// Cost budget for all interactions in this context. Defaults to
@@ -320,11 +324,13 @@ pub struct TransactionContext<'a> {
 
 impl<'a> TransactionContext<'a> {
     pub fn new(
-        db: ClarityDatabase<'a>,
+        mut db: ClarityDatabase<'a>,
         mainnet: bool,
         chain_id: u32,
         epoch: StacksEpochId,
+        ruleset: KernelRuleset,
     ) -> Self {
+        db.install_serialization_rules(ruleset.serialization());
         TransactionContext {
             db: Some(db),
             cost_tracker: None,
@@ -333,6 +339,7 @@ impl<'a> TransactionContext<'a> {
             dispatcher: None,
             execution_resource_limiter: ResourceLimiter::unlimited(),
             epoch,
+            ruleset,
             mainnet,
             chain_id,
             budget: CostBudget::Free,
@@ -342,7 +349,7 @@ impl<'a> TransactionContext<'a> {
 
     #[allow(clippy::too_many_arguments)]
     fn from_runtime(
-        db: ClarityDatabase<'a>,
+        mut db: ClarityDatabase<'a>,
         cost_tracker: CostTrackerHandle,
         transaction_frame: TransactionFrame,
         call_stack: CallStack,
@@ -350,7 +357,9 @@ impl<'a> TransactionContext<'a> {
         mainnet: bool,
         chain_id: u32,
         epoch: StacksEpochId,
+        ruleset: KernelRuleset,
     ) -> Self {
+        db.install_serialization_rules(ruleset.serialization());
         Self {
             db: Some(db),
             cost_tracker: Some(cost_tracker),
@@ -359,6 +368,7 @@ impl<'a> TransactionContext<'a> {
             dispatcher: None,
             execution_resource_limiter,
             epoch,
+            ruleset,
             mainnet,
             chain_id,
             budget: CostBudget::Free,
@@ -368,6 +378,10 @@ impl<'a> TransactionContext<'a> {
 
     pub fn execution_resource_limiter(&self) -> ResourceLimiter {
         self.execution_resource_limiter
+    }
+
+    pub fn ruleset(&self) -> KernelRuleset {
+        self.ruleset
     }
 
     /// Install the host-owned nested-call router for this interaction.
@@ -470,7 +484,8 @@ impl<'a> TransactionContext<'a> {
     }
 
     /// Return the database after an engine interaction.
-    pub fn restore_db(&mut self, db: ClarityDatabase<'a>) {
+    pub fn restore_db(&mut self, mut db: ClarityDatabase<'a>) {
+        db.install_serialization_rules(self.ruleset.serialization());
         self.db = Some(db);
     }
 

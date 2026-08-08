@@ -76,8 +76,14 @@ fn main() {
 
     // A real (metered) cost budget: the engine enforces it cumulatively
     // across every interaction in this context.
-    let mut ctx = TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch)
-        .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
+    let mut ctx = TransactionContext::new(
+        store.as_clarity_db(),
+        false,
+        CHAIN_ID_TESTNET,
+        epoch,
+        clarity::vm::rules::KernelRuleset::V3,
+    )
+    .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
 
     // Deploy.
     let deploy = engine

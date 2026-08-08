@@ -60,7 +60,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::SymbolicExpression;
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::analysis::{AnalysisDatabase, run_analysis};
+use crate::vm::analysis::{AnalysisDatabase, run_analysis_with_ruleset};
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::ast::{ContractAST, build_ast};
 use crate::vm::contexts::OwnedEnvironment;
@@ -309,6 +309,7 @@ impl LegacyEngine {
             transaction,
             call_stack,
             ctx.epoch,
+            ctx.ruleset(),
             dispatcher_ref,
         );
         env.set_execution_resource_limiter(execution_budget.start_tracking());
@@ -399,13 +400,14 @@ impl Engine for LegacyEngine {
         let headers_db = db.get_headers_db();
         let burn_state_db = db.get_burn_state_db();
         let mut analysis_db = AnalysisDatabase::new_with_rollback_wrapper(db.destroy());
-        let analysis_result = run_analysis(
+        let analysis_result = run_analysis_with_ruleset(
             contract,
             &ast.expressions,
             &mut analysis_db,
             false,
             tracker,
             ctx.epoch,
+            ctx.ruleset(),
             version,
             false,
             resource_limiter,
@@ -589,6 +591,7 @@ impl Engine for LegacyEngine {
             transaction,
             call_stack,
             ctx.epoch,
+            ctx.ruleset(),
             Some(dispatcher),
         );
         env.set_execution_resource_limiter(ctx.execution_resource_limiter());
@@ -630,6 +633,7 @@ impl Engine for LegacyEngine {
             transaction,
             call_stack,
             ctx.epoch,
+            ctx.ruleset(),
             dispatcher_ref,
         );
         let result = env
@@ -674,6 +678,27 @@ mod tests {
         store
     }
 
+    fn test_context(db: ClarityDatabase<'_>, epoch: StacksEpochId) -> TransactionContext<'_> {
+        let ruleset = if epoch >= StacksEpochId::Epoch41 {
+            clarity_kernel::rules::KernelRuleset::V4
+        } else if epoch >= StacksEpochId::Epoch34 {
+            clarity_kernel::rules::KernelRuleset::V3
+        } else if epoch >= StacksEpochId::Epoch24 {
+            clarity_kernel::rules::KernelRuleset::V2
+        } else {
+            clarity_kernel::rules::KernelRuleset::V1
+        };
+        test_context_with_ruleset(db, epoch, ruleset)
+    }
+
+    fn test_context_with_ruleset(
+        db: ClarityDatabase<'_>,
+        epoch: StacksEpochId,
+        ruleset: clarity_kernel::rules::KernelRuleset,
+    ) -> TransactionContext<'_> {
+        TransactionContext::new(db, false, CHAIN_ID_TESTNET, epoch, ruleset)
+    }
+
     fn contract_id(name: &str) -> QualifiedContractIdentifier {
         QualifiedContractIdentifier::new(
             StandardPrincipalData::transient(),
@@ -694,6 +719,7 @@ mod tests {
             _contract: &QualifiedContractIdentifier,
         ) -> Result<&'static dyn Engine, EngineError> {
             assert!(runtime.transaction_frame.depth() > 0);
+            assert_eq!(runtime.ruleset, clarity_kernel::rules::KernelRuleset::V4);
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(&TEST_ENGINE)
         }
@@ -707,9 +733,8 @@ mod tests {
         let id = contract_id("counter");
         let sender: PrincipalData = StandardPrincipalData::transient().into();
 
-        let mut ctx =
-            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch)
-                .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
+        let mut ctx = test_context(store.as_clarity_db(), epoch)
+            .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
 
         let deploy = engine
             .deploy_contract(&mut ctx, &id, COUNTER, ClarityVersion::latest(), None)
@@ -755,9 +780,8 @@ mod tests {
                 (ok contract-caller)))";
         let caller_source = "(define-public (run) (contract-call? .callee record))";
 
-        let mut ctx =
-            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch)
-                .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
+        let mut ctx = test_context(store.as_clarity_db(), epoch)
+            .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
         engine
             .deploy_contract(
                 &mut ctx,
@@ -814,8 +838,7 @@ mod tests {
         let engine = LegacyEngine;
         let id = contract_id("analyzed");
 
-        let mut ctx =
-            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
+        let mut ctx = test_context(store.as_clarity_db(), epoch);
         engine
             .deploy_contract(&mut ctx, &id, COUNTER, ClarityVersion::latest(), None)
             .unwrap();
@@ -837,12 +860,12 @@ mod tests {
         let id = contract_id("broke");
 
         // A one-runtime-unit budget cannot even parse the contract.
-        let mut ctx =
-            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch)
-                .with_budget(CostBudget::Limited(ExecutionCost {
-                    runtime: 1,
-                    ..ExecutionCost::ZERO
-                }));
+        let mut ctx = test_context(store.as_clarity_db(), epoch).with_budget(CostBudget::Limited(
+            ExecutionCost {
+                runtime: 1,
+                ..ExecutionCost::ZERO
+            },
+        ));
 
         let err = engine
             .deploy_contract(&mut ctx, &id, COUNTER, ClarityVersion::latest(), None)
@@ -868,8 +891,7 @@ mod tests {
         let engine = LegacyEngine;
         let id = contract_id("illtyped");
 
-        let mut ctx =
-            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
+        let mut ctx = test_context(store.as_clarity_db(), epoch);
         let err = engine
             .deploy_contract(
                 &mut ctx,
@@ -936,8 +958,7 @@ mod tests {
         let mut store = setup_store(epoch);
         let engine = LegacyEngine;
 
-        let mut ctx =
-            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
+        let mut ctx = test_context(store.as_clarity_db(), epoch);
         let err = engine
             .deploy_contract(
                 &mut ctx,
@@ -961,8 +982,7 @@ mod tests {
         let id = contract_id("aborted");
         let sender: PrincipalData = StandardPrincipalData::transient().into();
 
-        let mut ctx =
-            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
+        let mut ctx = test_context(store.as_clarity_db(), epoch);
         engine
             .deploy_contract(&mut ctx, &id, COUNTER, ClarityVersion::latest(), None)
             .unwrap();
@@ -1004,8 +1024,7 @@ mod tests {
         let engine = LegacyEngine;
         let id = contract_id("phased");
 
-        let mut ctx =
-            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
+        let mut ctx = test_context(store.as_clarity_db(), epoch);
 
         // Phase 1: analyze — nothing persisted yet. The host holds the
         // handle across the phases, as the node's transaction path does.
@@ -1057,8 +1076,7 @@ mod tests {
         let engine = LegacyEngine;
         let id = contract_id("aborted-deploy");
 
-        let mut ctx =
-            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
+        let mut ctx = test_context(store.as_clarity_db(), epoch);
         let analyzed = engine
             .analyze_contract(
                 &mut ctx,
@@ -1106,7 +1124,7 @@ mod tests {
         let mut db = store.as_clarity_db();
         // The host's outer, uncommitted layer.
         db.begin();
-        let mut ctx = TransactionContext::new(db, false, CHAIN_ID_TESTNET, epoch);
+        let mut ctx = test_context(db, epoch);
 
         // Deploy inside the uncommitted layer.
         engine
@@ -1144,8 +1162,7 @@ mod tests {
         let engine = LegacyEngine;
         let id = contract_id("foreign");
 
-        let mut ctx =
-            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
+        let mut ctx = test_context(store.as_clarity_db(), epoch);
         // Some other engine's payload.
         let analyzed = engine
             .analyze_contract(
@@ -1168,6 +1185,94 @@ mod tests {
         assert!(ctx.into_db().is_some());
     }
 
+    #[test]
+    fn kernel_ruleset_controls_at_block_independently_of_host_epoch() {
+        use clarity_kernel::rules::KernelRuleset;
+
+        const SOURCE: &str = "(define-read-only (past)
+            (at-block 0x0000000000000000000000000000000000000000000000000000000000000000 u1))";
+        let engine = LegacyEngine;
+        let id = contract_id("at-block-ruleset");
+
+        let mut old_epoch_store = setup_store(StacksEpochId::Epoch33);
+        let mut disabled = test_context_with_ruleset(
+            old_epoch_store.as_clarity_db(),
+            StacksEpochId::Epoch33,
+            KernelRuleset::V3,
+        );
+        let err = match engine.analyze_contract(
+            &mut disabled,
+            &id,
+            SOURCE,
+            ClarityVersion::Clarity4,
+            &ResourceBudget::unlimited(),
+        ) {
+            Ok(_) => panic!("disabled at-block ruleset unexpectedly accepted the contract"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, EngineError::Static(_)));
+
+        let mut new_epoch_store = setup_store(StacksEpochId::Epoch34);
+        let mut enabled = test_context_with_ruleset(
+            new_epoch_store.as_clarity_db(),
+            StacksEpochId::Epoch34,
+            KernelRuleset::V2,
+        );
+        engine
+            .analyze_contract(
+                &mut enabled,
+                &id,
+                SOURCE,
+                ClarityVersion::Clarity4,
+                &ResourceBudget::unlimited(),
+            )
+            .unwrap();
+
+        let mut runtime_store = setup_store(StacksEpochId::Epoch33);
+        {
+            let mut deploy_ctx = test_context_with_ruleset(
+                runtime_store.as_clarity_db(),
+                StacksEpochId::Epoch33,
+                KernelRuleset::V2,
+            );
+            engine
+                .deploy_contract(&mut deploy_ctx, &id, SOURCE, ClarityVersion::Clarity4, None)
+                .unwrap();
+        }
+        let mut call_ctx = test_context_with_ruleset(
+            runtime_store.as_clarity_db(),
+            StacksEpochId::Epoch33,
+            KernelRuleset::V3,
+        );
+        let err = engine.eval_read_only(&mut call_ctx, &id, "(past)");
+        assert!(matches!(err, Err(EngineError::Execution(_))));
+    }
+
+    #[test]
+    fn kernel_ruleset_controls_typed_tuple_decoding_independently_of_host_epoch() {
+        use clarity_kernel::rules::KernelRuleset;
+
+        const SOURCE: &str = "(define-read-only (decode)
+            (from-consensus-buff?
+                { a: int, b: int }
+                0x0c000000020161000000000000000000000000000000000101610000000000000000000000000000000002))";
+        let engine = LegacyEngine;
+
+        let run = |ruleset| {
+            let mut store = setup_store(StacksEpochId::Epoch40);
+            let id = contract_id("tuple-ruleset");
+            let mut ctx =
+                test_context_with_ruleset(store.as_clarity_db(), StacksEpochId::Epoch40, ruleset);
+            engine
+                .deploy_contract(&mut ctx, &id, SOURCE, ClarityVersion::Clarity4, None)
+                .unwrap();
+            engine.eval_read_only(&mut ctx, &id, "(decode)").unwrap()
+        };
+
+        assert_ne!(run(KernelRuleset::V3), Value::none());
+        assert_eq!(run(KernelRuleset::V4), Value::none());
+    }
+
     /// A host can thread its own (e.g. block-level) cost tracker through the
     /// engine rather than having one built from the context's budget.
     #[test]
@@ -1179,8 +1284,7 @@ mod tests {
         let engine = LegacyEngine;
         let id = contract_id("host-tracker");
 
-        let mut ctx =
-            TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch);
+        let mut ctx = test_context(store.as_clarity_db(), epoch);
         let tracker = {
             let mut db = ctx.take_db().unwrap();
             let tracker = LimitedCostTracker::new(

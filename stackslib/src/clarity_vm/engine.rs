@@ -37,6 +37,7 @@ use std::fmt;
 
 use clarity::vm::analysis::StoredContractAnalysis;
 use clarity::vm::engine::{ContractDispatcher, Engine, EngineError, LegacyEngine, RuntimeContext};
+use clarity::vm::rules::KernelRuleset;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ClarityVersion;
 use clarity_v6::Clarity6Engine;
@@ -78,6 +79,28 @@ impl SelectedEngine {
 #[derive(Debug, Clone, Copy)]
 pub struct ClarityEngineManifest {
     epoch: StacksEpochId,
+    ruleset: KernelRuleset,
+}
+
+/// Host-owned mapping from Stacks protocol epochs to shared Clarity kernel
+/// behavior. This is deliberately separate from engine revision selection.
+pub const fn kernel_ruleset_for_epoch(epoch: StacksEpochId) -> KernelRuleset {
+    match epoch {
+        StacksEpochId::Epoch10
+        | StacksEpochId::Epoch20
+        | StacksEpochId::Epoch2_05
+        | StacksEpochId::Epoch21
+        | StacksEpochId::Epoch22
+        | StacksEpochId::Epoch23 => KernelRuleset::V1,
+        StacksEpochId::Epoch24
+        | StacksEpochId::Epoch25
+        | StacksEpochId::Epoch30
+        | StacksEpochId::Epoch31
+        | StacksEpochId::Epoch32
+        | StacksEpochId::Epoch33 => KernelRuleset::V2,
+        StacksEpochId::Epoch34 | StacksEpochId::Epoch40 => KernelRuleset::V3,
+        StacksEpochId::Epoch41 => KernelRuleset::V4,
+    }
 }
 
 /// Nested-call router installed in every production transaction context.
@@ -119,11 +142,18 @@ impl ContractDispatcher for ClarityEngineDispatcher {
 
 impl ClarityEngineManifest {
     pub fn for_epoch(epoch: StacksEpochId) -> Self {
-        Self { epoch }
+        Self {
+            epoch,
+            ruleset: kernel_ruleset_for_epoch(epoch),
+        }
     }
 
     pub fn epoch(self) -> StacksEpochId {
         self.epoch
+    }
+
+    pub fn ruleset(self) -> KernelRuleset {
+        self.ruleset
     }
 
     /// The newest contract language version deployable in this epoch.
@@ -274,6 +304,7 @@ mod tests {
             false,
             CHAIN_ID_TESTNET,
             StacksEpochId::Epoch40,
+            manifest.ruleset(),
         )
         .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
         if install_host_tracker {
@@ -351,6 +382,31 @@ mod tests {
     }
 
     #[test]
+    fn host_maps_every_epoch_to_a_kernel_ruleset() {
+        for &epoch in StacksEpochId::ALL {
+            let expected = match epoch {
+                StacksEpochId::Epoch10
+                | StacksEpochId::Epoch20
+                | StacksEpochId::Epoch2_05
+                | StacksEpochId::Epoch21
+                | StacksEpochId::Epoch22
+                | StacksEpochId::Epoch23 => KernelRuleset::V1,
+                StacksEpochId::Epoch24
+                | StacksEpochId::Epoch25
+                | StacksEpochId::Epoch30
+                | StacksEpochId::Epoch31
+                | StacksEpochId::Epoch32
+                | StacksEpochId::Epoch33 => KernelRuleset::V2,
+                StacksEpochId::Epoch34 | StacksEpochId::Epoch40 => KernelRuleset::V3,
+                StacksEpochId::Epoch41 => KernelRuleset::V4,
+            };
+            let manifest = ClarityEngineManifest::for_epoch(epoch);
+            assert_eq!(manifest.ruleset(), expected);
+            assert_eq!(kernel_ruleset_for_epoch(epoch), expected);
+        }
+    }
+
+    #[test]
     fn clarity6_revision_spans_epoch40_and_epoch41_kernel_rules() {
         let epoch_40 = ClarityEngineManifest::for_epoch(StacksEpochId::Epoch40)
             .select(ClarityVersion::Clarity6)
@@ -366,6 +422,14 @@ mod tests {
         assert_eq!(
             selected.engine().supported_versions(),
             &[ClarityVersion::Clarity6]
+        );
+        assert_eq!(
+            ClarityEngineManifest::for_epoch(StacksEpochId::Epoch40).ruleset(),
+            KernelRuleset::V3
+        );
+        assert_eq!(
+            ClarityEngineManifest::for_epoch(StacksEpochId::Epoch41).ruleset(),
+            KernelRuleset::V4
         );
     }
 

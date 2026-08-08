@@ -19,7 +19,7 @@ use std::hash::Hash;
 
 use clarity_types::Value;
 use clarity_types::types::serialization::SerializationError;
-use clarity_types::types::{QualifiedContractIdentifier, TypeSignature};
+use clarity_types::types::{QualifiedContractIdentifier, SerializationRules, TypeSignature};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -443,8 +443,20 @@ impl RollbackWrapper<'_> {
         expected: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<ValueResult, SerializationError> {
+        Self::deserialize_value_with_rules(
+            value_hex,
+            expected,
+            SerializationRules::from_epoch(epoch),
+        )
+    }
+
+    pub fn deserialize_value_with_rules(
+        value_hex: &str,
+        expected: &TypeSignature,
+        rules: SerializationRules,
+    ) -> Result<ValueResult, SerializationError> {
         let serialized_byte_len = value_hex.len() as u64 / 2;
-        let value = Value::try_deserialize_hex_at_epoch(value_hex, expected, epoch)?;
+        let value = Value::try_deserialize_hex_with_rules(value_hex, expected, rules)?;
 
         Ok(ValueResult {
             value,
@@ -460,6 +472,15 @@ impl RollbackWrapper<'_> {
         expected: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<Option<ValueResult>, SerializationError> {
+        self.get_value_with_rules(key, expected, SerializationRules::from_epoch(epoch))
+    }
+
+    pub fn get_value_with_rules(
+        &mut self,
+        key: &str,
+        expected: &TypeSignature,
+        rules: SerializationRules,
+    ) -> Result<Option<ValueResult>, SerializationError> {
         self.stack.last().ok_or_else(|| {
             SerializationError::DeserializationFailure(
                 "ERROR: Clarity VM attempted GET on non-nested context.".into(),
@@ -469,7 +490,9 @@ impl RollbackWrapper<'_> {
         if self.query_pending_data
             && let Some(x) = self.lookup_map.get(key).and_then(|x| x.last())
         {
-            return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
+            return Ok(Some(Self::deserialize_value_with_rules(
+                x, expected, rules,
+            )?));
         }
         let stored_data = self.store.get_data(key).map_err(|_| {
             SerializationError::DeserializationFailure(
@@ -477,7 +500,9 @@ impl RollbackWrapper<'_> {
             )
         })?;
         match stored_data {
-            Some(x) => Ok(Some(Self::deserialize_value(&x, expected, epoch)?)),
+            Some(x) => Ok(Some(Self::deserialize_value_with_rules(
+                &x, expected, rules,
+            )?)),
             None => Ok(None),
         }
     }

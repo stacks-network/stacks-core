@@ -312,12 +312,15 @@ fn read_contract(
 
 #[cfg(test)]
 mod tests {
+    use clarity_kernel::rules::KernelRuleset;
     use clarity_types::{ClarityName, ClarityVersion};
+    use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
     use super::*;
     use crate::vm::contexts::ContractContext;
     use crate::vm::database::{MemoryBackingStore, StoreType};
+    use crate::vm::engine::TransactionContext;
     use crate::vm::types::{QualifiedContractIdentifier, TupleData, TypeSignature, Value};
 
     /// Deploy a minimal stub contract under `id` in its own committed db transaction.
@@ -533,5 +536,24 @@ mod tests {
         );
 
         db.commit().unwrap();
+        drop(db);
+
+        // The transaction's host-selected ruleset overrides the transitional
+        // epoch argument throughout the shared database read path.
+        let mut context = TransactionContext::new(
+            store.as_clarity_db(),
+            false,
+            CHAIN_ID_TESTNET,
+            StacksEpochId::Epoch40,
+            KernelRuleset::V4,
+        );
+        let mut db = context.take_db().unwrap();
+        db.begin();
+        let strict_at_old_epoch = db.get_value(&key, &expected_type, &StacksEpochId::Epoch40);
+        assert!(
+            strict_at_old_epoch.is_err(),
+            "installed strict ruleset must override the old host epoch"
+        );
+        db.roll_back().unwrap();
     }
 }

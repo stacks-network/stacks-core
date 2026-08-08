@@ -138,6 +138,14 @@ fn contract_id(name: &str) -> QualifiedContractIdentifier {
     )
 }
 
+fn test_ruleset(epoch: StacksEpochId) -> clarity_kernel::rules::KernelRuleset {
+    if epoch >= StacksEpochId::Epoch41 {
+        clarity_kernel::rules::KernelRuleset::V4
+    } else {
+        clarity_kernel::rules::KernelRuleset::V3
+    }
+}
+
 fn analysis_result(
     engine: &dyn Engine,
     source: &str,
@@ -147,9 +155,14 @@ fn analysis_result(
     ExecutionCost,
 ) {
     let mut store = setup_store(epoch);
-    let mut context =
-        TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch)
-            .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
+    let mut context = TransactionContext::new(
+        store.as_clarity_db(),
+        false,
+        CHAIN_ID_TESTNET,
+        epoch,
+        test_ruleset(epoch),
+    )
+    .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
     let result = engine
         .analyze_contract(
             &mut context,
@@ -178,9 +191,14 @@ fn deployed_context<'a>(
     ExecutionCost,
 ) {
     let id = contract_id(name);
-    let mut context =
-        TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, epoch)
-            .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
+    let mut context = TransactionContext::new(
+        store.as_clarity_db(),
+        false,
+        CHAIN_ID_TESTNET,
+        epoch,
+        test_ruleset(epoch),
+    )
+    .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
     let deployment = engine
         .deploy_contract(&mut context, &id, source, ClarityVersion::Clarity6, None)
         .unwrap();

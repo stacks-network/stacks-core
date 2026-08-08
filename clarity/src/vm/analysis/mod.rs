@@ -24,6 +24,7 @@ pub mod type_checker;
 pub mod types;
 
 use clarity_kernel::costs::CostTrackerHandle;
+use clarity_kernel::rules::KernelRuleset;
 use stacks_common::types::StacksEpochId;
 
 pub use self::analysis_db::AnalysisDatabase;
@@ -193,6 +194,44 @@ pub fn run_analysis(
     build_type_map: bool,
     resource_limiter: ResourceLimiter,
 ) -> Result<ContractAnalysis, Box<(StaticCheckError, CostTrackerHandle)>> {
+    let ruleset = if epoch >= StacksEpochId::Epoch41 {
+        KernelRuleset::V4
+    } else if epoch >= StacksEpochId::Epoch34 {
+        KernelRuleset::V3
+    } else if epoch >= StacksEpochId::Epoch24 {
+        KernelRuleset::V2
+    } else {
+        KernelRuleset::V1
+    };
+    run_analysis_with_ruleset(
+        contract_identifier,
+        expressions,
+        analysis_db,
+        save_contract,
+        cost_tracker,
+        epoch,
+        ruleset,
+        version,
+        build_type_map,
+        resource_limiter,
+    )
+}
+
+/// Analyze a contract with host-selected shared kernel behavior. The epoch is
+/// retained for the frozen legacy checker's language- and cost-specific gates.
+#[allow(clippy::too_many_arguments)]
+pub fn run_analysis_with_ruleset(
+    contract_identifier: &QualifiedContractIdentifier,
+    expressions: &[SymbolicExpression],
+    analysis_db: &mut AnalysisDatabase,
+    save_contract: bool,
+    cost_tracker: CostTrackerHandle,
+    epoch: StacksEpochId,
+    ruleset: KernelRuleset,
+    version: ClarityVersion,
+    build_type_map: bool,
+    resource_limiter: ResourceLimiter,
+) -> Result<ContractAnalysis, Box<(StaticCheckError, CostTrackerHandle)>> {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
         expressions.to_vec(),
@@ -205,6 +244,7 @@ pub fn run_analysis(
         if epoch >= StacksEpochId::Epoch21 {
             TypeChecker2_1::run_pass(
                 &epoch,
+                ruleset,
                 &mut contract_analysis,
                 db,
                 build_type_map,

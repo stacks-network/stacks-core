@@ -591,7 +591,7 @@ pub fn special_at_block(
     invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if !exec_state.epoch().supports_at_block() {
+    if !exec_state.kernel_ruleset().supports_at_block() {
         return Err(RuntimeCheckErrorKind::AtBlockUnavailable.into());
     }
     check_argument_count(2, args)?;

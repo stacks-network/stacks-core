@@ -28,8 +28,8 @@ use crate::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::types::{
     BOUND_VALUE_SERIALIZATION_BYTES, BufferLength, CallableData, CharType, MAX_TYPE_DEPTH,
     MAX_VALUE_SIZE, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    SequenceSubtype, StandardPrincipalData, StringSubtype, TupleData, TupleFieldsBehavior,
-    TypeSignature, Value,
+    SequenceSubtype, SerializationRules, StandardPrincipalData, StringSubtype, TupleData,
+    TupleFieldsBehavior, TypeSignature, Value,
 };
 
 /// Errors that may occur in serialization or deserialization
@@ -1175,11 +1175,24 @@ impl Value {
         expected: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<Value, SerializationError> {
+        Self::try_deserialize_bytes_with_rules(
+            bytes,
+            expected,
+            SerializationRules::from_epoch(epoch),
+        )
+    }
+
+    /// Deserialize with host-selected consensus serialization rules.
+    pub fn try_deserialize_bytes_with_rules(
+        bytes: &Vec<u8>,
+        expected: &TypeSignature,
+        rules: SerializationRules,
+    ) -> Result<Value, SerializationError> {
         Self::deserialize_read_count_with_options(
             &mut bytes.as_slice(),
             Some(expected),
-            epoch.value_sanitizing(),
-            TupleFieldsBehavior::from_epoch(epoch),
+            rules.sanitizes_values(),
+            rules.tuple_fields(),
         )
         .map(|(value, _)| value)
     }
@@ -1205,8 +1218,17 @@ impl Value {
         expected: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<Value, SerializationError> {
+        Self::try_deserialize_hex_with_rules(hex, expected, SerializationRules::from_epoch(epoch))
+    }
+
+    /// Hex entry point for host-selected consensus serialization rules.
+    pub fn try_deserialize_hex_with_rules(
+        hex: &str,
+        expected: &TypeSignature,
+        rules: SerializationRules,
+    ) -> Result<Value, SerializationError> {
         let data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
-        Value::try_deserialize_bytes_at_epoch(&data, expected, epoch)
+        Value::try_deserialize_bytes_with_rules(&data, expected, rules)
     }
 
     /// Deserialize a byte buffer into a Clarity Value of `expected` type,
@@ -1218,12 +1240,25 @@ impl Value {
         expected: &TypeSignature,
         epoch: &StacksEpochId,
     ) -> Result<Value, SerializationError> {
+        Self::try_deserialize_bytes_exact_with_rules(
+            bytes,
+            expected,
+            SerializationRules::from_epoch(epoch),
+        )
+    }
+
+    /// Exact-buffer variant using host-selected consensus serialization rules.
+    pub fn try_deserialize_bytes_exact_with_rules(
+        bytes: &Vec<u8>,
+        expected: &TypeSignature,
+        rules: SerializationRules,
+    ) -> Result<Value, SerializationError> {
         let input_length = bytes.len();
         let (value, read_count) = Value::deserialize_read_count_with_options(
             &mut bytes.as_slice(),
             Some(expected),
-            epoch.value_sanitizing(),
-            TupleFieldsBehavior::from_epoch(epoch),
+            rules.sanitizes_values(),
+            rules.tuple_fields(),
         )?;
         if read_count != (input_length as u64) {
             Err(SerializationError::LeftoverBytesInDeserialization)
@@ -1307,8 +1342,24 @@ impl Value {
         expected: &TypeSignature,
         value: Value,
     ) -> Option<(Value, bool)> {
-        // in epochs before 2.4, perform no sanitization
-        if !epoch.value_sanitizing() {
+        Self::sanitize_value_with_rules(
+            epoch,
+            SerializationRules::from_epoch(epoch),
+            expected,
+            value,
+        )
+    }
+
+    /// Sanitize a value using host-selected consensus serialization rules.
+    /// The execution epoch remains available only for the frozen type-admission
+    /// semantics used while recursively validating the resulting value.
+    pub fn sanitize_value_with_rules(
+        epoch: &StacksEpochId,
+        rules: SerializationRules,
+        expected: &TypeSignature,
+        value: Value,
+    ) -> Option<(Value, bool)> {
+        if !rules.sanitizes_values() {
             return Some((value, false));
         }
         let (output, did_sanitize) = match value {
@@ -1324,8 +1375,12 @@ impl Value {
                 let mut sanitized_items = Vec::with_capacity(l.data.len());
                 let mut did_sanitize_children = false;
                 for item in l.data.into_iter() {
-                    let (sanitized_item, did_sanitize) =
-                        Self::sanitize_value(epoch, lt.get_list_item_type(), item)?;
+                    let (sanitized_item, did_sanitize) = Self::sanitize_value_with_rules(
+                        epoch,
+                        rules,
+                        lt.get_list_item_type(),
+                        item,
+                    )?;
                     sanitized_items.push(sanitized_item);
                     did_sanitize_children = did_sanitize_children || did_sanitize;
                 }
@@ -1346,7 +1401,7 @@ impl Value {
                 for (key, expect_key_type) in type_map.iter() {
                     let field_data = tuple_data_map.remove(key)?;
                     let (sanitized_field, did_sanitize) =
-                        Self::sanitize_value(epoch, expect_key_type, field_data)?;
+                        Self::sanitize_value_with_rules(epoch, rules, expect_key_type, field_data)?;
                     sanitized_tuple_entries.push((key.clone(), sanitized_field));
                     did_sanitize_children = did_sanitize_children || did_sanitize;
                 }
@@ -1374,7 +1429,7 @@ impl Value {
                     None => return Some((Value::none(), false)),
                 };
                 let (sanitized_data, did_sanitize_child) =
-                    Self::sanitize_value(epoch, inner_type, some_data)?;
+                    Self::sanitize_value_with_rules(epoch, rules, inner_type, some_data)?;
                 (Value::some(sanitized_data).ok()?, did_sanitize_child)
             }
             Value::Response(response) => {
@@ -1387,7 +1442,7 @@ impl Value {
                 let response_data = *response.data;
                 let inner_type = if response_ok { &rt.0 } else { &rt.1 };
                 let (sanitized_inner, did_sanitize_child) =
-                    Self::sanitize_value(epoch, inner_type, response_data)?;
+                    Self::sanitize_value_with_rules(epoch, rules, inner_type, response_data)?;
                 let sanitized_resp = if response_ok {
                     Value::okay(sanitized_inner)
                 } else {

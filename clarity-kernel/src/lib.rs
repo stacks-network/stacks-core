@@ -52,6 +52,7 @@ pub mod engine;
 pub mod errors;
 pub mod events;
 pub mod resource_limiter;
+pub mod rules;
 pub mod signatures;
 pub mod transaction;
 

@@ -2572,7 +2572,8 @@ impl ClarityTransactionConnection<'_, '_> {
     where
         F: FnOnce(&dyn Engine, &mut TransactionContext) -> Result<R, EngineError>,
     {
-        let selected = ClarityEngineManifest::for_epoch(self.epoch)
+        let manifest = ClarityEngineManifest::for_epoch(self.epoch);
+        let selected = manifest
             .select(version)
             .map_err(|e| EngineError::Internal(e.to_string()))?;
 
@@ -2586,7 +2587,13 @@ impl ClarityTransactionConnection<'_, '_> {
                 )
                 .with_cache(&mut self.cache);
 
-                let mut ctx = TransactionContext::new(db, self.mainnet, self.chain_id, self.epoch);
+                let mut ctx = TransactionContext::new(
+                    db,
+                    self.mainnet,
+                    self.chain_id,
+                    self.epoch,
+                    manifest.ruleset(),
+                );
                 ctx.install_cost_tracker(cost_track);
                 ctx.install_dispatcher(ClarityEngineDispatcher::for_epoch(self.epoch));
 

@@ -271,6 +271,7 @@ impl Clarity6Engine {
             transaction,
             call_stack,
             ctx.epoch,
+            ctx.ruleset(),
             dispatcher_ref,
         );
         env.set_execution_resource_limiter(execution_budget.start_tracking());
@@ -549,6 +550,7 @@ impl Engine for Clarity6Engine {
             transaction,
             call_stack,
             ctx.epoch,
+            ctx.ruleset(),
             Some(dispatcher),
         );
         env.set_execution_resource_limiter(ctx.execution_resource_limiter());
@@ -590,6 +592,7 @@ impl Engine for Clarity6Engine {
             transaction,
             call_stack,
             ctx.epoch,
+            ctx.ruleset(),
             dispatcher_ref,
         );
         let result = env
@@ -634,6 +637,14 @@ mod tests {
         store
     }
 
+    fn test_ruleset(epoch: StacksEpochId) -> clarity_kernel::rules::KernelRuleset {
+        if epoch >= StacksEpochId::Epoch41 {
+            clarity_kernel::rules::KernelRuleset::V4
+        } else {
+            clarity_kernel::rules::KernelRuleset::V3
+        }
+    }
+
     #[test]
     fn owns_clarity6_analysis_handles() {
         let mut store = setup_store(StacksEpochId::Epoch40);
@@ -644,6 +655,7 @@ mod tests {
             false,
             CHAIN_ID_TESTNET,
             StacksEpochId::Epoch40,
+            clarity_kernel::rules::KernelRuleset::V3,
         )
         .with_budget(CostBudget::Free);
 
@@ -697,6 +709,7 @@ mod tests {
             false,
             CHAIN_ID_TESTNET,
             StacksEpochId::Epoch40,
+            clarity_kernel::rules::KernelRuleset::V3,
         )
         .with_budget(CostBudget::Limited(ExecutionCost::ZERO));
 
@@ -725,6 +738,7 @@ mod tests {
                 false,
                 CHAIN_ID_TESTNET,
                 epoch,
+                test_ruleset(epoch),
             )
             .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
             let legacy_deploy = LEGACY_EXECUTOR
@@ -755,6 +769,7 @@ mod tests {
                 false,
                 CHAIN_ID_TESTNET,
                 epoch,
+                test_ruleset(epoch),
             )
             .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
             let clarity6 = Clarity6Engine;

@@ -17,6 +17,7 @@ use clarity_kernel::database::{ClarityDatabase, MemoryBackingStore};
 use clarity_kernel::engine::{CostBudget, Engine, EngineError, TransactionContext};
 use clarity_kernel::events::StacksTransactionEvent;
 use clarity_kernel::resource_limiter::ResourceBudget;
+use clarity_kernel::rules::KernelRuleset;
 use clarity_types::ClarityVersion;
 use clarity_types::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
@@ -188,9 +189,25 @@ pub fn run_case(engine: &dyn Engine, case: &VectorCase) -> Result<Vec<Observatio
         db.commit()
             .map_err(|error| format!("Failed to commit test epoch: {error}"))?;
     }
-    let mut context =
-        TransactionContext::new(store.as_clarity_db(), false, CHAIN_ID_TESTNET, case.epoch)
-            .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
+    let ruleset = match case.epoch {
+        StacksEpochId::Epoch41 => KernelRuleset::V4,
+        StacksEpochId::Epoch40 | StacksEpochId::Epoch34 => KernelRuleset::V3,
+        StacksEpochId::Epoch24
+        | StacksEpochId::Epoch25
+        | StacksEpochId::Epoch30
+        | StacksEpochId::Epoch31
+        | StacksEpochId::Epoch32
+        | StacksEpochId::Epoch33 => KernelRuleset::V2,
+        _ => KernelRuleset::V1,
+    };
+    let mut context = TransactionContext::new(
+        store.as_clarity_db(),
+        false,
+        CHAIN_ID_TESTNET,
+        case.epoch,
+        ruleset,
+    )
+    .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
     let contract = contract_id(&case.contract_name)?;
     let mut analyzed = None;
     let mut observations = Vec::with_capacity(case.steps.len());

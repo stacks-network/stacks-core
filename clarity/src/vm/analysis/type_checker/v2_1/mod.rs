@@ -20,6 +20,7 @@ pub mod natives;
 use std::collections::BTreeMap;
 
 use clarity_kernel::costs::CostTrackerHandle;
+use clarity_kernel::rules::KernelRuleset;
 use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
@@ -90,6 +91,7 @@ pub struct TypeChecker<'a, 'b> {
     function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a mut AnalysisDatabase<'b>,
     pub cost_track: CostTrackerHandle,
+    pub kernel_ruleset: KernelRuleset,
     clarity_version: ClarityVersion,
     /// Resource limits (wallclock deadline and max memory allocation) for the
     /// analysis phase. Unlimited on the deterministic-replay/commit path (so
@@ -134,6 +136,7 @@ impl CostTracker for TypeChecker<'_, '_> {
 impl TypeChecker<'_, '_> {
     pub fn run_pass(
         epoch: &StacksEpochId,
+        kernel_ruleset: KernelRuleset,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
         build_type_map: bool,
@@ -142,6 +145,7 @@ impl TypeChecker<'_, '_> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command = TypeChecker::new(
             epoch,
+            kernel_ruleset,
             analysis_db,
             cost_track,
             &contract_analysis.contract_identifier,
@@ -1226,8 +1230,10 @@ pub fn no_type() -> TypeSignature {
 }
 
 impl<'a, 'b> TypeChecker<'a, 'b> {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         epoch: &StacksEpochId,
+        kernel_ruleset: KernelRuleset,
         db: &'a mut AnalysisDatabase<'b>,
         cost_track: CostTrackerHandle,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1237,6 +1243,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     ) -> TypeChecker<'a, 'b> {
         Self {
             epoch: *epoch,
+            kernel_ruleset,
             db,
             cost_track,
             contract_context: ContractContext::new(contract_identifier.clone(), *clarity_version),

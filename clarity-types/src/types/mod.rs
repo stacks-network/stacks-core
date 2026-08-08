@@ -1761,6 +1761,54 @@ impl TupleFieldsBehavior {
     }
 }
 
+/// Consensus rules that govern Clarity value serialization independently of
+/// the host chain's epoch identifier.
+///
+/// Hosts select these rules through their kernel ruleset. The epoch-based
+/// entry points remain as compatibility adapters for the frozen legacy API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SerializationRules {
+    sanitize_values: bool,
+    tuple_fields: TupleFieldsBehavior,
+}
+
+impl SerializationRules {
+    /// Historical behavior before value sanitization activated in Epoch 2.4.
+    pub const PRE_SANITIZATION: Self = Self {
+        sanitize_values: false,
+        tuple_fields: TupleFieldsBehavior::LEGACY,
+    };
+
+    /// Sanitized values with the historical permissive typed-tuple decoder.
+    pub const SANITIZED: Self = Self {
+        sanitize_values: true,
+        tuple_fields: TupleFieldsBehavior::LEGACY,
+    };
+
+    /// Sanitized values with exact typed-tuple field enforcement.
+    pub const STRICT_TYPED_TUPLES: Self = Self {
+        sanitize_values: true,
+        tuple_fields: TupleFieldsBehavior::EXACT_FIELD_SET,
+    };
+
+    /// Compatibility adapter for callers that have not yet inverted their
+    /// host epoch dependency.
+    pub fn from_epoch(epoch: &StacksEpochId) -> Self {
+        Self {
+            sanitize_values: epoch.value_sanitizing(),
+            tuple_fields: TupleFieldsBehavior::from_epoch(epoch),
+        }
+    }
+
+    pub const fn sanitizes_values(self) -> bool {
+        self.sanitize_values
+    }
+
+    pub(crate) const fn tuple_fields(self) -> TupleFieldsBehavior {
+        self.tuple_fields
+    }
+}
+
 impl TupleData {
     fn new(
         type_signature: TupleTypeSignature,

@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem::replace;
 
 use clarity_kernel::engine::{ContractDispatcher, RuntimeContext, RuntimeSlot};
+use clarity_kernel::rules::KernelRuleset;
 pub use clarity_kernel::transaction::{CallStack, EventBatch, TransactionFrame};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
@@ -55,6 +56,21 @@ use crate::vm::version::ClarityVersion;
 use crate::vm::{ValueRef, ast, eval, is_reserved, stx_transfer_consolidated};
 
 pub const MAX_CONTEXT_DEPTH: u64 = 256;
+
+/// Compatibility mapping for direct users of the pre-engine-ABI environment
+/// constructors. Production selection is owned by stackslib and passes the
+/// ruleset explicitly through `TransactionContext`.
+fn legacy_ruleset_for_epoch(epoch: StacksEpochId) -> KernelRuleset {
+    if epoch >= StacksEpochId::Epoch41 {
+        KernelRuleset::V4
+    } else if epoch >= StacksEpochId::Epoch34 {
+        KernelRuleset::V3
+    } else if epoch >= StacksEpochId::Epoch24 {
+        KernelRuleset::V2
+    } else {
+        KernelRuleset::V1
+    }
+}
 
 /// Immutable metadata describing a single contract invocation.
 ///
@@ -208,6 +224,8 @@ pub struct GlobalContext<'a, 'hooks> {
     pub mainnet: bool,
     /// This is the epoch of the block that this transaction is executing within.
     pub epoch_id: StacksEpochId,
+    /// Host-selected consensus behavior shared across engine boundaries.
+    pub kernel_ruleset: KernelRuleset,
     /// This is the chain ID of the transaction
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
@@ -400,16 +418,18 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         transaction: TransactionFrame,
         call_stack: CallStack,
         epoch_id: StacksEpochId,
+        kernel_ruleset: KernelRuleset,
         dispatcher: Option<&'hooks mut (dyn ContractDispatcher + 'hooks)>,
     ) -> OwnedEnvironment<'a, 'hooks> {
         OwnedEnvironment {
-            context: GlobalContext::new_with_transaction_frame(
+            context: GlobalContext::new_with_transaction_frame_and_ruleset(
                 mainnet,
                 chain_id,
                 database,
                 cost_tracker,
                 transaction,
                 epoch_id,
+                kernel_ruleset,
             ),
             call_stack: RuntimeSlot::new(call_stack),
         }
@@ -945,6 +965,10 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         &self.global_context.epoch_id
     }
 
+    pub fn kernel_ruleset(&self) -> KernelRuleset {
+        self.global_context.kernel_ruleset
+    }
+
     pub fn has_contract_dispatcher(&self) -> bool {
         self.global_context.dispatcher.is_some()
     }
@@ -968,6 +992,7 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             transaction_frame: &mut self.global_context.transaction,
             call_stack: self.call_stack,
             execution_resource_limiter: self.global_context.execution_resource_limiter,
+            ruleset: self.global_context.kernel_ruleset,
             epoch: self.global_context.epoch_id,
             mainnet: self.global_context.mainnet,
             chain_id: self.global_context.chain_id,
@@ -1627,12 +1652,34 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         transaction: TransactionFrame,
         epoch_id: StacksEpochId,
     ) -> GlobalContext<'a, 'hooks> {
+        Self::new_with_transaction_frame_and_ruleset(
+            mainnet,
+            chain_id,
+            database,
+            cost_track,
+            transaction,
+            epoch_id,
+            legacy_ruleset_for_epoch(epoch_id),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_transaction_frame_and_ruleset(
+        mainnet: bool,
+        chain_id: u32,
+        database: ClarityDatabase<'a>,
+        cost_track: CostTrackerHandle,
+        transaction: TransactionFrame,
+        epoch_id: StacksEpochId,
+        kernel_ruleset: KernelRuleset,
+    ) -> GlobalContext<'a, 'hooks> {
         GlobalContext {
             database: RuntimeSlot::new(database),
             cost_track: RuntimeSlot::new(cost_track),
             transaction: RuntimeSlot::new(transaction),
             mainnet,
             epoch_id,
+            kernel_ruleset,
             chain_id,
             eval_hooks: None,
             dispatcher: None,
