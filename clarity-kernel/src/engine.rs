@@ -215,7 +215,14 @@ pub enum CostBudget {
 pub enum EngineError {
     /// The source failed to parse. Carries only presentation data — lexer
     /// and parser error types are engine-internal.
-    Parse(Vec<Diagnostic>),
+    Parse {
+        diagnostics: Vec<Diagnostic>,
+        /// Whether block validation must reject the transaction instead of
+        /// accepting it as a paid analysis failure.
+        rejectable: bool,
+    },
+    /// Parsing or analysis exhausted the cumulative transaction cost budget.
+    Cost(ExecutionCost, ExecutionCost),
     /// The contract failed static checks.
     Static(Box<StaticCheckError>),
     /// Runtime failure during evaluation.
@@ -241,12 +248,15 @@ pub enum EngineError {
 impl std::fmt::Display for EngineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EngineError::Parse(diagnostics) => {
+            EngineError::Parse { diagnostics, .. } => {
                 write!(f, "Parse failure:")?;
                 for d in diagnostics {
                     write!(f, " {d}")?;
                 }
                 Ok(())
+            }
+            EngineError::Cost(total, limit) => {
+                write!(f, "Cost budget exceeded: total={total}, limit={limit}")
             }
             EngineError::Static(e) => write!(f, "Static check failure: {}", e.diagnostic),
             EngineError::Execution(e) => write!(f, "Execution failure: {e}"),

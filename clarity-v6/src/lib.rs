@@ -13,24 +13,61 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#![allow(dead_code)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+#![allow(non_upper_case_globals)]
+#![cfg_attr(test, allow(unused_variables, unused_assignments))]
+
 //! The pinned Clarity 6 engine, introduced with Stacks epoch 4.0.
 //!
 //! Revision 1 establishes Clarity 6 as a separately linkable engine behind
-//! the kernel ABI. The engine owns its ABI orchestration, parsed/analyzed
-//! contract representation, rollback lifecycle, and entry points. Its
-//! lower-level parser, analyzer, and evaluator modules are temporarily shared
-//! with the frozen interpreter while those semantic subsystems are extracted
-//! and their historical gates are replaced with fixed Clarity 6 choices.
-//! Real epoch-4.0 and epoch-4.1 contracts route through this engine, making
-//! every extraction step testable against mainnet history.
+//! the kernel ABI. The engine owns its interpreter sources, ABI orchestration,
+//! parsed/analyzed contract representation, rollback lifecycle, and entry
+//! points. Real epoch-4.0 and epoch-4.1 contracts route through this engine,
+//! making every extraction step testable against mainnet history.
 
-use clarity::vm::SymbolicExpression;
-use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis, run_analysis};
-use clarity::vm::ast::{ContractAST, build_ast};
-use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::database::ClarityDatabase;
-use clarity::vm::errors::ClarityEvalError;
+#[allow(unused_imports)]
+#[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
+extern crate slog;
+
+#[macro_use]
+extern crate serde_derive;
+
+extern crate serde_json;
+
+#[macro_use]
+extern crate stacks_common;
+
+pub use stacks_common::{
+    codec, consts, impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
+    impl_byte_array_serde, types, util,
+};
+
+#[macro_use]
+pub mod vm;
+
+pub mod boot_util {
+    use stacks_common::types::chainstate::StacksAddress;
+
+    use crate::vm::representations::ContractName;
+    use crate::vm::types::QualifiedContractIdentifier;
+
+    #[allow(clippy::expect_used)]
+    pub fn boot_code_id(name: &str, mainnet: bool) -> QualifiedContractIdentifier {
+        let addr = boot_code_addr(mainnet);
+        QualifiedContractIdentifier::new(
+            addr.into(),
+            ContractName::try_from(name.to_string())
+                .expect("FATAL: boot contract name is not a legal ContractName"),
+        )
+    }
+
+    pub fn boot_code_addr(mainnet: bool) -> StacksAddress {
+        StacksAddress::burn_address(mainnet)
+    }
+}
+
 use clarity_kernel::assets::AssetMap;
 use clarity_kernel::costs::{CostTrackerHandle, ExecutionCost};
 use clarity_kernel::engine::{
@@ -42,6 +79,16 @@ use clarity_kernel::resource_limiter::ResourceBudget;
 use clarity_kernel::transaction::{CallStack, TransactionFrame};
 use clarity_types::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity_types::{ClarityVersion, Value};
+use stacks_common::types::StacksEpochId;
+
+use crate::vm::SymbolicExpression;
+use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis, run_analysis};
+use crate::vm::ast::errors::{ParseError, ParseErrorKind};
+use crate::vm::ast::{ContractAST, build_ast};
+use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::database::ClarityDatabase;
+use crate::vm::errors::ClarityEvalError;
 
 const SUPPORTED_VERSIONS: &[ClarityVersion] = &[ClarityVersion::Clarity6];
 
@@ -73,10 +120,25 @@ struct ExecutionParts<'a> {
 type Produced<R> = (R, AssetMap, Vec<StacksTransactionEvent>);
 type InteractionOutcome<R> = Result<(Produced<R>, ExecutionCost), EngineError>;
 
-fn engine_error(err: ClarityEvalError) -> EngineError {
+fn parse_engine_error(err: ParseError, epoch: StacksEpochId) -> EngineError {
+    match &*err.err {
+        ParseErrorKind::CostOverflow | ParseErrorKind::MemoryBalanceExceeded(..) => {
+            EngineError::Cost(ExecutionCost::max_value(), ExecutionCost::max_value())
+        }
+        ParseErrorKind::CostBalanceExceeded(total, limit) => {
+            EngineError::Cost(total.clone(), limit.clone())
+        }
+        _ => EngineError::Parse {
+            rejectable: err.rejectable_in_epoch(epoch),
+            diagnostics: vec![err.diagnostic],
+        },
+    }
+}
+
+fn engine_error(err: ClarityEvalError, epoch: StacksEpochId) -> EngineError {
     match err {
         ClarityEvalError::Vm(e) => EngineError::Execution(e),
-        ClarityEvalError::Parse(e) => EngineError::Parse(vec![e.diagnostic]),
+        ClarityEvalError::Parse(e) => parse_engine_error(e, epoch),
     }
 }
 
@@ -87,29 +149,6 @@ impl Clarity6Engine {
                 "AnalyzedContract was not produced by clarity-v6 revision 1".into(),
             )
         })
-    }
-
-    /// Wrap analysis performed through the legacy transaction API in a
-    /// Clarity-6-owned engine handle.
-    ///
-    /// This preserves the node's historical parser/static-error taxonomy
-    /// while its production analysis entry point is migrated to the ABI.
-    pub fn from_legacy_parts(
-        source: String,
-        ast: ContractAST,
-        analysis: ContractAnalysis,
-    ) -> AnalyzedContract {
-        let interface = analysis.to_stored();
-        AnalyzedContract::new(source, interface, Clarity6Analysis { ast, analysis })
-    }
-
-    /// Recover the legacy working analysis needed by the transaction receipt
-    /// while the node still exposes that concrete type.
-    pub fn into_legacy_parts(
-        analyzed: AnalyzedContract,
-    ) -> Option<(ContractAST, ContractAnalysis)> {
-        let analysis = analyzed.into_engine_data::<Clarity6Analysis>()?;
-        Some((analysis.ast, analysis.analysis))
     }
 
     fn take_or_create_tracker(
@@ -304,17 +343,7 @@ impl Engine for Clarity6Engine {
             )));
         }
 
-        let TakenParts { tracker, db } = self.take_parts(ctx)?;
-        let mut tracker = match tracker.into_inner::<LimitedCostTracker>() {
-            Ok(tracker) => *tracker,
-            Err(tracker) => {
-                ctx.restore_db(db);
-                ctx.restore_cost_tracker(tracker);
-                return Err(EngineError::Internal(
-                    "Clarity 6 analysis requires a LimitedCostTracker".into(),
-                ));
-            }
-        };
+        let TakenParts { mut tracker, db } = self.take_parts(ctx)?;
         let resource_limiter = analysis_budget.start_tracking();
 
         let ast = match build_ast(
@@ -327,8 +356,8 @@ impl Engine for Clarity6Engine {
             Ok(ast) => ast,
             Err(e) => {
                 ctx.restore_db(db);
-                self.park_tracker(ctx, CostTrackerHandle::new(tracker));
-                return Err(EngineError::Parse(vec![e.diagnostic]));
+                self.park_tracker(ctx, tracker);
+                return Err(parse_engine_error(e, ctx.epoch));
             }
         };
 
@@ -356,7 +385,7 @@ impl Engine for Clarity6Engine {
             Ok(mut analysis) => {
                 let tracker = analysis.take_contract_cost_tracker();
                 let interface = analysis.to_stored();
-                self.park_tracker(ctx, CostTrackerHandle::new(tracker));
+                self.park_tracker(ctx, tracker);
                 debug_assert_eq!(interface.contract_identifier, *contract);
                 debug_assert_eq!(interface.clarity_version, ClarityVersion::Clarity6);
                 Ok(AnalyzedContract::new(
@@ -367,7 +396,7 @@ impl Engine for Clarity6Engine {
             }
             Err(boxed) => {
                 let (check_error, tracker) = *boxed;
-                self.park_tracker(ctx, CostTrackerHandle::new(tracker));
+                self.park_tracker(ctx, tracker);
                 Err(EngineError::Static(Box::new(check_error)))
             }
         }
@@ -563,7 +592,9 @@ impl Engine for Clarity6Engine {
             ctx.epoch,
             dispatcher_ref,
         );
-        let result = env.eval_read_only(contract, program).map_err(engine_error);
+        let result = env
+            .eval_read_only(contract, program)
+            .map_err(|err| engine_error(err, ctx.epoch));
         let (db, tracker, transaction, call_stack) = env
             .destruct_with_shared_transaction()
             .ok_or_else(|| EngineError::Internal("OwnedEnvironment failed to destruct".into()))?;
@@ -655,6 +686,31 @@ mod tests {
             )
             .unwrap();
         engine.save_analysis(&mut ctx, &analyzed).unwrap();
+    }
+
+    #[test]
+    fn parser_cost_exhaustion_crosses_the_engine_abi() {
+        let mut store = setup_store(StacksEpochId::Epoch40);
+        let id = QualifiedContractIdentifier::local("clarity6-parser-cost").unwrap();
+        let mut ctx = TransactionContext::new(
+            store.as_clarity_db(),
+            false,
+            CHAIN_ID_TESTNET,
+            StacksEpochId::Epoch40,
+        )
+        .with_budget(CostBudget::Limited(ExecutionCost::ZERO));
+
+        let error = match Clarity6Engine.analyze_contract(
+            &mut ctx,
+            &id,
+            COUNTER,
+            ClarityVersion::Clarity6,
+            &ResourceBudget::unlimited(),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("zero parser budget unexpectedly succeeded"),
+        };
+        assert!(matches!(error, EngineError::Cost(..)));
     }
 
     #[test]

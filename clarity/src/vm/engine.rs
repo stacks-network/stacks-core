@@ -56,10 +56,12 @@ use clarity_kernel::resource_limiter::ResourceBudget;
 use clarity_kernel::transaction::{CallStack, TransactionFrame};
 use clarity_types::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity_types::{ClarityVersion, Value};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::SymbolicExpression;
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::analysis::{AnalysisDatabase, run_analysis};
+use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::ast::{ContractAST, build_ast};
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::LimitedCostTracker;
@@ -99,10 +101,25 @@ type Produced<R> = (R, AssetMap, Vec<StacksTransactionEvent>);
 /// consumed in its [`TransactionContext`] so far.
 type InteractionOutcome<R> = Result<(Produced<R>, ExecutionCost), EngineError>;
 
-fn engine_error(err: ClarityEvalError) -> EngineError {
+fn parse_engine_error(err: ParseError, epoch: StacksEpochId) -> EngineError {
+    match &*err.err {
+        ParseErrorKind::CostOverflow | ParseErrorKind::MemoryBalanceExceeded(..) => {
+            EngineError::Cost(ExecutionCost::max_value(), ExecutionCost::max_value())
+        }
+        ParseErrorKind::CostBalanceExceeded(total, limit) => {
+            EngineError::Cost(total.clone(), limit.clone())
+        }
+        _ => EngineError::Parse {
+            rejectable: err.rejectable_in_epoch(epoch),
+            diagnostics: vec![err.diagnostic],
+        },
+    }
+}
+
+fn engine_error(err: ClarityEvalError, epoch: StacksEpochId) -> EngineError {
     match err {
         ClarityEvalError::Vm(e) => EngineError::Execution(e),
-        ClarityEvalError::Parse(e) => EngineError::Parse(vec![e.diagnostic]),
+        ClarityEvalError::Parse(e) => parse_engine_error(e, epoch),
     }
 }
 
@@ -379,7 +396,7 @@ impl Engine for LegacyEngine {
             Err(e) => {
                 ctx.restore_db(db);
                 self.park_tracker(ctx, CostTrackerHandle::new(tracker));
-                return Err(EngineError::Parse(vec![e.diagnostic]));
+                return Err(parse_engine_error(e, ctx.epoch));
             }
         };
 
@@ -624,7 +641,9 @@ impl Engine for LegacyEngine {
             ctx.epoch,
             dispatcher_ref,
         );
-        let result = env.eval_read_only(contract, program).map_err(engine_error);
+        let result = env
+            .eval_read_only(contract, program)
+            .map_err(|err| engine_error(err, ctx.epoch));
         let (db, tracker, transaction, call_stack) = env
             .destruct_with_shared_transaction()
             .ok_or_else(|| EngineError::Internal("OwnedEnvironment failed to destruct".into()))?;
@@ -840,7 +859,10 @@ mod tests {
         // Budget exhaustion during parsing surfaces as a parse failure; the
         // important property is that it fails rather than executing free.
         assert!(
-            matches!(err, EngineError::Parse(_) | EngineError::Execution(_)),
+            matches!(
+                err,
+                EngineError::Cost(..) | EngineError::Parse { .. } | EngineError::Execution(_)
+            ),
             "unexpected error variant: {err:?}"
         );
 
@@ -935,7 +957,7 @@ mod tests {
             )
             .unwrap_err();
         match err {
-            EngineError::Parse(diagnostics) => assert!(!diagnostics.is_empty()),
+            EngineError::Parse { diagnostics, .. } => assert!(!diagnostics.is_empty()),
             other => panic!("unexpected error variant: {other:?}"),
         }
     }

@@ -1,0 +1,154 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+pub mod serialization;
+pub mod signatures;
+
+use std::str;
+
+use clarity_types::ClarityName;
+pub use clarity_types::types::{
+    ASCIIData, BOUND_VALUE_SERIALIZATION_BYTES, BOUND_VALUE_SERIALIZATION_HEX, BuffData,
+    CallableData, CharType, ContractIdentifier, ListData, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, NONE,
+    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
+    SequencedValue, StacksAddressExtensions, TraitIdentifier, TupleData, UTF8Data, Value,
+    WRAPPER_VALUE_SIZE, byte_len_of_serialization,
+};
+
+pub use self::std_principals::StandardPrincipalData;
+use crate::vm::ClarityVersion;
+use crate::vm::errors::RuntimeCheckErrorKind;
+pub use crate::vm::types::signatures::{
+    AssetIdentifier, BufferLength, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
+    ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length, TupleTypeSignature,
+    TypeSignature, TypeSignatureExt, parse_name_type_pairs,
+};
+
+mod std_principals {
+    pub use clarity_types::types::StandardPrincipalData;
+}
+
+// Properties for "get-block-info".
+define_versioned_named_enum!(BlockInfoProperty(ClarityVersion) {
+    Time("time", ClarityVersion::Clarity1),
+    VrfSeed("vrf-seed", ClarityVersion::Clarity1),
+    HeaderHash("header-hash", ClarityVersion::Clarity1),
+    IdentityHeaderHash("id-header-hash", ClarityVersion::Clarity1),
+    BurnchainHeaderHash("burnchain-header-hash", ClarityVersion::Clarity1),
+    MinerAddress("miner-address", ClarityVersion::Clarity1),
+    MinerSpendWinner("miner-spend-winner", ClarityVersion::Clarity2),
+    MinerSpendTotal("miner-spend-total", ClarityVersion::Clarity2),
+    BlockReward("block-reward", ClarityVersion::Clarity2),
+});
+
+// Properties for "get-burn-block-info".
+define_named_enum!(BurnBlockInfoProperty {
+    HeaderHash("header-hash"),
+    PoxAddrs("pox-addrs"),
+});
+
+define_named_enum!(StacksBlockInfoProperty {
+    IndexHeaderHash("id-header-hash"),
+    HeaderHash("header-hash"),
+    Time("time"),
+});
+
+define_named_enum!(TenureInfoProperty {
+    Time("time"),
+    VrfSeed("vrf-seed"),
+    BurnchainHeaderHash("burnchain-header-hash"),
+    MinerAddress("miner-address"),
+    MinerSpendWinner("miner-spend-winner"),
+    MinerSpendTotal("miner-spend-total"),
+    BlockReward("block-reward"),
+});
+
+impl BlockInfoProperty {
+    pub fn type_result(&self) -> TypeSignature {
+        use self::BlockInfoProperty::*;
+        match self {
+            Time | MinerSpendWinner | MinerSpendTotal | BlockReward => TypeSignature::UIntType,
+            IdentityHeaderHash | VrfSeed | HeaderHash | BurnchainHeaderHash => {
+                TypeSignature::BUFFER_32
+            }
+            MinerAddress => TypeSignature::PrincipalType,
+        }
+    }
+}
+
+impl BurnBlockInfoProperty {
+    pub fn type_result(&self) -> std::result::Result<TypeSignature, RuntimeCheckErrorKind> {
+        use self::BurnBlockInfoProperty::*;
+        let result = match self {
+            HeaderHash => TypeSignature::BUFFER_32,
+            PoxAddrs => TupleTypeSignature::try_from(vec![
+                (
+                    ClarityName::from_literal("addrs"),
+                    TypeSignature::list_of(
+                        TypeSignature::TupleType(
+                            TupleTypeSignature::try_from(vec![
+                                (
+                                    ClarityName::from_literal("version"),
+                                    TypeSignature::BUFFER_1,
+                                ),
+                                (
+                                    ClarityName::from_literal("hashbytes"),
+                                    TypeSignature::BUFFER_32,
+                                ),
+                            ])
+                            .map_err(|_| {
+                                RuntimeCheckErrorKind::Unreachable(
+                                    "FATAL: bad type signature for pox addr".into(),
+                                )
+                            })?,
+                        ),
+                        2,
+                    )
+                    .map_err(|_| {
+                        RuntimeCheckErrorKind::Unreachable("FATAL: bad list type signature".into())
+                    })?,
+                ),
+                (ClarityName::from_literal("payout"), TypeSignature::UIntType),
+            ])
+            .map_err(|_| {
+                RuntimeCheckErrorKind::Unreachable("FATAL: bad type signature for pox addr".into())
+            })?
+            .into(),
+        };
+        Ok(result)
+    }
+}
+
+impl StacksBlockInfoProperty {
+    pub fn type_result(&self) -> TypeSignature {
+        use self::StacksBlockInfoProperty::*;
+        match self {
+            Time => TypeSignature::UIntType,
+            IndexHeaderHash | HeaderHash => TypeSignature::BUFFER_32,
+        }
+    }
+}
+
+impl TenureInfoProperty {
+    pub fn type_result(&self) -> TypeSignature {
+        use self::TenureInfoProperty::*;
+        match self {
+            Time | MinerSpendWinner | MinerSpendTotal | BlockReward => TypeSignature::UIntType,
+            VrfSeed | BurnchainHeaderHash => TypeSignature::BUFFER_32,
+            MinerAddress => TypeSignature::PrincipalType,
+        }
+    }
+}

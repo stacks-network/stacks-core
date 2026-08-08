@@ -16,12 +16,13 @@
 
 use std::collections::{HashMap, HashSet};
 
-use clarity::vm::analysis::types::ContractAnalysis;
+use clarity::vm::analysis::StoredContractAnalysis;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, ExecutionState, InvocationContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::engine::{AnalyzedContract, LegacyEngine};
+use clarity::vm::diagnostic::Diagnostic;
+use clarity::vm::engine::{AnalyzedContract, EngineError, LegacyEngine};
 use clarity::vm::errors::{VmExecutionError, VmInternalError};
 use clarity::vm::representations::ClarityName;
 use clarity::vm::resource_limiter::ResourceBudget;
@@ -30,7 +31,6 @@ use clarity::vm::types::{
     StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
-use clarity_v6::Clarity6Engine;
 
 use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::*;
@@ -44,17 +44,77 @@ use crate::util_lib::strings::VecDisplay;
 #[derive(PartialEq, Eq)]
 struct HashableClarityValue(Value);
 
-/// Recover the legacy working analysis still carried in transaction receipts
-/// from whichever ABI engine owned the analyzed handle.
-fn into_legacy_contract_analysis(analyzed: AnalyzedContract) -> ContractAnalysis {
-    let parts = if analyzed.version() == ClarityVersion::Clarity6 {
-        Clarity6Engine::into_legacy_parts(analyzed)
-    } else {
-        LegacyEngine::into_legacy_parts(analyzed)
-    };
-    parts
-        .expect("BUG: selected Clarity engine could not recover its analysis")
-        .1
+/// Recover the engine-neutral interface carried in transaction receipts.
+fn stored_contract_analysis(analyzed: &AnalyzedContract) -> StoredContractAnalysis {
+    analyzed.interface().clone()
+}
+
+fn handle_contract_analysis_error(
+    clarity_tx: &ClarityTransactionConnection,
+    tx: &StacksTransaction,
+    contract_id: &QualifiedContractIdentifier,
+    cost_before: &ExecutionCost,
+    error: ClarityError,
+) -> Result<StacksTransactionReceipt, Error> {
+    log_unreachable_error(&error, &tx.txid());
+    match error {
+        ClarityError::CostError(ref cost_after, ref budget) => {
+            warn!(
+                "Block compute budget exceeded on {}: cost before={}, after={}, budget={}",
+                tx.txid(),
+                cost_before,
+                cost_after,
+                budget
+            );
+            Err(Error::CostOverflowError(
+                cost_before.clone(),
+                cost_after.clone(),
+                budget.clone(),
+            ))
+        }
+        ClarityError::AnalysisResourceBudgetExceeded(s) => {
+            warn!("Contract analysis exceeded the analysis resource budget; tx will be dropped from the mempool";
+                "error" => s.clone(),
+                "txid" => %tx.txid(),
+                "contract_name" => %contract_id,
+            );
+            Err(Error::AnalysisResourceBudgetExceeded(s))
+        }
+        other_error => {
+            if let ClarityError::Parse(err) = &other_error {
+                if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
+                    info!(
+                        "Transaction {} is problematic and should have prevented this block from being relayed",
+                        tx.txid()
+                    );
+                    return Err(Error::ClarityError(other_error));
+                }
+            }
+            if let ClarityError::StaticCheck(err) = &other_error {
+                if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
+                    info!(
+                        "Transaction {} is problematic and should have prevented this block from being relayed",
+                        tx.txid()
+                    );
+                    return Err(Error::ClarityError(other_error));
+                }
+            }
+
+            let mut analysis_cost = clarity_tx.cost_so_far();
+            analysis_cost
+                .sub(cost_before)
+                .expect("BUG: total block cost decreased");
+            info!(
+                "Runtime error in contract analysis for {contract_id}: {other_error:?}";
+                "txid" => %tx.txid(),
+            );
+            Ok(StacksTransactionReceipt::from_analysis_failure(
+                tx.clone(),
+                analysis_cost,
+                other_error,
+            ))
+        }
+    }
 }
 
 impl TryFrom<Value> for HashableClarityValue {
@@ -153,7 +213,7 @@ impl StacksTransactionReceipt {
         tx: StacksTransaction,
         events: Vec<StacksTransactionEvent>,
         burned: u128,
-        analysis: ContractAnalysis,
+        analysis: StoredContractAnalysis,
         cost: ExecutionCost,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
@@ -175,7 +235,7 @@ impl StacksTransactionReceipt {
         tx: StacksTransaction,
         events: Vec<StacksTransactionEvent>,
         burned: u128,
-        analysis: ContractAnalysis,
+        analysis: StoredContractAnalysis,
         cost: ExecutionCost,
         reason: String,
     ) -> StacksTransactionReceipt {
@@ -253,6 +313,39 @@ impl StacksTransactionReceipt {
         }
     }
 
+    pub fn from_engine_analysis_failure(
+        tx: StacksTransaction,
+        analysis_cost: ExecutionCost,
+        diagnostics: Vec<Diagnostic>,
+    ) -> StacksTransactionReceipt {
+        let error_string = diagnostics
+            .first()
+            .map(|diagnostic| {
+                if let Some(span) = diagnostic.spans.first() {
+                    format!(
+                        ":{}:{}: {}",
+                        span.start_line, span.start_column, diagnostic.message
+                    )
+                } else {
+                    diagnostic.message.to_string()
+                }
+            })
+            .unwrap_or_else(|| "Contract analysis failed without a diagnostic".into());
+        StacksTransactionReceipt {
+            transaction: tx.into(),
+            events: vec![],
+            post_condition_aborted: false,
+            result: Value::err_none(),
+            stx_burned: 0,
+            contract_analysis: None,
+            execution_cost: analysis_cost,
+            microblock_header: None,
+            tx_index: 0,
+            vm_error: Some(error_string),
+            problematic_skipped: None,
+        }
+    }
+
     pub fn from_poison_microblock(
         tx: StacksTransaction,
         result: Value,
@@ -276,7 +369,7 @@ impl StacksTransactionReceipt {
     pub fn from_runtime_failure_smart_contract(
         tx: StacksTransaction,
         cost: ExecutionCost,
-        contract_analysis: ContractAnalysis,
+        contract_analysis: StoredContractAnalysis,
         error: RuntimeCheckErrorKind,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
@@ -1552,93 +1645,90 @@ impl StacksChainState {
                 // `max_analysis_time` bounds the analysis phase on the
                 // non-consensus voting paths (mining / block-proposal validation); it is
                 // `None` on deterministic replay/commit (consensus stays deterministic).
-                let analysis_resp = clarity_tx.analyze_smart_contract(
-                    &contract_id,
-                    clarity_version,
-                    &contract_code_str,
-                    resource_budgets.get_analysis_budget(),
-                );
-                let (contract_ast, contract_analysis) = match analysis_resp {
-                    Ok(x) => x,
-                    Err(e) => {
-                        log_unreachable_error(&e, &tx.txid());
-                        match e {
-                            ClarityError::CostError(ref cost_after, ref budget) => {
-                                warn!(
-                                    "Block compute budget exceeded on {}: cost before={}, after={}, budget={}",
-                                    tx.txid(),
-                                    &cost_before,
-                                    cost_after,
-                                    budget
+                let analyzed_contract = if clarity_version == ClarityVersion::Clarity6 {
+                    match clarity_tx.analyze_smart_contract_via_engine(
+                        &contract_id,
+                        clarity_version,
+                        &contract_code_str,
+                        resource_budgets.get_analysis_budget(),
+                    ) {
+                        Ok(analyzed) => analyzed,
+                        Err(EngineError::Parse {
+                            diagnostics,
+                            rejectable,
+                        }) => {
+                            if rejectable {
+                                info!(
+                                    "Transaction {} is problematic and should have prevented this block from being relayed",
+                                    tx.txid()
                                 );
-                                return Err(Error::CostOverflowError(
-                                    cost_before,
-                                    cost_after.clone(),
-                                    budget.clone(),
+                                return Err(Error::InvalidStacksTransaction(
+                                    format!("Rejectable Clarity parse failure: {diagnostics:?}"),
+                                    true,
                                 ));
                             }
-                            ClarityError::AnalysisResourceBudgetExceeded(s) => {
-                                // The analysis phase exceeded its wall-clock deadline or allocation limit (on a voting path only).
-                                warn!("Contract analysis exceeded the analysis resource budget; tx will be dropped from the mempool";
-                                      "error" => s.clone(),
-                                      "txid" => %tx.txid(),
-                                      "contract_name" => %contract_id,
-                                );
-                                return Err(Error::AnalysisResourceBudgetExceeded(s));
-                            }
-                            other_error => {
-                                if let ClarityError::Parse(err) = &other_error {
-                                    if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                        info!(
-                                            "Transaction {} is problematic and should have prevented this block from being relayed",
-                                            tx.txid()
-                                        );
-                                        return Err(Error::ClarityError(other_error));
-                                    }
-                                }
-                                if let ClarityError::StaticCheck(err) = &other_error {
-                                    if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                        info!(
-                                            "Transaction {} is problematic and should have prevented this block from being relayed",
-                                            tx.txid()
-                                        );
-                                        return Err(Error::ClarityError(other_error));
-                                    }
-                                }
-                                // this analysis isn't free -- convert to runtime error
-                                let mut analysis_cost = clarity_tx.cost_so_far();
-                                analysis_cost
-                                    .sub(&cost_before)
-                                    .expect("BUG: total block cost decreased");
-
-                                info!(
-                                    "Runtime error in contract analysis for {contract_id}: {other_error:?}";
-                                    "txid" => %tx.txid(),
-                                );
-                                let receipt = StacksTransactionReceipt::from_analysis_failure(
-                                    tx.clone(),
-                                    analysis_cost,
-                                    other_error,
-                                );
-
-                                // abort now -- no burns
-                                return Ok(receipt);
-                            }
+                            let mut analysis_cost = clarity_tx.cost_so_far();
+                            analysis_cost
+                                .sub(&cost_before)
+                                .expect("BUG: total block cost decreased");
+                            return Ok(StacksTransactionReceipt::from_engine_analysis_failure(
+                                tx.clone(),
+                                analysis_cost,
+                                diagnostics,
+                            ));
+                        }
+                        Err(EngineError::Static(error)) => {
+                            return handle_contract_analysis_error(
+                                clarity_tx,
+                                tx,
+                                &contract_id,
+                                &cost_before,
+                                ClarityError::from(*error),
+                            );
+                        }
+                        Err(EngineError::Execution(error)) => {
+                            return handle_contract_analysis_error(
+                                clarity_tx,
+                                tx,
+                                &contract_id,
+                                &cost_before,
+                                ClarityError::from(error),
+                            );
+                        }
+                        Err(EngineError::Cost(total, limit)) => {
+                            return handle_contract_analysis_error(
+                                clarity_tx,
+                                tx,
+                                &contract_id,
+                                &cost_before,
+                                ClarityError::CostError(total, limit),
+                            );
+                        }
+                        Err(other) => {
+                            return Err(Error::InvalidStacksTransaction(
+                                format!("Clarity engine analysis failure: {other}"),
+                                true,
+                            ));
                         }
                     }
-                };
-
-                // Keep the legacy analysis entry point for now: block
-                // validation relies on its exact parser/static-check error
-                // taxonomy. Once analysis succeeds, bind every deploy phase
-                // to one immutable engine handle.
-                let analyzed_contract = if clarity_version == ClarityVersion::Clarity6 {
-                    Clarity6Engine::from_legacy_parts(
-                        contract_code_str,
-                        contract_ast,
-                        contract_analysis,
-                    )
                 } else {
+                    let (contract_ast, contract_analysis) = match clarity_tx.analyze_smart_contract(
+                        &contract_id,
+                        clarity_version,
+                        &contract_code_str,
+                        resource_budgets.get_analysis_budget(),
+                    ) {
+                        Ok(parts) => parts,
+                        Err(error) => {
+                            return handle_contract_analysis_error(
+                                clarity_tx,
+                                tx,
+                                &contract_id,
+                                &cost_before,
+                                error,
+                            );
+                        }
+                    };
                     LegacyEngine::from_legacy_parts(
                         contract_code_str,
                         contract_ast,
@@ -1682,11 +1772,11 @@ impl StacksChainState {
                         clarity_tx
                             .save_analysis_via_engine(&analyzed_contract)
                             .expect("FATAL: failed to store contract analysis");
-                        let contract_analysis = into_legacy_contract_analysis(analyzed_contract);
+                        let contract_analysis = stored_contract_analysis(&analyzed_contract);
                         (x.0, x.1, contract_analysis)
                     }
                     Err(e) => {
-                        let contract_analysis = into_legacy_contract_analysis(analyzed_contract);
+                        let contract_analysis = stored_contract_analysis(&analyzed_contract);
                         log_unreachable_error(&e, &tx.txid());
                         match handle_clarity_runtime_error(e) {
                             ClarityRuntimeTxError::Acceptable { error, err_type } => {

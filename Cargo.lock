@@ -919,6 +919,17 @@ dependencies = [
  "clarity 0.0.1",
  "clarity-kernel",
  "clarity-types 0.0.1",
+ "integer-sqrt",
+ "lazy_static",
+ "regex",
+ "rstest",
+ "rstest_reuse",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "slog",
  "stacks-common 0.0.1",
 ]
 

@@ -2396,6 +2396,7 @@ impl Drop for ClarityTransactionConnection<'_, '_> {
 /// that block processing depends on — do not shortcut it.
 fn engine_error_to_clarity(err: EngineError) -> ClarityError {
     match err {
+        EngineError::Cost(total, limit) => ClarityError::CostError(total, limit),
         EngineError::Execution(e) => ClarityError::from(e),
         EngineError::Static(e) => ClarityError::from(*e),
         EngineError::AbortedByCallback {
@@ -2413,7 +2414,7 @@ fn engine_error_to_clarity(err: EngineError) -> ClarityError {
         // static checks ran at deploy time); both are mapped defensively
         // rather than panicking. `ParseError` cannot be reconstructed from
         // diagnostics, so parse failures surface as bad transactions.
-        EngineError::Parse(diagnostics) => {
+        EngineError::Parse { diagnostics, .. } => {
             ClarityError::BadTransaction(format!("Parse failure: {diagnostics:?}"))
         }
         EngineError::Internal(s) => ClarityError::BadTransaction(s),
@@ -2600,6 +2601,21 @@ impl ClarityTransactionConnection<'_, '_> {
                     .expect("BUG: Clarity engine failed to restore the database.");
                 (*cost_track, (db.destroy().into(), result))
             })
+        })
+    }
+
+    /// Parse and statically analyze a contract through the engine selected by
+    /// the current epoch/version manifest. The returned handle owns every
+    /// engine-private deploy artifact; no concrete AST crosses into the host.
+    pub fn analyze_smart_contract_via_engine(
+        &mut self,
+        identifier: &QualifiedContractIdentifier,
+        version: ClarityVersion,
+        source: &str,
+        analysis_resource_budget: &ResourceBudget,
+    ) -> Result<AnalyzedContract, EngineError> {
+        self.with_engine(version, |engine, ctx| {
+            engine.analyze_contract(ctx, identifier, source, version, analysis_resource_budget)
         })
     }
 
