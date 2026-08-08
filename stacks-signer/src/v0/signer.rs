@@ -1363,14 +1363,20 @@ impl Signer {
             .saturating_add(self.block_proposal_max_age_secs)
             < get_epoch_time_secs()
         {
-            // Block is too old. Drop it with a warning. Don't even bother broadcasting to the node.
-            warn!("{self}: Received a block proposal that is more than {} secs old. Ignoring...", self.block_proposal_max_age_secs;
+            // Block is too old. Reject it (without validating) rather than silently
+            // dropping it: the miner's proposal loop re-sends the same block until it
+            // accumulates rejection weight, so a silent drop from the whole signer set
+            // would livelock the tenure until the next sortition.
+            warn!("{self}: Received a block proposal that is more than {} secs old. Rejecting...", self.block_proposal_max_age_secs;
                 "signer_signature_hash" => %block_proposal.block.header.signer_signature_hash(),
                 "block_id" => %block_proposal.block.block_id(),
                 "block_height" => block_proposal.block.header.chain_length,
                 "burn_height" => block_proposal.burn_height,
                 "timestamp" => block_proposal.block.header.timestamp,
             );
+            let rejection =
+                self.create_block_rejection(RejectReason::ProposalTooOld, &block_proposal.block);
+            self.send_block_response(&block_proposal.block, rejection.into());
             return;
         }
 
@@ -2462,7 +2468,8 @@ fn should_reevaluate_reject_reason(block_info: &BlockInfo) -> bool {
             | RejectReason::InvalidParentBlock
             | RejectReason::DuplicateBlockFound
             | RejectReason::IrrecoverablePubkeyHash
-            | RejectReason::ProblematicTransactions => {
+            | RejectReason::ProblematicTransactions
+            | RejectReason::ProposalTooOld => {
                 // No need to re-validate these types of rejections.
                 false
             }
