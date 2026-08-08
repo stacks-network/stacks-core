@@ -39,17 +39,20 @@ use clarity::vm::analysis::StoredContractAnalysis;
 use clarity::vm::engine::{ContractDispatcher, Engine, EngineError, LegacyEngine, RuntimeContext};
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ClarityVersion;
+use clarity_v6::Clarity6Engine;
 use stacks_common::types::StacksEpochId;
 
 static LEGACY_V1: LegacyEngine = LegacyEngine;
+static CLARITY6_V1: Clarity6Engine = Clarity6Engine;
 
 /// A concrete, linkable consensus revision of a Clarity engine.
 ///
 /// Future variants will distinguish side-by-side major releases such as
-/// `Clarity7V1` and `Clarity7V2`. Multiple epochs may select the same variant.
+/// `Clarity6V1` and `Clarity6V2`. Multiple epochs may select the same variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EngineRevision {
     LegacyV1,
+    Clarity6V1,
 }
 
 /// One engine selected from the manifest for an interaction.
@@ -66,6 +69,7 @@ impl SelectedEngine {
     pub fn engine(self) -> &'static dyn Engine {
         match self.revision {
             EngineRevision::LegacyV1 => &LEGACY_V1,
+            EngineRevision::Clarity6V1 => &CLARITY6_V1,
         }
     }
 }
@@ -131,6 +135,19 @@ impl ClarityEngineManifest {
         }
     }
 
+    /// Map a language version to its independently linkable engine revision.
+    /// Epoch availability is validated separately by [`Self::select`].
+    fn revision_for_version(version: ClarityVersion) -> EngineRevision {
+        match version {
+            ClarityVersion::Clarity1
+            | ClarityVersion::Clarity2
+            | ClarityVersion::Clarity3
+            | ClarityVersion::Clarity4
+            | ClarityVersion::Clarity5 => EngineRevision::LegacyV1,
+            ClarityVersion::Clarity6 => EngineRevision::Clarity6V1,
+        }
+    }
+
     /// Select the engine revision for a contract language version at this
     /// manifest's current execution epoch.
     pub fn select(self, version: ClarityVersion) -> Result<SelectedEngine, EngineSelectionError> {
@@ -146,7 +163,7 @@ impl ClarityEngineManifest {
         }
 
         Ok(SelectedEngine {
-            revision: EngineRevision::LegacyV1,
+            revision: Self::revision_for_version(version),
         })
     }
 }
@@ -201,7 +218,12 @@ mod tests {
                 let selected = manifest.select(version);
                 if version <= maximum {
                     let selected = selected.unwrap();
-                    assert_eq!(selected.revision(), EngineRevision::LegacyV1);
+                    let expected = if version == ClarityVersion::Clarity6 {
+                        EngineRevision::Clarity6V1
+                    } else {
+                        EngineRevision::LegacyV1
+                    };
+                    assert_eq!(selected.revision(), expected);
                     assert!(selected.engine().supported_versions().contains(&version));
                 } else {
                     assert!(selected.is_err());
@@ -211,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_revision_carries_historical_epoch_gates() {
+    fn clarity6_revision_spans_epoch40_and_epoch41_kernel_rules() {
         let epoch_40 = ClarityEngineManifest::for_epoch(StacksEpochId::Epoch40)
             .select(ClarityVersion::Clarity6)
             .unwrap();
@@ -220,5 +242,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(epoch_40.revision(), epoch_41.revision());
+        assert_eq!(epoch_40.revision(), EngineRevision::Clarity6V1);
+        let selected = epoch_40;
+        assert_eq!(selected.engine().name(), "clarity-v6-revision-1");
+        assert_eq!(
+            selected.engine().supported_versions(),
+            &[ClarityVersion::Clarity6]
+        );
     }
 }

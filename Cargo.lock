@@ -913,6 +913,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "clarity-v6"
+version = "1.0.0"
+dependencies = [
+ "clarity 0.0.1",
+ "clarity-kernel",
+ "clarity-types 0.0.1",
+ "stacks-common 0.0.1",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4664,6 +4674,7 @@ dependencies = [
  "assert-json-diff 1.1.0",
  "chrono",
  "clarity 0.0.1",
+ "clarity-v6",
  "ed25519-dalek",
  "insta",
  "lazy_static",

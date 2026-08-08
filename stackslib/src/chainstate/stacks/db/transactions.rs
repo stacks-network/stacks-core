@@ -21,7 +21,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, ExecutionState, InvocationContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::engine::LegacyEngine;
+use clarity::vm::engine::{AnalyzedContract, LegacyEngine};
 use clarity::vm::errors::{VmExecutionError, VmInternalError};
 use clarity::vm::representations::ClarityName;
 use clarity::vm::resource_limiter::ResourceBudget;
@@ -30,6 +30,7 @@ use clarity::vm::types::{
     StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
+use clarity_v6::Clarity6Engine;
 
 use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::*;
@@ -42,6 +43,19 @@ use crate::util_lib::strings::VecDisplay;
 /// This is a safe-to-hash Clarity value
 #[derive(PartialEq, Eq)]
 struct HashableClarityValue(Value);
+
+/// Recover the legacy working analysis still carried in transaction receipts
+/// from whichever ABI engine owned the analyzed handle.
+fn into_legacy_contract_analysis(analyzed: AnalyzedContract) -> ContractAnalysis {
+    let parts = if analyzed.version() == ClarityVersion::Clarity6 {
+        Clarity6Engine::into_legacy_parts(analyzed)
+    } else {
+        LegacyEngine::into_legacy_parts(analyzed)
+    };
+    parts
+        .expect("BUG: selected Clarity engine could not recover its analysis")
+        .1
+}
 
 impl TryFrom<Value> for HashableClarityValue {
     type Error = VmExecutionError;
@@ -1618,11 +1632,19 @@ impl StacksChainState {
                 // validation relies on its exact parser/static-check error
                 // taxonomy. Once analysis succeeds, bind every deploy phase
                 // to one immutable engine handle.
-                let analyzed_contract = LegacyEngine::from_legacy_parts(
-                    contract_code_str,
-                    contract_ast,
-                    contract_analysis,
-                );
+                let analyzed_contract = if clarity_version == ClarityVersion::Clarity6 {
+                    Clarity6Engine::from_legacy_parts(
+                        contract_code_str,
+                        contract_ast,
+                        contract_analysis,
+                    )
+                } else {
+                    LegacyEngine::from_legacy_parts(
+                        contract_code_str,
+                        contract_ast,
+                        contract_analysis,
+                    )
+                };
 
                 let mut analysis_cost = clarity_tx.cost_so_far();
                 analysis_cost
@@ -1660,15 +1682,11 @@ impl StacksChainState {
                         clarity_tx
                             .save_analysis_via_engine(&analyzed_contract)
                             .expect("FATAL: failed to store contract analysis");
-                        let (_, contract_analysis) =
-                            LegacyEngine::into_legacy_parts(analyzed_contract)
-                                .expect("BUG: legacy engine could not recover its analysis");
+                        let contract_analysis = into_legacy_contract_analysis(analyzed_contract);
                         (x.0, x.1, contract_analysis)
                     }
                     Err(e) => {
-                        let (_, contract_analysis) =
-                            LegacyEngine::into_legacy_parts(analyzed_contract)
-                                .expect("BUG: legacy engine could not recover its analysis");
+                        let contract_analysis = into_legacy_contract_analysis(analyzed_contract);
                         log_unreachable_error(&e, &tx.txid());
                         match handle_clarity_runtime_error(e) {
                             ClarityRuntimeTxError::Acceptable { error, err_type } => {

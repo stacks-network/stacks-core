@@ -33,6 +33,7 @@ prometheus = { version = "0.9", optional = true }
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 chrono = { version = "0.4.19", optional = true }
 clarity = { path = "../clarity" }
+clarity-v6 = { path = "../clarity-v6" }
 stacks-common = { path = "../stacks-common" }
 stacks-codec = { path = "../stacks-codec" }
 pox-locking = { path = "../pox-locking" }
@@ -80,10 +81,10 @@ insta = { version = "1.37.0", features = ["ron"] }
 default = []
 profile-sqlite = []
 disable-costs = []
-developer-mode = ["clarity/developer-mode"]
+developer-mode = ["clarity/developer-mode", "clarity-v6/developer-mode"]
 monitoring_prom = ["prometheus"]
-slog_json = ["stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
-testing = ["chrono", "stacks-common/testing", "clarity/testing"]
+slog_json = ["stacks-common/slog_json", "clarity/slog_json", "clarity-v6/slog_json", "pox-locking/slog_json"]
+testing = ["chrono", "stacks-common/testing", "clarity/testing", "clarity-v6/testing"]
 profiler = ["perf-event2"]
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]

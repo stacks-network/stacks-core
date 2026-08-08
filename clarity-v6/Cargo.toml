@@ -1,0 +1,46 @@
+[package]
+name = "clarity-v6"
+version = "1.0.0"
+edition = "2024"
+description = "Pinned Clarity 6 execution engine"
+license = "GPLv3"
+homepage = "https://github.com/stacks-network/stacks-core"
+repository = "https://github.com/stacks-network/stacks-core"
+keywords = ["stacks", "clarity", "smart-contracts", "blockchain"]
+
+[dependencies]
+clarity = { path = "../clarity", default-features = false }
+clarity-kernel = { path = "../clarity-kernel", default-features = false }
+clarity-types = { path = "../clarity-types", default-features = false }
+stacks-common = { path = "../stacks-common", default-features = false }
+
+[features]
+default = ["rusqlite"]
+developer-mode = [
+    "clarity/developer-mode",
+    "clarity-kernel/developer-mode",
+    "clarity-types/developer-mode",
+    "stacks-common/developer-mode",
+]
+slog_json = ["clarity/slog_json", "clarity-kernel/slog_json", "stacks-common/slog_json"]
+rusqlite = [
+    "clarity/rusqlite",
+    "clarity-kernel/rusqlite",
+    "clarity-types/rusqlite",
+    "stacks-common/rusqlite",
+]
+testing = [
+    "rusqlite",
+    "clarity/testing",
+    "clarity-kernel/testing",
+    "clarity-types/testing",
+    "stacks-common/testing",
+]
+rollback_value_check = ["clarity/rollback_value_check", "clarity-kernel/rollback_value_check"]
+wasm-web = [
+    "clarity/wasm-web",
+    "clarity-kernel/wasm-web",
+    "clarity-types/wasm-web",
+    "stacks-common/wasm-web",
+]
+
