@@ -118,7 +118,7 @@ impl<'a> ValueRef<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ParsedContract {
     pub contract_identifier: String,
     pub code: String,
@@ -127,25 +127,25 @@ pub struct ParsedContract {
     pub analysis: ContractAnalysis,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ContractEvaluationResult {
     pub result: Option<Value>,
     pub contract: ParsedContract,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SnippetEvaluationResult {
     pub result: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum EvaluationResult {
     Contract(ContractEvaluationResult),
     Snippet(SnippetEvaluationResult),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ExecutionResult {
     pub result: EvaluationResult,
     pub events: Vec<StacksTransactionEvent>,

@@ -37,7 +37,8 @@ pub fn mem_type_check(
 
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
-    let cost_tracker = LimitedCostTracker::new_free();
+    let cost_tracker =
+        clarity_kernel::costs::CostTrackerHandle::new(LimitedCostTracker::new_free());
     match run_analysis(
         &QualifiedContractIdentifier::transient(),
         &contract,

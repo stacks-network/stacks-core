@@ -23,6 +23,7 @@ pub mod trait_checker;
 pub mod type_checker;
 pub mod types;
 
+use clarity_kernel::costs::CostTrackerHandle;
 use stacks_common::types::StacksEpochId;
 
 pub use self::analysis_db::AnalysisDatabase;
@@ -39,6 +40,7 @@ pub use self::types::{AnalysisPass, ContractAnalysis, StoredContractAnalysis};
 use crate::vm::ClarityVersion;
 #[cfg(feature = "rusqlite")]
 use crate::vm::ast::build_ast;
+#[cfg(feature = "rusqlite")]
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
 #[cfg(feature = "rusqlite")]
@@ -91,7 +93,7 @@ pub fn mem_type_check(
 
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
-    let cost_tracker = LimitedCostTracker::new_free();
+    let cost_tracker = CostTrackerHandle::new(LimitedCostTracker::new_free());
     match run_analysis(
         &QualifiedContractIdentifier::transient(),
         &contract,
@@ -138,7 +140,7 @@ pub fn type_check(
         insert_contract,
         // for the type check tests, the cost tracker's epoch doesn't
         //  matter: the costs in those tests are all free anyways.
-        LimitedCostTracker::new_free(),
+        CostTrackerHandle::new(LimitedCostTracker::new_free()),
         *epoch,
         *version,
         true,
@@ -177,7 +179,7 @@ pub fn type_check(
 /// # Returns
 ///
 /// On success, the completed [`ContractAnalysis`]. On failure, a boxed pair of the
-/// [`StaticCheckError`] and the [`LimitedCostTracker`] recovered from the analysis, so
+/// [`StaticCheckError`] and shared cost tracker recovered from the analysis, so
 /// the caller can continue accounting for the cost already consumed.
 #[allow(clippy::too_many_arguments)]
 pub fn run_analysis(
@@ -185,12 +187,12 @@ pub fn run_analysis(
     expressions: &[SymbolicExpression],
     analysis_db: &mut AnalysisDatabase,
     save_contract: bool,
-    cost_tracker: LimitedCostTracker,
+    cost_tracker: CostTrackerHandle,
     epoch: StacksEpochId,
     version: ClarityVersion,
     build_type_map: bool,
     resource_limiter: ResourceLimiter,
-) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticCheckError, CostTrackerHandle)>> {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
         expressions.to_vec(),

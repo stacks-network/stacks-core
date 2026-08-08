@@ -4644,7 +4644,7 @@ fn test_in_contract_trait_entry_metered_from_epoch40() {
             &ast.expressions,
             &mut adb,
             false,
-            tracker,
+            clarity_kernel::costs::CostTrackerHandle::new(tracker),
             epoch,
             version,
             true,

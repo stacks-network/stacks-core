@@ -265,6 +265,7 @@ mod tests {
         caller_version: ClarityVersion,
         callee_version: ClarityVersion,
         caller_source: &str,
+        install_host_tracker: bool,
     ) -> (Result<Value, EngineError>, Value, usize) {
         let manifest = ClarityEngineManifest::for_epoch(StacksEpochId::Epoch40);
         let mut store = setup_store();
@@ -275,7 +276,9 @@ mod tests {
             StacksEpochId::Epoch40,
         )
         .with_budget(CostBudget::Limited(ExecutionCost::max_value()));
-        context.install_cost_tracker(LimitedCostTracker::new_free());
+        if install_host_tracker {
+            context.install_cost_tracker(LimitedCostTracker::new_free());
+        }
         let callee = contract_id("callee");
         let caller = contract_id("caller");
         deploy(manifest, &mut context, &callee, CALLEE, callee_version);
@@ -373,7 +376,7 @@ mod tests {
             (ClarityVersion::Clarity6, ClarityVersion::Clarity5),
         ] {
             let (value, calls, event_count) =
-                run_mixed_call(caller_version, callee_version, CALLER);
+                run_mixed_call(caller_version, callee_version, CALLER, true);
             assert_eq!(
                 value.unwrap(),
                 Value::okay(Value::Principal(PrincipalData::Contract(contract_id(
@@ -387,13 +390,29 @@ mod tests {
     }
 
     #[test]
+    fn either_engine_can_establish_the_shared_cost_tracker() {
+        for (caller_version, callee_version) in [
+            // Deployment order is callee then caller, so these two cases make
+            // each concrete engine tracker the transaction's initial meter.
+            (ClarityVersion::Clarity5, ClarityVersion::Clarity6),
+            (ClarityVersion::Clarity6, ClarityVersion::Clarity5),
+        ] {
+            let (value, calls, event_count) =
+                run_mixed_call(caller_version, callee_version, CALLER, false);
+            assert!(value.is_ok());
+            assert_eq!(calls, Value::UInt(1));
+            assert_eq!(event_count, 1);
+        }
+    }
+
+    #[test]
     fn mixed_engine_nested_writes_roll_back_with_the_outer_call() {
         for (caller_version, callee_version) in [
             (ClarityVersion::Clarity5, ClarityVersion::Clarity6),
             (ClarityVersion::Clarity6, ClarityVersion::Clarity5),
         ] {
             let (value, calls, event_count) =
-                run_mixed_call(caller_version, callee_version, FAILING_CALLER);
+                run_mixed_call(caller_version, callee_version, FAILING_CALLER, true);
             assert!(matches!(value, Err(EngineError::Execution(_))));
             assert_eq!(calls, Value::UInt(0));
             assert_eq!(event_count, 0);

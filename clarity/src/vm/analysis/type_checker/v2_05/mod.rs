@@ -20,6 +20,7 @@ pub mod natives;
 
 use std::collections::BTreeMap;
 
+use clarity_kernel::costs::CostTrackerHandle;
 use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
@@ -35,8 +36,8 @@ pub use crate::vm::analysis::errors::{
 use crate::vm::analysis::type_checker::FunctionTypeExt;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
-    analysis_typecheck_cost, runtime_cost,
+    CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, analysis_typecheck_cost,
+    runtime_cost,
 };
 use crate::vm::functions::NativeFunctions;
 use crate::vm::functions::define::DefineFunctionsParsed;
@@ -75,7 +76,7 @@ pub struct TypeChecker<'a, 'b> {
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a mut AnalysisDatabase<'b>,
-    pub cost_track: LimitedCostTracker,
+    pub cost_track: CostTrackerHandle,
 }
 
 impl CostTracker for TypeChecker<'_, '_> {
@@ -380,7 +381,7 @@ pub fn no_type() -> TypeSignature {
 impl<'a, 'b> TypeChecker<'a, 'b> {
     pub fn new(
         db: &'a mut AnalysisDatabase<'b>,
-        cost_track: LimitedCostTracker,
+        cost_track: CostTrackerHandle,
         build_type_map: bool,
     ) -> TypeChecker<'a, 'b> {
         Self {
@@ -392,10 +393,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    fn into_contract_analysis(
-        self,
-        contract_analysis: &mut ContractAnalysis,
-    ) -> LimitedCostTracker {
+    fn into_contract_analysis(self, contract_analysis: &mut ContractAnalysis) -> CostTrackerHandle {
         self.contract_context
             .into_contract_analysis(contract_analysis);
         contract_analysis.type_map = Some(self.type_map);

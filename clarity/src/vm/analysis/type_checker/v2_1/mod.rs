@@ -19,6 +19,7 @@ pub mod natives;
 
 use std::collections::BTreeMap;
 
+use clarity_kernel::costs::CostTrackerHandle;
 use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
@@ -88,7 +89,7 @@ pub struct TypeChecker<'a, 'b> {
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a mut AnalysisDatabase<'b>,
-    pub cost_track: LimitedCostTracker,
+    pub cost_track: CostTrackerHandle,
     clarity_version: ClarityVersion,
     /// Resource limits (wallclock deadline and max memory allocation) for the
     /// analysis phase. Unlimited on the deterministic-replay/commit path (so
@@ -1228,7 +1229,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     fn new(
         epoch: &StacksEpochId,
         db: &'a mut AnalysisDatabase<'b>,
-        cost_track: LimitedCostTracker,
+        cost_track: CostTrackerHandle,
         contract_identifier: &QualifiedContractIdentifier,
         clarity_version: &ClarityVersion,
         build_type_map: bool,
@@ -1246,10 +1247,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    fn into_contract_analysis(
-        self,
-        contract_analysis: &mut ContractAnalysis,
-    ) -> LimitedCostTracker {
+    fn into_contract_analysis(self, contract_analysis: &mut ContractAnalysis) -> CostTrackerHandle {
         self.contract_context
             .into_contract_analysis(contract_analysis);
         contract_analysis.type_map = Some(self.type_map);

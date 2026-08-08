@@ -23,7 +23,7 @@ use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use clarity::vm::ast::build_ast;
 use clarity::vm::ast::errors::ParseError;
 use clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::costs::{CostTrackerHandle, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
 };
@@ -235,13 +235,13 @@ fn run_analysis_free<C: ClarityStorage>(
     save_contract: bool,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticCheckError, CostTrackerHandle)>> {
     analysis::run_analysis(
         contract_identifier,
         expressions,
         &mut marf_kv.get_analysis_db(),
         save_contract,
-        LimitedCostTracker::new_free(),
+        CostTrackerHandle::new(LimitedCostTracker::new_free()),
         epoch,
         clarity_version,
         // no type map data is used in the clarity_cli
@@ -259,7 +259,7 @@ fn run_analysis<C: ClarityStorage>(
     save_contract: bool,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticCheckError, CostTrackerHandle)>> {
     let mainnet = header_db.is_mainnet();
     let cost_track = LimitedCostTracker::new(
         mainnet,
@@ -278,7 +278,7 @@ fn run_analysis<C: ClarityStorage>(
         expressions,
         &mut marf_kv.get_analysis_db(),
         save_contract,
-        cost_track,
+        CostTrackerHandle::new(cost_track),
         epoch,
         clarity_version,
         // no type map data is used in the clarity_cli

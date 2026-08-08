@@ -17,6 +17,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 pub use clarity_kernel::analysis::StoredContractAnalysis;
+use clarity_kernel::costs::CostTrackerHandle;
 use clarity_types::representations::ClarityName;
 use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use stacks_common::types::StacksEpochId;
@@ -25,7 +26,6 @@ use crate::vm::analysis::analysis_db::AnalysisDatabase;
 use crate::vm::analysis::contract_interface_builder::ContractInterface;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
-use crate::vm::costs::LimitedCostTracker;
 use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::FunctionType;
 use crate::vm::types::signatures::FunctionSignature;
@@ -49,7 +49,7 @@ pub trait AnalysisPass {
     ) -> Result<(), StaticCheckError>;
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ContractAnalysis {
     pub contract_identifier: QualifiedContractIdentifier,
     pub private_function_types: BTreeMap<ClarityName, FunctionType>,
@@ -71,7 +71,7 @@ pub struct ContractAnalysis {
     #[serde(skip)]
     pub type_map: Option<TypeMap>,
     #[serde(skip)]
-    pub cost_track: Option<LimitedCostTracker>,
+    pub cost_track: Option<CostTrackerHandle>,
 }
 
 impl ContractAnalysis {
@@ -127,7 +127,7 @@ impl ContractAnalysis {
     pub fn new(
         contract_identifier: QualifiedContractIdentifier,
         expressions: Vec<SymbolicExpression>,
-        cost_track: LimitedCostTracker,
+        cost_track: CostTrackerHandle,
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
     ) -> ContractAnalysis {
@@ -154,13 +154,13 @@ impl ContractAnalysis {
     }
 
     #[allow(clippy::expect_used)]
-    pub fn take_contract_cost_tracker(&mut self) -> LimitedCostTracker {
+    pub fn take_contract_cost_tracker(&mut self) -> CostTrackerHandle {
         self.cost_track
             .take()
             .expect("BUG: contract analysis attempted to take a cost tracker already claimed.")
     }
 
-    pub fn replace_contract_cost_tracker(&mut self, cost_track: LimitedCostTracker) {
+    pub fn replace_contract_cost_tracker(&mut self, cost_track: CostTrackerHandle) {
         assert!(self.cost_track.is_none());
         self.cost_track.replace(cost_track);
     }
@@ -343,7 +343,7 @@ mod test {
         let mut contract_analysis = ContractAnalysis::new(
             QualifiedContractIdentifier::local("foo").unwrap(),
             vec![],
-            LimitedCostTracker::new_free(),
+            CostTrackerHandle::new(LimitedCostTracker::new_free()),
             StacksEpochId::Epoch20,
             ClarityVersion::Clarity1,
         );

@@ -55,7 +55,7 @@ mod utils {
             &exprs,
             &mut analysis_db,
             false, // save_contract
-            LimitedCostTracker::new_free(),
+            clarity_kernel::costs::CostTrackerHandle::new(LimitedCostTracker::new_free()),
             epoch,
             version,
             false, // build_type_map

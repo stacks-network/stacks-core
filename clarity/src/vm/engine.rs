@@ -375,16 +375,7 @@ impl Engine for LegacyEngine {
         analysis_budget: &ResourceBudget,
     ) -> Result<AnalyzedContract, EngineError> {
         let TakenParts { tracker, db } = self.take_parts(ctx)?;
-        let mut tracker = match tracker.into_inner::<LimitedCostTracker>() {
-            Ok(tracker) => *tracker,
-            Err(tracker) => {
-                ctx.restore_db(db);
-                ctx.restore_cost_tracker(tracker);
-                return Err(EngineError::Internal(
-                    "Legacy analysis requires a LimitedCostTracker".into(),
-                ));
-            }
-        };
+        let mut tracker = tracker;
 
         // Mirror the production flow: the resource clock starts before AST
         // building so parse time counts against the analysis budget.
@@ -395,7 +386,7 @@ impl Engine for LegacyEngine {
             Ok(ast) => ast,
             Err(e) => {
                 ctx.restore_db(db);
-                self.park_tracker(ctx, CostTrackerHandle::new(tracker));
+                self.park_tracker(ctx, tracker);
                 return Err(parse_engine_error(e, ctx.epoch));
             }
         };
@@ -428,7 +419,7 @@ impl Engine for LegacyEngine {
             Ok(mut analysis) => {
                 let tracker = analysis.take_contract_cost_tracker();
                 let interface = analysis.to_stored();
-                self.park_tracker(ctx, CostTrackerHandle::new(tracker));
+                self.park_tracker(ctx, tracker);
                 debug_assert_eq!(interface.contract_identifier, *contract);
                 debug_assert_eq!(interface.clarity_version, version);
                 Ok(AnalyzedContract::new(
@@ -439,7 +430,7 @@ impl Engine for LegacyEngine {
             }
             Err(boxed) => {
                 let (check_error, tracker) = *boxed;
-                self.park_tracker(ctx, CostTrackerHandle::new(tracker));
+                self.park_tracker(ctx, tracker);
                 Err(EngineError::Static(Box::new(check_error)))
             }
         }
