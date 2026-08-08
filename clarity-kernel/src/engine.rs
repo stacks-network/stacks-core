@@ -57,6 +57,7 @@ use crate::diagnostic::Diagnostic;
 use crate::errors::{StaticCheckError, VmExecutionError};
 use crate::events::StacksTransactionEvent;
 use crate::resource_limiter::ResourceBudget;
+use crate::transaction::{CallStack, TransactionFrame};
 
 /// Post-execution decision hook: after an interaction executes successfully,
 /// the host inspects the resulting asset movements (and may read chain
@@ -151,6 +152,11 @@ pub struct TransactionContext<'a> {
     /// in this transaction. It is type-erased so historical engine-specific
     /// schedules can remain outside the kernel.
     cost_tracker: Option<CostTrackerHandle>,
+    /// Asset/event/read-only rollback frames shared by all participating
+    /// engines.
+    transaction_frame: Option<TransactionFrame>,
+    /// Function and expression depth shared across engine call boundaries.
+    call_stack: Option<CallStack>,
     /// Transitional: epochs are a Stacks-host concept; this becomes a
     /// kernel-owned ruleset identifier at the epoch-inversion step.
     pub epoch: StacksEpochId,
@@ -179,6 +185,8 @@ impl<'a> TransactionContext<'a> {
         TransactionContext {
             db: Some(db),
             cost_tracker: None,
+            transaction_frame: Some(TransactionFrame::new()),
+            call_stack: Some(CallStack::new()),
             epoch,
             mainnet,
             chain_id,
@@ -227,6 +235,26 @@ impl<'a> TransactionContext<'a> {
                 None
             }
         }
+    }
+
+    pub fn take_transaction_frame(&mut self) -> Result<TransactionFrame, EngineError> {
+        self.transaction_frame.take().ok_or_else(|| {
+            EngineError::Internal("Transaction frame was taken and not restored".into())
+        })
+    }
+
+    pub fn restore_transaction_frame(&mut self, frame: TransactionFrame) {
+        self.transaction_frame = Some(frame);
+    }
+
+    pub fn take_call_stack(&mut self) -> Result<CallStack, EngineError> {
+        self.call_stack.take().ok_or_else(|| {
+            EngineError::Internal("Transaction call stack was taken and not restored".into())
+        })
+    }
+
+    pub fn restore_call_stack(&mut self, call_stack: CallStack) {
+        self.call_stack = Some(call_stack);
     }
 
     /// Take this engine-owned inter-interaction state, if present.

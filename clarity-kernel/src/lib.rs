@@ -53,5 +53,6 @@ pub mod errors;
 pub mod events;
 pub mod resource_limiter;
 pub mod signatures;
+pub mod transaction;
 
 pub use clarity_types;

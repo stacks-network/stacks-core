@@ -52,6 +52,7 @@ pub use clarity_kernel::engine::{
 };
 use clarity_kernel::events::StacksTransactionEvent;
 use clarity_kernel::resource_limiter::ResourceBudget;
+use clarity_kernel::transaction::{CallStack, TransactionFrame};
 use clarity_types::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity_types::{ClarityVersion, Value};
 
@@ -80,6 +81,12 @@ pub struct LegacyAnalysis {
 struct TakenParts<'a> {
     tracker: CostTrackerHandle,
     db: ClarityDatabase<'a>,
+}
+
+struct ExecutionParts<'a> {
+    core: TakenParts<'a>,
+    transaction: TransactionFrame,
+    call_stack: CallStack,
 }
 
 /// What an interaction produces: a value, plus the asset movements and
@@ -186,6 +193,35 @@ impl LegacyEngine {
         }
     }
 
+    fn take_execution_parts<'a>(
+        &self,
+        ctx: &mut TransactionContext<'a>,
+    ) -> Result<ExecutionParts<'a>, EngineError> {
+        let core = self.take_parts(ctx)?;
+        let transaction = match ctx.take_transaction_frame() {
+            Ok(transaction) => transaction,
+            Err(e) => {
+                ctx.restore_db(core.db);
+                self.park_tracker(ctx, core.tracker);
+                return Err(e);
+            }
+        };
+        let call_stack = match ctx.take_call_stack() {
+            Ok(call_stack) => call_stack,
+            Err(e) => {
+                ctx.restore_transaction_frame(transaction);
+                ctx.restore_db(core.db);
+                self.park_tracker(ctx, core.tracker);
+                return Err(e);
+            }
+        };
+        Ok(ExecutionParts {
+            core,
+            transaction,
+            call_stack,
+        })
+    }
+
     /// Park the shared tracker back in the context for the next interaction, and
     /// report the cumulative cost consumed so far.
     fn park_tracker(
@@ -196,6 +232,18 @@ impl LegacyEngine {
         let cost = tracker.get_total();
         ctx.restore_cost_tracker(tracker);
         cost
+    }
+
+    fn park_runtime(
+        &self,
+        ctx: &mut TransactionContext,
+        tracker: CostTrackerHandle,
+        transaction: TransactionFrame,
+        call_stack: CallStack,
+    ) -> ExecutionCost {
+        ctx.restore_transaction_frame(transaction);
+        ctx.restore_call_stack(call_stack);
+        self.park_tracker(ctx, tracker)
     }
 
     /// Run `interact` inside an [`OwnedEnvironment`] assembled from the
@@ -210,7 +258,7 @@ impl LegacyEngine {
     fn with_abortable_env<'a, F, R>(
         &self,
         ctx: &mut TransactionContext<'a>,
-        parts: TakenParts<'a>,
+        parts: ExecutionParts<'a>,
         execution_budget: &ResourceBudget,
         abort: Option<AbortCallback>,
         output_for_abort: fn(&R) -> Option<Box<Value>>,
@@ -219,19 +267,25 @@ impl LegacyEngine {
     where
         F: FnOnce(&mut OwnedEnvironment) -> Result<Produced<R>, EngineError>,
     {
-        let TakenParts { tracker, mut db } = parts;
+        let ExecutionParts {
+            core: TakenParts { tracker, mut db },
+            transaction,
+            call_stack,
+        } = parts;
         db.begin();
-        let mut env = OwnedEnvironment::new_with_cost_tracker_handle(
+        let mut env = OwnedEnvironment::new_with_shared_transaction(
             ctx.mainnet,
             ctx.chain_id,
             db,
             tracker,
+            transaction,
+            call_stack,
             ctx.epoch,
         );
         env.set_execution_resource_limiter(execution_budget.start_tracking());
         let result = interact(&mut env);
-        let (mut db, tracker) = env
-            .destruct_with_cost_tracker_handle()
+        let (mut db, tracker, transaction, call_stack) = env
+            .destruct_with_shared_transaction()
             .ok_or_else(|| EngineError::Internal("OwnedEnvironment failed to destruct".into()))?;
 
         match result {
@@ -244,7 +298,7 @@ impl LegacyEngine {
                     Some(reason) => {
                         let rolled_back = db.roll_back().map_err(EngineError::Execution);
                         ctx.restore_db(db);
-                        self.park_tracker(ctx, tracker);
+                        self.park_runtime(ctx, tracker, transaction, call_stack);
                         rolled_back?;
                         Err(EngineError::AbortedByCallback {
                             output: output_for_abort(&value),
@@ -256,7 +310,7 @@ impl LegacyEngine {
                     None => {
                         let committed = db.commit().map_err(EngineError::Execution);
                         ctx.restore_db(db);
-                        let cost = self.park_tracker(ctx, tracker);
+                        let cost = self.park_runtime(ctx, tracker, transaction, call_stack);
                         committed?;
                         Ok(((value, assets, events), cost))
                     }
@@ -265,7 +319,7 @@ impl LegacyEngine {
             Err(e) => {
                 let rolled_back = db.roll_back().map_err(EngineError::Execution);
                 ctx.restore_db(db);
-                self.park_tracker(ctx, tracker);
+                self.park_runtime(ctx, tracker, transaction, call_stack);
                 rolled_back?;
                 Err(e)
             }
@@ -369,12 +423,12 @@ impl Engine for LegacyEngine {
         abort: Option<AbortCallback>,
         execution_budget: &ResourceBudget,
     ) -> Result<DeployOutcome, EngineError> {
-        let parts = self.take_parts(ctx)?;
+        let parts = self.take_execution_parts(ctx)?;
         let legacy = match analyzed.engine_data::<LegacyAnalysis>() {
             Some(legacy) => legacy,
             None => {
-                ctx.restore_db(parts.db);
-                self.park_tracker(ctx, parts.tracker);
+                ctx.restore_db(parts.core.db);
+                self.park_runtime(ctx, parts.core.tracker, parts.transaction, parts.call_stack);
                 return Err(EngineError::Internal(
                     "AnalyzedContract was produced by a different engine".into(),
                 ));
@@ -459,7 +513,7 @@ impl Engine for LegacyEngine {
         abort: Option<AbortCallback>,
         execution_budget: &ResourceBudget,
     ) -> Result<ExecutionOutcome, EngineError> {
-        let parts = self.take_parts(ctx)?;
+        let parts = self.take_execution_parts(ctx)?;
         let expr_args: Vec<_> = args
             .iter()
             .map(|arg| SymbolicExpression::atom_value(arg.clone()))
@@ -489,20 +543,26 @@ impl Engine for LegacyEngine {
         contract: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Value, EngineError> {
-        let TakenParts { tracker, db } = self.take_parts(ctx)?;
-        let mut env = OwnedEnvironment::new_with_cost_tracker_handle(
+        let ExecutionParts {
+            core: TakenParts { tracker, db },
+            transaction,
+            call_stack,
+        } = self.take_execution_parts(ctx)?;
+        let mut env = OwnedEnvironment::new_with_shared_transaction(
             ctx.mainnet,
             ctx.chain_id,
             db,
             tracker,
+            transaction,
+            call_stack,
             ctx.epoch,
         );
         let result = env.eval_read_only(contract, program).map_err(engine_error);
-        let (db, tracker) = env
-            .destruct_with_cost_tracker_handle()
+        let (db, tracker, transaction, call_stack) = env
+            .destruct_with_shared_transaction()
             .ok_or_else(|| EngineError::Internal("OwnedEnvironment failed to destruct".into()))?;
         ctx.restore_db(db);
-        self.park_tracker(ctx, tracker);
+        self.park_runtime(ctx, tracker, transaction, call_stack);
         result.map(|(value, _assets, _events)| value)
     }
 }

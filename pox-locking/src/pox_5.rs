@@ -584,7 +584,7 @@ pub fn handle_contract_call(
     }
 
     // append the lockup event
-    if let Some((batch, _)) = global_context.event_batches.last_mut() {
+    if let Some((batch, _)) = global_context.transaction.current_event_batch_mut() {
         if let Some(lock_event) = lock_event_opt {
             batch.events.push(lock_event);
         }
@@ -1230,8 +1230,8 @@ mod tests {
 
         // And an STXLockEvent must have been appended to the current batch.
         let (batch, _) = global_context
-            .event_batches
-            .last()
+            .transaction
+            .current_event_batch()
             .expect("event batch should exist");
         assert_eq!(batch.events.len(), 1);
         match &batch.events[0] {
@@ -1283,8 +1283,8 @@ mod tests {
         assert_eq!(balance.amount_locked(), new_total_locked);
 
         let (batch, _) = global_context
-            .event_batches
-            .last()
+            .transaction
+            .current_event_batch()
             .expect("event batch should exist");
         assert_eq!(batch.events.len(), 1);
         match &batch.events[0] {
@@ -1322,8 +1322,8 @@ mod tests {
         assert_eq!(balance.amount_locked(), 0);
 
         let (batch, _) = global_context
-            .event_batches
-            .last()
+            .transaction
+            .current_event_batch()
             .expect("event batch should exist");
         assert!(batch.events.is_empty());
     }
@@ -1547,8 +1547,8 @@ mod tests {
         assert_eq!(balance.amount_locked(), lock_amount);
 
         let (batch, _) = global_context
-            .event_batches
-            .last()
+            .transaction
+            .current_event_batch()
             .expect("event batch should exist");
         assert_eq!(batch.events.len(), 1);
         match &batch.events[0] {
@@ -2001,8 +2001,8 @@ mod tests {
         assert_eq!(snapshot.balance().unlock_height(), early_unlock);
 
         let (batch, _) = global_context
-            .event_batches
-            .last()
+            .transaction
+            .current_event_batch()
             .expect("event batch should exist");
         assert_eq!(batch.events.len(), 1);
         match &batch.events[0] {
@@ -2690,7 +2690,10 @@ mod tests {
                 .expect("read back balance");
             prop_assert_eq!(balance.amount_locked(), lock_amount);
 
-            let (batch, _) = gc.event_batches.last().expect("event batch should exist");
+            let (batch, _) = gc
+                .transaction
+                .current_event_batch()
+                .expect("event batch should exist");
             prop_assert_eq!(batch.events.len(), 1);
             let StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) =
                 &batch.events[0]
@@ -2736,7 +2739,10 @@ mod tests {
                 .expect("read back balance");
             prop_assert_eq!(balance.amount_locked(), 0u128);
 
-            let (batch, _) = gc.event_batches.last().expect("event batch should exist");
+            let (batch, _) = gc
+                .transaction
+                .current_event_batch()
+                .expect("event batch should exist");
             prop_assert!(batch.events.is_empty());
         }
     }

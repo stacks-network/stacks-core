@@ -17,6 +17,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::mem::replace;
 
+pub use clarity_kernel::transaction::{CallStack, EventBatch, TransactionFrame};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use stacks_common::types::StacksEpochId;
@@ -27,7 +28,7 @@ use super::hooks::{
 };
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
-use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
+use crate::vm::callables::DefinedFunction;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::execution_cost::ExecutionCost;
@@ -39,8 +40,7 @@ use crate::vm::database::{
     FungibleTokenMetadata, NonFungibleTokenMetadata,
 };
 use crate::vm::errors::{
-    ClarityEvalError, RuntimeCheckErrorKind, RuntimeError, StackTrace, VmExecutionError,
-    VmInternalError,
+    ClarityEvalError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError,
 };
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
@@ -54,7 +54,6 @@ use crate::vm::version::ClarityVersion;
 use crate::vm::{ValueRef, ast, eval, is_reserved, stx_transfer_consolidated};
 
 pub const MAX_CONTEXT_DEPTH: u64 = 256;
-pub const MAX_EVENTS_BATCH: u64 = 50 * 1024 * 1024;
 
 /// Immutable metadata describing a single contract invocation.
 ///
@@ -195,11 +194,6 @@ pub struct OwnedEnvironment<'a, 'hooks> {
 
 pub use clarity_kernel::assets::{AssetMap, AssetMapEntry};
 
-#[derive(Debug, Clone, Default)]
-pub struct EventBatch {
-    pub events: Vec<StacksTransactionEvent>,
-}
-
 /** GlobalContext represents the outermost context for a single transaction's
      execution. It tracks any asset changes that occurred during the
      processing of the transaction, whether or not the current context is read_only,
@@ -207,10 +201,8 @@ pub struct EventBatch {
      abort.
 */
 pub struct GlobalContext<'a, 'hooks> {
-    asset_maps: Vec<AssetMap>,
-    pub event_batches: Vec<(EventBatch, u64)>,
+    pub transaction: TransactionFrame,
     pub database: ClarityDatabase<'a>,
-    read_only: Vec<bool>,
     pub cost_track: CostTrackerHandle,
     pub mainnet: bool,
     /// This is the epoch of the block that this transaction is executing within.
@@ -265,19 +257,7 @@ pub struct LocalContext<'a> {
     depth: u64,
 }
 
-pub struct CallStack {
-    stack: Vec<FunctionIdentifier>,
-    set: HashSet<FunctionIdentifier>,
-    apply_depth: u64,
-}
-
 pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
-
-impl EventBatch {
-    pub fn new() -> EventBatch {
-        EventBatch::default()
-    }
-}
 
 impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     #[cfg(any(test, feature = "testing"))]
@@ -375,15 +355,37 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         cost_tracker: CostTrackerHandle,
         epoch_id: StacksEpochId,
     ) -> OwnedEnvironment<'a, 'a> {
+        Self::new_with_shared_transaction(
+            mainnet,
+            chain_id,
+            database,
+            cost_tracker,
+            TransactionFrame::new(),
+            CallStack::new(),
+            epoch_id,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_shared_transaction(
+        mainnet: bool,
+        chain_id: u32,
+        database: ClarityDatabase<'a>,
+        cost_tracker: CostTrackerHandle,
+        transaction: TransactionFrame,
+        call_stack: CallStack,
+        epoch_id: StacksEpochId,
+    ) -> OwnedEnvironment<'a, 'a> {
         OwnedEnvironment {
-            context: GlobalContext::new_with_cost_tracker_handle(
+            context: GlobalContext::new_with_transaction_frame(
                 mainnet,
                 chain_id,
                 database,
                 cost_tracker,
+                transaction,
                 epoch_id,
             ),
-            call_stack: CallStack::new(),
+            call_stack,
         }
     }
 
@@ -646,7 +648,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
     ///   because the database is not guaranteed to be in a sane state.
     pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
-        let (db, tracker) = self.context.destruct()?;
+        let (db, tracker, _) = self.context.destruct()?;
         let tracker = tracker.into_inner::<LimitedCostTracker>().ok()?;
         Some((db, *tracker))
     }
@@ -655,7 +657,24 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     pub fn destruct_with_cost_tracker_handle(
         self,
     ) -> Option<(ClarityDatabase<'a>, CostTrackerHandle)> {
-        self.context.destruct()
+        let (db, tracker, _) = self.context.destruct()?;
+        Some((db, tracker))
+    }
+
+    pub fn destruct_with_shared_transaction(
+        self,
+    ) -> Option<(
+        ClarityDatabase<'a>,
+        CostTrackerHandle,
+        TransactionFrame,
+        CallStack,
+    )> {
+        let Self {
+            context,
+            call_stack,
+        } = self;
+        let (db, tracker, transaction) = context.destruct()?;
+        Some((db, tracker, transaction, call_stack))
     }
 }
 
@@ -1214,17 +1233,9 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         } else {
             0
         };
-        if let Some((batch, total_size)) = self.global_context.event_batches.last_mut() {
-            batch.events.push(event);
-            *total_size = total_size.saturating_add(size.into());
-            if *total_size >= MAX_EVENTS_BATCH {
-                return Err(VmInternalError::Expect(
-                    "Event batch grew too large during execution".to_string(),
-                )
-                .into());
-            }
-        }
-        Ok(())
+        self.global_context
+            .transaction
+            .push_event(event, size.into())
     }
 
     pub fn construct_print_transaction_event(
@@ -1490,12 +1501,28 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         cost_track: CostTrackerHandle,
         epoch_id: StacksEpochId,
     ) -> GlobalContext<'a, 'hooks> {
+        Self::new_with_transaction_frame(
+            mainnet,
+            chain_id,
+            database,
+            cost_track,
+            TransactionFrame::new(),
+            epoch_id,
+        )
+    }
+
+    pub fn new_with_transaction_frame(
+        mainnet: bool,
+        chain_id: u32,
+        database: ClarityDatabase<'a>,
+        cost_track: CostTrackerHandle,
+        transaction: TransactionFrame,
+        epoch_id: StacksEpochId,
+    ) -> GlobalContext<'a, 'hooks> {
         GlobalContext {
             database,
             cost_track,
-            read_only: Vec::new(),
-            asset_maps: Vec::new(),
-            event_batches: Vec::new(),
+            transaction,
             mainnet,
             epoch_id,
             chain_id,
@@ -1505,7 +1532,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     }
 
     pub fn is_top_level(&self) -> bool {
-        self.asset_maps.is_empty()
+        self.transaction.is_top_level()
     }
 
     pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
@@ -1513,15 +1540,11 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     }
 
     fn get_asset_map(&mut self) -> Result<&mut AssetMap, VmExecutionError> {
-        self.asset_maps
-            .last_mut()
-            .ok_or_else(|| VmInternalError::Expect("Failed to obtain asset map".into()).into())
+        self.transaction.current_asset_map()
     }
 
     pub fn get_readonly_asset_map(&mut self) -> Result<&AssetMap, VmExecutionError> {
-        self.asset_maps
-            .last()
-            .ok_or_else(|| VmInternalError::Expect("Failed to obtain asset map".into()).into())
+        self.transaction.current_asset_map_readonly()
     }
 
     pub fn log_asset_transfer(
@@ -1659,83 +1682,35 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     }
 
     pub fn is_read_only(&self) -> bool {
-        // top level context defaults to writable.
-        self.read_only.last().cloned().unwrap_or(false)
+        self.transaction.is_read_only()
     }
 
     pub fn begin(&mut self) {
-        self.asset_maps.push(AssetMap::new());
-        let total_size = self
-            .event_batches
-            .last()
-            .map(|(_, total_size)| *total_size)
-            .unwrap_or(0);
-        self.event_batches.push((EventBatch::new(), total_size));
+        self.transaction.begin();
         self.database.begin();
-        let read_only = self.is_read_only();
-        self.read_only.push(read_only);
     }
 
     pub fn begin_read_only(&mut self) {
-        self.asset_maps.push(AssetMap::new());
-        let total_size = self
-            .event_batches
-            .last()
-            .map(|(_, total_size)| *total_size)
-            .unwrap_or(0);
-        self.event_batches.push((EventBatch::new(), total_size));
+        self.transaction.begin_read_only();
         self.database.begin();
-        self.read_only.push(true);
     }
 
     pub fn commit(&mut self) -> Result<(Option<AssetMap>, Option<EventBatch>), VmExecutionError> {
         trace!("Calling commit");
-        self.read_only.pop();
-        let asset_map = self.asset_maps.pop().ok_or_else(|| {
-            VmInternalError::Expect("ERROR: Committed non-nested context.".into())
-        })?;
-        let (mut event_batch, new_total_size) = self.event_batches.pop().ok_or_else(|| {
-            VmInternalError::Expect("ERROR: Committed non-nested context.".into())
-        })?;
-
-        let out_map = match self.asset_maps.last_mut() {
-            Some(tail_back) => {
-                if let Err(e) = tail_back.commit_other(asset_map, self.epoch_id) {
-                    self.database.roll_back()?;
-                    return Err(e);
-                }
-                None
+        let result = match self.transaction.commit(self.epoch_id) {
+            Ok(result) => result,
+            Err(e) => {
+                self.database.roll_back()?;
+                return Err(e);
             }
-            None => Some(asset_map),
-        };
-
-        let out_batch = match self.event_batches.last_mut() {
-            Some((tail_back, total_size)) => {
-                tail_back.events.append(&mut event_batch.events);
-                *total_size = new_total_size;
-                None
-            }
-            None => Some(event_batch),
         };
 
         self.database.commit()?;
-        Ok((out_map, out_batch))
+        Ok(result)
     }
 
     pub fn roll_back(&mut self) -> Result<(), VmExecutionError> {
-        let popped = self.asset_maps.pop();
-        if popped.is_none() {
-            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
-        }
-        let popped = self.read_only.pop();
-        if popped.is_none() {
-            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
-        }
-        let popped = self.event_batches.pop();
-        if popped.is_none() {
-            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
-        }
-
+        self.transaction.roll_back()?;
         self.database.roll_back()
     }
 
@@ -1774,9 +1749,9 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     /// Destroys this context, returning ownership of its database reference.
     ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
     ///   because the database is not guaranteed to be in a sane state.
-    pub fn destruct(self) -> Option<(ClarityDatabase<'a>, CostTrackerHandle)> {
+    pub fn destruct(self) -> Option<(ClarityDatabase<'a>, CostTrackerHandle, TransactionFrame)> {
         if self.is_top_level() {
-            Some((self.database, self.cost_track))
+            Some((self.database, self.cost_track, self.transaction))
         } else {
             None
         }
@@ -1935,83 +1910,6 @@ impl<'a> LocalContext<'a> {
                 None => None,
             },
         }
-    }
-}
-
-impl Default for CallStack {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CallStack {
-    pub fn new() -> CallStack {
-        CallStack {
-            stack: Vec::new(),
-            set: HashSet::new(),
-            apply_depth: 0,
-        }
-    }
-
-    pub fn depth(&self) -> u64 {
-        let stack_len = u64::try_from(self.stack.len()).unwrap_or(u64::MAX);
-        stack_len.saturating_add(self.apply_depth)
-    }
-
-    pub fn contains(&self, function: &FunctionIdentifier) -> bool {
-        self.set.contains(function)
-    }
-
-    pub fn insert(&mut self, function: &FunctionIdentifier, track: bool) {
-        self.stack.push(function.clone());
-        if track {
-            self.set.insert(function.clone());
-        }
-    }
-
-    pub fn incr_apply_depth(&mut self) {
-        self.apply_depth += 1;
-    }
-
-    pub fn decr_apply_depth(&mut self) {
-        self.apply_depth -= 1;
-    }
-
-    pub fn remove(
-        &mut self,
-        function: &FunctionIdentifier,
-        tracked: bool,
-    ) -> Result<(), VmExecutionError> {
-        if let Some(removed) = self.stack.pop() {
-            if removed != *function {
-                return Err(VmInternalError::InvariantViolation(
-                    "Tried to remove item from empty call stack.".to_string(),
-                )
-                .into());
-            }
-            if tracked && !self.set.remove(function) {
-                return Err(VmInternalError::InvariantViolation(
-                    "Tried to remove tracked function from call stack, but could not find in current context.".into()
-                )
-                .into());
-            }
-            Ok(())
-        } else {
-            Err(VmInternalError::InvariantViolation(
-                "Tried to remove item from empty call stack.".to_string(),
-            )
-            .into())
-        }
-    }
-
-    #[cfg(feature = "developer-mode")]
-    pub fn make_stack_trace(&self) -> StackTrace {
-        self.stack.clone()
-    }
-
-    #[cfg(not(feature = "developer-mode"))]
-    pub fn make_stack_trace(&self) -> StackTrace {
-        Vec::new()
     }
 }
 
