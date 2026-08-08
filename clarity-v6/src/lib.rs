@@ -26,6 +26,10 @@
 //! parsed/analyzed contract representation, rollback lifecycle, and entry
 //! points. Real epoch-4.0 and epoch-4.1 contracts route through this engine,
 //! making every extraction step testable against mainnet history.
+//!
+//! Its standalone fallback meter is the single Clarity 6 Costs-5 profile.
+//! Production installs the host's cumulative block tracker before dispatch;
+//! neither path selects a cost schedule from the engine-facing epoch.
 
 #[allow(unused_imports)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
@@ -151,38 +155,24 @@ impl Clarity6Engine {
         })
     }
 
-    fn take_or_create_tracker(
-        &self,
-        ctx: &mut TransactionContext,
-        db: &mut ClarityDatabase,
-    ) -> Result<CostTrackerHandle, EngineError> {
+    fn take_or_create_tracker(&self, ctx: &mut TransactionContext) -> CostTrackerHandle {
         if let Some(tracker) = ctx.take_cost_tracker() {
-            return Ok(tracker);
+            return tracker;
         }
         let tracker = match &ctx.budget {
             CostBudget::Free => LimitedCostTracker::new_free(),
-            CostBudget::Limited(limit) => {
-                LimitedCostTracker::new(ctx.mainnet, ctx.chain_id, limit.clone(), db, ctx.epoch)
-                    .map_err(|e| {
-                        EngineError::Internal(format!("Failed to initialize cost tracker: {e}"))
-                    })?
-            }
+            CostBudget::Limited(limit) => LimitedCostTracker::new(ctx.mainnet, limit.clone()),
         };
-        Ok(CostTrackerHandle::new(tracker))
+        CostTrackerHandle::new(tracker)
     }
 
     fn take_parts<'a>(
         &self,
         ctx: &mut TransactionContext<'a>,
     ) -> Result<TakenParts<'a>, EngineError> {
-        let mut db = ctx.take_db()?;
-        match self.take_or_create_tracker(ctx, &mut db) {
-            Ok(tracker) => Ok(TakenParts { tracker, db }),
-            Err(e) => {
-                ctx.restore_db(db);
-                Err(e)
-            }
-        }
+        let db = ctx.take_db()?;
+        let tracker = self.take_or_create_tracker(ctx);
+        Ok(TakenParts { tracker, db })
     }
 
     fn take_execution_parts<'a>(
@@ -611,7 +601,7 @@ impl Engine for Clarity6Engine {
 mod tests {
     use clarity::vm::database::MemoryBackingStore;
     use clarity::vm::engine::LegacyEngine;
-    use clarity_kernel::costs::ExecutionCost;
+    use clarity_kernel::costs::{CostTracker, ExecutionCost};
     use clarity_kernel::engine::CostBudget;
     use clarity_types::types::StandardPrincipalData;
     use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -724,6 +714,25 @@ mod tests {
             Ok(_) => panic!("zero parser budget unexpectedly succeeded"),
         };
         assert!(matches!(error, EngineError::Cost(..)));
+    }
+
+    #[test]
+    fn standalone_cost_tracker_is_a_single_epoch_blind_profile() {
+        let mut totals = Vec::new();
+        for epoch in [StacksEpochId::Epoch20, StacksEpochId::Epoch41] {
+            let mut store = setup_store(epoch);
+            let db = store.as_clarity_db();
+            let mut tracker = LimitedCostTracker::new(false, ExecutionCost::max_value());
+            assert!(db.is_stack_empty());
+            let cost = tracker
+                .compute_cost(
+                    crate::vm::costs::cost_functions::ClarityCostFunction::AnalysisTypeAnnotate,
+                    &[17],
+                )
+                .unwrap();
+            totals.push(cost);
+        }
+        assert_eq!(totals[0], totals[1]);
     }
 
     #[test]

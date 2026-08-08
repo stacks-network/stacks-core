@@ -316,13 +316,12 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn new_max_limit(
-        mut database: ClarityDatabase<'a>,
+        database: ClarityDatabase<'a>,
         epoch: StacksEpochId,
         use_mainnet: bool,
     ) -> OwnedEnvironment<'a, 'a> {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
-        let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch, use_mainnet)
-            .expect("FAIL: problem instantiating cost tracking");
+        let cost_track = LimitedCostTracker::new_max_limit(use_mainnet);
         let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
 
         OwnedEnvironment {

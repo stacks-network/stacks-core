@@ -482,7 +482,7 @@ mod test {
             write_length: u64::MAX,
             runtime: 1,
         };
-        let mut tracker = LimitedCostTracker::new_with_limit(StacksEpochId::latest(), limit);
+        let mut tracker = LimitedCostTracker::new_with_limit(limit);
 
         let err = build_ast(
             &QualifiedContractIdentifier::transient(),
@@ -512,7 +512,7 @@ mod test {
             write_length: u64::MAX,
             runtime: expected_ast_parse_cost,
         };
-        let mut tracker = LimitedCostTracker::new_with_limit(StacksEpochId::latest(), limit);
+        let mut tracker = LimitedCostTracker::new_with_limit(limit);
 
         let err = build_ast(
             &QualifiedContractIdentifier::transient(),
@@ -544,7 +544,7 @@ mod test {
             write_length: u64::MAX,
             runtime: expected_ast_parse_cost,
         };
-        let mut tracker = LimitedCostTracker::new_with_limit(StacksEpochId::latest(), limit);
+        let mut tracker = LimitedCostTracker::new_with_limit(limit);
 
         let err = build_ast(
             &QualifiedContractIdentifier::transient(),
