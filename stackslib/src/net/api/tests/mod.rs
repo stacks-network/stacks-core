@@ -109,6 +109,7 @@ mod postmempoolquery;
 mod postmicroblock;
 mod poststackerdbchunk;
 mod posttransaction;
+mod txsimulate;
 
 const TEST_CONTRACT: &str = "
     (define-trait test-trait
