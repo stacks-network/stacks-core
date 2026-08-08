@@ -107,6 +107,44 @@ pub enum ContractDataVarName {
     ContractDataSize,
 }
 
+/// The engine-owned executable representation persisted for a contract.
+///
+/// The kernel stores this payload opaquely. The engine selected from the
+/// contract's [`StoredContractAnalysis`](crate::analysis::StoredContractAnalysis)
+/// is solely responsible for encoding and decoding it. Historical contracts
+/// contain the legacy interpreter's JSON; future engines may use a different
+/// textual encoding without teaching the kernel their object model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContractArtifact {
+    payload: String,
+}
+
+impl ContractArtifact {
+    pub fn new(payload: String) -> Self {
+        Self { payload }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.payload
+    }
+
+    pub fn into_string(self) -> String {
+        self.payload
+    }
+}
+
+impl ClaritySerializable for ContractArtifact {
+    fn serialize(&self) -> String {
+        self.payload.clone()
+    }
+}
+
+impl ClarityDeserializable<ContractArtifact> for ContractArtifact {
+    fn deserialize(serialized: &str) -> Result<Self, VmExecutionError> {
+        Ok(Self::new(serialized.to_owned()))
+    }
+}
+
 impl ContractDataVarName {
     pub fn as_str(&self) -> &str {
         match self {
@@ -739,6 +777,27 @@ impl<'a> ClarityDatabase<'a> {
         self.fetch_metadata(contract_identifier, &key)
             .ok()
             .flatten()
+    }
+
+    /// Persist an engine-owned executable contract payload under the
+    /// historical `contract` metadata key.
+    pub fn insert_contract_artifact(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        artifact: &ContractArtifact,
+    ) -> Result<(), VmExecutionError> {
+        let key = ContractDataVarName::Contract.metadata_key();
+        self.insert_metadata(contract_identifier, &key, artifact)
+    }
+
+    /// Load the executable payload without interpreting its engine-specific
+    /// encoding.
+    pub fn get_contract_artifact(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<Option<ContractArtifact>, VmExecutionError> {
+        let key = ContractDataVarName::Contract.metadata_key();
+        self.fetch_metadata(contract_identifier, &key)
     }
 
     pub fn get_contract_hash(
@@ -2515,6 +2574,29 @@ impl ClarityDatabase<'_> {
             .ok_or_else(|| VmInternalError::Expect("Failed to get block data.".into()))?;
         Ok(epoch.epoch_id)
     }
+}
+
+#[test]
+fn contract_artifact_round_trips_opaque_payload() {
+    use crate::database::MemoryBackingStore;
+
+    let mut store = MemoryBackingStore::new();
+    let mut db = store.as_clarity_db();
+    let contract_id = QualifiedContractIdentifier::local("opaque-artifact").unwrap();
+    let payload = "clarity7-wasm:v1\nAAECAwQFBgc=";
+
+    db.begin();
+    db.insert_contract_hash(&contract_id, "(define-public (noop) (ok true))")
+        .expect("prepare contract metadata");
+    db.insert_contract_artifact(&contract_id, &ContractArtifact::new(payload.to_owned()))
+        .expect("insert opaque contract artifact");
+
+    let loaded = db
+        .get_contract_artifact(&contract_id)
+        .expect("load opaque contract artifact")
+        .expect("contract artifact should exist");
+    assert_eq!(loaded.as_str().as_bytes(), payload.as_bytes());
+    db.roll_back().unwrap();
 }
 
 #[test]

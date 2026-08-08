@@ -29,7 +29,6 @@ pub use self::caching::ClarityExecutionCache;
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::contracts::Contract;
-use crate::vm::database::clarity_db::ContractDataVarName;
 use crate::vm::database::structures::deserialize_json;
 use crate::vm::errors::{VmExecutionError, VmInternalError};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
@@ -226,10 +225,8 @@ impl ClarityDatabaseExt for ClarityDatabase<'_> {
         contract_identifier: &QualifiedContractIdentifier,
         contract: Contract,
     ) -> Result<(), VmExecutionError> {
-        let key = ContractDataVarName::Contract.metadata_key();
-
-        self.insert_metadata(contract_identifier, &key, &*contract)?;
-        Ok(())
+        let artifact = ContractArtifact::new((*contract).serialize());
+        self.insert_contract_artifact(contract_identifier, &artifact)
     }
 
     /// Load a parsed contract, returning a canonicalized [`Contract`].
@@ -297,15 +294,15 @@ fn read_contract(
     db: &mut ClarityDatabase,
     contract_identifier: &QualifiedContractIdentifier,
 ) -> Result<Contract, VmExecutionError> {
-    let contract_key = ContractDataVarName::Contract.metadata_key();
-    let mut contract_context = db
-        .fetch_metadata::<ContractContext>(contract_identifier, &contract_key)?
+    let artifact = db
+        .get_contract_artifact(contract_identifier)?
         .ok_or_else(|| {
             VmInternalError::Expect(
                 "Failed to read non-consensus contract metadata, even though contract exists in MARF."
                     .into(),
             )
         })?;
+    let mut contract_context = ContractContext::deserialize(artifact.as_str())?;
 
     let epoch = db.get_clarity_epoch_version()?;
     contract_context.canonicalize_types(&epoch)?;
@@ -334,6 +331,32 @@ mod tests {
             .expect("set_contract_data_size");
         db.insert_contract(id, contract).expect("insert_contract");
         db.commit().expect("commit stub contract");
+    }
+
+    #[test]
+    fn legacy_contract_adapter_preserves_stored_bytes() {
+        let mut store = MemoryBackingStore::new();
+        let id = QualifiedContractIdentifier::local("legacy-artifact").unwrap();
+        let context = ContractContext::new(id.clone(), ClarityVersion::Clarity2);
+        let expected = context.serialize();
+
+        let mut db = store.as_clarity_db();
+        db.begin();
+        db.insert_contract_hash(&id, "(define-public (noop) (ok true))")
+            .expect("insert_contract_hash");
+        db.insert_contract(&id, context.into())
+            .expect("insert legacy contract");
+
+        let artifact = db
+            .get_contract_artifact(&id)
+            .expect("load stored artifact")
+            .expect("stored artifact should exist");
+        assert_eq!(artifact.as_str().as_bytes(), expected.as_bytes());
+
+        let loaded = db.get_contract(&id).expect("decode legacy artifact");
+        assert_eq!(loaded.contract_identifier, id);
+        assert_eq!(*loaded.get_clarity_version(), ClarityVersion::Clarity2);
+        db.roll_back().unwrap();
     }
 
     #[test]

@@ -35,7 +35,7 @@ use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
-pub use self::types::{AnalysisPass, ContractAnalysis};
+pub use self::types::{AnalysisPass, ContractAnalysis, StoredContractAnalysis};
 use crate::vm::ClarityVersion;
 #[cfg(feature = "rusqlite")]
 use crate::vm::ast::build_ast;

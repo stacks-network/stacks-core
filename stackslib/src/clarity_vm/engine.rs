@@ -35,7 +35,7 @@
 
 use std::fmt;
 
-use clarity::vm::database::ClarityDatabaseExt;
+use clarity::vm::analysis::StoredContractAnalysis;
 use clarity::vm::engine::{ContractDispatcher, Engine, EngineError, LegacyEngine, RuntimeContext};
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ClarityVersion;
@@ -97,13 +97,17 @@ impl ContractDispatcher for ClarityEngineDispatcher {
         runtime: &mut RuntimeContext,
         contract: &QualifiedContractIdentifier,
     ) -> Result<&'static dyn Engine, EngineError> {
-        let version = runtime
-            .db
-            .get_contract(contract)
-            .map(|contract| *contract.get_clarity_version())
-            .map_err(EngineError::Execution)?;
+        let Some(analysis) = StoredContractAnalysis::load(&mut runtime.db, contract)
+            .map_err(EngineError::Execution)?
+        else {
+            // Legacy deployment helpers, and potentially historical contracts,
+            // can persist an executable contract without its analysis. Only the
+            // legacy engine supports that representation; future engines must
+            // persist analysis so their version can be selected explicitly.
+            return Ok(&LEGACY_V1);
+        };
         self.manifest
-            .select(version)
+            .select(analysis.clarity_version)
             .map(SelectedEngine::engine)
             .map_err(|e| EngineError::Internal(e.to_string()))
     }
