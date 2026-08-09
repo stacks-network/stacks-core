@@ -139,7 +139,7 @@ use crate::tests::neon_integrations::{
 use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source};
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
-use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
+use crate::{tests, BitcoinRegtestController, Config, ConfigFile, Keychain};
 
 pub static POX_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 pub static POX_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
@@ -12109,6 +12109,7 @@ fn reload_miner_config() {
         let new_config = format!(
             r#"
             [burnchain]
+            mode = "nakamoto-neon"
             burn_fee_cap = {}
             satoshis_per_byte = {}
             "#,
@@ -12255,6 +12256,7 @@ fn rbf_on_config_change() {
         let new_config = format!(
             r#"
             [burnchain]
+            mode = "nakamoto-neon"
             burn_fee_cap = {}
             satoshis_per_byte = {}
             "#,
