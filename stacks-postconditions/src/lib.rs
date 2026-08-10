@@ -26,7 +26,7 @@
 //!
 //! These live outside the node, and outside any one contract language, because
 //! they need only the codec post-condition types, an [`AssetMap`], the origin
-//! principal and the epoch — no database or chainstate. That lets a WASM SDK
+//! principal and the epoch — no database or chainstate. That lets a Wasm SDK
 //! run the same consensus-critical code mainnet does.
 
 use std::collections::{HashMap, HashSet};
@@ -82,29 +82,15 @@ pub enum UnsupportedPostCondition {
     StakingOrPox,
 }
 
-impl UnsupportedPostCondition {
-    /// The offending feature on its own, for callers that phrase the epoch
-    /// requirement themselves instead of using [`Display`].
-    pub fn subject(&self) -> &'static str {
-        match self {
-            Self::OriginatorMode => "Originator post-condition mode",
-            Self::NftMaybeSent => "NFT MaybeSent post-condition",
-            Self::StakingOrPox => "Staking/Pox post-condition",
-        }
-    }
-}
-
 impl std::fmt::Display for UnsupportedPostCondition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let version = match self {
-            Self::OriginatorMode | Self::NftMaybeSent => "3.4",
-            Self::StakingOrPox => "4.0",
-        };
-        write!(
-            f,
-            "{} is not supported before Stacks {version}",
-            self.subject()
-        )
+        f.write_str(match self {
+            Self::OriginatorMode => {
+                "Originator post-condition mode is not supported before Stacks 3.4"
+            }
+            Self::NftMaybeSent => "NFT MaybeSent post-condition is not supported before Stacks 3.4",
+            Self::StakingOrPox => "Staking/Pox post-condition is not supported before Stacks 4.0",
+        })
     }
 }
 

@@ -577,8 +577,7 @@ impl StacksBlock {
             &tx.post_condition_mode,
             epoch_id,
         ) {
-            let subject = reason.subject();
-            error!("{subject} is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
+            error!("{reason}"; "txid" => %tx.txid(), "epoch_id" => %epoch_id);
             return false;
         }
         if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
