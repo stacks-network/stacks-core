@@ -3518,7 +3518,6 @@ fn block_proposal_api_endpoint() {
     let proposal = NakamotoBlockProposal {
         block,
         chain_id: chainstate.chain_id,
-        replay_txs: None,
     };
 
     const HTTP_ACCEPTED: u16 = 202;

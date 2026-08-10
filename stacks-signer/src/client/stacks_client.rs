@@ -287,9 +287,6 @@ impl StacksClient {
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
-            // Always `None`: transaction replay was removed. The field itself is dropped
-            // from `NakamotoBlockProposal` in a next commit.
-            replay_txs: None,
         };
         let timer = crate::monitoring::actions::new_rpc_call_timer(
             &self.block_proposal_path(),
