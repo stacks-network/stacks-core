@@ -1134,6 +1134,87 @@ impl Signer {
             );
             return;
         }
+
+        // A pre-commit may be superseded by a competing proposal at the same height (e.g. a
+        // re-proposed tenure-start block after the first failed to reach consensus), but a
+        // signature must not be superseded while it's still "fresh". Refuse to sign if we have
+        // recently signed, or recently observed the signer set accept, a different block at
+        // this height or above in this tenure.
+
+        // First: is any conflict endorsed after the freshness cutoff?
+        let endorsed_after = get_epoch_time_secs().saturating_sub(
+            self.proposal_config
+                .tenure_last_block_proposal_timeout
+                .as_secs(),
+        );
+        let fresh_conflict = match self.signer_db.get_fresh_signed_conflict(
+            &block_info.block.header.consensus_hash,
+            block_info.block.header.chain_length,
+            &block_hash,
+            endorsed_after,
+        ) {
+            Ok(fresh_conflict) => fresh_conflict,
+            Err(e) => {
+                warn!("{self}: Failed to query the signed blocks in the tenure. Refusing to sign block {block_hash}: {e:?}");
+                return;
+            }
+        };
+        if let Some(conflict) = fresh_conflict {
+            warn!(
+                "{self}: Reached the pre-commit threshold for a block, but we have recently signed or accepted a different block at the same or higher height in this tenure. Refusing to sign.";
+                "signer_signature_hash" => %block_hash,
+                "block_height" => block_info.block.header.chain_length,
+                "conflicting_signer_signature_hash" => %conflict.signer_signature_hash,
+                "conflicting_block_height" => conflict.stacks_height,
+            );
+            return;
+        }
+
+        // No fresh conflict. Is there any conflict at all?
+        let stale_conflict = match self.signer_db.get_any_signed_conflict(
+            &block_info.block.header.consensus_hash,
+            block_info.block.header.chain_length,
+            &block_hash,
+        ) {
+            Ok(stale_conflict) => stale_conflict,
+            Err(e) => {
+                warn!("{self}: Failed to query the signed blocks in the tenure. Refusing to sign block {block_hash}: {e:?}");
+                return;
+            }
+        };
+        if let Some(conflict) = stale_conflict {
+            // The conflicts have all timed out, ask the node if it is canonical.
+            match stacks_client.get_tenure_tip(&block_info.block.header.consensus_hash) {
+                Ok(tip) => {
+                    let tip_height = tip.anchored_header.height();
+                    if tip_height >= block_info.block.header.chain_length {
+                        warn!(
+                            "{self}: Reached the pre-commit threshold for a block that conflicts with previously signed or accepted blocks, and the canonical tip of this tenure is at or above the proposed height. Refusing to sign.";
+                            "signer_signature_hash" => %block_hash,
+                            "block_height" => block_info.block.header.chain_length,
+                            "conflicting_signer_signature_hash" => %conflict.signer_signature_hash,
+                            "conflicting_block_height" => conflict.stacks_height,
+                            "canonical_tip_height" => tip_height,
+                        );
+                        return;
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "{self}: Failed to fetch the canonical tip of the tenure while evaluating a conflicting block: {e:?}. Assuming the proposed block is higher.";
+                        "signer_signature_hash" => %block_hash,
+                        "block_height" => block_info.block.header.chain_length,
+                    );
+                }
+            }
+            info!(
+                "{self}: Reached the pre-commit threshold for a block that conflicts with previously signed or accepted blocks, but none of those were confirmed on the canonical chain within the timeout. Signing the replacement.";
+                "signer_signature_hash" => %block_hash,
+                "block_height" => block_info.block.header.chain_length,
+                "conflicting_signer_signature_hash" => %conflict.signer_signature_hash,
+                "conflicting_block_height" => conflict.stacks_height,
+            );
+        }
         // It is only considered globally accepted IFF we receive a new block event confirming it OR see the chain tip of the node advance to it.
         if let Err(e) = block_info.mark_locally_accepted(false) {
             if !block_info.has_reached_consensus() {
@@ -1153,6 +1234,7 @@ impl Signer {
     /// Returns true if the block should be re-evaluated, false if it should be ignored.
     fn should_reevaluate_block(
         &mut self,
+        stacks_client: &StacksClient,
         block_info: &BlockInfo,
         block_proposal: &BlockProposal,
     ) -> bool {
@@ -1172,6 +1254,25 @@ impl Signer {
             return false;
         }
         if !should_reevaluate_reject_reason(block_info) {
+            if block_info.state == BlockState::PreCommitted {
+                // We validated this block but haven't signed it. Signing requires the
+                // pre-commit threshold and the conflict checks in `handle_block_pre_commit`.
+                // Re-broadcast our pre-commit and re-run that evaluation instead of
+                // responding with a signature directly, so a re-proposed block can't
+                // bypass those checks.
+                info!(
+                    "{self}: received a block proposal for a block we have pre-committed to but not signed. Re-evaluating the pre-commit.";
+                    "signer_signature_hash" => %signer_signature_hash,
+                    "block_id" => %block_info.block.block_id(),
+                    "block_height" => block_info.block.header.chain_length,
+                    "burn_height" => block_proposal.burn_height,
+                    "consensus_hash" => %block_info.block.header.consensus_hash
+                );
+                self.send_block_pre_commit(signer_signature_hash.clone());
+                let address = self.stacks_address.clone();
+                self.handle_block_pre_commit(stacks_client, &address, &signer_signature_hash);
+                return false;
+            }
             if let Some(block_response) = self.determine_response(block_info) {
                 self.send_block_response(&block_info.block, block_response);
                 return false;
@@ -1256,7 +1357,7 @@ impl Signer {
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
         let pending_responses =
             if let Some(block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) {
-                if !self.should_reevaluate_block(&block_info, block_proposal) {
+                if !self.should_reevaluate_block(stacks_client, &block_info, block_proposal) {
                     return;
                 }
                 PendingBlockResponses::empty()
