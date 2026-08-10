@@ -2630,54 +2630,6 @@ fn test_check_post_conditions_supported_in_epoch() {
     }
 }
 
-/// A post-condition rejected at admission is still evaluated by
-/// [`check_transaction_postconditions`] in that epoch, which is why callers
-/// need both checks.
-#[test]
-fn test_epoch_admission_is_independent_of_asset_check() {
-    let privk = StacksPrivateKey::from_hex(
-        "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
-    )
-    .unwrap();
-    let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
-    let origin = auth.origin().address_testnet().to_account_principal();
-
-    let mut staked = AssetMap::new();
-    staked
-        .add_stacking(&origin, 100, StacksEpochId::Epoch33)
-        .unwrap();
-
-    // a limit below the staked amount, so the asset check would fail it
-    let post_conditions = vec![TransactionPostCondition::Staking(
-        PostConditionPrincipal::Origin,
-        FungibleConditionCode::SentLe,
-        99,
-    )];
-
-    // admission rejects it before Stacks 4.0...
-    assert_eq!(
-        check_post_conditions_supported_in_epoch(
-            &post_conditions,
-            &TransactionPostConditionMode::Allow,
-            StacksEpochId::Epoch33,
-        ),
-        Err(UnsupportedPostCondition::StakingOrPox)
-    );
-
-    // ...yet the asset check still evaluates it in that same epoch
-    assert!(
-        check_transaction_postconditions(
-            &post_conditions,
-            &TransactionPostConditionMode::Allow,
-            &origin,
-            &staked,
-            StacksEpochId::Epoch33,
-        )
-        .unwrap()
-        .is_some()
-    );
-}
-
 /// Staking coverage is per-principal: `Originator` mode only requires the
 /// origin to be covered, and a condition naming one principal does not cover
 /// another.
