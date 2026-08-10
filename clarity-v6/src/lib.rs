@@ -595,11 +595,19 @@ impl Engine for Clarity6Engine {
 
 #[cfg(test)]
 mod tests {
-    use clarity::vm::database::MemoryBackingStore;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use clarity::vm::database::{
+        ClarityBackingStore, ClarityDatabase, MemoryBackingStore, NULL_BURN_STATE_DB,
+        NULL_HEADER_DB,
+    };
     use clarity::vm::engine::LegacyEngine;
     use clarity_kernel::costs::{CostTracker, ExecutionCost};
     use clarity_kernel::engine::CostBudget;
-    use clarity_types::types::StandardPrincipalData;
+    use clarity_kernel::errors::VmExecutionError;
+    use clarity_kernel::special_case::{KernelSpecialCaseHandlerFn, SpecialCaseContext};
+    use clarity_types::types::{PrincipalData, StandardPrincipalData};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
@@ -629,6 +637,209 @@ mod tests {
         } else {
             clarity_kernel::rules::KernelRuleset::V3
         }
+    }
+
+    /// A backing store that reports a recording kernel special-case hook.
+    ///
+    /// Everything else delegates to an ordinary in-memory store.
+    struct HookedStore {
+        inner: MemoryBackingStore,
+    }
+
+    static HOOK_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static HOOKED_CALLEE: Mutex<Option<(String, String, bool)>> = Mutex::new(None);
+
+    static RECORDING_HOOK: KernelSpecialCaseHandlerFn =
+        KernelSpecialCaseHandlerFn(record_special_case);
+
+    fn record_special_case(
+        ctx: &mut SpecialCaseContext,
+        _sender: Option<&PrincipalData>,
+        _sponsor: Option<&PrincipalData>,
+        contract: &QualifiedContractIdentifier,
+        function: &str,
+        _args: &[Value],
+        result: &Value,
+    ) -> Result<(), clarity_kernel::errors::VmExecutionError> {
+        HOOK_CALLS.fetch_add(1, Ordering::SeqCst);
+        // Prove the hook receives usable kernel state, not just a callback.
+        let has_batch = ctx.current_event_batch_mut().is_some();
+        *HOOKED_CALLEE.lock().unwrap() = Some((
+            contract.to_string(),
+            function.to_string(),
+            matches!(result, Value::Response(data) if data.committed),
+        ));
+        assert!(has_batch, "hook must see the caller's open event batch");
+        Ok(())
+    }
+
+    impl ClarityBackingStore for HookedStore {
+        fn get_kernel_cc_special_cases_handler(
+            &self,
+        ) -> Option<&'static KernelSpecialCaseHandlerFn> {
+            Some(&RECORDING_HOOK)
+        }
+
+        fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
+            self.inner.put_all_data(items)
+        }
+        fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
+            self.inner.get_data(key)
+        }
+        fn get_data_from_path(
+            &mut self,
+            hash: &stacks_common::types::chainstate::TrieHash,
+        ) -> Result<Option<String>, VmExecutionError> {
+            self.inner.get_data_from_path(hash)
+        }
+        fn get_data_with_proof(
+            &mut self,
+            key: &str,
+        ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+            self.inner.get_data_with_proof(key)
+        }
+        fn get_data_with_proof_from_path(
+            &mut self,
+            hash: &stacks_common::types::chainstate::TrieHash,
+        ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+            self.inner.get_data_with_proof_from_path(hash)
+        }
+        fn set_block_hash(
+            &mut self,
+            bhh: stacks_common::types::chainstate::StacksBlockId,
+        ) -> Result<stacks_common::types::chainstate::StacksBlockId, VmExecutionError> {
+            self.inner.set_block_hash(bhh)
+        }
+        fn get_block_at_height(
+            &mut self,
+            height: u32,
+        ) -> Option<stacks_common::types::chainstate::StacksBlockId> {
+            self.inner.get_block_at_height(height)
+        }
+        fn get_current_block_height(&mut self) -> u32 {
+            self.inner.get_current_block_height()
+        }
+        fn get_open_chain_tip_height(&mut self) -> u32 {
+            self.inner.get_open_chain_tip_height()
+        }
+        fn get_open_chain_tip(&mut self) -> stacks_common::types::chainstate::StacksBlockId {
+            self.inner.get_open_chain_tip()
+        }
+        fn get_side_store(&mut self) -> &rusqlite::Connection {
+            self.inner.get_side_store()
+        }
+        fn get_contract_hash(
+            &mut self,
+            contract: &QualifiedContractIdentifier,
+        ) -> Result<
+            (
+                stacks_common::types::chainstate::StacksBlockId,
+                stacks_common::util::hash::Sha512Trunc256Sum,
+            ),
+            VmExecutionError,
+        > {
+            self.inner.get_contract_hash(contract)
+        }
+        fn insert_metadata(
+            &mut self,
+            contract: &QualifiedContractIdentifier,
+            key: &str,
+            value: &str,
+        ) -> Result<(), VmExecutionError> {
+            self.inner.insert_metadata(contract, key, value)
+        }
+        fn get_metadata(
+            &mut self,
+            contract: &QualifiedContractIdentifier,
+            key: &str,
+        ) -> Result<Option<String>, VmExecutionError> {
+            self.inner.get_metadata(contract, key)
+        }
+        fn get_metadata_manual(
+            &mut self,
+            at_height: u32,
+            contract: &QualifiedContractIdentifier,
+            key: &str,
+        ) -> Result<Option<String>, VmExecutionError> {
+            self.inner.get_metadata_manual(at_height, contract, key)
+        }
+    }
+
+    /// Regression test for the defect that made mainnet PoX-5 lock-ups vanish.
+    ///
+    /// `.pox-5` is deployed as a Clarity 6 contract, so a call into it is
+    /// executed by *this* engine -- there is no dispatcher hop into the legacy
+    /// engine that could apply the host's lock-up for us. If this engine skips
+    /// the host special-case hook, the lock is never written and the
+    /// `StxTransfer` cost the host charges for it is never accounted, which is
+    /// a consensus divergence.
+    #[test]
+    fn contract_call_invokes_the_host_special_case_hook() {
+        HOOK_CALLS.store(0, Ordering::SeqCst);
+        *HOOKED_CALLEE.lock().unwrap() = None;
+
+        let mut store = HookedStore {
+            inner: setup_store(StacksEpochId::Epoch40),
+        };
+        let id = QualifiedContractIdentifier::local("hooked-counter").unwrap();
+        let engine = Clarity6Engine;
+
+        let mut ctx = TransactionContext::new(
+            ClarityDatabase::new(&mut store, &NULL_HEADER_DB, &NULL_BURN_STATE_DB),
+            false,
+            CHAIN_ID_TESTNET,
+            StacksEpochId::Epoch40,
+            test_ruleset(StacksEpochId::Epoch40),
+        )
+        .with_budget(CostBudget::Free);
+
+        let analyzed = engine
+            .analyze_contract(
+                &mut ctx,
+                &id,
+                COUNTER,
+                ClarityVersion::Clarity6,
+                &ResourceBudget::unlimited(),
+            )
+            .unwrap();
+        engine
+            .initialize_contract(
+                &mut ctx,
+                &analyzed,
+                None,
+                None,
+                &ResourceBudget::unlimited(),
+            )
+            .unwrap();
+        engine.save_analysis(&mut ctx, &analyzed).unwrap();
+
+        // Deploying must not invoke the hook; only contract calls do.
+        assert_eq!(HOOK_CALLS.load(Ordering::SeqCst), 0);
+
+        let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+        let outcome = engine
+            .execute_call(
+                &mut ctx,
+                sender,
+                None,
+                &id,
+                "increment",
+                &[],
+                None,
+                &ResourceBudget::unlimited(),
+            )
+            .unwrap();
+        assert_eq!(outcome.value, Value::okay(Value::Bool(true)).unwrap());
+
+        assert_eq!(
+            HOOK_CALLS.load(Ordering::SeqCst),
+            1,
+            "the Clarity 6 engine must invoke the host special-case hook after a contract call"
+        );
+        let recorded = HOOKED_CALLEE.lock().unwrap().clone().unwrap();
+        assert_eq!(recorded.0, id.to_string());
+        assert_eq!(recorded.1, "increment");
+        assert!(recorded.2, "hook must observe the call's committed result");
     }
 
     #[test]

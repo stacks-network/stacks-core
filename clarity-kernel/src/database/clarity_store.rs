@@ -24,17 +24,21 @@ use crate::database::{
     ClarityDatabase, ClarityDeserializable, ClaritySerializable, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use crate::errors::{VmExecutionError, VmInternalError};
+use crate::special_case::KernelSpecialCaseHandlerFn;
 
 pub struct NullBackingStore {}
 
-/// Opaque host-provided hook invoked after specific contract calls (e.g. the
-/// PoX lock-handling logic in stacks-core).
+/// Opaque host-provided hook invoked after specific contract calls, for
+/// handling that must *evaluate Clarity* and therefore needs the engine's own
+/// interpreter state (the legacy engine synthesizes PoX 1-4 print events).
 ///
 /// The kernel only *carries* this token from the backing store to the engine;
 /// the engine downcasts it to its concrete function type (the legacy engine's
-/// `SpecialCaseHandlerFn`, which is typed over its `GlobalContext`). This is
-/// transitional: the hook will be typed against the kernel's
-/// transaction-context ABI once that exists.
+/// `SpecialCaseHandlerFn`, typed over its `GlobalContext`). Because the type is
+/// engine-private, only the engine that owns it can invoke it.
+///
+/// Handling that needs no evaluation should use
+/// [`KernelSpecialCaseHandlerFn`] instead, which every engine can invoke.
 pub type SpecialCaseHandler = &'static (dyn std::any::Any + Send + Sync);
 
 // These functions generally _do not_ return errors, rather, any errors in the underlying storage
@@ -81,6 +85,15 @@ pub trait ClarityBackingStore {
     fn get_side_store(&mut self) -> &Connection;
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+        None
+    }
+
+    /// The host's special-case hook for handling that touches kernel state
+    /// only. Every engine can invoke this one, which is what makes it correct
+    /// for a boot contract whose own language version decides which engine
+    /// executes it (`.pox-5` is Clarity 6, so the Clarity 6 engine applies its
+    /// lock-ups).
+    fn get_kernel_cc_special_cases_handler(&self) -> Option<&'static KernelSpecialCaseHandlerFn> {
         None
     }
 

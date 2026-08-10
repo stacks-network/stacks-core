@@ -43,6 +43,7 @@ use crate::database::structures::{
 };
 use crate::database::{ClarityBackingStore, RollbackWrapper};
 use crate::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
+use crate::special_case::KernelSpecialCaseHandlerFn;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 pub const TENURE_HEIGHT_KEY: &str = "_stx-data::tenure_height";
@@ -1531,6 +1532,12 @@ impl ClarityDatabase<'_> {
 
     pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         self.store.get_cc_special_cases_handler()
+    }
+
+    pub fn get_kernel_cc_special_cases_handler(
+        &self,
+    ) -> Option<&'static KernelSpecialCaseHandlerFn> {
+        self.store.get_kernel_cc_special_cases_handler()
     }
 
     #[allow(clippy::unnecessary_fallible_conversions)]

@@ -16,4 +16,5 @@
 //! Cross-cutting test infrastructure for `pox-locking`. Module-local unit
 //! tests live next to their code (e.g. inside `pox_5.rs`).
 
+pub mod dispatch;
 pub mod madhouse;

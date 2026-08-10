@@ -12,6 +12,7 @@ use clarity::vm::database::{
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::{RuntimeError, VmExecutionError};
+use clarity::vm::special_case::KernelSpecialCaseHandlerFn;
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use stacks_common::types::chainstate::{
@@ -31,7 +32,7 @@ use crate::chainstate::stacks::db::{ChainstateTx, StacksChainState, StacksDBConn
 use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::Error as ChainstateError;
-use crate::clarity_vm::special::SPECIAL_CASE_HANDLER;
+use crate::clarity_vm::special::{KERNEL_SPECIAL_CASE_HANDLER, SPECIAL_CASE_HANDLER};
 use crate::core::{StacksEpoch, StacksEpochId};
 use crate::util_lib::db::{DBConn, Error as DBError, FromColumn, FromRow};
 
@@ -1292,6 +1293,10 @@ impl ClarityBackingStore for MemoryBackingStore {
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         Some(&SPECIAL_CASE_HANDLER)
+    }
+
+    fn get_kernel_cc_special_cases_handler(&self) -> Option<&'static KernelSpecialCaseHandlerFn> {
+        Some(&KERNEL_SPECIAL_CASE_HANDLER)
     }
 
     fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {

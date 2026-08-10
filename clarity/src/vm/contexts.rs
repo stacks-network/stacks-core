@@ -19,6 +19,7 @@ use std::mem::replace;
 
 use clarity_kernel::engine::{ContractDispatcher, RuntimeContext, RuntimeSlot};
 use clarity_kernel::rules::KernelRuleset;
+use clarity_kernel::special_case::SpecialCaseContext;
 pub use clarity_kernel::transaction::{CallStack, EventBatch, TransactionFrame};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
@@ -1777,6 +1778,22 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     pub fn log_pox_action(&mut self, sender: &PrincipalData) -> Result<(), VmExecutionError> {
         self.get_asset_map()?.add_pox_action(sender);
         Ok(())
+    }
+
+    /// Borrow the kernel state a host special-case hook may touch.
+    ///
+    /// Handling that needs no Clarity evaluation is typed over this rather than
+    /// over `GlobalContext`, so that every engine can invoke the same hook --
+    /// which is what a boot contract like `.pox-5` requires, since its own
+    /// language version decides which engine executes it.
+    pub fn special_case_context(&mut self) -> SpecialCaseContext<'_, 'a> {
+        SpecialCaseContext {
+            epoch_id: self.epoch_id,
+            mainnet: self.mainnet,
+            database: &mut self.database,
+            cost_track: &mut self.cost_track,
+            transaction: &mut self.transaction,
+        }
     }
 
     /// Invokes `f` for each registered eval hook.

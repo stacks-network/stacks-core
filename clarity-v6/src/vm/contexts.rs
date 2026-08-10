@@ -19,6 +19,7 @@ use std::mem::replace;
 
 use clarity_kernel::engine::{ContractDispatcher, RuntimeContext, RuntimeSlot};
 use clarity_kernel::rules::KernelRuleset;
+use clarity_kernel::special_case::SpecialCaseContext;
 pub use clarity_kernel::transaction::{CallStack, EventBatch, TransactionFrame};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
@@ -1097,11 +1098,35 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             call.finish(self, &callee_view, &res);
             self.call_stack.remove(&func_identifier, true)?;
 
-            // Host special cases belong to the legacy boot-contract engines.
-            // A Clarity 6 call reaches those engines through the dispatcher,
-            // so this engine must not downcast their private handler token
-            // after ordinary Clarity 6 calls.
-            res
+            // Apply host special cases. `.pox-5` is itself a Clarity 6
+            // contract, so its lock-ups are applied here rather than by the
+            // legacy engine -- no dispatcher hop happens on a call into it.
+            // The kernel-typed hook needs no downcast; the legacy engine's
+            // engine-private hook (whose PoX 1-4 handling evaluates Clarity to
+            // synthesize print events) is deliberately not reachable from here.
+            match res {
+                Ok(value) => {
+                    if let Some(handler) = self
+                        .global_context
+                        .database
+                        .get_kernel_cc_special_cases_handler()
+                    {
+                        let mut special_case_context =
+                            self.global_context.special_case_context();
+                        (handler.0)(
+                            &mut special_case_context,
+                            invoke_ctx.sender.as_ref(),
+                            invoke_ctx.sponsor.as_ref(),
+                            contract_identifier,
+                            tx_name,
+                            &args,
+                            &value,
+                        )?;
+                    }
+                    Ok(value)
+                }
+                Err(e) => Err(e),
+            }
         })
     }
 
@@ -1728,6 +1753,22 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     pub fn log_pox_action(&mut self, sender: &PrincipalData) -> Result<(), VmExecutionError> {
         self.get_asset_map()?.add_pox_action(sender);
         Ok(())
+    }
+
+    /// Borrow the kernel state a host special-case hook may touch. See
+    /// `clarity_kernel::special_case`.
+    ///
+    /// Passing `host_epoch` is not a semantics leak: the hook is host logic
+    /// (PoX lock-ups), not Clarity 6 evaluation, and the host is entitled to
+    /// its own epoch. Clarity 6 evaluation still never consults it.
+    pub fn special_case_context(&mut self) -> SpecialCaseContext<'_, 'a> {
+        SpecialCaseContext {
+            epoch_id: self.host_epoch,
+            mainnet: self.mainnet,
+            database: &mut self.database,
+            cost_track: &mut self.cost_track,
+            transaction: &mut self.transaction,
+        }
     }
 
     /// Invokes `f` for each registered eval hook.

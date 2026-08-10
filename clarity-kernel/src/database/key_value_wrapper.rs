@@ -28,6 +28,7 @@ use super::clarity_store::SpecialCaseHandler;
 use super::{ClarityBackingStore, ClarityDeserializable};
 use crate::database::clarity_store::{ContractCommitment, make_contract_hash_key};
 use crate::errors::{VmExecutionError, VmInternalError};
+use crate::special_case::KernelSpecialCaseHandlerFn;
 
 #[cfg(feature = "rollback_value_check")]
 type RollbackValueCheck = String;
@@ -240,6 +241,12 @@ impl<'a> RollbackWrapper<'a> {
 
     pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         self.store.get_cc_special_cases_handler()
+    }
+
+    pub fn get_kernel_cc_special_cases_handler(
+        &self,
+    ) -> Option<&'static KernelSpecialCaseHandlerFn> {
+        self.store.get_kernel_cc_special_cases_handler()
     }
 
     pub fn nest(&mut self) {
