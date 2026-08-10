@@ -4110,6 +4110,7 @@ fn signer_set_rollover() {
                     ],
                     timeout_ms: 1000,
                     disable_retries: false,
+                    disable_contract_interface: false,
                 });
             }
             naka_conf.node.rpc_bind = rpc_bind.clone();
@@ -4628,6 +4629,7 @@ fn signer_multinode_rollover() {
                     ],
                     timeout_ms: 1000,
                     disable_retries: false,
+                    disable_contract_interface: false,
                 });
             }
         },
@@ -6532,6 +6534,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
                 ],
                 timeout_ms: 1000,
                 disable_retries: false,
+                disable_contract_interface: false,
             });
             naka_conf.node.rpc_bind = rpc_bind.clone();
         },
