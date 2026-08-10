@@ -14,9 +14,9 @@ on:
 permissions:
   contents: read
 
-# Configure concurrency
+# Configure concurrency so that we can only have one release at a time
 concurrency:
-  group: release-github-${{ github.head_ref || github.ref }}
+  group: release-github
   # Always cancel duplicate jobs
   cancel-in-progress: true
 
@@ -39,7 +39,7 @@ jobs:
       - name: Checkout the latest code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-           ref: ${{ github.head_ref || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
            
       - name: 'Check for "DO NOT RELEASE" in codebase'
         shell: bash
