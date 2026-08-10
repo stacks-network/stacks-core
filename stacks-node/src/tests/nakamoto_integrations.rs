@@ -31,7 +31,6 @@ use clarity::vm::{ClarityName, ClarityVersion, Value};
 use http_types::headers::AUTHORIZATION;
 use lazy_static::lazy_static;
 use libsigner::v0::messages::{RejectReason, SignerMessage as SignerMessageV0};
-use libsigner::v0::signer_state::ReplayTransactionSet;
 use libsigner::{SignerSession, StackerDBSession, StacksBlockEvent};
 use rand::{thread_rng, Rng};
 use rusqlite::{Connection, OptionalExtension};
@@ -113,7 +112,6 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
-use stacks_signer::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use stacks_signer::v0::SpawnedSigner;
 
@@ -7114,7 +7112,6 @@ fn signer_chainstate() {
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
-            reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
             read_count_idle_timeout: Duration::from_secs(12000),
         };
         let mut sortitions_view =
@@ -7126,13 +7123,7 @@ fn signer_chainstate() {
             last_tenures_proposals
         {
             let reject_code = sortitions_view
-                .check_proposal(
-                    &signer_client,
-                    &mut signer_db,
-                    prior_tenure_first,
-                    true,
-                    ReplayTransactionSet::none(),
-                )
+                .check_proposal(&signer_client, &mut signer_db, prior_tenure_first, true)
                 .expect_err("Sortitions view should reject proposals from prior tenure");
             assert_eq!(
                 reject_code,
@@ -7141,13 +7132,7 @@ fn signer_chainstate() {
             );
             for block in prior_tenure_interims.iter() {
                 let reject_code = sortitions_view
-                    .check_proposal(
-                        &signer_client,
-                        &mut signer_db,
-                        block,
-                        true,
-                        ReplayTransactionSet::none(),
-                    )
+                    .check_proposal(&signer_client, &mut signer_db, block, true)
                     .expect_err("Sortitions view should reject proposals from prior tenure");
                 assert_eq!(
                     reject_code,
@@ -7179,13 +7164,7 @@ fn signer_chainstate() {
             .block_height_to_reward_cycle(burn_block_height)
             .unwrap();
         sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &proposal.0,
-                true,
-                ReplayTransactionSet::none(),
-            )
+            .check_proposal(&signer_client, &mut signer_db, &proposal.0, true)
             .expect("Nakamoto integration test produced invalid block proposal");
         signer_db
             .insert_block(&BlockInfo {
@@ -7231,13 +7210,7 @@ fn signer_chainstate() {
         let proposal_interim = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
 
         sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &proposal_interim.0,
-                true,
-                ReplayTransactionSet::none(),
-            )
+            .check_proposal(&signer_client, &mut signer_db, &proposal_interim.0, true)
             .expect("Nakamoto integration test produced invalid block proposal");
         // force the view to refresh and check again
 
@@ -7250,7 +7223,6 @@ fn signer_chainstate() {
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
-            reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
             read_count_idle_timeout: Duration::from_secs(12000),
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
@@ -7262,13 +7234,7 @@ fn signer_chainstate() {
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
         sortitions_view
-            .check_proposal(
-                &signer_client,
-                &mut signer_db,
-                &proposal_interim.0,
-                true,
-                ReplayTransactionSet::none(),
-            )
+            .check_proposal(&signer_client, &mut signer_db, &proposal_interim.0, true)
             .expect("Nakamoto integration test produced invalid block proposal");
 
         signer_db
@@ -7328,18 +7294,11 @@ fn signer_chainstate() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            false,
-            ReplayTransactionSet::none(),
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but blocks have already
@@ -7388,13 +7347,7 @@ fn signer_chainstate() {
     );
 
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            false,
-            ReplayTransactionSet::none(),
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but it doesn't confirm all the blocks of the parent tenure
@@ -7449,13 +7402,7 @@ fn signer_chainstate() {
     );
 
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            false,
-            ReplayTransactionSet::none(),
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but the parent tenure is a reorg
@@ -7513,13 +7460,7 @@ fn signer_chainstate() {
     );
 
     sortitions_view
-        .check_proposal(
-            &signer_client,
-            &mut signer_db,
-            &sibling_block,
-            false,
-            ReplayTransactionSet::none(),
-        )
+        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     let start_sortition = &reorg_to_block.header.consensus_hash;
