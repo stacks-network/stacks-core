@@ -19,7 +19,7 @@ use libsigner::v0::messages::{
     BlockAccepted, BlockResponse, BlockResponseData, RejectReason, SignerMessage,
     SignerMessageMetadata,
 };
-use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
+use libsigner::v0::signer_state::{MinerState, SignerStateMachine};
 use libsigner_v3_3_0_0_5;
 use libsigner_v3_3_0_0_5::v0::messages::SignerMessage as OldSignerMessage;
 use signer_v3_3_0_0_5_0;

@@ -32,9 +32,7 @@ use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress
 use clarity::types::PrivateKey;
 use clarity::util::vrf::VRFProof;
 use libsigner::v0::messages::RejectReason;
-use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
-};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
 use libsigner::{BlockProposal, BlockProposalData};
 use stacks_common::bitvec::BitVec;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -147,7 +145,6 @@ fn setup_test_environment(
             parent_tenure_last_block_height: 1,
         },
         active_signer_protocol_version: 0,
-        tx_replay_set: ReplayTransactionSet::none(),
     };
 
     let sortitions_view = GlobalStateView {

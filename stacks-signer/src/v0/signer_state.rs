@@ -26,9 +26,7 @@ use libsigner::v0::messages::{
     MessageSlotID, SignerMessage, StateMachineUpdate as StateMachineUpdateMessage,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
-};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
@@ -166,7 +164,6 @@ impl LocalStateMachine {
             burn_block_height: 0,
             current_miner: MinerState::NoValidMiner,
             active_signer_protocol_version: version,
-            tx_replay_set: ReplayTransactionSet::none(),
         }
     }
 
@@ -498,7 +495,6 @@ impl LocalStateMachine {
         let peer_info = client.get_peer_info()?;
         let next_burn_block_height = peer_info.burn_block_height;
         let next_burn_block_hash = peer_info.pox_consensus;
-        let tx_replay_set = prior_state_machine.tx_replay_set.clone();
 
         if let Some(expected_burn_block) = expected_burn_block {
             // If the next height is less than the expected height, we need to wait.
@@ -576,7 +572,6 @@ impl LocalStateMachine {
             burn_block_height: next_burn_block_height,
             current_miner: miner_state,
             active_signer_protocol_version: prior_state_machine.active_signer_protocol_version,
-            tx_replay_set,
         });
 
         if prior_state != *self {
@@ -633,7 +628,6 @@ impl LocalStateMachine {
         }
         // We have either timed out our local view of the parent tenure last block, or the node has a new block we didn't know about
         let (burn_block, burn_block_height) = local_update.content.burn_block_view();
-        let tx_replay_set = local_update.content.tx_replay_set();
         *self = Self::Initialized(SignerStateMachine {
             burn_block: burn_block.clone(),
             burn_block_height,
@@ -646,7 +640,6 @@ impl LocalStateMachine {
             }
             .into(),
             active_signer_protocol_version: local_update.active_signer_protocol_version,
-            tx_replay_set,
         });
         true
     }
@@ -681,14 +674,12 @@ impl LocalStateMachine {
             );
             let (burn_block, burn_block_height) = local_update.content.burn_block_view();
             let current_miner = local_update.content.current_miner();
-            let tx_replay_set = local_update.content.tx_replay_set();
 
             *self = Self::Initialized(SignerStateMachine {
                 burn_block: burn_block.clone(),
                 burn_block_height,
                 current_miner: current_miner.clone().into(),
                 active_signer_protocol_version,
-                tx_replay_set,
             });
         }
     }
@@ -794,7 +785,6 @@ impl LocalStateMachine {
 
         let (burn_block, burn_block_height) = local_update.content.burn_block_view();
         let current_miner = local_update.content.current_miner();
-        let tx_replay_set = local_update.content.tx_replay_set();
 
         if current_miner != &new_miner {
             info!("Signer State: Capitulating local state machine's current miner viewpoint";
@@ -802,7 +792,6 @@ impl LocalStateMachine {
                 "new_miner" => ?new_miner,
                 "burn_block" => %burn_block,
                 "burn_block_height" => burn_block_height,
-                "tx_replay_set" => ?tx_replay_set,
             );
             crate::monitoring::actions::increment_signer_agreement_state_change_reason(
                 crate::monitoring::SignerAgreementStateChangeReason::MinerViewUpdate,
@@ -814,7 +803,6 @@ impl LocalStateMachine {
                 burn_block_height,
                 current_miner: new_miner.clone().into(),
                 active_signer_protocol_version: local_update.active_signer_protocol_version,
-                tx_replay_set,
             });
 
             match new_miner {

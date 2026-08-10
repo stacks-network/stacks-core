@@ -32,9 +32,7 @@ use libsigner::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
     StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
-};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
 use stacks_common::bitvec::BitVec;
 use stacks_common::function_name;
 
@@ -180,7 +178,6 @@ fn check_capitulate_miner_view() {
         burn_block,
         burn_block_height,
         current_miner: new_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -442,7 +439,6 @@ fn check_capitulate_with_local_timeout() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -633,7 +629,6 @@ fn check_capitulate_split_view_node_at_lower_height() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
     let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
@@ -820,7 +815,6 @@ fn check_capitulate_split_view_node_at_higher_height() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
     let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
@@ -938,7 +932,6 @@ fn check_capitulate_viewpoint_time_guards() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -1009,7 +1002,6 @@ fn check_capitulate_viewpoint_time_guards() {
             burn_block,
             burn_block_height,
             current_miner: local_miner.into(),
-            tx_replay_set: ReplayTransactionSet::none(),
             active_signer_protocol_version,
         }),
         "Recent globally accepted block should prevent capitulation"
@@ -1142,7 +1134,6 @@ fn check_miner_inactivity_timeout() {
         burn_block_height: 1,
         current_miner: inactive_miner,
         active_signer_protocol_version: 0,
-        tx_replay_set: ReplayTransactionSet::none(),
     };
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
     local_state_machine
