@@ -1255,6 +1255,16 @@ impl Signer {
             return;
         }
 
+        let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
+        let prior_block_info = self.block_lookup_by_reward_cycle(&signer_signature_hash);
+        if let Some(block_info) = &prior_block_info {
+            // If we have already decided on this block, resend that decision (or ignore
+            // the proposal) rather than evaluating it again.
+            if !self.should_reevaluate_block(block_info, block_proposal) {
+                return;
+            }
+        }
+
         if block_proposal
             .block
             .header
@@ -1267,7 +1277,7 @@ impl Signer {
             // accumulates rejection weight, so a silent drop from the whole signer set
             // would livelock the tenure until the next sortition.
             warn!("{self}: Received a block proposal that is more than {} secs old. Rejecting...", self.block_proposal_max_age_secs;
-                "signer_signature_hash" => %block_proposal.block.header.signer_signature_hash(),
+                "signer_signature_hash" => %signer_signature_hash,
                 "block_id" => %block_proposal.block.block_id(),
                 "block_height" => block_proposal.block.header.chain_length,
                 "burn_height" => block_proposal.burn_height,
@@ -1279,25 +1289,18 @@ impl Signer {
             return;
         }
 
-        // TODO: should add a check to ignore an old burn block height if we know its outdated. Would require us to store the burn block height we last saw on the side.
-        //  the signer needs to be able to determine whether or not the block they're about to sign would conflict with an already-signed Stacks block
-        let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
-        let pending_responses =
-            if let Some(block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) {
-                if !self.should_reevaluate_block(&block_info, block_proposal) {
-                    return;
-                }
-                PendingBlockResponses::empty()
-            } else {
-                info!(
-                    "{self}: received a block proposal for a new block.";
-                    "signer_signature_hash" => %signer_signature_hash,
-                    "block_id" => %block_proposal.block.block_id(),
-                    "block_height" => block_proposal.block.header.chain_length,
-                    "burn_height" => block_proposal.burn_height,
-                    "consensus_hash" => %block_proposal.block.header.consensus_hash,
-                );
-                self.signer_db
+        let pending_responses = if prior_block_info.is_some() {
+            PendingBlockResponses::empty()
+        } else {
+            info!(
+                "{self}: received a block proposal for a new block.";
+                "signer_signature_hash" => %signer_signature_hash,
+                "block_id" => %block_proposal.block.block_id(),
+                "block_height" => block_proposal.block.header.chain_length,
+                "burn_height" => block_proposal.burn_height,
+                "consensus_hash" => %block_proposal.block.header.consensus_hash,
+            );
+            self.signer_db
                 .drain_pending_block_responses(&signer_signature_hash)
                 .unwrap_or_else(|e| {
                     warn!(
@@ -1307,7 +1310,7 @@ impl Signer {
                     );
                     PendingBlockResponses::empty()
                 })
-            };
+        };
         crate::monitoring::actions::increment_block_proposals_received();
         // Creating a new proposal will overwrite any prior proposal info on the block if it exists, e.g. validity, signed_timestamps, etc.
         let mut block_info = BlockInfo::from(block_proposal.clone());

@@ -15,13 +15,15 @@
 use std::env;
 use std::time::Duration;
 
-use libsigner::v0::messages::RejectReason;
+use libsigner::v0::messages::{BlockResponse, RejectReason, SignerMessage};
 use pinny::tag;
 use stacks::core::test_util::to_addr;
 use stacks::types::chainstate::StacksPublicKey;
 use stacks::util::get_epoch_time_secs;
 use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks_signer::v0::tests::TEST_IGNORE_ALL_BLOCK_PROPOSALS;
+use stacks_signer::v0::tests::{
+    TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST,
+};
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -30,7 +32,9 @@ use super::SignerTest;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{get_chain_info, test_observer};
 use crate::tests::signer::v0::{
-    wait_for_block_proposal, wait_for_block_pushed_and_tip, wait_for_block_rejections_from_signers,
+    get_stackerdb_signer_messages, wait_for_block_acceptance_from_signers,
+    wait_for_block_pre_commits_from_signers, wait_for_block_proposal,
+    wait_for_block_pushed_and_tip, wait_for_block_rejections_from_signers,
 };
 
 #[tag(bitcoind)]
@@ -297,6 +301,167 @@ fn proposal_void_longer_than_max_age_recovers_by_rejection_and_remine() {
     assert!(
         recovery_block.header.timestamp > timestamp_1,
         "Recovery block must carry a fresh header timestamp"
+    );
+    signer_test.shutdown();
+}
+
+#[tag(bitcoind)]
+#[test]
+#[ignore]
+/// Verify that a signer which has already decided on a block does not flip its
+/// decision when the same proposal is re-sent after
+/// `block_proposal_max_age_secs`.
+///
+/// `ProposalTooOld` is only appropriate when the signer has nothing to report.
+/// If the signer already accepted the block, overwriting that acceptance with a
+/// rejection would leave the miner and the other signers with divergent views
+/// of this signer's vote, depending on which of the two responses each of them
+/// observed (the miner keeps the acceptance, since approvals are sticky, while
+/// a signer that only saw the rejection would count it toward the rejection
+/// threshold). Resending the prior acceptance is also what actually unsticks
+/// the miner: it is re-proposing precisely because it never heard the
+/// acceptance.
+///
+/// Test Setup:
+/// Five signers with block_proposal_max_age_secs = 30, one miner with a 15s
+/// rejection timeout.
+///
+/// Test Execution:
+/// 1. Suppress the signers' acceptance broadcasts (note that this testing hook
+///    suppresses acceptances only -- a rejection would still be broadcast), so
+///    the signers validate and locally accept block N while the miner hears
+///    nothing and stays in its resend loop.
+/// 2. Hold that state for > 30s so block N's proposal goes stale, then let the
+///    acceptances flow again.
+/// 3. The miner re-sends the stale proposal, and every signer resends its
+///    acceptance instead of rejecting it as too old.
+///
+/// Test Assertion:
+/// - All signers respond to the stale proposal with an acceptance.
+/// - No signer ever rejects block N (in particular, not with ProposalTooOld).
+/// - The original block N -- same hash, same old header timestamp -- is the
+///   block that advances the tip.
+fn stale_proposal_of_accepted_block_resends_acceptance() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let max_age_secs = 30;
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, send_amt + send_fee)],
+        |config| {
+            config.block_proposal_max_age_secs = max_age_secs;
+        },
+        |config| {
+            config.miner.block_rejection_timeout_steps = [(0, Duration::from_secs(15))].into();
+        },
+        None,
+        None,
+    );
+    signer_test.boot_to_epoch_3();
+
+    let conf = signer_test.running_nodes.conf.clone();
+    let miner_sk = conf.miner.mining_key.clone().unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
+    let all_signers = signer_test.signer_test_pks();
+
+    info!("------------------------- Suppress the Signers' Acceptances -------------------------");
+    test_observer::clear();
+    TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST.set(all_signers.clone());
+
+    let info_before = get_chain_info(&conf);
+    signer_test
+        .submit_transfer_tx(&sender_sk, send_fee, send_amt)
+        .expect("Failed to submit transfer tx");
+
+    let proposal = wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pk)
+        .expect("Timed out waiting for the initial proposal of block N");
+    let sighash = proposal.block.header.signer_signature_hash();
+    let timestamp = proposal.block.header.timestamp;
+
+    // pre-commits are still broadcast, so they are our proof that every signer
+    // validated block N and holds a decision to report, even though the miner
+    // never sees an acceptance
+    wait_for_block_pre_commits_from_signers(60, &sighash, &all_signers)
+        .expect("Timed out waiting for all signers to pre-commit to block N");
+
+    info!("------------------------- Hold Until the Proposal Is Stale -------------------------";
+        "signer_signature_hash" => %sighash,
+        "timestamp" => timestamp,
+        "max_age_secs" => max_age_secs,
+    );
+    wait_for(max_age_secs * 3, || {
+        Ok(get_epoch_time_secs() > timestamp + max_age_secs + 5)
+    })
+    .expect("Timed out waiting for wall clock to pass proposal max age");
+
+    assert_eq!(
+        get_chain_info(&conf).stacks_tip_height,
+        info_before.stacks_tip_height,
+        "Chain must not advance while the acceptances are suppressed"
+    );
+
+    info!("------------------------- Let the Acceptances Flow -------------------------");
+    test_observer::clear();
+    TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST.set(vec![]);
+
+    // the miner is still re-sending the same, now stale, proposal
+    let proposal_stale = wait_for_block_proposal(60, info_before.stacks_tip_height + 1, &miner_pk)
+        .expect("Timed out waiting for the miner to re-send the stale proposal");
+    assert_eq!(
+        proposal_stale.block.header.signer_signature_hash(),
+        sighash,
+        "Miner should still be re-sending the SAME stale proposal"
+    );
+
+    info!("------------------------- Signers Resend Their Acceptance -------------------------");
+    let acceptances = wait_for_block_acceptance_from_signers(60, &sighash, &all_signers)
+        .expect("Timed out waiting for the signers to resend their acceptance of block N");
+    assert_eq!(acceptances.len(), num_signers);
+
+    // no signer flipped its already-made decision to a rejection
+    let rejections: Vec<_> = get_stackerdb_signer_messages()
+        .into_iter()
+        .filter_map(|(_chunk, message)| match message {
+            SignerMessage::BlockResponse(BlockResponse::Rejected(rejection))
+                if rejection.signer_signature_hash == sighash =>
+            {
+                Some(rejection.response_data.reject_reason)
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        rejections.is_empty(),
+        "A signer that already accepted block N must not reject the stale re-proposal, got: {rejections:?}"
+    );
+
+    info!("------------------------- The Original Block N Lands -------------------------");
+    let block_n =
+        wait_for_block_pushed_and_tip(60, info_before.stacks_tip_height + 1, &miner_pk, || {
+            get_chain_info(&conf).stacks_tip
+        })
+        .expect("Block N was not accepted after the acceptances were unblocked");
+    assert_eq!(
+        block_n.header.signer_signature_hash(),
+        sighash,
+        "The block that ends the stall must be the ORIGINAL proposal"
+    );
+    assert_eq!(
+        block_n.header.timestamp, timestamp,
+        "The accepted block must carry the original (old) header timestamp"
     );
     signer_test.shutdown();
 }
