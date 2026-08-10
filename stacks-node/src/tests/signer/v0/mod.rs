@@ -9107,7 +9107,7 @@ fn signers_treat_signatures_as_precommits() {
             debug!("Produced a signature: {:?}", chunk.sig);
             let result = session.put_chunk(&chunk).expect("Failed to put chunk");
             accepted = result.accepted;
-            if !accepted && result.code.unwrap() == StackerDBErrorCodes::BadSigner as u32 {
+            if !accepted && result.code.unwrap() == StackerDBErrorCodes::BadSigner.code() {
                 slot_id += 1;
                 assert!(
                     slot_id < num_signers as u32,
