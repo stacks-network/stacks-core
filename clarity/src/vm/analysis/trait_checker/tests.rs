@@ -24,7 +24,7 @@ use crate::vm::ClarityVersion;
 use crate::vm::analysis::{StaticCheckError, StaticCheckErrorKind, type_check};
 use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::{build_ast, parse};
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 

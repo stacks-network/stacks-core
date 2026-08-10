@@ -805,6 +805,7 @@ name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff 1.1.0",
+ "clarity-kernel",
  "clarity-types 0.0.1",
  "criterion",
  "integer-sqrt",
@@ -863,6 +864,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "clarity-conformance"
+version = "0.0.1"
+dependencies = [
+ "clarity-kernel",
+ "clarity-types 0.0.1",
+ "serde",
+ "serde_json",
+ "stacks-common 0.0.1",
+]
+
+[[package]]
+name = "clarity-kernel"
+version = "0.0.1"
+dependencies = [
+ "clarity-types 0.0.1",
+ "lazy_static",
+ "mutants",
+ "rstest",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "slog",
+ "stacks-common 0.0.1",
+]
+
+[[package]]
 name = "clarity-types"
 version = "0.0.1"
 dependencies = [
@@ -892,6 +921,29 @@ dependencies = [
  "serde_json",
  "slog",
  "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+]
+
+[[package]]
+name = "clarity-v6"
+version = "1.0.0"
+dependencies = [
+ "clarity 0.0.1",
+ "clarity-conformance",
+ "clarity-kernel",
+ "clarity-types 0.0.1",
+ "integer-sqrt",
+ "lazy_static",
+ "proptest",
+ "regex",
+ "rstest",
+ "rstest_reuse",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "slog",
+ "stacks-common 0.0.1",
 ]
 
 [[package]]
@@ -4646,6 +4698,7 @@ dependencies = [
  "assert-json-diff 1.1.0",
  "chrono",
  "clarity 0.0.1",
+ "clarity-v6",
  "ed25519-dalek",
  "insta",
  "lazy_static",

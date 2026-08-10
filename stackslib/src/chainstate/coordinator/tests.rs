@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::BurnStateDB;
+use clarity::vm::database::{BurnStateDB, ClarityDatabaseExt};
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};

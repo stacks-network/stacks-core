@@ -194,7 +194,7 @@ fn handle_stack_lockup_pox_v3(
     // applying a pox lock at this point is equivalent to evaluating a transfer
     runtime_cost(
         ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         1,
     )?;
 
@@ -265,7 +265,7 @@ fn handle_stack_lockup_extension_pox_v3(
 
     runtime_cost(
         ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         1,
     )?;
 
@@ -329,7 +329,7 @@ fn handle_stack_lockup_increase_pox_v3(
 
     runtime_cost(
         ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         1,
     )?;
 
@@ -431,7 +431,7 @@ pub fn handle_contract_call(
     };
 
     // append the lockup event, so it looks as if the print event happened before the lock-up
-    if let Some((batch, _)) = global_context.event_batches.last_mut() {
+    if let Some((batch, _)) = global_context.transaction.current_event_batch_mut() {
         if let Some(print_event) = print_event_opt {
             batch.events.push(print_event);
         }

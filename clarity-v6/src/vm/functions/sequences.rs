@@ -1,0 +1,618 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use std::cmp;
+
+use clarity_types::types::RetainValuesError;
+
+use crate::vm::contexts::{ExecutionState, InvocationContext};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{CostOverflowingMath, runtime_cost};
+use crate::vm::errors::{
+    RuntimeCheckErrorKind, VmExecutionError, VmInternalError, check_argument_count,
+    check_arguments_at_least,
+};
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::TypeSignature::BoolType;
+use crate::vm::types::signatures::ListTypeData;
+use crate::vm::types::{
+    Clarity6SequenceData as _, Clarity6TypeSignature as _, Clarity6Value as _, ListData,
+    SequenceData, TypeSignature, Value,
+};
+use crate::vm::{LocalContext, apply_evaluated, eval, lookup_function};
+
+pub fn list_cons(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    let eval_tried: Result<Vec<Value>, VmExecutionError> = args
+        .iter()
+        .map(|x| {
+            eval(x, exec_state, invoke_ctx, context).and_then(|v| v.clone_with_cost(exec_state))
+        })
+        .collect();
+    let args = eval_tried?;
+
+    let mut arg_size = 0;
+    for a in args.iter() {
+        arg_size = arg_size.cost_overflow_add(a.size()?.into())?;
+    }
+
+    runtime_cost(ClarityCostFunction::ListCons, exec_state, arg_size)?;
+
+    let value = Value::cons_list_clarity6(args)?;
+    Ok(value)
+}
+
+/// Implements the Clarity `filter` function: `(filter func sequence)`.
+///
+/// Applies a boolean predicate `func` to each element of `sequence`, returning a new
+/// sequence containing only the elements for which `func` returned `true`.
+/// The predicate must return a `bool`; a type error is raised otherwise.
+///
+/// `args[0]` is the function name (atom) and `args[1]` is the sequence expression.
+pub fn special_filter(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    check_argument_count(2, args)?;
+
+    runtime_cost(ClarityCostFunction::Filter, exec_state, 0)?;
+
+    let function_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
+            "Expected name".to_string(),
+        ))?;
+
+    let mut sequence =
+        eval(&args[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+    let function = lookup_function(function_name, exec_state, invoke_ctx)?;
+
+    match sequence {
+        Value::Sequence(sequence_data) => {
+            sequence = Value::Sequence(
+                sequence_data
+                    .try_retain(&mut |value: Value| -> Result<bool, VmExecutionError> {
+                        let filter_eval = apply_evaluated(
+                            &function,
+                            vec![value],
+                            exec_state,
+                            invoke_ctx,
+                            context,
+                        )?;
+                        if let Value::Bool(include) = filter_eval {
+                            Ok(include)
+                        } else {
+                            Err(RuntimeCheckErrorKind::TypeValueError(
+                                Box::new(BoolType),
+                                filter_eval.to_error_string(),
+                            )
+                            .into())
+                        }
+                    })
+                    .map_err(|e| match e {
+                        RetainValuesError::Internal(err) => {
+                            VmExecutionError::Internal(VmInternalError::Expect(format!(
+                                "Internal error occurred while filtering sequence value: {err}"
+                            )))
+                        }
+                        RetainValuesError::Predicate(vm_err) => vm_err,
+                    })?,
+            );
+        }
+        _ => {
+            return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                "Expected sequence: {}",
+                TypeSignature::type_of(&sequence)?
+            ))
+            .into());
+        }
+    };
+    Ok(sequence)
+}
+
+/// Implements the Clarity `fold` function: `(fold func sequence initial)`.
+///
+/// Iterates over `sequence`, threading an accumulator through successive calls to `func`.
+/// Each step calls `func` with `(element, accumulator)` and uses the result as the new
+/// accumulator. Returns the final accumulator value.
+///
+/// `args[0]` is the function name (atom), `args[1]` is the sequence expression,
+/// and `args[2]` is the initial accumulator value.
+pub fn special_fold(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    check_argument_count(3, args)?;
+
+    runtime_cost(ClarityCostFunction::Fold, exec_state, 0)?;
+
+    let function_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
+            "Expected name".to_string(),
+        ))?;
+
+    let function = lookup_function(function_name, exec_state, invoke_ctx)?;
+    let sequence = eval(&args[1], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+    let initial = eval(&args[2], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+
+    let Value::Sequence(seq) = sequence else {
+        return Err(RuntimeCheckErrorKind::Unreachable(format!(
+            "Expected sequence: {}",
+            TypeSignature::type_of(&sequence)?
+        ))
+        .into());
+    };
+
+    let mut acc = initial;
+    for element_result in seq {
+        let element = element_result.map_err(|_| {
+            VmInternalError::Expect("ERROR: Invalid sequence data successfully constructed".into())
+        })?;
+        acc = apply_evaluated(
+            &function,
+            vec![element, acc],
+            exec_state,
+            invoke_ctx,
+            context,
+        )?;
+    }
+    Ok(acc)
+}
+
+/// Implements the Clarity `map` function: `(map func sequence-0 ... sequence-n)`.
+///
+/// Applies `func` element-wise across one or more input sequences, collecting the results
+/// into a new list. When multiple sequences are provided, iteration stops at the length of
+/// the shortest sequence. Each call to `func` receives one element from each sequence,
+/// positionally (e.g., the i-th call gets the i-th element of every sequence).
+///
+/// `args[0]` is the function name (atom) and `args[1..]` are the sequence expressions.
+///
+pub fn special_map(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    check_arguments_at_least(2, args)?;
+
+    runtime_cost(ClarityCostFunction::Map, exec_state, args.len())?;
+
+    let function_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
+            "Expected name".to_string(),
+        ))?;
+    let function = lookup_function(function_name, exec_state, invoke_ctx)?;
+
+    // Evaluate each sequence argument into an iterator and record its length.
+    let mut args_iterators = Vec::with_capacity(args.len() - 1);
+    let mut min_args_len = usize::MAX;
+    for map_arg in args[1..].iter() {
+        let sequence =
+            eval(map_arg, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+        let Value::Sequence(seq) = sequence else {
+            return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                "Expected sequence: {}",
+                TypeSignature::type_of(&sequence)?
+            ))
+            .into());
+        };
+        let args_iter = seq.into_iter();
+        min_args_len = min_args_len.min(args_iter.len());
+        args_iterators.push(args_iter);
+    }
+
+    // Apply the function element-wise, stopping at the shortest sequence.
+    let mut mapped_results = Vec::with_capacity(min_args_len);
+    for _ in 0..min_args_len {
+        let mut call_args = Vec::with_capacity(args_iterators.len());
+        for iter in args_iterators.iter_mut() {
+            let value = iter
+                .next()
+                .ok_or_else(|| {
+                    RuntimeCheckErrorKind::Unreachable(
+                        "iterator can't be shorter than min len".into(),
+                    )
+                })?
+                .map_err(|_| {
+                    VmInternalError::Expect(
+                        "ERROR: Invalid sequence data successfully constructed".into(),
+                    )
+                })?;
+            call_args.push(value);
+        }
+        let res = apply_evaluated(&function, call_args, exec_state, invoke_ctx, context)?;
+        mapped_results.push(res);
+    }
+
+    let value = Value::cons_list_clarity6(mapped_results)?;
+    Ok(value)
+}
+
+pub fn special_append(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    check_argument_count(2, args)?;
+
+    let sequence = eval(&args[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+    match sequence {
+        Value::Sequence(SequenceData::List(list)) => {
+            let element = eval(&args[1], exec_state, invoke_ctx, context)?;
+            let ListData {
+                mut data,
+                type_signature,
+            } = list;
+            let (entry_type, size) = type_signature.destruct();
+            let element_type = TypeSignature::type_of(element.as_ref())?;
+            runtime_cost(
+                ClarityCostFunction::Append,
+                exec_state,
+                u64::from(cmp::max(entry_type.size()?, element_type.size()?)),
+            )?;
+            let element = element.clone_with_cost(exec_state)?;
+            if entry_type.is_no_type() {
+                assert_eq!(size, 0);
+                return Ok(Value::cons_list_clarity6(vec![element])?);
+            }
+
+            let next_entry_type =
+                TypeSignature::least_supertype_clarity6(&entry_type, &element_type)?;
+            let (element, _) = Value::sanitize_value_clarity6(&next_entry_type, element)
+                .ok_or(RuntimeCheckErrorKind::ListTypesMustMatch)?;
+
+            let next_type_signature = ListTypeData::new_list(next_entry_type, size + 1)?;
+            data.push(element);
+            Ok(Value::Sequence(SequenceData::List(ListData {
+                type_signature: next_type_signature,
+                data,
+            })))
+        }
+        _ => {
+            Err(RuntimeCheckErrorKind::Unreachable("Expected list application".to_string()).into())
+        }
+    }
+}
+
+/// Variadic `concat` introduced in Clarity 6.
+///
+/// Accepts 2 or more sequence arguments and concatenates them in a single
+/// pass with linear cost. The 2-argument case is byte-for-byte equivalent
+/// to the prior binary implementation.
+///
+/// # Cost model
+///
+/// This deliberately departs from the cost of repeatedly applying binary
+/// concat. A nested `(concat a (concat b (concat c d)))` would charge
+/// `len(a)+len(b)` then `len(a+b)+len(c)` then `len(a+b+c)+len(d)` — roughly
+/// `O(N² · L)` in number of args. The runtime work is amortized linear, so
+/// that pricing over-charges users for work the runtime doesn't actually do.
+///
+/// The variadic form charges `total_len` once, which is linear in the size
+/// of the final sequence. Variadic `concat` is therefore strictly cheaper
+/// than the equivalent nested-binary form — that's intentional: it reflects
+/// the real work done and is one of the user-visible reasons to prefer the
+/// variadic form.
+///
+/// # Algorithm
+///
+/// Phase 1 evaluates every arg into a `Vec<Value>` while summing the total
+/// length. Phase 2 charges cost once, takes the first arg as the accumulator,
+/// pre-reserves capacity to fit the final result, and appends the remaining
+/// args. Pre-reservation means the underlying `Vec` does not reallocate as
+/// we concat — exactly one allocation per `special_concat` call.
+///
+/// Peak memory during phase 1 is bounded by the type checker's sequence-
+/// length limits: every arg is ≤ `MAX_VALUE_SIZE`, and the type checker
+/// also bounds the *combined* length to that same ceiling, so we hold at
+/// most ~`MAX_VALUE_SIZE` bytes of args alive.
+///
+/// The Clarity 6 type checker bounds the combined sequence length to the
+/// same maximum enforced by the runtime.
+pub fn special_concat(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    check_arguments_at_least(2, args)?;
+
+    // Phase 1: evaluate every arg, summing the total length. Bail with a
+    // clean error on the first non-sequence — defensive only, since the
+    // type checker already enforces this.
+    let mut values: Vec<Value> = Vec::with_capacity(args.len());
+    let mut total_len: u64 = 0;
+    for arg in args {
+        let value = eval(arg, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+        match &value {
+            Value::Sequence(seq) => {
+                total_len = total_len.cost_overflow_add(seq.len() as u64)?;
+            }
+            non_seq => {
+                runtime_cost(ClarityCostFunction::Concat, exec_state, 1)?;
+                return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                    "Expected sequence: {}",
+                    TypeSignature::type_of(non_seq)?
+                ))
+                .into());
+            }
+        }
+        values.push(value);
+    }
+
+    // Phase 2: charge cost once (linear in total_len), pre-allocate, append.
+    runtime_cost(ClarityCostFunction::Concat, exec_state, total_len)?;
+
+    let mut values_iter = values.into_iter();
+    let mut result = values_iter
+        .next()
+        .expect("arity ≥ 2 guarantees at least one value");
+
+    if let Value::Sequence(seq) = &mut result {
+        let already = seq.len() as u64;
+        // saturating_sub: if `already == total_len` (a single empty append
+        // chain) we just reserve 0.
+        let extra = total_len.saturating_sub(already);
+        seq.reserve(extra as usize);
+    }
+
+    for other in values_iter {
+        match (&mut result, other) {
+            (Value::Sequence(seq), Value::Sequence(other_seq)) => {
+                seq.concat_clarity6(other_seq)?;
+            }
+            (Value::Sequence(seq_data), other_value) => {
+                return Err(RuntimeCheckErrorKind::TypeValueError(
+                    Box::new(seq_data.type_signature()?),
+                    other_value.to_error_string(),
+                )
+                .into());
+            }
+            _ => unreachable!("first arg was validated as a sequence in phase 1"),
+        }
+    }
+
+    Ok(result)
+}
+
+pub fn special_as_max_len(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    check_argument_count(2, args)?;
+
+    let mut sequence =
+        eval(&args[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+
+    runtime_cost(ClarityCostFunction::AsMaxLen, exec_state, 0)?;
+
+    if let Some(Value::UInt(expected_len)) = args[1].match_literal_value() {
+        let sequence_len = match sequence {
+            Value::Sequence(ref sequence_data) => sequence_data.len() as u128,
+            _ => {
+                return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                    "Expected sequence: {}",
+                    TypeSignature::type_of(&sequence)?
+                ))
+                .into());
+            }
+        };
+        if sequence_len > *expected_len {
+            Ok(Value::none())
+        } else {
+            if let Value::Sequence(SequenceData::List(ref mut list)) = sequence {
+                list.type_signature.reduce_max_len(*expected_len as u32);
+            }
+            Ok(Value::some(sequence)?)
+        }
+    } else {
+        let actual_len = eval(&args[1], exec_state, invoke_ctx, context)?;
+        Err(RuntimeCheckErrorKind::TypeError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(TypeSignature::type_of(actual_len.as_ref())?),
+        )
+        .into())
+    }
+}
+
+pub fn native_len(sequence: Value) -> Result<Value, VmExecutionError> {
+    match sequence {
+        Value::Sequence(sequence_data) => Ok(Value::UInt(sequence_data.len() as u128)),
+        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
+            "Expected sequence: {}",
+            TypeSignature::type_of(&sequence)?
+        ))
+        .into()),
+    }
+}
+
+pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value, VmExecutionError> {
+    if let Value::Sequence(sequence_data) = sequence {
+        match sequence_data.contains(to_find)? {
+            Some(index) => Ok(Value::some(Value::UInt(index as u128))?),
+            None => Ok(Value::none()),
+        }
+    } else {
+        Err(RuntimeCheckErrorKind::Unreachable(format!(
+            "Expected sequence: {}",
+            TypeSignature::type_of(&sequence)?
+        ))
+        .into())
+    }
+}
+
+pub fn native_element_at(sequence: Value, index: Value) -> Result<Value, VmExecutionError> {
+    let sequence_data = if let Value::Sequence(sequence_data) = sequence {
+        sequence_data
+    } else {
+        return Err(RuntimeCheckErrorKind::Unreachable(format!(
+            "Expected sequence: {}",
+            TypeSignature::type_of(&sequence)?
+        ))
+        .into());
+    };
+
+    let index = if let Value::UInt(index_u128) = index {
+        if let Ok(index_usize) = usize::try_from(index_u128) {
+            index_usize
+        } else {
+            return Ok(Value::none());
+        }
+    } else {
+        return Err(RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            index.to_error_string(),
+        )
+        .into());
+    };
+
+    if let Some(result) = sequence_data.element_at(index).map_err(|_| {
+        VmInternalError::Expect("Sequence data constructed with invalid data.".into())
+    })? {
+        Ok(Value::some(result)?)
+    } else {
+        Ok(Value::none())
+    }
+}
+
+/// Executes the Clarity2 function `slice?`.
+pub fn special_slice(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    check_argument_count(3, args)?;
+
+    let seq = eval(&args[0], exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+    let left_position = eval(&args[1], exec_state, invoke_ctx, context)?;
+    let right_position = eval(&args[2], exec_state, invoke_ctx, context)?;
+
+    let sliced_seq_res: Result<Value, VmExecutionError> = (|| {
+        match (seq, left_position.as_ref(), right_position.as_ref()) {
+            (Value::Sequence(seq), Value::UInt(left_position), Value::UInt(right_position)) => {
+                let (left_position, right_position) = match (
+                    u32::try_from(*left_position),
+                    u32::try_from(*right_position),
+                ) {
+                    (Ok(left_position), Ok(right_position)) => (left_position, right_position),
+                    _ => return Ok(Value::none()),
+                };
+
+                // Perform bound checks. Not necessary to check if positions are less than 0 since the vars are unsigned.
+                if left_position as usize >= seq.len() || right_position as usize > seq.len() {
+                    return Ok(Value::none());
+                }
+                if right_position < left_position {
+                    return Ok(Value::none());
+                }
+
+                runtime_cost(
+                    ClarityCostFunction::Slice,
+                    exec_state,
+                    (right_position - left_position) * seq.element_size()?,
+                )?;
+                let seq_value =
+                    seq.slice_clarity6(left_position as usize, right_position as usize)?;
+                Ok(Value::some(seq_value)?)
+            }
+            _ => Err(RuntimeCheckErrorKind::Unreachable("Bad type construction".into()).into()),
+        }
+    })();
+
+    match sliced_seq_res {
+        Ok(sliced_seq) => Ok(sliced_seq),
+        Err(e) => {
+            runtime_cost(ClarityCostFunction::Slice, exec_state, 0)?;
+            Err(e)
+        }
+    }
+}
+
+pub fn special_replace_at(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    check_argument_count(3, args)?;
+
+    let seq = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let seq_type = TypeSignature::type_of(seq.as_ref())?;
+
+    // runtime is the cost to copy over one element into its place
+    runtime_cost(ClarityCostFunction::ReplaceAt, exec_state, seq_type.size()?)?;
+
+    let expected_elem_type = if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
+        seq_subtype.unit_type()
+    } else {
+        return Err(
+            RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {seq_type}")).into(),
+        );
+    };
+    let index_val = eval(&args[1], exec_state, invoke_ctx, context)?;
+    let new_element = eval(&args[2], exec_state, invoke_ctx, context)?;
+
+    if expected_elem_type != TypeSignature::NoType
+        && !expected_elem_type.admits_clarity6(new_element.as_ref())?
+    {
+        return Err(RuntimeCheckErrorKind::TypeValueError(
+            Box::new(expected_elem_type),
+            new_element.as_ref().to_error_string(),
+        )
+        .into());
+    }
+
+    let index = if let Value::UInt(index_u128) = index_val.as_ref() {
+        if let Ok(index_usize) = usize::try_from(*index_u128) {
+            index_usize
+        } else {
+            return Ok(Value::none());
+        }
+    } else {
+        return Err(RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            index_val.as_ref().to_error_string(),
+        )
+        .into());
+    };
+
+    let Value::Sequence(data) = seq.clone_with_cost(exec_state)? else {
+        return Err(
+            RuntimeCheckErrorKind::Unreachable(format!("Expected sequence: {seq_type}")).into(),
+        );
+    };
+    let seq_len = data.len();
+    if index >= seq_len {
+        return Ok(Value::none());
+    }
+    let new_element = new_element.clone_with_cost(exec_state)?;
+    Ok(data.replace_at_clarity6(index, new_element)?)
+}

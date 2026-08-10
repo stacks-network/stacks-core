@@ -24,12 +24,12 @@ use crate::vm::analysis::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use crate::vm::analysis::{
-    ContractAnalysis, StaticCheckError, StaticCheckErrorKind, mem_type_check as mem_run_analysis,
-    run_analysis,
+    ContractAnalysis, StaticCheckError, StaticCheckErrorKind, kernel_ruleset_for_epoch,
+    mem_type_check as mem_run_analysis, run_analysis,
 };
 use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
 use crate::vm::types::QualifiedContractIdentifier;
 
@@ -59,7 +59,7 @@ pub mod utils {
             &exprs,
             &mut analysis_db,
             false, // save_contract
-            LimitedCostTracker::new_free(),
+            clarity_kernel::costs::CostTrackerHandle::new(LimitedCostTracker::new_free()),
             epoch,
             version,
             false, // build_type_map
@@ -89,7 +89,8 @@ pub mod utils {
 
         let mut marf = MemoryBackingStore::new();
         let mut analysis_db = marf.as_analysis_db();
-        let cost_tracker = LimitedCostTracker::new_free();
+        let cost_tracker =
+            clarity_kernel::costs::CostTrackerHandle::new(LimitedCostTracker::new_free());
         let mut contract_analysis = ContractAnalysis::new(
             contract_identifier.clone(),
             contract,
@@ -106,6 +107,7 @@ pub mod utils {
             ),
             SingleAnalysisPass::TypeChecker2_1 => TypeChecker2_1::run_pass(
                 &epoch,
+                kernel_ruleset_for_epoch(epoch),
                 &mut contract_analysis,
                 db,
                 true,

@@ -24,6 +24,7 @@ use crate::vm::callables::DefineType;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
+use crate::vm::database::ClarityDatabaseExt;
 use crate::vm::errors::{
     RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError, check_argument_count,
     check_arguments_at_least,
@@ -238,20 +239,62 @@ pub fn special_contract_call(
         .into();
 
     let nested_ctx = invoke_ctx.with_caller(contract_principal);
+
+    // The engine ABI takes `Value` arguments, while direct recursion reuses the
+    // `SymbolicExpression`s the caller already evaluated. `run_free` swaps only
+    // the cost tracker, so whether a dispatcher is installed is the same inside
+    // it and outside it: decide once here, and clone the arguments only when a
+    // dispatching path will actually consume them.
+    let value_args: Vec<_> = if exec_state.has_contract_dispatcher() {
+        rest_args
+            .iter()
+            .map(|arg| {
+                arg.match_atom_value().cloned().ok_or_else(|| {
+                    VmInternalError::InvariantViolation(
+                        "contract-call? evaluated argument was not a value".into(),
+                    )
+                    .into()
+                })
+            })
+            .collect::<Result<_, VmExecutionError>>()?
+    } else {
+        Vec::new()
+    };
+
     let result = if exec_state.short_circuit_contract_call(
         &contract_identifier,
         function_name,
         &rest_args_sizes,
     )? {
         exec_state.run_free(&nested_ctx, |free_exec_state, nested_ctx| {
-            free_exec_state.execute_contract(
-                nested_ctx,
-                &contract_identifier,
-                function_name,
-                &rest_args,
-                false,
-            )
+            if free_exec_state.has_contract_dispatcher() {
+                free_exec_state.dispatch_contract_call(
+                    nested_ctx.sender.clone(),
+                    nested_ctx.caller.clone(),
+                    nested_ctx.sponsor.clone(),
+                    &contract_identifier,
+                    function_name,
+                    &value_args,
+                )
+            } else {
+                free_exec_state.execute_contract(
+                    nested_ctx,
+                    &contract_identifier,
+                    function_name,
+                    &rest_args,
+                    false,
+                )
+            }
         })
+    } else if exec_state.has_contract_dispatcher() {
+        exec_state.dispatch_contract_call(
+            nested_ctx.sender.clone(),
+            nested_ctx.caller.clone(),
+            nested_ctx.sponsor.clone(),
+            &contract_identifier,
+            function_name,
+            &value_args,
+        )
     } else {
         exec_state.execute_contract(
             &nested_ctx,
@@ -559,7 +602,7 @@ pub fn special_at_block(
     invoke_ctx: &InvocationContext,
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
-    if !exec_state.epoch().supports_at_block() {
+    if !exec_state.kernel_ruleset().supports_at_block() {
         return Err(RuntimeCheckErrorKind::AtBlockUnavailable.into());
     }
     check_argument_count(2, args)?;

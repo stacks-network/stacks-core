@@ -149,6 +149,7 @@ dependencies = [
 name = "clarity"
 version = "0.0.1"
 dependencies = [
+ "clarity-kernel",
  "clarity-types",
  "integer-sqrt",
  "lazy_static",
@@ -170,6 +171,21 @@ version = "0.0.0"
 dependencies = [
  "clarity",
  "libfuzzer-sys",
+ "stacks-common",
+]
+
+[[package]]
+name = "clarity-kernel"
+version = "0.0.1"
+dependencies = [
+ "clarity-types",
+ "lazy_static",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "slog",
  "stacks-common",
 ]
 

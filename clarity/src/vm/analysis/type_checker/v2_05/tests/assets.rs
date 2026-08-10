@@ -19,7 +19,7 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::ClarityVersion;
 use crate::vm::analysis::errors::StaticCheckErrorKind;
 use crate::vm::ast::parse;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::tooling::mem_type_check;
 use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,

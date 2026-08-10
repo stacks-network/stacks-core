@@ -46,6 +46,7 @@ use crate::chainstate::stacks::{
     TransactionVersion, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::chainstate::tests::TestChainstate;
+use crate::clarity_vm::engine::default_clarity_version_for_epoch;
 use crate::core::test_util::{
     make_contract_call, make_contract_call_tx, make_contract_publish_versioned,
     make_stacks_transfer_tx, make_unsigned_tx, to_addr,
@@ -1219,7 +1220,7 @@ impl ContractConsensusTest<'_> {
                 if deploy_epoch < StacksEpochId::Epoch21 {
                     None
                 } else {
-                    Some(ClarityVersion::default_for_epoch(deploy_epoch))
+                    Some(default_clarity_version_for_epoch(deploy_epoch))
                 }
             });
             let mut contract = contract.clone();

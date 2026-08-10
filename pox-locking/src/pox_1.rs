@@ -145,7 +145,7 @@ pub fn handle_contract_call(
     // applying a pox lock at this point is equivalent to evaluating a transfer
     runtime_cost(
         ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         1,
     )?;
 
@@ -168,7 +168,7 @@ pub fn handle_contract_call(
         unlock_height,
     ) {
         Ok(_) => {
-            if let Some((batch, _)) = global_context.event_batches.last_mut() {
+            if let Some((batch, _)) = global_context.transaction.current_event_batch_mut() {
                 batch.events.push(StacksTransactionEvent::STXEvent(
                     STXEventType::STXLockEvent(STXLockEventData {
                         locked_amount,

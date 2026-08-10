@@ -76,7 +76,7 @@ impl<'a> AnalysisDatabase<'a> {
     }
 
     pub fn storage_key() -> &'static str {
-        "analysis"
+        clarity_kernel::analysis::ANALYSIS_METADATA_KEY
     }
 
     // used by tests to ensure that

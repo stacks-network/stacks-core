@@ -22,8 +22,8 @@
 use clarity::vm::analysis::run_analysis;
 use clarity::vm::clarity::ClarityError;
 use clarity::vm::contexts::GlobalContext;
-use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::database::MemoryBackingStore;
+use clarity::vm::costs::{CostTrackerHandle, LimitedCostTracker};
+use clarity::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::{ast, eval_all, ClarityVersion, ContractContext};
@@ -85,7 +85,7 @@ fn run_with_memory_limits(
     let parsed = ast::build_ast(
         &contract_id,
         program,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         version,
         epoch,
     )
@@ -100,7 +100,7 @@ fn run_with_memory_limits(
         &parsed,
         &mut analysis_db,
         false,
-        cost_tracker,
+        CostTrackerHandle::new(cost_tracker),
         epoch,
         version,
         true,

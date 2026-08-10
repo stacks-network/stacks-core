@@ -1,4 +1,4 @@
-use clarity::vm::analysis::ContractAnalysis;
+use clarity::vm::analysis::StoredContractAnalysis;
 use clarity::vm::costs::ExecutionCost;
 pub use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{QualifiedContractIdentifier, Value};
@@ -52,7 +52,7 @@ pub struct StacksTransactionReceipt {
     pub post_condition_aborted: bool,
     pub result: Value,
     pub stx_burned: u128,
-    pub contract_analysis: Option<ContractAnalysis>,
+    pub contract_analysis: Option<StoredContractAnalysis>,
     pub execution_cost: ExecutionCost,
     pub microblock_header: Option<StacksMicroblockHeader>,
     pub tx_index: u32,

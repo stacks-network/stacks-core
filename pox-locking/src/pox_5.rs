@@ -14,12 +14,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::boot_util::boot_code_id;
-use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
 use clarity::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
+use clarity::vm::special_case::SpecialCaseContext;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
 use stacks_common::debug;
@@ -368,19 +368,15 @@ pub fn pox_rollover_v5(
 /// for bond sources); if the contract returns ok, this handler trusts the
 /// call is legitimate.
 fn handle_lockup_pox_v5(
-    global_context: &mut GlobalContext,
+    ctx: &mut SpecialCaseContext,
     function_name: &str,
     value: &Value,
 ) -> Result<Option<StacksTransactionEvent>, VmExecutionError> {
     debug!(
         "Handle special-case contract-call to {:?} {function_name} (which returned {value:?})",
-        boot_code_id(POX_5_NAME, global_context.mainnet)
+        boot_code_id(POX_5_NAME, ctx.mainnet)
     );
-    runtime_cost(
-        ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
-        1,
-    )?;
+    runtime_cost(ClarityCostFunction::StxTransfer, ctx.cost_track, 1)?;
 
     let parsed = parse_pox_stake_result(value).map_err(|e| {
         locking_error_to_vm_error(e, &format!("pox-5 {function_name}: bad response"))
@@ -398,38 +394,27 @@ fn handle_lockup_pox_v5(
     // locked; carry the lock forward instead of acquiring a fresh one (which
     // would fail with `PoxAlreadyLocked`). A first-time call locks fresh.
     let already_locked = {
-        let mut snapshot = global_context.database.get_stx_balance_snapshot(&staker)?;
+        let mut snapshot = ctx.database.get_stx_balance_snapshot(&staker)?;
         snapshot.has_locked_tokens()?
     };
 
     let lock_result = if already_locked {
-        pox_rollover_v5(
-            &mut global_context.database,
-            &staker,
-            unlock_height,
-            locked_amount,
-        )
-        .map(|_| ())
+        pox_rollover_v5(ctx.database, &staker, unlock_height, locked_amount).map(|_| ())
     } else {
-        pox_lock_v5(
-            &mut global_context.database,
-            &staker,
-            locked_amount,
-            unlock_height,
-        )
+        pox_lock_v5(ctx.database, &staker, locked_amount, unlock_height)
     };
 
     match lock_result {
         Ok(()) => {
             // Log the staking in the asset map
-            global_context.log_stacking(&staker, locked_amount)?;
+            ctx.log_stacking(&staker, locked_amount)?;
 
             let event =
                 StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
                     locked_amount,
                     unlock_height,
                     locked_address: staker,
-                    contract_identifier: boot_code_id(POX_5_NAME, global_context.mainnet),
+                    contract_identifier: boot_code_id(POX_5_NAME, ctx.mainnet),
                 }));
             Ok(Some(event))
         }
@@ -443,20 +428,16 @@ fn handle_lockup_pox_v5(
 /// Handle responses from `stake-update` in pox-5 -- the function that
 /// *extends or increases already-locked* STX.
 fn handle_stake_lockup_update_pox_v5(
-    global_context: &mut GlobalContext,
+    ctx: &mut SpecialCaseContext,
     function_name: &str,
     value: &Value,
 ) -> Result<Option<StacksTransactionEvent>, VmExecutionError> {
     debug!(
         "Handle special-case contract-call to {:?} {function_name} (which returned {value:?})",
-        boot_code_id(POX_5_NAME, global_context.mainnet),
+        boot_code_id(POX_5_NAME, ctx.mainnet),
     );
 
-    runtime_cost(
-        ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
-        1,
-    )?;
+    runtime_cost(ClarityCostFunction::StxTransfer, ctx.cost_track, 1)?;
 
     let parsed = parse_pox_stake_result(value).map_err(|e| {
         locking_error_to_vm_error(e, &format!("pox-5 {function_name}: bad response"))
@@ -470,22 +451,17 @@ fn handle_stake_lockup_update_pox_v5(
         ParsedStakeResult::ContractErr => return Ok(None),
     };
 
-    match pox_lock_update_v5(
-        &mut global_context.database,
-        &staker,
-        unlock_height,
-        amount_ustx,
-    ) {
+    match pox_lock_update_v5(ctx.database, &staker, unlock_height, amount_ustx) {
         Ok(_) => {
             // Log the extension in the asset map.
-            global_context.log_stacking(&staker, amount_ustx)?;
+            ctx.log_stacking(&staker, amount_ustx)?;
 
             let event =
                 StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
                     locked_amount: amount_ustx,
                     unlock_height,
                     locked_address: staker,
-                    contract_identifier: boot_code_id(POX_5_NAME, global_context.mainnet),
+                    contract_identifier: boot_code_id(POX_5_NAME, ctx.mainnet),
                 }));
             Ok(Some(event))
         }
@@ -501,20 +477,16 @@ fn handle_stake_lockup_update_pox_v5(
 /// Handle the response from `unstake` in pox-5 — reschedules the
 /// already-locked STX to unlock at the start of the next reward cycle.
 fn handle_unstake_pox_v5(
-    global_context: &mut GlobalContext,
+    ctx: &mut SpecialCaseContext,
     function_name: &str,
     value: &Value,
 ) -> Result<Option<StacksTransactionEvent>, VmExecutionError> {
     debug!(
         "Handle special-case contract-call to {:?} {function_name} (which returned {value:?})",
-        boot_code_id(POX_5_NAME, global_context.mainnet),
+        boot_code_id(POX_5_NAME, ctx.mainnet),
     );
 
-    runtime_cost(
-        ClarityCostFunction::StxTransfer,
-        &mut global_context.cost_track,
-        1,
-    )?;
+    runtime_cost(ClarityCostFunction::StxTransfer, ctx.cost_track, 1)?;
 
     let parsed = parse_pox_stake_result(value).map_err(|e| {
         locking_error_to_vm_error(e, &format!("pox-5 {function_name}: bad response"))
@@ -528,7 +500,7 @@ fn handle_unstake_pox_v5(
         ParsedStakeResult::ContractErr => return Ok(None),
     };
 
-    match pox_unstake_v5(&mut global_context.database, &staker, unlock_height) {
+    match pox_unstake_v5(ctx.database, &staker, unlock_height) {
         Ok(()) => {
             // Emit a lock event reflecting the new (earlier) unlock-height.
             // The locked amount is unchanged. (The gated PoX action is recorded
@@ -538,7 +510,7 @@ fn handle_unstake_pox_v5(
                     locked_amount,
                     unlock_height,
                     locked_address: staker,
-                    contract_identifier: boot_code_id(POX_5_NAME, global_context.mainnet),
+                    contract_identifier: boot_code_id(POX_5_NAME, ctx.mainnet),
                 }));
             Ok(Some(event))
         }
@@ -551,7 +523,7 @@ fn handle_unstake_pox_v5(
 
 /// Handle special cases when calling into the PoX-5 API contract
 pub fn handle_contract_call(
-    global_context: &mut GlobalContext,
+    ctx: &mut SpecialCaseContext,
     sender_opt: Option<&PrincipalData>,
     _contract_id: &QualifiedContractIdentifier,
     function_name: &str,
@@ -561,11 +533,9 @@ pub fn handle_contract_call(
     // Execute function specific logic to complete the lock-up. Only the ops
     // with a lock/event side effect appear here.
     let lock_event_opt = match function_name {
-        "stake" | "register-for-bond" => {
-            handle_lockup_pox_v5(global_context, function_name, value)?
-        }
-        "stake-update" => handle_stake_lockup_update_pox_v5(global_context, function_name, value)?,
-        "unstake" => handle_unstake_pox_v5(global_context, function_name, value)?,
+        "stake" | "register-for-bond" => handle_lockup_pox_v5(ctx, function_name, value)?,
+        "stake-update" => handle_stake_lockup_update_pox_v5(ctx, function_name, value)?,
+        "unstake" => handle_unstake_pox_v5(ctx, function_name, value)?,
         _ => None,
     };
 
@@ -579,12 +549,12 @@ pub fn handle_contract_call(
         "unstake" | "unstake-sbtc" | "update-bond-registration" | "announce-l1-early-exit"
     ) {
         if let Some(staker) = sender_opt {
-            global_context.log_pox_action(staker)?;
+            ctx.log_pox_action(staker)?;
         }
     }
 
     // append the lockup event
-    if let Some((batch, _)) = global_context.event_batches.last_mut() {
+    if let Some((batch, _)) = ctx.current_event_batch_mut() {
         if let Some(lock_event) = lock_event_opt {
             batch.events.push(lock_event);
         }
@@ -854,8 +824,12 @@ mod tests {
         let mut global_context = setup_global_context(&mut store, &staker, total_amount);
 
         let response = make_stake_ok_response(&staker, lock_amount, unlock_height);
-        let event = handle_lockup_pox_v5(&mut global_context, "stake", &response)
-            .expect("handler should succeed");
+        let event = handle_lockup_pox_v5(
+            &mut global_context.special_case_context(),
+            "stake",
+            &response,
+        )
+        .expect("handler should succeed");
 
         // Should produce an STXLockEvent
         assert!(event.is_some());
@@ -885,8 +859,12 @@ mod tests {
         let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
 
         let err_response = Value::error(Value::UInt(1)).unwrap();
-        let event = handle_lockup_pox_v5(&mut global_context, "stake", &err_response)
-            .expect("handler should succeed");
+        let event = handle_lockup_pox_v5(
+            &mut global_context.special_case_context(),
+            "stake",
+            &err_response,
+        )
+        .expect("handler should succeed");
 
         assert!(event.is_none());
 
@@ -920,9 +898,12 @@ mod tests {
 
         // Now extend (same amount, later unlock height)
         let response = make_stake_update_ok_response(&staker, lock_amount, extended_unlock);
-        let event =
-            handle_stake_lockup_update_pox_v5(&mut global_context, "stake-update", &response)
-                .expect("handler should succeed");
+        let event = handle_stake_lockup_update_pox_v5(
+            &mut global_context.special_case_context(),
+            "stake-update",
+            &response,
+        )
+        .expect("handler should succeed");
 
         assert!(event.is_some());
         match event.unwrap() {
@@ -957,9 +938,12 @@ mod tests {
         // Now increase via stake-update (same unlock height, larger amount).
         // The update result returns the new total amount-ustx.
         let response = make_stake_update_ok_response(&staker, new_total_locked, unlock_height);
-        let event =
-            handle_stake_lockup_update_pox_v5(&mut global_context, "stake-update", &response)
-                .expect("handler should succeed");
+        let event = handle_stake_lockup_update_pox_v5(
+            &mut global_context.special_case_context(),
+            "stake-update",
+            &response,
+        )
+        .expect("handler should succeed");
 
         assert!(event.is_some());
         match event.unwrap() {
@@ -993,8 +977,12 @@ mod tests {
         let response = make_stake_ok_response(&staker, lock_amount, 10_000);
         // The contract is supposed to prevent this; hitting this path used
         // to panic but now surfaces as a graceful Internal/Expect error.
-        let err = handle_lockup_pox_v5(&mut global_context, "stake", &response)
-            .expect_err("expected an Internal error");
+        let err = handle_lockup_pox_v5(
+            &mut global_context.special_case_context(),
+            "stake",
+            &response,
+        )
+        .expect_err("expected an Internal error");
         match err {
             VmExecutionError::Internal(VmInternalError::Expect(_)) => {}
             other => panic!("expected Internal/Expect, got: {other:?}"),
@@ -1023,9 +1011,12 @@ mod tests {
 
         // Extend the unlock height AND increase the locked amount in one update
         let response = make_stake_update_ok_response(&staker, new_total_locked, extended_unlock);
-        let event =
-            handle_stake_lockup_update_pox_v5(&mut global_context, "stake-update", &response)
-                .expect("handler should succeed");
+        let event = handle_stake_lockup_update_pox_v5(
+            &mut global_context.special_case_context(),
+            "stake-update",
+            &response,
+        )
+        .expect("handler should succeed");
 
         assert!(event.is_some());
         match event.unwrap() {
@@ -1051,9 +1042,12 @@ mod tests {
         let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
 
         let err_response = Value::error(Value::UInt(7)).unwrap();
-        let event =
-            handle_stake_lockup_update_pox_v5(&mut global_context, "stake-update", &err_response)
-                .expect("handler should succeed");
+        let event = handle_stake_lockup_update_pox_v5(
+            &mut global_context.special_case_context(),
+            "stake-update",
+            &err_response,
+        )
+        .expect("handler should succeed");
 
         assert!(event.is_none());
     }
@@ -1067,8 +1061,12 @@ mod tests {
         // No tokens locked — pox-5 should never have produced a stake-update
         // ok for this account.
         let response = make_stake_update_ok_response(&staker, 500_000, 10_000);
-        let err = handle_stake_lockup_update_pox_v5(&mut global_context, "stake-update", &response)
-            .expect_err("expected an Internal error");
+        let err = handle_stake_lockup_update_pox_v5(
+            &mut global_context.special_case_context(),
+            "stake-update",
+            &response,
+        )
+        .expect_err("expected an Internal error");
         match err {
             VmExecutionError::Internal(VmInternalError::Expect(_)) => {}
             other => panic!("expected Internal/Expect, got: {other:?}"),
@@ -1104,9 +1102,13 @@ mod tests {
         .expect("initial lock should succeed");
 
         let response = make_stake_ok_response(&staker, lock_amount, stake_unlock);
-        let event = handle_lockup_pox_v5(&mut global_context, "stake", &response)
-            .expect("handler should succeed")
-            .expect("expected an STXLockEvent");
+        let event = handle_lockup_pox_v5(
+            &mut global_context.special_case_context(),
+            "stake",
+            &response,
+        )
+        .expect("handler should succeed")
+        .expect("expected an STXLockEvent");
         match event {
             StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) => {
                 assert_eq!(data.locked_amount, lock_amount);
@@ -1146,9 +1148,13 @@ mod tests {
         .expect("initial lock should succeed");
 
         let response = make_stake_ok_response(&staker, stake_amount, stake_unlock);
-        handle_lockup_pox_v5(&mut global_context, "stake", &response)
-            .expect("handler should succeed")
-            .expect("expected an STXLockEvent");
+        handle_lockup_pox_v5(
+            &mut global_context.special_case_context(),
+            "stake",
+            &response,
+        )
+        .expect("handler should succeed")
+        .expect("expected an STXLockEvent");
 
         let snapshot = global_context
             .database
@@ -1183,9 +1189,13 @@ mod tests {
         .expect("initial lock should succeed");
 
         let response = make_stake_ok_response(&staker, stake_amount, stake_unlock);
-        handle_lockup_pox_v5(&mut global_context, "stake", &response)
-            .expect("handler should succeed")
-            .expect("expected an STXLockEvent");
+        handle_lockup_pox_v5(
+            &mut global_context.special_case_context(),
+            "stake",
+            &response,
+        )
+        .expect("handler should succeed")
+        .expect("expected an STXLockEvent");
 
         let snapshot = global_context
             .database
@@ -1212,7 +1222,7 @@ mod tests {
 
         let response = make_stake_ok_response(&staker, lock_amount, unlock_height);
         handle_contract_call(
-            &mut global_context,
+            &mut global_context.special_case_context(),
             None,
             &contract_id,
             "stake",
@@ -1230,8 +1240,8 @@ mod tests {
 
         // And an STXLockEvent must have been appended to the current batch.
         let (batch, _) = global_context
-            .event_batches
-            .last()
+            .transaction
+            .current_event_batch()
             .expect("event batch should exist");
         assert_eq!(batch.events.len(), 1);
         match &batch.events[0] {
@@ -1267,7 +1277,7 @@ mod tests {
 
         let response = make_stake_update_ok_response(&staker, new_total_locked, extended_unlock);
         handle_contract_call(
-            &mut global_context,
+            &mut global_context.special_case_context(),
             None,
             &contract_id,
             "stake-update",
@@ -1283,8 +1293,8 @@ mod tests {
         assert_eq!(balance.amount_locked(), new_total_locked);
 
         let (batch, _) = global_context
-            .event_batches
-            .last()
+            .transaction
+            .current_event_batch()
             .expect("event batch should exist");
         assert_eq!(batch.events.len(), 1);
         match &batch.events[0] {
@@ -1305,7 +1315,7 @@ mod tests {
 
         let response = make_stake_ok_response(&staker, 500_000, 10_000);
         handle_contract_call(
-            &mut global_context,
+            &mut global_context.special_case_context(),
             None,
             &contract_id,
             "some-unrelated-function",
@@ -1322,8 +1332,8 @@ mod tests {
         assert_eq!(balance.amount_locked(), 0);
 
         let (batch, _) = global_context
-            .event_batches
-            .last()
+            .transaction
+            .current_event_batch()
             .expect("event batch should exist");
         assert!(batch.events.is_empty());
     }
@@ -1359,8 +1369,12 @@ mod tests {
         let mut global_context = setup_global_context(&mut store, &staker, total_amount);
 
         let response = make_register_for_bond_ok_response(&staker, lock_amount, unlock_height);
-        let event = handle_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
-            .expect("handler should succeed");
+        let event = handle_lockup_pox_v5(
+            &mut global_context.special_case_context(),
+            "register-for-bond",
+            &response,
+        )
+        .expect("handler should succeed");
 
         let event = event.expect("expected an STXLockEvent");
         match event {
@@ -1387,8 +1401,12 @@ mod tests {
         let mut global_context = setup_global_context(&mut store, &staker, 1_000_000);
 
         let err_response = Value::error(Value::UInt(11)).unwrap();
-        let event = handle_lockup_pox_v5(&mut global_context, "register-for-bond", &err_response)
-            .expect("handler should succeed");
+        let event = handle_lockup_pox_v5(
+            &mut global_context.special_case_context(),
+            "register-for-bond",
+            &err_response,
+        )
+        .expect("handler should succeed");
 
         assert!(event.is_none());
 
@@ -1423,9 +1441,13 @@ mod tests {
 
         // Registering for the next bond rolls the lock forward (no PoxAlreadyLocked).
         let response = make_register_for_bond_ok_response(&staker, lock_amount, next_unlock);
-        let event = handle_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
-            .expect("handler should succeed")
-            .expect("expected an STXLockEvent");
+        let event = handle_lockup_pox_v5(
+            &mut global_context.special_case_context(),
+            "register-for-bond",
+            &response,
+        )
+        .expect("handler should succeed")
+        .expect("expected an STXLockEvent");
         match event {
             StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) => {
                 assert_eq!(data.locked_amount, lock_amount);
@@ -1467,9 +1489,13 @@ mod tests {
         .expect("initial lock should succeed");
 
         let response = make_register_for_bond_ok_response(&staker, new_total, next_unlock);
-        handle_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
-            .expect("handler should succeed")
-            .expect("expected an STXLockEvent");
+        handle_lockup_pox_v5(
+            &mut global_context.special_case_context(),
+            "register-for-bond",
+            &response,
+        )
+        .expect("handler should succeed")
+        .expect("expected an STXLockEvent");
 
         let snapshot = global_context
             .database
@@ -1504,9 +1530,13 @@ mod tests {
         .expect("initial lock should succeed");
 
         let response = make_register_for_bond_ok_response(&staker, new_total, next_unlock);
-        handle_lockup_pox_v5(&mut global_context, "register-for-bond", &response)
-            .expect("handler should succeed")
-            .expect("expected an STXLockEvent");
+        handle_lockup_pox_v5(
+            &mut global_context.special_case_context(),
+            "register-for-bond",
+            &response,
+        )
+        .expect("handler should succeed")
+        .expect("expected an STXLockEvent");
 
         let snapshot = global_context
             .database
@@ -1531,7 +1561,7 @@ mod tests {
 
         let response = make_register_for_bond_ok_response(&staker, lock_amount, unlock_height);
         handle_contract_call(
-            &mut global_context,
+            &mut global_context.special_case_context(),
             None,
             &contract_id,
             "register-for-bond",
@@ -1547,8 +1577,8 @@ mod tests {
         assert_eq!(balance.amount_locked(), lock_amount);
 
         let (batch, _) = global_context
-            .event_batches
-            .last()
+            .transaction
+            .current_event_batch()
             .expect("event batch should exist");
         assert_eq!(batch.events.len(), 1);
         match &batch.events[0] {
@@ -1891,9 +1921,13 @@ mod tests {
         .expect("initial lock should succeed");
 
         let response = make_unstake_ok_response(&staker, lock_amount, early_unlock);
-        let event = handle_unstake_pox_v5(&mut global_context, "unstake", &response)
-            .expect("handler should succeed")
-            .expect("expected an STXLockEvent");
+        let event = handle_unstake_pox_v5(
+            &mut global_context.special_case_context(),
+            "unstake",
+            &response,
+        )
+        .expect("handler should succeed")
+        .expect("expected an STXLockEvent");
 
         match event {
             StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) => {
@@ -1933,8 +1967,12 @@ mod tests {
         .expect("initial lock should succeed");
 
         let err_response = Value::error(Value::UInt(13)).unwrap();
-        let event = handle_unstake_pox_v5(&mut global_context, "unstake", &err_response)
-            .expect("handler should succeed");
+        let event = handle_unstake_pox_v5(
+            &mut global_context.special_case_context(),
+            "unstake",
+            &err_response,
+        )
+        .expect("handler should succeed");
         assert!(event.is_none());
 
         // Lock state unchanged.
@@ -1954,8 +1992,12 @@ mod tests {
         // No tokens locked — pox-5 should never have produced an unstake `ok`
         // for this account.
         let response = make_unstake_ok_response(&staker, 500_000, 5_000);
-        let err = handle_unstake_pox_v5(&mut global_context, "unstake", &response)
-            .expect_err("expected an Internal error");
+        let err = handle_unstake_pox_v5(
+            &mut global_context.special_case_context(),
+            "unstake",
+            &response,
+        )
+        .expect_err("expected an Internal error");
         match err {
             VmExecutionError::Internal(VmInternalError::Expect(_)) => {}
             other => panic!("expected Internal/Expect, got: {other:?}"),
@@ -1984,7 +2026,7 @@ mod tests {
 
         let response = make_unstake_ok_response(&staker, lock_amount, early_unlock);
         handle_contract_call(
-            &mut global_context,
+            &mut global_context.special_case_context(),
             None,
             &contract_id,
             "unstake",
@@ -2001,8 +2043,8 @@ mod tests {
         assert_eq!(snapshot.balance().unlock_height(), early_unlock);
 
         let (batch, _) = global_context
-            .event_batches
-            .last()
+            .transaction
+            .current_event_batch()
             .expect("event batch should exist");
         assert_eq!(batch.events.len(), 1);
         match &batch.events[0] {
@@ -2033,7 +2075,7 @@ mod tests {
 
             let response = Value::okay(Value::Bool(true)).unwrap();
             handle_contract_call(
-                &mut global_context,
+                &mut global_context.special_case_context(),
                 Some(&staker),
                 &contract_id,
                 function_name,
@@ -2070,7 +2112,7 @@ mod tests {
 
             let response = Value::error(Value::UInt(1)).unwrap();
             handle_contract_call(
-                &mut global_context,
+                &mut global_context.special_case_context(),
                 Some(&staker),
                 &contract_id,
                 function_name,
@@ -2139,7 +2181,7 @@ mod tests {
 
         let response = make_unstake_ok_response(&staker, lock_amount, early_unlock);
         handle_contract_call(
-            &mut global_context,
+            &mut global_context.special_case_context(),
             Some(&staker),
             &contract_id,
             "unstake",
@@ -2681,7 +2723,7 @@ mod tests {
             let contract_id = boot_code_id(POX_5_NAME, gc.mainnet);
 
             let response = make_stake_ok_response(&staker, lock_amount, unlock_height);
-            handle_contract_call(&mut gc, None, &contract_id, "stake", &[], &response)
+            handle_contract_call(&mut gc.special_case_context(), None, &contract_id, "stake", &[], &response)
                 .expect("dispatch should succeed");
 
             let balance = gc
@@ -2690,7 +2732,10 @@ mod tests {
                 .expect("read back balance");
             prop_assert_eq!(balance.amount_locked(), lock_amount);
 
-            let (batch, _) = gc.event_batches.last().expect("event batch should exist");
+            let (batch, _) = gc
+                .transaction
+                .current_event_batch()
+                .expect("event batch should exist");
             prop_assert_eq!(batch.events.len(), 1);
             let StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) =
                 &batch.events[0]
@@ -2727,7 +2772,7 @@ mod tests {
             let contract_id = boot_code_id(POX_5_NAME, gc.mainnet);
 
             let response = make_stake_ok_response(&staker, 500_000, 10_000);
-            handle_contract_call(&mut gc, None, &contract_id, &function_name, &[], &response)
+            handle_contract_call(&mut gc.special_case_context(), None, &contract_id, &function_name, &[], &response)
                 .expect("dispatch should succeed");
 
             let balance = gc
@@ -2736,7 +2781,10 @@ mod tests {
                 .expect("read back balance");
             prop_assert_eq!(balance.amount_locked(), 0u128);
 
-            let (batch, _) = gc.event_batches.last().expect("event batch should exist");
+            let (batch, _) = gc
+                .transaction
+                .current_event_batch()
+                .expect("event batch should exist");
             prop_assert!(batch.events.is_empty());
         }
     }

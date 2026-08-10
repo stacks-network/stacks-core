@@ -151,10 +151,26 @@ dependencies = [
 name = "clarity"
 version = "0.0.1"
 dependencies = [
+ "clarity-kernel",
  "clarity-types",
  "integer-sqrt",
  "lazy_static",
  "regex",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "slog",
+ "stacks-common",
+]
+
+[[package]]
+name = "clarity-kernel"
+version = "0.0.1"
+dependencies = [
+ "clarity-types",
+ "lazy_static",
  "rusqlite",
  "serde",
  "serde_derive",
@@ -177,6 +193,24 @@ dependencies = [
  "slog",
  "stacks-common",
  "variant_count",
+]
+
+[[package]]
+name = "clarity-v6"
+version = "1.0.0"
+dependencies = [
+ "clarity-kernel",
+ "clarity-types",
+ "integer-sqrt",
+ "lazy_static",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "slog",
+ "stacks-common",
 ]
 
 [[package]]
@@ -1459,6 +1493,7 @@ name = "stackslib"
 version = "0.0.1"
 dependencies = [
  "clarity",
+ "clarity-v6",
  "ed25519-dalek",
  "lazy_static",
  "libstackerdb",

@@ -16,6 +16,7 @@
 
 pub use clarity::vm::analysis::errors::RuntimeCheckErrorKind;
 use clarity::vm::contracts::Contract;
+use clarity::vm::database::ClarityDatabaseExt;
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{QualifiedContractIdentifier, Value};
 

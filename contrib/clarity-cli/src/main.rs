@@ -27,6 +27,7 @@ use clarity_cli::{
     read_file_or_stdin, read_optional_file_or_stdin, vm_execute_in_epoch,
 };
 use stacks_common::types::StacksEpochId;
+use stackslib::clarity_vm::engine::default_clarity_version_for_epoch;
 
 /// Parse epoch string to StacksEpochId
 fn parse_epoch(epoch_str: Option<&String>) -> StacksEpochId {
@@ -45,7 +46,7 @@ fn parse_clarity_version(cv_str: Option<&String>, epoch: StacksEpochId) -> Clari
             &format!("Invalid clarity version: {s}"),
         )
     } else {
-        ClarityVersion::default_for_epoch(epoch)
+        default_clarity_version_for_epoch(epoch)
     }
 }
 

@@ -17,12 +17,14 @@
 pub mod analysis_db;
 pub mod arithmetic_checker;
 pub mod contract_interface_builder;
-pub mod errors;
+pub use clarity_kernel::errors::analysis as errors;
 pub mod read_only_checker;
 pub mod trait_checker;
 pub mod type_checker;
 pub mod types;
 
+use clarity_kernel::costs::CostTrackerHandle;
+use clarity_kernel::rules::KernelRuleset;
 use stacks_common::types::StacksEpochId;
 
 pub use self::analysis_db::AnalysisDatabase;
@@ -35,14 +37,15 @@ use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
-pub use self::types::{AnalysisPass, ContractAnalysis};
+pub use self::types::{AnalysisPass, ContractAnalysis, StoredContractAnalysis};
 use crate::vm::ClarityVersion;
 #[cfg(feature = "rusqlite")]
 use crate::vm::ast::build_ast;
-use crate::vm::costs::LimitedCostTracker;
 #[cfg(feature = "rusqlite")]
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
+#[cfg(feature = "rusqlite")]
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::resource_limiter::{ResourceLimitExceeded, ResourceLimiter};
 use crate::vm::types::QualifiedContractIdentifier;
@@ -91,7 +94,7 @@ pub fn mem_type_check(
 
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
-    let cost_tracker = LimitedCostTracker::new_free();
+    let cost_tracker = CostTrackerHandle::new(LimitedCostTracker::new_free());
     match run_analysis(
         &QualifiedContractIdentifier::transient(),
         &contract,
@@ -126,13 +129,21 @@ pub fn type_check(
         insert_contract,
         // for the type check tests, the cost tracker's epoch doesn't
         //  matter: the costs in those tests are all free anyways.
-        LimitedCostTracker::new_free(),
+        CostTrackerHandle::new(LimitedCostTracker::new_free()),
         *epoch,
         *version,
         true,
         ResourceLimiter::unlimited(),
     )
     .map_err(|e| e.0)
+}
+
+/// The shared kernel behavior a Stacks epoch selects for the legacy engine.
+///
+/// The host owns this mapping for dispatched execution; the legacy entry points
+/// that still take a bare epoch derive it here so both agree.
+pub fn kernel_ruleset_for_epoch(epoch: StacksEpochId) -> KernelRuleset {
+    KernelRuleset::for_stacks_epoch(epoch)
 }
 
 /// Run the full static-analysis pipeline (read-only, type, trait and arithmetic
@@ -165,7 +176,7 @@ pub fn type_check(
 /// # Returns
 ///
 /// On success, the completed [`ContractAnalysis`]. On failure, a boxed pair of the
-/// [`StaticCheckError`] and the [`LimitedCostTracker`] recovered from the analysis, so
+/// [`StaticCheckError`] and shared cost tracker recovered from the analysis, so
 /// the caller can continue accounting for the cost already consumed.
 #[allow(clippy::too_many_arguments)]
 pub fn run_analysis(
@@ -173,12 +184,42 @@ pub fn run_analysis(
     expressions: &[SymbolicExpression],
     analysis_db: &mut AnalysisDatabase,
     save_contract: bool,
-    cost_tracker: LimitedCostTracker,
+    cost_tracker: CostTrackerHandle,
     epoch: StacksEpochId,
     version: ClarityVersion,
     build_type_map: bool,
     resource_limiter: ResourceLimiter,
-) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticCheckError, CostTrackerHandle)>> {
+    let ruleset = kernel_ruleset_for_epoch(epoch);
+    run_analysis_with_ruleset(
+        contract_identifier,
+        expressions,
+        analysis_db,
+        save_contract,
+        cost_tracker,
+        epoch,
+        ruleset,
+        version,
+        build_type_map,
+        resource_limiter,
+    )
+}
+
+/// Analyze a contract with host-selected shared kernel behavior. The epoch is
+/// retained for the frozen legacy checker's language- and cost-specific gates.
+#[allow(clippy::too_many_arguments)]
+pub fn run_analysis_with_ruleset(
+    contract_identifier: &QualifiedContractIdentifier,
+    expressions: &[SymbolicExpression],
+    analysis_db: &mut AnalysisDatabase,
+    save_contract: bool,
+    cost_tracker: CostTrackerHandle,
+    epoch: StacksEpochId,
+    ruleset: KernelRuleset,
+    version: ClarityVersion,
+    build_type_map: bool,
+    resource_limiter: ResourceLimiter,
+) -> Result<ContractAnalysis, Box<(StaticCheckError, CostTrackerHandle)>> {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
         expressions.to_vec(),
@@ -196,6 +237,7 @@ pub fn run_analysis(
         if epoch >= StacksEpochId::Epoch21 {
             TypeChecker2_1::run_pass(
                 &epoch,
+                ruleset,
                 &mut contract_analysis,
                 db,
                 build_type_map,

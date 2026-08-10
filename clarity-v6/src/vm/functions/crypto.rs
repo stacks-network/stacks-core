@@ -1,0 +1,388 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use clarity_types::types::MAX_VALUE_SIZE;
+use stacks_common::address::{
+    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::ed25519::ed25519_verify;
+use stacks_common::util::hash;
+use stacks_common::util::secp256k1::{
+    Secp256k1PublicKey, secp256k1_decompress, secp256k1_recover, secp256k1_verify,
+};
+use stacks_common::util::secp256r1::secp256r1_verify_digest;
+
+use crate::vm::contexts::{ExecutionState, InvocationContext};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::runtime_cost;
+use crate::vm::errors::{
+    RuntimeCheckErrorKind, VmExecutionError, VmInternalError, check_argument_count,
+};
+use crate::vm::functions::{buff_to_array, buff_to_vec};
+use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value};
+use crate::vm::{LocalContext, eval};
+
+macro_rules! native_hash_func {
+    ($name:ident, $module:ty) => {
+        pub fn $name(input: Value) -> Result<Value, VmExecutionError> {
+            let bytes = match input {
+                Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
+                Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
+                Value::Sequence(SequenceData::Buffer(value)) => Ok(value.data),
+                _ => Err(RuntimeCheckErrorKind::UnionTypeValueError(
+                    vec![
+                        TypeSignature::IntType,
+                        TypeSignature::UIntType,
+                        TypeSignature::BUFFER_MAX,
+                    ],
+                    input.to_error_string(),
+                )),
+            }?;
+            let hash = <$module>::from_data(&bytes);
+            let value = Value::buff_from(hash.as_bytes().to_vec())?;
+            Ok(value)
+        }
+    };
+}
+
+native_hash_func!(native_hash160, hash::Hash160);
+native_hash_func!(native_sha256, hash::Sha256Sum);
+native_hash_func!(native_sha512, hash::Sha512Sum);
+native_hash_func!(native_sha512trunc256, hash::Sha512Trunc256Sum);
+native_hash_func!(native_keccak256, hash::Keccak256Hash);
+
+// Note: Clarity1 had a bug in how the address is computed (issues/2619).
+// This method preserves the old, incorrect behavior for those running Clarity1.
+fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> Result<StacksAddress, VmExecutionError> {
+    StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![pub_key],
+    )
+    .ok_or_else(|| VmInternalError::Expect("Failed to create address from pubkey".into()).into())
+}
+
+// Note: Clarity1 had a bug in how the address is computed (issues/2619).
+// This version contains the code for Clarity2 and going forward.
+fn pubkey_to_address_v2(
+    pub_key: Secp256k1PublicKey,
+    is_mainnet: bool,
+) -> Result<StacksAddress, VmExecutionError> {
+    let network_byte = if is_mainnet {
+        C32_ADDRESS_VERSION_MAINNET_SINGLESIG
+    } else {
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG
+    };
+    StacksAddress::from_public_keys(
+        network_byte,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![pub_key],
+    )
+    .ok_or_else(|| VmInternalError::Expect("Failed to create address from pubkey".into()).into())
+}
+
+pub fn special_principal_of(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    // (principal-of? (..))
+    // arg0 => (buff 33)
+    check_argument_count(1, args)?;
+
+    runtime_cost(ClarityCostFunction::PrincipalOf, exec_state, 0)?;
+
+    let param0 = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let pub_key = match param0.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_33),
+                param0.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    if let Ok(pub_key) = Secp256k1PublicKey::from_slice(pub_key) {
+        let addr = pubkey_to_address_v2(pub_key, exec_state.global_context.mainnet)?;
+        let principal = addr.into();
+        Ok(Value::okay(Value::Principal(principal))
+            .map_err(|_| VmInternalError::Expect("Failed to construct ok".into()))?)
+    } else {
+        Ok(Value::err_uint(1))
+    }
+}
+
+pub fn special_secp256k1_recover(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    // (secp256k1-recover? (..))
+    // arg0 => (buff 32), arg1 => (buff 65)
+    check_argument_count(2, args)?;
+
+    runtime_cost(ClarityCostFunction::Secp256k1recover, exec_state, 0)?;
+
+    let param0 = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let message = match param0.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 32 => data,
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_32),
+                param0.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let param1 = eval(&args[1], exec_state, invoke_ctx, context)?;
+    let signature = match param1.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
+            if data.len() > 65 {
+                return Err(RuntimeCheckErrorKind::TypeValueError(
+                    Box::new(TypeSignature::BUFFER_65),
+                    param1.as_ref().to_error_string(),
+                )
+                .into());
+            }
+            if data.len() < 65 || data[64] > 3 {
+                return Ok(Value::err_uint(2));
+            }
+            data
+        }
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_65),
+                param1.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let Ok(pubkey) = secp256k1_recover(message, signature) else {
+        // We do not return the runtime error. Immediately map this to an error code.
+        return Ok(Value::err_uint(1));
+    };
+    let pubkey_buff = Value::buff_from(pubkey.to_vec())
+        .map_err(|_| VmInternalError::Expect("Failed to construct buff".into()))?;
+    Ok(Value::okay(pubkey_buff)
+        .map_err(|_| VmInternalError::Expect("Failed to construct ok".into()))?)
+}
+
+pub fn special_secp256k1_verify(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    // (secp256k1-verify (..))
+    // arg0 => (buff 32), arg1 => (buff 65), arg2 => (buff 33)
+    check_argument_count(3, args)?;
+
+    runtime_cost(ClarityCostFunction::Secp256k1verify, exec_state, 0)?;
+
+    let param0 = eval(&args[0], exec_state, invoke_ctx, context)?;
+    let message = match param0.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 32 => data,
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_32),
+                param0.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let param1 = eval(&args[1], exec_state, invoke_ctx, context)?;
+    let signature = match param1.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
+            if data.len() > 65 {
+                return Err(RuntimeCheckErrorKind::TypeValueError(
+                    Box::new(TypeSignature::BUFFER_65),
+                    param1.as_ref().to_error_string(),
+                )
+                .into());
+            }
+            if data.len() < 64 {
+                return Ok(Value::Bool(false));
+            }
+            if data.len() == 65 && data[64] > 3 {
+                return Ok(Value::Bool(false));
+            }
+            data
+        }
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_65),
+                param1.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let param2 = eval(&args[2], exec_state, invoke_ctx, context)?;
+    let pubkey = match param2.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_33),
+                param2.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    Ok(Value::Bool(
+        secp256k1_verify(message, signature, pubkey).is_ok(),
+    ))
+}
+
+pub fn special_secp256r1_verify(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    // (secp256r1-verify message-hash signature public-key)
+    // message-hash: (buff 32), signature: (buff 64), public-key: (buff 33)
+    check_argument_count(3, args)?;
+
+    runtime_cost(ClarityCostFunction::Secp256r1verify, exec_state, 0)?;
+
+    let arg0 = args
+        .first()
+        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(0, 3))?;
+    let message_value = eval(arg0, exec_state, invoke_ctx, context)?;
+    let message = match message_value.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 32 => data,
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_32),
+                message_value.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let arg1 = args
+        .get(1)
+        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(1, 3))?;
+    let signature_value = eval(arg1, exec_state, invoke_ctx, context)?;
+    let signature = match signature_value.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() <= 64 => {
+            if data.len() != 64 {
+                return Ok(Value::Bool(false));
+            }
+            data
+        }
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_64),
+                signature_value.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let arg2 = args
+        .get(2)
+        .ok_or(RuntimeCheckErrorKind::IncorrectArgumentCount(2, 3))?;
+    let pubkey_value = eval(arg2, exec_state, invoke_ctx, context)?;
+    let pubkey = match pubkey_value.as_ref() {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_33),
+                pubkey_value.as_ref().to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let verify_result = secp256r1_verify_digest(message, signature, pubkey);
+
+    Ok(Value::Bool(verify_result.is_ok()))
+}
+
+pub fn native_ed25519_verify(args: Vec<Value>) -> Result<Value, VmExecutionError> {
+    // (ed25519-verify message signature public-key)
+    // message: (buff MAX_VALUE_SIZE), signature: (buff 64), public-key: (buff 32)
+
+    let [message_value, signature_value, public_key_value]: [Value; 3] = args
+        .try_into()
+        .map_err(|_| VmInternalError::Expect("ed25519-verify received wrong arity".into()))?;
+
+    let message = buff_to_vec(&message_value, MAX_VALUE_SIZE as usize).ok_or_else(|| {
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::BUFFER_MAX),
+            message_value.to_error_string(),
+        )
+    })?;
+    let signature = buff_to_array::<64>(&signature_value).ok_or_else(|| {
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::BUFFER_64),
+            signature_value.to_error_string(),
+        )
+    })?;
+    let public_key = buff_to_array::<32>(&public_key_value).ok_or_else(|| {
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::BUFFER_32),
+            public_key_value.to_error_string(),
+        )
+    })?;
+
+    let verify_result = ed25519_verify(&message, &signature, &public_key);
+
+    Ok(Value::Bool(verify_result.is_ok()))
+}
+
+pub fn cost_input_ed25519_verify(args: &[Value]) -> Result<u64, VmExecutionError> {
+    let len = match args.first() {
+        Some(Value::Sequence(SequenceData::Buffer(BuffData { data }))) => data.len(),
+        _ => 0,
+    };
+    Ok(u64::try_from(len).unwrap_or(u64::MAX))
+}
+
+pub fn native_secp256k1_decompress(public_key: Value) -> Result<Value, VmExecutionError> {
+    let public_key_bytes = match &public_key {
+        Value::Sequence(SequenceData::Buffer(BuffData { data })) if data.len() == 33 => data,
+        _ => {
+            return Err(RuntimeCheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_33),
+                public_key.to_error_string(),
+            )
+            .into());
+        }
+    };
+
+    let Ok(public_key_uncompressed) = secp256k1_decompress(public_key_bytes) else {
+        // We do not return the runtime error. Immediately map this to an error code.
+        return Ok(Value::err_uint(1));
+    };
+    let public_key_uncompressed_buff = Value::buff_from(public_key_uncompressed.to_vec())
+        .map_err(|_| VmInternalError::Expect("Failed to construct buff".into()))?;
+    Ok(Value::okay(public_key_uncompressed_buff)
+        .map_err(|_| VmInternalError::Expect("Failed to construct ok".into()))?)
+}

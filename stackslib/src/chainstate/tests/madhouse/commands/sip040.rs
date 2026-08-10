@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
+use clarity::vm::{ClarityName, ContractName, Value};
 use madhouse::{Command, CommandWrapper};
 use proptest::array::uniform4;
 use proptest::prelude::{any, Just, Strategy};
@@ -29,6 +29,7 @@ use crate::chainstate::stacks::{
 use crate::chainstate::tests::consensus::{ConsensusUtils, TestBlock, FAUCET_ADDRESS};
 use crate::chainstate::tests::madhouse::context::Epoch33ToEpoch34TestContext;
 use crate::chainstate::tests::madhouse::state::Epoch33ToEpoch34TestState;
+use crate::clarity_vm::engine::default_clarity_version_for_epoch;
 use crate::core::test_util::to_addr;
 
 /// NFT contract with mint, send, as-contract operations, and STX burn.
@@ -87,7 +88,7 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for DeployN
     }
 
     fn apply(&self, state: &mut Epoch33ToEpoch34TestState) {
-        let version = ClarityVersion::default_for_epoch(state.current_epoch);
+        let version = default_clarity_version_for_epoch(state.current_epoch);
         let deploy_tx =
             ConsensusUtils::new_deploy_tx(state.next_nonce, "nft", NFT_CONTRACT, Some(version));
 

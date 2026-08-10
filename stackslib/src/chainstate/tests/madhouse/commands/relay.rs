@@ -16,7 +16,6 @@
 use std::sync::Arc;
 
 use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
-use clarity::vm::ClarityVersion;
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::Strategy;
 
@@ -24,6 +23,7 @@ use super::unwrap_single_tx_success;
 use crate::chainstate::tests::consensus::{ConsensusUtils, TestBlock};
 use crate::chainstate::tests::madhouse::context::Epoch33ToEpoch34TestContext;
 use crate::chainstate::tests::madhouse::state::Epoch33ToEpoch34TestState;
+use crate::clarity_vm::engine::default_clarity_version_for_epoch;
 use crate::net::relay::Relayer;
 
 /// AST nesting overhead from `(define-public (deep) (ok ...))` — one list
@@ -67,7 +67,7 @@ impl Command<Epoch33ToEpoch34TestState, Epoch33ToEpoch34TestContext> for RelayDe
 
     fn apply(&self, state: &mut Epoch33ToEpoch34TestState) {
         let code = make_deep_expression(self.depth);
-        let version = ClarityVersion::default_for_epoch(state.current_epoch);
+        let version = default_clarity_version_for_epoch(state.current_epoch);
         let name = self.contract_name();
 
         let deploy_tx =

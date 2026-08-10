@@ -16,7 +16,6 @@
 use std::fmt;
 use std::str::FromStr;
 
-use stacks_common::types::StacksEpochId;
 use variant_count::VariantCount;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, PartialOrd, VariantCount)]
@@ -87,31 +86,6 @@ impl ClarityVersion {
             .expect("version not found in ALL");
 
         &Self::ALL[..=idx]
-    }
-
-    pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
-        match epoch_id {
-            StacksEpochId::Epoch10 => {
-                warn!(
-                    "Attempted to get default Clarity version for Epoch 1.0 where Clarity does not exist"
-                );
-                ClarityVersion::Clarity1
-            }
-            StacksEpochId::Epoch20 => ClarityVersion::Clarity1,
-            StacksEpochId::Epoch2_05 => ClarityVersion::Clarity1,
-            StacksEpochId::Epoch21 => ClarityVersion::Clarity2,
-            StacksEpochId::Epoch22 => ClarityVersion::Clarity2,
-            StacksEpochId::Epoch23 => ClarityVersion::Clarity2,
-            StacksEpochId::Epoch24 => ClarityVersion::Clarity2,
-            StacksEpochId::Epoch25 => ClarityVersion::Clarity2,
-            StacksEpochId::Epoch30 => ClarityVersion::Clarity3,
-            StacksEpochId::Epoch31 => ClarityVersion::Clarity3,
-            StacksEpochId::Epoch32 => ClarityVersion::Clarity3,
-            StacksEpochId::Epoch33 => ClarityVersion::Clarity4,
-            StacksEpochId::Epoch34 => ClarityVersion::Clarity5,
-            StacksEpochId::Epoch40 => ClarityVersion::Clarity6,
-            StacksEpochId::Epoch41 => ClarityVersion::Clarity6,
-        }
     }
 
     pub fn supports_callables(&self) -> bool {

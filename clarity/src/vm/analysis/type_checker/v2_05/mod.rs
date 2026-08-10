@@ -20,6 +20,7 @@ pub mod natives;
 
 use std::collections::BTreeMap;
 
+use clarity_kernel::costs::CostTrackerHandle;
 use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
@@ -32,10 +33,11 @@ pub use crate::vm::analysis::errors::{
     StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, check_argument_count,
     check_arguments_at_least,
 };
+use crate::vm::analysis::type_checker::FunctionTypeExt;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
-    analysis_typecheck_cost, runtime_cost,
+    CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, analysis_typecheck_cost,
+    runtime_cost,
 };
 use crate::vm::functions::NativeFunctions;
 use crate::vm::functions::define::DefineFunctionsParsed;
@@ -74,7 +76,7 @@ pub struct TypeChecker<'a, 'b> {
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a mut AnalysisDatabase<'b>,
-    pub cost_track: LimitedCostTracker,
+    pub cost_track: CostTrackerHandle,
 }
 
 impl CostTracker for TypeChecker<'_, '_> {
@@ -135,8 +137,23 @@ impl TypeChecker<'_, '_> {
     }
 }
 
-impl FunctionType {
-    pub fn check_args_2_05<T: CostTracker>(
+/// Epoch-2.05 argument-checking rules for [`FunctionType`] (extension
+/// trait; see `type_checker::FunctionTypeExt`).
+pub trait FunctionTypeExtV205 {
+    fn check_args_2_05<T: CostTracker>(
+        &self,
+        accounting: &mut T,
+        args: &[TypeSignature],
+    ) -> Result<TypeSignature, StaticCheckError>;
+    fn check_args_by_allowing_trait_cast_2_05(
+        &self,
+        db: &mut AnalysisDatabase,
+        func_args: &[Value],
+    ) -> Result<TypeSignature, StaticCheckError>;
+}
+
+impl FunctionTypeExtV205 for FunctionType {
+    fn check_args_2_05<T: CostTracker>(
         &self,
         accounting: &mut T,
         args: &[TypeSignature],
@@ -256,7 +273,7 @@ impl FunctionType {
         }
     }
 
-    pub fn check_args_by_allowing_trait_cast_2_05(
+    fn check_args_by_allowing_trait_cast_2_05(
         &self,
         db: &mut AnalysisDatabase,
         func_args: &[Value],
@@ -364,7 +381,7 @@ pub fn no_type() -> TypeSignature {
 impl<'a, 'b> TypeChecker<'a, 'b> {
     pub fn new(
         db: &'a mut AnalysisDatabase<'b>,
-        cost_track: LimitedCostTracker,
+        cost_track: CostTrackerHandle,
         build_type_map: bool,
     ) -> TypeChecker<'a, 'b> {
         Self {
@@ -376,10 +393,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    fn into_contract_analysis(
-        self,
-        contract_analysis: &mut ContractAnalysis,
-    ) -> LimitedCostTracker {
+    fn into_contract_analysis(self, contract_analysis: &mut ContractAnalysis) -> CostTrackerHandle {
         self.contract_context
             .into_contract_analysis(contract_analysis);
         contract_analysis.type_map = Some(self.type_map);

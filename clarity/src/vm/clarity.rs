@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
 
+use clarity_kernel::costs::CostTrackerHandle;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{
@@ -220,7 +221,8 @@ pub trait ClarityConnection {
         F: FnOnce(&mut ExecutionState, &InvocationContext) -> Result<R, ClarityEvalError>,
     {
         let epoch_id = self.get_epoch();
-        let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
+        let clarity_version =
+            crate::vm::version::legacy_default_clarity_version_for_epoch(epoch_id);
         self.with_clarity_db_readonly_owned(|clarity_db| {
             let initial_context =
                 ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
@@ -321,7 +323,7 @@ pub trait TransactionConnection: ClarityConnection {
                 &contract_ast.expressions,
                 db,
                 false,
-                cost_track,
+                CostTrackerHandle::new(cost_track),
                 epoch_id,
                 clarity_version,
                 false,
@@ -330,10 +332,18 @@ pub trait TransactionConnection: ClarityConnection {
 
             match result {
                 Ok(mut contract_analysis) => {
-                    let cost_track = contract_analysis.take_contract_cost_tracker();
+                    let cost_track = *contract_analysis
+                        .take_contract_cost_tracker()
+                        .into_inner::<LimitedCostTracker>()
+                        .expect("legacy transaction analysis must retain its host tracker");
                     (cost_track, Ok((contract_ast, contract_analysis)))
                 }
-                Err(e) => (e.1, Err(e.0.into())),
+                Err(e) => {
+                    let cost_track =
+                        *e.1.into_inner::<LimitedCostTracker>()
+                            .expect("legacy transaction analysis must retain its host tracker");
+                    (cost_track, Err(e.0.into()))
+                }
             }
         })
     }

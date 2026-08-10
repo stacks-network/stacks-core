@@ -28,7 +28,7 @@ use crate::vm::analysis::{
 };
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::CallableSubtype;
@@ -80,7 +80,7 @@ pub fn type_check_version(
         expressions,
         analysis_db,
         save_contract,
-        LimitedCostTracker::new_free(),
+        clarity_kernel::costs::CostTrackerHandle::new(LimitedCostTracker::new_free()),
         epoch,
         version,
         false,

@@ -19,6 +19,8 @@ pub mod natives;
 
 use std::collections::BTreeMap;
 
+use clarity_kernel::costs::CostTrackerHandle;
+use clarity_kernel::rules::KernelRuleset;
 use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
@@ -30,6 +32,7 @@ pub use crate::vm::analysis::errors::{
     StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, check_argument_count,
     check_arguments_at_least, check_arguments_at_most,
 };
+use crate::vm::analysis::type_checker::FunctionTypeExt;
 use crate::vm::analysis::{AnalysisDatabase, check_analysis_resource_limits};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
@@ -87,7 +90,8 @@ pub struct TypeChecker<'a, 'b> {
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
     db: &'a mut AnalysisDatabase<'b>,
-    pub cost_track: LimitedCostTracker,
+    pub cost_track: CostTrackerHandle,
+    pub kernel_ruleset: KernelRuleset,
     clarity_version: ClarityVersion,
     /// Resource limits (wallclock deadline and max memory allocation) for the
     /// analysis phase. Unlimited on the deterministic-replay/commit path (so
@@ -132,6 +136,7 @@ impl CostTracker for TypeChecker<'_, '_> {
 impl TypeChecker<'_, '_> {
     pub fn run_pass(
         epoch: &StacksEpochId,
+        kernel_ruleset: KernelRuleset,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
         build_type_map: bool,
@@ -140,6 +145,7 @@ impl TypeChecker<'_, '_> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command = TypeChecker::new(
             epoch,
+            kernel_ruleset,
             analysis_db,
             cost_track,
             &contract_analysis.contract_identifier,
@@ -177,18 +183,58 @@ pub fn compute_typecheck_cost<T: CostTracker>(
     )
 }
 
-impl FunctionType {
-    #[allow(clippy::type_complexity)]
-    pub fn check_args_visitor_2_1<T: CostTracker>(
+/// Return of [`FunctionTypeExtV21::check_args_visitor_2_1`]: the cost
+/// charged for visiting this argument (if any was incurred), alongside the
+/// accumulated type so far (or `None` when the function type imposes no
+/// accumulated type).
+pub type VisitorCheckResult = (
+    Option<Result<ExecutionCost, CostErrors>>,
+    Result<Option<TypeSignature>, StaticCheckError>,
+);
+
+/// Epoch-2.1+ argument-checking rules for [`FunctionType`] (extension
+/// trait; see `type_checker::FunctionTypeExt`).
+pub trait FunctionTypeExtV21 {
+    fn check_args_visitor_2_1<T: CostTracker>(
         &self,
         accounting: &mut T,
         arg_type: &TypeSignature,
         arg_index: usize,
         accumulated_type: Option<&TypeSignature>,
-    ) -> (
-        Option<Result<ExecutionCost, CostErrors>>,
-        Result<Option<TypeSignature>, StaticCheckError>,
-    ) {
+    ) -> VisitorCheckResult;
+    fn check_args_2_1<T: CostTracker>(
+        &self,
+        accounting: &mut T,
+        args: &[TypeSignature],
+        clarity_version: ClarityVersion,
+    ) -> Result<TypeSignature, StaticCheckError>;
+    fn principal_to_callable_type(
+        &self,
+        value: &Value,
+        depth: u8,
+        clarity_version: ClarityVersion,
+    ) -> Result<TypeSignature, StaticCheckError>;
+    fn clarity2_principal_to_callable_type(
+        &self,
+        value: &Value,
+        depth: u8,
+    ) -> Result<TypeSignature, StaticCheckError>;
+    fn check_args_by_allowing_trait_cast_2_1(
+        &self,
+        db: &mut AnalysisDatabase,
+        clarity_version: ClarityVersion,
+        func_args: &[Value],
+    ) -> Result<TypeSignature, StaticCheckError>;
+}
+
+impl FunctionTypeExtV21 for FunctionType {
+    fn check_args_visitor_2_1<T: CostTracker>(
+        &self,
+        accounting: &mut T,
+        arg_type: &TypeSignature,
+        arg_index: usize,
+        accumulated_type: Option<&TypeSignature>,
+    ) -> VisitorCheckResult {
         match self {
             // variadic stops checking cost at the first error...
             FunctionType::Variadic(expected_type, _) => {
@@ -290,7 +336,7 @@ impl FunctionType {
         }
     }
 
-    pub fn check_args_2_1<T: CostTracker>(
+    fn check_args_2_1<T: CostTracker>(
         &self,
         accounting: &mut T,
         args: &[TypeSignature],
@@ -477,7 +523,7 @@ impl FunctionType {
     /// types to callable types. In an initial transaction, arguments are typed
     /// as contract principals, but they must be principal literals, so they
     /// may be used to call into a contract.
-    pub fn principal_to_callable_type(
+    fn principal_to_callable_type(
         &self,
         value: &Value,
         depth: u8,
@@ -568,7 +614,7 @@ impl FunctionType {
     /// cost of evaluating these type checks are not tracked.
     /// WARNING: This is not consensus-critical code, and should never be
     ///          called from consensus-critical code.
-    pub fn check_args_by_allowing_trait_cast_2_1(
+    fn check_args_by_allowing_trait_cast_2_1(
         &self,
         db: &mut AnalysisDatabase,
         clarity_version: ClarityVersion,
@@ -1184,10 +1230,12 @@ pub fn no_type() -> TypeSignature {
 }
 
 impl<'a, 'b> TypeChecker<'a, 'b> {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         epoch: &StacksEpochId,
+        kernel_ruleset: KernelRuleset,
         db: &'a mut AnalysisDatabase<'b>,
-        cost_track: LimitedCostTracker,
+        cost_track: CostTrackerHandle,
         contract_identifier: &QualifiedContractIdentifier,
         clarity_version: &ClarityVersion,
         build_type_map: bool,
@@ -1195,6 +1243,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     ) -> TypeChecker<'a, 'b> {
         Self {
             epoch: *epoch,
+            kernel_ruleset,
             db,
             cost_track,
             contract_context: ContractContext::new(contract_identifier.clone(), *clarity_version),
@@ -1205,10 +1254,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    fn into_contract_analysis(
-        self,
-        contract_analysis: &mut ContractAnalysis,
-    ) -> LimitedCostTracker {
+    fn into_contract_analysis(self, contract_analysis: &mut ContractAnalysis) -> CostTrackerHandle {
         self.contract_context
             .into_contract_analysis(contract_analysis);
         contract_analysis.type_map = Some(self.type_map);

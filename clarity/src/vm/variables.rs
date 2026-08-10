@@ -22,6 +22,7 @@ use crate::vm::ClarityVersion;
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
+use crate::vm::database::ClarityDatabaseExt;
 use crate::vm::errors::{RuntimeError, VmExecutionError};
 use crate::vm::types::Value;
 

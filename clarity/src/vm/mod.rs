@@ -13,7 +13,8 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-pub mod diagnostic;
+pub use clarity_kernel::diagnostic;
+pub mod engine;
 pub mod errors;
 
 #[macro_use]
@@ -31,14 +32,14 @@ pub mod representations;
 
 pub mod callables;
 pub mod functions;
-pub mod resource_limiter;
+pub use clarity_kernel::{resource_limiter, rules, special_case};
 pub mod variables;
 
 pub mod analysis;
 pub mod docs;
 pub mod version;
 
-pub mod events;
+pub use clarity_kernel::events;
 
 #[cfg(feature = "rusqlite")]
 pub mod tooling;
@@ -117,7 +118,7 @@ impl<'a> ValueRef<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ParsedContract {
     pub contract_identifier: String,
     pub code: String,
@@ -126,25 +127,25 @@ pub struct ParsedContract {
     pub analysis: ContractAnalysis,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ContractEvaluationResult {
     pub result: Option<Value>,
     pub contract: ParsedContract,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SnippetEvaluationResult {
     pub result: Value,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum EvaluationResult {
     Contract(ContractEvaluationResult),
     Snippet(SnippetEvaluationResult),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ExecutionResult {
     pub result: EvaluationResult,
     pub events: Vec<StacksTransactionEvent>,
@@ -819,7 +820,7 @@ where
     let parsed = ast::build_ast(
         &contract_id,
         program,
-        &mut global_context.cost_track,
+        &mut *global_context.cost_track,
         clarity_version,
         epoch,
     )?

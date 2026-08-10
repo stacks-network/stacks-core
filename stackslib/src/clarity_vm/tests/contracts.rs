@@ -30,6 +30,7 @@ use stacks_common::types::chainstate::StacksAddress;
 use crate::chainstate::stacks::boot::contract_tests::{test_sim_height_to_hash, ClarityTestSim};
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::ClarityBlockConnection;
+use crate::clarity_vm::engine::default_clarity_version_for_epoch;
 
 #[test]
 // Here, we set up a basic test to see if we can recover a path from the ClarityTestSim.
@@ -46,7 +47,7 @@ fn test_get_burn_block_info_eval() {
             "(define-private (test-func (height uint)) (get-burn-block-info? header-hash height))";
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
-            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let clarity_version = default_clarity_version_for_epoch(epoch);
             let res = clarity_db.analyze_smart_contract(
                 &contract_identifier,
                 clarity_version,
@@ -71,7 +72,7 @@ fn test_get_burn_block_info_eval() {
             "(define-private (test-func (height uint)) (get-burn-block-info? header-hash height))";
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
-            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let clarity_version = default_clarity_version_for_epoch(epoch);
             let res = clarity_db.analyze_smart_contract(
                 &contract_identifier,
                 clarity_version,
@@ -96,7 +97,7 @@ fn test_get_burn_block_info_eval() {
             "(define-private (test-func (height uint)) (get-burn-block-info? header-hash height))";
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
-            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let clarity_version = default_clarity_version_for_epoch(epoch);
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_identifier,
@@ -172,7 +173,7 @@ fn test_get_block_info_eval_v210() {
             "(define-private (test-func (height uint)) (get-block-info? block-reward height))";
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
-            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let clarity_version = default_clarity_version_for_epoch(epoch);
             let res = clarity_db.analyze_smart_contract(
                 &contract_identifier,
                 clarity_version,
@@ -198,7 +199,7 @@ fn test_get_block_info_eval_v210() {
             "(define-private (test-func (height uint)) (get-block-info? block-reward height))";
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
-            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let clarity_version = default_clarity_version_for_epoch(epoch);
             let res = clarity_db.analyze_smart_contract(
                 &contract_identifier,
                 clarity_version,
@@ -226,7 +227,7 @@ fn test_get_block_info_eval_v210() {
              (define-private (test-func-3 (height uint)) (get-block-info? miner-spend-total height))";
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
-            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let clarity_version = default_clarity_version_for_epoch(epoch);
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(&contract_identifier, clarity_version, contract, &ResourceBudget::unlimited())
                 .unwrap();
@@ -358,7 +359,7 @@ fn trait_invocation_205_with_stored_principal() {
 
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
-        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        let clarity_version = default_clarity_version_for_epoch(epoch);
         publish_contract(conn, &trait_contract_id, trait_contract, clarity_version).unwrap();
         publish_contract(conn, &impl_contract_id, impl_contract, clarity_version).unwrap();
         publish_contract(conn, &use_contract_id, use_contract, clarity_version).unwrap();
@@ -368,7 +369,7 @@ fn trait_invocation_205_with_stored_principal() {
     // now in Stacks 2.1
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
-        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        let clarity_version = default_clarity_version_for_epoch(epoch);
         assert_eq!(clarity_version, ClarityVersion::Clarity2);
         let error = publish_contract(conn, &invoke_contract_id, invoke_contract, clarity_version)
             .unwrap_err();
@@ -416,7 +417,7 @@ fn trait_invocation_cross_epoch() {
     info!("Sim height = {}", sim.block_height);
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
-        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        let clarity_version = default_clarity_version_for_epoch(epoch);
         publish_contract(conn, &trait_contract_id, trait_contract, clarity_version).unwrap();
         publish_contract(conn, &impl_contract_id, impl_contract, clarity_version).unwrap();
         publish_contract(conn, &use_contract_id, use_contract, clarity_version).unwrap();
@@ -427,7 +428,7 @@ fn trait_invocation_cross_epoch() {
     // now in Stacks 2.1
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
-        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        let clarity_version = default_clarity_version_for_epoch(epoch);
         assert_eq!(clarity_version, ClarityVersion::Clarity2);
         publish_contract(conn, &invoke_contract_id, invoke_contract, clarity_version).unwrap();
     });
@@ -597,7 +598,7 @@ fn trait_with_trait_invocation_cross_epoch() {
     sim.execute_next_block_as_conn(|conn| {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
-            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let clarity_version = default_clarity_version_for_epoch(epoch);
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &math_contract_id,
@@ -622,7 +623,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                 .expect("FATAL: failed to store contract analysis");
         });
         conn.as_transaction(|clarity_db| {
-            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let clarity_version = default_clarity_version_for_epoch(epoch);
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &compute_contract_id,
@@ -647,7 +648,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                 .expect("FATAL: failed to store contract analysis");
         });
         conn.as_transaction(|clarity_db| {
-            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let clarity_version = default_clarity_version_for_epoch(epoch);
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &impl_compute_id,
@@ -672,7 +673,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                 .expect("FATAL: failed to store contract analysis");
         });
         conn.as_transaction(|clarity_db| {
-            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let clarity_version = default_clarity_version_for_epoch(epoch);
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &impl_math_id,
@@ -697,7 +698,7 @@ fn trait_with_trait_invocation_cross_epoch() {
                 .expect("FATAL: failed to store contract analysis");
         });
         conn.as_transaction(|clarity_db| {
-            let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            let clarity_version = default_clarity_version_for_epoch(epoch);
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &use_compute_20_id,

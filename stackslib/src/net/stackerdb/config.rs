@@ -38,7 +38,7 @@
 /// ```
 use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::database::BurnStateDB;
+use clarity::vm::database::{BurnStateDB, ClarityDatabaseExt};
 use clarity::vm::types::{
     BufferLength, FunctionType, ListTypeData, PrincipalData, QualifiedContractIdentifier,
     SequenceSubtype, TupleTypeSignature, TypeSignature, Value as ClarityValue,

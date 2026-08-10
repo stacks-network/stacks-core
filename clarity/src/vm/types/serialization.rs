@@ -14,33 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::str;
-
 pub use clarity_types::types::serialization::{
     NONE_SERIALIZATION_LEN, SerializationError, TypePrefix,
 };
-use stacks_common::util::hash::{hex_bytes, to_hex};
-
-use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
-use crate::vm::errors::{VmExecutionError, VmInternalError};
-
-impl ClaritySerializable for u32 {
-    fn serialize(&self) -> String {
-        to_hex(&self.to_be_bytes())
-    }
-}
-
-impl ClarityDeserializable<u32> for u32 {
-    fn deserialize(input: &str) -> Result<Self, VmExecutionError> {
-        let bytes = hex_bytes(input).map_err(|_| {
-            VmInternalError::Expect("u32 deserialization: failed decoding bytes.".into())
-        })?;
-        assert_eq!(bytes.len(), 4);
-        Ok(u32::from_be_bytes(bytes[0..4].try_into().map_err(
-            |_| VmInternalError::Expect("u32 deserialization: failed reading.".into()),
-        )?))
-    }
-}
 
 #[cfg(test)]
 pub mod tests {

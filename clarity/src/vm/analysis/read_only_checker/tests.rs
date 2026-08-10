@@ -24,7 +24,7 @@ use crate::vm::ClarityVersion;
 use crate::vm::analysis::tests::utils::{SingleAnalysisPass, run_single_analysis_pass};
 use crate::vm::analysis::type_check;
 use crate::vm::ast::parse;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::functions::NativeFunctions;
 use crate::vm::tests::test_clarity_versions;

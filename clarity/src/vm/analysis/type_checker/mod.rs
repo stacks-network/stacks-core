@@ -23,12 +23,34 @@ use stacks_common::types::StacksEpochId;
 use super::AnalysisDatabase;
 use super::errors::StaticCheckError;
 pub use super::types::{AnalysisPass, ContractAnalysis};
+use crate::vm::analysis::type_checker::v2_1::FunctionTypeExtV21;
+use crate::vm::analysis::type_checker::v2_05::FunctionTypeExtV205;
 use crate::vm::costs::CostTracker;
 use crate::vm::types::{FunctionType, TypeSignature};
 use crate::vm::{ClarityVersion, Value};
 
-impl FunctionType {
-    pub fn check_args<T: CostTracker>(
+/// Epoch-dispatching argument checks for [`FunctionType`]. Extension
+/// trait: the data type lives in `clarity-kernel`, the checking rules are
+/// engine business.
+pub trait FunctionTypeExt {
+    fn check_args<T: CostTracker>(
+        &self,
+        accounting: &mut T,
+        args: &[TypeSignature],
+        epoch: StacksEpochId,
+        clarity_version: ClarityVersion,
+    ) -> Result<TypeSignature, StaticCheckError>;
+    fn check_args_by_allowing_trait_cast(
+        &self,
+        db: &mut AnalysisDatabase,
+        func_args: &[Value],
+        epoch: StacksEpochId,
+        clarity_version: ClarityVersion,
+    ) -> Result<TypeSignature, StaticCheckError>;
+}
+
+impl FunctionTypeExt for FunctionType {
+    fn check_args<T: CostTracker>(
         &self,
         accounting: &mut T,
         args: &[TypeSignature],
@@ -42,7 +64,7 @@ impl FunctionType {
         }
     }
 
-    pub fn check_args_by_allowing_trait_cast(
+    fn check_args_by_allowing_trait_cast(
         &self,
         db: &mut AnalysisDatabase,
         func_args: &[Value],

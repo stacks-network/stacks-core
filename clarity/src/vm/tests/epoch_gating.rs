@@ -14,20 +14,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use stacks_common::types::{StacksEpochId, StacksEpochRangeTestExt as _};
 
-use crate::vm::ClarityVersion;
+use crate::vm::version::legacy_default_clarity_version_for_epoch;
 
-/// `default_for_epoch` must be monotonically non-decreasing: later epochs
+/// The legacy default must be monotonically non-decreasing: later epochs
 /// never downgrade the default ClarityVersion.
 #[test]
-fn test_default_for_epoch_is_monotonic() {
+fn test_legacy_default_for_epoch_is_monotonic() {
     // No Clarity in Epoch10.
     let clarity_epochs = (StacksEpochId::Epoch20..).as_slice();
     for window in clarity_epochs.windows(2) {
-        let earlier = ClarityVersion::default_for_epoch(window[0]);
-        let later = ClarityVersion::default_for_epoch(window[1]);
+        let earlier = legacy_default_clarity_version_for_epoch(window[0]);
+        let later = legacy_default_clarity_version_for_epoch(window[1]);
         assert!(
             later >= earlier,
-            "default_for_epoch not monotonic: \
+            "legacy default not monotonic: \
              {} -> {:?}, {} -> {:?}",
             window[0],
             earlier,
@@ -38,13 +38,13 @@ fn test_default_for_epoch_is_monotonic() {
 }
 
 /// All Epoch34 feature-gate predicates must agree with each other for every
-/// epoch. Uses `default_for_epoch` to bridge epoch-level and version-level
-/// predicates.
+/// epoch. Uses the frozen legacy default table to bridge epoch-level and
+/// version-level predicates.
 #[test]
 fn test_epoch34_feature_gates_are_consistent() {
     for &epoch in StacksEpochId::ALL {
         let is_34_plus = epoch >= StacksEpochId::Epoch34;
-        let version = ClarityVersion::default_for_epoch(epoch);
+        let version = legacy_default_clarity_version_for_epoch(epoch);
 
         assert_eq!(
             is_34_plus,

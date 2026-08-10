@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::{cmp, fs, io};
 
 pub use clarity::vm::analysis::errors::{RuntimeCheckErrorKind, StaticCheckError};
+use clarity::vm::analysis::type_checker::FunctionTypeExt;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::BurnStateDB;

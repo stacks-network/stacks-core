@@ -25,6 +25,7 @@ use clarity::vm::database::sqlite::{
 };
 use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
 use clarity::vm::errors::{IncomparableError, RuntimeError, VmExecutionError, VmInternalError};
+use clarity::vm::special_case::KernelSpecialCaseHandlerFn;
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
@@ -39,7 +40,7 @@ use crate::clarity_vm::clarity::{
     ClarityMarfStore, ClarityMarfStoreTransaction, WritableMarfStore,
 };
 use crate::clarity_vm::database::ephemeral::EphemeralMarfStore;
-use crate::clarity_vm::special::handle_contract_call_special_cases;
+use crate::clarity_vm::special::{KERNEL_SPECIAL_CASE_HANDLER, SPECIAL_CASE_HANDLER};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
 
@@ -536,7 +537,11 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     }
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        Some(&handle_contract_call_special_cases)
+        Some(&SPECIAL_CASE_HANDLER)
+    }
+
+    fn get_kernel_cc_special_cases_handler(&self) -> Option<&'static KernelSpecialCaseHandlerFn> {
+        Some(&KERNEL_SPECIAL_CASE_HANDLER)
     }
 
     /// Sets the chain tip at which queries will happen.  Used for `(at-block ..)`
@@ -826,7 +831,11 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
     }
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
-        Some(&handle_contract_call_special_cases)
+        Some(&SPECIAL_CASE_HANDLER)
+    }
+
+    fn get_kernel_cc_special_cases_handler(&self) -> Option<&'static KernelSpecialCaseHandlerFn> {
+        Some(&KERNEL_SPECIAL_CASE_HANDLER)
     }
 
     fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
@@ -1210,6 +1219,10 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         ClarityBackingStore::get_cc_special_cases_handler(&**self)
+    }
+
+    fn get_kernel_cc_special_cases_handler(&self) -> Option<&'static KernelSpecialCaseHandlerFn> {
+        ClarityBackingStore::get_kernel_cc_special_cases_handler(&**self)
     }
 
     fn get_contract_hash(

@@ -15,7 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::contexts::GlobalContext;
-use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::costs::CostTrackerHandle;
+use clarity::vm::database::ClarityDatabaseExt;
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, ResponseData, TupleData};
 use clarity::vm::Value;
@@ -584,10 +585,8 @@ pub fn synthesize_pox_event_info(
     // replacing the cost tracker. This code snippet is kept short to
     // ensure that there is only one possible control flow here.  DO
     // NOT alter these lines unless you know what you are doing here.
-    let original_tracker = std::mem::replace(
-        &mut global_context.cost_track,
-        LimitedCostTracker::new_free(),
-    );
+    let original_tracker =
+        std::mem::replace(&mut *global_context.cost_track, CostTrackerHandle::free());
     let result = inner_synthesize_pox_event_info(
         global_context,
         contract_id,
@@ -597,7 +596,7 @@ pub fn synthesize_pox_event_info(
         response,
     );
     // Restore the cost tracker
-    global_context.cost_track = original_tracker;
+    *global_context.cost_track = original_tracker;
     result
 }
 

@@ -33,7 +33,7 @@ use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::parser::v2::lexer::token::Token;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker, runtime_cost};
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{AsAnalysisDb, MemoryBackingStore};
 use crate::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::*;
@@ -4653,7 +4653,7 @@ fn test_in_contract_trait_entry_metered_from_epoch40() {
             &ast.expressions,
             &mut adb,
             false,
-            tracker,
+            clarity_kernel::costs::CostTrackerHandle::new(tracker),
             epoch,
             version,
             true,

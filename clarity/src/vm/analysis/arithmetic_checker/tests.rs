@@ -47,7 +47,7 @@ fn arithmetic_check(
     let analysis = ContractAnalysis::new(
         contract_identifier,
         expressions,
-        LimitedCostTracker::new_free(),
+        clarity_kernel::costs::CostTrackerHandle::new(LimitedCostTracker::new_free()),
         epoch,
         version,
     );

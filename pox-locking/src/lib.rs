@@ -27,6 +27,7 @@
 use clarity::boot_util::boot_code_id;
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::errors::{RuntimeError, VmExecutionError};
+use clarity::vm::special_case::SpecialCaseContext;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
 use stacks_common::types::StacksEpochId;
@@ -190,14 +191,43 @@ pub fn handle_contract_call_special_cases(
             result,
         );
     } else if *contract_id == boot_code_id(POX_5_NAME, global_context.mainnet) {
-        return pox_5::handle_contract_call(
-            global_context,
+        // Unreachable in practice -- `.pox-5` is a Clarity 6 contract, so the
+        // Clarity 6 engine executes it and applies this through the
+        // kernel-typed hook. Kept so the legacy engine stays correct if a
+        // future PoX contract is deployed at a legacy language version.
+        return handle_kernel_contract_call_special_cases(
+            &mut global_context.special_case_context(),
             sender,
+            _sponsor,
             contract_id,
             function_name,
             args,
             result,
         );
+    }
+
+    Ok(())
+}
+
+/// Handle special cases of contract-calls whose handling touches kernel state
+/// only, and so can be applied by whichever engine executed the call.
+///
+/// PoX 1 through 4 are absent here: their handling synthesizes print events by
+/// evaluating Clarity, which needs an engine's own interpreter state. They are
+/// all legacy-version contracts, so the legacy engine always executes them and
+/// applies them through [`handle_contract_call_special_cases`] instead. That
+/// includes raising `DefunctPoxContract` for a `.pox-4` call in Epoch 4.0.
+pub fn handle_kernel_contract_call_special_cases(
+    ctx: &mut SpecialCaseContext,
+    sender: Option<&PrincipalData>,
+    _sponsor: Option<&PrincipalData>,
+    contract_id: &QualifiedContractIdentifier,
+    function_name: &str,
+    args: &[Value],
+    result: &Value,
+) -> Result<(), VmExecutionError> {
+    if *contract_id == boot_code_id(POX_5_NAME, ctx.mainnet) {
+        return pox_5::handle_contract_call(ctx, sender, contract_id, function_name, args, result);
     }
 
     Ok(())

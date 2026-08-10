@@ -1,0 +1,38 @@
+[package]
+name = "clarity-kernel"
+version = "0.0.1"
+edition = "2024"
+description = "Consensus-shared Clarity runtime kernel: execution costs, events, and (eventually) database and engine ABI."
+license = "GPLv3"
+homepage = "https://github.com/stacks-network/stacks-core"
+repository = "https://github.com/stacks-network/stacks-core"
+keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
+
+[dependencies]
+clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false }
+lazy_static = { workspace = true }
+rusqlite = { workspace = true, optional = true }
+serde = { workspace = true }
+slog = { workspace = true }
+serde_json = { workspace = true }
+serde_derive = { workspace = true }
+stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
+
+[dev-dependencies]
+mutants = "0.0.3"
+rstest = "0.17.0"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+serde_stacker = "0.1"
+
+[features]
+default = ["rusqlite"]
+testing = ["stacks_common/testing", "clarity-types/testing"]
+developer-mode = ["stacks_common/developer-mode", "clarity-types/developer-mode"]
+slog_json = ["stacks_common/slog_json"]
+rusqlite = ["stacks_common/rusqlite", "clarity-types/rusqlite", "dep:rusqlite"]
+rollback_value_check = []
+
+# Wasm-specific features for easier configuration
+wasm-web = ["stacks_common/wasm-web", "clarity-types/wasm-web"]
+wasm-deterministic = ["stacks_common/wasm-deterministic"]
