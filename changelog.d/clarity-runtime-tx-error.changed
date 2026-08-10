@@ -1,1 +1,1 @@
-Moved `ClarityRuntimeTxError` and `handle_clarity_runtime_error` from `stackslib` to `clarity`, and added APIs that report whether failed transactions are included in a block
+Moved Clarity transaction-error classification from `stackslib` to `clarity`, with authoritative included/rejected dispositions that can be shared with WASM consumers
