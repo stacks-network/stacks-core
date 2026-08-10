@@ -14,12 +14,12 @@
 ## Release Schedule and Hotfixes
 
 Normal releases in this repository that add new features are released on a monthly schedule.
-The currently staged changes for such releases are in the [develop branch](https://github.com/stacks-network/stacks-core/tree/develop).
-It is generally safe to run a `stacks-node` from that branch, though it has received less rigorous testing than release tags or the [master branch](https://github.com/stacks-network/stacks-core/tree/master).
-If bugs are found in the `develop` branch, please do [report them as issues](https://github.com/stacks-network/stacks-core/issues) in this repository.
+The currently staged changes for such releases are in the [main branch](https://github.com/stacks-network/stacks-core/tree/main).
+It is generally safe to run a `stacks-node` from that branch, though it has received less rigorous testing than release tags.
+If bugs are found in the `main` branch, please do [report them as issues](https://github.com/stacks-network/stacks-core/issues) in this repository.
 
 For fixes that impact the correct functioning or liveness of the network, _hotfixes_ may be issued.
-These are patches to the default branch which are backported to the develop branch after merging.
+These are patches to the release branch, shipped as a new patch release following the process below.
 These hotfixes are categorized by priority according to the following rubric:
 
 - **High Priority**. Any fix for an issue that could deny service to the network as a whole, e.g., an issue where a particular kind of invalid transaction would cause nodes to stop processing requests or shut down unintentionally. Any fix for an issue that could cause honest miners to produce invalid blocks.
@@ -28,19 +28,19 @@ These hotfixes are categorized by priority according to the following rubric:
 
 ## Versioning
 
-This repository uses a 5 part version number:
+This repository uses a 3 part version number:
 
 ```
-X.Y.Z.A.n
+X.Y.Z
 
-X major version - in practice, this does not change unless there’s another significant network update (e.g. a Stacks 3.0 type of event)
-Y increments on consensus-breaking changes
-Z increments on non-consensus-breaking changes that require a fresh chainstate (akin to semantic MAJOR)
-A increments on non-consensus-breaking changes that do not require a fresh chainstate, but introduce new features (akin to semantic MINOR)
-n increments on patches and hot-fixes (akin to semantic PATCH)
+X major version - this changes when there is a significant network update, e.g. Nakamoto (3.0) or Bitcoin Staking (4.0).
+Y increments on smaller consensus-breaking changes (akin to semantic MINOR)
+Z increments on non-consensus-breaking changes (akin to semantic PATCH)
 ```
 
-Optionally, an extra pre-release field may be appended to the version to specify a release candidate in the format `-rc[0-9]`.
+The node and the signer share this single version and are released together.
+
+Optionally, an extra pre-release field may be appended to the version to specify a release candidate in the format `-rc[0-9]+`.
 
 ## Non-Consensus Breaking Release Process
 
@@ -49,40 +49,36 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
 
 1. Before creating the release, the _version number_ must be determined, where the factors that determine the version number are discussed in [Versioning](#versioning).
 
-   - First determine whether there are any "non-consensus-breaking changes that require a fresh chainstate".
-     - In other words, the database schema has changed, but an automatic migration was not implemented.
-     - Determine whether this a feature release, as opposed to a hotfix or a patch.
-   - A new branch in the format `release/X.Y.Z.A.n(-rc[0-9])` is created from the base branch `develop`.
+   - Determine whether the release contains consensus-breaking changes, which require incrementing `Y`. Otherwise, only `Z` is incremented.
+   - Determine whether the release requires a fresh chainstate, in other words, whether the database schema has changed without an automatic migration being implemented.
+     This does not affect the version number, but it must be called out as a **⚠️ Breaking Changes** changelog entry, since operators have to resync.
+   - A new branch in the format `release/X.Y.Z(-rc[0-9]+)` is created from the base branch `main`.
 
 2. Enumerate PRs and/or issues that would _block_ the release.
 
-   - A label should be applied to each such issue/PR as `X.Y.Z.A.n-blocker`.
+   - A label should be applied to each such issue/PR as `X.Y.Z-blocker`.
 
 3. Perform a [block-validation](../contrib/tools/block-validation.sh) using an existing chainstate, or sync from genesis
 
-4. Since development is continuing in the `develop` branch, it may be necessary to cherry-pick some commits into the release branch or open a PR against the release branch.
+4. Since development is continuing in the `main` branch, it may be necessary to cherry-pick some commits into the release branch or open a PR against the release branch.
 
-   - Create a feature branch from `release/X.Y.Z.A.n`, ex: `feat/X.Y.Z.A.n-pr_number`.
-   - Add cherry-picked commits to the `feat/X.Y.Z.A.n-pr_number` branch
-   - Merge `feat/X.Y.Z.A.n-pr_number` into `release/X.Y.Z.A.n`.
+   - Create a feature branch from `release/X.Y.Z`, ex: `feat/X.Y.Z-pr_number`.
+   - Add cherry-picked commits to the `feat/X.Y.Z-pr_number` branch
+   - Merge `feat/X.Y.Z-pr_number` into `release/X.Y.Z`.
 
-5. Open a PR to assemble the changelog and update versions in the `release/X.Y.Z.A.n` branch.
+5. Open a PR to assemble the changelog and update the version in the `release/X.Y.Z` branch.
 
-   - Create a chore branch from `release/X.Y.Z.A.n`, ex: `chore/X.Y.Z.A.n-changelog`.
-   - Update [versions.toml](../versions.toml) to match this release:
-     - Update the `stacks_node_version` string to match this release version.
-     - Update the `stacks_signer_version` string to match `stacks_node_version`, with an appending `0` for this release version.
+   - Create a chore branch from `release/X.Y.Z`, ex: `chore/X.Y.Z-changelog`.
+   - Update the `stacks_node_version` string in [versions.toml](../versions.toml) to match this release version.
    - Assemble changelog fragments into `CHANGELOG.md` and `stacks-signer/CHANGELOG.md`:
 
      ```bash
-     ./contrib/tools/assemble-changelog.sh X.Y.Z.A.n
+     ./contrib/tools/assemble-changelog.sh X.Y.Z
      ```
 
      This will collect all fragment files from `changelog.d/` and `stacks-signer/changelog.d/`,
      group them by category (⚠️ Breaking Changes/Added/Changed/Fixed/Removed), insert them as a
-     new version section in the respective `CHANGELOG.md`, and delete the assembled fragments.
-     For a signer-only release, the flag `--signer` can be passed to only process the signer
-     fragments and upate `stacks-signer/CHANGELOG.md`.
+     new `## [X.Y.Z]` section in the respective `CHANGELOG.md`, and delete the assembled fragments.
 
      Review the assembled changelog for accuracy and make any manual adjustments if needed.
 
@@ -93,9 +89,9 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
 
    - This PR must be merged before continuing to the next steps
 
-6. A build may be started by manually triggering the [`CI` workflow](../.github/workflows/ci.yml) against the `release/X.Y.Z.A.n` branch.
+6. A build may be started by manually triggering the [`CI` workflow](../.github/workflows/ci.yml) against the `release/X.Y.Z` branch.
 
-   - **Note**: A `stacks-signer` release will also be produced when this workflow is run
+   - **Note**: The node and signer are released together, so this workflow produces a single release containing both the `stacks-core` and `stacks-signer` binaries and Docker images.
 
 7. Once the release candidate has been built and binaries are available, ecosystem participants shall be notified to test the tagged release on various staging infrastructure.
 
@@ -107,9 +103,7 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
 9. Once the final release candidate has rolled out successfully without issue on staging infrastructure, the tagged release shall no longer marked as Pre-Release on the [Github releases](https://github.com/stacks-network/stacks-core/releases/) page.
    Announcements will then be shared in the `#stacks-core-devs` channel in the Stacks Discord, as well as the [mailing list](https://groups.google.com/a/stacks.org/g/announce).
 
-10. Finally, the following merges will happen to complete the release process:
-    - Release branch `release/X.Y.Z.A.n` will be merged into the `master` branch.
-    - Then, `release/X.Y.Z.A.n` will be merged into `develop`.
+10. Finally, to complete the release process, the release branch, `release/X.Y.Z`, must be merged back into the `main` branch.
 
 ## Consensus Breaking Release Process
 
