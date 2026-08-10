@@ -2915,7 +2915,7 @@ fn clarity_trait_experiments_readonly_call_trait(
     // Can we dynamically call a trait in a read-only function?
     let err = db
         .execute(|db| {
-            load_versioned(db, "empty-trait", version, epoch)?;
+            load_versioned(db, "math-trait", version, epoch)?;
             load_versioned(db, "readonly-call-trait", version, epoch)
         })
         .unwrap_err();
