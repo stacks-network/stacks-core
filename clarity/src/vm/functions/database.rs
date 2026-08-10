@@ -239,17 +239,28 @@ pub fn special_contract_call(
         .into();
 
     let nested_ctx = invoke_ctx.with_caller(contract_principal);
-    let value_args: Vec<_> = rest_args
-        .iter()
-        .map(|arg| {
-            arg.match_atom_value().cloned().ok_or_else(|| {
-                VmInternalError::InvariantViolation(
-                    "contract-call? evaluated argument was not a value".into(),
-                )
-                .into()
+
+    // The engine ABI takes `Value` arguments, while direct recursion reuses the
+    // `SymbolicExpression`s the caller already evaluated. `run_free` swaps only
+    // the cost tracker, so whether a dispatcher is installed is the same inside
+    // it and outside it: decide once here, and clone the arguments only when a
+    // dispatching path will actually consume them.
+    let value_args: Vec<_> = if exec_state.has_contract_dispatcher() {
+        rest_args
+            .iter()
+            .map(|arg| {
+                arg.match_atom_value().cloned().ok_or_else(|| {
+                    VmInternalError::InvariantViolation(
+                        "contract-call? evaluated argument was not a value".into(),
+                    )
+                    .into()
+                })
             })
-        })
-        .collect::<Result<_, VmExecutionError>>()?;
+            .collect::<Result<_, VmExecutionError>>()?
+    } else {
+        Vec::new()
+    };
+
     let result = if exec_state.short_circuit_contract_call(
         &contract_identifier,
         function_name,

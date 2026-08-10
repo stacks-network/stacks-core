@@ -61,15 +61,7 @@ pub const MAX_CONTEXT_DEPTH: u64 = 256;
 /// constructors. Production selection is owned by stackslib and passes the
 /// ruleset explicitly through `TransactionContext`.
 fn legacy_ruleset_for_epoch(epoch: StacksEpochId) -> KernelRuleset {
-    if epoch >= StacksEpochId::Epoch41 {
-        KernelRuleset::V4
-    } else if epoch >= StacksEpochId::Epoch34 {
-        KernelRuleset::V3
-    } else if epoch >= StacksEpochId::Epoch24 {
-        KernelRuleset::V2
-    } else {
-        KernelRuleset::V1
-    }
+    KernelRuleset::for_stacks_epoch(epoch)
 }
 
 /// Immutable metadata describing a single contract invocation.

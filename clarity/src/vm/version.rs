@@ -23,7 +23,10 @@ use stacks_common::types::StacksEpochId;
 /// Historical epoch-to-language mapping retained by the frozen legacy
 /// interpreter's compatibility APIs. Production protocol policy lives in
 /// stackslib's Clarity engine manifest.
-pub(crate) fn legacy_default_clarity_version_for_epoch(epoch: StacksEpochId) -> ClarityVersion {
+///
+/// Public so the host can assert its manifest agrees with this mapping for
+/// every epoch; call the manifest, not this, from consensus code.
+pub fn legacy_default_clarity_version_for_epoch(epoch: StacksEpochId) -> ClarityVersion {
     match epoch {
         StacksEpochId::Epoch10 => {
             warn!(

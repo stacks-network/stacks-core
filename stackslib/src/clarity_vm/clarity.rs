@@ -18,15 +18,14 @@ use std::thread;
 
 #[cfg(test)]
 use clarity::consts::CHAIN_ID_TESTNET;
-use clarity::vm::analysis::AnalysisDatabase;
+use clarity::vm::analysis::{AnalysisDatabase, StoredContractAnalysis};
 use clarity::vm::clarity::TransactionConnection;
 pub use clarity::vm::clarity::{ClarityConnection, ClarityError};
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, ClarityDatabaseExt, ClarityExecutionCache,
-    HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB,
-    NULL_HEADER_DB,
+    BurnStateDB, ClarityBackingStore, ClarityDatabase, ClarityExecutionCache, HeadersDB,
+    RollbackWrapper, RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::engine::{AnalyzedContract, Engine, EngineError, TransactionContext};
 use clarity::vm::errors::VmExecutionError;
@@ -2441,11 +2440,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
-        let clarity_version = self.with_clarity_db_readonly(|db| {
-            db.get_contract(contract)
-                .map(|contract| *contract.get_clarity_version())
-                .map_err(ClarityError::from)
-        })?;
+        let clarity_version = self.callee_clarity_version(contract)?;
 
         // The ABI's abort hook is `FnMut` (an engine may hold it across a
         // call frame); the trait's is `FnOnce`. Adapt by consuming on the
@@ -2555,6 +2550,34 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
 }
 
 impl ClarityTransactionConnection<'_, '_> {
+    /// The language version to select an engine with for a top-level call into
+    /// `contract`, read from the callee's stored interface record.
+    ///
+    /// This deliberately reads only the stored analysis, never the contract
+    /// itself. Loading a contract is *metered* work — the engine charges
+    /// `LoadContract` for it — and it can fail on its own (from Epoch 3.4 on,
+    /// `ContractContext::canonicalize_types` sanitizes stored constants and can
+    /// reject them). Doing that load out here, outside the cost tracker, would
+    /// let a transaction abort having been charged nothing for work the engine
+    /// is accountable for.
+    ///
+    /// The legacy fallback matches [`ClarityEngineDispatcher::select_engine`],
+    /// which nested `contract-call?` dispatch already uses: a contract with no
+    /// persisted analysis can only be the legacy engine's, and a contract that
+    /// does not exist at all must reach the engine so that the interpreter
+    /// raises `NoSuchContract` on the metered path, exactly as before.
+    fn callee_clarity_version(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Result<ClarityVersion, ClarityError> {
+        let stored = self.with_clarity_db_readonly(|db| {
+            StoredContractAnalysis::load(db, contract).map_err(ClarityError::from)
+        })?;
+        Ok(stored
+            .map(|analysis| analysis.clarity_version)
+            .unwrap_or(ClarityVersion::Clarity1))
+    }
+
     /// Run one interaction against this connection's state through the
     /// Clarity engine ABI.
     ///

@@ -270,6 +270,7 @@ mod tests {
     use clarity::vm::engine::{CostBudget, TransactionContext};
     use clarity::vm::resource_limiter::ResourceBudget;
     use clarity::vm::types::{PrincipalData, StandardPrincipalData, Value};
+    use clarity::vm::version::legacy_default_clarity_version_for_epoch;
     use stacks_common::consts::CHAIN_ID_TESTNET;
 
     use super::*;
@@ -441,6 +442,12 @@ mod tests {
             );
             if let Some(version) = expected {
                 assert_eq!(default_clarity_version_for_epoch(epoch), version);
+                // The legacy engine's frozen compatibility entry points carry
+                // their own copy of this mapping. A contract deployed through
+                // the manifest and one deployed through a legacy entry point
+                // must land on the same language version, so the two copies
+                // must never drift.
+                assert_eq!(legacy_default_clarity_version_for_epoch(epoch), version);
             }
         }
     }
@@ -467,6 +474,10 @@ mod tests {
             let manifest = ClarityEngineManifest::for_epoch(epoch);
             assert_eq!(manifest.ruleset(), expected);
             assert_eq!(kernel_ruleset_for_epoch(epoch), expected);
+            // The kernel carries the same mapping for engines that build a
+            // context from a bare epoch rather than from the manifest. An
+            // engine reached either way has to agree on consensus behavior.
+            assert_eq!(KernelRuleset::for_stacks_epoch(epoch), expected);
         }
     }
 

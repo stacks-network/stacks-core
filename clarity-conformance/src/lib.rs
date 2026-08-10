@@ -189,17 +189,7 @@ pub fn run_case(engine: &dyn Engine, case: &VectorCase) -> Result<Vec<Observatio
         db.commit()
             .map_err(|error| format!("Failed to commit test epoch: {error}"))?;
     }
-    let ruleset = match case.epoch {
-        StacksEpochId::Epoch41 => KernelRuleset::V4,
-        StacksEpochId::Epoch40 | StacksEpochId::Epoch34 => KernelRuleset::V3,
-        StacksEpochId::Epoch24
-        | StacksEpochId::Epoch25
-        | StacksEpochId::Epoch30
-        | StacksEpochId::Epoch31
-        | StacksEpochId::Epoch32
-        | StacksEpochId::Epoch33 => KernelRuleset::V2,
-        _ => KernelRuleset::V1,
-    };
+    let ruleset = KernelRuleset::for_stacks_epoch(case.epoch);
     let mut context = TransactionContext::new(
         store.as_clarity_db(),
         false,

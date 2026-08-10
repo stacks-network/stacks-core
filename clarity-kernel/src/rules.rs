@@ -20,6 +20,7 @@
 //! needs to understand the host's epoch numbering.
 
 use clarity_types::types::SerializationRules;
+use stacks_common::types::StacksEpochId;
 
 /// A cumulative, kernel-owned consensus ruleset identifier.
 ///
@@ -48,6 +49,41 @@ impl KernelRuleset {
             Self::V1 => SerializationRules::PRE_SANITIZATION,
             Self::V2 | Self::V3 => SerializationRules::SANITIZED,
             Self::V4 => SerializationRules::STRICT_TYPED_TUPLES,
+        }
+    }
+
+    /// The ruleset a Stacks protocol epoch selects.
+    ///
+    /// This is the single definition of that mapping. It lives here because
+    /// every crate that needs it — the legacy engine's compatibility entry
+    /// points, gate-free engines constructing a context from a bare epoch, the
+    /// conformance harness — depends on this crate and on nothing else in
+    /// common. `StacksEpochId` already appears throughout the kernel's public
+    /// API, so naming it here costs no new coupling.
+    ///
+    /// The Stacks host keeps its own authoritative copy in its engine manifest,
+    /// because protocol policy is the host's to decide and its exhaustive match
+    /// forces a deliberate choice for each new epoch. That copy and this one
+    /// must agree; `stackslib` has a test that asserts they do for every epoch.
+    ///
+    /// Kept exhaustive for the same reason: adding an epoch must not silently
+    /// inherit a ruleset.
+    pub const fn for_stacks_epoch(epoch: StacksEpochId) -> Self {
+        match epoch {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23 => Self::V1,
+            StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => Self::V2,
+            StacksEpochId::Epoch34 | StacksEpochId::Epoch40 => Self::V3,
+            StacksEpochId::Epoch41 => Self::V4,
         }
     }
 }

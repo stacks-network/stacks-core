@@ -14,9 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::analysis::contract_interface_builder::{
-    build_contract_interface, ContractInterface,
-};
+use clarity::vm::analysis::contract_interface_builder::ContractInterface;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::Value;
 use serde_json::json;
@@ -310,10 +308,13 @@ pub fn make_new_block_txs_payload(
         status,
         raw_result: receipt.result.clone(),
         raw_tx,
-        contract_interface: receipt.contract_analysis.as_ref().map(|analysis| {
-            build_contract_interface(analysis)
-                .expect("FATAL: failed to serialize contract publish receipt")
-        }),
+        // The stored interface record already carries the built interface --
+        // `run_analysis` populates it from `build_contract_interface` for every
+        // contract it analyzes -- so read it rather than rebuilding it here.
+        contract_interface: receipt
+            .contract_analysis
+            .as_ref()
+            .and_then(|analysis| analysis.contract_interface.clone()),
         burnchain_op,
         execution_cost: receipt.execution_cost.clone(),
         microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),

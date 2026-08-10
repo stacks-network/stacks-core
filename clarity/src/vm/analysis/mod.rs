@@ -106,19 +106,7 @@ pub fn mem_type_check(
         true,
         ResourceLimiter::unlimited(),
     ) {
-        Ok(x) => {
-            // return the first type result of the type checker
-
-            let first_type = x
-                .type_map
-                .as_ref()
-                .ok_or_else(|| StaticCheckErrorKind::Unreachable("Should be non-empty".into()))?
-                .get_type_expected(x.expressions.last().ok_or_else(|| {
-                    StaticCheckErrorKind::Unreachable("Should be non-empty".into())
-                })?)
-                .cloned();
-            Ok((first_type, x))
-        }
+        Ok(analysis) => Ok((analysis.type_of_final_expression()?, analysis)),
         Err(e) => Err(e.0),
     }
 }
@@ -148,6 +136,14 @@ pub fn type_check(
         ResourceLimiter::unlimited(),
     )
     .map_err(|e| e.0)
+}
+
+/// The shared kernel behavior a Stacks epoch selects for the legacy engine.
+///
+/// The host owns this mapping for dispatched execution; the legacy entry points
+/// that still take a bare epoch derive it here so both agree.
+pub fn kernel_ruleset_for_epoch(epoch: StacksEpochId) -> KernelRuleset {
+    KernelRuleset::for_stacks_epoch(epoch)
 }
 
 /// Run the full static-analysis pipeline (read-only, type, trait and arithmetic
@@ -194,15 +190,7 @@ pub fn run_analysis(
     build_type_map: bool,
     resource_limiter: ResourceLimiter,
 ) -> Result<ContractAnalysis, Box<(StaticCheckError, CostTrackerHandle)>> {
-    let ruleset = if epoch >= StacksEpochId::Epoch41 {
-        KernelRuleset::V4
-    } else if epoch >= StacksEpochId::Epoch34 {
-        KernelRuleset::V3
-    } else if epoch >= StacksEpochId::Epoch24 {
-        KernelRuleset::V2
-    } else {
-        KernelRuleset::V1
-    };
+    let ruleset = kernel_ruleset_for_epoch(epoch);
     run_analysis_with_ruleset(
         contract_identifier,
         expressions,
@@ -240,7 +228,12 @@ pub fn run_analysis_with_ruleset(
         version,
     );
     let result = analysis_db.execute(|db| {
-        ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
+        let read_only_before_types = epoch.performs_read_only_checks_before_type_checks();
+        let read_only_after_types = !read_only_before_types;
+
+        if read_only_before_types {
+            ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
+        }
         if epoch >= StacksEpochId::Epoch21 {
             TypeChecker2_1::run_pass(
                 &epoch,
@@ -252,6 +245,9 @@ pub fn run_analysis_with_ruleset(
             )?;
         } else {
             TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, build_type_map)?;
+        }
+        if read_only_after_types {
+            ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
         }
         TraitChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);

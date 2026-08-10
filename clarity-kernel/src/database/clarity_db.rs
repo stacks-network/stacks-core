@@ -1846,6 +1846,24 @@ impl ClarityDatabase<'_> {
         )
     }
 
+    /// The epoch whose type-admission rules govern a map key presented to a
+    /// *read*, which is the epoch recorded in the database rather than the one
+    /// the transaction is executing in.
+    ///
+    /// The two agree at the chain tip, but inside an `(at-block ...)` scope the
+    /// store is retargeted at an ancestor block whose recorded epoch can be
+    /// older, and reads made there have always used the ancestor's admission
+    /// rules. The distinction is observable: pre-2.1 admission rejects a
+    /// callable value outright, while 2.1+ admission concretizes it first, so a
+    /// key that errors under the older rules is accepted under the newer ones.
+    ///
+    /// Writes need no equivalent: `at-block` evaluates its body in a read-only
+    /// frame, so a retargeted store can never be written to and the executing
+    /// epoch the write paths take is always the recorded one.
+    fn map_key_admission_epoch(&mut self) -> Result<StacksEpochId, VmExecutionError> {
+        self.get_clarity_epoch_version()
+    }
+
     pub fn fetch_entry_unknown_descriptor(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1866,7 +1884,11 @@ impl ClarityDatabase<'_> {
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
     ) -> Result<Value, VmExecutionError> {
-        if !map_descriptor.key_type.admits(epoch, key_value)? {
+        let admission_epoch = self.map_key_admission_epoch()?;
+        if !map_descriptor
+            .key_type
+            .admits(&admission_epoch, key_value)?
+        {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 key_value.to_error_string(),
@@ -1894,7 +1916,11 @@ impl ClarityDatabase<'_> {
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
     ) -> Result<ValueResult, VmExecutionError> {
-        if !map_descriptor.key_type.admits(epoch, key_value)? {
+        let admission_epoch = self.map_key_admission_epoch()?;
+        if !map_descriptor
+            .key_type
+            .admits(&admission_epoch, key_value)?
+        {
             return Err(RuntimeCheckErrorKind::TypeValueError(
                 Box::new(map_descriptor.key_type.clone()),
                 key_value.to_error_string(),
