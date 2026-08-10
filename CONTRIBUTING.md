@@ -212,6 +212,14 @@ mask compiler warnings with macros.
 
 Contributions should not contain `unsafe` blocks if at all possible.
 
+### Preventing Accidental Releases ("DO NOT RELEASE" Markers)
+
+To safeguard against accidentally deploying incomplete work, experimental features, or unvetted consensus changes, our release pipeline includes an automated check for release-blocking markers.
+
+- **How to use it:** If a pull request contains code or configuration that must **never** be included in a production release, add the exact string `"DO NOT RELEASE"` in a comment or file within the codebase.
+- **CI Safety Check:** During automated release workflows, the `check-do-not-release` job recursively scans the codebase (excluding `.git` and `.github`). If it detects the string anywhere, it immediately halts the pipeline, logs an inline error annotation, and writes a detailed breakdown to the GitHub Job Summary showing every location where the phrase was found.
+- **Resolving the block:** A release cannot proceed until all instances of `"DO NOT RELEASE"` are removed from the codebase and merged to the target branch.
+
 # Coding Guidelines
 
 ## Documentation
