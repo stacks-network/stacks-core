@@ -1,4 +1,0 @@
-interface:
-  display_name: "Pre-PR Review"
-  short_description: "Review local changes using repository PR policy"
-  default_prompt: "Use $pre-pr-review to review my current branch and uncommitted changes before I update the PR."
