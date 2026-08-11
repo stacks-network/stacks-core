@@ -116,7 +116,11 @@ impl MemoryTracker {
     }
 
     pub fn from_max_allocation(limit_bytes: u64) -> Self {
-        tracking_allocator_installed();
+        if !tracking_allocator_installed() {
+            error!(
+                "TrackingAllocator is not installed as the global allocator; any configured memory limits will never trigger"
+            );
+        }
 
         Self::MaxAllocated {
             baseline: thread_allocated(),
