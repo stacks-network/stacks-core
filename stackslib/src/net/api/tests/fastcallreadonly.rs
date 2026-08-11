@@ -146,7 +146,7 @@ fn test_try_parse_request() {
 #[case::body_wire_size(vec![bool_list_hex(2048)], 1024, "exceeds parse memory limit")]
 // the argument-count cap holds even with the byte budget disabled.
 #[case::argument_count(
-    vec!["03".into(); read_only_parse::MAX_READ_ONLY_CALL_ARGUMENTS + 1],
+    vec!["03".into(); read_only::parse::MAX_READ_ONLY_CALL_ARGUMENTS + 1],
     0,
     "Too many argument values"
 )]

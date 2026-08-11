@@ -69,7 +69,7 @@ pub mod postmempoolquery;
 pub mod postmicroblock;
 pub mod poststackerdbchunk;
 pub mod posttransaction;
-mod read_only_parse;
+mod read_only;
 
 #[cfg(test)]
 mod tests;

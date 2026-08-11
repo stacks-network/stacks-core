@@ -29,7 +29,7 @@ use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 
 use crate::net::api::callreadonly::{CallReadOnlyResponse, RPCCallReadOnlyRequestHandler};
-use crate::net::api::read_only_parse::{parse_read_only_call_body, CallReadOnlyRequestBody};
+use crate::net::api::read_only::parse::{parse_read_only_call_body, CallReadOnlyRequestBody};
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
     HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,

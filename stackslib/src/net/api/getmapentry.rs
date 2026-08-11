@@ -25,7 +25,7 @@ use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::to_hex;
 
-use crate::net::api::read_only_parse::parse_map_key_body;
+use crate::net::api::read_only::parse::parse_map_key_body;
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
