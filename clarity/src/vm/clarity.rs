@@ -112,15 +112,15 @@ impl std::error::Error for ClarityError {
 #[allow(clippy::large_enum_variant)]
 pub enum IncludedRuntimeTxError {
     /// An execution failure that does not invalidate the transaction.
+    #[non_exhaustive]
     Acceptable {
         /// The underlying Clarity error.
         error: ClarityError,
         /// A short description used when logging the failure.
         err_type: &'static str,
-        #[doc(hidden)]
-        _private: (),
     },
     /// Execution stopped by an abort callback, such as a failed post-condition check.
+    #[non_exhaustive]
     AbortedByCallback {
         /// What the output value of the transaction would have been.
         output: Option<Value>,
@@ -130,38 +130,26 @@ pub enum IncludedRuntimeTxError {
         tx_events: Vec<StacksTransactionEvent>,
         /// A human-readable explanation for aborting the transaction.
         reason: String,
-        #[doc(hidden)]
-        _private: (),
     },
     /// A non-rejectable runtime analysis error in Epoch 2.1 or later.
-    AnalysisError {
-        error: RuntimeCheckErrorKind,
-        #[doc(hidden)]
-        _private: (),
-    },
+    #[non_exhaustive]
+    AnalysisError { error: RuntimeCheckErrorKind },
 }
 
 /// An execution-phase failure that prevents a transaction from being included in a block.
 pub enum RejectedRuntimeTxError {
     /// The execution cost and the budget it exceeded.
+    #[non_exhaustive]
     CostError {
         cost: ExecutionCost,
         budget: ExecutionCost,
-        #[doc(hidden)]
-        _private: (),
     },
     /// Execution exceeded a non-consensus resource budget.
-    ExecutionResourceBudgetExceeded {
-        message: String,
-        #[doc(hidden)]
-        _private: (),
-    },
+    #[non_exhaustive]
+    ExecutionResourceBudgetExceeded { message: String },
     /// An error that invalidates the transaction.
-    Rejectable {
-        error: ClarityError,
-        #[doc(hidden)]
-        _private: (),
-    },
+    #[non_exhaustive]
+    Rejectable { error: ClarityError },
 }
 
 /// The authoritative block-inclusion disposition of an execution-phase failure.
@@ -192,14 +180,12 @@ pub fn handle_clarity_runtime_error(
             IncludedRuntimeTxError::Acceptable {
                 error,
                 err_type: "runtime error",
-                _private: (),
             }
         }
         ClarityError::Interpreter(VmExecutionError::EarlyReturn(_)) => {
             IncludedRuntimeTxError::Acceptable {
                 error,
                 err_type: "short return/panic",
-                _private: (),
             }
         }
         ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_check_err)) => {
@@ -208,12 +194,10 @@ pub fn handle_clarity_runtime_error(
                     error: ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
                         runtime_check_err,
                     )),
-                    _private: (),
                 });
             }
             IncludedRuntimeTxError::AnalysisError {
                 error: runtime_check_err,
-                _private: (),
             }
         }
         ClarityError::AbortedByCallback {
@@ -226,27 +210,21 @@ pub fn handle_clarity_runtime_error(
             assets_modified: *assets_modified,
             tx_events,
             reason,
-            _private: (),
         },
         ClarityError::CostError(cost, budget) => {
             return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::CostError {
                 cost,
                 budget,
-                _private: (),
             });
         }
         ClarityError::ExecutionResourceBudgetExceeded(s) => {
             return ClarityRuntimeTxError::Rejected(
-                RejectedRuntimeTxError::ExecutionResourceBudgetExceeded {
-                    message: s,
-                    _private: (),
-                },
+                RejectedRuntimeTxError::ExecutionResourceBudgetExceeded { message: s },
             );
         }
         unhandled_error => {
             return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Rejectable {
                 error: unhandled_error,
-                _private: (),
             });
         }
     };
@@ -257,15 +235,17 @@ pub fn handle_clarity_runtime_error(
 #[must_use]
 pub enum ClarityAnalysisTxError {
     /// The failed deployment remains included and produces a failure receipt.
-    Included(ClarityError),
+    #[non_exhaustive]
+    Included { error: ClarityError },
     /// The failed deployment prevents the transaction from being included.
-    Rejected(ClarityError),
+    #[non_exhaustive]
+    Rejected { error: ClarityError },
 }
 
 impl ClarityAnalysisTxError {
     /// Whether the classified analysis failure still results in an included transaction.
     pub fn is_included_in_block(&self) -> bool {
-        matches!(self, Self::Included(_))
+        matches!(self, Self::Included { .. })
     }
 }
 
@@ -283,9 +263,9 @@ pub fn handle_clarity_analysis_error(
         _ => false,
     };
     if is_included {
-        ClarityAnalysisTxError::Included(error)
+        ClarityAnalysisTxError::Included { error }
     } else {
-        ClarityAnalysisTxError::Rejected(error)
+        ClarityAnalysisTxError::Rejected { error }
     }
 }
 

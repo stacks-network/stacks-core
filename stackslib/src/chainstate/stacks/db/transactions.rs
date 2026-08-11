@@ -1497,7 +1497,9 @@ impl StacksChainState {
                     Err(e) => {
                         log_unreachable_error(&e, &tx.txid());
                         match handle_clarity_analysis_error(e, clarity_tx.get_epoch()) {
-                            ClarityAnalysisTxError::Rejected(rejected) => match rejected {
+                            ClarityAnalysisTxError::Rejected {
+                                error: rejected, ..
+                            } => match rejected {
                                 ClarityError::CostError(cost_after, budget) => {
                                     warn!(
                                             "Block compute budget exceeded on {}: cost before={}, after={}, budget={}",
@@ -1528,7 +1530,9 @@ impl StacksChainState {
                                     return Err(Error::ClarityError(other_error));
                                 }
                             },
-                            ClarityAnalysisTxError::Included(other_error) => {
+                            ClarityAnalysisTxError::Included {
+                                error: other_error, ..
+                            } => {
                                 // this analysis isn't free -- convert to runtime error
                                 let mut analysis_cost = clarity_tx.cost_so_far();
                                 analysis_cost
