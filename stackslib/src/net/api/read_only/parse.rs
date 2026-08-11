@@ -22,7 +22,7 @@
 
 use std::fmt;
 
-use clarity::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
+use clarity::vm::resource_limiter::{ResourceBudget, ResourceLimitExceeded, ResourceLimiter};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::Value;
 use serde::de::{self, DeserializeOwned, IgnoredAny, SeqAccess, Visitor};
@@ -102,6 +102,17 @@ struct ParseLimiter {
     limiter: ResourceLimiter,
 }
 
+/// 400 for a limit overrun already measured by the limiter.
+fn exceeded_mem_limit(e: ResourceLimitExceeded) -> Error {
+    let msg = match e {
+        ResourceLimitExceeded::MaxAllocationExceeded(msg)
+        | ResourceLimitExceeded::MaxDurationExceeded(msg) => msg,
+    };
+    Error::DecodeError(format!(
+        "Read-only argument parsing exceeded memory limit: {msg}"
+    ))
+}
+
 impl ParseLimiter {
     /// Starts measuring now; a `limit_bytes` of `0` disables all checks.
     fn new(limit_bytes: u64) -> Self {
@@ -112,26 +123,15 @@ impl ParseLimiter {
         }
     }
 
-    /// Reject if net retention since the baseline, plus an upcoming
-    /// allocation of `bytes`, exceeds the limit.
+    /// Reject an upcoming allocation of `bytes`. Retention is checked first so
+    /// an over-budget parse and an oversized value report different errors.
     fn preflight(&self, bytes: u64) -> Result<(), Error> {
-        let Some(limit_bytes) = self.limiter.max_allocated_bytes() else {
-            return Ok(());
-        };
-
-        let allocated = self.limiter.net_allocated_bytes().unwrap_or(0);
-        if allocated > limit_bytes {
-            return Err(Error::DecodeError(format!(
-                "Read-only argument parsing exceeded memory limit: {allocated} > {limit_bytes}"
-            )));
-        }
-        if limit_bytes - allocated < bytes {
-            return Err(Error::DecodeError(
-                "Read-only argument value exceeds parse memory limit".into(),
-            ));
-        }
-
-        Ok(())
+        self.limiter
+            .check_can_allocate(0)
+            .map_err(exceeded_mem_limit)?;
+        self.limiter.check_can_allocate(bytes).map_err(|_e| {
+            Error::DecodeError("Read-only argument value exceeds parse memory limit".into())
+        })
     }
 
     /// Reject if net retention since the baseline exceeds the limit.
@@ -142,15 +142,8 @@ impl ParseLimiter {
     /// Net bytes retained since the baseline (`0` without the tracking
     /// allocator), failing if the budget is already exhausted.
     fn finish(&self) -> Result<u64, Error> {
-        let retained = self.limiter.net_allocated_bytes().unwrap_or(0);
-        if let Some(limit_bytes) = self.limiter.max_allocated_bytes() {
-            if retained >= limit_bytes {
-                return Err(Error::DecodeError(format!(
-                    "Read-only argument parsing exceeded memory limit: {retained} >= {limit_bytes}"
-                )));
-            }
-        }
-        Ok(retained)
+        self.checkpoint()?;
+        Ok(self.limiter.net_allocated_bytes().unwrap_or(0))
     }
 }
 
