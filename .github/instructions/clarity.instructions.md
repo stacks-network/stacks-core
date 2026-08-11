@@ -9,7 +9,7 @@ Clarity files include deployable contracts and parser, analysis, and type-checke
 ## Contract semantics and validation
 
 - Check caller identity and authorization across `contract-caller`, `tx-sender`, trait dispatch, nested `contract-call?`, cross-contract calls, and read-only behavior, including relevant failure cases.
-- Verify payout amounts, fee treatment, request IDs, return values, withdrawal behavior, admin or sweep behavior, and boundary amounts.
+- Verify value flows and privileged operations, such as payouts, fees, withdrawals, and admin or sweep behavior, against the documented and intended behavior, including at boundary amounts.
 - Check contract-call boundaries for malformed or duplicate inputs and repeated or replayed requests.
 - Check map and variable updates for partial state changes and failure behavior; verify contract state after failed execution, not only the returned error.
 - Verify changed public and read-only functions preserve their documented response types and error behavior.

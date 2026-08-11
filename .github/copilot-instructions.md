@@ -24,8 +24,7 @@ Path-specific guidance under `.github/instructions/` adds language- and subsyste
 ## Review comment threshold
 
 - Leave fewer, higher-confidence comments rather than exhaustive observations.
-- Identify the triggering condition, explain the impact in stacks-core terms, and suggest a specific fix or validation.
-- Point to the exact changed call, state transition, path, invariant, or input that causes the issue.
+- Point to the exact changed call, state transition, path, invariant, or input that triggers the issue, explain the impact in stacks-core terms, and suggest a specific fix or validation.
 - Trace nearby callers, invariants, and tests before reporting an issue; do not report cases already ruled out by the changed context.
 - If a required invariant cannot be confirmed, state the concern conditionally and suggest an assertion or test that would establish it.
 - Avoid issues already handled reliably by the compiler, clippy, rustfmt, or existing CI.

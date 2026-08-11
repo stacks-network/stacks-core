@@ -27,16 +27,13 @@ For local reviews without a PR description, use the user's request and commit me
 2. Find every `*.instructions.md` file under `.github/instructions/`. Read only each file's YAML frontmatter and match its comma-separated `applyTo` globs against the complete changed-file list.
 3. Read and apply the full contents of every matching file. Apply all matches when scopes overlap; if none match, use only the repository-wide instructions. Do not read the bodies of unmatched files.
 
-Treat the `.github` files as authoritative. Do not reproduce or invent a separate scope mapping, and do not apply their review criteria as code-generation requirements.
+Treat the `.github` files as authoritative, and do not apply their review criteria as code-generation requirements.
 
 ## Review the changes
 
-- Review only defects introduced or exposed by the selected diff.
+- Report only defects introduced or exposed by the selected diff; do not flag pre-existing issues the diff leaves unchanged.
 - Inspect enough surrounding code, callers, tests, and documentation to validate each potential finding.
-- Prefer validation commands documented in `CONTRIBUTING.md` and the relevant CI workflows over generic tool defaults.
-- Run focused validation when it materially increases confidence and is safe in the current environment. Report what was and was not run.
-- Follow the repository-wide comment threshold and every applicable path-specific instruction.
-- Do not report an issue that is merely hypothetical when the changed context rules it out.
+- Optionally run focused validation when it materially increases confidence and is safe in the current environment; use commands documented in `CONTRIBUTING.md` rather than generic tool defaults, and report what was and was not run.
 
 ## Report findings
 
