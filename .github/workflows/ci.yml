@@ -77,7 +77,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -104,7 +104,7 @@ jobs:
     runs-on: *shared_config
     steps:
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -145,7 +145,7 @@ jobs:
       # Checkout the code
       #   - only .github and versions.toml are required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -212,7 +212,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -524,7 +524,7 @@ jobs:
 
       # Checkout the code (Coveralls requires source code to be available when action is called)
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
            ref: ${{ github.event.pull_request.head.sha || github.ref }}
 

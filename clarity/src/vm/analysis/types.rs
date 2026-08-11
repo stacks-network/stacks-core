@@ -274,6 +274,19 @@ impl ContractAnalysis {
         }
         Ok(())
     }
+
+    pub fn type_of_final_expression(&self) -> Result<Option<TypeSignature>, StaticCheckError> {
+        Ok(self
+            .type_map
+            .as_ref()
+            .ok_or_else(|| StaticCheckErrorKind::Unreachable("Should be non-empty".into()))?
+            .get_type_expected(
+                self.expressions.last().ok_or_else(|| {
+                    StaticCheckErrorKind::Unreachable("Should be non-empty".into())
+                })?,
+            )
+            .cloned())
+    }
 }
 
 #[cfg(test)]

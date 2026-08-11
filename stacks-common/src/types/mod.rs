@@ -542,6 +542,12 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether typed tuple deserialization requires every declared field to be
+    /// present exactly once after sanitization.
+    pub fn enforces_exact_typed_tuple_field_set(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_specific_budget_extends(&self) -> bool {
         self >= &StacksEpochId::Epoch33
     }
@@ -870,6 +876,16 @@ impl StacksEpochId {
     /// earlier epochs must preserve the masking.
     pub fn surfaces_trait_compliance_cost_errors(&self) -> bool {
         self >= &StacksEpochId::Epoch40
+    }
+
+    /// During the contract analysis phase, which check runs first --
+    /// the read-only check or the type check? Until Epoch 4.0, the
+    /// read-only check ran first. But since the implementation of the
+    /// read-only checker makes some assumptions about type correctness,
+    /// it is more appropriate for the type checker to run first, so
+    /// this behavior changes beginning with Epoch 4.1.
+    pub fn performs_read_only_checks_before_type_checks(&self) -> bool {
+        self < &StacksEpochId::Epoch41
     }
 
     /// Return the network epoch associated with the StacksEpochId
