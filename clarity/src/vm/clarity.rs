@@ -165,6 +165,8 @@ pub enum RejectedRuntimeTxError {
 }
 
 /// The authoritative block-inclusion disposition of an execution-phase failure.
+// Size is inherited from `IncludedRuntimeTxError`, which is left unboxed as it was in `stackslib`.
+#[allow(clippy::large_enum_variant)]
 #[must_use]
 pub enum ClarityRuntimeTxError {
     /// The transaction remains included, charges its fee, and advances its nonces.
