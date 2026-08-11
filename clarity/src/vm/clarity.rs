@@ -114,8 +114,8 @@ pub enum IncludedRuntimeTxError {
     /// An execution failure that does not invalidate the transaction.
     #[non_exhaustive]
     Acceptable {
-        /// The underlying Clarity error.
-        error: ClarityError,
+        /// The underlying interpreter error: always a runtime error or an early return.
+        error: VmExecutionError,
         /// A short description used when logging the failure.
         err_type: &'static str,
     },
@@ -176,13 +176,13 @@ pub fn handle_clarity_runtime_error(
     epoch_id: StacksEpochId,
 ) -> ClarityRuntimeTxError {
     let included_error = match error {
-        ClarityError::Interpreter(VmExecutionError::Runtime(_, _)) => {
+        ClarityError::Interpreter(error @ VmExecutionError::Runtime(..)) => {
             IncludedRuntimeTxError::Acceptable {
                 error,
                 err_type: "runtime error",
             }
         }
-        ClarityError::Interpreter(VmExecutionError::EarlyReturn(_)) => {
+        ClarityError::Interpreter(error @ VmExecutionError::EarlyReturn(_)) => {
             IncludedRuntimeTxError::Acceptable {
                 error,
                 err_type: "short return/panic",
@@ -707,9 +707,8 @@ mod unit_tests {
                 assert_eq!(err_type, "short return/panic");
                 assert!(matches!(
                     error,
-                    ClarityError::Interpreter(VmExecutionError::EarlyReturn(
-                        EarlyReturnError::UnwrapFailed(value)
-                    )) if *value == Value::Int(42)
+                    VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(value))
+                        if *value == Value::Int(42)
                 ));
             }
             _ => panic!("early returns must be included as acceptable runtime errors"),

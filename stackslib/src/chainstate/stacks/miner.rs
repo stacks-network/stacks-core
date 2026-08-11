@@ -679,16 +679,7 @@ impl TransactionResult {
                 ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Acceptable {
                     error,
                     ..
-                }) => {
-                    if let ClarityError::Parse(ref parse_err) = error {
-                        info!("Parse error: {}", parse_err; "txid" => %tx.txid());
-                        if parse_err.rejectable_in_epoch(epoch_id) {
-                            info!("Problematic transaction failed parse checks"; "txid" => %tx.txid());
-                            return (true, Error::ClarityError(error));
-                        }
-                    }
-                    Error::ClarityError(error)
-                }
+                }) => Error::ClarityError(ClarityError::Interpreter(error)),
                 ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::CostError {
                     cost,
                     budget,
