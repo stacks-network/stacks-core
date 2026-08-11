@@ -730,6 +730,37 @@ mod unit_tests {
         );
     }
 
+    /// Runtime-check errors are classified by `rejectable() || epoch_id < Epoch21`. The test
+    /// above pins the epoch half; this pins the `rejectable()` half. Every epoch used here is
+    /// >= 2.1, so the epoch half is false and only `rejectable()` can reject.
+    #[test]
+    fn rejectable_runtime_checks_are_rejected_in_every_epoch() {
+        for epoch in [
+            StacksEpochId::Epoch21,
+            StacksEpochId::Epoch33,
+            StacksEpochId::latest(),
+        ] {
+            // `RuntimeCheckErrorKind` is not `Clone`, so rebuild the set for each epoch.
+            let rejectable = [
+                RuntimeCheckErrorKind::Unreachable("bug".into()),
+                RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(1, 0),
+                RuntimeCheckErrorKind::PoxStxAssetMapOverwrite,
+            ];
+
+            for kind in rejectable {
+                // Pin the premise: if a kind stops being rejectable, fail here rather than below.
+                assert!(kind.rejectable(), "{kind:?} is expected to be rejectable");
+
+                let label = format!("{kind:?}");
+                let error = ClarityError::Interpreter(VmExecutionError::RuntimeCheck(kind));
+                assert!(
+                    !handle_clarity_runtime_error(error, epoch).is_included_in_block(),
+                    "{label} must never be included in a block, even in {epoch}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn analysis_failure_excludes_resource_exhaustion() {
         let epoch = StacksEpochId::latest();
