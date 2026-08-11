@@ -139,8 +139,8 @@ impl ParseLimiter {
         self.preflight(0)
     }
 
-    /// Net bytes retained since the baseline (`0` without the tracking
-    /// allocator), failing if the budget is already exhausted.
+    /// Net bytes retained since the baseline (`0` when untracked), to deduct
+    /// from the execution budget.
     fn finish(&self) -> Result<u64, Error> {
         self.checkpoint()?;
         Ok(self.limiter.net_allocated_bytes().unwrap_or(0))
@@ -159,10 +159,9 @@ pub fn remaining_execution_mem_budget(
     Some(total_mem_bytes.saturating_sub(parse_retained_mem_bytes))
 }
 
-/// Parse a JSON body. The wire size bounds what parsing can retain, so
-/// preflighting it rejects oversized bodies before allocating anything (and
-/// even without the tracking allocator). The body buffer itself predates the
-/// baseline and is bounded by the HTTP body size cap, not by this budget.
+/// Parse a JSON body, preflighting its wire size: it approximates what parsing
+/// retains, so oversized bodies are rejected before allocating. The body buffer
+/// is allocated before the baseline, so the HTTP length check bounds it instead.
 fn parse_json_body<T: DeserializeOwned>(body: &[u8], limiter: &ParseLimiter) -> Result<T, Error> {
     limiter.preflight(body.len() as u64)?;
     let parsed: T = serde_json::from_slice(body)
