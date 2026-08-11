@@ -265,6 +265,7 @@ const STATUS_RESP_PROBLEMATIC_SKIPPED: &str = "problematic_skipped";
 pub fn make_new_block_txs_payload(
     receipt: &StacksTransactionReceipt,
     tx_index: u32,
+    include_contract_interface: bool,
 ) -> TransactionEventPayload<'_> {
     let tx = &receipt.transaction;
 
@@ -310,10 +311,14 @@ pub fn make_new_block_txs_payload(
         status,
         raw_result: receipt.result.clone(),
         raw_tx,
-        contract_interface: receipt.contract_analysis.as_ref().map(|analysis| {
-            build_contract_interface(analysis)
-                .expect("FATAL: failed to serialize contract publish receipt")
-        }),
+        contract_interface: if include_contract_interface {
+            receipt.contract_analysis.as_ref().map(|analysis| {
+                build_contract_interface(analysis)
+                    .expect("FATAL: failed to serialize contract publish receipt")
+            })
+        } else {
+            None
+        },
         burnchain_op,
         execution_cost: receipt.execution_cost.clone(),
         microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),
@@ -361,6 +366,7 @@ pub fn make_new_block_processed_payload(
     signer_bitvec_opt: &Option<BitVec<4000>>,
     block_timestamp: Option<u64>,
     coinbase_height: u64,
+    include_contract_interface: bool,
 ) -> serde_json::Value {
     // Serialize events to JSON
     let serialized_events: Vec<serde_json::Value> = filtered_events
@@ -379,6 +385,7 @@ pub fn make_new_block_processed_payload(
             tx_index
                 .try_into()
                 .expect("BUG: more receipts than U32::MAX"),
+            include_contract_interface,
         );
         serialized_txs.push(payload);
     }
