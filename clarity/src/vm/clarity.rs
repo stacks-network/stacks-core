@@ -662,7 +662,9 @@ mod unit_tests {
     use super::*;
     use crate::vm::analysis::errors::StaticCheckErrorKind;
     use crate::vm::ast::errors::ParseErrorKind;
-    use crate::vm::errors::RuntimeError;
+    use crate::vm::errors::{EarlyReturnError, RuntimeError};
+    use crate::vm::events::{STXBurnEventData, STXEventType};
+    use crate::vm::types::StandardPrincipalData;
 
     #[test]
     fn runtime_error_disposition_is_authoritative() {
@@ -688,6 +690,68 @@ mod unit_tests {
         assert!(!handle_clarity_runtime_error(resource, epoch).is_included_in_block());
         let rejectable = ClarityError::BadTransaction("nope".into());
         assert!(!handle_clarity_runtime_error(rejectable, epoch).is_included_in_block());
+    }
+
+    #[test]
+    fn early_return_is_included_with_its_logging_label() {
+        let error = ClarityError::Interpreter(VmExecutionError::EarlyReturn(
+            EarlyReturnError::UnwrapFailed(Box::new(Value::Int(42))),
+        ));
+
+        match handle_clarity_runtime_error(error, StacksEpochId::latest()) {
+            ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Acceptable {
+                error,
+                err_type,
+                ..
+            }) => {
+                assert_eq!(err_type, "short return/panic");
+                assert!(matches!(
+                    error,
+                    ClarityError::Interpreter(VmExecutionError::EarlyReturn(
+                        EarlyReturnError::UnwrapFailed(value)
+                    )) if *value == Value::Int(42)
+                ));
+            }
+            _ => panic!("early returns must be included as acceptable runtime errors"),
+        }
+    }
+
+    #[test]
+    fn aborted_by_callback_payload_round_trips() {
+        let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+        let mut assets_modified = AssetMap::new();
+        assets_modified
+            .add_stx_burn(&sender, 123)
+            .expect("valid STX burn");
+        let tx_events = vec![StacksTransactionEvent::STXEvent(
+            STXEventType::STXBurnEvent(STXBurnEventData {
+                sender,
+                amount: 123,
+            }),
+        )];
+
+        let error = ClarityError::AbortedByCallback {
+            output: Some(Box::new(Value::Int(42))),
+            assets_modified: Box::new(assets_modified.clone()),
+            tx_events: tx_events.clone(),
+            reason: "post-condition failed".into(),
+        };
+
+        match handle_clarity_runtime_error(error, StacksEpochId::latest()) {
+            ClarityRuntimeTxError::Included(IncludedRuntimeTxError::AbortedByCallback {
+                output,
+                assets_modified: classified_assets,
+                tx_events: classified_events,
+                reason,
+                ..
+            }) => {
+                assert_eq!(output, Some(Value::Int(42)));
+                assert_eq!(classified_assets, assets_modified);
+                assert_eq!(classified_events, tx_events);
+                assert_eq!(reason, "post-condition failed");
+            }
+            _ => panic!("callback aborts must preserve their payload and remain included"),
+        }
     }
 
     #[test]
@@ -804,6 +868,24 @@ mod unit_tests {
             )
             .is_included_in_block()
         );
+    }
+
+    #[test]
+    fn analysis_failure_includes_ordinary_parse_errors() {
+        let epoch = StacksEpochId::latest();
+        let parse_error = ParseError::new(ParseErrorKind::SeparatorExpected("token".into()));
+        assert!(!parse_error.rejectable_in_epoch(epoch));
+
+        match handle_clarity_analysis_error(ClarityError::Parse(parse_error), epoch) {
+            ClarityAnalysisTxError::Included {
+                error: ClarityError::Parse(error),
+                ..
+            } => assert!(matches!(
+                *error.err,
+                ParseErrorKind::SeparatorExpected(ref token) if token == "token"
+            )),
+            _ => panic!("ordinary parse errors must produce included analysis failures"),
+        }
     }
 
     /// `SupertypeTooLarge` stops being rejectable at 3.4.
