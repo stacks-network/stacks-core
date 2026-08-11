@@ -1067,7 +1067,7 @@ impl LocalStateMachine {
                         // We haven't processed this stacks block yet.
                         stacks_block_delayed = true;
                         debug!(
-                            "Signer State: A threshold number of signers have a longer active miner parent tenure view. Signer may have an oudated view.";
+                            "Signer State: A threshold number of signers have a longer active miner parent tenure view. Signer may have an outdated view.";
                             "parent_tenure_id" => %parent_tenure_id,
                             "local_parent_tenure_last_block_height" => local_parent_tenure_last_block_height,
                             "parent_tenure_last_block_height" => parent_tenure_last_block_height,
