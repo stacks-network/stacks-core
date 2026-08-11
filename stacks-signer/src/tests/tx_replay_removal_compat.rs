@@ -22,9 +22,12 @@ use blockstack_lib::chainstate::stacks::{
     StacksTransaction, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
     TransactionPayload, TransactionPostConditionMode, TransactionVersion,
 };
+use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::postblock_proposal::{BlockValidateOk, ValidateRejectCode};
 use clarity::codec::StacksMessageCodec;
-use clarity::types::chainstate::{StacksAddress, StacksPrivateKey};
+use clarity::types::chainstate::{
+    BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksPrivateKey,
+};
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::StateMachineUpdate;
 use serde_json::json;
@@ -227,4 +230,52 @@ fn signer_db_schema_version_is_pinned() {
         19,
         "bumping the schema removes the downgrade path; the dead replay table stays for now"
     );
+}
+
+/// Tripwire 6 — `/v3/tenures/fork_info` responses still carry a `nakamoto_blocks` key.
+///
+/// The field is no longer populated (always `null`), but the **key must still be emitted**. A
+/// signer released before that change declares it as `#[serde(with = ...)]` with no
+/// `#[serde(default)]`, which makes it *required*: serde's `Option`-defaults-to-`None` shortcut
+/// does not apply once `deserialize_with` is set. Omitting the key makes such a signer fail to
+/// parse the entire fork-info response.
+///
+/// The assertion is deliberately on the *serialized JSON*, not on the Rust type: what old signers
+/// depend on is the key being on the wire, and that is what must survive the field's eventual
+/// deletion being staged over two releases.
+#[test]
+fn tenure_forking_info_still_emits_nakamoto_blocks_key() {
+    let info = TenureForkingInfo {
+        burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+        burn_block_height: 100,
+        sortition_id: SortitionId([0x22; 32]),
+        parent_sortition_id: SortitionId([0x33; 32]),
+        consensus_hash: ConsensusHash([0x44; 20]),
+        was_sortition: true,
+        first_block_mined: None,
+        nakamoto_blocks: None,
+    };
+
+    let value = serde_json::to_value(&info).expect("TenureForkingInfo must serialize");
+    assert_eq!(
+        value.get("nakamoto_blocks"),
+        Some(&serde_json::Value::Null),
+        "the key must still be emitted (as null); dropping it makes every pre-removal signer \
+         reject block proposals on the reorg-validation path"
+    );
+
+    // From json with omitted `nakamoto_blocks` field should deserialize properly thanks to #[serde(default)]`
+    let without_key = json!({
+        "burn_block_hash": format!("0x{}", "11".repeat(32)),
+        "burn_block_height": 100,
+        "sortition_id": format!("0x{}", "22".repeat(32)),
+        "parent_sortition_id": format!("0x{}", "33".repeat(32)),
+        "consensus_hash": format!("0x{}", "44".repeat(20)),
+        "was_sortition": true,
+        "first_block_mined": null,
+    });
+    let parsed = serde_json::from_value::<TenureForkingInfo>(without_key).expect(
+        "a response omitting nakamoto_blocks must deserialize, so the field can be dropped later",
+    );
+    assert!(parsed.nakamoto_blocks.is_none());
 }
