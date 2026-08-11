@@ -1,2 +1,0 @@
-`stacks-inspect validate-block` now opens the chainstate and sortition databases once per run instead of once per block, and caches the Nakamoto reward set per reward cycle
-
