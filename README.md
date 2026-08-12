@@ -27,7 +27,7 @@ source $HOME/.cargo/env
 rustup component add rustfmt
 ```
 
-- When building the [`master`](https://github.com/stacks-network/stacks-core/tree/master) branch, ensure you are using the latest stable release:
+- When building the [`main`](https://github.com/stacks-network/stacks-core/tree/main) branch, ensure you are using the latest stable release:
 
 ```bash
 rustup update

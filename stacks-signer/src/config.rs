@@ -282,6 +282,7 @@ pub struct GlobalConfig {
 /// `stacks-signer` binary. All fields with `Option` types will use their
 /// documented defaults when omitted.
 #[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 struct RawConfigFile {
     /// The Stacks node RPC endpoint that this signer will connect to.
     /// ---
@@ -736,8 +737,6 @@ pub fn build_signer_config_tomls(
     password: &str,
     run_stamp: u16,
     mut port_start: usize,
-    max_tx_fee_ustx: Option<u64>,
-    tx_fee_ustx: Option<u64>,
     mut metrics_port_start: Option<usize>,
     chain_id: Option<u32>,
 ) -> Vec<String> {
@@ -771,25 +770,7 @@ db_path = "{db_path}"
             signer_config_toml = format!(
                 r#"
 {signer_config_toml}
-event_timeout = {event_timeout_ms}
-"#
-            )
-        }
-
-        if let Some(max_tx_fee_ustx) = max_tx_fee_ustx {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-max_tx_fee_ustx = {max_tx_fee_ustx}
-"#
-            )
-        }
-
-        if let Some(tx_fee_ustx) = tx_fee_ustx {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-tx_fee_ustx = {tx_fee_ustx}
+event_timeout_ms = {event_timeout_ms}
 "#
             )
         }
@@ -847,6 +828,25 @@ mod tests {
     }
 
     #[test]
+    fn test_unknown_fields_rejected() {
+        let config_toml = r#"
+node_host = "127.0.0.1:20443"
+endpoint = "127.0.0.1:30000"
+network = "testnet"
+auth_password = "abcd"
+db_path = ":memory:"
+stacks_private_key = "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01"
+tenure_idle_timeout_sec = 30 # Error: missing trailing 's' in 'secs'
+"#;
+        let result = RawConfigFile::load_from_str(config_toml);
+        let err = result.expect_err("Config with a misspelled field should fail to parse");
+        assert!(
+            format!("{err:?}").contains("tenure_idle_timeout_sec"),
+            "Error should name the unknown field: {err:?}"
+        );
+    }
+
+    #[test]
     fn build_signer_config_tomls_should_produce_deserializable_strings() {
         let pk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
@@ -865,8 +865,6 @@ mod tests {
             password,
             rand::random(),
             3000,
-            None,
-            None,
             Some(4000),
             None,
         );
@@ -986,8 +984,6 @@ capitulate_miner_view_timeout_secs = 1000
             password,
             rand::random(),
             3000,
-            None,
-            None,
             Some(4000),
             Some(0x80000100),
         );
