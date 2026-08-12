@@ -135,13 +135,7 @@ fn state_machine_update_v2_wire_format_is_frozen() {
 /// Tripwire 2 — a message from a *pre-removal* signer still decodes.
 ///
 /// Until every signer has upgraded, peers keep broadcasting populated replay sets. Those
-/// messages must still parse, and their non-replay fields must survive intact.
-///
-/// NOTE: this asserts decoding **only**, never a byte-identical round trip. After the
-/// removal the transactions are read and discarded, so re-encoding legitimately yields the
-/// empty vector. Asserting round-trip equality here would pass today and fail at the end of
-/// the removal — and the tempting "fix" would be to weaken the test, which is precisely the
-/// mistake these tripwires exist to prevent.
+/// messages must still parse.
 #[test]
 fn state_machine_update_v2_with_populated_replay_set_still_decodes() {
     let txs = vec![make_transaction([1u8; 34]), make_transaction([2u8; 34])];
@@ -155,6 +149,16 @@ fn state_machine_update_v2_with_populated_replay_set_still_decodes() {
     assert_eq!(
         burn_block_height, 100,
         "non-replay fields must survive a populated replay set"
+    );
+
+    let mut reencoded = Vec::new();
+    decoded
+        .consensus_serialize(&mut reencoded)
+        .expect("re-encoding must succeed");
+    assert_eq!(
+        reencoded, bytes,
+        "V1/V2 keep their declared replay_transactions field and the codec is untouched, \
+         so a populated set must survive a decode/encode round trip"
     );
 }
 
