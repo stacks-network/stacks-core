@@ -41,6 +41,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
+use stacks::chainstate::stacks::boot::POX_5_SIGNER_MANAGER_TEST_CONTRACT_SOURCE;
 use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{TransactionEvent, TransactionSuccessEvent};
@@ -605,57 +606,7 @@ fn contract_source_exists(http_origin: &str, addr: &StacksAddress, contract_name
 /// regtest lifecycle tests in `nakamoto_integrations`. `validate-stake!` is a no-op;
 /// `register-self` forwards a signer-key grant + `register-signer` call to pox-5 under `as-contract?`.
 pub(crate) fn pox5_signer_manager_source() -> &'static str {
-    r#"
-(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-
-(define-public (validate-stake!
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (amount-ustx uint)
-        (amount-sats uint)
-        (is-bond bool)
-        (signer-calldata (optional (buff 500)))
-    )
-    (ok true)
-)
-
-(define-public (register-self
-    (signer-manager <signer-manager-trait>)
-    (signer-key (buff 33))
-    (auth-id uint)
-    (signer-sig (buff 65))
-  )
-  (as-contract? ()
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
-      signer-key current-contract auth-id signer-sig
-    ))
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
-      signer-manager signer-key
-    ))
-  )
-)
-
-(define-public (claim-rewards
-    (bond-periods (list 6 uint))
-    (reward-cycle uint)
-  )
-  (contract-call? 'ST000000000000000000002AMW42H.pox-5 claim-rewards
-    bond-periods reward-cycle
-  )
-)
-
-(define-read-only (get-earned-staker-rewards
-    (staker principal)
-    (reward-cycle uint)
-    (bond-index (optional uint))
-  )
-  (contract-call? 'ST000000000000000000002AMW42H.pox-5 get-earned-staker-rewards
-    current-contract reward-cycle bond-index staker
-  )
-)
-"#
+    POX_5_SIGNER_MANAGER_TEST_CONTRACT_SOURCE
 }
 
 /// Source for the sBTC token stub that `boot_to_epoch_4` publishes. Provides
