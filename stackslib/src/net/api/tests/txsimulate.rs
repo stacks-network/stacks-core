@@ -23,10 +23,9 @@ use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::Error as ChainError;
 use crate::core::test_util::{make_contract_call_tx, make_contract_publish_tx, to_addr};
 use crate::net::api::tests::TestRPC;
-use crate::net::api::txsimulate;
+use crate::net::api::txsimulate::{self, TxSimulateError};
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{StacksHttp, StacksHttpRequest};
 use crate::net::test::TestEventObserver;
@@ -135,7 +134,7 @@ fn test_transaction_simulate_errors() {
     .err()
     .unwrap();
 
-    assert!(matches!(err, ChainError::NoSuchBlockError));
+    assert!(matches!(err, TxSimulateError::NoSuchTip));
 
     // an epoch-2.x tip exists, but cannot be extended by a Nakamoto block
     let err = txsimulate::RPCTransactionSimulateRequestHandler::transaction_simulate(
@@ -150,8 +149,8 @@ fn test_transaction_simulate_errors() {
     .err()
     .unwrap();
 
-    let ChainError::InvalidStacksBlock(reason) = err else {
-        panic!("Expected InvalidStacksBlock for an epoch-2.x tip, got {err:?}");
+    let TxSimulateError::BadTip(reason) = err else {
+        panic!("Expected BadTip for an epoch-2.x tip, got {err:?}");
     };
     assert_eq!(reason, "Chain tip is not a Nakamoto block");
 }

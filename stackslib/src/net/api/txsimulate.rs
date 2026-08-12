@@ -58,6 +58,34 @@ pub struct RPCTransactionSimulateRequestHandler {
     pub transaction: Option<StacksTransaction>,
 }
 
+/// Errors from [`RPCTransactionSimulateRequestHandler::transaction_simulate`],
+/// classified at the point they arise so the HTTP handler can map each one to
+/// the right status code.  `ChainError` variants cannot be used for this
+/// because chainstate reuses them (e.g. `InvalidStacksBlock`) for internal
+/// integrity failures as well as client-attributable ones.
+#[derive(Debug)]
+pub enum TxSimulateError {
+    /// The requested chain tip does not exist (HTTP 404)
+    NoSuchTip,
+    /// The requested chain tip exists, but an ephemeral block cannot be built
+    /// on top of it (HTTP 400)
+    BadTip(String),
+    /// The transaction could not be applied on top of the requested chain tip
+    /// (HTTP 400)
+    InvalidTransaction(String),
+    /// Internal chainstate failure (HTTP 500)
+    Chain(ChainError),
+}
+
+impl From<ChainError> for TxSimulateError {
+    fn from(e: ChainError) -> Self {
+        match e {
+            ChainError::NoSuchBlockError => Self::NoSuchTip,
+            e => Self::Chain(e),
+        }
+    }
+}
+
 impl RPCTransactionSimulateRequestHandler {
     pub fn new(auth: Option<String>) -> Self {
         Self {
@@ -102,22 +130,29 @@ impl RPCTransactionSimulateRequestHandler {
         max_tx_execution_time: Duration,
         max_tx_analysis_time: Duration,
         max_tx_mem_bytes: u64,
-    ) -> Result<RPCSimulatedTransaction, ChainError> {
+    ) -> Result<RPCSimulatedTransaction, TxSimulateError> {
         let tip_header = NakamotoChainState::get_block_header(chainstate.db(), tip_block_id)?
-            .ok_or(ChainError::NoSuchBlockError)?;
+            .ok_or(TxSimulateError::NoSuchTip)?;
 
         let Some(tip_nakamoto_header) = tip_header.anchored_header.as_stacks_nakamoto() else {
-            return Err(ChainError::InvalidStacksBlock(
+            return Err(TxSimulateError::BadTip(
                 "Chain tip is not a Nakamoto block".into(),
             ));
         };
+        if tip_nakamoto_header.is_shadow_block() {
+            // shadow tenures have no block-commit, so an ephemeral block
+            // cannot be built to extend them
+            return Err(TxSimulateError::BadTip(
+                "Chain tip is in a shadow tenure".into(),
+            ));
+        }
         let consensus_hash = tip_header.consensus_hash.clone();
         let total_burn = tip_nakamoto_header.burn_spent;
         let bitvec_len = tip_nakamoto_header.pox_treatment.len();
 
         let burn_dbconn = sortdb
             .index_handle_at_block(chainstate, tip_block_id)
-            .map_err(|_| ChainError::NoSuchBlockError)?;
+            .map_err(|_| TxSimulateError::NoSuchTip)?;
 
         // build an ephemeral block on top of the canonical tip, continuing the
         // tip's tenure
@@ -149,9 +184,9 @@ impl RPCTransactionSimulateRequestHandler {
             tenure_tx.rollback_block();
             // this is an internal invariant violation, not something the
             // caller can provoke, so it must not be reported as a client error
-            return Err(ChainError::Expects(
+            return Err(TxSimulateError::Chain(ChainError::Expects(
                 "Cost tracker unavailable for simulated block".into(),
-            ));
+            )));
         };
 
         let block_height = builder.header.chain_length;
@@ -187,36 +222,36 @@ impl RPCTransactionSimulateRequestHandler {
             TransactionResult::Success(tx_result) => tx_result.receipt,
             TransactionResult::ProcessingError(e) => {
                 tenure_tx.rollback_block();
-                return Err(ChainError::InvalidStacksTransaction(
-                    format!("Error processing transaction: {}", e.error),
-                    false,
-                ));
+                return Err(TxSimulateError::InvalidTransaction(format!(
+                    "Error processing transaction: {}",
+                    e.error
+                )));
             }
             TransactionResult::Skipped(e) => {
                 tenure_tx.rollback_block();
-                return Err(ChainError::InvalidStacksTransaction(
-                    format!("Skipped transaction: {}", e.error),
-                    false,
-                ));
+                return Err(TxSimulateError::InvalidTransaction(format!(
+                    "Skipped transaction: {}",
+                    e.error
+                )));
             }
             TransactionResult::Problematic(e) => {
                 tenure_tx.rollback_block();
-                return Err(ChainError::InvalidStacksTransaction(
-                    format!("Problematic transaction: {}", e.error),
-                    false,
-                ));
+                return Err(TxSimulateError::InvalidTransaction(format!(
+                    "Problematic transaction: {}",
+                    e.error
+                )));
             }
         };
 
         tenure_tx.rollback_block();
 
-        RPCSimulatedTransaction::from_receipt(
+        Ok(RPCSimulatedTransaction::from_receipt(
             &receipt,
             tip_block_id.clone(),
             consensus_hash,
             block_height,
             execution_limit,
-        )
+        )?)
     }
 }
 
@@ -408,7 +443,7 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
 
         let simulated_tx = match simulated_tx_res {
             Ok(simulated_tx) => simulated_tx,
-            Err(ChainError::NoSuchBlockError) => {
+            Err(TxSimulateError::NoSuchTip) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpNotFound::new("No such chain tip\n".into()),
@@ -416,7 +451,7 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
                 .try_into_contents()
                 .map_err(NetError::from)
             }
-            Err(ChainError::InvalidStacksTransaction(reason, _)) => {
+            Err(TxSimulateError::InvalidTransaction(reason)) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpBadRequest::new(format!("Failed to simulate transaction: {reason}\n")),
@@ -427,7 +462,7 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
             // the caller picked a tip that exists but cannot be extended (e.g.
             // an epoch-2.x block, or a shadow tenure); that's a client error,
             // not a node fault
-            Err(ChainError::InvalidStacksBlock(reason)) => {
+            Err(TxSimulateError::BadTip(reason)) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpBadRequest::new(format!("Cannot simulate at this chain tip: {reason}\n")),
@@ -435,7 +470,7 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
                 .try_into_contents()
                 .map_err(NetError::from)
             }
-            Err(e) => {
+            Err(TxSimulateError::Chain(e)) => {
                 // nope -- error trying to simulate
                 let msg = format!("Failed to simulate transaction: {e:?}\n");
                 warn!("{}", &msg);
