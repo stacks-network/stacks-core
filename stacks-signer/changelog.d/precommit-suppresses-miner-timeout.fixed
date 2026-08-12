@@ -1,0 +1,1 @@
+Do not let a block that was only pre-committed suppress the miner inactivity timeout. `is_timed_out` treated a pre-commit as a signed block, so signers that pre-committed to a tenure-start block that never reached the pre-commit threshold could never time the miner out and fall back to the prior tenure, stalling the chain until the next burn block.

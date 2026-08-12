@@ -1098,10 +1098,15 @@ impl Signer {
         stacker_address: &StacksAddress,
         block_hash: &Sha512Trunc256Sum,
     ) {
-        debug!(
-            "{self}: Received pre-commit from signer ({stacker_address:?}) for block ({block_hash})",
-        );
         let Some(mut block_info) = self.block_lookup_by_reward_cycle(block_hash) else {
+            // A pre-commit for a block we have not seen proposed yet means the proposal
+            // has not reached us. Log it at INFO: it is a direct signal that our view of
+            // the proposal stream is behind the rest of the signer set.
+            info!("{self}: Received block pre-commit for an unknown block, storing as pending";
+                "signer_address" => %stacker_address,
+                "signer_signature_hash" => %block_hash,
+                "signer_weight" => self.signer_weights.get(stacker_address).copied().unwrap_or(0),
+            );
             if let Err(e) = self
                 .signer_db
                 .add_pending_block_pre_commit_response(block_hash, stacker_address)
@@ -1116,6 +1121,40 @@ impl Signer {
         self.signer_db
             .add_block_pre_commit(block_hash, stacker_address)
             .unwrap_or_else(|_| panic!("{self}: Failed to save block pre-commit"));
+
+        let block_hash = block_info.block.header.signer_signature_hash();
+        // do we have enough pre-commits to reach consensus?
+        // i.e. is the threshold reached?
+        //
+        // Tally this up front, before the early returns below, so that every pre-commit we
+        // receive can be logged with the running weight. Crossing this threshold is what
+        // triggers our block response, so without it the wait for the threshold, which can
+        // be minutes and is the bulk of a stalled block's latency, leaves no trace at all.
+        let committers = self
+            .signer_db
+            .get_block_pre_committers(&block_hash)
+            .unwrap_or_else(|_| panic!("{self}: Failed to load block commits"));
+
+        let commit_weight = self.compute_signature_signing_weight(committers.iter());
+        let total_weight = self.compute_signature_total_weight();
+
+        let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
+            .unwrap_or_else(|_| {
+                panic!("{self}: Failed to compute threshold weight for {total_weight}")
+            });
+
+        info!("{self}: Received block pre-commit";
+            "signer_address" => %stacker_address,
+            "signer_signature_hash" => %block_hash,
+            "consensus_hash" => %block_info.block.header.consensus_hash,
+            "block_height" => block_info.block.header.chain_length,
+            "signer_weight" => self.signer_weights.get(stacker_address).copied().unwrap_or(0),
+            "pre_commit_weight" => commit_weight,
+            "pre_commit_weight_required" => min_weight,
+            "total_weight" => total_weight,
+            "pre_commit_threshold_reached" => commit_weight >= min_weight,
+            "already_signed" => block_info.signed_self.is_some(),
+        );
 
         if block_info.signed_self.is_some() {
             debug!(
@@ -1133,22 +1172,6 @@ impl Signer {
             );
             return;
         }
-
-        let block_hash = block_info.block.header.signer_signature_hash();
-        // do we have enough pre-commits to reach consensus?
-        // i.e. is the threshold reached?
-        let committers = self
-            .signer_db
-            .get_block_pre_committers(&block_hash)
-            .unwrap_or_else(|_| panic!("{self}: Failed to load block commits"));
-
-        let commit_weight = self.compute_signature_signing_weight(committers.iter());
-        let total_weight = self.compute_signature_total_weight();
-
-        let min_weight = NakamotoBlockHeader::compute_voting_weight_threshold(total_weight)
-            .unwrap_or_else(|_| {
-                panic!("{self}: Failed to compute threshold weight for {total_weight}")
-            });
 
         if min_weight > commit_weight {
             debug!(
@@ -2160,6 +2183,7 @@ impl Signer {
 
         info!("{self}: Received block acceptance";
             "signer_pubkey" => public_key.to_hex(),
+            "signer_address" => %signer_address,
             "signer_signature_hash" => %block_hash,
             "consensus_hash" => %block_info.block.header.consensus_hash,
             "block_height" => block_info.block.header.chain_length,

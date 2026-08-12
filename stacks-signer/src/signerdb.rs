@@ -763,10 +763,10 @@ CREATE TABLE IF NOT EXISTS signer_pending_pre_commit_responses (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_addr_time 
+CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_addr_time
 ON signer_pending_pre_commit_responses (signer_addr, received_time DESC);
 
-CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_hash_time 
+CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_hash_time
 ON signer_pending_pre_commit_responses (signer_signature_hash, received_time DESC);
 "#;
 
@@ -779,10 +779,10 @@ CREATE TABLE IF NOT EXISTS signer_pending_signature_responses (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_addr_time 
+CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_addr_time
 ON signer_pending_signature_responses (signer_addr, received_time DESC);
 
-CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_hash_time 
+CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_hash_time
 ON signer_pending_signature_responses (signer_signature_hash, received_time DESC);
 "#;
 
@@ -795,10 +795,10 @@ CREATE TABLE IF NOT EXISTS signer_pending_rejection_responses (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_addr_time 
+CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_addr_time
 ON signer_pending_rejection_responses (signer_addr, received_time DESC);
 
-CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_hash_time 
+CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_hash_time
 ON signer_pending_rejection_responses (signer_signature_hash, received_time DESC);
 "#;
 
@@ -1445,8 +1445,26 @@ impl SignerDb {
     }
 
     /// Return whether there was an approved/signed block in a tenure (identified by its consensus hash)
+    ///
+    /// Note: this includes blocks that were only pre-committed (because `mark_pre_committed`
+    /// records an `approved_time`). It is therefore NOT a test of whether this signer put a
+    /// signature over a block in the tenure -- use [`SignerDb::has_signed_block_in_tenure`] for
+    /// that.
     pub fn has_approved_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
         let query = "SELECT 1 FROM blocks WHERE consensus_hash = ? AND (signed_self IS NOT NULL OR signed_group IS NOT NULL OR approved_time IS NOT NULL) LIMIT 1;";
+        let result: Option<u64> = query_row(&self.db, query, [tenure])?;
+
+        Ok(result.is_some())
+    }
+
+    /// Return whether this signer has signed a block, or observed the signer set sign a block, in
+    /// a tenure (identified by its consensus hash).
+    ///
+    /// Unlike [`SignerDb::has_approved_block_in_tenure`] this excludes blocks that were only
+    /// pre-committed. A pre-commit does not put a signature over the block, so it does not
+    /// represent a commitment that would be violated by abandoning the tenure.
+    pub fn has_signed_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
+        let query = "SELECT 1 FROM blocks WHERE consensus_hash = ? AND (signed_self IS NOT NULL OR signed_group IS NOT NULL) LIMIT 1;";
         let result: Option<u64> = query_row(&self.db, query, [tenure])?;
 
         Ok(result.is_some())
@@ -1711,7 +1729,7 @@ impl SignerDb {
             "vote" => vote
         );
         self.db.execute(
-            "INSERT OR REPLACE INTO blocks 
+            "INSERT OR REPLACE INTO blocks
               (reward_cycle, burn_block_height, signer_signature_hash, block_info,
                broadcasted, stacks_height, consensus_hash, valid, state, signed_group, signed_self, approved_time,
                proposed_time, validation_time_ms, tenure_change, tenure_change_cause)
@@ -3862,6 +3880,54 @@ pub mod tests {
 
         assert!(db.has_approved_block_in_tenure(&consensus_hash_1).unwrap());
         assert!(db.has_approved_block_in_tenure(&consensus_hash_2).unwrap());
+    }
+
+    #[test]
+    fn has_signed_block() {
+        let db_path = tmp_db_path();
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let consensus_hash_2 = ConsensusHash([0x02; 20]);
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let (mut block_info, _) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1.clone();
+            b.block.header.chain_length = 1;
+        });
+
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        // A pre-commit sets `approved_time` but puts no signature over the block, so it must
+        // not count as a signed block. This is the regression: treating it as signed suppressed
+        // the miner inactivity timeout and stalled the tenure.
+        block_info.mark_pre_committed().unwrap();
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_approved_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        // Signing it locally does count.
+        block_info.mark_locally_accepted(false).unwrap();
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        // A block signed by the group in another tenure counts for that tenure only.
+        block_info.block.header.consensus_hash = consensus_hash_2.clone();
+        block_info.block.header.chain_length = 2;
+        block_info.signed_self = None;
+        block_info.signed_group = None;
+        block_info.approved_time = None;
+        db.insert_block(&block_info).unwrap();
+
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        block_info.signed_group = Some(get_epoch_time_secs());
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
     }
 
     #[test]

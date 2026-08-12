@@ -631,7 +631,23 @@ fn check_sortition_timeout() {
     block_info.mark_pre_committed().unwrap();
     signer_db.insert_block(&block_info).unwrap();
 
-    // This will no longer be timed out as we have a non-empty tenure
+    // A block we have only pre-committed to must NOT suppress the timeout. A pre-commit carries
+    // no signature over the block, and if it never reaches the pre-commit threshold the tenure
+    // would otherwise stall forever: the signers that pre-committed could never time the miner
+    // out and fall back to the prior miner.
+    assert!(SortitionState::is_timed_out(
+        &consensus_hash,
+        &signer_db,
+        &eval,
+        &address,
+        Duration::from_secs(1),
+    )
+    .unwrap());
+
+    // Once we actually sign the block, the tenure is no longer empty and must not time out.
+    block_info.mark_locally_accepted(false).unwrap();
+    signer_db.insert_block(&block_info).unwrap();
+
     assert!(!SortitionState::is_timed_out(
         &consensus_hash,
         &signer_db,
