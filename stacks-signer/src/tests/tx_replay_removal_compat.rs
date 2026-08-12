@@ -264,7 +264,7 @@ fn tenure_forking_info_still_emits_nakamoto_blocks_key() {
          reject block proposals on the reorg-validation path"
     );
 
-    // From json with omitted `nakamoto_blocks` field should deserialize properly thanks to #[serde(default)]`
+    // From json with omitted `nakamoto_blocks` field should deserialize properly thanks to `#[serde(default)]`
     let without_key = json!({
         "burn_block_hash": format!("0x{}", "11".repeat(32)),
         "burn_block_height": 100,
