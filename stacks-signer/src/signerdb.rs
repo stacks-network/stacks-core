@@ -1496,6 +1496,10 @@ impl SignerDb {
     }
 
     /// Return the last accepted block in a tenure (identified by its consensus hash).
+    ///
+    /// Note: this includes blocks that were only pre-committed. A pre-commit does not put a
+    /// signature over the block, so this must NOT be used to determine the tenure's tip for
+    /// validation purposes -- use [`SignerDb::get_last_signed_block`] for that.
     pub fn get_last_accepted_block(
         &self,
         tenure: &ConsensusHash,

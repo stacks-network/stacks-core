@@ -530,8 +530,9 @@ where
         client: stacks_client,
         config: _,
     } = MockServerClient::new();
+    let port = server.local_addr().unwrap().port();
     let (_stacks_client, mut signer_db, block_sk, mut view, mut block) =
-        setup_test_environment(function_name!());
+        setup_test_environment(&format!("{}_{port}", function_name!()));
     let mut parent_block_header = make_parent_header_meta(&block_sk, &mut block);
     parent_block_header.burn_view = Some(view.cur_sortition.data.consensus_hash.clone());
     let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);

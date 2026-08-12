@@ -275,17 +275,22 @@ impl SortitionData {
     /// Even globally accepted blocks are allowed to be timed out, as that
     /// triggers the signer to consult the Stacks node for the latest globally
     /// accepted block. This is needed to handle Bitcoin reorgs correctly.
+    ///
+    /// Blocks that were only pre-committed are deliberately excluded: a pre-commit puts no
+    /// signature over the block, so it may be superseded by a competing proposal and must not
+    /// be treated as the tenure's tip (e.g. when validating a replacement block at the same
+    /// height, or when computing the parent tenure's last block).
     pub fn get_tenure_last_block_info(
         consensus_hash: &ConsensusHash,
         signer_db: &SignerDb,
         tenure_last_block_proposal_timeout: Duration,
     ) -> Result<Option<BlockInfo>, ClientError> {
-        // Get the last accepted block in the tenure
-        let last_accepted_block = signer_db
-            .get_last_accepted_block(consensus_hash)
+        // Get the last signed block in the tenure
+        let last_signed_block = signer_db
+            .get_last_signed_block(consensus_hash)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
 
-        let Some(block_info) = last_accepted_block else {
+        let Some(block_info) = last_signed_block else {
             return Ok(None);
         };
 
@@ -366,6 +371,34 @@ impl SortitionData {
             }
         }
 
+        // A block we have only pre-committed to must NOT veto this proposal, but, similar to above
+        // this should still count as activity for the miner.
+        let last_accepted_block = signer_db
+            .get_last_accepted_block(tenure_id)
+            .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
+        if let Some(info) = last_accepted_block {
+            let is_fresh_pre_commit = info.state == BlockState::PreCommitted
+                && info.approved_time.is_some_and(|approved_time| {
+                    approved_time + tenure_last_block_proposal_timeout.as_secs()
+                        > get_epoch_time_secs()
+                });
+            if is_fresh_pre_commit && block.header.chain_length <= info.block.header.chain_length {
+                info!(
+                    "Miner's block proposal conflicts with a block we have only pre-committed to. Counting it as miner activity, but not rejecting the proposal.";
+                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
+                    "proposed_chain_length" => block.header.chain_length,
+                    "pre_committed_signer_signature_hash" => %info.block.header.signer_signature_hash(),
+                    "pre_committed_chain_length" => info.block.header.chain_length,
+                );
+                if let Err(e) = signer_db
+                    .update_last_activity_time(&block.header.consensus_hash, get_epoch_time_secs())
+                {
+                    warn!("Failed to update last activity time: {e}");
+                }
+            }
+        }
+
         let tip = match client.get_tenure_tip(tenure_id) {
             Ok(tip) => tip.anchored_header,
             Err(e) => {
@@ -397,7 +430,7 @@ impl SortitionData {
     }
 
     /// Check if the tenure change block confirms the expected parent block
-    /// (i.e., the last locally accepted block in the parent tenure, or if that block is timed out, the last globally accepted block in the parent tenure)
+    /// (i.e., the last signed block in the parent tenure, or if that block is timed out, the last globally accepted block in the parent tenure)
     /// It checks the local DB first, and if the block is not present in the local DB, it asks the
     /// Stacks node for the highest processed block header in the given tenure (and then caches it
     /// in the DB).

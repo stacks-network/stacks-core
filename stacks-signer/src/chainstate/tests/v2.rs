@@ -408,6 +408,7 @@ where
         client: stacks_client,
         config: _,
     } = MockServerClient::new();
+    let port = server.local_addr().unwrap().port();
     let (
         _stacks_client,
         mut signer_db,
@@ -416,7 +417,7 @@ where
         mut cur_sortition,
         _,
         mut sortitions_view,
-    ) = setup_test_environment(function_name!());
+    ) = setup_test_environment(&format!("{}_{port}", function_name!()));
     block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
     let mut parent_block_header = make_parent_header_meta(&block_sk, &mut block);
     parent_block_header.burn_view = Some(cur_sortition.data.consensus_hash.clone());
@@ -862,4 +863,92 @@ fn check_tenure_change_accepts_when_only_pre_committed_block_exists() {
         result.is_ok(),
         "Expected the tenure change to be accepted when only a pre-committed block exists in the tenure, got: {result:?}"
     );
+}
+
+/// A block we have only pre-committed to must not be treated as the tenure's tip: a competing
+/// proposal at the same height must pass the block-height check (a pre-commit is supersedable),
+/// but it must still count toward miner activity. Once the block is signed, it becomes the
+/// tenure's tip and a competing proposal at the same height must be rejected.
+#[test]
+fn pre_committed_block_does_not_veto_replacement() {
+    let (stacks_client, mut signer_db, _block_sk, mut block, cur_sortition, _, _) =
+        setup_test_environment(function_name!());
+
+    let tenure_id = cur_sortition.data.consensus_hash.clone();
+    block.header.consensus_hash = tenure_id.clone();
+
+    // The originally-proposed block, which we pre-committed to but never signed.
+    let existing_block_proposal = BlockProposal {
+        block: block.clone(),
+        burn_height: 2,
+        reward_cycle: 1,
+        block_proposal_data: BlockProposalData::empty(),
+    };
+    let mut existing_block_info = BlockInfo::from(existing_block_proposal);
+    existing_block_info.mark_pre_committed().unwrap();
+    signer_db.insert_block(&existing_block_info).unwrap();
+
+    // The pre-committed block must not be reported as the tenure's last (signed) block.
+    assert!(SortitionData::get_tenure_last_block_info(
+        &tenure_id,
+        &signer_db,
+        Duration::from_secs(30),
+    )
+    .unwrap()
+    .is_none());
+
+    // A replacement block at the same height.
+    let mut replacement = block.clone();
+    replacement.header.timestamp += 1;
+    assert_ne!(
+        replacement.header.signer_signature_hash(),
+        block.header.signer_signature_hash()
+    );
+
+    assert!(signer_db
+        .get_last_activity_time(&tenure_id)
+        .unwrap()
+        .is_none());
+
+    // The replacement passes the height check. (The stacks-node call inside fails since nothing
+    // is listening, which makes the check fall back to assuming the proposal is higher; the
+    // point here is that the pre-committed block does not early-reject it.)
+    assert!(SortitionData::check_latest_block_in_tenure(
+        &tenure_id,
+        &replacement,
+        &mut signer_db,
+        &stacks_client,
+        Duration::from_secs(30),
+        Duration::from_secs(3),
+    )
+    .unwrap());
+
+    // But conflicting with a fresh pre-commit still counts as miner activity.
+    assert!(signer_db
+        .get_last_activity_time(&tenure_id)
+        .unwrap()
+        .is_some());
+
+    // Once we actually sign the original block, it becomes the tenure's tip and the replacement
+    // at the same height must be rejected.
+    existing_block_info.mark_locally_accepted(false).unwrap();
+    signer_db.insert_block(&existing_block_info).unwrap();
+
+    assert!(SortitionData::get_tenure_last_block_info(
+        &tenure_id,
+        &signer_db,
+        Duration::from_secs(30),
+    )
+    .unwrap()
+    .is_some());
+
+    assert!(!SortitionData::check_latest_block_in_tenure(
+        &tenure_id,
+        &replacement,
+        &mut signer_db,
+        &stacks_client,
+        Duration::from_secs(30),
+        Duration::from_secs(3),
+    )
+    .unwrap());
 }
