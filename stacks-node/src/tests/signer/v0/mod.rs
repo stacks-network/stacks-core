@@ -41,8 +41,9 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
-use stacks::chainstate::stacks::boot::POX_5_SIGNER_MANAGER_TEST_CONTRACT_SOURCE;
-use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
+use stacks::chainstate::stacks::boot::{
+    MINERS_NAME, POX_5_SIGNER_MANAGER_TEST_CONTRACT_SOURCE, SIGNERS_NAME,
+};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{TransactionEvent, TransactionSuccessEvent};
 use stacks::chainstate::stacks::{StacksTransaction, TenureChangeCause, TransactionPayload};
