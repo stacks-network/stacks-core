@@ -107,6 +107,20 @@ pub static TEST_BLOCK_PUSH_SKIP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFl
 // Test flag to indicate the block that the miner most recently tried to broadcast
 pub static TEST_MINER_BROADCASTING_BLOCK: LazyLock<TestFlag<NakamotoBlock>> =
     LazyLock::new(TestFlag::default);
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+/// Kinds of transient errors that tests can inject into `mine_block()` via
+/// `TEST_MINE_TRANSIENT_ERRORS` to exercise the miner thread's retry paths.
+pub enum TestTransientError {
+    ParentNotFound,
+    NewParentDiscovered,
+    DBError,
+}
+#[cfg(test)]
+/// Test flag holding transient errors to inject into `mine_block()`. Each
+/// mining attempt pops and returns one error until the list is empty.
+pub static TEST_MINE_TRANSIENT_ERRORS: LazyLock<TestFlag<Vec<TestTransientError>>> =
+    LazyLock::new(TestFlag::default);
 
 #[cfg(test)]
 /// Set the `TEST_MINE_STALL` flag to `Pending` and block until the miner is stalled.
@@ -297,8 +311,11 @@ pub struct BlockMinerThread {
     burn_tip_at_start: ConsensusHash,
     /// flag to indicate an abort driven from the relayer
     abort_flag: Arc<AtomicBool>,
-    /// Should the nonce and considered transactions cache be reset before mining the next block?
-    reset_mempool_caches: bool,
+    /// The Stacks block ID that the mempool nonce and considered-transaction
+    /// caches are known to be consistent with, if any. Before each mempool
+    /// walk, the caches are reset unless this matches the parent block being
+    /// built upon.
+    mempool_caches_valid_for: Option<StacksBlockId>,
     /// Storage for persisting non-confidential miner information
     miner_db: MinerDB,
     /// Transaction IDs to exclude from the next block proposal only.
@@ -354,7 +371,7 @@ impl BlockMinerThread {
             abort_flag: Arc::new(AtomicBool::new(false)),
             tenure_cost: ExecutionCost::ZERO,
             tenure_budget: ExecutionCost::ZERO,
-            reset_mempool_caches: true,
+            mempool_caches_valid_for: None,
             miner_db: MinerDB::open_with_config(&rt.config)?,
             temporarily_excluded_txids: HashSet::new(),
             permanently_excluded_txids: HashSet::new(),
@@ -413,6 +430,29 @@ impl BlockMinerThread {
     #[cfg(not(test))]
     fn fault_injection_block_mining_skip() -> bool {
         false
+    }
+
+    #[cfg(test)]
+    fn fault_injection_transient_mining_error() -> Option<NakamotoNodeError> {
+        let mut errors = TEST_MINE_TRANSIENT_ERRORS.get();
+        if errors.is_empty() {
+            return None;
+        }
+        let injected = errors.remove(0);
+        TEST_MINE_TRANSIENT_ERRORS.set(errors);
+        warn!("Fault injection: injecting transient mining error {injected:?}");
+        Some(match injected {
+            TestTransientError::ParentNotFound => NakamotoNodeError::ParentNotFound,
+            TestTransientError::NewParentDiscovered => NakamotoNodeError::NewParentDiscovered,
+            TestTransientError::DBError => NakamotoNodeError::DBError(
+                stacks::util_lib::db::Error::Other("Fault injection: transient DB error".into()),
+            ),
+        })
+    }
+
+    #[cfg(not(test))]
+    fn fault_injection_transient_mining_error() -> Option<NakamotoNodeError> {
+        None
     }
 
     #[cfg(test)]
@@ -649,37 +689,6 @@ impl BlockMinerThread {
             return Ok(());
         }
 
-        // Reset the mempool caches if needed. When mock-mining, we always
-        // reset the caches, because the blocks we mine are not actually
-        // processed, so the mempool caches are not valid.
-        if self.reset_mempool_caches
-            || self.config.miner.mempool_walk_strategy
-                == MemPoolWalkStrategy::NextNonceWithHighestFeeRate
-            || self.config.node.mock_mining
-        {
-            let mut mem_pool = self
-                .config
-                .connect_mempool_db()
-                .expect("Database failure opening mempool");
-
-            let reset_result = if self.reset_mempool_caches || self.config.node.mock_mining {
-                mem_pool.reset_mempool_caches()
-            } else {
-                // Even if the nonce cache is still valid, NextNonceWithHighestFeeRate strategy
-                // needs to reset this cache after each block. This prevents skipping transactions
-                // that were previously considered, but not included in previous blocks.
-                mem_pool.reset_considered_txs_cache()
-            };
-            if let Err(e) = reset_result {
-                // A mempool DB error here is likely transient (e.g. lock
-                // contention); sleep and retry rather than exiting the miner
-                // thread.
-                warn!("Miner: failed to reset mempool caches, will try again: {e:?}");
-                thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
-                return Ok(());
-            }
-        }
-
         let Some(new_block) = self.mine_block_and_handle_result(coordinator)? else {
             // We should reattempt to mine
             return Ok(());
@@ -775,7 +784,6 @@ impl BlockMinerThread {
                     "Miner did not find any transactions to mine, sleeping for {:?}",
                     self.config.miner.empty_mempool_sleep_time
                 );
-                self.reset_mempool_caches = false;
 
                 // Pause the miner to wait for transactions to arrive
                 let now = Instant::now();
@@ -953,8 +961,11 @@ impl BlockMinerThread {
                 "consensus_hash" => %new_block.header.consensus_hash,
             );
 
-            // We successfully mined, so the mempool caches are valid.
-            self.reset_mempool_caches = false;
+            // The mempool walk advanced the caches past the transactions
+            // included in this block, so they are consistent with the
+            // chainstate as of the block we just broadcast — which is the
+            // parent we expect to build on next.
+            self.mempool_caches_valid_for = Some(new_block.header.block_id());
             // Block was accepted — clear any single-block exclusions
             self.temporarily_excluded_txids.clear();
         }
@@ -1586,6 +1597,20 @@ impl BlockMinerThread {
         Ok(self.validate_timestamp_info(x.header.timestamp, &stacks_parent_header))
     }
 
+    /// Decide whether the mempool nonce and considered-transaction caches
+    /// must be fully reset before walking the mempool to build a block on
+    /// `parent_tip`. The caches are usable only if they are known to be
+    /// consistent with `parent_tip`'s chainstate. When mock-mining, they
+    /// never are: mock-mined blocks are never processed, so the cache
+    /// updates made during a walk never match the chainstate.
+    fn mempool_caches_need_reset(
+        caches_valid_for: Option<&StacksBlockId>,
+        parent_tip: &StacksBlockId,
+        mock_mining: bool,
+    ) -> bool {
+        mock_mining || caches_valid_for != Some(parent_tip)
+    }
+
     // TODO: add tests from mutation testing results #4869
     #[cfg_attr(test, mutants::skip)]
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
@@ -1616,6 +1641,9 @@ impl BlockMinerThread {
         self.check_burn_tip_changed(&burn_db)?;
         if Self::fault_injection_block_mining_skip() {
             return Err(ChainstateError::MinerAborted.into());
+        }
+        if let Some(e) = Self::fault_injection_transient_mining_error() {
+            return Err(e);
         }
         neon_node::fault_injection_long_tenure();
 
@@ -1707,10 +1735,26 @@ impl BlockMinerThread {
             return Err(ChainstateError::MinerAborted.into());
         }
 
-        // If we attempt to build a block, we should reset the nonce cache.
-        // In the special case where no transactions are found, this flag will
-        // be reset to false.
-        self.reset_mempool_caches = true;
+        let parent_tip = parent_block_info.stacks_parent_header.index_block_hash();
+        if Self::mempool_caches_need_reset(
+            self.mempool_caches_valid_for.as_ref(),
+            &parent_tip,
+            self.config.node.mock_mining,
+        ) {
+            mem_pool.reset_mempool_caches()?;
+        } else if self.config.miner.mempool_walk_strategy
+            == MemPoolWalkStrategy::NextNonceWithHighestFeeRate
+        {
+            // Even if the nonce cache is still valid, NextNonceWithHighestFeeRate strategy
+            // needs to reset this cache after each block. This prevents skipping transactions
+            // that were previously considered, but not included in previous blocks.
+            mem_pool.reset_considered_txs_cache()?;
+        }
+        // The mempool walk mutates the caches, so consider them invalid until
+        // we know which chainstate the walk's result is consistent with: the
+        // parent tip if no transactions were selected, or the new block once
+        // it is signed and broadcast.
+        self.mempool_caches_valid_for = None;
 
         let replay_transactions = if self.config.miner.replay_transactions {
             coordinator
@@ -1770,6 +1814,9 @@ impl BlockMinerThread {
         })?;
 
         if block_metadata.block.tx_count() == 0 {
+            // The walk selected nothing, so the caches still reflect the
+            // chainstate as of the parent tip.
+            self.mempool_caches_valid_for = Some(parent_tip);
             return Err(ChainstateError::NoTransactionsToMine.into());
         }
         let mining_key = self.keychain.get_nakamoto_sk();
@@ -2270,7 +2317,7 @@ fn should_read_count_extend_units() {
         tenure_change_time: Instant::now(),
         burn_tip_at_start: ConsensusHash([0; 20]),
         abort_flag: Arc::new(AtomicBool::new(false)),
-        reset_mempool_caches: false,
+        mempool_caches_valid_for: None,
         miner_db: MinerDB::open("/tmp/should_read_count_extend_units.db").unwrap(),
         temporarily_excluded_txids: HashSet::new(),
         permanently_excluded_txids: HashSet::new(),
@@ -2319,5 +2366,28 @@ fn should_read_count_extend_units() {
         miner.should_read_count_extend(&()).unwrap(),
         true,
         "When read_count is at the configured threshhold, we should try to extend"
+    );
+}
+
+#[test]
+fn mempool_caches_need_reset_units() {
+    let tip_a = StacksBlockId([1; 32]);
+    let tip_b = StacksBlockId([2; 32]);
+
+    assert!(
+        BlockMinerThread::mempool_caches_need_reset(None, &tip_a, false),
+        "Caches of unknown validity must be reset"
+    );
+    assert!(
+        !BlockMinerThread::mempool_caches_need_reset(Some(&tip_a), &tip_a, false),
+        "Caches consistent with the parent tip must be preserved"
+    );
+    assert!(
+        BlockMinerThread::mempool_caches_need_reset(Some(&tip_a), &tip_b, false),
+        "Caches consistent with a different tip must be reset when the parent changes"
+    );
+    assert!(
+        BlockMinerThread::mempool_caches_need_reset(Some(&tip_a), &tip_a, true),
+        "Mock miners must always reset, because their blocks are never processed"
     );
 }
