@@ -393,7 +393,13 @@ pub fn load_nakamoto_reward_set_for_tenure<U: RewardSetProvider>(
         Error::ChainstateError(e) => e,
         Error::DBError(DBError::NotFoundError) => ChainstateError::PoxNoRewardCycle,
         Error::DBError(e) => ChainstateError::DBError(e),
-        _ => ChainstateError::PoxNoRewardCycle,
+        e => {
+            error!(
+                "Failed to load reward set for tenure election at burn height {}: {e:?}",
+                tenure_snapshot.block_height
+            );
+            ChainstateError::PoxNoRewardCycle
+        }
     })?
     else {
         return Ok(None);
