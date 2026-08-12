@@ -506,17 +506,14 @@ impl ConsensusChain<'_> {
                         }
                     }
                     // Only reached when a later epoch is exercised (the max
-                    // exercised epoch is handled above as open-ended). Leave
-                    // room for `configure_pox_5_transition` to shift the
-                    // activation to a PoX-5-safe height - up to two reward
-                    // cycles - and still mine a block before Epoch 4.1.
-                    StacksEpochId::Epoch40 => {
-                        if num_blocks_per_epoch.contains_key(epoch_id) {
-                            start_height + 2 * reward_cycle_length + 1
-                        } else {
-                            start_height
-                        }
-                    }
+                    // exercised epoch is handled above as open-ended), so
+                    // Epoch 4.0 must activate even with no blocks of its own:
+                    // Epoch 4.1 without it is an invalid schedule (PoX-5 would
+                    // never activate). Leave room for
+                    // `configure_pox_5_transition` to shift the activation to
+                    // a PoX-5-safe height - up to two reward cycles - and
+                    // still mine a block before Epoch 4.1.
+                    StacksEpochId::Epoch40 => start_height + 2 * reward_cycle_length + 1,
                 }
             };
 
