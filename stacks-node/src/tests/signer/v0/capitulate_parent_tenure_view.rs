@@ -248,6 +248,315 @@ fn pre_commit_50_50_split_agrees_on_node_tip() {
 
 #[test]
 #[ignore]
+/// Test that when the chain halts due to a 50/50 split over a block that half the signers
+/// actually SIGNED (not just pre-committed to), signers capitulate their view of the parent
+/// tenure last block to the node's tip after a timeout. Specifically, tests that all signers
+/// capitulate to block N when N+1 was signed by 50% of the signers but never globally accepted.
+///
+/// Honest signers only sign after observing the pre-commit threshold, so this scenario requires
+/// faulty or malicious signers: signers that pre-commit to a block and then reject it (or crash
+/// before signing). The test impersonates the rejecting signers to broadcast pre-commits on
+/// their behalf, pushing the approving signers over the pre-commit threshold so that they sign
+/// block N+1. This guards against a small amount of faulty signing power being able to stall
+/// the chain indefinitely.
+///
+/// Test Setup:
+/// The test spins up 10 stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+/// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
+///
+/// Test Execution:
+/// 1. All signers are configured with a tenure_last_block_proposal_timeout = 30 seconds, capitulate_miner_view_timeout = 30 seconds.
+/// 2. The node mines 1 stacks block N (all signers sign it).
+/// 3. 50% of the signers are configured to auto reject any block proposals and to ignore any block responses.
+/// 4. The miner proposes a new stacks block N+1.
+/// 5. 50% of the signers pre-commit to block N+1, while the other 50% reject it.
+/// 6. The test broadcasts pre-commits for block N+1 on behalf of the rejecting signers, so the approving signers reach the pre-commit threshold and sign block N+1. The block never reaches the signature threshold.
+/// 7. A new tenure starts.
+/// 8. The approving signers report the parent tenure last block as N+1 (they signed it and their signature is still fresh), while the rejecting signers report block N.
+/// 9. The chain halts. After the timeout period, all signers capitulate their view of the parent tenure last block to the node's tip (block N).
+/// 10. The node mines block N+1' successfully with all signers signing it.
+///
+/// Test Assertion:
+/// - All signers accepted block N.
+/// - 50% of signers sign block N+1, while the other 50% reject it.
+/// - The signers that signed block N+1 report it as the parent tenure last block while their signature is fresh.
+/// - After the timeout period, all signers see the parent tenure last block as block N.
+/// - All signers accept block N+1' as valid.
+fn deadlock_50_50_split_capitulates_to_node_tip() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 10;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let nmb_txs = 4;
+
+    let capitulate_miner_view_timeout = Duration::from_secs(30);
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
+        |config| {
+            config.capitulate_miner_view_timeout = capitulate_miner_view_timeout;
+            config.tenure_last_block_proposal_timeout = capitulate_miner_view_timeout;
+            config.block_proposal_timeout = Duration::from_secs(u64::MAX); // Don't time out the miner
+        },
+        |config| {
+            config.miner.block_commit_delay = Duration::from_secs(0);
+        },
+        None,
+        None,
+    );
+
+    let all_signers = signer_test.signer_test_pks();
+    let rejecting_signers = all_signers[0..num_signers / 2].to_vec();
+    let approving_signers = all_signers[num_signers / 2..].to_vec();
+    let rejecting_signer_keys = signer_test.signer_stacks_private_keys[0..num_signers / 2].to_vec();
+    let miner_sk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .clone()
+        .unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
+    let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
+    let short_timeout = 30;
+    signer_test.boot_to_epoch_3();
+
+    info!("------------------------- Test Mine Nakamoto Block N -------------------------");
+    let info_before = signer_test.get_peer_info();
+
+    test_observer::clear();
+    // submit a tx so that the miner will mine a stacks block N
+    let mut sender_nonce = 0;
+    let transfer_tx = make_stacks_transfer_serialized(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    sender_nonce += 1;
+    info!("Submitted tx {tx} in to mine block N");
+
+    wait_for(short_timeout, || {
+        Ok(signer_test.get_peer_info().stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for N to be mined and processed");
+
+    // Ensure that the block was accepted globally so the stacks tip has advanced to N
+    let _block_n =
+        wait_for_block_pushed_and_tip(30, info_before.stacks_tip_height + 1, &miner_pk, || {
+            signer_test.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for block N to be mined");
+
+    let info_after = signer_test.get_peer_info();
+    assert_eq!(
+        info_after.stacks_tip_height,
+        info_before.stacks_tip_height + 1
+    );
+
+    info!("------------------------- Mine Nakamoto Block N+1 -------------------------");
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(rejecting_signers.clone());
+    TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(approving_signers.clone());
+    test_observer::clear();
+
+    // submit a tx so that the miner will mine a stacks block N+1
+    let info_before = signer_test.get_peer_info();
+    let transfer_tx = make_stacks_transfer_serialized(
+        &sender_sk,
+        sender_nonce,
+        send_fee,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    let tx = submit_tx(&http_origin, &transfer_tx);
+    info!("Submitted tx {tx} in to mine block N+1");
+
+    let block_n_1 = wait_for_block_proposal_block(30, info_before.stacks_tip_height + 1, &miner_pk)
+        .expect("Timed out waiting for block N+1 to be proposed");
+
+    wait_for_block_rejections_from_signers(
+        30,
+        &block_n_1.header.signer_signature_hash(),
+        &rejecting_signers,
+    )
+    .expect("Rejecting signers did not reject block N+1");
+
+    wait_for_block_pre_commits_from_signers(
+        30,
+        &block_n_1.header.signer_signature_hash(),
+        &approving_signers,
+    )
+    .expect("Approving signers did not pre-commit to block N+1");
+
+    info!("------------------------- Inject Pre-Commits from Rejecting Signers -------------------------");
+    // Broadcast pre-commits on behalf of the rejecting signers, as faulty signers that
+    // pre-commit and then refuse to sign would. This pushes the approving signers over the
+    // pre-commit threshold, so they put real signatures over block N+1. The block still never
+    // reaches the signature threshold, so it can never be globally accepted.
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    for key in &rejecting_signer_keys {
+        signer_test.inject_pre_commit(&block_n_1, key, reward_cycle);
+    }
+
+    wait_for_block_acceptance_from_signers(
+        30,
+        &block_n_1.header.signer_signature_hash(),
+        &approving_signers,
+    )
+    .expect("Approving signers did not sign block N+1");
+
+    info!("------------------------- Start Next Tenure -------------------------");
+    test_observer::clear();
+    signer_test.mine_bitcoin_block();
+    let now = std::time::Instant::now();
+    let info = get_chain_info(&signer_test.running_nodes.conf);
+    info!(
+        "------------------------- Wait for State to Update with Split View -------------------------";
+        "burn_block_height" => info.burn_block_height,
+        "consenus_hash" => %info.pox_consensus,
+        "parent_tenure_last_block_height_n" => info_before.stacks_tip_height,
+        "parent_tenure_last_block_height_n_1" => info_before.stacks_tip_height + 1,
+    );
+
+    let block_id_n = StacksBlockId::new(
+        &info_before.stacks_tip_consensus_hash,
+        &info_before.stacks_tip,
+    );
+    let block_id_n_1 = StacksBlockId::new(
+        &block_n_1.header.consensus_hash,
+        &block_n_1.header.block_hash(),
+    );
+    let rejecting_signer_addrs: Vec<StacksAddress> = rejecting_signers
+        .iter()
+        .map(|signer| StacksAddress::p2pkh(false, signer))
+        .collect();
+    let approving_signer_addrs: Vec<StacksAddress> = approving_signers
+        .iter()
+        .map(|signer| StacksAddress::p2pkh(false, signer))
+        .collect();
+    let signer_addresses = signer_test.signer_addresses_versions();
+    // Unlike a block that was only pre-committed, a SIGNED block counts as the parent tenure
+    // last block while the signature is fresh, so the view splits: the approving signers
+    // report N+1 and the rejecting signers report N.
+    wait_for(30, || {
+        let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
+        let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
+        for (chunk, message) in get_stackerdb_signer_messages() {
+            let SignerMessage::StateMachineUpdate(update) = message else {
+                continue;
+            };
+            let StateMachineUpdateMinerState::ActiveMiner {
+                parent_tenure_last_block,
+                tenure_id,
+                ..
+            } = update.content.current_miner()
+            else {
+                continue;
+            };
+            if tenure_id != &info.pox_consensus {
+                continue;
+            }
+
+            let Some((address, _)) = signer_addresses
+                .iter()
+                .find(|(addr, _)| chunk.verify(addr).unwrap_or(false))
+            else {
+                continue;
+            };
+            if parent_tenure_last_block == &block_id_n {
+                rejecting_signer_addrs
+                    .iter()
+                    .find(|a| *a == address)
+                    .map(|a| {
+                        found_updates_n.insert(a.clone());
+                    })
+                    .expect("Only rejecting signers should report parent tenure last block as N");
+            } else if parent_tenure_last_block == &block_id_n_1 {
+                approving_signer_addrs
+                    .iter()
+                    .find(|a| *a == address)
+                    .map(|a| {
+                        found_updates_n_1.insert(a.clone());
+                    })
+                    .expect("Only approving signers should report parent tenure last block as N+1");
+            }
+        }
+        Ok(found_updates_n.len() + found_updates_n_1.len() == signer_addresses.len())
+    })
+    .expect("Signers did not update state machine with split view of parent tenure last block");
+
+    // capitulate_viewpoint has TWO guards that must both be satisfied:
+    // 1. last_capitulate_miner_view must be older than capitulate_miner_view_timeout
+    // 2. time_since_last_approved (since block N+1 was approved) must be >= capitulate_miner_view_timeout
+    let time_to_wait = (capitulate_miner_view_timeout).saturating_sub(now.elapsed());
+    info!(
+        "------------------------- Waiting {} seconds for capitulation -------------------------",
+        time_to_wait.as_secs()
+    );
+    std::thread::sleep(time_to_wait);
+    wait_for(30, || {
+        let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
+        for (chunk, message) in get_stackerdb_signer_messages() {
+            let SignerMessage::StateMachineUpdate(update) = message else {
+                continue;
+            };
+            let StateMachineUpdateMinerState::ActiveMiner {
+                parent_tenure_last_block,
+                tenure_id,
+                ..
+            } = update.content.current_miner()
+            else {
+                continue;
+            };
+            if tenure_id != &info.pox_consensus {
+                continue;
+            }
+
+            let Some(address) = approving_signer_addrs
+                .iter()
+                .find(|addr| chunk.verify(addr).unwrap_or(false))
+            else {
+                continue;
+            };
+            if parent_tenure_last_block == &block_id_n {
+                found_updates_n.insert(address.clone());
+            }
+        }
+        Ok(found_updates_n.len() == approving_signer_addrs.len())
+    })
+    .expect("Originally approving signers did not update state machine to capitulated parent tenure last block N");
+
+    info!("------------------------- Waiting for block N+1' approval from capitulated signers -------------------------");
+    TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
+    TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
+    let block_n_1_prime =
+        wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
+            .expect("Failed to mine block N+1' after signers capitulated");
+    assert_ne!(
+        block_n_1_prime, block_n_1,
+        "Block N+1' should be different from original block N+1"
+    );
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
 /// Test that minority signers (20%) capitulate their view to the supermajority (80%) view
 /// when the chain advances. Specifically, tests that the 20% minority capitulates to block
 /// N+1 when N+1 was globally accepted by the supermajority.
