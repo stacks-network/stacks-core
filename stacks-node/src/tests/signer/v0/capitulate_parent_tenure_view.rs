@@ -34,9 +34,10 @@ use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
 
 #[test]
 #[ignore]
-/// Test that when the chain halts due to a 50/50 split view, signers capitulate their view
-/// of the parent tenure last block to the node's tip after a timeout. Specifically, tests
-/// that all signers capitulate to block N when N+1 was not globally accepted.
+/// Test that a 50/50 split over a block that only reached pre-commit does not split the
+/// signers' view of the parent tenure. A block that was only pre-committed carries no
+/// signature, so all signers report the node's tip (block N) as the parent tenure last
+/// block and the next tenure proceeds without a halt.
 ///
 /// Test Setup:
 /// The test spins up 10 stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
@@ -47,19 +48,18 @@ use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
 /// 2. The node mines 1 stacks block N (all signers sign it).
 /// 3. 50% of the signers are configured to to auto reject any block proposals and to ignore any block responses, broadcast of new blocks are skipped, and miners are configured to ignore signers responses.
 /// 4. The miner proposes a new stacks block N+1.
-/// 5. 50% of the signers pre-commit to block N+1, while the other 50% reject it. However, the 50% that pre-commit due not recognize these rejections so the block remains locally accepted.
+/// 5. 50% of the signers pre-commit to block N+1, while the other 50% reject it. However, the 50% that pre-commit do not recognize these rejections so the block remains locally accepted.
 /// 6. A new tenure starts.
 /// 7. The miner proposes a new stacks block N+1'.
-/// 8. The 50% of signers that pre-committed to block N+1, reject block N+1' and the other 50% pre-commit to block N+1'.
-/// 9. The chain halts. After the timeout period, all signers capitulate their view of the parent tenure last block to the node's tip (block N).
-/// 10. The node mines block N+1' successfully with all signers signing it.
+/// 8. The node mines block N+1' successfully with all signers signing it.
 ///
 /// Test Assertion:
 /// - All signers accepted block N.
 /// - 50% of signers pre-commit to block N+1, while the other 50% reject it.
-/// - After the timeout period, all signers see the parent tenure last block as block N.
+/// - All signers see the parent tenure last block as block N; a block that was only
+///   pre-committed never counts as the parent tenure last block.
 /// - All signers accept block N+1' as valid.
-fn deadlock_50_50_split_capitulates_to_node_tip() {
+fn pre_commit_50_50_split_agrees_on_node_tip() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -176,14 +176,12 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     info!("------------------------- Start Next Tenure -------------------------");
     test_observer::clear();
     signer_test.mine_bitcoin_block();
-    let now = std::time::Instant::now();
     let info = get_chain_info(&signer_test.running_nodes.conf);
     info!(
-        "------------------------- Wait for State to Update with Split View -------------------------";
+        "------------------------- Wait for All Signers to Report Parent Tenure Last Block N -------------------------";
         "burn_block_height" => info.burn_block_height,
         "consenus_hash" => %info.pox_consensus,
         "parent_tenure_last_block_height_n" => info_before.stacks_tip_height,
-        "parent_tenure_last_block_height_n_1" => info_before.stacks_tip_height + 1,
     );
 
     let block_id_n = StacksBlockId::new(
@@ -194,18 +192,13 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
         &block_n_1.header.consensus_hash,
         &block_n_1.header.block_hash(),
     );
-    let rejecting_signer_addrs: Vec<StacksAddress> = rejecting_signers
-        .iter()
-        .map(|signer| StacksAddress::p2pkh(false, signer))
-        .collect();
-    let approving_signer_addrs: Vec<StacksAddress> = approving_signers
-        .iter()
-        .map(|signer| StacksAddress::p2pkh(false, signer))
-        .collect();
     let signer_addresses = signer_test.signer_addresses_versions();
+    // Block N+1 was only pre-committed by the approving signers, so it carries no signature
+    // and must not count as the parent tenure last block. All signers, including those that
+    // pre-committed to N+1, should report the node's tip (block N) without any capitulation
+    // timeout.
     wait_for(30, || {
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
-        let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
         for (chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
                 continue;
@@ -228,75 +221,24 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
             else {
                 continue;
             };
-            if parent_tenure_last_block == &block_id_n {
-                rejecting_signer_addrs
-                    .iter()
-                    .find(|a| *a == address)
-                    .map(|a| {
-                        found_updates_n.insert(a.clone());
-                    })
-                    .expect("Only rejecting signers should report parent tenure last block as N");
-            } else if parent_tenure_last_block == &block_id_n_1 {
-                approving_signer_addrs
-                    .iter()
-                    .find(|a| *a == address)
-                    .map(|a| {
-                        found_updates_n_1.insert(a.clone());
-                    })
-                    .expect("Only approving signers should report parent tenure last block as N+1");
-            }
-        }
-        Ok(found_updates_n.len() + found_updates_n_1.len() == signer_addresses.len())
-    })
-    .expect("Signers did not update state machine with split view of parent tenure last block");
-
-    // capitulate_viewpoint has TWO guards that must both be satisfied:
-    // 1. last_capitulate_miner_view must be older than capitulate_miner_view_timeout
-    // 2. time_since_last_approved (since block N was signed) must be >= capitulate_miner_view_timeout
-    let time_to_wait = (capitulate_miner_view_timeout).saturating_sub(now.elapsed());
-    info!(
-        "------------------------- Waiting {} seconds for capitulation -------------------------",
-        time_to_wait.as_secs()
-    );
-    std::thread::sleep(time_to_wait);
-    wait_for(30, || {
-        let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
-        for (chunk, message) in get_stackerdb_signer_messages() {
-            let SignerMessage::StateMachineUpdate(update) = message else {
-                continue;
-            };
-            let StateMachineUpdateMinerState::ActiveMiner {
-                parent_tenure_last_block,
-                tenure_id,
-                ..
-            } = update.content.current_miner()
-            else {
-                continue;
-            };
-            if tenure_id != &info.pox_consensus {
-                continue;
-            }
-
-            let Some(address) = approving_signer_addrs
-                .iter()
-                .find(|addr| chunk.verify(addr).unwrap_or(false))
-            else {
-                continue;
-            };
+            assert_ne!(
+                parent_tenure_last_block, &block_id_n_1,
+                "No signer should report a block that was only pre-committed as the parent tenure last block"
+            );
             if parent_tenure_last_block == &block_id_n {
                 found_updates_n.insert(address.clone());
             }
         }
-        Ok(found_updates_n.len() == approving_signer_addrs.len())
+        Ok(found_updates_n.len() == signer_addresses.len())
     })
-    .expect("Originally approving signers did not update state machine to capitulated parent tenure last block N");
+    .expect("Signers did not report parent tenure last block N");
 
-    info!("------------------------- Waiting for block N+1' approval from capitulated signer -------------------------");
+    info!("------------------------- Waiting for block N+1' approval -------------------------");
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
     TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
     let block_n_1_prime =
         wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk)
-            .expect("Failed to mine block N+1' after signers capitulated");
+            .expect("Failed to mine block N+1'");
     assert_ne!(
         block_n_1_prime, block_n_1,
         "Block N+1' should be different from original block N+1"
