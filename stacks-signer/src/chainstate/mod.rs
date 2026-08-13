@@ -379,7 +379,7 @@ impl SortitionData {
         if let Some(info) = last_accepted_block {
             let is_fresh_pre_commit = info.state == BlockState::PreCommitted
                 && info.approved_time.is_some_and(|approved_time| {
-                    approved_time + tenure_last_block_proposal_timeout.as_secs()
+                    approved_time.saturating_add(tenure_last_block_proposal_timeout.as_secs())
                         > get_epoch_time_secs()
                 });
             if is_fresh_pre_commit && block.header.chain_length <= info.block.header.chain_length {
