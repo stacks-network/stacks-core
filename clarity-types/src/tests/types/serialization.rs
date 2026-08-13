@@ -14,11 +14,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
+use rstest::rstest;
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::hex_bytes;
+
 use crate::errors::ClarityTypeError;
 use crate::types::serialization::SerializationError;
 use crate::types::{
     ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value,
 };
 use crate::{ClarityName, ContractName};
 
@@ -270,6 +274,255 @@ fn test_tuples() {
     ));
 }
 
+/// `{a:int,b:int}` buffer with a duplicate `a` field (values 1 then 2).
+const DUPLICATE_FIELDS: &str =
+    "0c000000020161000000000000000000000000000000000101610000000000000000000000000000000002";
+/// Like [`DUPLICATE_FIELDS`], plus a trailing unknown field `c`.
+const DUPLICATE_WITH_UNKNOWN_FIELD: &str = "0c00000003016100000000000000000000000000000000010161000000000000000000000000000000000201630000000000000000000000000000000003";
+/// The single-field `{a: 2}` tuple the duplicate buffers reduce to.
+const REDUCED_TUPLE: &str = "0c0000000101610000000000000000000000000000000002";
+
+#[derive(Clone, Copy, Debug)]
+enum TupleInput {
+    /// A canonical `{a: 1, b: 2}` tuple.
+    WellFormed,
+    /// `{a: 1, b: 2, c: 3}` - one field more than the expected type declares.
+    Wider,
+    /// A single-field `{a: 1}` tuple - one field fewer than declared.
+    MissingField,
+    /// Two fields both named `a` - the duplicate-key buffer.
+    Duplicate,
+    /// Two `a` fields plus an unknown `c` field.
+    DuplicateWithUnknown,
+    /// A canonical `{a: 1, b: 2}` tuple followed by one extra trailing byte.
+    TrailingBytes,
+    /// The duplicate-key tuple wrapped in an `optional`.
+    NestedOptionDuplicate,
+    /// The duplicate-key tuple nested as field `x` of an outer tuple.
+    NestedTupleDuplicate,
+}
+
+/// Expected outcome of a single deserialization call.
+#[derive(Clone, Copy, Debug)]
+enum Expect {
+    /// Succeeds, yielding the canonical `{a: 1, b: 2}` tuple.
+    WellFormed,
+    /// Succeeds, yielding the reduced single-field `{a: 2}` tuple.
+    Reduced,
+    /// Succeeds, yielding `(some {a: 2})`.
+    NestedOptionReduced,
+    /// Succeeds, yielding `{x: {a: 2}}`.
+    NestedTupleReduced,
+    /// Rejected because the wire field count does not match the declared type.
+    ErrFieldCount,
+    /// Rejected because a declared field was duplicated (strict construction).
+    ErrIllegalTuple,
+    /// Rejected because bytes remained after a complete value was read.
+    ErrTrailingBytes,
+}
+
+fn well_formed_tuple() -> Value {
+    Value::from(
+        TupleData::from_data(vec![
+            (ClarityName::from_literal("a"), Value::Int(1)),
+            (ClarityName::from_literal("b"), Value::Int(2)),
+        ])
+        .unwrap(),
+    )
+}
+
+fn tuple_case_input(input: TupleInput) -> (Vec<u8>, TypeSignature) {
+    let flat_type = TypeSignature::type_of(&well_formed_tuple()).unwrap();
+    match input {
+        TupleInput::WellFormed => (well_formed_tuple().serialize_to_vec().unwrap(), flat_type),
+        TupleInput::Wider => {
+            let wider = Value::from(
+                TupleData::from_data(vec![
+                    (ClarityName::from_literal("a"), Value::Int(1)),
+                    (ClarityName::from_literal("b"), Value::Int(2)),
+                    (ClarityName::from_literal("c"), Value::Int(3)),
+                ])
+                .unwrap(),
+            );
+            (wider.serialize_to_vec().unwrap(), flat_type)
+        }
+        TupleInput::MissingField => {
+            let single = Value::from(
+                TupleData::from_data(vec![(ClarityName::from_literal("a"), Value::Int(1))])
+                    .unwrap(),
+            );
+            (single.serialize_to_vec().unwrap(), flat_type)
+        }
+        TupleInput::Duplicate => (hex_bytes(DUPLICATE_FIELDS).unwrap(), flat_type),
+        TupleInput::DuplicateWithUnknown => {
+            (hex_bytes(DUPLICATE_WITH_UNKNOWN_FIELD).unwrap(), flat_type)
+        }
+        TupleInput::TrailingBytes => {
+            let mut bytes = well_formed_tuple().serialize_to_vec().unwrap();
+            bytes.push(0x00);
+            (bytes, flat_type)
+        }
+        TupleInput::NestedOptionDuplicate => (
+            hex_bytes(&format!("0a{DUPLICATE_FIELDS}")).unwrap(),
+            TypeSignature::new_option(flat_type).unwrap(),
+        ),
+        TupleInput::NestedTupleDuplicate => {
+            // `0x78` = field name "x"; its value is the inner duplicate tuple.
+            let outer_type = TypeSignature::TupleType(
+                TupleTypeSignature::try_from(vec![(ClarityName::from_literal("x"), flat_type)])
+                    .unwrap(),
+            );
+            (
+                hex_bytes(&format!("0c000000010178{DUPLICATE_FIELDS}")).unwrap(),
+                outer_type,
+            )
+        }
+    }
+}
+
+fn assert_deserialization_outcome(result: Result<Value, SerializationError>, expect: Expect) {
+    match expect {
+        Expect::WellFormed => assert_eq!(result.unwrap(), well_formed_tuple()),
+        Expect::Reduced => assert_eq!(result.unwrap().serialize_to_hex().unwrap(), REDUCED_TUPLE),
+        Expect::NestedOptionReduced => {
+            assert_eq!(
+                result.unwrap().serialize_to_hex().unwrap(),
+                format!("0a{REDUCED_TUPLE}")
+            )
+        }
+        Expect::NestedTupleReduced => {
+            assert_eq!(
+                result.unwrap().serialize_to_hex().unwrap(),
+                format!("0c000000010178{REDUCED_TUPLE}")
+            )
+        }
+        Expect::ErrFieldCount => assert!(
+            matches!(result, Err(SerializationError::DeserializeExpected(_))),
+            "expected a field-count rejection, got {result:?}"
+        ),
+        Expect::ErrIllegalTuple => assert!(
+            matches!(result, Err(SerializationError::DeserializationFailure(_))),
+            "expected a duplicate-field rejection, got {result:?}"
+        ),
+        Expect::ErrTrailingBytes => assert!(
+            matches!(
+                result,
+                Err(SerializationError::LeftoverBytesInDeserialization)
+            ),
+            "expected a trailing-bytes rejection, got {result:?}"
+        ),
+    }
+}
+
+/// Strict tuple-field enforcement are gated to Epoch 4.1+.
+#[rstest]
+#[case::well_formed_unsanitized(TupleInput::WellFormed, StacksEpochId::Epoch21, Expect::WellFormed)]
+#[case::well_formed_legacy_sanitized(
+    TupleInput::WellFormed,
+    StacksEpochId::Epoch40,
+    Expect::WellFormed
+)]
+#[case::well_formed_strict(TupleInput::WellFormed, StacksEpochId::Epoch41, Expect::WellFormed)]
+#[case::wider_unsanitized_rejected(
+    TupleInput::Wider,
+    StacksEpochId::Epoch21,
+    Expect::ErrFieldCount
+)]
+#[case::wider_sanitized_away_legacy(TupleInput::Wider, StacksEpochId::Epoch40, Expect::WellFormed)]
+#[case::wider_sanitized_away_strict(TupleInput::Wider, StacksEpochId::Epoch41, Expect::WellFormed)]
+#[case::missing_field_unsanitized(
+    TupleInput::MissingField,
+    StacksEpochId::Epoch21,
+    Expect::ErrFieldCount
+)]
+#[case::missing_field_strict(
+    TupleInput::MissingField,
+    StacksEpochId::Epoch41,
+    Expect::ErrFieldCount
+)]
+#[case::duplicate_unsanitized_legacy(
+    TupleInput::Duplicate,
+    StacksEpochId::Epoch21,
+    Expect::Reduced
+)]
+#[case::duplicate_sanitized_legacy(TupleInput::Duplicate, StacksEpochId::Epoch40, Expect::Reduced)]
+#[case::duplicate_strict_rejected(
+    TupleInput::Duplicate,
+    StacksEpochId::Epoch41,
+    Expect::ErrIllegalTuple
+)]
+#[case::duplicate_unknown_unsanitized(
+    TupleInput::DuplicateWithUnknown,
+    StacksEpochId::Epoch21,
+    Expect::ErrFieldCount
+)]
+#[case::duplicate_unknown_sanitized_legacy(
+    TupleInput::DuplicateWithUnknown,
+    StacksEpochId::Epoch40,
+    Expect::Reduced
+)]
+#[case::duplicate_unknown_strict_rejected(
+    TupleInput::DuplicateWithUnknown,
+    StacksEpochId::Epoch41,
+    Expect::ErrIllegalTuple
+)]
+#[case::trailing_bytes_legacy(
+    TupleInput::TrailingBytes,
+    StacksEpochId::Epoch40,
+    Expect::ErrTrailingBytes
+)]
+#[case::trailing_bytes_strict(
+    TupleInput::TrailingBytes,
+    StacksEpochId::Epoch41,
+    Expect::ErrTrailingBytes
+)]
+#[case::nested_option_legacy(
+    TupleInput::NestedOptionDuplicate,
+    StacksEpochId::Epoch40,
+    Expect::NestedOptionReduced
+)]
+#[case::nested_option_strict(
+    TupleInput::NestedOptionDuplicate,
+    StacksEpochId::Epoch41,
+    Expect::ErrIllegalTuple
+)]
+#[case::nested_tuple_legacy(
+    TupleInput::NestedTupleDuplicate,
+    StacksEpochId::Epoch40,
+    Expect::NestedTupleReduced
+)]
+#[case::nested_tuple_strict(
+    TupleInput::NestedTupleDuplicate,
+    StacksEpochId::Epoch41,
+    Expect::ErrIllegalTuple
+)]
+fn typed_tuple_deserialization_epoch_gated(
+    #[case] input: TupleInput,
+    #[case] epoch: StacksEpochId,
+    #[case] expect: Expect,
+) {
+    let (bytes, expected_type) = tuple_case_input(input);
+    assert_deserialization_outcome(
+        Value::try_deserialize_bytes_exact_at_epoch(&bytes, &expected_type, &epoch),
+        expect,
+    );
+}
+
+/// The hex entry point backing the DB read path shares the same epoch gate.
+#[rstest]
+#[case::legacy_sanitized(StacksEpochId::Epoch40, Expect::Reduced)]
+#[case::strict_from_epoch41(StacksEpochId::Epoch41, Expect::ErrIllegalTuple)]
+fn try_deserialize_hex_at_epoch_selects_tuple_field_handling(
+    #[case] epoch: StacksEpochId,
+    #[case] expect: Expect,
+) {
+    let expected_type = TypeSignature::type_of(&well_formed_tuple()).unwrap();
+    assert_deserialization_outcome(
+        Value::try_deserialize_hex_at_epoch(DUPLICATE_FIELDS, &expected_type, &epoch),
+        expect,
+    );
+}
+
 #[test]
 fn test_vectors() {
     let tests = [
@@ -441,4 +694,37 @@ fn test_serialize_to_hex_returns_serialization_failure() {
         SerializationError::SerializationFailure(ClarityTypeError::ValueTooLarge.to_string()),
         err
     );
+}
+
+/// Truncating after the first entry's value makes the unwind loop hit EOF
+/// while reading the next key of a partially-filled tuple frame.
+#[test]
+fn test_tuple_truncated_at_next_key_errors() {
+    let tuple = Value::from(
+        TupleData::from_data(vec![
+            (
+                ClarityName::try_from("a".to_string()).unwrap(),
+                Value::Bool(true),
+            ),
+            (
+                ClarityName::try_from("b".to_string()).unwrap(),
+                Value::Bool(false),
+            ),
+        ])
+        .unwrap(),
+    );
+    let mut bytes = vec![];
+    tuple.serialize_write(&mut bytes).unwrap();
+
+    // tuple prefix (1) + entry count (4) + key "a" (1-byte len + 1) +
+    // BoolTrue prefix (1) = 8 bytes; cut right before key "b".
+    bytes.truncate(8);
+
+    match Value::deserialize_read(&mut bytes.as_slice(), None, false) {
+        Ok(value) => panic!("accidentally parsed truncated tuple: {value}"),
+        Err(SerializationError::IOError(e)) => {
+            assert_eq!(e.err.kind(), std::io::ErrorKind::UnexpectedEof);
+        }
+        Err(other) => panic!("expected IOError(UnexpectedEof), got {other:?}"),
+    }
 }

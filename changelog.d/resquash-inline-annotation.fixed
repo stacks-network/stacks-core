@@ -1,0 +1,1 @@
+Fix `MARF::squash_to_path` dropping the squash annotation on inline child pointers when the source MARF is itself a squashed (PCS) MARF.

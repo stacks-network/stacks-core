@@ -132,13 +132,20 @@ impl MinerStats {
         let window_start_height = window_end_height + 1 - (windowed_block_commits.len() as u64);
         let mut burn_blocks = vec![false; windowed_block_commits.len()];
 
-        // set burn_blocks flags to accommodate prepare phases and PoX sunset
+        // set burn_blocks flags to accommodate prepare phases, PoX sunset, and waterfall PoX
+        let wf_pox_start_ht = burnchain
+            .pox_constants
+            .first_pox_waterfall_block(burnchain.first_block_height);
         for (i, b) in burn_blocks.iter_mut().enumerate() {
-            if burnchain.is_in_prepare_phase(window_start_height + (i as u64)) {
-                // must burn
+            let height = window_start_height + (i as u64);
+            if burnchain.is_in_prepare_phase(height) {
+                // must burn -> expect a single commit output
+                *b = true;
+            } else if wf_pox_start_ht.is_some_and(|wf_start| height >= wf_start) {
+                // waterfall PoX pays a single sBTC output -> expect a single commit output
                 *b = true;
             } else {
-                // must not burn
+                // reward phase with two PoX outputs -> not a single commit
                 *b = false;
             }
         }
@@ -430,11 +437,17 @@ impl MinerStats {
         };
 
         let next_block_height = tip.block_height + 1;
-        let expected_input_index = if burnchain.is_in_prepare_phase(tip.block_height) {
-            LeaderBlockCommitOp::expected_chained_utxo(true)
-        } else {
-            LeaderBlockCommitOp::expected_chained_utxo(false)
-        };
+        // A commit chains off the miner's previous commit, so the expected input
+        // (UTXO) index depends on that previous commit's output format at
+        // `tip.block_height`. Prepare-phase and waterfall-PoX commits are
+        // single-output (chained UTXO at index 2); classic reward-phase commits
+        // carry the full PoX output set.
+        let wf_pox_start_ht = burnchain
+            .pox_constants
+            .first_pox_waterfall_block(burnchain.first_block_height);
+        let single_commit = burnchain.is_in_prepare_phase(tip.block_height)
+            || wf_pox_start_ht.is_some_and(|wf_start| tip.block_height >= wf_start);
+        let expected_input_index = LeaderBlockCommitOp::expected_chained_utxo(single_commit);
 
         for (miner, last_commit) in active_miners_and_commits.iter() {
             if !commit_table.contains_key(miner) {

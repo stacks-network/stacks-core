@@ -147,14 +147,29 @@ impl RewardSetEventPayload {
         }
     }
     pub fn from_reward_set(reward_set: &RewardSet) -> Self {
-        Self {
-            rewarded_addresses: reward_set.rewarded_addresses.clone(),
-            start_cycle_state: reward_set.start_cycle_state.clone(),
-            signers: reward_set
-                .signers
-                .as_ref()
-                .map(|signers| signers.iter().map(Self::signer_entry_to_payload).collect()),
-            pox_ustx_threshold: reward_set.pox_ustx_threshold,
+        match reward_set {
+            RewardSet::V0(v0) => Self {
+                rewarded_addresses: v0.rewarded_addresses.clone(),
+                start_cycle_state: v0.start_cycle_state.clone(),
+                signers: v0
+                    .signers
+                    .as_ref()
+                    .map(|signers| signers.iter().map(Self::signer_entry_to_payload).collect()),
+                pox_ustx_threshold: v0.pox_ustx_threshold,
+            },
+            RewardSet::Waterfall(wf) => Self {
+                rewarded_addresses: vec![],
+                start_cycle_state: PoxStartCycleInfo {
+                    missed_reward_slots: vec![],
+                },
+                signers: Some(
+                    wf.signers
+                        .iter()
+                        .map(Self::signer_entry_to_payload)
+                        .collect(),
+                ),
+                pox_ustx_threshold: None,
+            },
         }
     }
 }
@@ -194,6 +209,13 @@ pub struct TransactionEventPayload<'a> {
     pub microblock_parent_hash: Option<BlockHeaderHash>,
     /// Error information if one occurred in the Clarity VM
     pub vm_error: Option<String>,
+    /// Set when the transaction was marked problematic by the block's
+    /// `problematic_txs` list (Epoch 4.0+). When `Some(category)`, the
+    /// transaction's payload was NOT executed but the fee was still debited
+    /// and the origin (and sponsor) nonces were still bumped. `status` will be
+    /// `"problematic_skipped"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub problematic_skipped: Option<u8>,
 }
 
 pub fn make_new_mempool_txs_payload(transactions: Vec<StacksTransaction>) -> serde_json::Value {
@@ -237,6 +259,7 @@ pub fn make_new_burn_block_payload(
 const STATUS_RESP_TRUE: &str = "success";
 const STATUS_RESP_NOT_COMMITTED: &str = "abort_by_response";
 const STATUS_RESP_POST_CONDITION: &str = "abort_by_post_condition";
+const STATUS_RESP_PROBLEMATIC_SKIPPED: &str = "problematic_skipped";
 
 /// Returns transaction event payload to send for new block or microblock event
 pub fn make_new_block_txs_payload(
@@ -245,26 +268,30 @@ pub fn make_new_block_txs_payload(
 ) -> TransactionEventPayload<'_> {
     let tx = &receipt.transaction;
 
-    let status = match (receipt.post_condition_aborted, &receipt.result) {
-        (false, Value::Response(response_data)) => {
-            if response_data.committed {
+    let status = if receipt.problematic_skipped.is_some() {
+        STATUS_RESP_PROBLEMATIC_SKIPPED
+    } else {
+        match (receipt.post_condition_aborted, &receipt.result) {
+            (false, Value::Response(response_data)) => {
+                if response_data.committed {
+                    STATUS_RESP_TRUE
+                } else {
+                    STATUS_RESP_NOT_COMMITTED
+                }
+            }
+            (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
+            _ => {
+                if !matches!(
+                    tx,
+                    TransactionOrigin::Stacks(StacksTransaction {
+                        payload: TransactionPayload::PoisonMicroblock(_, _),
+                        ..
+                    })
+                ) {
+                    unreachable!("Unexpected transaction result type");
+                }
                 STATUS_RESP_TRUE
-            } else {
-                STATUS_RESP_NOT_COMMITTED
             }
-        }
-        (true, Value::Response(_)) => STATUS_RESP_POST_CONDITION,
-        _ => {
-            if !matches!(
-                tx,
-                TransactionOrigin::Stacks(StacksTransaction {
-                    payload: TransactionPayload::PoisonMicroblock(_, _),
-                    ..
-                })
-            ) {
-                unreachable!("Unexpected transaction result type");
-            }
-            STATUS_RESP_TRUE
         }
     };
 
@@ -296,6 +323,7 @@ pub fn make_new_block_txs_payload(
             .as_ref()
             .map(|x| x.prev_block.clone()),
         vm_error: receipt.vm_error.clone(),
+        problematic_skipped: receipt.problematic_skipped,
     }
 }
 
@@ -394,6 +422,7 @@ pub fn make_new_block_processed_payload(
         "pox_v1_unlock_height": pox_constants.v1_unlock_height,
         "pox_v2_unlock_height": pox_constants.v2_unlock_height,
         "pox_v3_unlock_height": pox_constants.v3_unlock_height,
+        "pox_v4_unlock_height": pox_constants.pox_5_activation_height,
         "signer_bitvec": signer_bitvec_value,
         "reward_set": reward_set_value,
         "cycle_number": cycle_number_value,

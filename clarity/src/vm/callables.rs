@@ -24,10 +24,13 @@ use super::ClarityVersion;
 use super::costs::{CostErrors, CostOverflowingMath};
 use super::errors::VmInternalError;
 use super::types::signatures::CallableSubtype;
-use crate::vm::contexts::{ContractContext, ExecutionState, InvocationContext};
+use crate::vm::contexts::{
+    ContractContext, ExecutionState, FunctionExecutionOptions, InvocationContext,
+};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{RuntimeCheckErrorKind, VmExecutionError, check_argument_count};
+use crate::vm::hooks::CallHook;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
@@ -35,28 +38,56 @@ use crate::vm::types::{
 };
 use crate::vm::{LocalContext, Value, eval};
 
-#[allow(clippy::type_complexity, clippy::large_enum_variant)]
+type Native205CostInputFn = &'static dyn Fn(&[Value]) -> Result<u64, VmExecutionError>;
+
+type SpecialFunctionFn = &'static dyn Fn(
+    &[SymbolicExpression],
+    &mut ExecutionState,
+    &InvocationContext,
+    &LocalContext,
+) -> Result<Value, VmExecutionError>;
+
+#[allow(clippy::large_enum_variant)]
 pub enum CallableType {
+    /// A function defined in a Clarity contract via `define-public`,
+    /// `define-read-only`, or `define-private`. Arguments are evaluated by
+    /// the caller and then bound into a fresh `LocalContext` before the
+    /// body is interpreted.
     UserFunction(DefinedFunction),
-    NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
+    /// A reserved (built-in or special-form) function. `clarity_name` is the
+    /// source-level name (e.g. `"+"`, `"fold"`) and is uniform across every
+    /// builtin; the per-function dispatch detail lives in `kind`.
+    Builtin {
+        clarity_name: &'static str,
+        kind: BuiltinKind,
+    },
+}
+
+/// Dispatch detail for a reserved function. The leading `&'static str` on each
+/// variant is the Rust implementation name (e.g. `"native_add"`).
+pub enum BuiltinKind {
+    Native(&'static str, NativeHandle, ClarityCostFunction),
     /// These native functions have a new method for calculating input size in 2.05
     /// If the global context's epoch is >= 2.05, the fn field is applied to obtain
     /// the input to the cost function.
-    NativeFunction205(
+    Native205(
         &'static str,
         NativeHandle,
         ClarityCostFunction,
-        &'static dyn Fn(&[Value]) -> Result<u64, VmExecutionError>,
+        Native205CostInputFn,
     ),
-    SpecialFunction(
-        &'static str,
-        &'static dyn Fn(
-            &[SymbolicExpression],
-            &mut ExecutionState,
-            &InvocationContext,
-            &LocalContext,
-        ) -> Result<Value, VmExecutionError>,
-    ),
+    Special(&'static str, SpecialFunctionFn),
+}
+
+impl BuiltinKind {
+    /// Rust implementation name (e.g. `"native_add"`).
+    fn rust_name(&self) -> &'static str {
+        match self {
+            BuiltinKind::Native(rust_name, ..)
+            | BuiltinKind::Native205(rust_name, ..)
+            | BuiltinKind::Special(rust_name, ..) => rust_name,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -161,6 +192,21 @@ impl DefinedFunction {
         }
     }
 
+    /// Clarity source-level function name.
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// Declared argument names, in source order.
+    pub fn argument_names(&self) -> &[ClarityName] {
+        &self.arguments
+    }
+
+    /// Declared argument types, in source order.
+    pub fn arg_types(&self) -> &[TypeSignature] {
+        &self.arg_types
+    }
+
     pub fn execute_apply(
         &self,
         args: &[Value],
@@ -224,7 +270,7 @@ impl DefinedFunction {
                             name.clone(),
                             CallableData {
                                 contract_identifier: callee_contract_id.clone(),
-                                trait_identifier: Some(trait_identifier.clone()),
+                                trait_identifier: Some(Box::new(trait_identifier.clone())),
                             },
                         );
                     }
@@ -240,7 +286,7 @@ impl DefinedFunction {
                             name.clone(),
                             CallableData {
                                 contract_identifier: callee_contract_id.clone(),
-                                trait_identifier: Some(trait_identifier.clone()),
+                                trait_identifier: Some(Box::new(trait_identifier.clone())),
                             },
                         );
                     }
@@ -289,6 +335,16 @@ impl DefinedFunction {
                 // and traits can be implicitly cast to sub-traits
                 // e.g. `<foo-and-bar>` to `<foo>`
                 let cast_value = clarity2_implicit_cast(type_sig, value)?;
+                let cast_value = if exec_state.epoch().sanitize_in_function_invocation() {
+                    Value::sanitize_value(exec_state.epoch(), type_sig, cast_value)
+                        .ok_or(RuntimeCheckErrorKind::TypeValueError(
+                            Box::new(type_sig.clone()),
+                            value.to_error_string(),
+                        ))?
+                        .0
+                } else {
+                    cast_value
+                };
 
                 match (&type_sig, &cast_value) {
                     (
@@ -375,6 +431,8 @@ impl DefinedFunction {
         self.define_type == DefineType::ReadOnly
     }
 
+    /// Applies this function directly or through a transaction boundary according to its
+    /// visibility.
     pub fn apply(
         &self,
         args: &[Value],
@@ -383,12 +441,13 @@ impl DefinedFunction {
     ) -> Result<Value, VmExecutionError> {
         match self.define_type {
             DefineType::Private => self.execute_apply(args, exec_state, invoke_ctx),
-            DefineType::Public => {
-                exec_state.execute_function_as_transaction(invoke_ctx, self, args, None, false)
-            }
-            DefineType::ReadOnly => {
-                exec_state.execute_function_as_transaction(invoke_ctx, self, args, None, false)
-            }
+            DefineType::Public | DefineType::ReadOnly => exec_state
+                .execute_function_as_transaction(
+                    invoke_ctx,
+                    self,
+                    args,
+                    FunctionExecutionOptions::default(),
+                ),
         }
     }
 
@@ -440,10 +499,19 @@ impl CallableType {
     pub fn get_identifier(&self) -> FunctionIdentifier {
         match self {
             CallableType::UserFunction(f) => f.get_identifier(),
-            CallableType::NativeFunction(s, _, _) => FunctionIdentifier::new_native_function(s),
-            CallableType::SpecialFunction(s, _) => FunctionIdentifier::new_native_function(s),
-            CallableType::NativeFunction205(s, _, _, _) => {
-                FunctionIdentifier::new_native_function(s)
+            CallableType::Builtin { kind, .. } => {
+                FunctionIdentifier::new_native_function(kind.rust_name())
+            }
+        }
+    }
+
+    pub fn call_trace_hook<'a>(&'a self, invoke_ctx: &'a InvocationContext) -> CallHook<'a> {
+        match self {
+            CallableType::Builtin { clarity_name, kind } => {
+                CallHook::builtin(clarity_name, kind.rust_name())
+            }
+            CallableType::UserFunction(function) => {
+                CallHook::user_defined(&invoke_ctx.contract_context.contract_identifier, function)
             }
         }
     }
@@ -535,7 +603,7 @@ fn clarity2_implicit_cast(
             Value::CallableContract(callable_data),
         ) => Value::CallableContract(CallableData {
             contract_identifier: callable_data.contract_identifier.clone(),
-            trait_identifier: Some(trait_identifier.clone()),
+            trait_identifier: Some(Box::new(trait_identifier.clone())),
         }),
         // N.B. it seems like this should be illegal, since it is converting a
         // principal to a callable trait, and only principal literals should be
@@ -550,7 +618,7 @@ fn clarity2_implicit_cast(
             Value::Principal(PrincipalData::Contract(contract_identifier)),
         ) => Value::CallableContract(CallableData {
             contract_identifier: contract_identifier.clone(),
-            trait_identifier: Some(trait_identifier.clone()),
+            trait_identifier: Some(Box::new(trait_identifier.clone())),
         }),
         _ => value.clone(),
     })
@@ -593,7 +661,10 @@ mod test {
         let cast_contract = clarity2_implicit_cast(&trait_ty, &contract).unwrap();
         let cast_trait = cast_contract.expect_callable().unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (optional principal) -> (optional <trait>)
         let optional_ty = TypeSignature::new_option(trait_ty.clone()).unwrap();
@@ -605,7 +676,7 @@ mod test {
                 trait_identifier: trait_id,
             }) => {
                 assert_eq!(contract_id, &contract_identifier);
-                assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
+                assert_eq!(trait_id.as_deref().unwrap(), &trait_identifier);
             }
             other => panic!("expected Value::CallableContract, got {other:?}"),
         }
@@ -621,7 +692,10 @@ mod test {
             .expect_callable()
             .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (err principal) -> (err <trait>)
         let response_err_ty =
@@ -634,7 +708,10 @@ mod test {
             .expect_callable()
             .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (list principal) -> (list <trait>)
         let list_ty = TypeSignature::list_of(trait_ty.clone(), 4).unwrap();
@@ -643,7 +720,10 @@ mod test {
         let items = cast_list.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // {a: principal} -> {a: <trait>}
@@ -675,7 +755,10 @@ mod test {
             .expect_callable()
             .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
-        assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+        assert_eq!(
+            cast_trait.trait_identifier.unwrap().as_ref(),
+            &trait_identifier
+        );
 
         // (list (optional principal)) -> (list (optional <trait>))
         let list_opt_ty = TypeSignature::list_of(optional_ty.clone(), 4).unwrap();
@@ -690,7 +773,10 @@ mod test {
         for item in items {
             if let Some(cast_opt) = item.expect_optional().unwrap() {
                 let cast_trait = cast_opt.expect_callable().unwrap();
-                assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+                assert_eq!(
+                    cast_trait.trait_identifier.unwrap().as_ref(),
+                    &trait_identifier
+                );
             }
         }
 
@@ -706,7 +792,10 @@ mod test {
         let items = cast_list.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_result_ok().unwrap().expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // (list (response uint principal)) -> (list (response uint <trait>))
@@ -721,7 +810,10 @@ mod test {
         let items = cast_list.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_result_err().unwrap().expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // (optional (list (response uint principal))) -> (optional (list (response uint <trait>)))
@@ -739,7 +831,10 @@ mod test {
         let items = inner.expect_list().unwrap();
         for item in items {
             let cast_trait = item.expect_result_err().unwrap().expect_callable().unwrap();
-            assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            assert_eq!(
+                cast_trait.trait_identifier.unwrap().as_ref(),
+                &trait_identifier
+            );
         }
 
         // (optional (optional principal)) -> (optional (optional <trait>))
@@ -762,7 +857,7 @@ mod test {
                 trait_identifier: trait_id,
             }) => {
                 assert_eq!(contract_id, &contract_identifier);
-                assert_eq!(trait_id.as_ref().unwrap(), &trait_identifier);
+                assert_eq!(trait_id.as_deref().unwrap(), &trait_identifier);
             }
             other => panic!("expected Value::CallableContract, got {other:?}"),
         }

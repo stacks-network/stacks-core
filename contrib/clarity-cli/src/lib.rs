@@ -25,15 +25,15 @@ use clarity::vm::ast::errors::ParseError;
 use clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
+    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
 use clarity::vm::errors::{ClarityEvalError, StaticCheckError, VmExecutionError};
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::time_tracker::TimeTracker;
+use clarity::vm::resource_limiter::ResourceLimiter;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{
-    ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
-    eval_all,
+    analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
+    Value,
 };
 use lazy_static::lazy_static;
 use rand::Rng;
@@ -47,21 +47,21 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, bytes_to_hex};
+use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 use stackslib::burnchains::{PoxConstants, Txid};
 use stackslib::chainstate::stacks::boot::{
-    BOOT_CODE_BNS, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET, BOOT_CODE_COSTS,
-    BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
-    BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
-    POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
+    BOOT_CODE_BNS, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
+    BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_MAINNET,
+    BOOT_CODE_COST_VOTING_TESTNET, BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET,
+    BOOT_CODE_POX_TESTNET, POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
 use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
 use stackslib::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
-use stackslib::clarity_vm::database::MemoryBackingStore;
 use stackslib::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
-use stackslib::core::{BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20, StacksEpochId};
+use stackslib::clarity_vm::database::MemoryBackingStore;
+use stackslib::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20};
 use stackslib::util_lib::boot::{boot_code_addr, boot_code_id};
-use stackslib::util_lib::db::{FromColumn, sqlite_open};
+use stackslib::util_lib::db::{sqlite_open, FromColumn};
 
 lazy_static! {
     pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 10] = [
@@ -247,7 +247,7 @@ fn run_analysis_free<C: ClarityStorage>(
         // no type map data is used in the clarity_cli
         false,
         // CLI tool: no analysis deadline
-        TimeTracker::unlimited(),
+        ResourceLimiter::unlimited(),
     )
 }
 
@@ -284,7 +284,7 @@ fn run_analysis<C: ClarityStorage>(
         // no type map data is used in the clarity_cli
         false,
         // CLI tool: no analysis deadline
-        TimeTracker::unlimited(),
+        ResourceLimiter::unlimited(),
     )
 }
 
@@ -2082,7 +2082,8 @@ mod test {
         assert_eq!(exit, 0);
         assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(
-            result["assets"]["tokens"]["S1G2081040G2081040G2081040G208105NK8PE5"]["S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens"]
+            result["assets"]["tokens"]["S1G2081040G2081040G2081040G208105NK8PE5"]
+                ["S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens"]
                 == "10300"
         );
         assert!(result["events"].as_array().unwrap().len() == 3);

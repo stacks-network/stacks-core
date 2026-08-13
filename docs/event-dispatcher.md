@@ -122,6 +122,10 @@ The section below has example json encodings for each of the burnchain operation
 {
   "block_hash": "0x4eaabcd105865e471f697eff5dd5bd85d47ecb5a26a3379d74fae0ae87c40904",
   "block_height": 3,
+  "block_time": 1591301734,
+  "burn_block_hash": "0x00000000000000000001b3b1e6f2a8f1d9c0f0b7e8c6a5d4c3b2a1908f7e6d5c",
+  "burn_block_height": 654321,
+  "miner_txid": "0x6c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5",
   "burn_block_time": 1591301733,
   "events": [
     {
@@ -140,6 +144,7 @@ The section below has example json encodings for each of the burnchain operation
   "parent_block_hash": "0xf5d4ce0efe1d42c963d615ce57f0d014f263a985175e4ece766eceff10e0a358",
   "parent_index_block_hash": "0x0c8b38d44d6af72703a4767ff4cea683ec965346d9e9a7ded2d773fb4f257c28",
   "parent_microblock": "0xedd15cf1e697c28df934e259f0f82970a7c9edc2d39bef04bdd0d422116235c6",
+  "parent_microblock_sequence": 0,
   "transactions": [
     {
       "contract_abi": null,
@@ -227,7 +232,25 @@ The section below has example json encodings for each of the burnchain operation
     "write_count": 5,
     "read_length": 150,
     "write_length": 75
-   }
+   },
+   "parent_burn_block_hash": "0x00000000000000000002a1908f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c",
+   "parent_burn_block_height": 654320,
+   "parent_burn_block_timestamp": 1591301720,
+   "pox_v1_unlock_height": 700000,
+   "pox_v2_unlock_height": 750000,
+   "pox_v3_unlock_height": 800000,
+   "pox_v4_unlock_height": 850000,
+   "signer_bitvec": "00020000000100",
+   "reward_set": null,
+   "cycle_number": null,
+   "tenure_height": 3,
+   "consensus_hash": "0x53c166a709a9abd64a92a57f928a8b26aad08992",
+   "signer_signature_hash": "0x4eaabcd105865e471f697eff5dd5bd85d47ecb5a26a3379d74fae0ae87c40904",
+   "miner_signature": "0x008d6a3a1d9c0f0b7e8c6a5d4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a291807",
+   "signer_signature": [
+     "008d6a3a1d9c0f0b7e8c6a5d4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a291807",
+     "01b4c2d519faccba2e435f3272ff042b89435fd160ff1a9c0f0b7e8c6a5d4c3b2a1908f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a29180f7e6d5c4b3a29"
+   ]
 }
 ```
 
