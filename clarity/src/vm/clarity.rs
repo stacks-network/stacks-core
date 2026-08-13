@@ -269,6 +269,30 @@ pub fn handle_clarity_analysis_error(
     }
 }
 
+impl From<IncludedRuntimeTxError> for ClarityError {
+    /// Recover the error that was classified. Inverse of the `Included` half of
+    /// [`handle_clarity_runtime_error`], less the logging label.
+    fn from(included: IncludedRuntimeTxError) -> Self {
+        match included {
+            IncludedRuntimeTxError::Acceptable { error, .. } => ClarityError::Interpreter(error),
+            IncludedRuntimeTxError::AbortedByCallback {
+                output,
+                assets_modified,
+                tx_events,
+                reason,
+            } => ClarityError::AbortedByCallback {
+                output: output.map(Box::new),
+                assets_modified: Box::new(assets_modified),
+                tx_events,
+                reason,
+            },
+            IncludedRuntimeTxError::AnalysisError { error } => {
+                ClarityError::Interpreter(VmExecutionError::RuntimeCheck(error))
+            }
+        }
+    }
+}
+
 impl From<StaticCheckError> for ClarityError {
     fn from(e: StaticCheckError) -> Self {
         match *e.err {

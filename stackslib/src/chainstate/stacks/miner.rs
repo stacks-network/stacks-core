@@ -23,7 +23,6 @@ use std::thread::ThreadId;
 use std::time::Instant;
 
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::VmExecutionError;
 use clarity::vm::resource_limiter::ResourceBudget;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
@@ -44,7 +43,7 @@ use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
     finalize_failed_transaction, handle_clarity_runtime_error, ClarityRuntimeTxError,
-    IncludedRuntimeTxError, RejectedRuntimeTxError,
+    RejectedRuntimeTxError,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
@@ -675,34 +674,13 @@ impl TransactionResult {
                     info!("Problematic transaction would invalidate the block, so dropping from mempool"; "txid" => %tx.txid(), "error" => %e);
                     return (true, Error::ClarityError(e));
                 }
-                // recover original ClarityError
-                ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Acceptable {
-                    error,
-                    ..
-                }) => Error::ClarityError(ClarityError::Interpreter(error)),
+                // An included failure is still mineable: recover the original `ClarityError`.
+                ClarityRuntimeTxError::Included(included) => Error::ClarityError(included.into()),
                 ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::CostError {
                     cost,
                     budget,
                     ..
                 }) => Error::ClarityError(ClarityError::CostError(cost, budget)),
-                ClarityRuntimeTxError::Included(IncludedRuntimeTxError::AnalysisError {
-                    error: e,
-                    ..
-                }) => Error::ClarityError(ClarityError::Interpreter(
-                    VmExecutionError::RuntimeCheck(e),
-                )),
-                ClarityRuntimeTxError::Included(IncludedRuntimeTxError::AbortedByCallback {
-                    output,
-                    assets_modified,
-                    tx_events,
-                    reason,
-                    ..
-                }) => Error::ClarityError(ClarityError::AbortedByCallback {
-                    output: output.map(Box::new),
-                    assets_modified: Box::new(assets_modified),
-                    tx_events,
-                    reason,
-                }),
                 ClarityRuntimeTxError::Rejected(
                     RejectedRuntimeTxError::ExecutionResourceBudgetExceeded { message: s, .. },
                 ) => {
