@@ -55,6 +55,7 @@ mod mem_abort;
 mod mempool;
 pub mod nakamoto_integrations;
 pub mod neon_integrations;
+mod pox_5_integrations;
 mod signer;
 mod stackerdb;
 
@@ -146,7 +147,8 @@ pub fn new_test_conf() -> Config {
         10000,
     );
 
-    conf.burnchain.epochs = Some(StacksEpoch::all(0, 0, 0));
+    conf.burnchain.epochs = Some(StacksEpoch::unit_test_2_1_with_heights(0, 0, 0));
+    conf.burnchain.wallet_name = Some("test-miner".to_string());
 
     let localhost = "127.0.0.1";
     conf.node.rpc_bind = format!("{localhost}:{rpc_port}");

@@ -1969,6 +1969,8 @@ fn bitcoind_forking_test() {
             epochs[StacksEpochId::Epoch33].start_height = 3_065;
             epochs[StacksEpochId::Epoch33].end_height = 3_075;
             epochs[StacksEpochId::Epoch34].start_height = 3_075;
+            epochs[StacksEpochId::Epoch34].end_height = 3_085;
+            epochs[StacksEpochId::Epoch40].start_height = 3_085;
         },
         None,
         None,
@@ -2892,10 +2894,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
             signer_test.get_peer_info().stacks_tip
         })
         .expect("Timed out waiting for block N to be mined");
-    assert!(block_n
-        .txs
-        .iter()
-        .any(|tx| { tx.txid().to_string() == txid }));
+    assert!(block_n.txs().any(|tx| { tx.txid().to_string() == txid }));
 
     info!("------------------------- Attempt to Mine Nakamoto Block N+1 at Height {} -------------------------", info_before.stacks_tip_height + 2);
     // Make more than >70% of the signers ignore the block proposal to ensure it it is not globally accepted/rejected
@@ -4796,6 +4795,8 @@ fn btc_fork_on_midtenure_accept() {
             epochs[StacksEpochId::Epoch33].start_height = 3_065;
             epochs[StacksEpochId::Epoch33].end_height = 3_075;
             epochs[StacksEpochId::Epoch34].start_height = 3_075;
+            epochs[StacksEpochId::Epoch34].end_height = 3_085;
+            epochs[StacksEpochId::Epoch40].start_height = 3_085;
         },
         None,
         None,

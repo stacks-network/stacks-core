@@ -4,127 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "467f414787476969f09d3ba7f20e3e57451f0b1d763817c1f3ed65441170a91c",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-response-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: expecting 5 arguments, got 3) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1485,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1485,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "bb8608b6348d49ac24e2330c1320b740e9caed8bae58ab1fdb1fb5b7d0d44c62",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-response-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: expecting 5 arguments, got 3) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1485,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1485,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "dd69038bcf520c86746672c124312696dd17f485984ca963da1c539968ad2910",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-response-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: expecting 5 arguments, got 3) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1485,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1485,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "70f04b840a2fe0273ced83ca0df20b71fba456d132ebe7f293c90b498057dcae",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: bad-match-response-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: expecting 5 arguments, got 3) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 11,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 1485,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 11,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 1485,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "95c01843aae5d201341e37a15c60ee0c9ed45e997030bf5f56381f9f3499da39",
+    marf_hash: "83f572fd8b1e93d0dac07f90c4eea9ec0857779ba804aff033219b9655416962",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d385e97eb010ad8d890a5d1bd0d466864879e4fbf3890326c28151f82fdf8a55",
+    marf_hash: "485fabc19d12c5fc209b706d2f716323977c5443703398718ffac053f820c865",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7ba1e6bfdcd29faa837714b0dfe6085d4c2e32d89454721534b5467a6a75af78",
+    marf_hash: "ebdac0c9334e97195909692857661b22d5b97e2d664044b674f7171d118feedf",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -214,7 +94,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0786dc6d81e2dce0a4688794d44626b985ee24db7593224f5653750a3eb3e747",
+    marf_hash: "e4e677566a8d9256a209542bd71472e271828d52b45ec84a34a43bd77f5dc770",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -244,11 +124,191 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1fde158b8473d93fa088f39b479f57cf68ebef415e248bf741667a5df89f319f",
+    marf_hash: "82a9c7acaa0ccbc16eba6dae7b42a70747fdeeda9dfb0e099c42cf558a4b646c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: bad-match-response-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: expecting 5 arguments, got 3) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1485,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1485,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "469957561ae40db2a5458fb0e9cfa2b73eb7f29972b7402c397fb88866f6c7d1",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-match-response-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: expecting 5 arguments, got 3) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1485,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1485,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ef4e539b7c575f36a1bd6466f8da027d467224c2562f7c79c06938db8b41e2a9",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-match-response-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: expecting 5 arguments, got 3) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1485,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1485,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d768a65b6d1c51170a8df1f4f08b7d338c2847fa20e5d51ca85ec52c35d1046a",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-match-response-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: expecting 5 arguments, got 3) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1485,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1485,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7f7377033c9a379f2e8833f413bcea736d707d3b8d6c620278dc487dedaf2187",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-match-response-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: expecting 5 arguments, got 3) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1485,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1485,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "fd839fa2b4c76863d57b54cd1c815a3bba55b65321b728c7294cd96173932051",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-match-response-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: expecting 5 arguments, got 3) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1485,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1485,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f425cea40568464a43e97f939a40061a46767515dbfe9c134e46d3093f318687",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-match-response-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: expecting 5 arguments, got 3) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

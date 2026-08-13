@@ -4,127 +4,7 @@ expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "d9e73e9309f1d6965cbdb87894ef17b73068d330d250594a71bd890d25186b25",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: unchecked-resp-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 13,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 3222,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 13,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 3222,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "256c38fc52f45f9daf299224aadcb30f3d1e349bc033e081231a3f00f284b1d5",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: unchecked-resp-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 13,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 3222,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 13,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 3222,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "62c6b77e0b01b00797ca15917188915790303e7be5a4440c1081f563cb0ab9c4",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: unchecked-resp-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 13,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 3222,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 13,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 3222,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "4c6b276d10a8df9ece708663e72be858e8f993acd7129893ece2b781fab8088d",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: unchecked-resp-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 13,
-          write_count: 1,
-          read_length: 1,
-          read_count: 1,
-          runtime: 3222,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 13,
-      write_count: 1,
-      read_length: 1,
-      read_count: 1,
-      runtime: 3222,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "ece387b40921fa7cdf8ae7fd6c0fb3bb27845bda13492c7693437e1f1813cb27",
+    marf_hash: "f269d245e2e27e94307358aee186ca499dd9abb183fde6bdbd1a446c2eb4d977",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +34,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2aa92d5814ae07b782f9f9ffaf4388cace388d723c53df6c1505b05c0b4c4769",
+    marf_hash: "239523d717b86a34fcb7960b390a285fdad56a5810cf1ec5a206d80371e9a09c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +64,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "04757d84a1586ef972ce83082c3c6a8258cec3b8ca40ec9906b0a56926d009a0",
+    marf_hash: "38d0bf39fdb30b15d7599f98b217009aa710458192b8bd95ecdbef58a8e5363a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -214,7 +94,7 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2ef879aef16da06e2115965363d9c107a9845db1f5bf08fcc7c34873650ee124",
+    marf_hash: "2ecdfc26ee88691e90357157bc5a339ce010125f99cc26deb4ada2c87be2db88",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -244,11 +124,191 @@ expression: result.get_expected_results()
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e0e104c7abc7720d5377c87e74710fea451d264d8958729f622db520c526db66",
+    marf_hash: "3d965cb6cffcfd21a85db4f4e600936d8bb3a49a587afc442cb252c130e1fa5f",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: unchecked-resp-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "abc47e41b7dc28f124ed43cd09b184be88d52c6e559d4c67f817d82413878e40",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unchecked-resp-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5c00e30546640e379947e6a792f3332dc8a060df9c7605663072359294d63a6e",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unchecked-resp-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3cdea95960992e274cf8ef198c74e2703f15b7164506339b031b342791d1bc28",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unchecked-resp-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "13a8c29e5372d11e541c0b720707ce0677c1bdf222fad1edf6b53c11ad1159e7",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unchecked-resp-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5becfefbceb9c5573af8ba03249307d7b86aabd8dd665cef536aae36e2c37a71",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unchecked-resp-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 13,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 3222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 13,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 3222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "cea5c65a9d57f38707c096a7e7dcd5c24da71e252368e4258c67e05abfbbe431",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: unchecked-resp-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: intermediary responses in consecutive statements must be checked) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

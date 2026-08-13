@@ -19,7 +19,7 @@ use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
 use clarity::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey, TrieHash};
-use clarity::types::{EpochList, StacksEpoch, StacksEpochId};
+use clarity::types::{EpochList, StacksEpoch, StacksEpochId, StacksEpochRangeTestExt as _};
 use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
@@ -32,10 +32,12 @@ use crate::burnchains::tests::TestBurnchainBlock;
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
+use crate::chainstate::nakamoto::{
+    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, TxToProcess,
+};
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksEpochReceipt};
 use crate::chainstate::stacks::events::TransactionOrigin;
-use crate::chainstate::stacks::miner::BlockBuilder;
+use crate::chainstate::stacks::miner::{BlockBuilder, TransactionResourceBudgets};
 use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksTransaction,
@@ -48,13 +50,41 @@ use crate::core::test_util::{
     make_contract_call, make_contract_call_tx, make_contract_publish_versioned,
     make_stacks_transfer_tx, make_unsigned_tx, to_addr,
 };
-use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::core::{BLOCK_LIMIT_MAINNET_21, BLOCK_LIMIT_MAINNET_40};
 use crate::net::tests::NakamotoBootPlan;
 
 /// The epochs to test for consensus are the current and upcoming epochs.
 /// This constant must be changed when new epochs are introduced.
 /// Note that contract deploys MUST be done in each epoch >= 2.0.
-pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch33, StacksEpochId::Epoch34];
+///
+/// TODO: Epoch 4.1 is defined but deliberately excluded. It is a placeholder for
+/// future consensus-breaking changes with no activation height -- so today it
+/// would only duplicate Epoch 4.0's results across every snapshot. Add it
+/// when 4.1 stabilizes.
+pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch34, StacksEpochId::Epoch40];
+
+/// The latest epoch exercised by the consensus snapshot tests, i.e. the maximum
+/// of [`EPOCHS_TO_TEST`]. Epochs beyond this are intentionally excluded.
+pub fn max_tested_epoch() -> StacksEpochId {
+    *EPOCHS_TO_TEST
+        .iter()
+        .max()
+        .expect("EPOCHS_TO_TEST must contain at least one epoch")
+}
+
+/// Like a `(start..)` range, but clamped to [`max_tested_epoch`].
+///
+/// Tests use this to build deploy/call epoch ranges so that excluded epochs are never used, which
+/// otherwise would keep that epoch's results (marf hashes, costs) in the snapshots and reintroduce
+/// the churn that excluding it is meant to avoid.
+pub fn tested_epochs_since(start: StacksEpochId) -> Vec<StacksEpochId> {
+    let max = max_tested_epoch();
+    (start..)
+        .iter()
+        .copied()
+        .filter(|epoch| *epoch <= max)
+        .collect()
+}
 
 pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
 pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
@@ -100,6 +130,24 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity4,
             ClarityVersion::Clarity5,
         ],
+        StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => &[
+            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity2,
+            ClarityVersion::Clarity3,
+            ClarityVersion::Clarity4,
+            ClarityVersion::Clarity5,
+            ClarityVersion::Clarity6,
+        ],
+    }
+}
+
+/// Block execution limit the consensus tests use for the given epoch, mirroring the
+/// production `STACKS_EPOCHS_MAINNET`/`STACKS_EPOCHS_TESTNET` tables.
+pub fn block_limit_for_epoch(epoch_id: StacksEpochId) -> ExecutionCost {
+    if epoch_id >= StacksEpochId::Epoch40 {
+        BLOCK_LIMIT_MAINNET_40.clone()
+    } else {
+        BLOCK_LIMIT_MAINNET_21.clone()
     }
 }
 
@@ -373,40 +421,62 @@ impl ConsensusChain<'_> {
         let first_burnchain_height =
             (pox_constants.pox_4_activation_height + pox_constants.reward_cycle_length + 1) as u64;
         info!("StacksEpoch calculate_epochs first_burn_height = {first_burnchain_height}");
+        // The highest epoch this test actually exercises (the max key in
+        // `num_blocks_per_epoch`). It is made open-ended below so the chain ends
+        // in it and never drifts into a later, unexercised epoch -- which now
+        // matters because block headers are version-gated per epoch (e.g. a test
+        // that only runs through Epoch 3.4 must not let Epoch 4.0 activate and
+        // then mine a wrong-versioned block there).
+        let max_used_epoch = num_blocks_per_epoch
+            .keys()
+            .copied()
+            .max()
+            .unwrap_or(StacksEpochId::Epoch40);
         let mut epochs = vec![];
         let mut current_height = 0;
         for epoch_id in StacksEpochId::ALL.iter() {
             let start_height = current_height;
-            let mut end_height = match *epoch_id {
-                StacksEpochId::Epoch10 => first_burnchain_height,
-                StacksEpochId::Epoch20
-                | StacksEpochId::Epoch2_05
-                | StacksEpochId::Epoch21
-                | StacksEpochId::Epoch22
-                | StacksEpochId::Epoch23
-                | StacksEpochId::Epoch24
-                | StacksEpochId::Epoch25 => {
-                    // Use test vector block count
-                    // Always add 1 so we can ensure we are fully in the epoch before we then execute
-                    // the corresponding test blocks in their own blocks
-                    let num_blocks = num_blocks_per_epoch.get(epoch_id).copied().unwrap_or(0) + 1;
-                    place_blocks_avoiding_prepare(start_height, num_blocks) + 1
-                }
-                StacksEpochId::Epoch30
-                | StacksEpochId::Epoch31
-                | StacksEpochId::Epoch32
-                | StacksEpochId::Epoch33 => {
-                    // Only need 1 block per Epoch
-                    if num_blocks_per_epoch.contains_key(epoch_id) {
-                        start_height + 1
-                    } else {
-                        // If we don't care to have any blocks in this epoch
-                        // don't bother giving it an epoch height
-                        start_height
+            // Each epoch's height range depends on where it sits relative to the
+            // highest epoch this test uses:
+            let mut end_height = if *epoch_id > max_used_epoch {
+                // After it: zero-width, so this epoch never activates.
+                start_height
+            } else if *epoch_id == max_used_epoch {
+                // The highest tested epoch is open-ended; the chain ends here.
+                STACKS_EPOCH_MAX
+            } else {
+                // Before it: the epoch's normal block allocation.
+                match *epoch_id {
+                    StacksEpochId::Epoch10 => first_burnchain_height,
+                    StacksEpochId::Epoch20
+                    | StacksEpochId::Epoch2_05
+                    | StacksEpochId::Epoch21
+                    | StacksEpochId::Epoch22
+                    | StacksEpochId::Epoch23
+                    | StacksEpochId::Epoch24
+                    | StacksEpochId::Epoch25 => {
+                        // Use the test vector block count, +1 so we're fully into
+                        // the epoch before running its test blocks.
+                        let num_blocks =
+                            num_blocks_per_epoch.get(epoch_id).copied().unwrap_or(0) + 1;
+                        place_blocks_avoiding_prepare(start_height, num_blocks) + 1
+                    }
+                    // Nakamoto epochs use one burn block when exercised, none
+                    // otherwise.
+                    StacksEpochId::Epoch30
+                    | StacksEpochId::Epoch31
+                    | StacksEpochId::Epoch32
+                    | StacksEpochId::Epoch33
+                    | StacksEpochId::Epoch34
+                    | StacksEpochId::Epoch40
+                    | StacksEpochId::Epoch41 => {
+                        if num_blocks_per_epoch.contains_key(epoch_id) {
+                            start_height + 1
+                        } else {
+                            start_height
+                        }
                     }
                 }
-                // The last Epoch height never ends
-                StacksEpochId::Epoch34 => STACKS_EPOCH_MAX,
             };
 
             // Special case the Epoch 2.5 -> Epoch 3.0 transition
@@ -446,11 +516,7 @@ impl ConsensusChain<'_> {
                 end_height = epoch_30_start; // Epoch 2.5 ends where Epoch 3.0 starts
             }
             // Create epoch
-            let block_limit = if *epoch_id == StacksEpochId::Epoch10 {
-                ExecutionCost::max_value()
-            } else {
-                BLOCK_LIMIT_MAINNET_21.clone()
-            };
+            let block_limit = block_limit_for_epoch(*epoch_id);
             let network_epoch = StacksEpochId::network_epoch(*epoch_id);
             epochs.push(StacksEpoch {
                 epoch_id: *epoch_id,
@@ -715,13 +781,23 @@ impl ConsensusChain<'_> {
 
             // First mine the coinbase transaction
             builder
-                .try_mine_tx(&mut epoch_tx, &coinbase_tx, None, &mut total_receipt_size)
+                .try_mine_tx(
+                    &mut epoch_tx,
+                    &coinbase_tx,
+                    &TransactionResourceBudgets::unlimited(),
+                    &mut total_receipt_size,
+                )
                 .unwrap();
 
             // We attempt to mine each transaction to build the hash
             for tx in &test_block.transactions {
                 // NOTE: It is expected to fail when trying computing the marf for invalid block/transactions.
-                let _ = builder.try_mine_tx(&mut epoch_tx, tx, None, &mut total_receipt_size);
+                let _ = builder.try_mine_tx(
+                    &mut epoch_tx,
+                    tx,
+                    &TransactionResourceBudgets::unlimited(),
+                    &mut total_receipt_size,
+                );
             }
 
             let stacks_block = builder.mine_anchored_block(&mut epoch_tx);
@@ -798,6 +874,7 @@ impl ConsensusChain<'_> {
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
             txs: test_block.transactions.clone(),
         };
@@ -897,8 +974,12 @@ impl ConsensusChain<'_> {
             })
             .map_err(|e| e.to_string())?;
 
-        StacksChainState::process_block_transactions(clarity_tx, block_txs, 0)
-            .map_err(|e| e.to_string())?;
+        StacksChainState::process_block_transactions(
+            clarity_tx,
+            TxToProcess::all_execute(block_txs),
+            0,
+        )
+        .map_err(|e| e.to_string())?;
 
         NakamotoChainState::finish_block(clarity_tx, None, false, burn_header_height)
             .map_err(|e| e.to_string())?;
@@ -1890,28 +1971,32 @@ macro_rules! contract_call_consensus_unit_test {
         $(clarity_versions: $clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {{
-        // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
-        let deploy_epochs = clarity::types::StacksEpochId::since(clarity::types::StacksEpochId::Epoch20);
-        $(let deploy_epochs = $deploy_epochs;)?
+        // Handle deploy_epochs parameter (default to every epoch from 2.0 up to the
+        // latest epoch under test if not provided, so excluded epochs such as 4.0 are
+        // never deployed in; see `tested_epochs_since`).
+        let __contract_call_default_deploy_epochs = $crate::chainstate::tests::consensus::tested_epochs_since(clarity::types::StacksEpochId::Epoch20);
+        let __contract_call_deploy_epochs: &[clarity::types::StacksEpochId] = &__contract_call_default_deploy_epochs;
+        $(let __contract_call_deploy_epochs: &[clarity::types::StacksEpochId] = $deploy_epochs;)?
 
         // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
-        let call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
-        $(let call_epochs = $call_epochs;)?
-        let setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
-        $(let setup_contracts = $setup_contracts;)?
-        let clarity_versions: &[clarity::vm::ClarityVersion] = clarity::vm::ClarityVersion::ALL;
-        $(let clarity_versions = $clarity_versions;)?
+        let __contract_call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
+        $(let __contract_call_epochs = $call_epochs;)?
+        let __contract_call_setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
+        $(let __contract_call_setup_contracts = $setup_contracts;)?
+        let __contract_call_clarity_versions: &[clarity::vm::ClarityVersion] =
+            clarity::vm::ClarityVersion::ALL;
+        $(let __contract_call_clarity_versions = $clarity_versions;)?
         let contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(
             function_name!(),
             vec![],
-            deploy_epochs,
-            call_epochs,
+            __contract_call_deploy_epochs,
+            __contract_call_epochs,
             $contract_name,
             $contract_code,
             $function_name,
             $function_args,
-            clarity_versions,
-            setup_contracts,
+            __contract_call_clarity_versions,
+            __contract_call_setup_contracts,
         );
         let result = contract_test.run();
         $crate::chainstate::tests::consensus::ConsensusMacroUnitReport::new(result)
@@ -1940,7 +2025,7 @@ pub(crate) use contract_call_consensus_unit_test;
 /// * `contract_code` — The Clarity source code for the contract.
 /// * `function_name` — The public function to call.
 /// * `function_args` — Function arguments, provided as a slice of [`ClarityValue`].
-/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 2.0.
+/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to every epoch from 2.0 up to the latest epoch under test (see [`tested_epochs_since`]).
 /// * `call_epochs` — *(optional)* Epochs in which to call the function. Defaults to [`EPOCHS_TO_TEST`].
 /// * `clarity_versions` — *(optional)* Clarity versions to include in testing. For each epoch to test, at least one clarity version must be available. Defaults to [`ClarityVersion::ALL`] (all versions tested).
 /// * `setup_contracts` — *(optional)* Slice of [`SetupContract`] values to deploy once before the main contract logic.
@@ -1982,14 +2067,16 @@ macro_rules! contract_deploy_consensus_unit_test {
         $(clarity_versions: $clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {{
-        let deploy_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
-        $(let deploy_epochs = $deploy_epochs;)?
+        // Deploy-only tests default to deploying in `EPOCHS_TO_TEST` (the current epoch
+        // under test), unlike call tests which deploy across every epoch since 2.0.
+        let __contract_deploy_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
+        $(let __contract_deploy_epochs = $deploy_epochs;)?
         $crate::chainstate::tests::consensus::contract_call_consensus_unit_test!(
             contract_name: $contract_name,
             contract_code: $contract_code,
             function_name: "",   // No function calls, just deploys
             function_args: &[],  // No function calls, just deploys
-            deploy_epochs: deploy_epochs,
+            deploy_epochs: __contract_deploy_epochs,
             call_epochs: &[],    // No function calls, just deploys
             $(clarity_versions: $clarity_versions,)?
             $(setup_contracts: $setup_contracts,)?
@@ -2041,7 +2128,7 @@ macro_rules! contract_deploy_consensus_snap_test {
 }
 pub(crate) use contract_deploy_consensus_snap_test;
 
-/// Contract deployment that must occur before `contract_call_consensus_test!` or `contract_deploy_consensus_test!` runs its own logic.
+/// Contract deployment that must occur before `contract_call_consensus_snap_test!` or `contract_deploy_consensus_snap_test!` runs its own logic.
 ///
 /// These setups are useful when the primary contract references other contracts (traits, functions, etc.)
 /// that need to exist ahead of time with deterministic names and versions.
@@ -2237,7 +2324,7 @@ fn test_append_stx_transfers_success() {
     insta::assert_ron_snapshot!(result);
 }
 
-/// Example of using the `contract_call_consensus_test!` macro
+/// Example of using the `contract_call_consensus_snap_test!` macro
 /// Deploys a contract to each epoch, for each Clarity version,
 /// then calls a function in that contract and snapshots the results.
 #[test]
@@ -2250,7 +2337,7 @@ fn test_successfully_deploy_and_call() {
     );
 }
 
-/// Example of using the `contract_deploy_consensus_test!` macro
+/// Example of using the `contract_deploy_consensus_snap_test!` macro
 /// Deploys a contract to all epoch, for each Clarity version
 #[test]
 fn test_successfully_deploy() {
@@ -2275,7 +2362,7 @@ fn problematic_supertype_list() {
     (err  1)))
     (print (var-get my-list))
     ",
-    deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch20),
+    deploy_epochs: &tested_epochs_since(StacksEpochId::Epoch20),
     );
 }
 

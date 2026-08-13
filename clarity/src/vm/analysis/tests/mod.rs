@@ -19,7 +19,10 @@ use std::time::Duration;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
+use crate::vm::analysis::read_only_checker::ReadOnlyChecker;
+use crate::vm::analysis::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
+use crate::vm::analysis::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use crate::vm::analysis::{
     ContractAnalysis, StaticCheckError, StaticCheckErrorKind, mem_type_check as mem_run_analysis,
     run_analysis,
@@ -27,17 +30,18 @@ use crate::vm::analysis::{
 use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::time_tracker::TimeTracker;
+use crate::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
 use crate::vm::types::QualifiedContractIdentifier;
 
-mod utils {
+pub mod utils {
     use super::*;
+    use crate::vm::analysis::AnalysisPass;
 
     /// Run the full analysis pipeline on `snippet` at the latest epoch / Clarity
-    /// version with the given `time_tracker`, returning the analysis error (if any).
-    pub fn run_analysis_with_time_tracker(
+    /// version with the given `resource_limiter`, returning the analysis error (if any).
+    pub fn run_analysis_with_resource_limiter(
         snippet: &str,
-        time_tracker: TimeTracker,
+        resource_limiter: ResourceLimiter,
     ) -> Result<ContractAnalysis, StaticCheckError> {
         let contract_id = QualifiedContractIdentifier::transient();
         let version = ClarityVersion::latest();
@@ -59,9 +63,59 @@ mod utils {
             epoch,
             version,
             false, // build_type_map
-            time_tracker,
+            resource_limiter,
         )
         .map_err(|e| e.0)
+    }
+
+    pub enum SingleAnalysisPass {
+        ReadOnlyChecker,
+        TypeChecker2_05,
+        TypeChecker2_1,
+    }
+
+    /// Given a Clarity snippet (which is assumed to be syntactically correct), parse it and
+    /// hand it to the given analysis pass.
+    pub fn run_single_analysis_pass(
+        pass: SingleAnalysisPass,
+        snippet: &str,
+        version: ClarityVersion,
+        epoch: StacksEpochId,
+    ) -> Result<ContractAnalysis, StaticCheckError> {
+        let contract_identifier = QualifiedContractIdentifier::transient();
+        let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
+            .unwrap()
+            .expressions;
+
+        let mut marf = MemoryBackingStore::new();
+        let mut analysis_db = marf.as_analysis_db();
+        let cost_tracker = LimitedCostTracker::new_free();
+        let mut contract_analysis = ContractAnalysis::new(
+            contract_identifier.clone(),
+            contract,
+            cost_tracker,
+            epoch,
+            version,
+        );
+        let result = analysis_db.execute(|db| match pass {
+            SingleAnalysisPass::ReadOnlyChecker => ReadOnlyChecker::run_pass(
+                &epoch,
+                &mut contract_analysis,
+                db,
+                ResourceLimiter::unlimited(),
+            ),
+            SingleAnalysisPass::TypeChecker2_1 => TypeChecker2_1::run_pass(
+                &epoch,
+                &mut contract_analysis,
+                db,
+                true,
+                ResourceLimiter::unlimited(),
+            ),
+            SingleAnalysisPass::TypeChecker2_05 => {
+                TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, true)
+            }
+        });
+        result.map(|_| contract_analysis)
     }
 }
 
@@ -155,7 +209,7 @@ fn test_bad_function_name_2() {
     // outside of the legal "implicit" tuple structures,
     //    things that look like ((value 100)) are evaluated as
     //    _function applications_, so this should error, since (value 100) isn't a function.
-    let snippet = "(get 1 ((value 100)))";
+    let snippet = "(ok ((value 100)))";
     let err = mem_type_check(snippet).unwrap_err();
     println!("{}", err.diagnostic);
     assert!(format!("{}", err.diagnostic).contains("expecting expression of type function"));
@@ -452,29 +506,34 @@ fn test_write_attempt_in_readonly() {
 
 /// An already-elapsed deadline trips the per-node analysis check on the
 /// very first `type_check` node, so even a trivial contract is rejected with
-/// [`StaticCheckErrorKind::AnalysisTimeExpired`].
+/// [`StaticCheckErrorKind::AnalysisResourceBudgetExceeded`].
 #[test]
 fn test_run_analysis_aborts_when_deadline_already_elapsed() {
-    let err = utils::run_analysis_with_time_tracker(
+    let err = utils::run_analysis_with_resource_limiter(
         "(define-read-only (foo) (+ 1 1))",
-        TimeTracker::from_max_duration(Duration::ZERO),
+        ResourceBudget::new()
+            .with_max_duration(Some(Duration::ZERO))
+            .start_tracking(),
     )
     .expect_err("a zero-duration analysis deadline must abort");
 
     assert!(
-        matches!(*err.err, StaticCheckErrorKind::AnalysisTimeExpired),
-        "expected AnalysisTimeExpired, got {:?}",
+        matches!(
+            *err.err,
+            StaticCheckErrorKind::AnalysisResourceBudgetExceeded(_)
+        ),
+        "expected AnalysisResourceBudgetExceeded, got {:?}",
         err.err
     );
 }
 
-/// An unlimited [`TimeTracker`] (the deterministic replay/commit path) imposes no
+/// An unlimited [`ResourceLimiter`] (the deterministic replay/commit path) imposes no
 /// analysis deadline, so a valid contract type-checks successfully.
 #[test]
 fn test_run_analysis_no_tracking_is_not_time_limited() {
-    let result = utils::run_analysis_with_time_tracker(
+    let result = utils::run_analysis_with_resource_limiter(
         "(define-read-only (foo) (+ 1 1))",
-        TimeTracker::unlimited(),
+        ResourceLimiter::unlimited(),
     );
     assert!(
         result.is_ok(),
@@ -487,13 +546,67 @@ fn test_run_analysis_no_tracking_is_not_time_limited() {
 /// guards against the per-node check firing spuriously when a deadline is configured.
 #[test]
 fn test_run_analysis_generous_deadline_succeeds() {
-    let result = utils::run_analysis_with_time_tracker(
+    let result = utils::run_analysis_with_resource_limiter(
         "(define-read-only (foo) (+ 1 1))",
-        TimeTracker::from_max_duration(Duration::from_secs(300)),
+        ResourceBudget::new()
+            .with_max_duration(Some(Duration::from_secs(300)))
+            .start_tracking(),
     );
     assert!(
         result.is_ok(),
         "analysis deadline should not trip on a trivial contract, got {:?}",
         result.map(|_| ())
+    );
+}
+
+/// Test that up to epoch 4.0, the read-only checker runs first during contract
+/// analysis, then the type checker, and in epoch 4.1 and later, the order is
+/// reversed.
+#[test]
+fn test_order_of_readonly_check_and_type_check() {
+    // This contract contains a read-only error (can't use `stx-transfer?` inside a
+    // read-only function) and a type error (can't use the special function `stx-transfer?`
+    // as the mapping function).
+    // Which of the two errors is returned by the analysis depends on which of the
+    // two checks run first.
+    let snippet = r#"
+            (define-read-only (do-illegal-stuff)
+                (map stx-transfer? (list u100) (list tx-sender) (list 'S12XR70XVZ0ZXQ35GKDH2VJ3ZDJJGNMW8XCQRYE6F))
+            )
+        "#;
+
+    let expected_read_only_error = "WriteAttemptedInReadOnly";
+    let expected_type_error = "IllegalOrUnknownFunctionApplication";
+
+    let last_epoch_with_read_only_checker_first = StacksEpochId::Epoch40;
+    let first_epoch_with_type_checker_first = StacksEpochId::Epoch41;
+
+    // In epoch 4.0, the read-only checker runs first, and thus its error should
+    // be the result that we get.
+    let err = mem_run_analysis(
+        snippet,
+        ClarityVersion::latest(),
+        last_epoch_with_read_only_checker_first,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains(expected_read_only_error),
+        "expected error to contain \"{expected_read_only_error}\" but got {}",
+        err
+    );
+
+    // Starting in epoch 4.1, the type checker runs first, and we should get
+    // a different error.
+
+    let err = mem_run_analysis(
+        snippet,
+        ClarityVersion::latest(),
+        first_epoch_with_type_checker_first,
+    )
+    .unwrap_err();
+    assert!(
+        err.to_string().contains(expected_type_error),
+        "expected error to contain \"{expected_type_error}\" but got {}",
+        err
     );
 }

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Index side-table (`index.sqlite`) copy/validate tests.
+//! Index side-table (`index.sqlite`) copy tests.
 
 use std::collections::HashSet;
 
@@ -21,7 +21,7 @@ use rusqlite::{params, Connection};
 use tempfile::tempdir;
 
 use super::super::index::{
-    assert_source_tables_classified, copy_index_side_tables, index_copy_specs, COPIED_TABLES,
+    assert_source_tables_classified, copy_index_side_tables, index_copy_specs,
 };
 use super::{
     append_canonical_block, assert_corruption_containing, create_dest_db_with_canonical_blocks,
@@ -143,11 +143,17 @@ fn test_copy_index_side_tables_round_trip() {
         .unwrap();
     assert_eq!(fork_storage_keys, 1);
     assert_eq!(count("SELECT COUNT(*) FROM __fork_storage"), 1);
-    // Schema-only compatibility table is present but empty.
-    assert_eq!(
-        count("SELECT COUNT(*) FROM invalidated_microblocks_data"),
-        0
-    );
+    // Every schema-only table is cloned into the dst but receives no rows
+    // from the index copy (`staging_microblocks*` are populated later by the
+    // block-preservation phase; the rest stay empty). The COUNT query also
+    // fails if a table was never cloned.
+    for table in index_copy_specs().schema_only() {
+        assert_eq!(
+            count(&format!("SELECT COUNT(*) FROM {table}")),
+            0,
+            "schema-only table `{table}` must be present but empty after the index copy"
+        );
+    }
     // db_config is copied verbatim (values set by `create_source_db`).
     let (version, mainnet, chain_id): (String, i64, i64) = dst
         .query_row(
@@ -430,17 +436,16 @@ fn test_canonical_block_missing_from_src_is_corruption() {
     );
 }
 
-/// Copy-spec coverage guard: every table in [`COPIED_TABLES`] has exactly
-/// one copy spec, so a table can't be classified as copied yet receive no
-/// rows - or two specs' worth of duplicates.
+/// Copy-spec coverage guard: no table appears twice (which would double-clone /
+/// double-copy). Set completeness -- that the specs match the production schema
+/// -- is covered by `test_no_unclassified_source_tables`, which derives the
+/// recognized set from these specs and runs the guard against a fresh schema, so
+/// re-listing the table names here would just duplicate the spec list.
 #[test]
-fn test_copy_specs_match_copied_tables() {
-    let copied: HashSet<&str> = COPIED_TABLES.iter().copied().collect();
-
-    let specs: Vec<&str> = index_copy_specs(0).iter().map(|s| s.table).collect();
-    let spec_set: HashSet<&str> = specs.iter().copied().collect();
-    assert_eq!(specs.len(), spec_set.len(), "duplicate spec tables");
-    assert_eq!(spec_set, copied);
+fn test_index_copy_specs_well_formed() {
+    let tables = index_copy_specs().table_names();
+    let unique: HashSet<&str> = tables.iter().copied().collect();
+    assert_eq!(tables.len(), unique.len(), "duplicate spec tables");
 }
 
 /// Drift guard: every table the chainstate migrations create must be

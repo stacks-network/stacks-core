@@ -223,6 +223,7 @@ pub trait BurnStateDB {
     fn get_v3_unlock_height(&self) -> u32;
     fn get_pox_3_activation_height(&self) -> u32;
     fn get_pox_4_activation_height(&self) -> u32;
+    fn get_pox_5_activation_height(&self) -> u32;
 
     /// Returns the *burnchain block height* for the `sortition_id` is associated with.
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
@@ -443,6 +444,10 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_pox_4_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_pox_5_activation_height(&self) -> u32 {
         u32::MAX
     }
 
@@ -1220,6 +1225,16 @@ impl ClarityDatabase<'_> {
     pub fn get_v3_unlock_height(&mut self) -> Result<u32, VmExecutionError> {
         if self.get_clarity_epoch_version()? >= StacksEpochId::Epoch25 {
             Ok(self.burn_state_db.get_v3_unlock_height())
+        } else {
+            Ok(u32::MAX)
+        }
+    }
+
+    /// Return the height for PoX v4 -> v5 auto unlocks
+    ///   from the burn state db
+    pub fn get_v4_unlock_height(&mut self) -> Result<u32, VmExecutionError> {
+        if self.get_clarity_epoch_version()? >= StacksEpochId::Epoch40 {
+            Ok(self.burn_state_db.get_pox_5_activation_height())
         } else {
             Ok(u32::MAX)
         }
@@ -2508,13 +2523,15 @@ impl<'a> ClarityDatabase<'a> {
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )?,
             stx_balance.has_unlockable_tokens_at_burn_block(
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )
         );
 
@@ -2542,13 +2559,15 @@ impl<'a> ClarityDatabase<'a> {
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )?,
             stx_balance.has_unlockable_tokens_at_burn_block(
                 cur_burn_height,
                 self.get_v1_unlock_height(),
                 self.get_v2_unlock_height()?,
-                self.get_v3_unlock_height()?
+                self.get_v3_unlock_height()?,
+                self.get_v4_unlock_height()?,
             )
         );
 
@@ -2726,7 +2745,7 @@ fn checked_decrease_token_supply_underflow() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::database::{MemoryBackingStore, StoreType};
     use crate::vm::version::ClarityVersion;
 
     /// Deploy a minimal stub contract under `id` in its own committed db transaction.
@@ -2869,6 +2888,53 @@ mod tests {
             );
             db.roll_back().unwrap();
         }
+    }
+
+    /// Guards that the DB read path applies the epoch gate, never returning a
+    /// type-unsound tuple from Epoch 4.1.
+    #[test]
+    fn get_value_epoch_gates_typed_tuple_fields() {
+        // `{a:int,b:int}` buffer with a duplicate `a` field; collapses to `{a: 2}`.
+        const DUPLICATE_FIELDS: &str = "0c000000020161000000000000000000000000000000000101610000000000000000000000000000000002";
+        const REDUCED_TUPLE: &str = "0c0000000101610000000000000000000000000000000002";
+
+        let mut store = MemoryBackingStore::new();
+        let mut db = store.as_clarity_db();
+        db.begin();
+
+        let contract = QualifiedContractIdentifier::transient();
+        let key = ClarityDatabase::make_key_for_trip(&contract, StoreType::Variable, "corrupt");
+        // Store raw bytes to bypass write-path sanitization and isolate the read path.
+        db.put_data(&key, &DUPLICATE_FIELDS.to_string())
+            .expect("failed to store raw value");
+
+        let expected_type = TypeSignature::type_of(&Value::from(
+            TupleData::from_data(vec![
+                (ClarityName::from_literal("a"), Value::Int(1)),
+                (ClarityName::from_literal("b"), Value::Int(2)),
+            ])
+            .unwrap(),
+        ))
+        .unwrap();
+
+        // Pre-Epoch 4.1: historical handling reduces the duplicate to one field.
+        // Epoch40 pins the activation boundary.
+        for epoch in [StacksEpochId::Epoch34, StacksEpochId::Epoch40] {
+            let legacy = db
+                .get_value(&key, &expected_type, &epoch)
+                .expect("legacy read should not error")
+                .expect("value should be present");
+            assert_eq!(legacy.value.serialize_to_hex().unwrap(), REDUCED_TUPLE);
+        }
+
+        // Epoch 4.1+: the read is rejected instead of returning a type-unsound tuple.
+        let strict = db.get_value(&key, &expected_type, &StacksEpochId::Epoch41);
+        assert!(
+            strict.is_err(),
+            "strict read should reject the malformed tuple, got {strict:?}"
+        );
+
+        db.commit().unwrap();
     }
 }
 

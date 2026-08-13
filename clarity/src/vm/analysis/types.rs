@@ -25,9 +25,9 @@ use crate::vm::analysis::contract_interface_builder::ContractInterface;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::time_tracker::TimeTracker;
-use crate::vm::types::FunctionType;
+use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::FunctionType;
 use crate::vm::{ClarityVersion, SymbolicExpression};
 
 const DESERIALIZE_FAIL_MESSAGE: &str =
@@ -40,10 +40,11 @@ pub trait AnalysisPass {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
-        // Wall-clock deadline for this pass. `MaxTime` only on the non-consensus voting
-        // paths; `NoTracking` on deterministic replay/commit (so consensus stays
-        // deterministic — see `check_analysis_timeout`).
-        time_tracker: TimeTracker,
+        // Resource limits (wallclock deadline and max memory allocation) for this
+        // pass. This is limited only on the non-consensus voting paths; it is unlimited
+        // on deterministic replay/commit (so consensus stays deterministic — see
+        // `check_analysis_resource_limits`).
+        resource_limiter: ResourceLimiter,
     ) -> Result<(), StaticCheckError>;
 }
 
@@ -272,6 +273,19 @@ impl ContractAnalysis {
             }
         }
         Ok(())
+    }
+
+    pub fn type_of_final_expression(&self) -> Result<Option<TypeSignature>, StaticCheckError> {
+        Ok(self
+            .type_map
+            .as_ref()
+            .ok_or_else(|| StaticCheckErrorKind::Unreachable("Should be non-empty".into()))?
+            .get_type_expected(
+                self.expressions.last().ok_or_else(|| {
+                    StaticCheckErrorKind::Unreachable("Should be non-empty".into())
+                })?,
+            )
+            .cloned())
     }
 }
 

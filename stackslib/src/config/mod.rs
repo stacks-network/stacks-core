@@ -38,7 +38,10 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
-use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
+use crate::chainstate::nakamoto::signer_set::{
+    set_pox_5_bond_admin, set_pox_5_pause_admin, set_pox_5_sbtc_contract,
+    set_pox_5_sbtc_registry_contract, NakamotoSigners,
+};
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -575,6 +578,15 @@ impl Config {
                 burnchain.pox_constants.pox_4_activation_height = epoch.start_height as u32;
                 burnchain.pox_constants.v3_unlock_height = epoch.start_height as u32 + 1;
             }
+
+            if let Some(epoch) = epochs.get(StacksEpochId::Epoch40) {
+                // Override pox_5_activation_height to the start_height of epoch4.0
+                debug!(
+                    "Override pox_5_activation_height from {} to {}",
+                    burnchain.pox_constants.pox_5_activation_height, epoch.start_height
+                );
+                burnchain.pox_constants.pox_5_activation_height = epoch.start_height as u32;
+            }
         }
 
         if let Some(sunset_start) = self.burnchain.sunset_start {
@@ -674,7 +686,8 @@ impl Config {
 
         assert!(
             v1_unlock_height > epoch21.start_height,
-            "FATAL: v1 unlock height occurs at or before pox-2 activation: {v1_unlock_height} <= {}\nburnchain: {burnchain:?}", epoch21.start_height
+            "FATAL: v1 unlock height occurs at or before pox-2 activation: {v1_unlock_height} <= {}\nburnchain: {burnchain:?}",
+            epoch21.start_height
         );
 
         let epoch21_rc = burnchain
@@ -739,6 +752,10 @@ impl Config {
                 Ok(StacksEpochId::Epoch33)
             } else if epoch_name == EPOCH_CONFIG_3_4_0 {
                 Ok(StacksEpochId::Epoch34)
+            } else if epoch_name == EPOCH_CONFIG_4_0_0 {
+                Ok(StacksEpochId::Epoch40)
+            } else if epoch_name == EPOCH_CONFIG_4_1_0 {
+                Ok(StacksEpochId::Epoch41)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -755,27 +772,14 @@ impl Config {
             );
         }
 
-        let expected_list = [
-            StacksEpochId::Epoch10,
-            StacksEpochId::Epoch20,
-            StacksEpochId::Epoch2_05,
-            StacksEpochId::Epoch21,
-            StacksEpochId::Epoch22,
-            StacksEpochId::Epoch23,
-            StacksEpochId::Epoch24,
-            StacksEpochId::Epoch25,
-            StacksEpochId::Epoch30,
-            StacksEpochId::Epoch31,
-            StacksEpochId::Epoch32,
-            StacksEpochId::Epoch33,
-            StacksEpochId::Epoch34,
-        ];
-        for (expected_epoch, configured_epoch) in expected_list
+        for (expected_epoch, configured_epoch) in StacksEpochId::ALL
             .iter()
             .zip(matched_epochs.iter().map(|(epoch_id, _)| epoch_id))
         {
             if expected_epoch != configured_epoch {
-                return Err(format!("Configured epochs may not skip an epoch. Expected epoch = {expected_epoch}, Found epoch = {configured_epoch}"));
+                return Err(format!(
+                    "Configured epochs may not skip an epoch. Expected epoch = {expected_epoch}, Found epoch = {configured_epoch}"
+                ));
             }
         }
 
@@ -803,9 +807,10 @@ impl Config {
             matched_epochs.iter().zip(out_epochs.iter_mut()).enumerate()
         {
             if epoch_id != &out_epoch.epoch_id {
-                return Err(
-                    format!("Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
-                            &out_epoch.epoch_id));
+                return Err(format!(
+                    "Unmatched epochs in configuration and node implementation. Implemented = {epoch_id}, Configured = {}",
+                    &out_epoch.epoch_id
+                ));
             }
             // end_height = next epoch's start height || i64::max if last epoch
             let end_height = if let Some(next_epoch) = matched_epochs.get(i + 1) {
@@ -831,7 +836,10 @@ impl Config {
                 .find(|&e| e.epoch_id == StacksEpochId::Epoch21)
                 .ok_or("Cannot configure pox_2_activation if epoch 2.1 is not configured")?;
             if last_epoch.start_height > pox_2_activation as u64 {
-                Err(format!("Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {pox_2_activation}, epoch 2.1 start height = {}", last_epoch.start_height))?;
+                Err(format!(
+                    "Cannot configure pox_2_activation at a lower height than the Epoch 2.1 start height. pox_2_activation = {pox_2_activation}, epoch 2.1 start height = {}",
+                    last_epoch.start_height
+                ))?;
             }
         }
 
@@ -843,6 +851,54 @@ impl Config {
         resolve_bootstrap_nodes: bool,
     ) -> Result<Config, String> {
         Self::from_config_default(config_file, Config::default(), resolve_bootstrap_nodes)
+    }
+
+    /// A real (non-mock) miner needs a named bitcoin wallet: Bitcoin Core >= 31
+    /// removed the default unnamed wallet, so RPCs must target one explicitly.
+    ///
+    /// Any configured name must also be safe to route with; see
+    /// [`Self::validate_wallet_name_is_path_safe`].
+    fn validate_wallet_name(node: &NodeConfig, burnchain: &BurnchainConfig) -> Result<(), String> {
+        let Some(wallet_name) = burnchain.wallet_name.as_deref() else {
+            if node.miner && !node.mock_mining {
+                return Err("Config is missing the setting `burnchain.wallet_name` \
+                     (mandatory and non-empty for miners)"
+                    .into());
+            }
+            return Ok(());
+        };
+        Self::validate_wallet_name_is_path_safe(wallet_name)
+    }
+
+    /// Wallet RPCs interpolate the name into a `/wallet/<name>` request path,
+    /// which the HTTP layer parses, percent-decodes and normalizes before
+    /// sending. A name that does not survive that round trip unchanged silently
+    /// targets a *different* wallet (`a?b` becomes `a`, `a/../b` becomes `b`).
+    /// bitcoind accepts such names; we fail at startup instead.
+    fn validate_wallet_name_is_path_safe(wallet_name: &str) -> Result<(), String> {
+        // `/` is allowed: bitcoind resolves wallet names beneath `-walletdir`,
+        // so nested wallet paths are legitimate and survive the path unchanged
+        const ALLOWED_PUNCTUATION: [char; 4] = ['.', '_', '-', '/'];
+
+        if let Some(bad) = wallet_name
+            .chars()
+            .find(|c| !c.is_ascii_alphanumeric() && !ALLOWED_PUNCTUATION.contains(c))
+        {
+            return Err(format!(
+                "Invalid setting `burnchain.wallet_name` (`{wallet_name}`): \
+                 character {bad:?} is not allowed; use ASCII letters, digits, \
+                 `.`, `_`, `-` or `/`"
+            ));
+        }
+
+        // a `..` segment is resolved away when the request path is parsed
+        if wallet_name.contains("..") {
+            return Err(format!(
+                "Invalid setting `burnchain.wallet_name` (`{wallet_name}`): \
+                 `..` is not allowed"
+            ));
+        }
+        Ok(())
     }
 
     fn from_config_default(
@@ -919,6 +975,40 @@ impl Config {
         if is_mainnet && node.use_test_genesis_chainstate == Some(true) {
             return Err("Attempted to run mainnet node with `use_test_genesis_chainstate`".into());
         }
+
+        if is_mainnet && node.pox_5_sbtc_contract.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_sbtc_contract` set. \
+                 The pox-5 contract always references the canonical sBTC token on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_sbtc_registry_contract.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_sbtc_registry_contract` set. \
+                 Signer-set computation always reads the canonical sBTC registry on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_bond_admin.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_bond_admin` set. \
+                 The pox-5 contract always uses its default bond-admin initializer on mainnet."
+                    .into(),
+            );
+        }
+
+        if is_mainnet && node.pox_5_pause_admin.is_some() {
+            return Err(
+                "Attempted to run mainnet node with `pox_5_pause_admin` set. \
+                 The pox-5 contract always uses its default pause-admin initializer on mainnet."
+                    .into(),
+            );
+        }
+
+        Self::validate_wallet_name(&node, &burnchain)?;
 
         if node.stacker || node.miner {
             node.add_miner_stackerdb(is_mainnet);
@@ -1138,6 +1228,17 @@ impl Config {
 
     pub fn is_mainnet(&self) -> bool {
         matches!(self.burnchain.mode.as_str(), "mainnet")
+    }
+
+    /// Apply config-driven process-wide runtime state. Call once from a run
+    /// loop's lifecycle entry point, before chainstate is opened. This picks
+    /// up direct field mutations on `Config` (e.g., from integration tests)
+    /// in addition to values populated by [`Config::from_config_file`].
+    pub fn apply_runtime_state(&self) {
+        set_pox_5_sbtc_contract(self.node.pox_5_sbtc_contract.clone());
+        set_pox_5_sbtc_registry_contract(self.node.pox_5_sbtc_registry_contract.clone());
+        set_pox_5_bond_admin(self.node.pox_5_bond_admin.clone());
+        set_pox_5_pause_admin(self.node.pox_5_pause_admin.clone());
     }
 
     pub fn is_node_event_driven(&self) -> bool {
@@ -1602,14 +1703,23 @@ pub struct BurnchainConfig {
     /// node. Used to interact with a specific named wallet if the bitcoin node
     /// manages multiple wallets.
     ///
-    /// If the specified wallet doesn't exist, the node will attempt to create it via
-    /// the `createwallet` RPC call. This is particularly useful for miners who need
-    /// to manage separate wallets.
+    /// If the specified wallet exists but is not loaded, the node will load it for
+    /// the current session via the `loadwallet` RPC call. Miner startup fails if
+    /// the wallet does not exist. A name is required for mining nodes; followers
+    /// and mock miners do not use wallet RPCs and leave this unset.
     /// ---
-    /// @default: `""` (empty string, implying the default wallet or no specific wallet needed)
+    /// @default: `None` (valid only for followers and mock miners)
     /// @notes:
-    ///   - Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
-    pub wallet_name: String,
+    ///   - Required when [`NodeConfig::miner`] is `true`, unless
+    ///     [`NodeConfig::mock_mining`] is also `true`.
+    ///   - A blank value is treated as unset. The name is restricted to ASCII
+    ///     alphanumerics and `. _ - /`.
+    ///   - Loading is session-only; configure `wallet=<name>` in `bitcoin.conf` so
+    ///     the wallet survives a bitcoind restart.
+    ///   - On Bitcoin Core >= 31 `migratewallet` may split a legacy wallet into a
+    ///     primary and a `<name>_watchonly` wallet; set `wallet_name` to the one
+    ///     holding the miner's watched addresses.
+    pub wallet_name: Option<String>,
     /// Fault injection setting for testing. Introduces an artificial delay (in
     /// milliseconds) before processing each burnchain block download. Simulates a
     /// slow burnchain connection.
@@ -1675,7 +1785,7 @@ impl BurnchainConfig {
             pox_reward_length: None,
             sunset_start: None,
             sunset_end: None,
-            wallet_name: "".to_string(),
+            wallet_name: None,
             fault_injection_burnchain_block_delay: 0,
             max_unspent_utxos: Some(1024),
         }
@@ -1735,6 +1845,8 @@ pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 pub const EPOCH_CONFIG_3_3_0: &str = "3.3";
 pub const EPOCH_CONFIG_3_4_0: &str = "3.4";
+pub const EPOCH_CONFIG_4_0_0: &str = "4.0";
+pub const EPOCH_CONFIG_4_1_0: &str = "4.1";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -1901,9 +2013,14 @@ impl BurnchainConfigFile {
                 .or(default_burnchain_config.pox_2_activation),
             sunset_start: self.sunset_start.or(default_burnchain_config.sunset_start),
             sunset_end: self.sunset_end.or(default_burnchain_config.sunset_end),
-            wallet_name: self
-                .wallet_name
-                .unwrap_or(default_burnchain_config.wallet_name.clone()),
+            // a blank name is "unset", not a wallet: deployment templates emit
+            // `wallet_name = ""` unconditionally, including for followers
+            wallet_name: match self.wallet_name {
+                Some(name) if !name.trim().is_empty() => Some(name),
+                // present but blank means unset
+                Some(_) => None,
+                None => default_burnchain_config.wallet_name.clone(),
+            },
             pox_reward_length: self
                 .pox_reward_length
                 .or(default_burnchain_config.pox_reward_length),
@@ -2107,18 +2224,6 @@ pub struct NodeConfig {
     /// ---
     /// @default: `None` (Prometheus server disabled)
     pub prometheus_bind: Option<String>,
-    /// The strategy to use for MARF trie node caching in memory.
-    /// Controls the trade-off between memory usage and performance for state access.
-    ///
-    /// Possible values:
-    /// - `"noop"`: No caching (least memory).
-    /// - `"everything"`: Cache all nodes (most memory, potentially fastest).
-    /// - `"node256"`: Cache only larger `TrieNode256` nodes.
-    ///
-    /// If the value is `None` or an unrecognized string, it defaults to `"noop"`.
-    /// ---
-    /// @default: `None` (effectively `"noop"`)
-    pub marf_cache_strategy: Option<String>,
     /// Controls the timing of hash calculations for MARF trie nodes.
     /// - If `true`, hashes are calculated only when the MARF is flushed to disk
     ///   (deferred hashing).
@@ -2229,6 +2334,32 @@ pub struct NodeConfig {
     /// ---
     /// @default: `false`
     pub txindex: bool,
+    /// Epoch 4.0 / PoX-5 scaffolding: the sBTC token contract that pox-5
+    /// references via `get-balance`. Devnet/test only; different operators
+    /// configuring different contracts will fork the chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_sbtc_contract: Option<QualifiedContractIdentifier>,
+    /// Epoch 4.0 / PoX-5 scaffolding: the sBTC registry contract that
+    /// signer-set computation reads `get-current-aggregate-pubkey` from to
+    /// derive the per-cycle sBTC waterfall recipient. Devnet/test only;
+    /// different operators configuring different contracts will fork the
+    /// chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_sbtc_registry_contract: Option<QualifiedContractIdentifier>,
+    /// Epoch 4.0 / PoX-5 scaffolding: the principal that pox-5 initializes
+    /// the `bond-admin` data var to. By default the contract source
+    /// initializes it to `tx-sender`, which at boot deploy time is the
+    /// unsignable boot principal — making `setup-bond` uncallable. Devnets
+    /// and integration tests can set this to a key they control. Devnet/test
+    /// only — different operators configuring different admins will fork
+    /// the chain.
+    /// ---
+    /// @default: `None`
+    pub pox_5_bond_admin: Option<PrincipalData>,
+    /// Principal that can permanently pause PoX-5 signer reward claims.
+    pub pox_5_pause_admin: Option<PrincipalData>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -2481,7 +2612,6 @@ impl Default for NodeConfig {
             wait_time_for_blocks: 30_000,
             next_initiative_delay: 10_000,
             prometheus_bind: None,
-            marf_cache_strategy: None,
             marf_defer_hashing: true,
             marf_compress: true,
             pox_sync_sample_secs: 30,
@@ -2493,6 +2623,10 @@ impl Default for NodeConfig {
             event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
             txindex: false,
+            pox_5_sbtc_contract: None,
+            pox_5_sbtc_registry_contract: None,
+            pox_5_bond_admin: None,
+            pox_5_pause_admin: None,
         }
     }
 }
@@ -2646,12 +2780,7 @@ impl NodeConfig {
             TrieHashCalculationMode::Immediate
         };
 
-        MARFOpenOpts::new(
-            hash_mode,
-            self.marf_cache_strategy.as_deref().unwrap_or("noop"),
-            false,
-        )
-        .with_compression(self.marf_compress)
+        MARFOpenOpts::new(hash_mode, false).with_compression(self.marf_compress)
     }
 
     pub fn effective_event_dispatcher_queue_size(&self) -> usize {
@@ -3486,7 +3615,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum total size (in bytes) of data allowed to be read from Clarity data
     /// space (variables, maps) during a read-only call.
     /// ---
-    /// @default: `100_000` (100 KB).
+    /// @default: `200_000` (~200 KB).
     /// @units: bytes
     pub read_only_call_limit_read_length: Option<u64>,
     /// Maximum number of distinct write operations allowed during a read-only call.
@@ -3499,7 +3628,7 @@ pub struct ConnectionOptionsFile {
     /// Maximum number of distinct read operations from Clarity data space allowed
     /// during a read-only call.
     /// ---
-    /// @default: `30`
+    /// @default: `100`
     pub read_only_call_limit_read_count: Option<u64>,
     /// Runtime cost limit for an individual read-only function call. This represents
     /// computation effort within the Clarity VM.
@@ -4006,6 +4135,7 @@ pub struct NodeConfigFile {
     pub wait_time_for_blocks: Option<u64>,
     pub next_initiative_delay: Option<u64>,
     pub prometheus_bind: Option<String>,
+    /// @deprecated: MARF node caching has been removed. This setting is ignored.
     pub marf_cache_strategy: Option<String>,
     pub marf_defer_hashing: Option<bool>,
     pub marf_compress: Option<bool>,
@@ -4023,10 +4153,31 @@ pub struct NodeConfigFile {
     pub fault_injection_block_push_fail_probability: Option<u8>,
     /// enable transactions indexing, note this will require additional storage (in the order of gigabytes)
     pub txindex: Option<bool>,
+    /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
+    /// of the sBTC token contract that pox-5 references for `get-balance`.
+    pub pox_5_sbtc_contract: Option<String>,
+    /// Epoch 4.0 / PoX-5 scaffolding: contract id (as `principal.contract-name`)
+    /// of the sBTC registry contract from which signer-set computation reads
+    /// `get-current-aggregate-pubkey` to derive the per-cycle sBTC waterfall
+    /// recipient.
+    pub pox_5_sbtc_registry_contract: Option<String>,
+    /// Epoch 4.0 / PoX-5 scaffolding: principal (standard or contract) that
+    /// pox-5 initializes the `bond-admin` data var to. Used to override the
+    /// default initializer (`tx-sender`, the unsignable boot principal) so
+    /// `setup-bond` is callable from a key controlled by the operator.
+    pub pox_5_bond_admin: Option<String>,
+    /// Principal that can permanently pause PoX-5 signer reward claims.
+    pub pox_5_pause_admin: Option<String>,
 }
 
 impl NodeConfigFile {
     fn into_config_default(self, default_node_config: NodeConfig) -> Result<NodeConfig, String> {
+        if let Some(marf_cache_strategy) = self.marf_cache_strategy.as_deref() {
+            warn!(
+                "node.marf_cache_strategy is deprecated and ignored; MARF node caching has been removed (configured value: {marf_cache_strategy})"
+            );
+        }
+
         let rpc_bind = self.rpc_bind.unwrap_or(default_node_config.rpc_bind);
         let miner = self.miner.unwrap_or(default_node_config.miner);
         let stacker = self.stacker.unwrap_or(default_node_config.stacker);
@@ -4083,7 +4234,6 @@ impl NodeConfigFile {
                 .next_initiative_delay
                 .unwrap_or(default_node_config.next_initiative_delay),
             prometheus_bind: self.prometheus_bind,
-            marf_cache_strategy: self.marf_cache_strategy,
             marf_defer_hashing: self
                 .marf_defer_hashing
                 .unwrap_or(default_node_config.marf_defer_hashing),
@@ -4122,6 +4272,30 @@ impl NodeConfigFile {
             },
 
             txindex: self.txindex.unwrap_or(default_node_config.txindex),
+            pox_5_sbtc_contract: self
+                .pox_5_sbtc_contract
+                .as_deref()
+                .map(QualifiedContractIdentifier::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_sbtc_contract: {e}"))?,
+            pox_5_sbtc_registry_contract: self
+                .pox_5_sbtc_registry_contract
+                .as_deref()
+                .map(QualifiedContractIdentifier::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_sbtc_registry_contract: {e}"))?,
+            pox_5_bond_admin: self
+                .pox_5_bond_admin
+                .as_deref()
+                .map(PrincipalData::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_bond_admin: {e}"))?,
+            pox_5_pause_admin: self
+                .pox_5_pause_admin
+                .as_deref()
+                .map(PrincipalData::parse)
+                .transpose()
+                .map_err(|e| format!("Invalid pox_5_pause_admin: {e}"))?,
         };
         Ok(node_config)
     }
@@ -4756,6 +4930,8 @@ pub struct InitialBalanceFile {
 mod tests {
     use std::path::Path;
 
+    use rstest::rstest;
+
     use super::*;
 
     mod utils {
@@ -4831,6 +5007,219 @@ mod tests {
         );
 
         assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
+    }
+
+    #[test]
+    fn test_wallet_name_is_required_for_real_miners() {
+        for wallet_setting in ["", "wallet_name = \"   \""] {
+            let config = format!(
+                r#"
+                [node]
+                miner = true
+
+                [burnchain]
+                {wallet_setting}
+                "#
+            );
+            let err = Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false)
+                .unwrap_err();
+            assert_eq!(
+                err,
+                "Config is missing the setting `burnchain.wallet_name` \
+                 (mandatory and non-empty for miners)"
+            );
+        }
+
+        let named_miner = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                miner = true
+
+                [burnchain]
+                wallet_name = "miner-wallet"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("A real miner with a named wallet should be valid");
+        assert_eq!(
+            named_miner.burnchain.wallet_name.as_deref(),
+            Some("miner-wallet")
+        );
+
+        Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                miner = true
+                mock_mining = true
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("A mock miner does not use wallet RPCs");
+
+        Config::from_config_file(ConfigFile::from_str("").unwrap(), false)
+            .expect("A follower does not need a wallet");
+    }
+
+    /// Build a miner config with the given `burnchain.wallet_name`.
+    fn config_for_wallet_name(wallet_name: &str) -> Result<Config, String> {
+        let config = format!(
+            r#"
+            [node]
+            miner = true
+
+            [burnchain]
+            wallet_name = "{wallet_name}"
+            "#
+        );
+        Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false)
+    }
+
+    // these names do not survive the `/wallet/<name>` request path unchanged,
+    // and would silently route wallet RPCs to a different wallet
+    #[rstest]
+    #[case::embedded_space("my wallet", ' ')]
+    #[case::trailing_space("trailing ", ' ')]
+    #[case::leading_space(" leading", ' ')]
+    #[case::tab("tab\there", '\t')]
+    #[case::query("a?b", '?')]
+    #[case::fragment("a#b", '#')]
+    #[case::percent_escape("a%2Fb", '%')]
+    #[case::colon("wallet:1", ':')]
+    #[case::non_ascii("wallét", 'é')]
+    fn test_wallet_name_rejects_path_unsafe_characters(
+        #[case] wallet_name: &str,
+        #[case] bad: char,
+    ) {
+        let err = config_for_wallet_name(wallet_name).unwrap_err();
+        assert_eq!(
+            err,
+            format!(
+                "Invalid setting `burnchain.wallet_name` (`{wallet_name}`): \
+                 character {bad:?} is not allowed; use ASCII letters, digits, \
+                 `.`, `_`, `-` or `/`"
+            )
+        );
+    }
+
+    #[test]
+    fn test_wallet_name_rejects_parent_dir_traversal() {
+        // `..` is made of allowed characters but is resolved away by path parsing
+        let err = config_for_wallet_name("nested/../escape").unwrap_err();
+        assert_eq!(
+            err,
+            "Invalid setting `burnchain.wallet_name` (`nested/../escape`): `..` is not allowed"
+        );
+    }
+
+    #[rstest]
+    #[case::hyphen("miner-wallet")]
+    #[case::underscore_and_dot("miner_wallet.v2")]
+    #[case::nested_path("nested/miner")]
+    #[case::alphanumeric("w1")]
+    fn test_wallet_name_accepts_path_safe_characters(#[case] wallet_name: &str) {
+        let config = config_for_wallet_name(wallet_name)
+            .unwrap_or_else(|e| panic!("{wallet_name:?} should be valid, got: {e}"));
+        assert_eq!(config.burnchain.wallet_name.as_deref(), Some(wallet_name));
+    }
+
+    // deployment templates (e.g. the helm chart) emit `wallet_name = ""`
+    // unconditionally, so a follower must not be rejected for it
+    #[rstest]
+    #[case::empty("")]
+    #[case::whitespace("   ")]
+    fn test_blank_wallet_name_is_treated_as_unset(#[case] wallet_name: &str) {
+        let config = format!(
+            r#"
+            [burnchain]
+            wallet_name = "{wallet_name}"
+            "#
+        );
+        let follower = Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false)
+            .expect("A blank wallet name is unset, which is valid for a follower");
+        assert_eq!(follower.burnchain.wallet_name, None);
+    }
+
+    // a blank name is explicitly unset: the default must not win over it
+    #[rstest]
+    #[case::absent_inherits_default(None, Some("default-wallet"))]
+    #[case::blank_stays_unset(Some("  "), None)]
+    fn test_blank_wallet_name_does_not_fall_back_to_default(
+        #[case] configured: Option<&str>,
+        #[case] expected: Option<&str>,
+    ) {
+        let default_burnchain_config = BurnchainConfig {
+            wallet_name: Some("default-wallet".into()),
+            ..BurnchainConfig::default()
+        };
+
+        let merged = BurnchainConfigFile {
+            wallet_name: configured.map(String::from),
+            ..BurnchainConfigFile::default()
+        }
+        .into_config_default(default_burnchain_config)
+        .unwrap();
+        assert_eq!(merged.wallet_name.as_deref(), expected);
+    }
+
+    #[test]
+    fn test_mainnet_rejects_pox_5_admin_overrides() {
+        // A mainnet node may not override the pox-5 bond admin.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "mainnet"
+                [node]
+                pox_5_bond_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("`pox_5_bond_admin` set"),
+            "unexpected error: {err}"
+        );
+
+        // Likewise for the pause admin.
+        let err = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [burnchain]
+                mode = "mainnet"
+                [node]
+                pox_5_pause_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("`pox_5_pause_admin` set"),
+            "unexpected error: {err}"
+        );
+
+        // The same overrides are accepted on a non-mainnet node.
+        assert!(Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                pox_5_bond_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                pox_5_pause_admin = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .is_ok());
     }
 
     #[test]
@@ -5113,7 +5502,6 @@ mod tests {
                 "#,
         );
 
-        assert_eq!(None, config.node.marf_cache_strategy, "default cache");
         assert_eq!(
             true, config.node.marf_defer_hashing,
             "default defer hashing"
@@ -5121,7 +5509,6 @@ mod tests {
         assert_eq!(true, config.node.marf_compress, "default compress");
 
         let cfg_opts = config.node.get_marf_opts();
-        assert_eq!("noop", cfg_opts.cache_strategy, "default cache opt");
         assert_eq!(
             TrieHashCalculationMode::Deferred,
             cfg_opts.hash_calculation_mode,
@@ -5148,21 +5535,12 @@ mod tests {
         );
 
         assert_eq!(
-            Some("everything".to_string()),
-            config.node.marf_cache_strategy,
-            "configured cache"
-        );
-        assert_eq!(
             false, config.node.marf_defer_hashing,
             "configured defer hashing"
         );
         assert_eq!(false, config.node.marf_compress, "configured compress");
 
         let cfg_opts = config.node.get_marf_opts();
-        assert_eq!(
-            "everything", cfg_opts.cache_strategy,
-            "configured cache opt"
-        );
         assert_eq!(
             TrieHashCalculationMode::Immediate,
             cfg_opts.hash_calculation_mode,

@@ -235,19 +235,18 @@ pub enum StaticCheckErrorKind {
     /// Failure in cost-tracking due to an unexpected condition or invalid state.
     /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
-    // Time checker errors
-    /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    ExecutionTimeExpired,
-    /// Contract-analysis time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable end-to-end.
-    AnalysisTimeExpired,
-
+    /// Contract-analysis time or memory usage exceeds the allowed budget, halting analysis to ensure responsiveness.
+    AnalysisResourceBudgetExceeded(String),
+    /// The read-only checker recursed too deeply while checking native function calls.
+    ReadOnlyCheckerRecursionLimitExceeded,
     /// Value exceeds the maximum allowed size for type-checking or serialization.
     ValueTooLarge,
     /// Value is outside the acceptable range for its type (e.g., integer bounds).
     ValueOutOfBounds,
     /// Type signature nesting depth exceeds the allowed limit during analysis.
     TypeSignatureTooDeep,
+    /// A trait-reference chain exceeds the type-checker's recursion depth limit.
+    TraitReferenceChainTooDeep,
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
     ExpectedName,
     /// Supertype (i.e. common denominator between two types) exceeds the maximum allowed size or complexity.
@@ -554,9 +553,8 @@ pub enum RuntimeCheckErrorKind {
     /// Failure in cost-tracking due to an unexpected condition or invalid state.
     /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
-    // Time checker errors
-    /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
-    ExecutionTimeExpired,
+    /// Runtime (eval) execution time or memory use exceeds the allowed budget, halting execution to ensure responsiveness.
+    ExecutionResourceBudgetExceeded(String),
 
     /// Value exceeds the maximum allowed size for type-checking or serialization.
     ValueTooLarge,
@@ -567,11 +565,6 @@ pub enum RuntimeCheckErrorKind {
 
     /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
     Unreachable(String),
-
-    /// Execution was deliberately aborted by the per-`eval` abort callback.
-    /// (e.g., by the memory limit enforcement in block proposal validation or
-    ///  miner block assembly)
-    AbortedByExecutionHook(String),
 
     /// Block rejection: a `pox-4` call would overwrite
     /// an existing asset-map stacking entry for its sender.
@@ -683,7 +676,6 @@ impl RuntimeCheckErrorKind {
             self,
             RuntimeCheckErrorKind::Unreachable(_)
                 | RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(_, _)
-                | RuntimeCheckErrorKind::AbortedByExecutionHook(_)
                 | RuntimeCheckErrorKind::PoxStxAssetMapOverwrite
         )
     }
@@ -700,7 +692,9 @@ impl StaticCheckErrorKind {
     pub fn rejectable_in_epoch(&self, epoch: StacksEpochId) -> bool {
         match self {
             StaticCheckErrorKind::SupertypeTooLarge => epoch.rejects_supertype_too_large(),
+            StaticCheckErrorKind::TraitReferenceChainTooDeep => true,
             StaticCheckErrorKind::Unreachable(_) => true,
+            StaticCheckErrorKind::ReadOnlyCheckerRecursionLimitExceeded => true,
             _ => false,
         }
     }
@@ -925,7 +919,6 @@ impl From<CostErrors> for StaticCheckErrorKind {
                 "Unexpected interpreter failure in cost computation".into(),
             ),
             CostErrors::Expect(s) => StaticCheckErrorKind::Unreachable(s),
-            CostErrors::ExecutionTimeExpired => StaticCheckErrorKind::ExecutionTimeExpired,
         }
     }
 }
@@ -948,7 +941,6 @@ impl From<CostErrors> for RuntimeCheckErrorKind {
                 "Unexpected interpreter failure in cost computation".into(),
             ),
             CostErrors::Expect(s) => RuntimeCheckErrorKind::Unreachable(s),
-            CostErrors::ExecutionTimeExpired => RuntimeCheckErrorKind::ExecutionTimeExpired,
         }
     }
 }
@@ -1128,6 +1120,23 @@ pub fn check_arguments_at_most<T>(expected: usize, args: &[T]) -> Result<(), Com
     }
 }
 
+/// Check if the supplied arguments are exactly N in length, and if so, return
+///  a fixed array with pointers to the arguments. Otherwise, return an IncorrectArgumentCount
+pub fn get_arguments_exact<T, const N: usize>(args: &[T]) -> Result<&[T; N], CommonCheckErrorKind> {
+    args.try_into()
+        .map_err(|_| CommonCheckErrorKind::IncorrectArgumentCount(N, args.len()))
+}
+
+/// Check if the supplied arguments are at least N in length, and if so, return
+///  a fixed array of size N with pointers to the arguments and a slice with the excess.
+/// Otherwise, return an IncorrectArgumentCount
+pub fn get_arguments_at_least<T, const N: usize>(
+    args: &[T],
+) -> Result<(&[T; N], &[T]), CommonCheckErrorKind> {
+    args.split_first_chunk::<N>()
+        .ok_or_else(|| CommonCheckErrorKind::RequiresAtLeastArguments(N, args.len()))
+}
+
 fn formatted_expected_types(expected_types: &[TypeSignature]) -> String {
     let mut expected_types_joined = format!("'{}'", expected_types[0]);
 
@@ -1160,14 +1169,15 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
-            StaticCheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
-            StaticCheckErrorKind::AnalysisTimeExpired => "analysis time expired".into(),
+            StaticCheckErrorKind::AnalysisResourceBudgetExceeded(s) => format!("analysis resource budget exceeded: {s}"),
+            StaticCheckErrorKind::ReadOnlyCheckerRecursionLimitExceeded => "read-only checker exceeded maximum allowed recursion depth".into(),
             StaticCheckErrorKind::InvalidTypeDescription => "supplied type description is invalid".into(),
             StaticCheckErrorKind::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             StaticCheckErrorKind::UnknownTypeName(name) => format!("failed to parse type: '{name}'"),
             StaticCheckErrorKind::ValueTooLarge => "created a type which was greater than maximum allowed value size".into(),
             StaticCheckErrorKind::ValueOutOfBounds => "created a type which value size was out of defined bounds".into(),
             StaticCheckErrorKind::TypeSignatureTooDeep => "created a type which was deeper than maximum allowed type depth".into(),
+            StaticCheckErrorKind::TraitReferenceChainTooDeep => "trait-reference chain exceeds the maximum allowed type-checker recursion depth".into(),
             StaticCheckErrorKind::ExpectedName => "expected a name argument to this function".into(),
             StaticCheckErrorKind::ConstructedListTooLarge => "reached limit of elements in a sequence".into(),
             StaticCheckErrorKind::TypeError(expected_type, found_type) => format!("expecting expression of type '{expected_type}', found '{found_type}'"),

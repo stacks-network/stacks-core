@@ -518,7 +518,9 @@ pub struct ConnectionOptions {
 
     /// Maximum bytes a single transaction may allocate on the heap during
     /// block-proposal validation before it is rejected. Tracked via
-    /// per-thread allocation counters in `TrackingAllocator`.
+    /// per-thread allocation counters in `TrackingAllocator`. Measured
+    /// independently for the analysis phase and the execution phase of
+    /// a contract deploy.
     /// A value of `0` disables the limit.
     pub block_proposal_max_tx_mem_bytes: u64,
 }
@@ -569,8 +571,8 @@ impl std::default::Default for ConnectionOptions {
             read_only_call_limit: ExecutionCost {
                 write_length: 0,
                 write_count: 0,
-                read_length: 100000,
-                read_count: 30,
+                read_length: 200000,
+                read_count: 100,
                 runtime: 1_000_000_000,
             },
             maximum_call_argument_size: 20 * BOUND_VALUE_SERIALIZATION_HEX,

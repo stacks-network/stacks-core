@@ -183,9 +183,10 @@ impl RunLoop {
             }
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
-            if let Err(e) = burnchain.create_wallet_if_dne() {
-                warn!("Error when creating wallet: {e:?}");
-            }
+
+            // a miner cannot operate without a wallet; retry: bitcoind may
+            // still be starting up
+            burnchain.ensure_miner_wallet_loaded();
             let mut btc_addrs = vec![(
                 StacksEpochId::Epoch2_05,
                 // legacy
@@ -422,6 +423,9 @@ impl RunLoop {
             .coordinator_channels
             .take()
             .expect("Run loop already started, can only start once after initialization.");
+
+        // Apply config-driven process-wide state before any chainstate is opened.
+        self.config.apply_runtime_state();
 
         // setup the termination handler, allow it to error if a prior runloop already set it
         neon::RunLoop::setup_termination_handler(self.should_keep_running.clone(), true);

@@ -21,13 +21,16 @@ use clarity::types::StacksEpochId;
 use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::ast::parser::v2::{MAX_CONTRACT_NAME_LEN, MAX_STRING_LEN};
 use clarity::vm::ast::stack_depth_checker::StackDepthLimits;
+use clarity::vm::costs::cost_functions::ClarityCostFunction;
+use clarity::vm::costs::{ClarityCostFunctionReference, DefaultVersion, LimitedCostTracker};
 use clarity::vm::types::MAX_VALUE_SIZE;
+use stacks_common::codec::MAX_MESSAGE_LEN;
 
 use crate::chainstate::tests::consensus::{
-    clarity_versions_for_epoch, contract_deploy_consensus_snap_test, ConsensusTest, ConsensusUtils,
-    TestBlock, EPOCHS_TO_TEST,
+    block_limit_for_epoch, clarity_versions_for_epoch, contract_deploy_consensus_snap_test,
+    ConsensusTest, ConsensusUtils, ExpectedResult, TestBlock, EPOCHS_TO_TEST,
 };
-use crate::core::BLOCK_LIMIT_MAINNET_21;
+use crate::util_lib::boot::boot_code_id;
 
 /// Generates a coverage classification report for a specific [`ParseErrorKind`] variant.
 ///
@@ -61,8 +64,8 @@ fn variant_coverage_report(variant: ParseErrorKind) {
         CostBalanceExceeded(_, _) => Tested(vec![test_cost_balance_exceeded]),
         MemoryBalanceExceeded(_, _) => Unreachable_NotUsed,
         CostComputationFailed(_) => Unreachable_ExpectLike,
-        ExecutionTimeExpired => Unreachable_NotUsed,
 
+        // Parse
         TooManyExpressions => Unreachable_ExpectLike,
         ExpressionStackDepthTooDeep { .. } => Tested(vec![
             test_stack_depth_too_deep_case_1_tuple_only_parsing,
@@ -131,31 +134,44 @@ fn variant_coverage_report(variant: ParseErrorKind) {
     }
 }
 
+/// Runtime charged upfront by AST building ([`ClarityCostFunction::AstParse`]) for a source of
+/// `source_len` bytes, evaluated with the given epoch's default cost contract.
+fn ast_parse_cost(epoch: StacksEpochId, source_len: u64) -> u64 {
+    let costs_name = LimitedCostTracker::default_cost_contract_for_epoch(epoch)
+        .expect("no default cost contract for epoch");
+    let costs_id = boot_code_id(&costs_name, false);
+    let version =
+        DefaultVersion::try_from(false, &costs_id).expect("no default cost version for epoch");
+    let reference = ClarityCostFunctionReference {
+        contract_id: costs_id,
+        function_name: ClarityCostFunction::AstParse.get_name(),
+    };
+    version
+        .evaluate(&reference, &ClarityCostFunction::AstParse, &[source_len])
+        .expect("failed to evaluate AstParse cost")
+        .runtime
+}
+
 /// ParserError: [`ParseErrorKind::CostBalanceExceeded`]
-/// Caused by: exceeding runtime cost limit [`BLOCK_LIMIT_MAINNET_21`] during contract deploy parsing
+/// Caused by: exceeding the tenure runtime limit during contract deploy parsing
 /// Outcome: block rejected
 /// Note: This cost error is remapped as [`crate::chainstate::stacks::Error::CostOverflowError`]
+///
+/// Filler deploys that fail parsing at the first token burn the tenure's runtime budget
+/// through their upfront [`ClarityCostFunction::AstParse`] charge alone. Spread over
+/// several blocks of one tenure (a single block is capped at [`MAX_MESSAGE_LEN`]), they
+/// leave less budget than one filler's charge, so the final, larger deploy cannot afford
+/// its own parse charge and gets its block rejected.
 #[test]
 fn test_cost_balance_exceeded() {
-    const RUNTIME_LIMIT: u64 = BLOCK_LIMIT_MAINNET_21.runtime;
-    // Arbitrary parameters determined through empirical testing
-    const CONTRACT_FUNC_INVOCATIONS: u64 = 50_022;
-    const CALL_RUNTIME_COST: u64 = 249_996_284;
-    const CALLS_NEEDED: u64 = RUNTIME_LIMIT / CALL_RUNTIME_COST - 1;
+    const FILLER_LEN: usize = 2_000_000;
+    // As many fillers per block as fit the block size limit enforced on staging-block
+    // deserialization (the small remainder easily covers tx/header overhead).
+    const FILLERS_PER_BLOCK: usize = MAX_MESSAGE_LEN as usize / FILLER_LEN;
 
-    let costly_contract_code = {
-        let mut code = String::from(
-            "(define-constant msg 0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f)\n\
-             (define-constant sig 0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40)\n\
-             (define-constant key 0xfffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0df)\n\
-             (define-read-only (costly-func)\n  (begin\n",
-        );
-        for _ in 0..CONTRACT_FUNC_INVOCATIONS {
-            code.push_str("    (secp256k1-verify msg sig key)\n");
-        }
-        code.push_str("    true))");
-        code
-    };
+    // Fails parsing at the first token (`UnexpectedToken`, accepted in blocks since 3.4);
+    // the padding only inflates the upfront AstParse charge.
+    let filler_code = format!("){}", " ".repeat(FILLER_LEN - 1));
 
     let large_contract_code = &{
         let mut code = String::new();
@@ -164,61 +180,75 @@ fn test_cost_balance_exceeded() {
         }
         code
     };
+    // Longer than a filler, so its AstParse charge exceeds any post-filler budget remainder.
+    assert!(large_contract_code.len() > FILLER_LEN);
 
-    let mut result = vec![];
+    let mut epoch_blocks = HashMap::new();
+    let mut filler_block_count = 0;
+    // Rejected transactions never commit, so only the fillers advance the faucet nonce.
+    let mut nonce = 0;
     for each_epoch in EPOCHS_TO_TEST {
-        for &each_clarity_ver in clarity_versions_for_epoch(*each_epoch) {
-            let mut nonce = 0;
-            let mut txs = vec![];
+        let runtime_limit = block_limit_for_epoch(*each_epoch).runtime;
+        let filler_parse_cost = ast_parse_cost(*each_epoch, FILLER_LEN as u64);
+        // As many fillers as fit the runtime budget, leaving a remainder smaller than
+        // one filler's parse charge.
+        let fillers_needed = runtime_limit / filler_parse_cost;
+        let remainder = runtime_limit - fillers_needed * filler_parse_cost;
+        let final_parse_cost = ast_parse_cost(*each_epoch, large_contract_code.len() as u64);
+        assert!(
+            final_parse_cost > remainder,
+            "the final deploy's parse charge must overflow the remaining runtime budget"
+        );
 
-            // Create a contract that will be costly to execute
-            txs.push(ConsensusUtils::new_deploy_tx(
-                nonce,
-                "costly-contract",
-                &costly_contract_code,
-                None,
-            ));
-
-            // Create contract calls that push the runtime cost to a considerably high value
-            while nonce < CALLS_NEEDED {
-                nonce += 1;
-                txs.push(ConsensusUtils::new_call_tx(
+        let filler_txs: Vec<_> = (0..fillers_needed)
+            .map(|_| {
+                let tx = ConsensusUtils::new_deploy_tx(
                     nonce,
-                    "costly-contract",
-                    "costly-func",
-                ));
-            }
+                    &format!("filler-{nonce}"),
+                    &filler_code,
+                    None,
+                );
+                nonce += 1;
+                tx
+            })
+            .collect();
+        let mut blocks: Vec<TestBlock> = filler_txs
+            .chunks(FILLERS_PER_BLOCK)
+            .map(|chunk| TestBlock {
+                transactions: chunk.to_vec(),
+            })
+            .collect();
+        filler_block_count += blocks.len();
 
-            // Create a large contract that push the runtime cost close to the limit
-            nonce += 1;
-            txs.push(ConsensusUtils::new_deploy_tx(
-                nonce,
-                "runtime-close",
-                large_contract_code,
-                None,
-            ));
-
-            // Create a large contract that exceeds the runtime cost limit during parsing
-            // NOTE: This is the only transaction relevant for demonstrating the runtime cost exceeding the limit during parsing.
-            //        Previous transactions are included only for test setup. Hence, clarity version is used here.
-            nonce += 1;
-            txs.push(ConsensusUtils::new_deploy_tx(
-                nonce,
-                "runtime-exceeded",
-                large_contract_code,
-                Some(each_clarity_ver),
-            ));
-
-            let block = TestBlock { transactions: txs };
-
-            let epoch_blocks = HashMap::from([(*each_epoch, vec![block])]);
-
-            let each_result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
-            result.extend(each_result);
+        // Create a large contract that exceeds the runtime cost limit during parsing
+        // NOTE: This is the only transaction relevant for demonstrating the runtime cost exceeding the limit during parsing.
+        //        Previous transactions are included only for test setup. Hence, clarity version is used here.
+        for &each_clarity_ver in clarity_versions_for_epoch(*each_epoch) {
+            blocks.push(TestBlock {
+                transactions: vec![ConsensusUtils::new_deploy_tx(
+                    nonce,
+                    "runtime-exceeded",
+                    large_contract_code,
+                    Some(each_clarity_ver),
+                )],
+            });
         }
+
+        epoch_blocks.insert(*each_epoch, blocks);
     }
 
-    insta::assert_ron_snapshot!(result);
+    let (rejections, accepted): (Vec<_>, Vec<_>) =
+        ConsensusTest::new(function_name!(), vec![], epoch_blocks)
+            .run()
+            .into_iter()
+            .partition(|r| matches!(r, ExpectedResult::Failure(_)));
+    assert_eq!(
+        accepted.len(),
+        filler_block_count,
+        "all filler blocks must be accepted"
+    );
+
+    insta::assert_ron_snapshot!(rejections);
 }
 
 /// ParserError: [`ParseErrorKind::ExpressionStackDepthTooDeep`]
@@ -404,7 +434,7 @@ fn test_named_already_used() {
             (define-trait trait-1 (
                 (get-1 (uint) (response uint uint))))
             (define-trait trait-1 (
-                (get-1 (int) (response uint uint)))) 
+                (get-1 (int) (response uint uint))))
         ",
     );
 }
@@ -419,7 +449,7 @@ fn test_trait_ref_not_allowed() {
         contract_code: "
             (define-trait trait-1 (
                 (get-1 (uint) (response uint uint))))
-            (define-map kv-store { key: uint } { value: <trait-1> }) 
+            (define-map kv-store { key: uint } { value: <trait-1> })
         ",
     );
 }

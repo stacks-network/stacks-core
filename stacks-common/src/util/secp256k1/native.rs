@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use ::secp256k1::ecdsa::{
+use secp256k1::ecdsa::{
     RecoverableSignature as LibSecp256k1RecoverableSignature, RecoveryId as LibSecp256k1RecoveryID,
     Signature as LibSecp256k1Signature,
 };
-pub use ::secp256k1::Error;
-use ::secp256k1::{
+pub use secp256k1::Error;
+use secp256k1::{
     self, constants as LibSecp256k1Constants, Error as LibSecp256k1Error,
     Message as LibSecp256k1Message, PublicKey as LibSecp256k1PublicKey, Secp256k1,
     SecretKey as LibSecp256k1PrivateKey,
@@ -494,6 +494,11 @@ pub fn secp256k1_verify(
     })
 }
 
+pub fn secp256k1_decompress(compressed_pubkey_arr: &[u8]) -> Result<[u8; 65], LibSecp256k1Error> {
+    let pubkey = LibSecp256k1PublicKey::from_slice(compressed_pubkey_arr)?;
+    Ok(pubkey.serialize_uncompressed())
+}
+
 #[cfg(test)]
 mod tests {
     use rand::RngCore as _;
@@ -765,6 +770,23 @@ mod tests {
             runtime_recover,
             runtime_verify - runtime_recover
         );
+    }
+
+    #[test]
+    fn test_decompress() {
+        let mut sk = Secp256k1PrivateKey::random();
+        sk.set_compress_public(true);
+        let pk = Secp256k1PublicKey::from_private(&sk);
+
+        assert_eq!(pk.to_bytes().len(), 33);
+
+        let decompressed_pk = secp256k1_decompress(pk.to_bytes().as_slice()).unwrap();
+        assert_eq!(decompressed_pk.len(), 65);
+
+        sk.set_compress_public(false);
+        let pk_uncompressed = Secp256k1PublicKey::from_private(&sk);
+
+        assert_eq!(pk_uncompressed.to_bytes(), decompressed_pk);
     }
 
     #[test]
