@@ -555,6 +555,7 @@ impl Signer {
                             }
                             self.handle_block_pre_commit(
                                 stacks_client,
+                                sortition_state,
                                 &signer_address,
                                 signer_signature_hash,
                             )
@@ -1095,6 +1096,7 @@ impl Signer {
     fn handle_block_pre_commit(
         &mut self,
         stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
         stacker_address: &StacksAddress,
         block_hash: &Sha512Trunc256Sum,
     ) {
@@ -1180,11 +1182,44 @@ impl Signer {
             return;
         }
 
+        // The chain and signer db state may have changed materially since this block passed the
+        // proposal-time checks (e.g. between validation and reaching the pre-commit threshold we
+        // may have signed a block that this one would reorg). Re-run the chainstate checks
+        // before putting a signature over the block, and respond with a rejection if they no
+        // longer pass, just as the block validation response handler does.
+        if let Some(block_rejection) =
+            self.check_block_against_signer_db_state(stacks_client, &block_info.block)
+        {
+            warn!(
+                "{self}: Reached the pre-commit threshold for a block, but it no longer passes the chainstate checks. Rejecting.";
+                "signer_signature_hash" => %block_hash,
+                "block_height" => block_info.block.header.chain_length,
+                "reject_code" => %block_rejection.reason_code,
+                "reject_reason" => &block_rejection.reason,
+            );
+            if let Err(e) = block_info.mark_locally_rejected() {
+                if !block_info.has_reached_consensus() {
+                    warn!("{self}: Failed to mark block as locally rejected: {e:?}");
+                }
+            };
+            self.signer_db
+                .insert_block(&block_info)
+                .unwrap_or_else(|e| self.handle_insert_block_error(e));
+            self.handle_block_rejection(&block_rejection, sortition_state);
+            self.send_block_response(&block_info.block, block_rejection.into());
+            return;
+        }
+
         // A pre-commit may be superseded by a competing proposal at the same height (e.g. a
         // re-proposed tenure-start block after the first failed to reach consensus), but a
         // signature must not be superseded while it's still "fresh". Refuse to sign if we have
         // recently signed, or recently observed the signer set accept, a different block at
-        // this height or above in this tenure.
+        // this height or above -- in ANY tenure: two blocks at the same height are siblings no
+        // matter which tenure they belong to (e.g. the next tenure's tenure-start block
+        // conflicts with the current tenure's block at the same height). Unlike the chainstate
+        // check above, a conflict here is a refusal to sign for now rather than a broadcast
+        // rejection: a later pre-commit re-evaluation may still sign the block (e.g. once the
+        // conflicting signature has gone stale without being confirmed).
 
         // First: is any conflict endorsed after the freshness cutoff?
         let endorsed_after = get_epoch_time_secs().saturating_sub(
@@ -1193,52 +1228,54 @@ impl Signer {
                 .as_secs(),
         );
         let fresh_conflict = match self.signer_db.get_fresh_signed_conflict(
-            &block_info.block.header.consensus_hash,
             block_info.block.header.chain_length,
             &block_hash,
             endorsed_after,
         ) {
             Ok(fresh_conflict) => fresh_conflict,
             Err(e) => {
-                warn!("{self}: Failed to query the signed blocks in the tenure. Refusing to sign block {block_hash}: {e:?}");
+                warn!("{self}: Failed to query the signed blocks. Refusing to sign block {block_hash}: {e:?}");
                 return;
             }
         };
         if let Some(conflict) = fresh_conflict {
             warn!(
-                "{self}: Reached the pre-commit threshold for a block, but we have recently signed or accepted a different block at the same or higher height in this tenure. Refusing to sign.";
+                "{self}: Reached the pre-commit threshold for a block, but we have recently signed or accepted a different block at the same or higher height. Refusing to sign.";
                 "signer_signature_hash" => %block_hash,
                 "block_height" => block_info.block.header.chain_length,
                 "conflicting_signer_signature_hash" => %conflict.signer_signature_hash,
                 "conflicting_block_height" => conflict.stacks_height,
+                "conflicting_consensus_hash" => %conflict.consensus_hash,
             );
             return;
         }
 
         // No fresh conflict. Is there any conflict at all?
-        let stale_conflict = match self.signer_db.get_any_signed_conflict(
-            &block_info.block.header.consensus_hash,
-            block_info.block.header.chain_length,
-            &block_hash,
-        ) {
+        let stale_conflict = match self
+            .signer_db
+            .get_any_signed_conflict(block_info.block.header.chain_length, &block_hash)
+        {
             Ok(stale_conflict) => stale_conflict,
             Err(e) => {
-                warn!("{self}: Failed to query the signed blocks in the tenure. Refusing to sign block {block_hash}: {e:?}");
+                warn!("{self}: Failed to query the signed blocks. Refusing to sign block {block_hash}: {e:?}");
                 return;
             }
         };
         if let Some(conflict) = stale_conflict {
-            // The conflicts have all timed out, ask the node if it is canonical.
-            match stacks_client.get_tenure_tip(&block_info.block.header.consensus_hash) {
+            // The conflicts have all timed out. Ask the node whether the conflicting chain was
+            // confirmed at or above the proposed height; if so, the proposed block would reorg
+            // canonical state and we must not sign it.
+            match stacks_client.get_tenure_tip(&conflict.consensus_hash) {
                 Ok(tip) => {
                     let tip_height = tip.anchored_header.height();
                     if tip_height >= block_info.block.header.chain_length {
                         warn!(
-                            "{self}: Reached the pre-commit threshold for a block that conflicts with previously signed or accepted blocks, and the canonical tip of this tenure is at or above the proposed height. Refusing to sign.";
+                            "{self}: Reached the pre-commit threshold for a block that conflicts with previously signed or accepted blocks, and the canonical tip of the conflicting tenure is at or above the proposed height. Refusing to sign.";
                             "signer_signature_hash" => %block_hash,
                             "block_height" => block_info.block.header.chain_length,
                             "conflicting_signer_signature_hash" => %conflict.signer_signature_hash,
                             "conflicting_block_height" => conflict.stacks_height,
+                            "conflicting_consensus_hash" => %conflict.consensus_hash,
                             "canonical_tip_height" => tip_height,
                         );
                         return;
@@ -1246,9 +1283,10 @@ impl Signer {
                 }
                 Err(e) => {
                     warn!(
-                        "{self}: Failed to fetch the canonical tip of the tenure while evaluating a conflicting block: {e:?}. Assuming the proposed block is higher.";
+                        "{self}: Failed to fetch the canonical tip of the conflicting tenure while evaluating a conflicting block: {e:?}. Assuming the proposed block is higher.";
                         "signer_signature_hash" => %block_hash,
                         "block_height" => block_info.block.header.chain_length,
+                        "conflicting_consensus_hash" => %conflict.consensus_hash,
                     );
                 }
             }
@@ -1271,7 +1309,7 @@ impl Signer {
             .unwrap_or_else(|e| self.handle_insert_block_error(e));
         let accepted = self.create_block_acceptance(&block_info.block);
         // have to save the signature _after_ the block info
-        self.handle_block_signature(stacks_client, &accepted);
+        self.handle_block_signature(stacks_client, sortition_state, &accepted);
         self.send_block_response(&block_info.block, accepted.into());
     }
 
@@ -1280,6 +1318,7 @@ impl Signer {
     fn should_reevaluate_block(
         &mut self,
         stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
         block_info: &BlockInfo,
         block_proposal: &BlockProposal,
     ) -> bool {
@@ -1315,7 +1354,12 @@ impl Signer {
                 );
                 self.send_block_pre_commit(signer_signature_hash.clone());
                 let address = self.stacks_address.clone();
-                self.handle_block_pre_commit(stacks_client, &address, &signer_signature_hash);
+                self.handle_block_pre_commit(
+                    stacks_client,
+                    sortition_state,
+                    &address,
+                    &signer_signature_hash,
+                );
                 return false;
             }
             if let Some(block_response) = self.determine_response(block_info) {
@@ -1402,7 +1446,12 @@ impl Signer {
         let signer_signature_hash = block_proposal.block.header.signer_signature_hash();
         let pending_responses =
             if let Some(block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) {
-                if !self.should_reevaluate_block(stacks_client, &block_info, block_proposal) {
+                if !self.should_reevaluate_block(
+                    stacks_client,
+                    sortition_state,
+                    &block_info,
+                    block_proposal,
+                ) {
                     return;
                 }
                 PendingBlockResponses::empty()
@@ -1518,7 +1567,12 @@ impl Signer {
                 "signer_signature_hash" => %signer_signature_hash,
                 "block_id" => %block_info.block.block_id(),
             );
-            self.handle_block_pre_commit(stacks_client, &stacker_address, &signer_signature_hash);
+            self.handle_block_pre_commit(
+                stacks_client,
+                sortition_state,
+                &stacker_address,
+                &signer_signature_hash,
+            );
         }
         for (stacker_address, reject_reason) in pending_responses.rejections {
             debug!("{self}: Processing pending rejection.";
@@ -1543,6 +1597,7 @@ impl Signer {
             );
             self.store_and_process_block_signature(
                 stacks_client,
+                sortition_state,
                 block_info,
                 &stackers_address,
                 &signature,
@@ -1559,7 +1614,7 @@ impl Signer {
     ) {
         match block_response {
             BlockResponse::Accepted(accepted) => {
-                self.handle_block_signature(stacks_client, accepted);
+                self.handle_block_signature(stacks_client, sortition_state, accepted);
             }
             BlockResponse::Rejected(block_rejection) => {
                 self.handle_block_rejection(block_rejection, sortition_state);
@@ -1746,7 +1801,12 @@ impl Signer {
             self.send_block_pre_commit(signer_signature_hash.clone());
             // have to save the signature _after_ the block info
             let address = self.stacks_address.clone();
-            self.handle_block_pre_commit(stacks_client, &address, signer_signature_hash);
+            self.handle_block_pre_commit(
+                stacks_client,
+                sortition_state,
+                &address,
+                signer_signature_hash,
+            );
         }
     }
 
@@ -2135,7 +2195,12 @@ impl Signer {
     }
 
     /// Handle an observed signature from another signer
-    fn handle_block_signature(&mut self, stacks_client: &StacksClient, accepted: &BlockAccepted) {
+    fn handle_block_signature(
+        &mut self,
+        stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
+        accepted: &BlockAccepted,
+    ) {
         let BlockAccepted {
             signer_signature_hash: block_hash,
             signature,
@@ -2193,6 +2258,7 @@ impl Signer {
         );
         self.store_and_process_block_signature(
             stacks_client,
+            sortition_state,
             &mut block_info,
             &signer_address,
             signature,
@@ -2203,6 +2269,7 @@ impl Signer {
     fn store_and_process_block_signature(
         &mut self,
         stacks_client: &StacksClient,
+        sortition_state: &mut Option<SortitionsView>,
         block_info: &mut BlockInfo,
         signer_address: &StacksAddress,
         signature: &MessageSignature,
@@ -2220,7 +2287,7 @@ impl Signer {
 
         // If this isn't our own signature and we haven't seen a pre-commit from this signer yet, try treating it as a pre-commit in case the caller is running an outdated version
         if signer_address != &self.stacks_address && !self.signer_db.has_committed(block_hash, signer_address).inspect_err(|e| warn!("Failed to check if pre-commit message already considered for {signer_address:?} for {block_hash}: {e}")).unwrap_or(false) {
-            self.handle_block_pre_commit(stacks_client, signer_address, block_hash);
+            self.handle_block_pre_commit(stacks_client, sortition_state, signer_address, block_hash);
             return;
         }
 

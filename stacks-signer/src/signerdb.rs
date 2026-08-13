@@ -1535,24 +1535,29 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return a signed block in a tenure at or above the given Stacks height that was endorsed
-    /// strictly after `endorsed_after` (epoch seconds), excluding the block with the given
-    /// signer signature hash. A block is considered signed if it is locally or globally accepted.
+    /// Return a signed block at or above the given Stacks height, in ANY tenure, that was
+    /// endorsed strictly after `endorsed_after` (epoch seconds), excluding the block with the
+    /// given signer signature hash. A block is considered signed if it is locally or globally
+    /// accepted.
+    ///
+    /// The search deliberately spans all tenures: two blocks at the same height are siblings
+    /// no matter which tenure they belong to (e.g. a tenure-start block conflicts with the
+    /// previous tenure's block at the same height), so a signature over either must block a
+    /// fresh signature over the other. If multiple conflicts exist, the highest is returned.
     pub fn get_fresh_signed_conflict(
         &self,
-        tenure: &ConsensusHash,
         height: u64,
         excluded_signer_signature_hash: &Sha512Trunc256Sum,
         endorsed_after: u64,
     ) -> Result<Option<SignedConflictInfo>, DBError> {
-        let query = "SELECT signer_signature_hash, stacks_height
+        let query = "SELECT consensus_hash, signer_signature_hash, stacks_height
             FROM blocks
-            WHERE consensus_hash = ?1 AND state IN (?2, ?3) AND stacks_height >= ?4
-                AND signer_signature_hash != ?5
-                AND MAX(COALESCE(signed_self, 0), COALESCE(signed_group, 0)) > ?6
+            WHERE state IN (?1, ?2) AND stacks_height >= ?3
+                AND signer_signature_hash != ?4
+                AND MAX(COALESCE(signed_self, 0), COALESCE(signed_group, 0)) > ?5
+            ORDER BY stacks_height DESC
             LIMIT 1";
         let args = params![
-            tenure,
             &BlockState::GloballyAccepted.to_string(),
             &BlockState::LocallyAccepted.to_string(),
             u64_to_sql(height)?,
@@ -1562,21 +1567,22 @@ impl SignerDb {
         query_row(&self.db, query, args)
     }
 
-    /// Return a signed block in a tenure at or above the given Stacks height, excluding the block
-    /// with the given signer signature hash, regardless of when (or whether) it was endorsed.
+    /// Return a signed block at or above the given Stacks height, in ANY tenure, excluding the
+    /// block with the given signer signature hash, regardless of when (or whether) it was
+    /// endorsed. See [`SignerDb::get_fresh_signed_conflict`] for why the search spans tenures.
+    /// If multiple conflicts exist, the highest is returned.
     pub fn get_any_signed_conflict(
         &self,
-        tenure: &ConsensusHash,
         height: u64,
         excluded_signer_signature_hash: &Sha512Trunc256Sum,
     ) -> Result<Option<SignedConflictInfo>, DBError> {
-        let query = "SELECT signer_signature_hash, stacks_height
+        let query = "SELECT consensus_hash, signer_signature_hash, stacks_height
             FROM blocks
-            WHERE consensus_hash = ?1 AND state IN (?2, ?3) AND stacks_height >= ?4
-                AND signer_signature_hash != ?5
+            WHERE state IN (?1, ?2) AND stacks_height >= ?3
+                AND signer_signature_hash != ?4
+            ORDER BY stacks_height DESC
             LIMIT 1";
         let args = params![
-            tenure,
             &BlockState::GloballyAccepted.to_string(),
             &BlockState::LocallyAccepted.to_string(),
             u64_to_sql(height)?,
@@ -2559,6 +2565,8 @@ where
 /// [`SignerDb::get_any_signed_conflict`].
 #[derive(Debug)]
 pub struct SignedConflictInfo {
+    /// The consensus hash of the tenure containing the conflicting block
+    pub consensus_hash: ConsensusHash,
     /// The signer signature hash of the conflicting block
     pub signer_signature_hash: Sha512Trunc256Sum,
     /// The Stacks height of the conflicting block
@@ -2567,9 +2575,11 @@ pub struct SignedConflictInfo {
 
 impl FromRow<SignedConflictInfo> for SignedConflictInfo {
     fn from_row(row: &rusqlite::Row) -> Result<Self, DBError> {
+        let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let signer_signature_hash = Sha512Trunc256Sum::from_column(row, "signer_signature_hash")?;
         let stacks_height = u64::from_column(row, "stacks_height")?;
         Ok(SignedConflictInfo {
+            consensus_hash,
             signer_signature_hash,
             stacks_height,
         })
@@ -3401,10 +3411,11 @@ pub mod tests {
             b.block.header.chain_length = 4;
             b.burn_height = 3;
         });
-        // Give blocks 2 and 3 distinct signing times so the freshest conflict is unambiguous
-        // (`mark_locally_accepted` preserves an already-set `signed_self`).
+        // Give blocks 2, 3, and 4 distinct signing times so the freshest conflict is unambiguous
+        // (`mark_locally_accepted` and `mark_globally_accepted` preserve already-set timestamps).
         block_info_2.signed_self = Some(100);
         block_info_3.signed_self = Some(50);
+        block_info_4.signed_group = Some(60);
         block_info_1.mark_globally_accepted().unwrap();
         block_info_2.mark_locally_accepted(false).unwrap();
         block_info_3.mark_locally_accepted(false).unwrap();
@@ -3465,13 +3476,14 @@ pub mod tests {
             .unwrap()
             .is_none());
 
-        // Verify the signed-conflict queries. Blocks 2 and 3 were signed at times 100 and 50
-        // respectively; block_info_5 (height 4) is only pre-committed, so it must never be
-        // considered.
+        // Verify the signed-conflict queries. These search across ALL tenures. Blocks 2 and 3
+        // (tenure 1, heights 2 and 3) were signed at times 100 and 50, block 4 (tenure 2,
+        // height 3) at time 60; block_info_5 (height 4) is only pre-committed, so it must
+        // never be considered.
         let unrelated_hash = Sha512Trunc256Sum([0xff; 32]);
         // With a cutoff of 75, only block 2 (signed at 100) is fresh.
         let conflict = db
-            .get_fresh_signed_conflict(&consensus_hash_1, 2, &unrelated_hash, 75)
+            .get_fresh_signed_conflict(2, &unrelated_hash, 75)
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -3479,28 +3491,46 @@ pub mod tests {
             block_info_2.block.header.signer_signature_hash()
         );
         assert_eq!(conflict.stacks_height, 2);
+        assert_eq!(conflict.consensus_hash, consensus_hash_1);
         // The endorsement comparison is strictly-greater-than the cutoff.
         assert!(db
-            .get_fresh_signed_conflict(&consensus_hash_1, 2, &unrelated_hash, 100)
+            .get_fresh_signed_conflict(2, &unrelated_hash, 100)
             .unwrap()
             .is_none());
         // The excluded (proposed) block is never its own conflict, even when fresh.
         assert!(db
-            .get_fresh_signed_conflict(
-                &consensus_hash_1,
-                2,
-                &block_info_2.block.header.signer_signature_hash(),
-                75,
-            )
+            .get_fresh_signed_conflict(2, &block_info_2.block.header.signer_signature_hash(), 75,)
             .unwrap()
             .is_none());
-        // Any-conflict ignores endorsement times: block 3 (signed at 50) still conflicts.
+        // A signed block in a DIFFERENT tenure at the same or higher height is a conflict:
+        // with a cutoff of 55, only block 4 (tenure 2, signed at 60) is a fresh conflict at
+        // height 3 (block 3 was signed at 50, block 2 is below the height).
         let conflict = db
-            .get_any_signed_conflict(
-                &consensus_hash_1,
-                3,
-                &block_info_2.block.header.signer_signature_hash(),
-            )
+            .get_fresh_signed_conflict(3, &unrelated_hash, 55)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            conflict.signer_signature_hash,
+            block_info_4.block.header.signer_signature_hash()
+        );
+        assert_eq!(conflict.stacks_height, 3);
+        assert_eq!(conflict.consensus_hash, consensus_hash_2);
+        // When multiple conflicts exist, the highest is returned: with a cutoff of 55 at
+        // height 2, blocks 2 (height 2) and 4 (height 3) are both fresh conflicts and block 4
+        // wins despite block 2 having the fresher signature.
+        let conflict = db
+            .get_fresh_signed_conflict(2, &unrelated_hash, 55)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            conflict.signer_signature_hash,
+            block_info_4.block.header.signer_signature_hash()
+        );
+        assert_eq!(conflict.stacks_height, 3);
+        // Any-conflict ignores endorsement times: at height 3 with block 4 excluded, block 3
+        // (signed at 50) still conflicts.
+        let conflict = db
+            .get_any_signed_conflict(3, &block_info_4.block.header.signer_signature_hash())
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -3508,17 +3538,15 @@ pub mod tests {
             block_info_3.block.header.signer_signature_hash()
         );
         assert_eq!(conflict.stacks_height, 3);
-        // Above every signed block (only the pre-committed block 5 is at height 4): no conflict.
+        assert_eq!(conflict.consensus_hash, consensus_hash_1);
+        // Above every signed block in every tenure (only the pre-committed block 5 is at
+        // height 4): no conflict.
         assert!(db
-            .get_fresh_signed_conflict(&consensus_hash_1, 4, &unrelated_hash, 0)
+            .get_fresh_signed_conflict(4, &unrelated_hash, 0)
             .unwrap()
             .is_none());
         assert!(db
-            .get_any_signed_conflict(&consensus_hash_1, 4, &unrelated_hash)
-            .unwrap()
-            .is_none());
-        assert!(db
-            .get_any_signed_conflict(&consensus_hash_3, 1, &unrelated_hash)
+            .get_any_signed_conflict(4, &unrelated_hash)
             .unwrap()
             .is_none());
     }
