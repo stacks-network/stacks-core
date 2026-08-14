@@ -88,8 +88,8 @@ pub struct PayloadContext<'tx, 'clarity, 'store, 'db, 'origin> {
 
 /// A transaction paired with the disposition required during full processing.
 ///
-/// Combining the transaction and its disposition prevents replay callers from
-/// accidentally executing a transaction whose payload must be skipped.
+/// Passing this value directly into [`TransactionProcessor`] prevents replay callers from
+/// accidentally discarding a known skip disposition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TxToProcess<'tx> {
     /// Execute the transaction's payload normally.
@@ -177,7 +177,7 @@ impl<'tx> From<&'tx StacksTransaction> for TransactionProcessor<'static, Selecte
 impl<'tx> From<TxToProcess<'tx>> for TransactionProcessor<'static, FullTransaction<'tx>> {
     fn from(tx_to_process: TxToProcess<'tx>) -> Self {
         match tx_to_process {
-            TxToProcess::Execute(tx) => TransactionProcessor::from(tx).into_full_processing(),
+            TxToProcess::Execute(tx) => TransactionProcessor::from(tx).execute(),
             TxToProcess::Skip { tx, category } => TransactionProcessor::from(tx).skipped(category),
         }
     }
@@ -215,7 +215,7 @@ impl<'hooks, State, Check> TransactionProcessor<'hooks, State, NeedsResourcePoli
     }
 }
 
-/// Provides validation and context-selection operations for the [`SelectedTransaction`] typestate.
+/// Provides validation, disposition, and payload-context selection for [`SelectedTransaction`].
 impl<'tx, Resources> TransactionProcessor<'static, SelectedTransaction<'tx>, Resources> {
     /// Checks transaction properties that do not require mutable chainstate.
     pub fn precheck(
@@ -254,10 +254,11 @@ impl<'tx, Resources> TransactionProcessor<'static, SelectedTransaction<'tx>, Res
         }
     }
 
-    /// Selects the ordinary full-processing disposition for this transaction.
-    fn into_full_processing(
-        self,
-    ) -> TransactionProcessor<'static, FullTransaction<'tx>, Resources> {
+    /// Selects full execution, asserting that no problematic marker applies and the transaction
+    /// payload must run.
+    ///
+    /// Use [`Self::skipped`] when the transaction carries a problematic marker.
+    pub fn execute(self) -> TransactionProcessor<'static, FullTransaction<'tx>, Resources> {
         TransactionProcessor {
             state: FullTransaction {
                 tx: self.state.tx,
@@ -285,14 +286,6 @@ impl<'tx, Resources> TransactionProcessor<'static, SelectedTransaction<'tx>, Res
             check: self.check,
             eval_hook: self.eval_hook,
         }
-    }
-
-    /// Supplies the context for complete transaction processing.
-    pub fn using_clarity_tx<'clarity, 'block, 'conn>(
-        self,
-        clarity_tx: &'clarity mut ClarityTx<'block, 'conn>,
-    ) -> TransactionProcessor<'static, FullContext<'tx, 'clarity, 'block, 'conn>, Resources> {
-        self.into_full_processing().using_clarity_tx(clarity_tx)
     }
 
     /// Supplies an existing Clarity transaction for payload-only processing.

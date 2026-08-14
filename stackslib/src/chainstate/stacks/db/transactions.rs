@@ -578,6 +578,7 @@ pub mod test {
             ResourceBudget::unlimited().with_max_duration(max_execution_time),
         );
         TransactionProcessor::from(tx)
+            .execute()
             .using_clarity_tx(clarity_tx)
             .with_resource_policy(resource_budgets)
             .quiet(quiet)
@@ -11495,6 +11496,7 @@ pub mod test {
         let cost_before = clarity_tx.cost_so_far();
 
         let error = TransactionProcessor::from(&signed_tx)
+            .execute()
             .using_clarity_tx(&mut clarity_tx)
             .with_unlimited_resource_policy()
             .with_check(|_| Err(Error::BlockCostExceeded))

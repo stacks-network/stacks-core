@@ -1195,6 +1195,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let quiet = !cfg!(test);
         let cost_before = clarity_tx.cost_so_far();
         match TransactionProcessor::from(&tx)
+            .execute()
             .using_clarity_tx(clarity_tx)
             .with_unlimited_resource_policy()
             .quiet(quiet)
@@ -1761,6 +1762,7 @@ impl StacksBlockBuilder {
         if !self.anchored_done {
             // save
             match TransactionProcessor::from(tx)
+                .execute()
                 .using_clarity_tx(clarity_tx)
                 .with_unlimited_resource_policy()
                 .quiet(quiet)
@@ -1777,6 +1779,7 @@ impl StacksBlockBuilder {
             self.txs.push(tx.clone());
         } else {
             match TransactionProcessor::from(tx)
+                .execute()
                 .using_clarity_tx(clarity_tx)
                 .with_unlimited_resource_policy()
                 .quiet(quiet)
@@ -2617,6 +2620,7 @@ impl BlockBuilder for StacksBlockBuilder {
             }
             let cost_before = clarity_tx.cost_so_far();
             let (fee, receipt) = match TransactionProcessor::from(tx)
+                .execute()
                 .using_clarity_tx(clarity_tx)
                 .with_unlimited_resource_policy()
                 .quiet(quiet)
@@ -2665,6 +2669,7 @@ impl BlockBuilder for StacksBlockBuilder {
             }
             let cost_before = clarity_tx.cost_so_far();
             let (fee, receipt) = match TransactionProcessor::from(tx)
+                .execute()
                 .using_clarity_tx(clarity_tx)
                 .with_unlimited_resource_policy()
                 .quiet(quiet)

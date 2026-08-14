@@ -3940,6 +3940,7 @@ impl StacksChainState {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
                 let (tx_fee, mut tx_receipt) = TransactionProcessor::from(tx)
+                    .execute()
                     .using_clarity_tx(clarity_tx)
                     .with_unlimited_resource_policy()
                     .process()

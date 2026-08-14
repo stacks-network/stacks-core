@@ -879,6 +879,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
             let cost_before = clarity_tx.cost_so_far();
 
             let tx_processor = TransactionProcessor::from(tx)
+                .execute()
                 .using_clarity_tx(clarity_tx)
                 .with_resource_policy(*resource_budgets)
                 .quiet(quiet)

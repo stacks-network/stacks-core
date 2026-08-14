@@ -28,11 +28,28 @@
 ///     tx: &StacksTransaction,
 /// ) {
 ///     TransactionProcessor::from(tx)
+///         .execute()
 ///         .using_clarity_tx(clarity_tx)
 ///         .process();
 /// }
 /// ```
 struct ProcessRequiresResourcePolicy;
+
+/// Complete processing requires an explicit execute-or-skip disposition.
+///
+/// ```compile_fail,E0599
+/// use blockstack_lib::chainstate::stacks::db::transactions::TransactionProcessor;
+/// use blockstack_lib::chainstate::stacks::db::ClarityTx;
+/// use blockstack_lib::chainstate::stacks::StacksTransaction;
+///
+/// fn bind_full_context_without_a_disposition(
+///     clarity_tx: &mut ClarityTx<'_, '_>,
+///     tx: &StacksTransaction,
+/// ) {
+///     TransactionProcessor::from(tx).using_clarity_tx(clarity_tx);
+/// }
+/// ```
+struct FullContextRequiresDisposition;
 
 /// Full processing requires a complete Clarity context.
 ///
@@ -42,6 +59,7 @@ struct ProcessRequiresResourcePolicy;
 ///
 /// fn process_without_a_clarity_context(tx: &StacksTransaction) {
 ///     TransactionProcessor::from(tx)
+///         .execute()
 ///         .with_unlimited_resource_policy()
 ///         .process();
 /// }
@@ -80,6 +98,7 @@ struct FullProcessingRequiresFullContext;
 ///     tx: &StacksTransaction,
 /// ) {
 ///     TransactionProcessor::from(tx)
+///         .execute()
 ///         .using_clarity_tx(clarity_tx)
 ///         .with_unlimited_resource_policy()
 ///         .process_payload();
