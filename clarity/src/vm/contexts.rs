@@ -2237,6 +2237,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 self.commit()?;
                 Ok(result)
             } else {
+                self.roll_back()?;
                 Err(RuntimeCheckErrorKind::Unreachable(format!(
                     "Public function must return response: {}",
                     TypeSignature::type_of(&result)?

@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [4.0.2]
+
+### ⚠️ Breaking Changes
+
+* Miner configurations must now set `burnchain.wallet_name` to an existing wallet (ASCII letters, digits and `. _ - /`), regardless of the Bitcoin Core version; this also fixes compatibility with Bitcoin Core >= 31, which removed unnamed wallets.
+* Loading is session-only: set `wallet=<name>` in `bitcoin.conf` to reload it after a bitcoind restart. After `migratewallet`, point `wallet_name` at the wallet holding the miner's addresses.
+
+### Added
+
+* Added an `[[events_observer]]` config option `disable_contract_interface` (default `false`). When set to `true` for an observer, the `contract_interface` (ABI) field of every transaction in `new_block` and `new_microblocks` event payloads sent to that observer is emitted as `null`, omitting the generated contract interface from that observer's event stream. This does not affect consensus, block validation, other observers, or any other event field.
+* Added public constructors to run Clarity block processing (`ClarityBlockConnection` / `ClarityTx`) and genesis boot (`instantiate_boot_code`) against an arbitrary `WritableMarfStore`, so alternative storage backends can drive the consensus transaction engine without forking chainstate code ([#7428](https://github.com/stacks-network/stacks-core/pull/7428)).
+* Refactored and expanded the defense-in-depth memory allocation limiter during non-consensus-critical transaction processing. Also, the  `/v2/contracts/call-read` and `/v3/contracts/fast-call-read` RPC endpoints no longer return the incorrect 408 status code when a contract call exceeds the limits, but a 400.
+
+### Changed
+
+* Added opt-in Clarity VM hook support for structured call tracing.
+* Shrunk `size_of::<Value>()` from 128 to 64 bytes by boxing `CallableData::trait_identifier`, halving the memory of every `Vec<Value>`, clone, and stack copy in the Clarity VM and deserializer.
+* Reduced Clarity `Value` deserialization cost: ~57% lower peak memory for untyped reads of large lists and 15-55% less CPU across deserialization paths.
+* Improve test harnesses for vm tests (`costs.rs`, `analysis_costs.rs`, `large_contract.rs`, `transactions.rs`)
+* Improve the `POST /v2/stackerdb/<address>/<contract>/chunks` handler to report each chunk-replacement failure with a precise error code adding dedicated `ChunkTooBig` and `TooManySlotWrites` codes instead of collapsing them into `DataAlreadyExists`.
+* Improve miner stackerdb error handling taking into consideration the new error codes.
+* In the reference `signer-manager.clar` contract, `claim-staker-rewards` now returns `{ earned, withdrawal-request }` instead of a bare `uint`; where `withdrawal-request` is `(some uint)` with the withdrawal request ID when the payout was routed to an L1 sBTC withdrawal and `none` for an sBTC payout.
+* Cache prepared statements on hot SQLite read paths (Clarity side-store reads, MARF block-id/hash lookups, and the generic `query_*` helpers) instead of re-parsing the SQL on every call, and raise the per-connection statement-cache capacity so the cache is not LRU-thrashed
+* `stacks-inspect validate-block` now opens the chainstate and sortition databases once per run instead of once per block, and caches the Nakamoto reward set per reward cycle
+
+### Fixed
+
+* Ensure sorting p2p neighbors by uptime behaves predictably in the face of system clock adjustments.
+* Swap the order of the analysis checks so that the type checker runs before the read-only checker. The latter makes some assumptions about the type soundness, so it's more appropriate that the former runs first. This change can be consensus-breaking (albeit only in rare edge cases), so it's gated to start in Epoch 4.1.
+* Fix the stringification of block proposal rejections based on a mismatch of the consensus hash between the proposal and the miner's tenure. The error message had the expected and actual values in the wrong order.
+* Fix `MARF::squash_to_path` dropping the squash annotation on inline child pointers when the source MARF is itself a squashed (PCS) MARF.
+* From Epoch 4.1, `from-consensus-buff?` rejects typed tuples whose declared fields are duplicated or missing.
+
+### Removed
+
+* Removed unused MARF trie-node caching functionality (default=noop)
+
 ## [4.0.1]
 
 This release includes the activation logic for the Epoch 4.0 hard-fork. It is compatible with prior chainstates, but after the hard-fork activation height, nodes running 4.0.1 and 3.4.x will diverge. Node operators **must** upgrade before the activation height.
