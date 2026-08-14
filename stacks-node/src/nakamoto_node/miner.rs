@@ -382,6 +382,11 @@ impl BlockMinerThread {
         self.abort_flag.clone()
     }
 
+    /// Has the relayer asked this miner thread to abort?
+    fn is_aborted(&self) -> bool {
+        self.abort_flag.load(Ordering::SeqCst)
+    }
+
     #[cfg(test)]
     fn fault_injection_block_proposal_stall(new_block: &NakamotoBlock) {
         if TEST_BROADCAST_PROPOSAL_STALL.get().iter().any(|key| {
@@ -657,7 +662,7 @@ impl BlockMinerThread {
         // through this function, so this check guarantees that a retry loop
         // can always be stopped by the relayer, even if the failing step
         // comes before the block builder's own abort checks.
-        if self.abort_flag.load(Ordering::SeqCst) {
+        if self.is_aborted() {
             info!("Miner interrupted while mining in order to shut down");
             self.globals
                 .raise_initiative("MiningFailure: aborted by node".to_string());
@@ -765,7 +770,7 @@ impl BlockMinerThread {
                 }
             },
             Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
-                if self.abort_flag.load(Ordering::SeqCst) {
+                if self.is_aborted() {
                     info!("Miner interrupted while mining in order to shut down");
                     self.globals
                         .raise_initiative(format!("MiningFailure: aborted by node"));
@@ -788,7 +793,7 @@ impl BlockMinerThread {
                 // Pause the miner to wait for transactions to arrive
                 let now = Instant::now();
                 while now.elapsed() < self.config.miner.empty_mempool_sleep_time {
-                    if self.abort_flag.load(Ordering::SeqCst) {
+                    if self.is_aborted() {
                         info!("Miner interrupted while mining in order to shut down");
                         self.globals
                             .raise_initiative(format!("MiningFailure: aborted by node"));
@@ -1033,7 +1038,7 @@ impl BlockMinerThread {
 
             thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
 
-            if self.abort_flag.load(Ordering::SeqCst) {
+            if self.is_aborted() {
                 info!("Miner interrupted while mining in order to shut down");
                 self.globals
                     .raise_initiative(format!("MiningFailure: aborted by node"));
