@@ -42,7 +42,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity_vm::clarity::{ClarityInstance, ClarityMarfStore, ClarityMarfStoreTransaction};
+use crate::clarity_vm::clarity::{ClarityInstance, ClarityStore, ClarityStoreTransaction};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::tests::utils::{
     new_cost_test_clarity_instance, next_test_block_id, setup_cost_test_epoch,
