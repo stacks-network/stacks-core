@@ -330,9 +330,9 @@ mod async_sibling_validation {
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{mpsc, Arc};
+    use std::sync::{mpsc, Arc, Mutex};
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
 
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use blockstack_lib::chainstate::stacks::{
@@ -342,16 +342,19 @@ mod async_sibling_validation {
         TransactionSpendingCondition, TransactionVersion,
     };
     use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
+    use blockstack_lib::net::api::getsortition::SortitionInfo;
     use blockstack_lib::net::api::postblock_proposal::{BlockValidateOk, BlockValidateResponse};
     use clarity::util::hash::{Hash160, Sha512Trunc256Sum};
     use clarity::util::vrf::VRFProof;
     use clarity::vm::costs::ExecutionCost;
     use libsigner::v0::messages::SignerMessage;
+    use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
     use libsigner::{BlockProposal, BlockProposalData, SignerEntries, SignerEvent};
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::{
-        ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
+        BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
+        StacksPrivateKey, StacksPublicKey, TrieHash,
     };
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::MerkleTree;
@@ -363,6 +366,7 @@ mod async_sibling_validation {
     };
     use crate::signerdb::{BlockInfo, BlockState};
     use crate::v0::signer::Signer;
+    use crate::v0::signer_state::LocalStateMachine;
     use crate::Signer as SignerTrait;
 
     /// Build a tenure-start block for `tenure` with the mandatory tenure-change (idx 0) and
@@ -432,7 +436,11 @@ mod async_sibling_validation {
     /// parent check and the signing-time tip check each see their own tenure's tip) and an
     /// empty `/v2/info`; everything else 404s. `tips` maps a path fragment to a response body,
     /// first match wins.
-    fn serve_node(listener: TcpListener, tips: Vec<(String, String)>, exit: Arc<AtomicBool>) {
+    fn serve_node(
+        listener: TcpListener,
+        tips: Arc<Mutex<Vec<(String, String)>>>,
+        exit: Arc<AtomicBool>,
+    ) {
         listener.set_nonblocking(true).unwrap();
         while !exit.load(Ordering::SeqCst) {
             let Ok((mut stream, _)) = listener.accept() else {
@@ -453,10 +461,12 @@ mod async_sibling_validation {
             }
             let request = String::from_utf8_lossy(&request);
             let tip_body = tips
+                .lock()
+                .unwrap()
                 .iter()
                 .find(|(fragment, _)| request.contains(fragment.as_str()))
-                .map(|(_, body)| body.as_str());
-            let (status, body) = if let Some(body) = tip_body {
+                .map(|(_, body)| body.clone());
+            let (status, body) = if let Some(body) = tip_body.as_deref() {
                 ("200 OK", body)
             } else if request.contains("/v2/info") {
                 ("200 OK", "{}")
@@ -468,6 +478,109 @@ mod async_sibling_validation {
                 body.len()
             );
             let _ = stream.write_all(response.as_bytes());
+        }
+    }
+
+    /// A mock stacks-node (see [`serve_node`]) with a single registered signer of weight 1
+    /// pointed at it, so the pre-commit threshold is met by our own pre-commit alone.
+    struct MockNode {
+        signer: Signer,
+        client: StacksClient,
+        exit: Arc<AtomicBool>,
+        server: Option<thread::JoinHandle<()>>,
+        db_path: std::path::PathBuf,
+        /// What the node currently answers, as `(path fragment, body)`; anything unmatched
+        /// 404s. Replaceable so a test can change the node's view between events.
+        tips: Arc<Mutex<Vec<(String, String)>>>,
+    }
+
+    impl MockNode {
+        fn new(tips: Vec<(String, String)>, tenure_last_block_proposal_timeout: Duration) -> Self {
+            let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let exit = Arc::new(AtomicBool::new(false));
+            let server_exit = exit.clone();
+            let tips = Arc::new(Mutex::new(tips));
+            let served_tips = tips.clone();
+            let server = thread::spawn(move || serve_node(listener, served_tips, server_exit));
+
+            let client = StacksClient::new(
+                &StacksPrivateKey::random(),
+                SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).to_string(),
+                "regression-auth".into(),
+                false,
+                CHAIN_ID_TESTNET,
+            );
+
+            let signer_key = StacksPrivateKey::from_seed(&[9, 1]);
+            let signer_pk = StacksPublicKey::from_private(&signer_key);
+            let signer_addr = StacksAddress::p2pkh(false, &signer_pk);
+            let signer_entries = SignerEntries {
+                signer_addr_to_id: [(signer_addr.clone(), 0)].into_iter().collect(),
+                signer_id_to_addr: [(0, signer_addr.clone())].into_iter().collect(),
+                signer_id_to_pk: [(0, signer_pk.clone())].into_iter().collect(),
+                signer_pk_to_id: [(signer_pk.clone(), 0)].into_iter().collect(),
+                signer_pks: vec![signer_pk.clone()],
+                signer_addresses: vec![signer_addr.clone()],
+                signer_addr_to_weight: [(signer_addr.clone(), 1)].into_iter().collect(),
+            };
+
+            let db_path = std::env::temp_dir().join(format!(
+                "stacks-signer-sibling-regression-{}-{port}.sqlite",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_file(&db_path);
+
+            let signer_config = SignerConfig {
+                reward_cycle: 1,
+                supported_signer_protocol_version: 2,
+                signer_entries,
+                signer_slot_ids: vec![SignerSlotID(0)],
+                stacks_private_key: signer_key,
+                node_host: SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).to_string(),
+                mainnet: false,
+                db_path: db_path.clone(),
+                first_proposal_burn_block_timing: Duration::from_secs(30),
+                block_proposal_timeout: Duration::from_secs(5),
+                tenure_last_block_proposal_timeout,
+                block_proposal_validation_timeout: Duration::from_secs(30),
+                tenure_idle_timeout: Duration::from_secs(300),
+                read_count_idle_timeout: Duration::from_secs(12_000),
+                tenure_idle_timeout_buffer: Duration::from_secs(2),
+                block_proposal_max_age_secs: 30,
+                reorg_attempts_activity_timeout: Duration::from_secs(3),
+                signer_mode: SignerConfigMode::DryRun,
+                proposal_wait_for_parent_time: Duration::ZERO,
+                validate_with_replay_tx: false,
+                reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+                capitulate_miner_view_timeout: Duration::from_secs(30),
+                stackerdb_timeout: Duration::from_secs(2),
+            };
+
+            let signer = <Signer as SignerTrait<SignerMessage>>::new(&client, signer_config);
+            Self {
+                signer,
+                client,
+                exit,
+                server: Some(server),
+                db_path,
+                tips,
+            }
+        }
+
+        /// Replace what the node answers, as the chain moving under it would.
+        fn set_tips(&self, tips: Vec<(String, String)>) {
+            *self.tips.lock().unwrap() = tips;
+        }
+
+        /// Stop the mock node and remove the signer db. Called before the caller asserts, so a
+        /// failure does not leak the db file.
+        fn shutdown(&mut self) {
+            self.exit.store(true, Ordering::SeqCst);
+            if let Some(server) = self.server.take() {
+                let _ = server.join();
+            }
+            let _ = std::fs::remove_file(&self.db_path);
         }
     }
 
@@ -570,67 +683,7 @@ mod async_sibling_validation {
             ),
         ];
 
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let exit = Arc::new(AtomicBool::new(false));
-        let server_exit = exit.clone();
-        let server = thread::spawn(move || serve_node(listener, tips, server_exit));
-
-        let client = StacksClient::new(
-            &StacksPrivateKey::random(),
-            SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).to_string(),
-            "regression-auth".into(),
-            false,
-            CHAIN_ID_TESTNET,
-        );
-
-        // Single registered signer (weight 1).
-        let signer_key = StacksPrivateKey::from_seed(&[9, 1]);
-        let signer_pk = StacksPublicKey::from_private(&signer_key);
-        let signer_addr = StacksAddress::p2pkh(false, &signer_pk);
-        let signer_entries = SignerEntries {
-            signer_addr_to_id: [(signer_addr.clone(), 0)].into_iter().collect(),
-            signer_id_to_addr: [(0, signer_addr.clone())].into_iter().collect(),
-            signer_id_to_pk: [(0, signer_pk.clone())].into_iter().collect(),
-            signer_pk_to_id: [(signer_pk.clone(), 0)].into_iter().collect(),
-            signer_pks: vec![signer_pk.clone()],
-            signer_addresses: vec![signer_addr.clone()],
-            signer_addr_to_weight: [(signer_addr.clone(), 1)].into_iter().collect(),
-        };
-
-        let db_path = std::env::temp_dir().join(format!(
-            "stacks-signer-sibling-regression-{}-{port}.sqlite",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_file(&db_path);
-
-        let signer_config = SignerConfig {
-            reward_cycle: 1,
-            supported_signer_protocol_version: 2,
-            signer_entries,
-            signer_slot_ids: vec![SignerSlotID(0)],
-            stacks_private_key: signer_key,
-            node_host: SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).to_string(),
-            mainnet: false,
-            db_path: db_path.clone(),
-            first_proposal_burn_block_timing: Duration::from_secs(30),
-            block_proposal_timeout: Duration::from_secs(5),
-            tenure_last_block_proposal_timeout,
-            block_proposal_validation_timeout: Duration::from_secs(30),
-            tenure_idle_timeout: Duration::from_secs(300),
-            read_count_idle_timeout: Duration::from_secs(12_000),
-            tenure_idle_timeout_buffer: Duration::from_secs(2),
-            block_proposal_max_age_secs: 30,
-            reorg_attempts_activity_timeout: Duration::from_secs(3),
-            signer_mode: SignerConfigMode::DryRun,
-            proposal_wait_for_parent_time: Duration::ZERO,
-            validate_with_replay_tx: false,
-            reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-            capitulate_miner_view_timeout: Duration::from_secs(30),
-            stackerdb_timeout: Duration::from_secs(2),
-        };
-
-        let mut signer = <Signer as SignerTrait<SignerMessage>>::new(&client, signer_config);
+        let mut node = MockNode::new(tips, tenure_last_block_proposal_timeout);
 
         // Track both blocks (Unprocessed), as the signer would after screening the two proposals.
         for block in [&block_a, &block_b] {
@@ -640,7 +693,7 @@ mod async_sibling_validation {
                 reward_cycle: 1,
                 block_proposal_data: BlockProposalData::empty(),
             });
-            signer.signer_db.insert_block(&info).unwrap();
+            node.signer.signer_db.insert_block(&info).unwrap();
         }
 
         let (result_tx, _result_rx) = mpsc::channel();
@@ -648,24 +701,34 @@ mod async_sibling_validation {
 
         // A's validation returns first. (With a single weight-1 signer the pre-commit threshold
         // is met immediately, so A can promote past PreCommitted in a single event.)
-        signer.process_event(
-            &client,
+        node.signer.process_event(
+            &node.client,
             &mut sortition,
             Some(&validate_ok(&hash_a)),
             &result_tx,
             1,
         );
-        let info_a = signer.signer_db.block_lookup(&hash_a).unwrap().unwrap();
+        let info_a = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_a)
+            .unwrap()
+            .unwrap();
 
         // B's validation returns while A is already signed.
-        signer.process_event(
-            &client,
+        node.signer.process_event(
+            &node.client,
             &mut sortition,
             Some(&validate_ok(&hash_b)),
             &result_tx,
             1,
         );
-        let info_b = signer.signer_db.block_lookup(&hash_b).unwrap().unwrap();
+        let info_b = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_b)
+            .unwrap()
+            .unwrap();
 
         // The miner re-submits B's proposal, as it does after a signature timeout. The signer
         // must re-run the pre-commit evaluation (threshold + conflict checks) rather than
@@ -678,20 +741,22 @@ mod async_sibling_validation {
                 reward_cycle: 1,
                 block_proposal_data: BlockProposalData::empty(),
             });
-            signer.process_event(
-                &client,
+            node.signer.process_event(
+                &node.client,
                 &mut sortition,
                 Some(&SignerEvent::MinerMessages(vec![proposal_b])),
                 &result_tx,
                 1,
             );
-            signer.signer_db.block_lookup(&hash_b).unwrap().unwrap()
+            node.signer
+                .signer_db
+                .block_lookup(&hash_b)
+                .unwrap()
+                .unwrap()
         });
 
         // Clean up before the callers assert, so failures do not leak the db file.
-        exit.store(true, Ordering::SeqCst);
-        let _ = server.join();
-        let _ = std::fs::remove_file(&db_path);
+        node.shutdown();
 
         (info_a, info_b, info_b_reproposed)
     }
@@ -809,6 +874,461 @@ mod async_sibling_validation {
         assert_b_refused(
             &info_b_reproposed.unwrap(),
             "after re-proposal: the conflicting sibling is canonical at this height",
+        );
+    }
+
+    /// Drive the cross-tenure race: block A starts tenure 1 and block B starts tenure 2, both
+    /// at height 10 off the same parent, so they are siblings in different tenures. A is signed
+    /// first, then B's validation returns. Neither tenure is known to the mock node (the
+    /// realistic case: a block we accepted locally is not handed to the node until the whole
+    /// signer set has signed it), so the node cannot say whether tenure 1 is orphaned or merely
+    /// unprocessed -- only the record left by the burn block arrival can.
+    ///
+    /// `orphan_tenure_a` marks tenure 1 as orphaned by a burnchain fork before B is validated.
+    /// Returns the resulting `BlockInfo` for A and for B.
+    fn run_cross_tenure_scenario(orphan_tenure_a: bool) -> (BlockInfo, BlockInfo) {
+        let miner = StacksPrivateKey::from_seed(&[0, 1]);
+        let parent_tenure = ConsensusHash([0; 20]);
+        let tenure_a = ConsensusHash([1; 20]);
+        let tenure_b = ConsensusHash([2; 20]);
+
+        let mut parent_header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 9,
+            burn_spent: 10,
+            consensus_hash: parent_tenure.clone(),
+            parent_block_id: StacksBlockId([9; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp: 9,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        parent_header.sign_miner(&miner).unwrap();
+        let parent_id = parent_header.block_id();
+
+        let now = get_epoch_time_secs();
+        let block_a = tenure_start(&miner, &tenure_a, &parent_tenure, &parent_id, now);
+        let block_b = tenure_start(&miner, &tenure_b, &parent_tenure, &parent_id, now + 1);
+        let hash_a = block_a.header.signer_signature_hash();
+        let hash_b = block_b.header.signer_signature_hash();
+        assert_ne!(block_a.header.consensus_hash, block_b.header.consensus_hash);
+        assert_eq!(block_a.header.chain_length, block_b.header.chain_length);
+
+        // Only the shared parent tenure has a tip, so the tenure-change parent check passes for
+        // both blocks. Tenures 1 and 2 are unknown to the node (404).
+        let parent_tip = BlockHeaderWithMetadata {
+            anchored_header: parent_header.into(),
+            burn_view: Some(parent_tenure.clone()),
+        };
+        let tips = vec![
+            (
+                format!("/v3/tenures/tip_metadata/{parent_tenure}"),
+                serde_json::to_string(&parent_tip).unwrap(),
+            ),
+            (
+                "/v3/blocks/upload".to_string(),
+                format!(r#"{{"stacks_block_id":"{parent_id}","accepted":true}}"#),
+            ),
+        ];
+
+        // The freshness window is wide open: A's signature is fresh throughout, so only the
+        // orphan record can decide whether it still blocks B.
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+
+        for block in [&block_a, &block_b] {
+            let info = BlockInfo::from(BlockProposal {
+                block: block.clone(),
+                burn_height: 1,
+                reward_cycle: 1,
+                block_proposal_data: BlockProposalData::empty(),
+            });
+            node.signer.signer_db.insert_block(&info).unwrap();
+        }
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_a)),
+            &result_tx,
+            1,
+        );
+        let info_a = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_a)
+            .unwrap()
+            .unwrap();
+
+        if orphan_tenure_a {
+            node.signer
+                .signer_db
+                .mark_tenure_orphaned(&tenure_a, 1)
+                .unwrap();
+        }
+
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_b)),
+            &result_tx,
+            1,
+        );
+        let info_b = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_b)
+            .unwrap()
+            .unwrap();
+
+        node.shutdown();
+
+        (info_a, info_b)
+    }
+
+    /// Build the JSON the node serves for a burn block that IS on its canonical chain. Only
+    /// the fact that the request succeeded matters to the caller under test.
+    fn canonical_sortition_response(burn_hash: &BurnchainHeaderHash, height: u64) -> String {
+        let info = SortitionInfo {
+            burn_block_hash: burn_hash.clone(),
+            burn_block_height: height,
+            burn_header_timestamp: 0,
+            sortition_id: SortitionId([0; 32]),
+            parent_sortition_id: SortitionId([0; 32]),
+            consensus_hash: ConsensusHash([0; 20]),
+            was_sortition: true,
+            miner_pk_hash160: None,
+            stacks_parent_ch: None,
+            last_sortition_ch: None,
+            committed_block_hash: None,
+            vrf_seed: None,
+        };
+        serde_json::to_string(&vec![info]).unwrap()
+    }
+
+    #[test]
+    fn burn_block_arrival_orphans_the_tenures_on_the_abandoned_branch() {
+        // The burn chain forks: we were on a branch through F -> O1 -> O2, and a new burn block
+        // N arrives building on F instead. Walking back from our settled tip O2, the node
+        // reports O2 and O1 as gone (404) and F as still canonical, so the tenures started by
+        // O2 and O1 are orphaned and F's is left alone.
+        let fork_point = BurnchainHeaderHash([100; 32]);
+        let old_1 = BurnchainHeaderHash([101; 32]);
+        let old_2 = BurnchainHeaderHash([102; 32]);
+        let new_tip = BurnchainHeaderHash([201; 32]);
+        let ch_fork_point = ConsensusHash([100; 20]);
+        let ch_old_1 = ConsensusHash([101; 20]);
+        let ch_old_2 = ConsensusHash([102; 20]);
+        let ch_new_tip = ConsensusHash([201; 20]);
+
+        // The node serves only the fork point: everything else on the abandoned branch 404s.
+        let tips = vec![(
+            format!("/v3/sortitions/burn/{}", fork_point.to_hex()),
+            canonical_sortition_response(&fork_point, 100),
+        )];
+        let mut node = MockNode::new(tips, Duration::from_secs(30));
+
+        // Our record of the branch we were on.
+        let received = SystemTime::now();
+        for (hash, ch, height, parent) in [
+            (
+                &fork_point,
+                &ch_fork_point,
+                100,
+                &BurnchainHeaderHash([99; 32]),
+            ),
+            (&old_1, &ch_old_1, 101, &fork_point),
+            (&old_2, &ch_old_2, 102, &old_1),
+        ] {
+            node.signer
+                .signer_db
+                .insert_burn_block(hash, ch, height, &received, parent)
+                .unwrap();
+        }
+
+        // We had settled on O2 as the burn chain tip.
+        node.signer.local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
+            burn_block: ch_old_2.clone(),
+            burn_block_height: 102,
+            current_miner: MinerState::NoValidMiner,
+            active_signer_protocol_version: 2,
+            tx_replay_set: ReplayTransactionSet::none(),
+        });
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&SignerEvent::NewBurnBlock {
+                burn_height: 101,
+                received_time: received,
+                burn_header_hash: new_tip,
+                consensus_hash: ch_new_tip.clone(),
+                parent_burn_block_hash: fork_point.clone(),
+            }),
+            &result_tx,
+            1,
+        );
+
+        let orphaned = |ch: &ConsensusHash| node.signer.signer_db.is_tenure_orphaned(ch).unwrap();
+        let (o2, o1, fork, new) = (
+            orphaned(&ch_old_2),
+            orphaned(&ch_old_1),
+            orphaned(&ch_fork_point),
+            orphaned(&ch_new_tip),
+        );
+        node.shutdown();
+
+        assert!(o2, "the abandoned tip's tenure should be orphaned");
+        assert!(o1, "the tenure below it should be orphaned too");
+        assert!(
+            !fork,
+            "the fork point is still canonical, so its tenure must be left alone"
+        );
+        assert!(
+            !new,
+            "the arriving burn block's own tenure must never be orphaned"
+        );
+    }
+
+    #[test]
+    fn burn_chain_forking_back_restores_the_tenures_it_had_orphaned() {
+        // A -> B -> C, then B and C are reorged away for B' -> C', then the burnchain forks
+        // BACK: D builds on C and E builds on D, so A -> B -> C -> D -> E is canonical again.
+        //
+        // The node does not re-announce B and C when it revalidates them (it only emits burn
+        // block events for D and E, which are genuinely new), and they are not on the branch
+        // the signer walks away from either -- so the only thing that can restore them is
+        // re-checking the orphan records themselves, which is what the fork observation does.
+        let a = BurnchainHeaderHash([100; 32]);
+        let b = BurnchainHeaderHash([101; 32]);
+        let c = BurnchainHeaderHash([102; 32]);
+        let b_prime = BurnchainHeaderHash([111; 32]);
+        let c_prime = BurnchainHeaderHash([112; 32]);
+        let d = BurnchainHeaderHash([103; 32]);
+        let e = BurnchainHeaderHash([104; 32]);
+        let ch = |hash: &BurnchainHeaderHash| ConsensusHash(hash.0[..20].try_into().unwrap());
+
+        // While the reorged branch is canonical, the node knows A, B' and C'.
+        let mut node = MockNode::new(
+            [(&a, 100u64), (&b_prime, 101), (&c_prime, 102)]
+                .iter()
+                .map(|(hash, height)| {
+                    (
+                        format!("/v3/sortitions/burn/{}", hash.to_hex()),
+                        canonical_sortition_response(hash, *height),
+                    )
+                })
+                .collect(),
+            Duration::from_secs(30),
+        );
+
+        // Our record of the burn chain: the original branch, then the reorged one.
+        let received = SystemTime::now();
+        for (hash, height, parent) in [
+            (&a, 100u64, &BurnchainHeaderHash([99; 32])),
+            (&b, 101, &a),
+            (&c, 102, &b),
+            (&b_prime, 101, &a),
+            (&c_prime, 102, &b_prime),
+            (&d, 103, &c),
+            (&e, 104, &d),
+        ] {
+            node.signer
+                .signer_db
+                .insert_burn_block(hash, &ch(hash), height, &received, parent)
+                .unwrap();
+        }
+
+        // We had settled on C; C' arrives, so B and C are orphaned.
+        node.signer.local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
+            burn_block: ch(&c),
+            burn_block_height: 102,
+            current_miner: MinerState::NoValidMiner,
+            active_signer_protocol_version: 2,
+            tx_replay_set: ReplayTransactionSet::none(),
+        });
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        let arrival = |hash: &BurnchainHeaderHash, height: u64, parent: &BurnchainHeaderHash| {
+            SignerEvent::NewBurnBlock {
+                burn_height: height,
+                received_time: received,
+                burn_header_hash: hash.clone(),
+                consensus_hash: ch(hash),
+                parent_burn_block_hash: parent.clone(),
+            }
+        };
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&arrival(&c_prime, 102, &b_prime)),
+            &result_tx,
+            1,
+        );
+        let orphaned_after_fork = (
+            node.signer.signer_db.is_tenure_orphaned(&ch(&b)).unwrap(),
+            node.signer.signer_db.is_tenure_orphaned(&ch(&c)).unwrap(),
+        );
+
+        // The burnchain forks back: the node now knows A, B, C, D, E and no longer B' or C'.
+        node.set_tips(
+            [(&a, 100u64), (&b, 101), (&c, 102), (&d, 103), (&e, 104)]
+                .iter()
+                .map(|(hash, height)| {
+                    (
+                        format!("/v3/sortitions/burn/{}", hash.to_hex()),
+                        canonical_sortition_response(hash, *height),
+                    )
+                })
+                .collect(),
+        );
+        // Only D and E are announced; B and C are revalidated silently by the node.
+        node.signer.local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
+            burn_block: ch(&c_prime),
+            burn_block_height: 102,
+            current_miner: MinerState::NoValidMiner,
+            active_signer_protocol_version: 2,
+            tx_replay_set: ReplayTransactionSet::none(),
+        });
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&arrival(&d, 103, &c)),
+            &result_tx,
+            1,
+        );
+
+        let restored = (
+            node.signer.signer_db.is_tenure_orphaned(&ch(&b)).unwrap(),
+            node.signer.signer_db.is_tenure_orphaned(&ch(&c)).unwrap(),
+        );
+        let abandoned = (
+            node.signer
+                .signer_db
+                .is_tenure_orphaned(&ch(&b_prime))
+                .unwrap(),
+            node.signer
+                .signer_db
+                .is_tenure_orphaned(&ch(&c_prime))
+                .unwrap(),
+        );
+        node.shutdown();
+
+        assert_eq!(
+            orphaned_after_fork,
+            (true, true),
+            "B and C should be orphaned while the reorged branch is canonical"
+        );
+        assert_eq!(
+            restored,
+            (false, false),
+            "B and C are canonical again, so their blocks must count as conflicts again"
+        );
+        assert_eq!(
+            abandoned,
+            (true, true),
+            "B' and C' are the abandoned branch now, so they should be orphaned"
+        );
+    }
+
+    #[test]
+    fn burn_block_arrival_on_the_same_branch_orphans_nothing() {
+        // The ordinary case: the arriving burn block builds directly on the tip we had settled
+        // on, so no branch was abandoned and nothing is orphaned.
+        let prior_tip = BurnchainHeaderHash([100; 32]);
+        let new_tip = BurnchainHeaderHash([101; 32]);
+        let ch_prior_tip = ConsensusHash([100; 20]);
+        let ch_new_tip = ConsensusHash([101; 20]);
+
+        // Serve nothing: if the signer asked the node about any burn block it would get a 404
+        // and wrongly orphan it, so this also pins the "don't even ask" fast path.
+        let mut node = MockNode::new(vec![], Duration::from_secs(30));
+
+        let received = SystemTime::now();
+        node.signer
+            .signer_db
+            .insert_burn_block(
+                &prior_tip,
+                &ch_prior_tip,
+                100,
+                &received,
+                &BurnchainHeaderHash([99; 32]),
+            )
+            .unwrap();
+        node.signer.local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
+            burn_block: ch_prior_tip.clone(),
+            burn_block_height: 100,
+            current_miner: MinerState::NoValidMiner,
+            active_signer_protocol_version: 2,
+            tx_replay_set: ReplayTransactionSet::none(),
+        });
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&SignerEvent::NewBurnBlock {
+                burn_height: 101,
+                received_time: received,
+                burn_header_hash: new_tip,
+                consensus_hash: ch_new_tip.clone(),
+                parent_burn_block_hash: prior_tip.clone(),
+            }),
+            &result_tx,
+            1,
+        );
+
+        let prior_orphaned = node
+            .signer
+            .signer_db
+            .is_tenure_orphaned(&ch_prior_tip)
+            .unwrap();
+        node.shutdown();
+        assert!(
+            !prior_orphaned,
+            "the tip we built on must not be treated as orphaned"
+        );
+    }
+
+    #[test]
+    fn fresh_conflict_in_another_tenure_blocks_signing() {
+        // A sibling at the same height in a DIFFERENT tenure is just as much a double-sign as
+        // one in the same tenure. The node knows nothing about either tenure, which must not be
+        // read as "tenure 1 is orphaned": a locally accepted block is unknown to the node until
+        // the whole signer set has signed it.
+        let (info_a, info_b) = run_cross_tenure_scenario(false);
+        assert_a_signed(&info_a);
+        assert_b_refused(
+            &info_b,
+            "the conflicting sibling in another tenure is fresh",
+        );
+    }
+
+    #[test]
+    fn conflict_in_an_orphaned_tenure_does_not_block_signing() {
+        // Once a burnchain fork has orphaned tenure 1, the canonical chain legitimately
+        // replaces its blocks, so our fresh signature over one of them must not stand in the
+        // way of the replacement in tenure 2.
+        let (info_a, info_b) = run_cross_tenure_scenario(true);
+        assert_a_signed(&info_a);
+        assert_eq!(
+            info_b.state,
+            BlockState::LocallyAccepted,
+            "block B should be signed: the conflicting sibling's tenure was orphaned by a burnchain fork, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_some(),
+            "block B should carry our signature once the conflicting tenure was orphaned"
         );
     }
 

@@ -136,6 +136,18 @@ impl ReplayState {
 }
 
 impl LocalStateMachine {
+    /// The consensus hash of the burn block this signer last settled on as the burnchain tip,
+    /// if it has settled on one. A pending update is deliberately ignored: the burn block it
+    /// carries is one we have not been able to process yet, so the prior tip is still the last
+    /// burn block we actually built our view on.
+    pub fn settled_burn_tip(&self) -> Option<&ConsensusHash> {
+        match self {
+            Self::Uninitialized => None,
+            Self::Initialized(state) => Some(&state.burn_block),
+            Self::Pending { prior, .. } => Some(&prior.burn_block),
+        }
+    }
+
     /// Initialize a local state machine by querying the local stacks-node
     ///  and signerdb for the current sortition information
     pub fn new(

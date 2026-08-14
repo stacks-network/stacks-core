@@ -754,6 +754,18 @@ ALTER TABLE blocks
     ADD COLUMN tenure_change_cause INTEGER;
 "#;
 
+static CREATE_ORPHANED_TENURES_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS orphaned_tenures (
+    -- consensus hash of a sortition that a burnchain fork removed from the canonical chain.
+    -- The tenure it started is void: the canonical chain replaces its blocks, so a signature
+    -- we put over one of them must not stand in the way of the replacement.
+    consensus_hash TEXT PRIMARY KEY,
+    -- burn block height of the orphaned sortition
+    burn_block_height INTEGER NOT NULL,
+    -- epoch seconds at which we observed the fork that orphaned it
+    orphaned_at INTEGER NOT NULL
+) STRICT;"#;
+
 // New tables for tracking per-signer untracked block proposal responses with auto-eviction
 static CREATE_SIGNER_PENDING_PRE_COMMIT_RESPONSES: &str = r#"
 CREATE TABLE IF NOT EXISTS signer_pending_pre_commit_responses (
@@ -1095,6 +1107,11 @@ static SCHEMA_19: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (19);",
 ];
 
+static SCHEMA_20: &[&str] = &[
+    CREATE_ORPHANED_TENURES_TABLE,
+    "INSERT INTO db_config (version) VALUES (20);",
+];
+
 struct Migration {
     version: SchemaVersion,
     statements: &'static [&'static str],
@@ -1126,6 +1143,7 @@ enum SchemaVersion {
     V17 = 17,
     V18 = 18,
     V19 = 19,
+    V20 = 20,
 }
 
 impl SchemaVersion {
@@ -1211,11 +1229,15 @@ static MIGRATIONS: &[Migration] = &[
         version: SchemaVersion::V19,
         statements: SCHEMA_19,
     },
+    Migration {
+        version: SchemaVersion::V20,
+        statements: SCHEMA_20,
+    },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = SchemaVersion::V19.as_u32();
+    pub const SCHEMA_VERSION: u32 = SchemaVersion::V20.as_u32();
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -1535,60 +1557,101 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return a signed block at or above the given Stacks height, in ANY tenure, that was
-    /// endorsed strictly after `endorsed_after` (epoch seconds), excluding the block with the
-    /// given signer signature hash. A block is considered signed if it is locally or globally
-    /// accepted.
+    /// Return every signed block at or above the given Stacks height, in ANY tenure, excluding
+    /// the block with the given signer signature hash, ordered by height (highest first). A
+    /// block is considered signed if it is locally or globally accepted. Each row carries the
+    /// most recent endorsement time (`signed_self`/`signed_group`, whichever is later; 0 if
+    /// neither was recorded) so the caller can judge freshness per conflict.
     ///
     /// The search deliberately spans all tenures: two blocks at the same height are siblings
     /// no matter which tenure they belong to (e.g. a tenure-start block conflicts with the
-    /// previous tenure's block at the same height), so a signature over either must block a
-    /// fresh signature over the other. If multiple conflicts exist, the highest is returned.
-    pub fn get_fresh_signed_conflict(
+    /// previous tenure's block at the same height), so a signature over either may conflict
+    /// with a fresh signature over the other.
+    ///
+    /// Blocks in tenures that a burnchain fork orphaned (see
+    /// [`SignerDb::mark_tenure_orphaned`]) are never returned: the canonical chain legitimately
+    /// replaces them, so a signature we put over one of them must not block the replacement.
+    pub fn get_signed_conflicts(
         &self,
         height: u64,
         excluded_signer_signature_hash: &Sha512Trunc256Sum,
-        endorsed_after: u64,
-    ) -> Result<Option<SignedConflictInfo>, DBError> {
-        let query = "SELECT consensus_hash, signer_signature_hash, stacks_height
+    ) -> Result<Vec<SignedConflictInfo>, DBError> {
+        let query = "SELECT consensus_hash, signer_signature_hash, stacks_height,
+                MAX(COALESCE(signed_self, 0), COALESCE(signed_group, 0)) AS last_endorsed
             FROM blocks
             WHERE state IN (?1, ?2) AND stacks_height >= ?3
                 AND signer_signature_hash != ?4
-                AND MAX(COALESCE(signed_self, 0), COALESCE(signed_group, 0)) > ?5
-            ORDER BY stacks_height DESC
-            LIMIT 1";
+                AND consensus_hash NOT IN (SELECT consensus_hash FROM orphaned_tenures)
+            ORDER BY stacks_height DESC";
         let args = params![
             &BlockState::GloballyAccepted.to_string(),
             &BlockState::LocallyAccepted.to_string(),
             u64_to_sql(height)?,
             excluded_signer_signature_hash.to_string(),
-            u64_to_sql(endorsed_after)?,
         ];
-        query_row(&self.db, query, args)
+        query_rows(&self.db, query, args)
     }
 
-    /// Return a signed block at or above the given Stacks height, in ANY tenure, excluding the
-    /// block with the given signer signature hash, regardless of when (or whether) it was
-    /// endorsed. See [`SignerDb::get_fresh_signed_conflict`] for why the search spans tenures.
-    /// If multiple conflicts exist, the highest is returned.
-    pub fn get_any_signed_conflict(
-        &self,
-        height: u64,
-        excluded_signer_signature_hash: &Sha512Trunc256Sum,
-    ) -> Result<Option<SignedConflictInfo>, DBError> {
-        let query = "SELECT consensus_hash, signer_signature_hash, stacks_height
-            FROM blocks
-            WHERE state IN (?1, ?2) AND stacks_height >= ?3
-                AND signer_signature_hash != ?4
-            ORDER BY stacks_height DESC
-            LIMIT 1";
-        let args = params![
-            &BlockState::GloballyAccepted.to_string(),
-            &BlockState::LocallyAccepted.to_string(),
-            u64_to_sql(height)?,
-            excluded_signer_signature_hash.to_string(),
-        ];
-        query_row(&self.db, query, args)
+    /// Record that a burnchain fork removed this tenure's sortition from the canonical chain.
+    ///
+    /// The tenure is void from here on: the canonical chain replaces whatever it built, so its
+    /// blocks stop counting as conflicts in [`SignerDb::get_signed_conflicts`]. Recorded when
+    /// the fork is observed (a burn block arrival that abandons the branch we were on) rather
+    /// than derived at signing time, so the signature path never has to guess whether a tenure
+    /// the node knows nothing about was orphaned or merely unprocessed.
+    pub fn mark_tenure_orphaned(
+        &mut self,
+        consensus_hash: &ConsensusHash,
+        burn_block_height: u64,
+    ) -> Result<(), DBError> {
+        self.db.execute(
+            "INSERT OR REPLACE INTO orphaned_tenures (consensus_hash, burn_block_height, orphaned_at) VALUES (?1, ?2, ?3)",
+            params![
+                consensus_hash,
+                u64_to_sql(burn_block_height)?,
+                u64_to_sql(get_epoch_time_secs())?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Forget that a tenure was orphaned, after observing its sortition back on the canonical
+    /// burn chain (the burnchain forked back onto the branch we had abandoned). Its blocks
+    /// count as conflicts again.
+    pub fn clear_orphaned_tenure(&mut self, consensus_hash: &ConsensusHash) -> Result<(), DBError> {
+        self.db.execute(
+            "DELETE FROM orphaned_tenures WHERE consensus_hash = ?1",
+            params![consensus_hash],
+        )?;
+        Ok(())
+    }
+
+    /// Whether this tenure's sortition was orphaned by a burnchain fork
+    pub fn is_tenure_orphaned(&self, consensus_hash: &ConsensusHash) -> Result<bool, DBError> {
+        let query = "SELECT 1 FROM orphaned_tenures WHERE consensus_hash = ?1";
+        Ok(query_row::<i64, _>(&self.db, query, params![consensus_hash])?.is_some())
+    }
+
+    /// Every tenure currently recorded as orphaned by a burnchain fork, as
+    /// `(consensus hash, burn block height)`, lowest burn height first. Used to re-check the
+    /// records against the node when the burnchain forks again, since a fork can put a branch
+    /// we abandoned back on the canonical chain.
+    pub fn get_orphaned_tenures(&self) -> Result<Vec<(ConsensusHash, u64)>, DBError> {
+        let mut stmt = self.db.prepare(
+            "SELECT consensus_hash, burn_block_height FROM orphaned_tenures ORDER BY burn_block_height ASC",
+        )?;
+        let rows = stmt.query_map(params![], |row| {
+            Ok((
+                ConsensusHash::from_column(row, "consensus_hash"),
+                u64::from_column(row, "burn_block_height"),
+            ))
+        })?;
+        let mut orphaned = Vec::new();
+        for row in rows {
+            let (consensus_hash, burn_block_height) = row?;
+            orphaned.push((consensus_hash?, burn_block_height?));
+        }
+        Ok(orphaned)
     }
 
     /// Return the last globally accepted block in a tenure (identified by its consensus hash).
@@ -2561,8 +2624,7 @@ where
 }
 
 /// The identifying details of a signed block that conflicts with a block proposal, as
-/// returned by [`SignerDb::get_fresh_signed_conflict`] and
-/// [`SignerDb::get_any_signed_conflict`].
+/// returned by [`SignerDb::get_signed_conflicts`].
 #[derive(Debug)]
 pub struct SignedConflictInfo {
     /// The consensus hash of the tenure containing the conflicting block
@@ -2571,6 +2633,9 @@ pub struct SignedConflictInfo {
     pub signer_signature_hash: Sha512Trunc256Sum,
     /// The Stacks height of the conflicting block
     pub stacks_height: u64,
+    /// The most recent time (epoch seconds) at which we signed the block or observed the
+    /// signer set accept it (0 if neither was recorded)
+    pub last_endorsed: u64,
 }
 
 impl FromRow<SignedConflictInfo> for SignedConflictInfo {
@@ -2578,10 +2643,12 @@ impl FromRow<SignedConflictInfo> for SignedConflictInfo {
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let signer_signature_hash = Sha512Trunc256Sum::from_column(row, "signer_signature_hash")?;
         let stacks_height = u64::from_column(row, "stacks_height")?;
+        let last_endorsed = u64::from_column(row, "last_endorsed")?;
         Ok(SignedConflictInfo {
             consensus_hash,
             signer_signature_hash,
             stacks_height,
+            last_endorsed,
         })
     }
 }
@@ -3476,79 +3543,92 @@ pub mod tests {
             .unwrap()
             .is_none());
 
-        // Verify the signed-conflict queries. These search across ALL tenures. Blocks 2 and 3
-        // (tenure 1, heights 2 and 3) were signed at times 100 and 50, block 4 (tenure 2,
-        // height 3) at time 60; block_info_5 (height 4) is only pre-committed, so it must
-        // never be considered.
+        // Verify the signed-conflict query. It searches across ALL tenures and returns every
+        // signed conflict, highest first, with its endorsement time. Blocks 2 and 3 (tenure 1,
+        // heights 2 and 3) were signed at times 100 and 50, block 4 (tenure 2, height 3) at
+        // time 60; block_info_5 (height 4) is only pre-committed, so it must never be
+        // considered.
         let unrelated_hash = Sha512Trunc256Sum([0xff; 32]);
-        // With a cutoff of 75, only block 2 (signed at 100) is fresh.
-        let conflict = db
-            .get_fresh_signed_conflict(2, &unrelated_hash, 75)
-            .unwrap()
+        let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
+        assert_eq!(conflicts.len(), 3);
+        // Heights descending; block 3 and block 4 tie at height 3, then block 2 at height 2.
+        assert_eq!(conflicts[0].stacks_height, 3);
+        assert_eq!(conflicts[1].stacks_height, 3);
+        assert_eq!(conflicts[2].stacks_height, 2);
+        let tenure_2_conflict = conflicts
+            .iter()
+            .find(|c| c.consensus_hash == consensus_hash_2)
             .unwrap();
         assert_eq!(
-            conflict.signer_signature_hash,
+            tenure_2_conflict.signer_signature_hash,
+            block_info_4.block.header.signer_signature_hash()
+        );
+        assert_eq!(tenure_2_conflict.stacks_height, 3);
+        assert_eq!(tenure_2_conflict.last_endorsed, 60);
+        assert_eq!(conflicts[2].consensus_hash, consensus_hash_1);
+        assert_eq!(
+            conflicts[2].signer_signature_hash,
             block_info_2.block.header.signer_signature_hash()
         );
-        assert_eq!(conflict.stacks_height, 2);
-        assert_eq!(conflict.consensus_hash, consensus_hash_1);
-        // The endorsement comparison is strictly-greater-than the cutoff.
-        assert!(db
-            .get_fresh_signed_conflict(2, &unrelated_hash, 100)
-            .unwrap()
-            .is_none());
-        // The excluded (proposed) block is never its own conflict, even when fresh.
-        assert!(db
-            .get_fresh_signed_conflict(2, &block_info_2.block.header.signer_signature_hash(), 75,)
-            .unwrap()
-            .is_none());
-        // A signed block in a DIFFERENT tenure at the same or higher height is a conflict:
-        // with a cutoff of 55, only block 4 (tenure 2, signed at 60) is a fresh conflict at
-        // height 3 (block 3 was signed at 50, block 2 is below the height).
-        let conflict = db
-            .get_fresh_signed_conflict(3, &unrelated_hash, 55)
-            .unwrap()
+        assert_eq!(conflicts[2].last_endorsed, 100);
+        // Height is a lower bound: at height 3, block 2 no longer conflicts.
+        let conflicts = db.get_signed_conflicts(3, &unrelated_hash).unwrap();
+        assert_eq!(conflicts.len(), 2);
+        assert!(conflicts.iter().all(|c| c.stacks_height == 3));
+        // The excluded (proposed) block is never its own conflict.
+        let conflicts = db
+            .get_signed_conflicts(3, &block_info_4.block.header.signer_signature_hash())
             .unwrap();
+        assert_eq!(conflicts.len(), 1);
         assert_eq!(
-            conflict.signer_signature_hash,
-            block_info_4.block.header.signer_signature_hash()
-        );
-        assert_eq!(conflict.stacks_height, 3);
-        assert_eq!(conflict.consensus_hash, consensus_hash_2);
-        // When multiple conflicts exist, the highest is returned: with a cutoff of 55 at
-        // height 2, blocks 2 (height 2) and 4 (height 3) are both fresh conflicts and block 4
-        // wins despite block 2 having the fresher signature.
-        let conflict = db
-            .get_fresh_signed_conflict(2, &unrelated_hash, 55)
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            conflict.signer_signature_hash,
-            block_info_4.block.header.signer_signature_hash()
-        );
-        assert_eq!(conflict.stacks_height, 3);
-        // Any-conflict ignores endorsement times: at height 3 with block 4 excluded, block 3
-        // (signed at 50) still conflicts.
-        let conflict = db
-            .get_any_signed_conflict(3, &block_info_4.block.header.signer_signature_hash())
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            conflict.signer_signature_hash,
+            conflicts[0].signer_signature_hash,
             block_info_3.block.header.signer_signature_hash()
         );
-        assert_eq!(conflict.stacks_height, 3);
-        assert_eq!(conflict.consensus_hash, consensus_hash_1);
+        assert_eq!(conflicts[0].consensus_hash, consensus_hash_1);
+        assert_eq!(conflicts[0].last_endorsed, 50);
         // Above every signed block in every tenure (only the pre-committed block 5 is at
         // height 4): no conflict.
         assert!(db
-            .get_fresh_signed_conflict(4, &unrelated_hash, 0)
+            .get_signed_conflicts(4, &unrelated_hash)
             .unwrap()
-            .is_none());
+            .is_empty());
+
+        // A tenure orphaned by a burnchain fork is void: its blocks stop counting as
+        // conflicts, no matter how recently they were endorsed. Orphaning tenure 1 drops
+        // blocks 2 and 3, leaving only block 4 (tenure 2).
+        assert!(!db.is_tenure_orphaned(&consensus_hash_1).unwrap());
+        db.mark_tenure_orphaned(&consensus_hash_1, 42).unwrap();
+        assert!(db.is_tenure_orphaned(&consensus_hash_1).unwrap());
+        let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].consensus_hash, consensus_hash_2);
+        assert_eq!(
+            conflicts[0].signer_signature_hash,
+            block_info_4.block.header.signer_signature_hash()
+        );
+
+        // Orphaning every tenure leaves nothing to conflict with.
+        db.mark_tenure_orphaned(&consensus_hash_2, 43).unwrap();
         assert!(db
-            .get_any_signed_conflict(4, &unrelated_hash)
+            .get_signed_conflicts(2, &unrelated_hash)
             .unwrap()
-            .is_none());
+            .is_empty());
+
+        // If the burnchain forks back onto an abandoned branch, its tenure is live again and
+        // its blocks conflict once more.
+        db.clear_orphaned_tenure(&consensus_hash_1).unwrap();
+        assert!(!db.is_tenure_orphaned(&consensus_hash_1).unwrap());
+        let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
+        assert_eq!(conflicts.len(), 2);
+        assert!(conflicts
+            .iter()
+            .all(|c| c.consensus_hash == consensus_hash_1));
+        // Clearing a tenure that was never orphaned is a no-op.
+        db.clear_orphaned_tenure(&consensus_hash_3).unwrap();
+        assert_eq!(
+            db.get_signed_conflicts(2, &unrelated_hash).unwrap().len(),
+            2
+        );
     }
 
     fn generate_tenure_blocks() -> Vec<BlockInfo> {
@@ -4951,6 +5031,16 @@ pub mod tests {
                             "Index should not exist: {removed}"
                         );
                     }
+                }
+                SchemaVersion::V20 => {
+                    // The orphaned tenures table exists and starts empty
+                    let orphaned: i64 = signer_db
+                        .db
+                        .query_row("SELECT COUNT(*) FROM orphaned_tenures", [], |row| {
+                            row.get(0)
+                        })
+                        .expect("orphaned_tenures table should exist after V20");
+                    assert_eq!(orphaned, 0);
                 }
             }
         }
