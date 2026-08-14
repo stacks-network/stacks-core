@@ -366,7 +366,7 @@ mod async_sibling_validation {
     };
     use crate::signerdb::{BlockInfo, BlockState};
     use crate::v0::signer::Signer;
-    use crate::v0::signer_state::LocalStateMachine;
+    use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
     use crate::Signer as SignerTrait;
 
     /// Build a tenure-start block for `tenure` with the mandatory tenure-change (idx 0) and
@@ -1011,29 +1011,50 @@ mod async_sibling_validation {
         serde_json::to_string(&vec![info]).unwrap()
     }
 
+    /// A settled burn chain tip, as the local state machine holds it once the node has
+    /// reported the burn block as its canonical tip.
+    fn settled_on(consensus_hash: &ConsensusHash, burn_block_height: u64) -> LocalStateMachine {
+        LocalStateMachine::Initialized(SignerStateMachine {
+            burn_block: consensus_hash.clone(),
+            burn_block_height,
+            current_miner: MinerState::NoValidMiner,
+            active_signer_protocol_version: 2,
+            tx_replay_set: ReplayTransactionSet::none(),
+        })
+    }
+
     #[test]
-    fn burn_block_arrival_orphans_the_tenures_on_the_abandoned_branch() {
-        // The burn chain forks: we were on a branch through F -> O1 -> O2, and a new burn block
-        // N arrives building on F instead. Walking back from our settled tip O2, the node
-        // reports O2 and O1 as gone (404) and F as still canonical, so the tenures started by
-        // O2 and O1 are orphaned and F's is left alone.
+    fn settling_on_a_forked_tip_orphans_the_tenures_on_the_abandoned_branch() {
+        // The burn chain forks: we were on a branch through F -> O1 -> O2, and the node has
+        // reorged onto F -> N1 -> N2 -> N3, which our state machine has now settled on.
+        // Walking back from the tip we left, O2, the node reports O2 and O1 as gone (404) and F
+        // as still canonical, so the tenures started by O2 and O1 are orphaned and F's is left
+        // alone.
         let fork_point = BurnchainHeaderHash([100; 32]);
         let old_1 = BurnchainHeaderHash([101; 32]);
         let old_2 = BurnchainHeaderHash([102; 32]);
-        let new_tip = BurnchainHeaderHash([201; 32]);
+        let new_2 = BurnchainHeaderHash([202; 32]);
+        let new_3 = BurnchainHeaderHash([203; 32]);
         let ch_fork_point = ConsensusHash([100; 20]);
         let ch_old_1 = ConsensusHash([101; 20]);
         let ch_old_2 = ConsensusHash([102; 20]);
-        let ch_new_tip = ConsensusHash([201; 20]);
+        let ch_new_3 = ConsensusHash([203; 20]);
 
-        // The node serves only the fork point: everything else on the abandoned branch 404s.
-        let tips = vec![(
-            format!("/v3/sortitions/burn/{}", fork_point.to_hex()),
-            canonical_sortition_response(&fork_point, 100),
-        )];
+        // The node serves the fork point and the new tip: everything on the abandoned branch
+        // 404s.
+        let tips = vec![
+            (
+                format!("/v3/sortitions/burn/{}", fork_point.to_hex()),
+                canonical_sortition_response(&fork_point, 100),
+            ),
+            (
+                format!("/v3/sortitions/burn/{}", new_3.to_hex()),
+                canonical_sortition_response(&new_3, 103),
+            ),
+        ];
         let mut node = MockNode::new(tips, Duration::from_secs(30));
 
-        // Our record of the branch we were on.
+        // Our record of the branch we were on, plus the new tip we were told about.
         let received = SystemTime::now();
         for (hash, ch, height, parent) in [
             (
@@ -1044,6 +1065,7 @@ mod async_sibling_validation {
             ),
             (&old_1, &ch_old_1, 101, &fork_point),
             (&old_2, &ch_old_2, 102, &old_1),
+            (&new_3, &ch_new_3, 103, &new_2),
         ] {
             node.signer
                 .signer_db
@@ -1051,29 +1073,14 @@ mod async_sibling_validation {
                 .unwrap();
         }
 
-        // We had settled on O2 as the burn chain tip.
-        node.signer.local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
-            burn_block: ch_old_2.clone(),
-            burn_block_height: 102,
-            current_miner: MinerState::NoValidMiner,
-            active_signer_protocol_version: 2,
-            tx_replay_set: ReplayTransactionSet::none(),
-        });
-
-        let (result_tx, _result_rx) = mpsc::channel();
-        let mut sortition = None;
-        node.signer.process_event(
+        // We had settled on O2, and have now settled on N3.
+        node.signer.local_state_machine = settled_on(&ch_new_3, 103);
+        node.signer.update_orphaned_tenures(
             &node.client,
-            &mut sortition,
-            Some(&SignerEvent::NewBurnBlock {
-                burn_height: 101,
-                received_time: received,
-                burn_header_hash: new_tip,
-                consensus_hash: ch_new_tip.clone(),
-                parent_burn_block_hash: fork_point.clone(),
+            Some(NewBurnBlock {
+                burn_block_height: 102,
+                consensus_hash: ch_old_2.clone(),
             }),
-            &result_tx,
-            1,
         );
 
         let orphaned = |ch: &ConsensusHash| node.signer.signer_db.is_tenure_orphaned(ch).unwrap();
@@ -1081,7 +1088,7 @@ mod async_sibling_validation {
             orphaned(&ch_old_2),
             orphaned(&ch_old_1),
             orphaned(&ch_fork_point),
-            orphaned(&ch_new_tip),
+            orphaned(&ch_new_3),
         );
         node.shutdown();
 
@@ -1093,7 +1100,105 @@ mod async_sibling_validation {
         );
         assert!(
             !new,
-            "the arriving burn block's own tenure must never be orphaned"
+            "the tenure of the tip we settled on must never be orphaned"
+        );
+    }
+
+    #[test]
+    fn a_fork_the_node_has_not_committed_yet_is_deferred_not_lost() {
+        // The regression this guards: a burn block event is dispatched from inside
+        // `evaluate_sortition`, before the sortition transaction commits, so when the event
+        // arrives the node still serves the pre-fork branch as canonical and would report
+        // nothing as orphaned. `bitcoin_block_arrival` holds the update in `Pending` until the
+        // node catches up, and orphan detection must wait with it rather than run against the
+        // stale view and conclude that nothing was abandoned.
+        let fork_point = BurnchainHeaderHash([100; 32]);
+        let old_1 = BurnchainHeaderHash([101; 32]);
+        let new_1 = BurnchainHeaderHash([201; 32]);
+        let ch_fork_point = ConsensusHash([100; 20]);
+        let ch_old_1 = ConsensusHash([101; 20]);
+        let ch_new_1 = ConsensusHash([201; 20]);
+
+        // The node has not committed the fork yet: it still serves the abandoned branch.
+        let mut node = MockNode::new(
+            [(&fork_point, 100u64), (&old_1, 101)]
+                .iter()
+                .map(|(hash, height)| {
+                    (
+                        format!("/v3/sortitions/burn/{}", hash.to_hex()),
+                        canonical_sortition_response(hash, *height),
+                    )
+                })
+                .collect(),
+            Duration::from_secs(30),
+        );
+
+        let received = SystemTime::now();
+        for (hash, ch, height, parent) in [
+            (
+                &fork_point,
+                &ch_fork_point,
+                100,
+                &BurnchainHeaderHash([99; 32]),
+            ),
+            (&old_1, &ch_old_1, 101, &fork_point),
+            (&new_1, &ch_new_1, 101, &fork_point),
+        ] {
+            node.signer
+                .signer_db
+                .insert_burn_block(hash, ch, height, &received, parent)
+                .unwrap();
+        }
+
+        // N1 arrived, but the node is still on O1, so the state machine holds the update
+        // pending: our settled tip is still O1.
+        let prior = NewBurnBlock {
+            burn_block_height: 101,
+            consensus_hash: ch_old_1.clone(),
+        };
+        node.signer.local_state_machine = LocalStateMachine::Pending {
+            update: StateMachineUpdate::BurnBlock(NewBurnBlock {
+                burn_block_height: 101,
+                consensus_hash: ch_new_1.clone(),
+            }),
+            prior: SignerStateMachine {
+                burn_block: ch_old_1.clone(),
+                burn_block_height: 101,
+                current_miner: MinerState::NoValidMiner,
+                active_signer_protocol_version: 2,
+                tx_replay_set: ReplayTransactionSet::none(),
+            },
+        };
+        node.signer
+            .update_orphaned_tenures(&node.client, Some(prior.clone()));
+        let orphaned_while_pending = node.signer.signer_db.is_tenure_orphaned(&ch_old_1).unwrap();
+
+        // The node commits the fork and reports N1 as its tip, so the state machine settles on
+        // it. The retry that `handle_pending_update` drives now has a view it can trust.
+        node.set_tips(
+            [(&fork_point, 100u64), (&new_1, 101)]
+                .iter()
+                .map(|(hash, height)| {
+                    (
+                        format!("/v3/sortitions/burn/{}", hash.to_hex()),
+                        canonical_sortition_response(hash, *height),
+                    )
+                })
+                .collect(),
+        );
+        node.signer.local_state_machine = settled_on(&ch_new_1, 101);
+        node.signer
+            .update_orphaned_tenures(&node.client, Some(prior));
+        let orphaned_after_settling = node.signer.signer_db.is_tenure_orphaned(&ch_old_1).unwrap();
+        node.shutdown();
+
+        assert!(
+            !orphaned_while_pending,
+            "nothing may be orphaned while the state machine has not settled on the new tip"
+        );
+        assert!(
+            orphaned_after_settling,
+            "the deferred fork must be picked up once the node's view has caught up"
         );
     }
 
@@ -1146,33 +1251,15 @@ mod async_sibling_validation {
                 .unwrap();
         }
 
-        // We had settled on C; C' arrives, so B and C are orphaned.
-        node.signer.local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
-            burn_block: ch(&c),
-            burn_block_height: 102,
-            current_miner: MinerState::NoValidMiner,
-            active_signer_protocol_version: 2,
-            tx_replay_set: ReplayTransactionSet::none(),
-        });
-
-        let (result_tx, _result_rx) = mpsc::channel();
-        let mut sortition = None;
-        let arrival = |hash: &BurnchainHeaderHash, height: u64, parent: &BurnchainHeaderHash| {
-            SignerEvent::NewBurnBlock {
-                burn_height: height,
-                received_time: received,
-                burn_header_hash: hash.clone(),
-                consensus_hash: ch(hash),
-                parent_burn_block_hash: parent.clone(),
-            }
+        let settled = |hash: &BurnchainHeaderHash, height: u64| NewBurnBlock {
+            burn_block_height: height,
+            consensus_hash: ch(hash),
         };
-        node.signer.process_event(
-            &node.client,
-            &mut sortition,
-            Some(&arrival(&c_prime, 102, &b_prime)),
-            &result_tx,
-            1,
-        );
+
+        // We had settled on C; the node reorgs to C', so B and C are orphaned.
+        node.signer.local_state_machine = settled_on(&ch(&c_prime), 102);
+        node.signer
+            .update_orphaned_tenures(&node.client, Some(settled(&c, 102)));
         let orphaned_after_fork = (
             node.signer.signer_db.is_tenure_orphaned(&ch(&b)).unwrap(),
             node.signer.signer_db.is_tenure_orphaned(&ch(&c)).unwrap(),
@@ -1190,21 +1277,11 @@ mod async_sibling_validation {
                 })
                 .collect(),
         );
-        // Only D and E are announced; B and C are revalidated silently by the node.
-        node.signer.local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
-            burn_block: ch(&c_prime),
-            burn_block_height: 102,
-            current_miner: MinerState::NoValidMiner,
-            active_signer_protocol_version: 2,
-            tx_replay_set: ReplayTransactionSet::none(),
-        });
-        node.signer.process_event(
-            &node.client,
-            &mut sortition,
-            Some(&arrival(&d, 103, &c)),
-            &result_tx,
-            1,
-        );
+        // Only D and E are announced; B and C are revalidated silently by the node. We settle
+        // on D, leaving C'.
+        node.signer.local_state_machine = settled_on(&ch(&d), 103);
+        node.signer
+            .update_orphaned_tenures(&node.client, Some(settled(&c_prime, 102)));
 
         let restored = (
             node.signer.signer_db.is_tenure_orphaned(&ch(&b)).unwrap(),
@@ -1241,8 +1318,8 @@ mod async_sibling_validation {
 
     #[test]
     fn burn_block_arrival_on_the_same_branch_orphans_nothing() {
-        // The ordinary case: the arriving burn block builds directly on the tip we had settled
-        // on, so no branch was abandoned and nothing is orphaned.
+        // The ordinary case: the tip we settled on builds directly on the tip we had before, so
+        // no branch was abandoned and nothing is orphaned.
         let prior_tip = BurnchainHeaderHash([100; 32]);
         let new_tip = BurnchainHeaderHash([101; 32]);
         let ch_prior_tip = ConsensusHash([100; 20]);
@@ -1253,38 +1330,28 @@ mod async_sibling_validation {
         let mut node = MockNode::new(vec![], Duration::from_secs(30));
 
         let received = SystemTime::now();
-        node.signer
-            .signer_db
-            .insert_burn_block(
+        for (hash, ch, height, parent) in [
+            (
                 &prior_tip,
                 &ch_prior_tip,
                 100,
-                &received,
                 &BurnchainHeaderHash([99; 32]),
-            )
-            .unwrap();
-        node.signer.local_state_machine = LocalStateMachine::Initialized(SignerStateMachine {
-            burn_block: ch_prior_tip.clone(),
-            burn_block_height: 100,
-            current_miner: MinerState::NoValidMiner,
-            active_signer_protocol_version: 2,
-            tx_replay_set: ReplayTransactionSet::none(),
-        });
+            ),
+            (&new_tip, &ch_new_tip, 101, &prior_tip),
+        ] {
+            node.signer
+                .signer_db
+                .insert_burn_block(hash, ch, height, &received, parent)
+                .unwrap();
+        }
 
-        let (result_tx, _result_rx) = mpsc::channel();
-        let mut sortition = None;
-        node.signer.process_event(
+        node.signer.local_state_machine = settled_on(&ch_new_tip, 101);
+        node.signer.update_orphaned_tenures(
             &node.client,
-            &mut sortition,
-            Some(&SignerEvent::NewBurnBlock {
-                burn_height: 101,
-                received_time: received,
-                burn_header_hash: new_tip,
-                consensus_hash: ch_new_tip.clone(),
-                parent_burn_block_hash: prior_tip.clone(),
+            Some(NewBurnBlock {
+                burn_block_height: 100,
+                consensus_hash: ch_prior_tip.clone(),
             }),
-            &result_tx,
-            1,
         );
 
         let prior_orphaned = node

@@ -136,16 +136,24 @@ impl ReplayState {
 }
 
 impl LocalStateMachine {
-    /// The consensus hash of the burn block this signer last settled on as the burnchain tip,
-    /// if it has settled on one. A pending update is deliberately ignored: the burn block it
-    /// carries is one we have not been able to process yet, so the prior tip is still the last
-    /// burn block we actually built our view on.
-    pub fn settled_burn_tip(&self) -> Option<&ConsensusHash> {
-        match self {
-            Self::Uninitialized => None,
-            Self::Initialized(state) => Some(&state.burn_block),
-            Self::Pending { prior, .. } => Some(&prior.burn_block),
-        }
+    /// The burn block this signer last settled on as the burnchain tip, if it has settled on
+    /// one. A pending update is deliberately ignored: the burn block it carries is one we have
+    /// not been able to process yet, so the prior tip is still the last burn block we actually
+    /// built our view on.
+    ///
+    /// A settled tip is one the node reported as its canonical burnchain tip, so it is also the
+    /// point at which the node's answers about the burn chain can be trusted -- see
+    /// `Signer::update_orphaned_tenures`.
+    pub fn settled_burn_tip(&self) -> Option<NewBurnBlock> {
+        let state = match self {
+            Self::Uninitialized => return None,
+            Self::Initialized(state) => state,
+            Self::Pending { prior, .. } => prior,
+        };
+        Some(NewBurnBlock {
+            burn_block_height: state.burn_block_height,
+            consensus_hash: state.burn_block.clone(),
+        })
     }
 
     /// Initialize a local state machine by querying the local stacks-node

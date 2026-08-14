@@ -40,9 +40,7 @@ use libsigner::v0::messages::{
 };
 use libsigner::v0::signer_state::GlobalStateEvaluator;
 use libsigner::{BlockProposal, SignerEvent, SignerSession};
-use stacks_common::types::chainstate::{
-    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPublicKey,
-};
+use stacks_common::types::chainstate::{ConsensusHash, StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
@@ -347,10 +345,14 @@ impl SignerTrait<SignerMessage> for Signer {
         let mut prior_state = self.local_state_machine.clone();
         let local_signer_protocol_version = self.get_signer_protocol_version();
         if self.reward_cycle <= current_reward_cycle {
+            let prior_burn_tip = self.local_state_machine.settled_burn_tip();
             self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client,
                 &self.proposal_config,
                 &mut self.tx_replay_scope, &self.global_state_evaluator, local_signer_protocol_version)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
+            // A burn block arrival that had to wait for the node lands here, so this is where a
+            // deferred fork is finally observable. See `update_orphaned_tenures`.
+            self.update_orphaned_tenures(stacks_client, prior_burn_tip);
         }
         // See if we should capitulate our viewpoint...
         self.local_state_machine.capitulate_viewpoint(
@@ -655,16 +657,8 @@ impl Signer {
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
 
-                // Record any tenures this burn block orphaned before the state machine advances
-                // past the branch they were on.
-                self.mark_forked_tenures_orphaned(
-                    stacks_client,
-                    consensus_hash,
-                    *burn_height,
-                    parent_burn_block_hash,
-                );
-
                 let active_signer_protocol_version = self.get_signer_protocol_version();
+                let prior_burn_tip = self.local_state_machine.settled_burn_tip();
                 self.local_state_machine
                     .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
                         burn_block_height: *burn_height,
@@ -673,6 +667,10 @@ impl Signer {
                     &mut self.tx_replay_scope
                 , &self.global_state_evaluator, active_signer_protocol_version)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
+
+                // Record the tenures the burnchain orphaned, now that the state machine has
+                // settled on the tip it forked to (and so the node can be asked about it).
+                self.update_orphaned_tenures(stacks_client, prior_burn_tip);
                 *sortition_state = None;
             }
             SignerEvent::NewBlock {
@@ -1174,13 +1172,23 @@ impl Signer {
         }
     }
 
-    /// Record the tenures that an arriving burn block orphaned from the canonical burn chain.
+    /// Record the tenures that the burnchain orphaned when it moved to the tip the local state
+    /// machine has just settled on, and clear the records of any it forked back onto.
     ///
-    /// Called as the burn block arrives, before the local state machine advances to it, so the
-    /// state machine still names the burn block we previously settled on as the tip. If that
-    /// tip is no longer on the node's canonical burn chain, the burnchain forked away from it:
-    /// walk our record of the abandoned branch backwards, marking each tenure orphaned, until
-    /// we reach the burn block the two branches share.
+    /// `prior_burn_tip` is the tip the state machine had settled on before it was updated. If
+    /// the state machine has moved to a tip that is not the next block along that branch, the
+    /// burnchain forked away from it: walk our record of the abandoned branch backwards,
+    /// marking each tenure orphaned, until we reach the burn block the two branches share.
+    ///
+    /// Keying this off a *settled* tip rather than off the arriving burn block event is what
+    /// makes the node's answers usable. A burn block event is dispatched from inside
+    /// `evaluate_sortition` (`sortdb.rs`), before the sortition transaction commits, so when
+    /// the event arrives the node still serves the pre-fork branch as canonical and would
+    /// report nothing as orphaned. The state machine only settles on a burn block once the node
+    /// reports it as the canonical tip, by which point that sortition -- and the invalidation of
+    /// the branch it replaced -- is committed and queryable. `bitcoin_block_arrival` already
+    /// holds the update in `Pending` until then, and every event retries it, so a fork observed
+    /// too early is picked up as soon as the node catches up rather than being missed.
     ///
     /// Handling the fork here, once, is what keeps the signing path simple. A signature over a
     /// block in an orphaned tenure stops counting as a conflict from this point on, so
@@ -1188,26 +1196,32 @@ impl Signer {
     /// about was orphaned or merely unprocessed -- a question the node cannot answer at that
     /// point, since a block we accepted locally isn't handed to the node until it has been
     /// signed by the whole signer set.
-    fn mark_forked_tenures_orphaned(
+    pub(super) fn update_orphaned_tenures(
         &mut self,
         stacks_client: &StacksClient,
-        new_consensus_hash: &ConsensusHash,
-        new_burn_block_height: u64,
-        parent_burn_block_hash: &BurnchainHeaderHash,
+        prior_burn_tip: Option<NewBurnBlock>,
     ) {
-        // The arriving burn block is canonical by construction: the node just processed it as
-        // its burnchain tip. If the burnchain previously forked away from it and has now
-        // forked back, its tenure is live again.
-        self.clear_orphaned_tenure(new_consensus_hash);
-
-        let Some(prior_tip_consensus_hash) = self.local_state_machine.settled_burn_tip().cloned()
-        else {
+        let Some(new_tip) = self.local_state_machine.settled_burn_tip() else {
             // We have no view of the burn chain yet, so we abandoned nothing.
             return;
         };
+        let Some(prior_burn_tip) = prior_burn_tip else {
+            // Same: nothing to walk back from.
+            return;
+        };
+        if prior_burn_tip.consensus_hash == new_tip.consensus_hash {
+            // The tip did not move, so the burn chain cannot have forked under us.
+            return;
+        }
+
+        // The tip we settled on is canonical by construction: the node just reported it as its
+        // burnchain tip. If the burnchain previously forked away from it and has now forked
+        // back, its tenure is live again.
+        self.clear_orphaned_tenure(&new_tip.consensus_hash);
+
         let mut candidate = match self
             .signer_db
-            .get_burn_block_by_ch(&prior_tip_consensus_hash)
+            .get_burn_block_by_ch(&prior_burn_tip.consensus_hash)
         {
             Ok(burn_block) => burn_block,
             Err(e) => {
@@ -1215,14 +1229,18 @@ impl Signer {
                 // burn block event we have seen: with no record of that branch there is
                 // nothing to walk.
                 debug!("{self}: No record of the prior burn chain tip, so cannot tell whether it was orphaned: {e:?}";
-                    "prior_tip_consensus_hash" => %prior_tip_consensus_hash,
+                    "prior_tip_consensus_hash" => %prior_burn_tip.consensus_hash,
                 );
                 return;
             }
         };
-        if candidate.block_hash == *parent_burn_block_hash {
-            // The common case: the new burn block builds directly on the tip we had, so no
-            // branch was abandoned and there is nothing to ask the node.
+        if self
+            .signer_db
+            .get_burn_block_by_ch(&new_tip.consensus_hash)
+            .is_ok_and(|new_tip_block| new_tip_block.parent_burn_block_hash == candidate.block_hash)
+        {
+            // The common case: the new tip builds directly on the tip we had, so no branch was
+            // abandoned and there is nothing to ask the node.
             return;
         }
 
@@ -1233,7 +1251,7 @@ impl Signer {
         // without announcing them again (`try_revalidate_sortition` in the chains coordinator),
         // so a fork back only emits events for the burn blocks that are genuinely new. Re-check
         // the records themselves instead, every time the burnchain forks.
-        self.revalidate_orphaned_tenures(stacks_client, new_burn_block_height);
+        self.revalidate_orphaned_tenures(stacks_client, new_tip.burn_block_height);
 
         for _ in 0..MAX_FORK_DEPTH {
             match stacks_client.get_sortition_by_burn_hash(&candidate.block_hash) {
@@ -1250,7 +1268,7 @@ impl Signer {
                         "consensus_hash" => %candidate.consensus_hash,
                         "burn_block_hash" => %candidate.block_hash,
                         "burn_block_height" => candidate.block_height,
-                        "new_burn_block_consensus_hash" => %new_consensus_hash,
+                        "new_burn_block_consensus_hash" => %new_tip.consensus_hash,
                     );
                     if let Err(e) = self
                         .signer_db
@@ -1287,7 +1305,7 @@ impl Signer {
         }
         error!(
             "{self}: Stopped walking an abandoned burn chain branch after {MAX_FORK_DEPTH} blocks. Tenures below it still count as conflicts.";
-            "new_burn_block_consensus_hash" => %new_consensus_hash,
+            "new_burn_block_consensus_hash" => %new_tip.consensus_hash,
         );
     }
 
@@ -1416,7 +1434,7 @@ impl Signer {
         // siblings no matter which tenure they belong to (e.g. the next tenure's tenure-start
         // block conflicts with the current tenure's block at the same height). Blocks in
         // tenures that a burnchain fork orphaned are not conflicts and never reach us here:
-        // `mark_forked_tenures_orphaned` voided those tenures when the fork was observed.
+        // `update_orphaned_tenures` voided those tenures when the fork was observed.
         //
         // Unlike the chainstate check above, a refusal here is "for now" rather than a
         // broadcast rejection: a later pre-commit re-evaluation may still sign the block once
