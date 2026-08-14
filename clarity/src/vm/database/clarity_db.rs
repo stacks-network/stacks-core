@@ -628,7 +628,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_data_with_proof<T>(
         &mut self,
         key: &str,
-    ) -> Result<Option<(T, Vec<u8>)>, VmExecutionError>
+    ) -> Result<Option<(T, Option<Vec<u8>>)>, VmExecutionError>
     where
         T: ClarityDeserializable<T>,
     {
@@ -638,7 +638,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_data_with_proof_by_hash<T>(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(T, Vec<u8>)>, VmExecutionError>
+    ) -> Result<Option<(T, Option<Vec<u8>>)>, VmExecutionError>
     where
         T: ClarityDeserializable<T>,
     {
