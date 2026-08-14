@@ -248,7 +248,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                             sponsor,
                             cost_track,
                             |exec_state, invoke_ctx| {
-                                let budget = ResourceBudget::new()
+                                let budget = ResourceBudget::unlimited()
                                     .with_max_duration(Some(self.read_only_max_execution_time))
                                     .with_max_memory_use(Some(self.read_only_call_max_mem_bytes));
                                 exec_state

@@ -886,7 +886,7 @@ pub fn execute_with_limited_execution_time(
         false,
         clarity_types::types::StandardPrincipalData::transient(),
         |g| {
-            let budget = ResourceBudget::new().with_max_duration(Some(max_execution_time));
+            let budget = ResourceBudget::unlimited().with_max_duration(Some(max_execution_time));
             g.set_execution_resource_limiter(budget.start_tracking());
             Ok(())
         },

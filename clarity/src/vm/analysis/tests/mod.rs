@@ -511,7 +511,7 @@ fn test_write_attempt_in_readonly() {
 fn test_run_analysis_aborts_when_deadline_already_elapsed() {
     let err = utils::run_analysis_with_resource_limiter(
         "(define-read-only (foo) (+ 1 1))",
-        ResourceBudget::new()
+        ResourceBudget::unlimited()
             .with_max_duration(Some(Duration::ZERO))
             .start_tracking(),
     )
@@ -548,7 +548,7 @@ fn test_run_analysis_no_tracking_is_not_time_limited() {
 fn test_run_analysis_generous_deadline_succeeds() {
     let result = utils::run_analysis_with_resource_limiter(
         "(define-read-only (foo) (+ 1 1))",
-        ResourceBudget::new()
+        ResourceBudget::unlimited()
             .with_max_duration(Some(Duration::from_secs(300)))
             .start_tracking(),
     );

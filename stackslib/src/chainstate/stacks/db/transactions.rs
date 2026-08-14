@@ -14,29 +14,36 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
+#[cfg(test)]
+use std::time::Duration;
 
 use clarity::vm::analysis::types::ContractAnalysis;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::{AssetMap, AssetMapEntry, ExecutionState, InvocationContext};
-use clarity::vm::costs::cost_functions::ClarityCostFunction;
-use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
+use clarity::vm::contexts::AssetMap;
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::errors::{VmExecutionError, VmInternalError};
-use clarity::vm::representations::ClarityName;
+#[cfg(test)]
+use clarity::vm::hooks::EvalHook;
+#[cfg(test)]
 use clarity::vm::resource_limiter::ResourceBudget;
+#[cfg(test)]
 use clarity::vm::types::{
-    AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
-    TypeSignature, Value,
+    AssetIdentifier, QualifiedContractIdentifier, StacksAddressExtensions as _,
+    StandardPrincipalData, TupleData,
 };
+use clarity::vm::types::{PrincipalData, Value};
 
-use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::miner::{TransactionResourceBudgets, TransactionResult};
-use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
-use crate::clarity_vm::clarity::{ClarityConnection, ClarityError, ClarityTransactionConnection};
+#[cfg(test)]
+use crate::chainstate::stacks::miner::TransactionResourceBudgets;
+use crate::chainstate::stacks::miner::TransactionResult;
+use crate::chainstate::stacks::Error;
+use crate::clarity_vm::clarity::ClarityError;
 use crate::monitoring::increment_unreachable_errors_counter;
-use crate::util_lib::strings::VecDisplay;
+
+// TODO: Move this module root to `transactions/mod.rs` as a separate, mechanical change.
+pub mod processing;
+
+pub use self::processing::{TransactionProcessor, TxToProcess};
 
 /// This is a safe-to-hash Clarity value
 #[derive(PartialEq, Eq)]
@@ -319,8 +326,8 @@ impl StacksTransactionReceipt {
     /// `NakamotoBlockHeader::problematic_txs` list. The transaction's payload
     /// was NOT executed: only the precheck cost is reflected in the block
     /// budget, and the fee was debited / origin (and sponsor) nonces bumped by
-    /// `process_skipped_transaction`. `execution_cost` is zero and `events`
-    /// is empty.
+    /// [`TransactionProcessor::process`]. `execution_cost` is zero and
+    /// `events` is empty.
     pub fn from_problematic_skipped(
         tx: StacksTransaction,
         category: u8,
@@ -540,1508 +547,10 @@ pub fn finalize_failed_transaction(
     }
 }
 
-impl StacksChainState {
-    /// Get the payer account
-    fn get_payer_account<T: ClarityConnection>(
-        clarity_tx: &mut T,
-        tx: &StacksTransaction,
-    ) -> StacksAccount {
-        // who's paying the fee?
-        let payer_account = if let Some(sponsor_address) = tx.sponsor_address() {
-            let payer_account = StacksChainState::get_account(clarity_tx, &sponsor_address.into());
-            payer_account
-        } else {
-            let origin_account =
-                StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
-            origin_account
-        };
-
-        payer_account
-    }
-
-    /// Check the account nonces for the supplied stacks transaction,
-    ///   returning the origin and payer accounts if valid.
-    pub fn check_transaction_nonces<T: ClarityConnection>(
-        clarity_tx: &mut T,
-        tx: &StacksTransaction,
-        quiet: bool,
-    ) -> Result<
-        (StacksAccount, StacksAccount),
-        (TransactionNonceMismatch, (StacksAccount, StacksAccount)),
-    > {
-        // who's sending it?
-        let origin = tx.get_origin();
-        let origin_account = StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
-
-        // who's paying the fee?
-        let payer_account = if let Some(sponsor_address) = tx.sponsor_address() {
-            let payer = tx.get_payer();
-            let payer_account = StacksChainState::get_account(clarity_tx, &sponsor_address.into());
-
-            if payer.nonce() != payer_account.nonce {
-                let e = TransactionNonceMismatch {
-                    expected: payer_account.nonce,
-                    actual: payer.nonce(),
-                    txid: tx.txid(),
-                    principal: payer_account.principal.clone(),
-                    is_origin: false,
-                    quiet,
-                };
-                if !quiet {
-                    warn!("{e}");
-                }
-                return Err((e, (origin_account, payer_account)));
-            }
-
-            payer_account
-        } else {
-            origin_account.clone()
-        };
-
-        // check nonces
-        if origin.nonce() != origin_account.nonce {
-            let e = TransactionNonceMismatch {
-                expected: origin_account.nonce,
-                actual: origin.nonce(),
-                txid: tx.txid(),
-                principal: origin_account.principal.clone(),
-                is_origin: true,
-                quiet,
-            };
-            if !quiet {
-                warn!("{e}");
-            }
-            return Err((e, (origin_account, payer_account)));
-        }
-
-        Ok((origin_account, payer_account))
-    }
-
-    /// Pay the transaction fee (but don't credit it to the miner yet).
-    /// Does not touch the account nonce.
-    /// Consumes the account object, since it invalidates it.
-    fn pay_transaction_fee(
-        clarity_tx: &mut ClarityTransactionConnection,
-        fee: u64,
-        payer_account: StacksAccount,
-    ) -> Result<u64, Error> {
-        let (cur_burn_block_height, v1_unlock_ht, v2_unlock_ht, v3_unlock_ht, v4_unlock_ht) =
-            clarity_tx.with_clarity_db_readonly(|ref mut db| {
-                let res: Result<_, Error> = Ok((
-                    db.get_current_burnchain_block_height()?,
-                    db.get_v1_unlock_height(),
-                    db.get_v2_unlock_height()?,
-                    db.get_v3_unlock_height()?,
-                    db.get_v4_unlock_height()?,
-                ));
-                res
-            })?;
-
-        let consolidated_balance = payer_account
-            .stx_balance
-            .get_available_balance_at_burn_block(
-                u64::from(cur_burn_block_height),
-                v1_unlock_ht,
-                v2_unlock_ht,
-                v3_unlock_ht,
-                v4_unlock_ht,
-            )?;
-
-        if consolidated_balance < u128::from(fee) {
-            return Err(Error::InvalidFee);
-        }
-
-        StacksChainState::account_debit(clarity_tx, &payer_account.principal, fee);
-        Ok(fee)
-    }
-
-    /// Pre-check a transaction -- make sure it's well-formed.
-    ///
-    /// If `auth_verification_mode_override` is `Some(_)`, it specifies whether
-    /// transaction signatures should be verified to be the low-S variant, or if
-    /// high-S is allowed. If it's `None`, this decision is made based on consensus
-    /// rules for the specified epoch.
-    pub fn process_transaction_precheck(
-        config: &DBConfig,
-        tx: &StacksTransaction,
-        epoch_id: StacksEpochId,
-        auth_verification_mode_override: Option<TransactionAuthVerificationMode>,
-    ) -> Result<(), Error> {
-        // valid auth?
-        if !tx.auth.is_supported_in_epoch(epoch_id) {
-            let msg = format!(
-                "Invalid tx {}: authentication mode not supported in Epoch {epoch_id}",
-                tx.txid()
-            );
-            warn!("{msg}");
-
-            return Err(Error::InvalidStacksTransaction(msg, false));
-        }
-        let verification_mode = auth_verification_mode_override.unwrap_or_else(|| {
-            if epoch_id.allows_tx_signatures_with_high_s() {
-                TransactionAuthVerificationMode::AllowHighS
-            } else {
-                TransactionAuthVerificationMode::EnforceLowS
-            }
-        });
-
-        tx.verify(verification_mode)?;
-
-        // destined for us?
-        if config.chain_id != tx.chain_id {
-            let msg = format!(
-                "Invalid tx {}: invalid chain ID {} (expected {})",
-                tx.txid(),
-                tx.chain_id,
-                config.chain_id
-            );
-            warn!("{}", &msg);
-
-            return Err(Error::InvalidStacksTransaction(msg, false));
-        }
-
-        match tx.version {
-            TransactionVersion::Mainnet => {
-                if !config.mainnet {
-                    let msg = format!("Invalid tx {}: on testnet; got mainnet", tx.txid());
-                    warn!("{}", &msg);
-
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-            }
-            TransactionVersion::Testnet => {
-                if config.mainnet {
-                    let msg = format!("Invalid tx {}: on mainnet; got testnet", tx.txid());
-                    warn!("{}", &msg);
-
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-            }
-        }
-
-        // check if post-condition mode is supported in this epoch
-        if tx.post_condition_mode == TransactionPostConditionMode::Originator
-            && !epoch_id.supports_sip040_post_conditions()
-        {
-            let msg = "Invalid Stacks transaction: Originator post-condition mode is not supported before Stacks 3.4".to_string();
-            info!("{}", &msg; "txid" => %tx.txid());
-            return Err(Error::InvalidStacksTransaction(msg, false));
-        }
-        // check if MaybeSent NFT post-conditions are supported in this epoch
-        if !epoch_id.supports_sip040_post_conditions() {
-            for post_condition in tx.post_conditions.iter() {
-                if let TransactionPostCondition::Nonfungible(_, _, _, condition_code) =
-                    post_condition
-                {
-                    if *condition_code == NonfungibleConditionCode::MaybeSent {
-                        let msg = "Invalid Stacks transaction: NFT MaybeSent post-condition is not supported before Stacks 3.4".to_string();
-                        info!("{}", &msg; "txid" => %tx.txid());
-                        return Err(Error::InvalidStacksTransaction(msg, false));
-                    }
-                }
-            }
-        }
-        // check if Staking/Pox post-conditions are supported in this epoch
-        if !epoch_id.supports_staking_post_conditions() {
-            for post_condition in tx.post_conditions.iter() {
-                if matches!(
-                    post_condition,
-                    TransactionPostCondition::Staking(..) | TransactionPostCondition::Pox(..)
-                ) {
-                    let msg = "Invalid Stacks transaction: Staking/Pox post-condition is not supported before Stacks 4.0".to_string();
-                    info!("{}", &msg; "txid" => %tx.txid());
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-            }
-        }
-
-        // check that the requested Clarity version is supported in this epoch.
-        // Only a versioned smart-contract deploy can pin a specific version;
-        // every other transaction implicitly uses the epoch default. A version
-        // newer than the epoch allows is statically invalid, so reject it
-        // here.
-        if let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload {
-            let max_version = ClarityVersion::default_for_epoch(epoch_id);
-            if *clarity_version > max_version {
-                let msg = format!(
-                    "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch_id} only supports up to {max_version}",
-                    tx.txid()
-                );
-                info!("{msg}");
-                return Err(Error::InvalidStacksTransaction(msg, false));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Apply a post-conditions check.
-    /// Return `Ok(None)` if the check passes.
-    /// Return `Ok(Some(reason))` if the check fails.
-    /// Return `Err` if the check cannot be performed.
-    fn check_transaction_postconditions(
-        post_conditions: &[TransactionPostCondition],
-        post_condition_mode: &TransactionPostConditionMode,
-        origin_account: &StacksAccount,
-        asset_map: &AssetMap,
-        epoch_id: StacksEpochId,
-        txid: Txid,
-    ) -> Result<Option<String>, VmExecutionError> {
-        let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
-            HashMap::new();
-        let mut checked_nonfungible_assets: HashMap<
-            PrincipalData,
-            HashMap<AssetIdentifier, HashSet<HashableClarityValue>>,
-        > = HashMap::new();
-        // Principals whose staking (STX locked for PoX) was covered by a
-        // `Staking` post-condition, and whose position-altering PoX actions
-        // (unstake / unstake-sbtc / update-bond-registration /
-        // announce-l1-early-exit) were covered by a `Pox` post-condition. Used
-        // for the unchecked-asset enforcement below, in epochs that support
-        // staking post-conditions.
-        let mut checked_staking: HashSet<PrincipalData> = HashSet::new();
-        let mut checked_pox: HashSet<PrincipalData> = HashSet::new();
-        let enforce_unchecked_assets_for_principal =
-            |principal: &PrincipalData| match post_condition_mode {
-                TransactionPostConditionMode::Allow => false,
-                TransactionPostConditionMode::Deny => true,
-                TransactionPostConditionMode::Originator => principal == &origin_account.principal,
-            };
-
-        for postcond in post_conditions {
-            match postcond {
-                TransactionPostCondition::STX(
-                    ref principal,
-                    ref condition_code,
-                    ref amount_sent_condition,
-                ) => {
-                    let account_principal = principal.to_principal_data(&origin_account.principal);
-
-                    let amount_transferred = asset_map.get_stx(&account_principal).unwrap_or(0);
-                    let amount_burned = asset_map.get_stx_burned(&account_principal).unwrap_or(0);
-
-                    let amount_sent = amount_transferred
-                        .checked_add(amount_burned)
-                        .expect("FATAL: sent waaaaay too much STX");
-
-                    if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
-                        let reason = format!(
-                            "Post-condition check failure on STX owned by {account_principal}: {amount_sent_condition:?} {condition_code:?} {amount_sent}",
-                        );
-                        info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
-                    }
-
-                    if let Some(ref mut asset_ids) =
-                        checked_fungible_assets.get_mut(&account_principal)
-                    {
-                        if amount_transferred > 0 {
-                            asset_ids.insert(AssetIdentifier::STX());
-                        }
-                        if amount_burned > 0 {
-                            asset_ids.insert(AssetIdentifier::STX_burned());
-                        }
-                    } else {
-                        let mut h = HashSet::new();
-                        if amount_transferred > 0 {
-                            h.insert(AssetIdentifier::STX());
-                        }
-                        if amount_burned > 0 {
-                            h.insert(AssetIdentifier::STX_burned());
-                        }
-                        checked_fungible_assets.insert(account_principal, h);
-                    }
-                }
-                TransactionPostCondition::Fungible(
-                    ref principal,
-                    ref asset_info,
-                    ref condition_code,
-                    ref amount_sent_condition,
-                ) => {
-                    let account_principal = principal.to_principal_data(&origin_account.principal);
-                    let asset_id = AssetIdentifier {
-                        contract_identifier: QualifiedContractIdentifier::new(
-                            StandardPrincipalData::from(asset_info.contract_address.clone()),
-                            asset_info.contract_name.clone(),
-                        ),
-                        asset_name: asset_info.asset_name.clone(),
-                    };
-
-                    let amount_sent = asset_map
-                        .get_fungible_tokens(&account_principal, &asset_id)
-                        .unwrap_or(0);
-                    if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
-                        let reason = format!(
-                            "Post-condition check failure on fungible asset {asset_id} owned by {account_principal}: {amount_sent_condition} {condition_code:?} {amount_sent}"
-                        );
-                        info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
-                    }
-
-                    if let Some(ref mut asset_ids) =
-                        checked_fungible_assets.get_mut(&account_principal)
-                    {
-                        asset_ids.insert(asset_id);
-                    } else {
-                        let mut h = HashSet::new();
-                        h.insert(asset_id);
-                        checked_fungible_assets.insert(account_principal, h);
-                    }
-                }
-                TransactionPostCondition::Nonfungible(
-                    ref principal,
-                    ref asset_info,
-                    ref asset_value,
-                    ref condition_code,
-                ) => {
-                    let account_principal = principal.to_principal_data(&origin_account.principal);
-                    let asset_id = AssetIdentifier {
-                        contract_identifier: QualifiedContractIdentifier::new(
-                            StandardPrincipalData::from(asset_info.contract_address.clone()),
-                            asset_info.contract_name.clone(),
-                        ),
-                        asset_name: asset_info.asset_name.clone(),
-                    };
-
-                    let empty_assets = vec![];
-                    let assets_sent = asset_map
-                        .get_nonfungible_tokens(&account_principal, &asset_id)
-                        .unwrap_or(&empty_assets);
-                    if !condition_code.check(asset_value, assets_sent) {
-                        let reason = format!(
-                            "Post-condition check failure on non-fungible asset {asset_id} owned by {account_principal}: {asset_value:?} {condition_code:?} {assets_sent:?}"
-                        );
-                        info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
-                    }
-
-                    if let Some(ref mut asset_id_map) =
-                        checked_nonfungible_assets.get_mut(&account_principal)
-                    {
-                        if let Some(ref mut asset_values) = asset_id_map.get_mut(&asset_id) {
-                            asset_values.insert(asset_value.clone().try_into()?);
-                        } else {
-                            let mut asset_set = HashSet::new();
-                            asset_set.insert(asset_value.clone().try_into()?);
-                            asset_id_map.insert(asset_id, asset_set);
-                        }
-                    } else {
-                        let mut asset_id_map = HashMap::new();
-                        let mut asset_set = HashSet::new();
-                        asset_set.insert(asset_value.clone().try_into()?);
-                        asset_id_map.insert(asset_id, asset_set);
-                        checked_nonfungible_assets.insert(account_principal, asset_id_map);
-                    }
-                }
-                TransactionPostCondition::Staking(
-                    ref principal,
-                    ref condition_code,
-                    ref amount_staked_condition,
-                ) => {
-                    let account_principal = principal.to_principal_data(&origin_account.principal);
-
-                    let amount_staked = asset_map.get_stacking(&account_principal).unwrap_or(0);
-
-                    if !condition_code.check(u128::from(*amount_staked_condition), amount_staked) {
-                        let reason = format!(
-                            "Post-condition check failure on STX staked by {account_principal}: {amount_staked_condition:?} {condition_code:?} {amount_staked}",
-                        );
-                        info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
-                    }
-
-                    checked_staking.insert(account_principal);
-                }
-                TransactionPostCondition::Pox(ref principal, ref condition_code) => {
-                    let account_principal = principal.to_principal_data(&origin_account.principal);
-
-                    let performed = asset_map.did_pox_action(&account_principal);
-
-                    if !condition_code.check(performed) {
-                        let reason = format!(
-                            "Post-condition check failure on PoX action by {account_principal}: {condition_code:?} performed={performed}",
-                        );
-                        info!("{reason}"; "txid" => %txid);
-                        return Ok(Some(reason));
-                    }
-
-                    checked_pox.insert(account_principal);
-                }
-            }
-        }
-
-        // make sure every asset transferred is covered by a postcondition, if the current mode
-        // requires it.
-        let asset_map_copy = (*asset_map).clone();
-        let mut all_assets_sent = asset_map_copy.to_table();
-        for (principal, mut assets) in all_assets_sent.drain() {
-            if !enforce_unchecked_assets_for_principal(&principal) {
-                continue;
-            }
-            for (asset_identifier, asset_entry) in assets.drain() {
-                match asset_entry {
-                    AssetMapEntry::Asset(values) => {
-                        // this is a NFT
-                        if let Some(checked_nft_asset_map) =
-                            checked_nonfungible_assets.get(&principal)
-                        {
-                            if let Some(nfts) = checked_nft_asset_map.get(&asset_identifier) {
-                                // each value must be covered
-                                for v in values {
-                                    if !nfts.contains(&v.clone().try_into()?) {
-                                        let reason = format!(
-                                            "Post-condition check failure: Non-fungible asset {asset_identifier} value {v:?} was moved by {principal} but not checked"
-                                        );
-                                        info!("{reason}"; "txid" => %txid);
-                                        return Ok(Some(reason));
-                                    }
-                                }
-                            } else {
-                                // no values covered
-                                let reason = format!(
-                                    "Post-condition check failure: Non-fungible asset {asset_identifier} was moved by {principal} but not checked"
-                                );
-                                info!("{reason}"; "txid" => %txid);
-                                return Ok(Some(reason));
-                            }
-                        } else {
-                            // no NFT for this principal
-                            let reason = format!(
-                                "Post-condition check failure: No checks for non-fungible asset {asset_identifier} moved by {principal}"
-                            );
-                            info!("{reason}"; "txid" => %txid);
-                            return Ok(Some(reason));
-                        }
-                    }
-                    _ => {
-                        // This is STX or a fungible token
-                        if let Some(checked_ft_asset_ids) = checked_fungible_assets.get(&principal)
-                        {
-                            if !checked_ft_asset_ids.contains(&asset_identifier) {
-                                let reason = format!(
-                                    "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
-                                );
-                                info!("{reason}"; "txid" => %txid);
-                                return Ok(Some(reason));
-                            }
-                        } else {
-                            let reason = format!(
-                                "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
-                            );
-                            info!("{reason}"; "txid" => %txid);
-                            return Ok(Some(reason));
-                        }
-                    }
-                }
-            }
-        }
-
-        // make sure every principal that staked STX is covered by a `Staking` post-condition, and
-        // every principal that performed a position-altering PoX action is covered by a `Pox`
-        // post-condition, if the current mode requires it. The staking map and pox-action set are
-        // intentionally excluded from `to_table`, so they are enforced separately here. Only
-        // enforced in epochs that support staking post-conditions, since these were previously
-        // unchecked at the tx level.
-        if epoch_id.supports_staking_post_conditions() {
-            for (principal, amount_staked) in asset_map.get_all_stacking() {
-                if *amount_staked == 0 {
-                    continue;
-                }
-                if !enforce_unchecked_assets_for_principal(principal) {
-                    continue;
-                }
-                if !checked_staking.contains(principal) {
-                    let reason = format!(
-                        "Post-condition check failure: {amount_staked} STX was staked by {principal} but not checked"
-                    );
-                    info!("{reason}"; "txid" => %txid);
-                    return Ok(Some(reason));
-                }
-            }
-
-            for principal in asset_map.get_all_pox_actions() {
-                if !enforce_unchecked_assets_for_principal(principal) {
-                    continue;
-                }
-                if !checked_pox.contains(principal) {
-                    let reason = format!(
-                        "Post-condition check failure: {principal} performed a PoX action but it was not checked"
-                    );
-                    info!("{reason}"; "txid" => %txid);
-                    return Ok(Some(reason));
-                }
-            }
-        }
-
-        return Ok(None);
-    }
-
-    /// Given two microblock headers, were they signed by the same key?
-    /// Return the pubkey hash if so; return Err otherwise
-    fn check_microblock_header_signer(
-        mblock_hdr_1: &StacksMicroblockHeader,
-        mblock_hdr_2: &StacksMicroblockHeader,
-    ) -> Result<Hash160, Error> {
-        let pkh1 = mblock_hdr_1.check_recover_pubkey().map_err(|e| {
-            Error::InvalidStacksTransaction(
-                format!("Failed to recover public key: {:?}", &e),
-                false,
-            )
-        })?;
-
-        let pkh2 = mblock_hdr_2.check_recover_pubkey().map_err(|e| {
-            Error::InvalidStacksTransaction(
-                format!("Failed to recover public key: {:?}", &e),
-                false,
-            )
-        })?;
-
-        if pkh1 != pkh2 {
-            let msg = format!(
-                "Invalid PoisonMicroblock transaction -- signature pubkey hash {} != {}",
-                &pkh1, &pkh2
-            );
-            warn!("{}", &msg);
-            return Err(Error::InvalidStacksTransaction(msg, false));
-        }
-        Ok(pkh1)
-    }
-
-    /// Process a poison-microblock transaction within a Clarity environment.
-    /// The code in vm::contexts will call this, via a similarly-named method.
-    /// Returns a Value that represents the miner slashed:
-    /// * contains the block height of the block with the slashed microblock public key hash
-    /// * contains the microblock public key hash
-    /// * contains the sender that reported the poison-microblock
-    /// * contains the sequence number at which the fork occurred
-    pub fn handle_poison_microblock(
-        env: &mut ExecutionState,
-        invoke_ctx: &InvocationContext,
-        mblock_header_1: &StacksMicroblockHeader,
-        mblock_header_2: &StacksMicroblockHeader,
-    ) -> Result<Value, Error> {
-        let cost_before = env.global_context.cost_track.get_total();
-
-        // encodes MARF reads for loading microblock height and current height, and loading and storing a
-        // poison-microblock report
-        runtime_cost(ClarityCostFunction::PoisonMicroblock, env, 0)
-            .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
-
-        let sender_principal = match &invoke_ctx.sender {
-            Some(ref sender) => {
-                if let PrincipalData::Standard(sender) = sender.clone() {
-                    sender
-                } else {
-                    panic!(
-                        "BUG: tried to handle poison microblock without a standard principal sender"
-                    );
-                }
-            }
-            None => {
-                panic!("BUG: tried to handle poison microblock without a sender");
-            }
-        };
-
-        // is this valid -- were both headers signed by the same key?
-        let pubkh =
-            StacksChainState::check_microblock_header_signer(mblock_header_1, mblock_header_2)?;
-
-        let microblock_height_opt = env
-            .global_context
-            .database
-            .get_microblock_pubkey_hash_height(&pubkh)?;
-        let current_height = env.global_context.database.get_current_block_height();
-
-        // for the microblock public key hash we had to process
-        env.add_memory(20)
-            .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
-
-        // for the block height we had to load
-        env.add_memory(4)
-            .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
-
-        // was the referenced public key hash used anytime in the past
-        // MINER_REWARD_MATURITY blocks?
-        let mblock_pubk_height = match microblock_height_opt {
-            None => {
-                // public key has never been seen before
-                let msg = format!(
-                    "Invalid Stacks transaction: microblock public key hash {} never seen in this fork",
-                    &pubkh
-                );
-                warn!("{}", &msg;
-                      "microblock_pubkey_hash" => %pubkh
-                );
-
-                return Err(Error::InvalidStacksTransaction(msg, false));
-            }
-            Some(height) => {
-                if height
-                    .checked_add(
-                        u32::try_from(MINER_REWARD_MATURITY).expect("FATAL: maturity > 2^32"),
-                    )
-                    .expect("BUG: too many blocks")
-                    < current_height
-                {
-                    let msg = format!(
-                        "Invalid Stacks transaction: microblock public key hash from height {} has matured relative to current height {}",
-                        height, current_height
-                    );
-                    warn!("{}", &msg;
-                          "microblock_pubkey_hash" => %pubkh
-                    );
-
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-                height
-            }
-        };
-
-        // add punishment / commission record, if one does not already exist at lower sequence
-        let (reporter_principal, reported_seq) = if let Some((reporter, seq)) = env
-            .global_context
-            .database
-            .get_microblock_poison_report(mblock_pubk_height)?
-        {
-            // account for report loaded
-            env.add_memory(u64::from(TypeSignature::PrincipalType.size().map_err(
-                |_| Error::Expects("Failed to get size of PrincipalType".into()),
-            )?))
-            .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
-
-            // u128 sequence
-            env.add_memory(16)
-                .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
-
-            if mblock_header_1.sequence < seq {
-                // this sender reports a point lower in the stream where a fork occurred, and is now
-                // entitled to a commission of the punished miner's coinbase
-                debug!("Sender {} reports a better poison-miroblock record (at {}) for key {} at height {} than {} (at {})", &sender_principal, mblock_header_1.sequence, &pubkh, mblock_pubk_height, &reporter, seq;
-                    "sender" => %sender_principal,
-                    "microblock_pubkey_hash" => %pubkh
-                );
-                env.global_context.database.insert_microblock_poison(
-                    mblock_pubk_height,
-                    &sender_principal,
-                    mblock_header_1.sequence,
-                )?;
-                (sender_principal, mblock_header_1.sequence)
-            } else {
-                // someone else beat the sender to this report
-                debug!("Sender {} reports an equal or worse poison-microblock record (at {}, but already have one for {}); dropping...", &sender_principal, mblock_header_1.sequence, seq;
-                    "sender" => %sender_principal,
-                    "microblock_pubkey_hash" => %pubkh
-                );
-                (reporter, seq)
-            }
-        } else {
-            // first-ever report of a fork
-            debug!(
-                "Sender {} reports a poison-microblock record at seq {} for key {} at height {}",
-                &sender_principal, mblock_header_1.sequence, &pubkh, &mblock_pubk_height;
-                "sender" => %sender_principal,
-                "microblock_pubkey_hash" => %pubkh
-            );
-            env.global_context.database.insert_microblock_poison(
-                mblock_pubk_height,
-                &sender_principal,
-                mblock_header_1.sequence,
-            )?;
-            (sender_principal, mblock_header_1.sequence)
-        };
-
-        let hash_data = BuffData {
-            data: pubkh.as_bytes().to_vec(),
-        };
-        let tuple_data = TupleData::from_data(vec![
-            (
-                ClarityName::try_from("block_height").expect("BUG: valid string representation"),
-                Value::UInt(u128::from(mblock_pubk_height)),
-            ),
-            (
-                ClarityName::try_from("microblock_pubkey_hash")
-                    .expect("BUG: valid string representation"),
-                Value::Sequence(SequenceData::Buffer(hash_data)),
-            ),
-            (
-                ClarityName::try_from("reporter").expect("BUG: valid string representation"),
-                Value::Principal(PrincipalData::Standard(reporter_principal)),
-            ),
-            (
-                ClarityName::try_from("sequence").expect("BUG: valid string representation"),
-                Value::UInt(u128::from(reported_seq)),
-            ),
-        ])
-        .expect("BUG: valid tuple representation");
-
-        Ok(Value::Tuple(tuple_data))
-    }
-
-    /// Process the transaction's payload, and run the post-conditions against the resulting state.
-    ///
-    /// NOTE: this does not verify that the transaction can be processed in the clarity_tx's Stacks
-    /// epoch.  This check must be performed by the caller before processing the block, e.g. via
-    /// StacksBlock::validate_transactions_static().
-    ///
-    /// Returns the stacks transaction receipt
-    pub fn process_transaction_payload(
-        clarity_tx: &mut ClarityTransactionConnection,
-        tx: &StacksTransaction,
-        origin_account: &StacksAccount,
-        resource_budgets: &TransactionResourceBudgets,
-    ) -> Result<StacksTransactionReceipt, Error> {
-        match tx.payload {
-            TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
-                // post-conditions are not allowed for this variant, since they're non-sensical.
-                // Their presence in this variant makes the transaction invalid.
-                if !tx.post_conditions.is_empty() {
-                    let msg = "Invalid Stacks transaction: TokenTransfer transactions do not support post-conditions".to_string();
-                    info!("{}", &msg; "txid" => %tx.txid());
-
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-
-                if *addr == origin_account.principal {
-                    let msg = "Invalid TokenTransfer: address tried to send to itself".to_string();
-                    info!("{}", &msg; "txid" => %tx.txid());
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-
-                let cost_before = clarity_tx.cost_so_far();
-                let (value, _asset_map, events) = clarity_tx
-                    .run_stx_transfer(
-                        &origin_account.principal,
-                        addr,
-                        u128::from(*amount),
-                        &BuffData {
-                            data: Vec::from(memo.0),
-                        },
-                    )
-                    .map_err(Error::ClarityError)?;
-
-                let mut total_cost = clarity_tx.cost_so_far();
-                total_cost
-                    .sub(&cost_before)
-                    .expect("BUG: total block cost decreased");
-
-                let receipt = StacksTransactionReceipt::from_stx_transfer(
-                    tx.clone(),
-                    events,
-                    value,
-                    total_cost,
-                );
-                Ok(receipt)
-            }
-            TransactionPayload::ContractCall(ref contract_call) => {
-                // if this calls a function that doesn't exist or is syntactically invalid, then the
-                // transaction is invalid (since this can be checked statically by the miner).
-                // if on the other hand the contract being called has a runtime error, then the
-                // transaction is still valid, but no changes will materialize besides debiting the
-                // tx fee.
-                let contract_id = contract_call.to_clarity_contract_id();
-                let cost_before = clarity_tx.cost_so_far();
-                let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
-                let epoch_id = clarity_tx.get_epoch();
-
-                let contract_call_resp = clarity_tx.run_contract_call(
-                    &origin_account.principal,
-                    sponsor.as_ref(),
-                    &contract_id,
-                    &contract_call.function_name,
-                    &contract_call.function_args,
-                    |asset_map, _| {
-                        StacksChainState::check_transaction_postconditions(
-                            &tx.post_conditions,
-                            &tx.post_condition_mode,
-                            origin_account,
-                            asset_map,
-                            epoch_id,
-                            tx.txid(),
-                        )
-                        .expect("FATAL: error while evaluating post-conditions")
-                    },
-                    resource_budgets.get_execution_budget(),
-                );
-
-                let mut total_cost = clarity_tx.cost_so_far();
-                total_cost
-                    .sub(&cost_before)
-                    .expect("BUG: total block cost decreased");
-
-                let (result, asset_map, events, vm_error) = match contract_call_resp {
-                    Ok((return_value, asset_map, events)) => {
-                        info!("Contract-call successfully processed";
-                              "txid" => %tx.txid(),
-                              "origin" => %origin_account.principal,
-                              "origin_nonce" => %origin_account.nonce,
-                              "contract_name" => %contract_id,
-                              "function_name" => %contract_call.function_name,
-                              "function_args" => %VecDisplay(&contract_call.function_args),
-                              "return_value" => %return_value,
-                              "cost" => ?total_cost);
-                        (return_value, asset_map, events, None)
-                    }
-                    Err(e) => {
-                        log_unreachable_error(&e, &tx.txid());
-                        match handle_clarity_runtime_error(e) {
-                            ClarityRuntimeTxError::Acceptable { error, err_type } => {
-                                info!("Contract-call processed with {}", err_type;
-                                          "txid" => %tx.txid(),
-                                          "origin" => %origin_account.principal,
-                                          "origin_nonce" => %origin_account.nonce,
-                                          "contract_name" => %contract_id,
-                                          "function_name" => %contract_call.function_name,
-                                          "function_args" => %VecDisplay(&contract_call.function_args),
-                                          "error" => ?error);
-                                (
-                                    Value::err_none(),
-                                    AssetMap::new(),
-                                    vec![],
-                                    Some(error.to_string()),
-                                )
-                            }
-                            ClarityRuntimeTxError::AbortedByCallback {
-                                output,
-                                assets_modified,
-                                tx_events,
-                                reason,
-                            } => {
-                                info!("Contract-call aborted by post-condition";
-                                          "txid" => %tx.txid(),
-                                          "origin" => %origin_account.principal,
-                                          "origin_nonce" => %origin_account.nonce,
-                                          "contract_name" => %contract_id,
-                                          "function_name" => %contract_call.function_name,
-                                          "function_args" => %VecDisplay(&contract_call.function_args));
-                                let receipt = StacksTransactionReceipt::from_condition_aborted_contract_call(
-                                        tx.clone(),
-                                        tx_events,
-                                        output.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
-                                        assets_modified.get_stx_burned_total()?,
-                                        total_cost,
-                                        reason,
-                                    );
-                                return Ok(receipt);
-                            }
-                            ClarityRuntimeTxError::CostError(cost_after, budget) => {
-                                warn!("Block compute budget exceeded: if included, this will invalidate a block"; "txid" => %tx.txid(), "cost" => %cost_after, "budget" => %budget);
-                                return Err(Error::CostOverflowError(
-                                    cost_before,
-                                    cost_after,
-                                    budget,
-                                ));
-                            }
-                            ClarityRuntimeTxError::AnalysisError(runtime_check_err) => {
-                                if epoch_id >= StacksEpochId::Epoch21 {
-                                    // in 2.1 and later, this is a permitted runtime error.  take the
-                                    // fee from the payer and keep the tx.
-                                    info!("Contract-call encountered an analysis error at runtime";
-                                          "txid" => %tx.txid(),
-                                          "origin" => %origin_account.principal,
-                                          "origin_nonce" => %origin_account.nonce,
-                                          "contract_name" => %contract_id,
-                                          "function_name" => %contract_call.function_name,
-                                          "function_args" => %VecDisplay(&contract_call.function_args),
-                                          "error" => %runtime_check_err);
-
-                                    let receipt =
-                                        StacksTransactionReceipt::from_runtime_failure_contract_call(
-                                            tx.clone(),
-                                            total_cost,
-                                            runtime_check_err,
-                                        );
-                                    return Ok(receipt);
-                                } else {
-                                    // prior to 2.1, this is not permitted in a block.
-                                    warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
-                                              "txid" => %tx.txid(),
-                                              "origin" => %origin_account.principal,
-                                              "origin_nonce" => %origin_account.nonce,
-                                               "contract_name" => %contract_id,
-                                               "function_name" => %contract_call.function_name,
-                                               "function_args" => %VecDisplay(&contract_call.function_args),
-                                               "error" => %runtime_check_err);
-                                    return Err(Error::ClarityError(ClarityError::Interpreter(
-                                        VmExecutionError::RuntimeCheck(runtime_check_err),
-                                    )));
-                                }
-                            }
-                            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
-                                warn!("Transaction exceeded miner execution resource limit; will be dropped from mempool";
-                                              "error" => s.clone(),
-                                              "txid" => %tx.txid(),
-                                              "origin" => %origin_account.principal,
-                                              "origin_nonce" => %origin_account.nonce,
-                                               "contract_name" => %contract_id,
-                                               "function_name" => %contract_call.function_name,
-                                               "function_args" => %VecDisplay(&contract_call.function_args));
-                                return Err(Error::ExecutionResourceBudgetExceeded(s));
-                            }
-                            ClarityRuntimeTxError::Rejectable(e) => {
-                                error!("Unexpected error in validating transaction: if included, this will invalidate a block";
-                                           "txid" => %tx.txid(),
-                                           "origin" => %origin_account.principal,
-                                           "origin_nonce" => %origin_account.nonce,
-                                           "contract_name" => %contract_id,
-                                           "function_name" => %contract_call.function_name,
-                                           "function_args" => %VecDisplay(&contract_call.function_args),
-                                           "error" => ?e);
-                                return Err(Error::ClarityError(e));
-                            }
-                        }
-                    }
-                };
-
-                let receipt = StacksTransactionReceipt::from_contract_call(
-                    tx.clone(),
-                    events,
-                    result,
-                    asset_map.get_stx_burned_total()?,
-                    total_cost,
-                    vm_error,
-                );
-                Ok(receipt)
-            }
-            TransactionPayload::SmartContract(ref smart_contract, ref version_opt) => {
-                let epoch_id = clarity_tx.get_epoch();
-                let clarity_version = version_opt
-                    .unwrap_or(ClarityVersion::default_for_epoch(clarity_tx.get_epoch()));
-                let issuer_principal = match origin_account.principal {
-                    PrincipalData::Standard(ref p) => p.clone(),
-                    _ => {
-                        unreachable!(
-                            "BUG: transaction issued by something other than a standard principal"
-                        );
-                    }
-                };
-
-                let contract_id =
-                    QualifiedContractIdentifier::new(issuer_principal, smart_contract.name.clone());
-                let contract_code_str = smart_contract.code_body.to_string();
-
-                // can't be instantiated already -- if this fails, then the transaction is invalid
-                // (because this can be checked statically by the miner before mining the block).
-                if StacksChainState::get_contract(clarity_tx, &contract_id)?.is_some() {
-                    let msg = format!("Duplicate contract '{}'", &contract_id);
-                    info!("{}", &msg);
-
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-
-                let cost_before = clarity_tx.cost_so_far();
-
-                // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
-                // The reason for this is that analyzing the transaction is itself an expensive
-                // operation, and the paying account will need to be debited the fee regardless.
-                //
-                // `max_analysis_time` bounds the analysis phase on the
-                // non-consensus voting paths (mining / block-proposal validation); it is
-                // `None` on deterministic replay/commit (consensus stays deterministic).
-                let analysis_resp = clarity_tx.analyze_smart_contract(
-                    &contract_id,
-                    clarity_version,
-                    &contract_code_str,
-                    resource_budgets.get_analysis_budget(),
-                );
-                let (contract_ast, contract_analysis) = match analysis_resp {
-                    Ok(x) => x,
-                    Err(e) => {
-                        log_unreachable_error(&e, &tx.txid());
-                        match e {
-                            ClarityError::CostError(ref cost_after, ref budget) => {
-                                warn!(
-                                    "Block compute budget exceeded on {}: cost before={}, after={}, budget={}",
-                                    tx.txid(),
-                                    &cost_before,
-                                    cost_after,
-                                    budget
-                                );
-                                return Err(Error::CostOverflowError(
-                                    cost_before,
-                                    cost_after.clone(),
-                                    budget.clone(),
-                                ));
-                            }
-                            ClarityError::AnalysisResourceBudgetExceeded(s) => {
-                                // The analysis phase exceeded its wall-clock deadline or allocation limit (on a voting path only).
-                                warn!("Contract analysis exceeded the analysis resource budget; tx will be dropped from the mempool";
-                                      "error" => s.clone(),
-                                      "txid" => %tx.txid(),
-                                      "contract_name" => %contract_id,
-                                );
-                                return Err(Error::AnalysisResourceBudgetExceeded(s));
-                            }
-                            other_error => {
-                                if let ClarityError::Parse(err) = &other_error {
-                                    if err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                        info!(
-                                            "Transaction {} is problematic and should have prevented this block from being relayed",
-                                            tx.txid()
-                                        );
-                                        return Err(Error::ClarityError(other_error));
-                                    }
-                                }
-                                if let ClarityError::StaticCheck(err) = &other_error {
-                                    if err.err.rejectable_in_epoch(clarity_tx.get_epoch()) {
-                                        info!(
-                                            "Transaction {} is problematic and should have prevented this block from being relayed",
-                                            tx.txid()
-                                        );
-                                        return Err(Error::ClarityError(other_error));
-                                    }
-                                }
-                                // this analysis isn't free -- convert to runtime error
-                                let mut analysis_cost = clarity_tx.cost_so_far();
-                                analysis_cost
-                                    .sub(&cost_before)
-                                    .expect("BUG: total block cost decreased");
-
-                                info!(
-                                    "Runtime error in contract analysis for {contract_id}: {other_error:?}";
-                                    "txid" => %tx.txid(),
-                                );
-                                let receipt = StacksTransactionReceipt::from_analysis_failure(
-                                    tx.clone(),
-                                    analysis_cost,
-                                    other_error,
-                                );
-
-                                // abort now -- no burns
-                                return Ok(receipt);
-                            }
-                        }
-                    }
-                };
-
-                let mut analysis_cost = clarity_tx.cost_so_far();
-                analysis_cost
-                    .sub(&cost_before)
-                    .expect("BUG: total block cost decreased");
-                let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
-
-                // execution -- if this fails due to a runtime error, then the transaction is still
-                // accepted, but the contract does not materialize (but the sender is out their fee).
-                let initialize_resp = clarity_tx.initialize_smart_contract(
-                    &contract_id,
-                    clarity_version,
-                    &contract_ast,
-                    &contract_code_str,
-                    sponsor,
-                    |asset_map, _| {
-                        StacksChainState::check_transaction_postconditions(
-                            &tx.post_conditions,
-                            &tx.post_condition_mode,
-                            origin_account,
-                            asset_map,
-                            epoch_id,
-                            tx.txid(),
-                        )
-                        .expect("FATAL: error while evaluating post-conditions")
-                    },
-                    resource_budgets.get_execution_budget(),
-                );
-
-                let mut total_cost = clarity_tx.cost_so_far();
-                total_cost
-                    .sub(&cost_before)
-                    .expect("BUG: total block cost decreased");
-
-                let (asset_map, events) = match initialize_resp {
-                    Ok(x) => {
-                        // store analysis -- if this fails, then the have some pretty bad problems
-                        clarity_tx
-                            .save_analysis(&contract_id, &contract_analysis)
-                            .expect("FATAL: failed to store contract analysis");
-                        x
-                    }
-                    Err(e) => {
-                        log_unreachable_error(&e, &tx.txid());
-                        match handle_clarity_runtime_error(e) {
-                            ClarityRuntimeTxError::Acceptable { error, err_type } => {
-                                info!("Smart-contract processed with {}", err_type;
-                                          "txid" => %tx.txid(),
-                                          "contract" => %contract_id,
-                                          "error" => ?error);
-                                // When top-level code in a contract publish causes a runtime error,
-                                // the transaction is accepted, but the contract is not created.
-                                //   Return a tx receipt with an `err_none()` result to indicate
-                                //   that the transaction failed during execution.
-                                let receipt = StacksTransactionReceipt {
-                                    transaction: tx.clone().into(),
-                                    events: vec![],
-                                    post_condition_aborted: false,
-                                    result: Value::err_none(),
-                                    stx_burned: 0,
-                                    contract_analysis: Some(contract_analysis),
-                                    execution_cost: total_cost,
-                                    microblock_header: None,
-                                    tx_index: 0,
-                                    vm_error: Some(error.to_string()),
-                                    problematic_skipped: None,
-                                };
-                                return Ok(receipt);
-                            }
-                            ClarityRuntimeTxError::AbortedByCallback {
-                                assets_modified,
-                                tx_events,
-                                reason,
-                                ..
-                            } => {
-                                let receipt =
-                                    StacksTransactionReceipt::from_condition_aborted_smart_contract(
-                                        tx.clone(),
-                                        tx_events,
-                                        assets_modified.get_stx_burned_total()?,
-                                        contract_analysis,
-                                        total_cost,
-                                        reason,
-                                    );
-                                return Ok(receipt);
-                            }
-                            ClarityRuntimeTxError::CostError(cost_after, budget) => {
-                                warn!("Block compute budget exceeded: if included, this will invalidate a block";
-                                          "txid" => %tx.txid(),
-                                          "cost" => %cost_after,
-                                          "budget" => %budget);
-                                return Err(Error::CostOverflowError(
-                                    cost_before,
-                                    cost_after,
-                                    budget,
-                                ));
-                            }
-                            ClarityRuntimeTxError::AnalysisError(runtime_check_err) => {
-                                if epoch_id >= StacksEpochId::Epoch21 {
-                                    // in 2.1 and later, this is a permitted runtime error.  take the
-                                    // fee from the payer and keep the tx.
-                                    info!("Smart-contract encountered an analysis error at runtime";
-                                          "txid" => %tx.txid(),
-                                          "contract" => %contract_id,
-                                          "error" => %runtime_check_err);
-
-                                    let receipt =
-                                        StacksTransactionReceipt::from_runtime_failure_smart_contract(
-                                            tx.clone(),
-                                            total_cost,
-                                            contract_analysis,
-                                            runtime_check_err,
-                                        );
-                                    return Ok(receipt);
-                                } else {
-                                    // prior to 2.1, this is not permitted in a block.
-                                    warn!("Unexpected analysis error invalidating transaction: if included, this will invalidate a block";
-                                          "txid" => %tx.txid(),
-                                          "contract" => %contract_id,
-                                          "error" => %runtime_check_err);
-                                    return Err(Error::ClarityError(ClarityError::Interpreter(
-                                        VmExecutionError::RuntimeCheck(runtime_check_err),
-                                    )));
-                                }
-                            }
-                            ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
-                                warn!("Transaction exceeded miner execution resource limit; will be dropped from mempool";
-                                              "error" => s.clone(),
-                                              "txid" => %tx.txid(),
-                                              "contract" => %contract_id);
-                                return Err(Error::ExecutionResourceBudgetExceeded(s));
-                            }
-                            ClarityRuntimeTxError::Rejectable(e) => {
-                                error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
-                                           "txid" => %tx.txid(),
-                                           "contract_name" => %contract_id,
-                                           "error" => ?e);
-                                return Err(Error::ClarityError(e));
-                            }
-                        }
-                    }
-                };
-
-                let receipt = StacksTransactionReceipt::from_smart_contract(
-                    tx.clone(),
-                    events,
-                    asset_map.get_stx_burned_total()?,
-                    contract_analysis,
-                    total_cost,
-                );
-                Ok(receipt)
-            }
-            TransactionPayload::PoisonMicroblock(ref mblock_header_1, ref mblock_header_2) => {
-                // post-conditions are not allowed for this variant, since they're non-sensical.
-                // Their presence in this variant makes the transaction invalid.
-                if !tx.post_conditions.is_empty() {
-                    let msg = "Invalid Stacks transaction: PoisonMicroblock transactions do not support post-conditions".to_string();
-                    info!("{}", &msg);
-
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-
-                let cost_before = clarity_tx.cost_so_far();
-                let res = clarity_tx.run_poison_microblock(
-                    &origin_account.principal,
-                    mblock_header_1,
-                    mblock_header_2,
-                )?;
-                let mut cost = clarity_tx.cost_so_far();
-                cost.sub(&cost_before)
-                    .expect("BUG: running poison microblock tx has negative cost");
-
-                let receipt =
-                    StacksTransactionReceipt::from_poison_microblock(tx.clone(), res, cost);
-
-                Ok(receipt)
-            }
-            TransactionPayload::Coinbase(..) => {
-                // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
-
-                let receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
-                Ok(receipt)
-            }
-            TransactionPayload::TenureChange(ref payload) => {
-                // post-conditions are not allowed for this variant, since they're non-sensical.
-                // Their presence in this variant makes the transaction invalid.
-                if !tx.post_conditions.is_empty() {
-                    let msg = "Invalid Stacks transaction: TenureChange transactions do not support post-conditions".to_string();
-                    info!("{msg}");
-
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-
-                if !payload.cause.is_new_tenure() {
-                    debug!(
-                        "TenureChange {:?} extends existing block tenure (confirms {} blocks)",
-                        &payload.cause, &payload.previous_tenure_blocks
-                    );
-                }
-
-                // defensive check -- this tenure change variant must be supported in this epoch
-                // (or we have a problem).  This should get caught earlier in append_block(), but
-                // this is kept here as an added layer of redundancy
-                let epoch_id = clarity_tx.get_epoch();
-                if MinerTenureInfoCause::from(payload.cause).is_sip034_tenure_extension()
-                    && !epoch_id.supports_specific_budget_extends()
-                {
-                    let msg = format!(
-                        "Invalid Stacks transaction: TenureChange cause variant {:?} is not supported in epoch {:?}",
-                        &payload.cause, &epoch_id
-                    );
-                    info!("{msg}");
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-
-                let receipt = StacksTransactionReceipt::from_tenure_change(tx.clone());
-                Ok(receipt)
-            }
-        }
-    }
-
-    /// Deduce the Clarity version to run
-    pub fn get_tx_clarity_version(
-        clarity_block: &mut ClarityTx,
-        tx: &StacksTransaction,
-    ) -> Result<ClarityVersion, Error> {
-        let clarity_version = match &tx.payload {
-            TransactionPayload::SmartContract(_, ref version_opt) => {
-                // did the caller want to run a particular version of Clarity?
-                version_opt.unwrap_or(ClarityVersion::default_for_epoch(clarity_block.get_epoch()))
-            }
-            _ => {
-                // whatever the epoch default is, since no Clarity code will be executed anyway
-                ClarityVersion::default_for_epoch(clarity_block.get_epoch())
-            }
-        };
-        Ok(clarity_version)
-    }
-
-    /// Process a transaction.  Return the fee and the transaction receipt
-    pub fn process_transaction(
-        clarity_block: &mut ClarityTx,
-        tx: &StacksTransaction,
-        quiet: bool,
-        max_execution_time: Option<std::time::Duration>,
-    ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        // The generic/replay entry point imposes no analysis deadline: only the
-        // miner assembly and block-proposal validation paths (which call
-        // `process_transaction_with_check` directly) bound the analysis phase.
-        let resource_budgets = TransactionResourceBudgets::new()
-            .with_execution_budget(ResourceBudget::new().with_max_duration(max_execution_time));
-
-        Self::process_transaction_with_check(
-            clarity_block,
-            tx,
-            quiet,
-            &resource_budgets,
-            |_| Ok(()),
-        )
-    }
-
-    /// Process a transaction that has been marked problematic by the
-    /// block's `NakamotoBlockHeader::problematic_txs` list. Runs the usual
-    /// static precheck, debits the fee, and bumps the origin (and payer, if
-    /// distinct) nonces — but **does not** execute the transaction's payload.
-    ///
-    /// The returned receipt has `problematic_skipped == Some(category)`,
-    /// `execution_cost == ExecutionCost::ZERO`, and empty `events`.
-    ///
-    /// This must only be called for Epoch 4.0+ blocks: the validation rules
-    /// in [`NakamotoBlock::validate_problematic_txs`] guarantee the marker
-    /// list is empty before then, so reaching this path in an earlier epoch
-    /// is a consensus bug.
-    pub fn process_skipped_transaction(
-        clarity_block: &mut ClarityTx,
-        tx: &StacksTransaction,
-        category: u8,
-        quiet: bool,
-    ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        debug!(
-            "Skip-execute problematic transaction {} ({}) category={}",
-            tx.txid(),
-            tx.payload.name(),
-            category,
-        );
-        let epoch = clarity_block.get_epoch();
-        if epoch < StacksEpochId::Epoch40 {
-            return Err(Error::InvalidStacksTransaction(
-                format!(
-                    "problematic_txs markers are not allowed before Epoch 4.0 (got epoch {epoch})"
-                ),
-                false,
-            ));
-        }
-
-        // Static precheck (size, version, anchor mode, multisig encoding,
-        // Clarity version...). A problematic marker only skips payload
-        // execution; the transaction must still be otherwise valid.
-        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch, None)?;
-
-        let mut transaction = clarity_block.connection().start_transaction_processing();
-
-        let fee = tx.get_tx_fee();
-        let (_origin_account, payer_account) =
-            StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
-
-        let payer_address = payer_account.principal.clone();
-        let payer_nonce = payer_account.nonce;
-        StacksChainState::pay_transaction_fee(&mut transaction, fee, payer_account)?;
-
-        // re-load origin to pick up the new balance/nonce after the fee debit
-        let origin_account =
-            StacksChainState::get_account(&mut transaction, &tx.origin_address().into());
-
-        StacksChainState::update_account_nonce(
-            &mut transaction,
-            &origin_account.principal,
-            origin_account.nonce,
-        );
-        if origin_account.principal != payer_address {
-            StacksChainState::update_account_nonce(&mut transaction, &payer_address, payer_nonce);
-        }
-
-        let tx_receipt = StacksTransactionReceipt::from_problematic_skipped(tx.clone(), category);
-
-        transaction
-            .commit()
-            .map_err(|e| Error::InvalidStacksTransaction(e.to_string(), false))?;
-
-        Ok((fee, tx_receipt))
-    }
-
-    pub fn process_transaction_with_check<
-        F: FnMut(&StacksTransactionReceipt) -> Result<(), Error>,
-    >(
-        clarity_block: &mut ClarityTx,
-        tx: &StacksTransaction,
-        quiet: bool,
-        resource_budgets: &TransactionResourceBudgets,
-        mut check: F,
-    ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
-        let epoch = clarity_block.get_epoch();
-
-        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch, None)?;
-
-        let mut transaction = clarity_block.connection().start_transaction_processing();
-
-        let fee = tx.get_tx_fee();
-        let tx_receipt = if epoch >= StacksEpochId::Epoch21 {
-            // 2.1 and later: pay tx fee, then process transaction
-            let (_origin_account, payer_account) =
-                StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
-
-            let payer_address = payer_account.principal.clone();
-            let payer_nonce = payer_account.nonce;
-            StacksChainState::pay_transaction_fee(&mut transaction, fee, payer_account)?;
-
-            // origin balance may have changed (e.g. if the origin paid the tx fee), so reload the account
-            let origin_account =
-                StacksChainState::get_account(&mut transaction, &tx.origin_address().into());
-
-            let tx_receipt = StacksChainState::process_transaction_payload(
-                &mut transaction,
-                tx,
-                &origin_account,
-                resource_budgets,
-            )?;
-
-            // update the account nonces
-            StacksChainState::update_account_nonce(
-                &mut transaction,
-                &origin_account.principal,
-                origin_account.nonce,
-            );
-            if origin_account.principal != payer_address {
-                // payer is a different account, so update its nonce too
-                StacksChainState::update_account_nonce(
-                    &mut transaction,
-                    &payer_address,
-                    payer_nonce,
-                );
-            }
-
-            tx_receipt
-        } else {
-            // pre-2.1: process transaction, then pay tx fee
-            let (origin_account, payer_account) =
-                StacksChainState::check_transaction_nonces(&mut transaction, tx, quiet)?;
-
-            let tx_receipt = StacksChainState::process_transaction_payload(
-                &mut transaction,
-                tx,
-                &origin_account,
-                &TransactionResourceBudgets::unlimited(),
-            )?;
-
-            let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
-            StacksChainState::pay_transaction_fee(&mut transaction, fee, new_payer_account)?;
-
-            // update the account nonces
-            StacksChainState::update_account_nonce(
-                &mut transaction,
-                &origin_account.principal,
-                origin_account.nonce,
-            );
-            if origin_account != payer_account {
-                StacksChainState::update_account_nonce(
-                    &mut transaction,
-                    &payer_account.principal,
-                    payer_account.nonce,
-                );
-            }
-
-            tx_receipt
-        };
-
-        check(&tx_receipt)?;
-
-        transaction
-            .commit()
-            .map_err(|e| Error::InvalidStacksTransaction(e.to_string(), false))?;
-
-        Ok((fee, tx_receipt))
-    }
-}
-
 #[cfg(test)]
 pub mod test {
     use clarity::util::secp256k1::Secp256k1PrivateKey;
+    use clarity::vm::hooks::trace::CallTraceHook;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
@@ -2053,9 +562,35 @@ pub mod test {
     use stacks_common::types::chainstate::SortitionId;
     use stacks_common::util::hash::*;
 
+    use super::processing::check_transaction_postconditions_for_test;
     use super::*;
     use crate::chainstate::stacks::db::testing::*;
     use crate::chainstate::stacks::{Error, *};
+
+    /// Exercises the complete processor lifecycle in legacy transaction tests.
+    fn process_transaction_for_test(
+        clarity_tx: &mut ClarityTx,
+        tx: &StacksTransaction,
+        quiet: bool,
+        max_execution_time: Option<Duration>,
+    ) -> Result<(u64, StacksTransactionReceipt), Error> {
+        let resource_budgets = TransactionResourceBudgets::unlimited().with_execution_budget(
+            ResourceBudget::unlimited().with_max_duration(max_execution_time),
+        );
+        TransactionProcessor::from(tx)
+            .using_clarity_tx(clarity_tx)
+            .with_resource_policy(resource_budgets)
+            .quiet(quiet)
+            .process()
+    }
+
+    /// Selects a transaction's Clarity version in legacy transaction tests.
+    fn get_tx_clarity_version_for_test(
+        clarity_tx: &mut ClarityTx,
+        tx: &StacksTransaction,
+    ) -> Result<ClarityVersion, Error> {
+        Ok(TransactionProcessor::from(tx).clarity_version(clarity_tx.get_epoch()))
+    }
 
     pub const TestBurnStateDB_20: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch20,
@@ -2188,17 +723,16 @@ pub mod test {
                 None,
             ),
         };
-        let receipt = StacksChainState::process_transaction_payload(
-            &mut tx_conn,
-            &tx,
-            &StacksAccount {
-                principal: sender,
-                nonce: 0,
-                stx_balance: STXBalance::Unlocked { amount: 100 },
-            },
-            &TransactionResourceBudgets::unlimited(),
-        )
-        .unwrap();
+        let origin_account = StacksAccount {
+            principal: sender,
+            nonce: 0,
+            stx_balance: STXBalance::Unlocked { amount: 100 },
+        };
+        let receipt = TransactionProcessor::from(&tx)
+            .with_unlimited_resource_policy()
+            .using_clarity_transaction(&mut tx_conn, &origin_account)
+            .process_payload()
+            .unwrap();
 
         assert_eq!(receipt.result, Value::err_none());
         assert!(receipt.vm_error.unwrap().starts_with("DivisionByZero"));
@@ -2431,7 +965,7 @@ pub mod test {
             });
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
             let account_after =
                 StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -2477,7 +1011,7 @@ pub mod test {
             assert_eq!(recv_account.nonce, 0);
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
             let account_after =
                 StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -2665,7 +1199,7 @@ pub mod test {
                 assert_eq!(account.stx_balance.amount_unlocked(), 123);
                 assert_eq!(account.nonce, 0);
 
-                let res = StacksChainState::process_transaction(&mut conn, &signed_tx, false, None);
+                let res = process_transaction_for_test(&mut conn, &signed_tx, false, None);
                 if let Err(Error::InvalidStacksTransaction(msg, false)) = res {
                     assert!(msg.contains(&err_frag), "{err_frag}");
                 } else {
@@ -2751,7 +1285,7 @@ pub mod test {
             });
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
             let account_after =
                 StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -2822,9 +1356,15 @@ pub mod test {
         });
 
         let category = 7u8;
-        let (fee, receipt) =
-            StacksChainState::process_skipped_transaction(&mut conn, &signed_tx, category, false)
-                .unwrap();
+        let (fee, receipt) = TransactionProcessor::from(TxToProcess::Skip {
+            tx: &signed_tx,
+            category,
+        })
+        .with_unlimited_resource_policy()
+        .using_clarity_tx(&mut conn)
+        .with_check(|_| panic!("skipped transactions must not run receipt checks"))
+        .process()
+        .unwrap();
 
         // the fee was charged and the origin nonce bumped, but the 123 uSTX
         // transfer did not happen: balance dropped by exactly the fee.
@@ -2907,8 +1447,14 @@ pub mod test {
             StacksChainState::account_credit(tx, &addr.to_account_principal(), 123)
         });
 
-        let (fee, receipt) =
-            StacksChainState::process_skipped_transaction(&mut conn, &signed_tx, 0, false).unwrap();
+        let (fee, receipt) = TransactionProcessor::from(TxToProcess::Skip {
+            tx: &signed_tx,
+            category: 0,
+        })
+        .using_clarity_tx(&mut conn)
+        .with_unlimited_resource_policy()
+        .process()
+        .unwrap();
 
         // both nonces advance; the origin's balance is untouched (no payload).
         let account_after = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
@@ -2973,8 +1519,14 @@ pub mod test {
             StacksChainState::account_credit(tx, &addr.to_account_principal(), 223)
         });
 
-        let err = StacksChainState::process_skipped_transaction(&mut conn, &signed_tx, 0, false)
-            .unwrap_err();
+        let err = TransactionProcessor::from(TxToProcess::Skip {
+            tx: &signed_tx,
+            category: 0,
+        })
+        .using_clarity_tx(&mut conn)
+        .with_unlimited_resource_policy()
+        .process()
+        .unwrap_err();
         assert!(matches!(err, Error::InvalidStacksTransaction(..)));
 
         conn.commit_block();
@@ -3032,7 +1584,7 @@ pub mod test {
             assert_eq!(account.nonce, 0);
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
             assert_eq!(account.nonce, 1);
@@ -3120,7 +1672,7 @@ pub mod test {
                     StacksChainState::get_account(&mut conn, &addr.to_account_principal());
                 assert_eq!(account.nonce, next_nonce);
 
-                let res = StacksChainState::process_transaction(&mut conn, &signed_tx, false, None);
+                let res = process_transaction_for_test(&mut conn, &signed_tx, false, None);
                 if expected_behavior[i] {
                     assert!(res.is_ok());
 
@@ -3209,8 +1761,7 @@ pub mod test {
                 );
 
                 let (fee, receipt) =
-                    StacksChainState::process_transaction(&mut conn, &signed_tx, false, None)
-                        .unwrap();
+                    process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
                 // Verify that the syntax error is recorded in the receipt
                 let expected_error =
@@ -3309,8 +1860,7 @@ pub mod test {
 
                 // runtime error should be handled
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, &signed_tx, false, None)
-                        .unwrap();
+                    process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
                 // account nonce should increment
                 let account =
@@ -3393,7 +1943,7 @@ pub mod test {
             assert_eq!(account.nonce, 0);
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
             assert_eq!(account.nonce, 1);
@@ -3501,15 +2051,14 @@ pub mod test {
             assert!(var_before_res.is_none());
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
             let var_before_set_res =
                 StacksChainState::get_data_var(&mut conn, &contract_id, "bar").unwrap();
             assert_eq!(var_before_set_res, Some(Value::Int(0)));
 
             let (fee_2, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None)
-                    .unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx_2, false, None).unwrap();
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
             assert_eq!(account.nonce, 1);
@@ -3626,7 +2175,7 @@ pub mod test {
             assert!(var_before_res.is_none());
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
             let var_before_set_res =
                 StacksChainState::get_data_var(&mut conn, &contract_id, "savedContract").unwrap();
@@ -3636,8 +2185,7 @@ pub mod test {
             );
 
             let (fee_2, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None)
-                    .unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx_2, false, None).unwrap();
 
             let account = StacksChainState::get_account(&mut conn, &addr.to_account_principal());
             assert_eq!(account.nonce, 1);
@@ -3707,7 +2255,7 @@ pub mod test {
                 ContractName::from_literal("hello-world"),
             );
             let (_fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
             // contract-calls that don't commit
             let contract_calls = vec![
@@ -3753,8 +2301,7 @@ pub mod test {
                 assert_eq!(account_2.nonce, next_nonce);
 
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None)
-                        .unwrap();
+                    process_transaction_for_test(&mut conn, &signed_tx_2, false, None).unwrap();
 
                 // nonce should have incremented
                 next_nonce += 1;
@@ -3813,7 +2360,7 @@ pub mod test {
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
             );
             let (_fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
             conn.commit_block();
         }
@@ -3913,7 +2460,7 @@ pub mod test {
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
             );
             let (_fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
             let next_nonce = 0;
 
@@ -3945,8 +2492,7 @@ pub mod test {
                 assert_eq!(account_2.nonce, next_nonce);
 
                 // transaction is invalid, and won't be mined
-                let res =
-                    StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None);
+                let res = process_transaction_for_test(&mut conn, &signed_tx_2, false, None);
                 assert!(res.is_err());
 
                 // nonce should NOT have incremented
@@ -3972,8 +2518,7 @@ pub mod test {
             &ConsensusHash([3u8; 20]),
             &BlockHeaderHash([3u8; 32]),
         );
-        let (_fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+        let (_fee, _) = process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
         let mut next_nonce = 0;
 
@@ -4007,7 +2552,7 @@ pub mod test {
             assert_eq!(account_2.nonce, next_nonce);
 
             // this is expected to be mined
-            let res = StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None);
+            let res = process_transaction_for_test(&mut conn, &signed_tx_2, false, None);
             assert!(res.is_ok());
 
             next_nonce += 1;
@@ -4128,7 +2673,7 @@ pub mod test {
             assert!(var_before_res.is_none());
 
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
             let account_publisher =
                 StacksChainState::get_account(&mut conn, &addr_publisher.to_account_principal());
@@ -4139,8 +2684,7 @@ pub mod test {
             assert_eq!(var_before_set_res, Some(Value::Int(0)));
 
             let (fee_2, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_tx_2, false, None)
-                    .unwrap();
+                process_transaction_for_test(&mut conn, &signed_tx_2, false, None).unwrap();
 
             let account_origin =
                 StacksChainState::get_account(&mut conn, &addr_origin.to_account_principal());
@@ -4646,8 +3190,7 @@ pub mod test {
 
             // publish contract
             let _ =
-                StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                    .unwrap();
+                process_transaction_for_test(&mut conn, &signed_contract_tx, false, None).unwrap();
 
             // no initial stackaroos balance
             let account_stackaroos_balance = StacksChainState::get_account_ft(
@@ -4667,7 +3210,7 @@ pub mod test {
 
             for tx_pass in post_conditions_pass.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None).unwrap();
+                    process_transaction_for_test(&mut conn, tx_pass, false, None).unwrap();
                 expected_stackaroos_balance += 100;
                 expected_nonce += 1;
 
@@ -4692,7 +3235,7 @@ pub mod test {
 
             for tx_pass in post_conditions_pass_payback.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None).unwrap();
+                    process_transaction_for_test(&mut conn, tx_pass, false, None).unwrap();
                 expected_stackaroos_balance -= 100;
                 expected_payback_stackaroos_balance += 100;
                 expected_recv_nonce += 1;
@@ -4734,7 +3277,7 @@ pub mod test {
 
             for tx_pass in post_conditions_pass_nft.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None).unwrap();
+                    process_transaction_for_test(&mut conn, tx_pass, false, None).unwrap();
                 expected_nonce += 1;
 
                 let expected_value =
@@ -4759,7 +3302,7 @@ pub mod test {
 
             for tx_fail in post_conditions_fail.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None).unwrap();
+                    process_transaction_for_test(&mut conn, tx_fail, false, None).unwrap();
                 expected_nonce += 1;
 
                 // no change in balance
@@ -4797,7 +3340,7 @@ pub mod test {
 
             for tx_fail in post_conditions_fail_payback.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None).unwrap();
+                    process_transaction_for_test(&mut conn, tx_fail, false, None).unwrap();
                 expected_recv_nonce += 1;
 
                 // no change in balance
@@ -4840,7 +3383,7 @@ pub mod test {
 
             for tx_fail in post_conditions_fail_nft.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None).unwrap();
+                    process_transaction_for_test(&mut conn, tx_fail, false, None).unwrap();
                 expected_nonce += 1;
 
                 // nft shouldn't exist -- the nft-mint! should have been rolled back
@@ -5330,8 +3873,7 @@ pub mod test {
 
             // publish contract
             let _ =
-                StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                    .unwrap();
+                process_transaction_for_test(&mut conn, &signed_contract_tx, false, None).unwrap();
 
             // no initial stackaroos balance
             let account_stackaroos_balance = StacksChainState::get_account_ft(
@@ -5350,7 +3892,7 @@ pub mod test {
 
             for tx_pass in post_conditions_pass.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None).unwrap();
+                    process_transaction_for_test(&mut conn, tx_pass, false, None).unwrap();
                 expected_stackaroos_balance += 100;
                 expected_nonce += 1;
 
@@ -5392,7 +3934,7 @@ pub mod test {
 
             for tx_pass in post_conditions_pass_payback.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_pass, false, None).unwrap();
+                    process_transaction_for_test(&mut conn, tx_pass, false, None).unwrap();
                 expected_stackaroos_balance -= 100;
                 expected_payback_stackaroos_balance += 100;
                 expected_recv_nonce += 1;
@@ -5453,7 +3995,7 @@ pub mod test {
 
             for tx_fail in post_conditions_fail.iter() {
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None).unwrap();
+                    process_transaction_for_test(&mut conn, tx_fail, false, None).unwrap();
                 expected_nonce += 1;
 
                 // no change in balance
@@ -5506,7 +4048,7 @@ pub mod test {
             for tx_fail in post_conditions_fail_payback.iter() {
                 eprintln!("tx fail {tx_fail:?}");
                 let (_fee, _) =
-                    StacksChainState::process_transaction(&mut conn, tx_fail, false, None).unwrap();
+                    process_transaction_for_test(&mut conn, tx_fail, false, None).unwrap();
                 expected_recv_nonce += 1;
 
                 // no change in balance
@@ -5667,12 +4209,10 @@ pub mod test {
 
             // publish contract
             let _ =
-                StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                    .unwrap();
+                process_transaction_for_test(&mut conn, &signed_contract_tx, false, None).unwrap();
 
             let (_fee, receipt) =
-                StacksChainState::process_transaction(&mut conn, &contract_call_tx, false, None)
-                    .unwrap();
+                process_transaction_for_test(&mut conn, &contract_call_tx, false, None).unwrap();
 
             assert!(receipt.post_condition_aborted);
             assert_eq!(receipt.result.to_string(), "(ok (err u1))");
@@ -7518,7 +6058,7 @@ pub mod test {
             let mode = &test.2;
             let origin = &test.3;
 
-            let result = StacksChainState::check_transaction_postconditions(
+            let result = check_transaction_postconditions_for_test(
                 post_conditions,
                 mode,
                 origin,
@@ -7865,7 +6405,7 @@ pub mod test {
             let mode = &test.2;
             let origin = &test.3;
 
-            let result = StacksChainState::check_transaction_postconditions(
+            let result = check_transaction_postconditions_for_test(
                 post_conditions,
                 mode,
                 origin,
@@ -7949,7 +6489,7 @@ pub mod test {
         ];
 
         for (expected_result, post_conditions, mode) in tests {
-            let result = StacksChainState::check_transaction_postconditions(
+            let result = check_transaction_postconditions_for_test(
                 &post_conditions,
                 &mode,
                 &make_account(&origin, 1, 123),
@@ -8041,7 +6581,7 @@ pub mod test {
         ];
 
         for (expected_pass, post_conditions, mode, epoch) in tests {
-            let result = StacksChainState::check_transaction_postconditions(
+            let result = check_transaction_postconditions_for_test(
                 &post_conditions,
                 &mode,
                 &make_account(&origin, 1, 123),
@@ -8138,7 +6678,7 @@ pub mod test {
         ];
 
         for (expected_pass, post_conditions, mode, epoch) in tests {
-            let result = StacksChainState::check_transaction_postconditions(
+            let result = check_transaction_postconditions_for_test(
                 &post_conditions,
                 &mode,
                 &make_account(&origin, 1, 123),
@@ -8156,7 +6696,7 @@ pub mod test {
 
         // `NotUnstaked` passes when no unstake occurred.
         let empty = AssetMap::new();
-        let result = StacksChainState::check_transaction_postconditions(
+        let result = check_transaction_postconditions_for_test(
             &[forbid_pox()],
             &TransactionPostConditionMode::Allow,
             &make_account(&origin, 1, 123),
@@ -8253,7 +6793,7 @@ pub mod test {
         ];
 
         for (expected_result, post_conditions, mode, asset_map) in tests {
-            let result = StacksChainState::check_transaction_postconditions(
+            let result = check_transaction_postconditions_for_test(
                 &post_conditions,
                 &mode,
                 &make_account(&origin, 1, 123),
@@ -8319,7 +6859,7 @@ pub mod test {
                 ));
             }
 
-            let result = StacksChainState::check_transaction_postconditions(
+            let result = check_transaction_postconditions_for_test(
                 &post_conditions,
                 &TransactionPostConditionMode::Originator,
                 &make_account(&origin, 1, 123),
@@ -8386,7 +6926,7 @@ pub mod test {
                 NonfungibleConditionCode::MaybeSent,
             )];
 
-            let result = StacksChainState::check_transaction_postconditions(
+            let result = check_transaction_postconditions_for_test(
                 &post_conditions,
                 &mode,
                 &make_account(&origin, 1, 123),
@@ -9202,7 +7742,7 @@ pub mod test {
                 let post_condition_mode = &test.2;
                 let origin_account = &test.3;
 
-                let result = StacksChainState::check_transaction_postconditions(
+                let result = check_transaction_postconditions_for_test(
                     post_conditions,
                     post_condition_mode,
                     origin_account,
@@ -9293,15 +7833,10 @@ pub mod test {
                 &BlockHeaderHash([(dbi + 1) as u8; 32]),
             );
             let (fee, _) =
-                StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                    .unwrap();
-            let err = StacksChainState::process_transaction(
-                &mut conn,
-                &signed_contract_call_tx,
-                false,
-                None,
-            )
-            .unwrap_err();
+                process_transaction_for_test(&mut conn, &signed_contract_tx, false, None).unwrap();
+            let err =
+                process_transaction_for_test(&mut conn, &signed_contract_call_tx, false, None)
+                    .unwrap_err();
 
             conn.commit_block();
 
@@ -9320,11 +7855,9 @@ pub mod test {
         );
 
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_tx, false, None).unwrap();
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_call_tx, false, None).unwrap();
 
         assert_eq!(fee, 1);
         assert_eq!(
@@ -9466,13 +7999,9 @@ pub mod test {
             let signed_tx_poison_microblock = signer.get_tx().unwrap();
 
             // process it!
-            let (fee, receipt) = StacksChainState::process_transaction(
-                &mut conn,
-                &signed_tx_poison_microblock,
-                false,
-                None,
-            )
-            .unwrap();
+            let (fee, receipt) =
+                process_transaction_for_test(&mut conn, &signed_tx_poison_microblock, false, None)
+                    .unwrap();
 
             // there must be a poison record for this microblock, from the reporter, for the microblock
             // sequence.
@@ -9587,13 +8116,9 @@ pub mod test {
 
             // should fail to process -- the transaction is invalid if it doesn't point to a known
             // microblock pubkey hash.
-            let err = StacksChainState::process_transaction(
-                &mut conn,
-                &signed_tx_poison_microblock,
-                false,
-                None,
-            )
-            .unwrap_err();
+            let err =
+                process_transaction_for_test(&mut conn, &signed_tx_poison_microblock, false, None)
+                    .unwrap_err();
             let Error::ClarityError(ClarityError::BadTransaction(msg)) = &err else {
                 panic!("Unexpected error type");
             };
@@ -9706,7 +8231,7 @@ pub mod test {
             let signed_tx_poison_microblock_2 = signer.get_tx().unwrap();
 
             // process it!
-            let (fee, receipt) = StacksChainState::process_transaction(
+            let (fee, receipt) = process_transaction_for_test(
                 &mut conn,
                 &signed_tx_poison_microblock_1,
                 false,
@@ -9720,7 +8245,7 @@ pub mod test {
             assert_eq!(report_opt.unwrap(), (reporter_addr_1.clone(), 123));
 
             // process the second one!
-            let (fee, receipt) = StacksChainState::process_transaction(
+            let (fee, receipt) = process_transaction_for_test(
                 &mut conn,
                 &signed_tx_poison_microblock_2,
                 false,
@@ -9974,24 +8499,24 @@ pub mod test {
         assert_eq!(conn.get_epoch(), StacksEpochId::Epoch2_05);
         assert_eq!(
             ClarityVersion::Clarity1,
-            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract).unwrap()
+            get_tx_clarity_version_for_test(&mut conn, &smart_contract).unwrap()
         );
         assert_eq!(
             ClarityVersion::Clarity1,
-            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract_v1).unwrap()
+            get_tx_clarity_version_for_test(&mut conn, &smart_contract_v1).unwrap()
         );
         assert_eq!(
             ClarityVersion::Clarity2,
-            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract_v2).unwrap()
+            get_tx_clarity_version_for_test(&mut conn, &smart_contract_v2).unwrap()
         );
         assert_eq!(
             ClarityVersion::Clarity1,
-            StacksChainState::get_tx_clarity_version(&mut conn, &token_transfer).unwrap()
+            get_tx_clarity_version_for_test(&mut conn, &token_transfer).unwrap()
         );
 
         // verify that 2.1 gating is applied for clarity2
         if let Err(Error::InvalidStacksTransaction(msg, ..)) =
-            StacksChainState::process_transaction(&mut conn, &smart_contract_v2, false, None)
+            process_transaction_for_test(&mut conn, &smart_contract_v2, false, None)
         {
             assert!(msg
                 .find("asks for Clarity 2, but current epoch 2.05 only supports up to Clarity 1")
@@ -10186,19 +8711,19 @@ pub mod test {
         assert_eq!(conn.get_epoch(), StacksEpochId::Epoch21);
         assert_eq!(
             ClarityVersion::Clarity2,
-            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract).unwrap()
+            get_tx_clarity_version_for_test(&mut conn, &smart_contract).unwrap()
         );
         assert_eq!(
             ClarityVersion::Clarity1,
-            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract_v1).unwrap()
+            get_tx_clarity_version_for_test(&mut conn, &smart_contract_v1).unwrap()
         );
         assert_eq!(
             ClarityVersion::Clarity2,
-            StacksChainState::get_tx_clarity_version(&mut conn, &smart_contract_v2).unwrap()
+            get_tx_clarity_version_for_test(&mut conn, &smart_contract_v2).unwrap()
         );
         assert_eq!(
             ClarityVersion::Clarity2,
-            StacksChainState::get_tx_clarity_version(&mut conn, &token_transfer).unwrap()
+            get_tx_clarity_version_for_test(&mut conn, &token_transfer).unwrap()
         );
 
         conn.commit_block();
@@ -10285,13 +8810,11 @@ pub mod test {
             &BlockHeaderHash([1u8; 32]),
         );
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_tx, false, None).unwrap();
         assert_eq!(fee, 0);
 
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_call_tx, false, None).unwrap();
         assert_eq!(fee, 1);
 
         conn.commit_block();
@@ -10305,13 +8828,11 @@ pub mod test {
             &BlockHeaderHash([2u8; 32]),
         );
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_tx, false, None).unwrap();
         assert_eq!(fee, 0);
 
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_call_tx, false, None).unwrap();
         assert_eq!(fee, 1);
 
         conn.commit_block();
@@ -10325,13 +8846,11 @@ pub mod test {
             &BlockHeaderHash([3u8; 32]),
         );
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_tx, false, None).unwrap();
         assert_eq!(fee, 0);
 
-        let err =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap_err();
+        let err = process_transaction_for_test(&mut conn, &signed_contract_call_tx, false, None)
+            .unwrap_err();
         conn.commit_block();
 
         assert!(matches!(err, Error::InvalidFee), "{err:?}");
@@ -10429,13 +8948,11 @@ pub mod test {
             &BlockHeaderHash([1u8; 32]),
         );
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_tx, false, None).unwrap();
         assert_eq!(fee, 0);
 
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_call_tx, false, None).unwrap();
         assert_eq!(fee, 1);
 
         conn.commit_block();
@@ -10449,13 +8966,11 @@ pub mod test {
             &BlockHeaderHash([2u8; 32]),
         );
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_tx, false, None).unwrap();
         assert_eq!(fee, 0);
 
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_call_tx, false, None).unwrap();
         assert_eq!(fee, 1);
 
         conn.commit_block();
@@ -10469,13 +8984,11 @@ pub mod test {
             &BlockHeaderHash([3u8; 32]),
         );
         let (fee, _) =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_tx, false, None)
-                .unwrap();
+            process_transaction_for_test(&mut conn, &signed_contract_tx, false, None).unwrap();
         assert_eq!(fee, 0);
 
-        let err =
-            StacksChainState::process_transaction(&mut conn, &signed_contract_call_tx, false, None)
-                .unwrap_err();
+        let err = process_transaction_for_test(&mut conn, &signed_contract_call_tx, false, None)
+            .unwrap_err();
         conn.commit_block();
 
         assert!(matches!(err, Error::InvalidFee), "{err:?}");
@@ -10498,7 +9011,7 @@ pub mod test {
             return Err(Error::InvalidStacksTransaction(msg, false));
         }
 
-        StacksChainState::process_transaction(clarity_block, tx, quiet, None)
+        process_transaction_for_test(clarity_block, tx, quiet, None)
     }
 
     #[test]
@@ -11045,7 +9558,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (fee, _) = StacksChainState::process_transaction(
+        let (fee, _) = process_transaction_for_test(
             &mut conn,
             &signed_runtime_checkerror_tx_clar1,
             false,
@@ -12833,13 +11346,9 @@ pub mod test {
                 let tx_extend_sip034_signed = signer.get_tx().unwrap();
 
                 // try to process
-                let err = StacksChainState::process_transaction(
-                    &mut conn,
-                    &tx_extend_sip034_signed,
-                    false,
-                    None,
-                )
-                .unwrap_err();
+                let err =
+                    process_transaction_for_test(&mut conn, &tx_extend_sip034_signed, false, None)
+                        .unwrap_err();
 
                 let expected_msg = format!(
                     "Invalid Stacks transaction: TenureChange cause variant {:?} is not supported in epoch {:?}",
@@ -12856,6 +11365,154 @@ pub mod test {
 
             conn.commit_block();
         }
+    }
+
+    #[test]
+    fn transaction_processor_eval_hook_preserves_transaction_semantics() {
+        fn process_contract(
+            test_name: &str,
+            address: &StacksAddress,
+            tx: &StacksTransaction,
+            eval_hook: Option<&mut dyn EvalHook>,
+        ) -> (StacksTransactionReceipt, StacksAccount, bool) {
+            let mut chainstate = TestChainstateBuilder::new_testnet(test_name)
+                .with_balances(vec![(address.clone(), 1_000_000_000)])
+                .build();
+            let mut clarity_tx = chainstate.block_begin(
+                &TestBurnStateDB_21,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+                &ConsensusHash([1u8; 20]),
+                &BlockHeaderHash([1u8; 32]),
+            );
+
+            let processor = TransactionProcessor::from(TxToProcess::Execute(tx))
+                .using_clarity_tx(&mut clarity_tx)
+                .with_unlimited_resource_policy();
+            let (_, receipt) = match eval_hook {
+                Some(eval_hook) => processor.with_eval_hook(eval_hook).process(),
+                None => processor.process(),
+            }
+            .unwrap();
+
+            let account =
+                StacksChainState::get_account(&mut clarity_tx, &address.to_account_principal());
+            let contract_id = QualifiedContractIdentifier::new(
+                address.clone().into(),
+                ContractName::from_literal("traceable"),
+            );
+            let contract_exists = StacksChainState::get_contract(&mut clarity_tx, &contract_id)
+                .unwrap()
+                .is_some();
+            clarity_tx.commit_block();
+
+            (receipt, account, contract_exists)
+        }
+
+        let private_key = StacksPrivateKey::random();
+        let auth = TransactionAuth::from_p2pkh(&private_key).unwrap();
+        let address = auth.origin().address_testnet();
+        let contract = r#"
+            (define-data-var counter uint u0)
+            (define-public (increment)
+                (begin
+                    (var-set counter (+ (var-get counter) u1))
+                    (ok (var-get counter))))
+            (+ u1 u2)
+        "#;
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::new_smart_contract(
+                "traceable",
+                &contract.to_string(),
+                Some(ClarityVersion::Clarity1),
+            )
+            .unwrap(),
+        );
+        tx.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx.chain_id = 0x80000000;
+        tx.set_tx_fee(1);
+        tx.set_origin_nonce(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&private_key).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        let mut call_trace = CallTraceHook::new();
+        let hooked_name = format!("{}-hooked", function_name!());
+        let hooked = process_contract(&hooked_name, &address, &signed_tx, Some(&mut call_trace));
+        assert!(
+            !call_trace.calls().is_empty(),
+            "the transaction processor should propagate its eval hook",
+        );
+
+        let unhooked_name = format!("{}-unhooked", function_name!());
+        let unhooked = process_contract(&unhooked_name, &address, &signed_tx, None);
+
+        assert_eq!(hooked, unhooked);
+        assert!(hooked.2, "the published contract should be committed");
+    }
+
+    #[test]
+    fn transaction_processor_receipt_check_rejection_rolls_back() {
+        let private_key = StacksPrivateKey::random();
+        let auth = TransactionAuth::from_p2pkh(&private_key).unwrap();
+        let sender = auth.origin().address_testnet();
+        let recipient = StacksAddress::new(1, Hash160([0x42; 20])).unwrap();
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth,
+            TransactionPayload::TokenTransfer(
+                recipient.clone().into(),
+                100,
+                TokenTransferMemo([0; 34]),
+            ),
+        );
+        tx.chain_id = 0x80000000;
+        tx.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx.set_tx_fee(1);
+
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&private_key).unwrap();
+        let signed_tx = signer.get_tx().unwrap();
+
+        let mut chainstate = TestChainstateBuilder::new_testnet(function_name!())
+            .with_balances(vec![(sender.clone(), 1_000)])
+            .build();
+        let mut clarity_tx = chainstate.block_begin(
+            &TestBurnStateDB_21,
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1; 20]),
+            &BlockHeaderHash([1; 32]),
+        );
+
+        let sender_before =
+            StacksChainState::get_account(&mut clarity_tx, &sender.to_account_principal());
+        let recipient_before =
+            StacksChainState::get_account(&mut clarity_tx, &recipient.to_account_principal());
+        let cost_before = clarity_tx.cost_so_far();
+
+        let error = TransactionProcessor::from(&signed_tx)
+            .using_clarity_tx(&mut clarity_tx)
+            .with_unlimited_resource_policy()
+            .with_check(|_| Err(Error::BlockCostExceeded))
+            .process()
+            .unwrap_err();
+
+        assert!(matches!(error, Error::BlockCostExceeded));
+        assert_eq!(
+            sender_before,
+            StacksChainState::get_account(&mut clarity_tx, &sender.to_account_principal()),
+        );
+        assert_eq!(
+            recipient_before,
+            StacksChainState::get_account(&mut clarity_tx, &recipient.to_account_principal()),
+        );
+        assert_eq!(cost_before, clarity_tx.cost_so_far());
+
+        clarity_tx.commit_block();
     }
 
     #[test]
@@ -12904,7 +11561,7 @@ pub mod test {
         let cost_before_deploy = conn.cost_so_far();
 
         // set max_execution_time to something that will fire on the first eval()
-        let err = StacksChainState::process_transaction(
+        let err = process_transaction_for_test(
             &mut conn,
             &signed_tx,
             false,
@@ -12931,7 +11588,7 @@ pub mod test {
 
         // allow that transaction to be processed with no max_execution_time, so that it gets
         // committed to the chainstate
-        StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+        process_transaction_for_test(&mut conn, &signed_tx, false, None).unwrap();
 
         // check that the cost of the transaction was charged this time
         let cost_after_deploy = conn.cost_so_far();
@@ -12959,7 +11616,7 @@ pub mod test {
         let signed_call_tx = signer.get_tx().unwrap();
 
         let cost_before_call = conn.cost_so_far();
-        let err = StacksChainState::process_transaction(
+        let err = process_transaction_for_test(
             &mut conn,
             &signed_call_tx,
             false,

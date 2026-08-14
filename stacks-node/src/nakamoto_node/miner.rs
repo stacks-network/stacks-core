@@ -2226,7 +2226,7 @@ fn should_read_count_extend_units() {
         burn_tip_at_start: ConsensusHash([0; 20]),
         abort_flag: Arc::new(AtomicBool::new(false)),
         reset_mempool_caches: false,
-        miner_db: MinerDB::open("/tmp/should_read_count_extend_units.db").unwrap(),
+        miner_db: MinerDB::open(":memory:").unwrap(),
         temporarily_excluded_txids: HashSet::new(),
         permanently_excluded_txids: HashSet::new(),
     };
