@@ -70,7 +70,8 @@ struct ProcessRequiresClarityContext;
 ///
 /// ```compile_fail,E0599
 /// use blockstack_lib::chainstate::stacks::db::transactions::TransactionProcessor;
-/// use blockstack_lib::chainstate::stacks::{StacksAccount, StacksTransaction};
+/// use blockstack_lib::chainstate::stacks::db::StacksAccount;
+/// use blockstack_lib::chainstate::stacks::StacksTransaction;
 /// use blockstack_lib::clarity_vm::clarity::ClarityTransactionConnection;
 ///
 /// fn fully_process_with_a_payload_context(
