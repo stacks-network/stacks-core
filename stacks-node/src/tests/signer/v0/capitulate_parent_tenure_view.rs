@@ -173,6 +173,13 @@ fn pre_commit_50_50_split_agrees_on_node_tip() {
     )
     .expect("Rejecting signers did not reject block N+1");
 
+    wait_for_block_pre_commits_from_signers(
+        30,
+        &block_n_1.header.signer_signature_hash(),
+        &approving_signers,
+    )
+    .expect("Approving signers did not pre-commit to block N+1");
+
     info!("------------------------- Start Next Tenure -------------------------");
     test_observer::clear();
     signer_test.mine_bitcoin_block();
@@ -180,7 +187,7 @@ fn pre_commit_50_50_split_agrees_on_node_tip() {
     info!(
         "------------------------- Wait for All Signers to Report Parent Tenure Last Block N -------------------------";
         "burn_block_height" => info.burn_block_height,
-        "consenus_hash" => %info.pox_consensus,
+        "consensus_hash" => %info.pox_consensus,
         "parent_tenure_last_block_height_n" => info_before.stacks_tip_height,
     );
 
