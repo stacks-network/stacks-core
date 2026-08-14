@@ -766,6 +766,19 @@ CREATE TABLE IF NOT EXISTS orphaned_tenures (
     orphaned_at INTEGER NOT NULL
 ) STRICT;"#;
 
+static CREATE_SUPERSEDED_TENURES_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS superseded_tenures (
+    -- consensus hash of a tenure that a later tenure was permitted to reorg. Its sortition is
+    -- still canonical -- unlike an orphaned tenure -- but the reorg rules
+    -- (`first_proposal_burn_block_timing`) sanctioned replacing the blocks it built, so a
+    -- signature we put over one of them must not stand in the way of that replacement.
+    consensus_hash TEXT PRIMARY KEY,
+    -- burn block height of the superseded tenure's sortition, used to age the record out
+    burn_block_height INTEGER NOT NULL,
+    -- epoch seconds at which we permitted the reorg
+    superseded_at INTEGER NOT NULL
+) STRICT;"#;
+
 // New tables for tracking per-signer untracked block proposal responses with auto-eviction
 static CREATE_SIGNER_PENDING_PRE_COMMIT_RESPONSES: &str = r#"
 CREATE TABLE IF NOT EXISTS signer_pending_pre_commit_responses (
@@ -1109,6 +1122,7 @@ static SCHEMA_19: &[&str] = &[
 
 static SCHEMA_20: &[&str] = &[
     CREATE_ORPHANED_TENURES_TABLE,
+    CREATE_SUPERSEDED_TENURES_TABLE,
     "INSERT INTO db_config (version) VALUES (20);",
 ];
 
@@ -1568,9 +1582,11 @@ impl SignerDb {
     /// previous tenure's block at the same height), so a signature over either may conflict
     /// with a fresh signature over the other.
     ///
-    /// Blocks in tenures that a burnchain fork orphaned (see
-    /// [`SignerDb::mark_tenure_orphaned`]) are never returned: the canonical chain legitimately
-    /// replaces them, so a signature we put over one of them must not block the replacement.
+    /// Blocks in tenures whose replacement we have already sanctioned are never returned, since
+    /// a signature we put over one of them must not stand in the way of that replacement. There
+    /// are two such cases: a burnchain fork removed the tenure's sortition from the canonical
+    /// chain (see [`SignerDb::mark_tenure_orphaned`]), or a later tenure was permitted to reorg
+    /// it under the reorg-timing rules (see [`SignerDb::mark_tenure_superseded`]).
     pub fn get_signed_conflicts(
         &self,
         height: u64,
@@ -1582,6 +1598,7 @@ impl SignerDb {
             WHERE state IN (?1, ?2) AND stacks_height >= ?3
                 AND signer_signature_hash != ?4
                 AND consensus_hash NOT IN (SELECT consensus_hash FROM orphaned_tenures)
+                AND consensus_hash NOT IN (SELECT consensus_hash FROM superseded_tenures)
             ORDER BY stacks_height DESC";
         let args = params![
             &BlockState::GloballyAccepted.to_string(),
@@ -1652,6 +1669,51 @@ impl SignerDb {
             orphaned.push((consensus_hash?, burn_block_height?));
         }
         Ok(orphaned)
+    }
+
+    /// Record that we permitted a later tenure to reorg this one under the reorg-timing rules
+    /// (`first_proposal_burn_block_timing`).
+    ///
+    /// Having sanctioned the replacement, our own signature over what this tenure built must not
+    /// then block it: its blocks stop counting as conflicts in
+    /// [`SignerDb::get_signed_conflicts`]. Recorded when the reorg is permitted rather than
+    /// derived at signing time, because by the time a replacement reaches the pre-commit
+    /// threshold the sortition view that sanctioned the reorg may be long gone.
+    ///
+    /// Unlike an orphaned tenure, this is never reconsidered: the sortition stays canonical, so
+    /// there is nothing to re-check it against. Records age out via
+    /// [`SignerDb::prune_superseded_tenures`].
+    pub fn mark_tenure_superseded(
+        &mut self,
+        consensus_hash: &ConsensusHash,
+        burn_block_height: u64,
+    ) -> Result<(), DBError> {
+        self.db.execute(
+            "INSERT OR IGNORE INTO superseded_tenures (consensus_hash, burn_block_height, superseded_at) VALUES (?1, ?2, ?3)",
+            params![
+                consensus_hash,
+                u64_to_sql(burn_block_height)?,
+                u64_to_sql(get_epoch_time_secs())?
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Whether we permitted a later tenure to reorg this one
+    pub fn is_tenure_superseded(&self, consensus_hash: &ConsensusHash) -> Result<bool, DBError> {
+        let query = "SELECT 1 FROM superseded_tenures WHERE consensus_hash = ?1";
+        Ok(query_row::<i64, _>(&self.db, query, params![consensus_hash])?.is_some())
+    }
+
+    /// Drop superseded-tenure records for sortitions below `burn_block_height`. A tenure that
+    /// old cannot conflict with a proposal anywhere near the chain tip, so the record has no
+    /// further use.
+    pub fn prune_superseded_tenures(&mut self, burn_block_height: u64) -> Result<(), DBError> {
+        self.db.execute(
+            "DELETE FROM superseded_tenures WHERE burn_block_height < ?1",
+            params![u64_to_sql(burn_block_height)?],
+        )?;
+        Ok(())
     }
 
     /// Return the last globally accepted block in a tenure (identified by its consensus hash).
@@ -3629,6 +3691,28 @@ pub mod tests {
             db.get_signed_conflicts(2, &unrelated_hash).unwrap().len(),
             2
         );
+
+        // A tenure whose reorg we permitted is void the same way, and independently of the
+        // orphan records: tenure 1 is no longer orphaned, but superseding it drops its blocks
+        // just the same (tenure 2 is still orphaned, so nothing is left to conflict with).
+        assert!(!db.is_tenure_superseded(&consensus_hash_1).unwrap());
+        db.mark_tenure_superseded(&consensus_hash_1, 43).unwrap();
+        assert!(db.is_tenure_superseded(&consensus_hash_1).unwrap());
+        assert!(!db.is_tenure_orphaned(&consensus_hash_1).unwrap());
+        assert!(db
+            .get_signed_conflicts(2, &unrelated_hash)
+            .unwrap()
+            .is_empty());
+
+        // Pruning only drops records for sortitions below the cutoff.
+        db.prune_superseded_tenures(43).unwrap();
+        assert!(db.is_tenure_superseded(&consensus_hash_1).unwrap());
+        db.prune_superseded_tenures(44).unwrap();
+        assert!(!db.is_tenure_superseded(&consensus_hash_1).unwrap());
+        assert_eq!(
+            db.get_signed_conflicts(2, &unrelated_hash).unwrap().len(),
+            2
+        );
     }
 
     fn generate_tenure_blocks() -> Vec<BlockInfo> {
@@ -5041,6 +5125,14 @@ pub mod tests {
                         })
                         .expect("orphaned_tenures table should exist after V20");
                     assert_eq!(orphaned, 0);
+                    // As does the superseded tenures table
+                    let superseded: i64 = signer_db
+                        .db
+                        .query_row("SELECT COUNT(*) FROM superseded_tenures", [], |row| {
+                            row.get(0)
+                        })
+                        .expect("superseded_tenures table should exist after V20");
+                    assert_eq!(superseded, 0);
                 }
             }
         }

@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TenureChangePayload;
+use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksPublicKey};
@@ -158,9 +159,13 @@ impl TryFrom<SortitionInfo> for SortitionData {
 impl SortitionData {
     /// Check if the tenure defined by `sortition_state` is building off of an
     ///  appropriate tenure.
+    ///
+    /// A permitted reorg is recorded as it is permitted: each tenure whose blocks this one is
+    /// allowed to replace is marked superseded (see [`SignerDb::mark_tenure_superseded`]), so a
+    /// signature we already placed on one of those blocks does not later block the replacement.
     pub fn check_parent_tenure_choice(
         &self,
-        signer_db: &SignerDb,
+        signer_db: &mut SignerDb,
         client: &StacksClient,
         first_proposal_burn_block_timing: &Duration,
     ) -> Result<bool, SignerChainstateError> {
@@ -211,6 +216,11 @@ impl SortitionData {
             }
 
             let Some(first_block_mined) = &tenure.first_block_mined else {
+                // The node saw no blocks in this tenure, so the reorg takes nothing away from
+                // the canonical chain. We may still hold a signature over a block in it that
+                // the node has never seen (a block we accept locally is not handed to the node
+                // until the whole signer set has signed it), so still record the reorg.
+                Self::record_superseded_tenure(signer_db, tenure);
                 continue;
             };
             let Some(local_block_info) =
@@ -251,6 +261,7 @@ impl SortitionData {
                         "first_proposal_burn_block_timing_secs" => first_proposal_burn_block_timing.as_secs(),
                         "proposal_to_sortition" => proposal_to_sortition,
                     );
+                    Self::record_superseded_tenure(signer_db, tenure);
                     continue;
                 }
                 true
@@ -269,6 +280,21 @@ impl SortitionData {
             return Ok(false);
         }
         Ok(true)
+    }
+
+    /// Note that we have sanctioned replacing whatever `tenure` built, so a signature we already
+    /// placed on one of its blocks must stop counting as a conflict.
+    ///
+    /// A failure to record only costs a delayed replacement -- the conflict keeps blocking until
+    /// the signature goes stale -- so it is logged rather than propagated.
+    fn record_superseded_tenure(signer_db: &mut SignerDb, tenure: &TenureForkingInfo) {
+        if let Err(e) =
+            signer_db.mark_tenure_superseded(&tenure.consensus_hash, tenure.burn_block_height)
+        {
+            warn!("Failed to record a tenure whose reorg we permitted: {e}";
+                "superseded_tenure_id" => %tenure.consensus_hash,
+            );
+        }
     }
 
     /// Get the last signed block from the given tenure if it has not timed out.
@@ -532,7 +558,7 @@ impl SortitionState {
     ///  (2) has not "timed out"
     pub fn is_tenure_valid(
         &self,
-        signer_db: &SignerDb,
+        signer_db: &mut SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,

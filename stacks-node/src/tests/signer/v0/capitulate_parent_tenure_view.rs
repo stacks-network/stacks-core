@@ -576,7 +576,9 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
 /// 1. All signers are configured with a tenure_last_block_proposal_timeout = 30 seconds, capitulate_miner_view_timeout = 10 seconds.
 /// 2. The node mines 1 stacks block N (all signers sign it).
 /// 3. 20% of the signers are configured to to auto reject any block proposals and ignore incoming block responses, broadcast of new blocks are skipped.
-/// 4. A new tenure starts and miner proposes block N+1.
+/// 4. The miner proposes block N+1.
+/// 5. The 20% reject block N+1. The 80% are over the pre-commit threshold on their own, so they pre-commit and then sign it.
+/// 6. A new tenure starts.
 /// 7. The 80% of signers that signed block N+1, view the last block of the parent tenure as block N+1. The 20% of signers that rejected block N+1, view the last block of the parent tenure as block N.
 /// 8. The 20% of signers that rejected block N+1 eventually capitulate their view of the parent tenure last block to block N+1 after the timeout period.
 /// 9. The node mines block N+2 successfully with all signers signing it.
@@ -701,6 +703,17 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
         &rejecting_signers,
     )
     .expect("Rejecting signers did not reject block N+1");
+
+    // The supermajority is over the pre-commit threshold on its own, so it goes on to sign block
+    // N+1. Wait for that before starting the next tenure: only a SIGNED block counts as the
+    // parent tenure's last block, so starting the tenure while N+1 is merely pre-committed would
+    // have every signer report N and no split view would form.
+    wait_for_block_acceptance_from_signers(
+        30,
+        &block_n_1.header.signer_signature_hash(),
+        &approving_signers,
+    )
+    .expect("Approving signers did not sign block N+1");
 
     info!("------------------------- Start Next Tenure -------------------------");
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());

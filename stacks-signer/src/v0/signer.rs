@@ -287,7 +287,7 @@ impl SignerTrait<SignerMessage> for Signer {
         #[cfg(not(any(test, feature = "testing")))]
         let version = SUPPORTED_SIGNER_PROTOCOL_VERSION;
         let signer_state = LocalStateMachine::new(
-            &signer_db,
+            &mut signer_db,
             stacks_client,
             &proposal_config,
             &global_state_evaluator,
@@ -346,7 +346,7 @@ impl SignerTrait<SignerMessage> for Signer {
         let local_signer_protocol_version = self.get_signer_protocol_version();
         if self.reward_cycle <= current_reward_cycle {
             let prior_burn_tip = self.local_state_machine.settled_burn_tip();
-            self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client,
+            self.local_state_machine.handle_pending_update(&mut self.signer_db, stacks_client,
                 &self.proposal_config,
                 &mut self.tx_replay_scope, &self.global_state_evaluator, local_signer_protocol_version)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
@@ -657,10 +657,19 @@ impl Signer {
                         panic!("{self} Failed to write burn block event to signerdb: {e}");
                     });
 
+                // A tenure this far below the tip can no longer conflict with a proposal, so we
+                // no longer need to remember that we sanctioned reorging it.
+                if let Err(e) = self
+                    .signer_db
+                    .prune_superseded_tenures(burn_height.saturating_sub(MAX_FORK_DEPTH))
+                {
+                    warn!("{self}: Failed to prune the superseded tenures: {e:?}");
+                }
+
                 let active_signer_protocol_version = self.get_signer_protocol_version();
                 let prior_burn_tip = self.local_state_machine.settled_burn_tip();
                 self.local_state_machine
-                    .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
+                    .bitcoin_block_arrival(&mut self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
                         burn_block_height: *burn_height,
                         consensus_hash: consensus_hash.clone(),
                     }),
@@ -1433,8 +1442,10 @@ impl Signer {
         // same or higher height in ANY tenure is a conflict: two blocks at the same height are
         // siblings no matter which tenure they belong to (e.g. the next tenure's tenure-start
         // block conflicts with the current tenure's block at the same height). Blocks in
-        // tenures that a burnchain fork orphaned are not conflicts and never reach us here:
-        // `update_orphaned_tenures` voided those tenures when the fork was observed.
+        // tenures whose replacement we already sanctioned are not conflicts and never reach us
+        // here: `update_orphaned_tenures` voids a tenure a burnchain fork orphaned, and
+        // `check_parent_tenure_choice` voids one whose reorg the reorg-timing rules permitted.
+        // Both are recorded when observed, so this path never has to re-derive them.
         //
         // Unlike the chainstate check above, a refusal here is "for now" rather than a
         // broadcast rejection: a later pre-commit re-evaluation may still sign the block once

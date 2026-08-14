@@ -258,7 +258,7 @@ fn reorg_timing_testing(
     test_name: &str,
     first_proposal_burn_block_timing_secs: u64,
     sortition_timing_secs: u64,
-) -> Result<bool, SignerChainstateError> {
+) -> (Result<bool, SignerChainstateError>, bool) {
     let (
         _stacks_client,
         mut signer_db,
@@ -314,6 +314,7 @@ fn reorg_timing_testing(
         )
         .unwrap();
 
+    let reorged_tenure = last_sortition.data.consensus_hash.clone();
     let expected_result = vec![
         TenureForkingInfo {
             burn_block_hash: last_sortition.data.burn_block_hash,
@@ -338,32 +339,44 @@ fn reorg_timing_testing(
     ];
     let MockServerClient { server, client, .. } = MockServerClient::new();
     let h = std::thread::spawn(move || {
-        cur_sortition.data.check_parent_tenure_choice(
-            &signer_db,
+        let result = cur_sortition.data.check_parent_tenure_choice(
+            &mut signer_db,
             &client,
             &sortitions_view.config.first_proposal_burn_block_timing,
-        )
+        );
+        // Report whether the reorg of the prior sortition was recorded as sanctioned, so the
+        // caller can check that our own signature over its block stops blocking a replacement.
+        let superseded = signer_db.is_tenure_superseded(&reorged_tenure).unwrap();
+        (result, superseded)
     });
 
     crate::client::tests::write_response(
         server,
         format!("HTTP/1.1 200 Ok\n\n{}", serde_json::json!(expected_result)).as_bytes(),
     );
-    let result = h.join().unwrap();
-    info!("Result: {result:?}");
-    result
+    let (result, superseded) = h.join().unwrap();
+    info!("Result: {result:?}, superseded: {superseded}");
+    (result, superseded)
 }
 
 #[test]
 fn check_parent_tenure_choice_reorg_timing_bad() {
-    let is_good = reorg_timing_testing(function_name!(), 30, 31).unwrap();
-    assert!(!is_good, "Tenure choice should be bad because the reorg occurred in a block whose proposed time was long enough before the sortition");
+    let (result, superseded) = reorg_timing_testing(function_name!(), 30, 31);
+    assert!(!result.unwrap(), "Tenure choice should be bad because the reorg occurred in a block whose proposed time was long enough before the sortition");
+    assert!(
+        !superseded,
+        "A reorg we refused must not void the tenure it would have replaced"
+    );
 }
 
 #[test]
 fn check_parent_tenure_choice_reorg_timing_ok() {
-    let is_good = reorg_timing_testing(function_name!(), 30, 29).unwrap();
-    assert!(is_good, "Tenure choice should be okay because the reorg occurred in a block whose proposed time was close to the sortition");
+    let (result, superseded) = reorg_timing_testing(function_name!(), 30, 29);
+    assert!(result.unwrap(), "Tenure choice should be okay because the reorg occurred in a block whose proposed time was close to the sortition");
+    assert!(
+        superseded,
+        "Having sanctioned the reorg, our signature over the reorged tenure's block must stop counting as a conflict"
+    );
 }
 
 fn make_tenure_change_payload() -> TenureChangePayload {
