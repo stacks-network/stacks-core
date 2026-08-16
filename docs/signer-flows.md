@@ -245,9 +245,17 @@ flowchart TB
     TH -- no --> N3(["wait for more pre-commits"])
     TH -- yes --> RECHECK{"chainstate checks still pass?<br/>check_block_against_signer_db_state<br/>→ section 7"}
     RECHECK -- no --> REJ["mark_locally_rejected,<br/>handle_block_rejection,<br/>broadcast rejection"]:::bad
-    RECHECK -- yes --> CONF["signed conflicts at height ≥ h,<br/>ANY unorphaned tenure<br/>get_signed_conflicts"]
+    RECHECK -- yes --> CONF["signed conflicts at height ≥ h, in ANY<br/>tenure whose reorg we did not sanction<br/>get_signed_conflicts"]
     CONF --> FRESH{"any of them still fresh?<br/>last_endorsed > cutoff"}
-    FRESH -- yes --> HOLD1["refuse to sign for now<br/>(may sign once conflict is stale)"]:::hold
+    FRESH -- yes --> SORT{"conflict_still_blocks, question 1:<br/>is its tenure's sortition still on the<br/>canonical burn chain?<br/>get_sortition_by_burn_hash"}
+    SORT -- "404 — a burnchain fork<br/>orphaned the tenure" --> OWN
+    SORT -- "canonical, or we never<br/>saved its burn block" --> LIVE{"question 2: does the node's chain<br/>still reach the block itself?<br/>get_tenure_tip(its tenure)"}
+    SORT -- "could not ask" --> HOLD1
+    LIVE -- "yes — real chain state" --> HOLD1["refuse to sign for now<br/>(may sign once conflict is stale)"]:::hold
+    LIVE -- "no, and it was<br/>globally accepted" --> OWN
+    LIVE -- "no, only locally accepted<br/>— but above this height" --> OWN
+    LIVE -- "no, only locally accepted<br/>and a sibling at this height" --> HOLD1
+    LIVE -- "could not ask" --> HOLD1
     FRESH -- "no — all stale" --> OWN{"a conflict in this block's<br/>OWN tenure?"}
     OWN -- yes --> TIP{"own tenure confirmed<br/>at ≥ this height?<br/>get_tenure_tip(own tenure)"}
     TIP -- yes --> HOLD2["refuse to sign"]:::hold
@@ -273,14 +281,49 @@ blind spots make the guard necessary:
   again. A block that crosses the pre-commit threshold minutes later has no
   other guard, which is what the own-tenure branch above covers.
 
-Note what the guard does _not_ ask: whether the conflicting tenure is still on
-the canonical burn chain. That question is answered once, when the fork is
-observed (section 8), and its answer is already baked into the conflict list.
-If the node cannot be reached for the own-tenure question, the tenure is treated
-as unconfirmed and the signature goes out.
+Freshness alone is not enough to hold a signature back, because a signature can
+outlive the block it covers: a Bitcoin reorg can kill the block, and a dead
+signature must not stall the chain restarting beneath it until it goes stale. So
+`conflict_still_blocks` derives, per evaluation, whether the conflict could still
+end up in the chain. Deriving this here — instead of recording it when a fork is
+observed — is deliberate: the node's view mid-reorg is a moving target (burn
+block events fire before the sortition transaction commits, and a node error can
+wipe the local state machine), so a fact recorded once at observation time can be
+silently wrong, while a question asked per evaluation self-corrects on the next
+pre-commit or re-proposal. Two questions, in order:
 
-> Anchors: `handle_block_pre_commit`, `check_block_against_signer_db_state`
-> (signer.rs); `get_signed_conflicts`, `SignedConflictInfo` (signerdb.rs)
+1. **Is the conflict's tenure still on the canonical burn chain?** The signer
+   saved the tenure's burn block when it arrived (section 8), and
+   `/v3/sortitions/burn/:hash` resolves it against the node's canonical fork. A
+   404 means a burnchain fork orphaned the tenure: everything it built is void,
+   and the conflict is dead no matter what state its block is in. If the burn
+   block was never saved (a restart, or the tenure predates us), the question is
+   skipped rather than guessed.
+2. **Does the node's canonical Stacks chain still reach the block itself?**
+   - **it does** — real chain state; keep blocking;
+   - **it does not, and the block was globally accepted** — the node once _did_
+     have it, so a reorg moved past it. That is proof it is dead;
+   - **it does not, and the block was only locally accepted** — a block is not
+     handed to the node until the whole signer set has signed it, so this may
+     mean "not yet seen" rather than "dead". A sibling at the same height
+     therefore keeps blocking, since signing both would be the double-sign this
+     guard exists for; a block _above_ the proposal does not, because it is no
+     sibling and abandoning an unconfirmed block to restart beneath it is a
+     reorg, not an equivocation.
+
+Whenever the node cannot be asked, the conflict keeps blocking: that only delays
+the replacement until the signature goes stale, whereas wrongly signing cannot be
+taken back. The one recorded exception is a tenure whose reorg we sanctioned
+under the reorg-timing rules (section 8): there the node still serves the
+conflict as fully live — replacing it is only legitimate because we permitted it
+— so no question asked here could clear it, and `get_signed_conflicts` excludes
+those tenures outright. For the own-tenure question below, an unreachable node is
+instead treated as unconfirmed and the signature goes out.
+
+> Anchors: `handle_block_pre_commit`, `conflict_still_blocks`,
+> `check_block_against_signer_db_state` (signer.rs); `get_signed_conflicts`,
+> `SignedConflictInfo`, `get_burn_block_by_ch` (signerdb.rs); `get_tenure_tip`,
+> `get_sortition_by_burn_hash` (client/stacks_client.rs)
 
 ## 6. Responses from other signers
 
@@ -393,12 +436,9 @@ this flow computes is consensus-visible.
 
 ```mermaid
 flowchart TB
-    BB["NewBurnBlock event"] --> CLR["mark_forked_tenures_orphaned:<br/>first, clear the ARRIVING tenure's<br/>orphan record — the node just<br/>processed it, so it is canonical"]
-    CLR --> FORK{"does it build on the tip<br/>we settled on?"}
-    FORK -- yes --> ARR
-    FORK -- no --> REVAL["revalidate_orphaned_tenures:<br/>drop records more than MAX_FORK_DEPTH<br/>below the new tip, re-ask the node<br/>about the rest, clear the ones<br/>canonical again"]
-    REVAL --> ORPH["walk the abandoned branch<br/>(≤ MAX_FORK_DEPTH), asking the node<br/>which burn blocks are still canonical<br/>(get_sortition_by_burn_hash);<br/>mark_tenure_orphaned for each 404,<br/>stop at the shared burn block"]
-    ORPH --> ARR["bitcoin_block_arrival:<br/>new sortition → make_miner_state"]
+    BB["NewBurnBlock event"] --> SAVE["insert_burn_block: save the burn<br/>block — section 5's sortition<br/>question depends on these records"]
+    SAVE --> PRUNE["prune_superseded_tenures<br/>(records MAX_FORK_DEPTH<br/>below the tip)"]
+    PRUNE --> ARR["bitcoin_block_arrival:<br/>settle only once the node reports<br/>this block as its canonical tip,<br/>else park it as Pending"]
     ARR --> GPT["get_parent_tenure_last_block =<br/>max(node get_tenure_tip,<br/>signerdb get_tenure_last_block_info)<br/>— signed blocks only"]
     HPU["housekeeping:<br/>handle_pending_update"] --> PEND{"a pending BurnBlock<br/>update to settle?"}
     PEND -- yes --> ARR
@@ -423,30 +463,27 @@ run on every pass: `is_capitulation_check_ready` gates it behind
 `capitulate_miner_view_timeout`, because refreshing the parent-tenure view costs
 a node round trip.
 
-A burn block arrival is also the one moment the signer can tell an orphaned
-tenure from an unprocessed one, so that is where the question is settled: the
-burn blocks of the branch we abandoned are in our own db, and the node will say
-which of them are still on its canonical chain (a 404 from
-`/v3/sortitions/burn/:hash` means it is not). The tenures those burn blocks
-started are recorded as orphaned, and from then on their blocks are excluded
-from `get_signed_conflicts`, which is what lets section 5 hold a simple
-fresh/stale rule without re-deriving burn chain history per conflict at signing
-time.
+Burnchain forks need no bookkeeping here. Whether a fork orphaned a tenure whose
+block we signed is derived at signing time from the burn block records this flow
+saves on every arrival (section 5, question 1), so the burn block events
+themselves are all the fork handling this flow owes: nothing has to be observed
+at the right moment, survive an error that resets the local state machine, or be
+restored when the burnchain forks _back_ onto a branch it had abandoned — in that
+last case the sortition is simply canonical again, and the very next evaluation
+sees the conflict as live.
 
-A fork is also the only way an orphaned tenure comes _back_, so every fork
-re-checks the records that already exist, and the arriving burn block's own
-tenure is cleared unconditionally on every arrival, fork or not. That check
-cannot be replaced by watching for events: when the burnchain forks back onto a
-branch the node has already processed, the coordinator revalidates those
-sortitions through `try_revalidate_sortition` and announces nothing, so only the
-burn blocks that are genuinely new arrive as events. Walking the abandoned branch
-would not find the restored tenures either; they are on the branch being adopted,
-not the one being left.
-
-`MAX_FORK_DEPTH` (100) bounds both directions of this bookkeeping: the walk down
-the abandoned branch stops there, and an orphan record more than that many burn
-blocks below the tip is simply dropped. A fork deeper than 100 blocks would cause
-far bigger problems than a stale conflict.
+One decision does have to be recorded, because it is ours rather than the
+node's. When a miner builds off something other than the prior sortition,
+`check_parent_tenure_choice` decides whether the reorg is allowed: it is, if
+every tenure being reorged has at most one globally accepted block and produced
+its first block too close to the next sortition to count
+(`first_proposal_burn_block_timing`). Having sanctioned that replacement, the
+signer records those tenures as **superseded** (`mark_tenure_superseded`), so its
+own signature over what they built does not then block the replacement it just
+permitted — the node cannot answer this one at signing time, since it still
+serves the reorged tenure as fully live until the replacement lands. A record
+more than `MAX_FORK_DEPTH` (100) burn blocks below the tip is dropped; a fork
+that deep would cause far bigger problems than a stale conflict.
 
 Signatures, not pre-commits, are what pin the view: a tenure whose only block
 was pre-committed (never signed) can still time out, and a pre-committed block
@@ -457,13 +494,11 @@ the freshness timeout. Both dynamics are pinned by integration tests:
 `deadlock_50_50_split_capitulates_to_node_tip`
 ([capitulate_parent_tenure_view.rs](../stacks-node/src/tests/signer/v0/capitulate_parent_tenure_view.rs)).
 
-> Anchors: `mark_forked_tenures_orphaned`, `revalidate_orphaned_tenures`,
-> `MAX_FORK_DEPTH` (signer.rs); `handle_pending_update`,
+> Anchors: `MAX_FORK_DEPTH` (signer.rs); `handle_pending_update`,
 > `check_miner_inactivity`, `bitcoin_block_arrival`, `stacks_block_arrival`,
 > `make_miner_state`, `get_parent_tenure_last_block`,
 > `update_parent_tenure_last_block`, `capitulate_viewpoint`,
 > `is_capitulation_check_ready`, `capitulate_miner_view` (signer_state.rs);
-> `is_timed_out` (chainstate/v1.rs,
-> v2.rs); `has_signed_block_in_tenure`, `mark_tenure_orphaned`,
-> `get_orphaned_tenures` (signerdb.rs); `get_sortition_by_burn_hash`
-> (client/stacks_client.rs)
+> `is_timed_out`, `check_parent_tenure_choice` (chainstate/mod.rs,
+> chainstate/v1.rs, v2.rs); `has_signed_block_in_tenure`, `insert_burn_block`,
+> `mark_tenure_superseded`, `prune_superseded_tenures` (signerdb.rs)

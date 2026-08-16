@@ -348,7 +348,6 @@ mod async_sibling_validation {
     use clarity::util::vrf::VRFProof;
     use clarity::vm::costs::ExecutionCost;
     use libsigner::v0::messages::SignerMessage;
-    use libsigner::v0::signer_state::{MinerState, ReplayTransactionSet, SignerStateMachine};
     use libsigner::{BlockProposal, BlockProposalData, SignerEntries, SignerEvent};
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -366,7 +365,6 @@ mod async_sibling_validation {
     };
     use crate::signerdb::{BlockInfo, BlockState};
     use crate::v0::signer::Signer;
-    use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
     use crate::Signer as SignerTrait;
 
     /// Build a tenure-start block for `tenure` with the mandatory tenure-change (idx 0) and
@@ -566,11 +564,6 @@ mod async_sibling_validation {
                 db_path,
                 tips,
             }
-        }
-
-        /// Replace what the node answers, as the chain moving under it would.
-        fn set_tips(&self, tips: Vec<(String, String)>) {
-            *self.tips.lock().unwrap() = tips;
         }
 
         /// Stop the mock node and remove the signer db. Called before the caller asserts, so a
@@ -877,16 +870,32 @@ mod async_sibling_validation {
         );
     }
 
+    /// What has become of tenure 1 (the tenure holding the conflicting block A) by the time
+    /// block B is evaluated.
+    #[derive(Clone, Copy)]
+    enum TenureAFate {
+        /// Nothing: we hold a fresh signature over A and have no evidence it is dead. We never
+        /// saw tenure 1's burn block, so the burn chain question cannot be asked either.
+        Live,
+        /// We saw tenure 1's burn block arrive, and the node still serves its sortition as
+        /// canonical: the tenure is provably live at the burn chain level.
+        SortitionStillCanonical,
+        /// We saw tenure 1's burn block arrive, and the node now 404s its sortition: a
+        /// burnchain fork orphaned the tenure.
+        SortitionOrphaned,
+        /// A was globally accepted -- so the node had it -- and the node has since reorged
+        /// past it.
+        GloballyAcceptedThenReorged,
+    }
+
     /// Drive the cross-tenure race: block A starts tenure 1 and block B starts tenure 2, both
     /// at height 10 off the same parent, so they are siblings in different tenures. A is signed
-    /// first, then B's validation returns. Neither tenure is known to the mock node (the
-    /// realistic case: a block we accepted locally is not handed to the node until the whole
-    /// signer set has signed it), so the node cannot say whether tenure 1 is orphaned or merely
-    /// unprocessed -- only the record left by the burn block arrival can.
-    ///
-    /// `orphan_tenure_a` marks tenure 1 as orphaned by a burnchain fork before B is validated.
+    /// first, then B's validation returns. Neither tenure's Stacks blocks are known to the mock
+    /// node (the realistic case: a block we accepted locally is not handed to the node until
+    /// the whole signer set has signed it), so what the node can answer is decided by `fate`:
+    /// whether tenure 1's sortition is still canonical, and whether A was ever handed over.
     /// Returns the resulting `BlockInfo` for A and for B.
-    fn run_cross_tenure_scenario(orphan_tenure_a: bool) -> (BlockInfo, BlockInfo) {
+    fn run_cross_tenure_scenario(fate: TenureAFate) -> (BlockInfo, BlockInfo) {
         let miner = StacksPrivateKey::from_seed(&[0, 1]);
         let parent_tenure = ConsensusHash([0; 20]);
         let tenure_a = ConsensusHash([1; 20]);
@@ -958,18 +967,44 @@ mod async_sibling_validation {
             &result_tx,
             1,
         );
-        let info_a = node
-            .signer
-            .signer_db
-            .block_lookup(&hash_a)
-            .unwrap()
-            .unwrap();
-
-        if orphan_tenure_a {
-            node.signer
-                .signer_db
-                .mark_tenure_orphaned(&tenure_a, 1)
-                .unwrap();
+        match fate {
+            TenureAFate::Live => {}
+            TenureAFate::SortitionStillCanonical | TenureAFate::SortitionOrphaned => {
+                // We heard tenure 1's burn block arrive, so the signing path can ask the node
+                // whether its sortition is still canonical. The mock node answers only for
+                // the burn hash it serves: everything else 404s (= orphaned).
+                let tenure_a_burn_hash = BurnchainHeaderHash([0xaa; 32]);
+                node.signer
+                    .signer_db
+                    .insert_burn_block(
+                        &tenure_a_burn_hash,
+                        &tenure_a,
+                        1,
+                        &SystemTime::now(),
+                        &BurnchainHeaderHash([0xa9; 32]),
+                    )
+                    .unwrap();
+                if matches!(fate, TenureAFate::SortitionStillCanonical) {
+                    let mut tips = node.tips.lock().unwrap();
+                    tips.push((
+                        format!("/v3/sortitions/burn/{}", tenure_a_burn_hash.to_hex()),
+                        canonical_sortition_response(&tenure_a_burn_hash, 1),
+                    ));
+                }
+            }
+            TenureAFate::GloballyAcceptedThenReorged => {
+                // A reached global acceptance, so it WAS handed to the node. The mock node
+                // does not serve tenure 1, which now means the chain has moved past it rather
+                // than that it was never seen.
+                let mut accepted = node
+                    .signer
+                    .signer_db
+                    .block_lookup(&hash_a)
+                    .unwrap()
+                    .unwrap();
+                accepted.mark_globally_accepted().unwrap();
+                node.signer.signer_db.insert_block(&accepted).unwrap();
+            }
         }
 
         node.signer.process_event(
@@ -979,6 +1014,14 @@ mod async_sibling_validation {
             &result_tx,
             1,
         );
+        // Read A's final state, i.e. after `fate` was applied, so each caller sees what the
+        // conflict actually looked like when B was evaluated.
+        let info_a = node
+            .signer
+            .signer_db
+            .block_lookup(&hash_a)
+            .unwrap()
+            .unwrap();
         let info_b = node
             .signer
             .signer_db
@@ -1011,368 +1054,13 @@ mod async_sibling_validation {
         serde_json::to_string(&vec![info]).unwrap()
     }
 
-    /// A settled burn chain tip, as the local state machine holds it once the node has
-    /// reported the burn block as its canonical tip.
-    fn settled_on(consensus_hash: &ConsensusHash, burn_block_height: u64) -> LocalStateMachine {
-        LocalStateMachine::Initialized(SignerStateMachine {
-            burn_block: consensus_hash.clone(),
-            burn_block_height,
-            current_miner: MinerState::NoValidMiner,
-            active_signer_protocol_version: 2,
-            tx_replay_set: ReplayTransactionSet::none(),
-        })
-    }
-
-    #[test]
-    fn settling_on_a_forked_tip_orphans_the_tenures_on_the_abandoned_branch() {
-        // The burn chain forks: we were on a branch through F -> O1 -> O2, and the node has
-        // reorged onto F -> N1 -> N2 -> N3, which our state machine has now settled on.
-        // Walking back from the tip we left, O2, the node reports O2 and O1 as gone (404) and F
-        // as still canonical, so the tenures started by O2 and O1 are orphaned and F's is left
-        // alone.
-        let fork_point = BurnchainHeaderHash([100; 32]);
-        let old_1 = BurnchainHeaderHash([101; 32]);
-        let old_2 = BurnchainHeaderHash([102; 32]);
-        let new_2 = BurnchainHeaderHash([202; 32]);
-        let new_3 = BurnchainHeaderHash([203; 32]);
-        let ch_fork_point = ConsensusHash([100; 20]);
-        let ch_old_1 = ConsensusHash([101; 20]);
-        let ch_old_2 = ConsensusHash([102; 20]);
-        let ch_new_3 = ConsensusHash([203; 20]);
-
-        // The node serves the fork point and the new tip: everything on the abandoned branch
-        // 404s.
-        let tips = vec![
-            (
-                format!("/v3/sortitions/burn/{}", fork_point.to_hex()),
-                canonical_sortition_response(&fork_point, 100),
-            ),
-            (
-                format!("/v3/sortitions/burn/{}", new_3.to_hex()),
-                canonical_sortition_response(&new_3, 103),
-            ),
-        ];
-        let mut node = MockNode::new(tips, Duration::from_secs(30));
-
-        // Our record of the branch we were on, plus the new tip we were told about.
-        let received = SystemTime::now();
-        for (hash, ch, height, parent) in [
-            (
-                &fork_point,
-                &ch_fork_point,
-                100,
-                &BurnchainHeaderHash([99; 32]),
-            ),
-            (&old_1, &ch_old_1, 101, &fork_point),
-            (&old_2, &ch_old_2, 102, &old_1),
-            (&new_3, &ch_new_3, 103, &new_2),
-        ] {
-            node.signer
-                .signer_db
-                .insert_burn_block(hash, ch, height, &received, parent)
-                .unwrap();
-        }
-
-        // We had settled on O2, and have now settled on N3.
-        node.signer.local_state_machine = settled_on(&ch_new_3, 103);
-        node.signer.update_orphaned_tenures(
-            &node.client,
-            Some(NewBurnBlock {
-                burn_block_height: 102,
-                consensus_hash: ch_old_2.clone(),
-            }),
-        );
-
-        let orphaned = |ch: &ConsensusHash| node.signer.signer_db.is_tenure_orphaned(ch).unwrap();
-        let (o2, o1, fork, new) = (
-            orphaned(&ch_old_2),
-            orphaned(&ch_old_1),
-            orphaned(&ch_fork_point),
-            orphaned(&ch_new_3),
-        );
-        node.shutdown();
-
-        assert!(o2, "the abandoned tip's tenure should be orphaned");
-        assert!(o1, "the tenure below it should be orphaned too");
-        assert!(
-            !fork,
-            "the fork point is still canonical, so its tenure must be left alone"
-        );
-        assert!(
-            !new,
-            "the tenure of the tip we settled on must never be orphaned"
-        );
-    }
-
-    #[test]
-    fn a_fork_the_node_has_not_committed_yet_is_deferred_not_lost() {
-        // The regression this guards: a burn block event is dispatched from inside
-        // `evaluate_sortition`, before the sortition transaction commits, so when the event
-        // arrives the node still serves the pre-fork branch as canonical and would report
-        // nothing as orphaned. `bitcoin_block_arrival` holds the update in `Pending` until the
-        // node catches up, and orphan detection must wait with it rather than run against the
-        // stale view and conclude that nothing was abandoned.
-        let fork_point = BurnchainHeaderHash([100; 32]);
-        let old_1 = BurnchainHeaderHash([101; 32]);
-        let new_1 = BurnchainHeaderHash([201; 32]);
-        let ch_fork_point = ConsensusHash([100; 20]);
-        let ch_old_1 = ConsensusHash([101; 20]);
-        let ch_new_1 = ConsensusHash([201; 20]);
-
-        // The node has not committed the fork yet: it still serves the abandoned branch.
-        let mut node = MockNode::new(
-            [(&fork_point, 100u64), (&old_1, 101)]
-                .iter()
-                .map(|(hash, height)| {
-                    (
-                        format!("/v3/sortitions/burn/{}", hash.to_hex()),
-                        canonical_sortition_response(hash, *height),
-                    )
-                })
-                .collect(),
-            Duration::from_secs(30),
-        );
-
-        let received = SystemTime::now();
-        for (hash, ch, height, parent) in [
-            (
-                &fork_point,
-                &ch_fork_point,
-                100,
-                &BurnchainHeaderHash([99; 32]),
-            ),
-            (&old_1, &ch_old_1, 101, &fork_point),
-            (&new_1, &ch_new_1, 101, &fork_point),
-        ] {
-            node.signer
-                .signer_db
-                .insert_burn_block(hash, ch, height, &received, parent)
-                .unwrap();
-        }
-
-        // N1 arrived, but the node is still on O1, so the state machine holds the update
-        // pending: our settled tip is still O1.
-        let prior = NewBurnBlock {
-            burn_block_height: 101,
-            consensus_hash: ch_old_1.clone(),
-        };
-        node.signer.local_state_machine = LocalStateMachine::Pending {
-            update: StateMachineUpdate::BurnBlock(NewBurnBlock {
-                burn_block_height: 101,
-                consensus_hash: ch_new_1.clone(),
-            }),
-            prior: SignerStateMachine {
-                burn_block: ch_old_1.clone(),
-                burn_block_height: 101,
-                current_miner: MinerState::NoValidMiner,
-                active_signer_protocol_version: 2,
-                tx_replay_set: ReplayTransactionSet::none(),
-            },
-        };
-        node.signer
-            .update_orphaned_tenures(&node.client, Some(prior.clone()));
-        let orphaned_while_pending = node.signer.signer_db.is_tenure_orphaned(&ch_old_1).unwrap();
-
-        // The node commits the fork and reports N1 as its tip, so the state machine settles on
-        // it. The retry that `handle_pending_update` drives now has a view it can trust.
-        node.set_tips(
-            [(&fork_point, 100u64), (&new_1, 101)]
-                .iter()
-                .map(|(hash, height)| {
-                    (
-                        format!("/v3/sortitions/burn/{}", hash.to_hex()),
-                        canonical_sortition_response(hash, *height),
-                    )
-                })
-                .collect(),
-        );
-        node.signer.local_state_machine = settled_on(&ch_new_1, 101);
-        node.signer
-            .update_orphaned_tenures(&node.client, Some(prior));
-        let orphaned_after_settling = node.signer.signer_db.is_tenure_orphaned(&ch_old_1).unwrap();
-        node.shutdown();
-
-        assert!(
-            !orphaned_while_pending,
-            "nothing may be orphaned while the state machine has not settled on the new tip"
-        );
-        assert!(
-            orphaned_after_settling,
-            "the deferred fork must be picked up once the node's view has caught up"
-        );
-    }
-
-    #[test]
-    fn burn_chain_forking_back_restores_the_tenures_it_had_orphaned() {
-        // A -> B -> C, then B and C are reorged away for B' -> C', then the burnchain forks
-        // BACK: D builds on C and E builds on D, so A -> B -> C -> D -> E is canonical again.
-        //
-        // The node does not re-announce B and C when it revalidates them (it only emits burn
-        // block events for D and E, which are genuinely new), and they are not on the branch
-        // the signer walks away from either -- so the only thing that can restore them is
-        // re-checking the orphan records themselves, which is what the fork observation does.
-        let a = BurnchainHeaderHash([100; 32]);
-        let b = BurnchainHeaderHash([101; 32]);
-        let c = BurnchainHeaderHash([102; 32]);
-        let b_prime = BurnchainHeaderHash([111; 32]);
-        let c_prime = BurnchainHeaderHash([112; 32]);
-        let d = BurnchainHeaderHash([103; 32]);
-        let e = BurnchainHeaderHash([104; 32]);
-        let ch = |hash: &BurnchainHeaderHash| ConsensusHash(hash.0[..20].try_into().unwrap());
-
-        // While the reorged branch is canonical, the node knows A, B' and C'.
-        let mut node = MockNode::new(
-            [(&a, 100u64), (&b_prime, 101), (&c_prime, 102)]
-                .iter()
-                .map(|(hash, height)| {
-                    (
-                        format!("/v3/sortitions/burn/{}", hash.to_hex()),
-                        canonical_sortition_response(hash, *height),
-                    )
-                })
-                .collect(),
-            Duration::from_secs(30),
-        );
-
-        // Our record of the burn chain: the original branch, then the reorged one.
-        let received = SystemTime::now();
-        for (hash, height, parent) in [
-            (&a, 100u64, &BurnchainHeaderHash([99; 32])),
-            (&b, 101, &a),
-            (&c, 102, &b),
-            (&b_prime, 101, &a),
-            (&c_prime, 102, &b_prime),
-            (&d, 103, &c),
-            (&e, 104, &d),
-        ] {
-            node.signer
-                .signer_db
-                .insert_burn_block(hash, &ch(hash), height, &received, parent)
-                .unwrap();
-        }
-
-        let settled = |hash: &BurnchainHeaderHash, height: u64| NewBurnBlock {
-            burn_block_height: height,
-            consensus_hash: ch(hash),
-        };
-
-        // We had settled on C; the node reorgs to C', so B and C are orphaned.
-        node.signer.local_state_machine = settled_on(&ch(&c_prime), 102);
-        node.signer
-            .update_orphaned_tenures(&node.client, Some(settled(&c, 102)));
-        let orphaned_after_fork = (
-            node.signer.signer_db.is_tenure_orphaned(&ch(&b)).unwrap(),
-            node.signer.signer_db.is_tenure_orphaned(&ch(&c)).unwrap(),
-        );
-
-        // The burnchain forks back: the node now knows A, B, C, D, E and no longer B' or C'.
-        node.set_tips(
-            [(&a, 100u64), (&b, 101), (&c, 102), (&d, 103), (&e, 104)]
-                .iter()
-                .map(|(hash, height)| {
-                    (
-                        format!("/v3/sortitions/burn/{}", hash.to_hex()),
-                        canonical_sortition_response(hash, *height),
-                    )
-                })
-                .collect(),
-        );
-        // Only D and E are announced; B and C are revalidated silently by the node. We settle
-        // on D, leaving C'.
-        node.signer.local_state_machine = settled_on(&ch(&d), 103);
-        node.signer
-            .update_orphaned_tenures(&node.client, Some(settled(&c_prime, 102)));
-
-        let restored = (
-            node.signer.signer_db.is_tenure_orphaned(&ch(&b)).unwrap(),
-            node.signer.signer_db.is_tenure_orphaned(&ch(&c)).unwrap(),
-        );
-        let abandoned = (
-            node.signer
-                .signer_db
-                .is_tenure_orphaned(&ch(&b_prime))
-                .unwrap(),
-            node.signer
-                .signer_db
-                .is_tenure_orphaned(&ch(&c_prime))
-                .unwrap(),
-        );
-        node.shutdown();
-
-        assert_eq!(
-            orphaned_after_fork,
-            (true, true),
-            "B and C should be orphaned while the reorged branch is canonical"
-        );
-        assert_eq!(
-            restored,
-            (false, false),
-            "B and C are canonical again, so their blocks must count as conflicts again"
-        );
-        assert_eq!(
-            abandoned,
-            (true, true),
-            "B' and C' are the abandoned branch now, so they should be orphaned"
-        );
-    }
-
-    #[test]
-    fn burn_block_arrival_on_the_same_branch_orphans_nothing() {
-        // The ordinary case: the tip we settled on builds directly on the tip we had before, so
-        // no branch was abandoned and nothing is orphaned.
-        let prior_tip = BurnchainHeaderHash([100; 32]);
-        let new_tip = BurnchainHeaderHash([101; 32]);
-        let ch_prior_tip = ConsensusHash([100; 20]);
-        let ch_new_tip = ConsensusHash([101; 20]);
-
-        // Serve nothing: if the signer asked the node about any burn block it would get a 404
-        // and wrongly orphan it, so this also pins the "don't even ask" fast path.
-        let mut node = MockNode::new(vec![], Duration::from_secs(30));
-
-        let received = SystemTime::now();
-        for (hash, ch, height, parent) in [
-            (
-                &prior_tip,
-                &ch_prior_tip,
-                100,
-                &BurnchainHeaderHash([99; 32]),
-            ),
-            (&new_tip, &ch_new_tip, 101, &prior_tip),
-        ] {
-            node.signer
-                .signer_db
-                .insert_burn_block(hash, ch, height, &received, parent)
-                .unwrap();
-        }
-
-        node.signer.local_state_machine = settled_on(&ch_new_tip, 101);
-        node.signer.update_orphaned_tenures(
-            &node.client,
-            Some(NewBurnBlock {
-                burn_block_height: 100,
-                consensus_hash: ch_prior_tip.clone(),
-            }),
-        );
-
-        let prior_orphaned = node
-            .signer
-            .signer_db
-            .is_tenure_orphaned(&ch_prior_tip)
-            .unwrap();
-        node.shutdown();
-        assert!(
-            !prior_orphaned,
-            "the tip we built on must not be treated as orphaned"
-        );
-    }
-
     #[test]
     fn fresh_conflict_in_another_tenure_blocks_signing() {
         // A sibling at the same height in a DIFFERENT tenure is just as much a double-sign as
         // one in the same tenure. The node knows nothing about either tenure, which must not be
         // read as "tenure 1 is orphaned": a locally accepted block is unknown to the node until
         // the whole signer set has signed it.
-        let (info_a, info_b) = run_cross_tenure_scenario(false);
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::Live);
         assert_a_signed(&info_a);
         assert_b_refused(
             &info_b,
@@ -1381,11 +1069,41 @@ mod async_sibling_validation {
     }
 
     #[test]
+    fn conflict_the_node_reorged_past_does_not_block_signing() {
+        // A Bitcoin reorg can rewind a block we signed while leaving its tenure's sortition
+        // canonical, so no orphan record is written for it. Our signature over it is dead all
+        // the same, and must not stall the chain restarting beneath it.
+        //
+        // What separates this from the case above is that A reached GLOBAL acceptance, so it
+        // was handed to the node. The node not having it therefore means the chain moved past
+        // it, rather than that it was never seen -- the ambiguity that keeps a merely locally
+        // accepted sibling blocking.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::GloballyAcceptedThenReorged);
+        assert_eq!(
+            info_a.state,
+            BlockState::GloballyAccepted,
+            "block A should be globally accepted in this scenario, got: {}",
+            info_a.state
+        );
+        assert_eq!(
+            info_b.state,
+            BlockState::LocallyAccepted,
+            "block B should be signed: the node has reorged past the conflicting sibling, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_some(),
+            "block B should carry our signature once the conflict is provably dead"
+        );
+    }
+
+    #[test]
     fn conflict_in_an_orphaned_tenure_does_not_block_signing() {
-        // Once a burnchain fork has orphaned tenure 1, the canonical chain legitimately
-        // replaces its blocks, so our fresh signature over one of them must not stand in the
-        // way of the replacement in tenure 2.
-        let (info_a, info_b) = run_cross_tenure_scenario(true);
+        // Once a burnchain fork has orphaned tenure 1's sortition, the canonical chain
+        // legitimately replaces its blocks, so our fresh signature over one of them must not
+        // stand in the way of the replacement in tenure 2. The signer derives this at signing
+        // time: it saved tenure 1's burn block when it arrived, and the node 404s it.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::SortitionOrphaned);
         assert_a_signed(&info_a);
         assert_eq!(
             info_b.state,
@@ -1396,6 +1114,23 @@ mod async_sibling_validation {
         assert!(
             info_b.signed_self.is_some(),
             "block B should carry our signature once the conflicting tenure was orphaned"
+        );
+    }
+
+    #[test]
+    fn conflict_whose_sortition_is_canonical_still_blocks_signing() {
+        // The burn chain question must cut both ways: when the node serves tenure 1's
+        // sortition as canonical, the tenure is provably live, and the fresh sibling keeps
+        // blocking exactly as if we had never asked. This is also what defers signing while a
+        // mid-reorg node still serves the old branch (each later evaluation asks again), and
+        // what makes a fork BACK onto an abandoned branch restore its conflicts: the sortition
+        // is canonical again, so the very next evaluation sees the conflict as live -- there
+        // is no stale orphan record to clear.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::SortitionStillCanonical);
+        assert_a_signed(&info_a);
+        assert_b_refused(
+            &info_b,
+            "the conflicting sibling's tenure is still on the canonical burn chain",
         );
     }
 

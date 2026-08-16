@@ -1,1 +1,1 @@
-Database schema updated to version 20, adding an `orphaned_tenures` table.
+Database schema updated to version 20, adding a `superseded_tenures` table.

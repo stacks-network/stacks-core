@@ -40,7 +40,7 @@ use libsigner::v0::messages::{
 };
 use libsigner::v0::signer_state::GlobalStateEvaluator;
 use libsigner::{BlockProposal, SignerEvent, SignerSession};
-use stacks_common::types::chainstate::{ConsensusHash, StacksAddress, StacksPublicKey};
+use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{debug, error, info, warn};
@@ -52,15 +52,14 @@ use crate::chainstate::{ProposalEvalConfig, SortitionData, SortitionStateVersion
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
-use crate::signerdb::{BlockInfo, BlockState, PendingBlockResponses, SignerDb};
+use crate::signerdb::{BlockInfo, BlockState, PendingBlockResponses, SignedConflictInfo, SignerDb};
 #[cfg(not(any(test, feature = "testing")))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use crate::v0::signer_state::{NewBurnBlock, ReplayScopeOpt};
 use crate::Signer as SignerTrait;
 
-/// How far back the signer will walk an abandoned burnchain branch, and how far below the
-/// burnchain tip it keeps a record that a tenure was orphaned. A fork deeper than this would
-/// cause much bigger problems than a stale conflict.
+/// How far below the burnchain tip the signer keeps a record that it sanctioned the reorg of
+/// a tenure. A fork deeper than this would cause much bigger problems than a stale conflict.
 const MAX_FORK_DEPTH: u64 = 100;
 
 /// A global variable that can be used to make signers repeat their proposal
@@ -345,14 +344,10 @@ impl SignerTrait<SignerMessage> for Signer {
         let mut prior_state = self.local_state_machine.clone();
         let local_signer_protocol_version = self.get_signer_protocol_version();
         if self.reward_cycle <= current_reward_cycle {
-            let prior_burn_tip = self.local_state_machine.settled_burn_tip();
             self.local_state_machine.handle_pending_update(&mut self.signer_db, stacks_client,
                 &self.proposal_config,
                 &mut self.tx_replay_scope, &self.global_state_evaluator, local_signer_protocol_version)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
-            // A burn block arrival that had to wait for the node lands here, so this is where a
-            // deferred fork is finally observable. See `update_orphaned_tenures`.
-            self.update_orphaned_tenures(stacks_client, prior_burn_tip);
         }
         // See if we should capitulate our viewpoint...
         self.local_state_machine.capitulate_viewpoint(
@@ -667,7 +662,6 @@ impl Signer {
                 }
 
                 let active_signer_protocol_version = self.get_signer_protocol_version();
-                let prior_burn_tip = self.local_state_machine.settled_burn_tip();
                 self.local_state_machine
                     .bitcoin_block_arrival(&mut self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
                         burn_block_height: *burn_height,
@@ -676,10 +670,6 @@ impl Signer {
                     &mut self.tx_replay_scope
                 , &self.global_state_evaluator, active_signer_protocol_version)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
-
-                // Record the tenures the burnchain orphaned, now that the state machine has
-                // settled on the tip it forked to (and so the node can be asked about it).
-                self.update_orphaned_tenures(stacks_client, prior_burn_tip);
                 *sortition_state = None;
             }
             SignerEvent::NewBlock {
@@ -1115,207 +1105,80 @@ impl Signer {
             .insert_update(address, update.clone());
     }
 
-    /// Re-check every tenure we have recorded as orphaned against the node, clearing the ones
-    /// whose sortition is back on the canonical burn chain. Called when a fork is observed,
-    /// which is the only way an orphaned tenure can become canonical again.
+    /// Whether a block we signed still conflicts at `proposed_height`.
     ///
-    /// Records far below the arriving burn block are dropped rather than re-checked: a fork
-    /// that deep is not something the signer can reason about, and a tenure that old cannot
-    /// conflict with a proposal anywhere near the chain tip.
-    fn revalidate_orphaned_tenures(
-        &mut self,
+    /// The guard exists to stop us endorsing two blocks that could both end up in the chain. It
+    /// must not, however, outlive the block it protects: a Bitcoin reorg can kill a block we
+    /// signed, and a dead signature must not stall the chain restarting beneath it.
+    ///
+    /// Two questions, each answerable by the node at any time:
+    ///
+    /// 1. Is the tenure's sortition still on the canonical burn chain? We saved the tenure's
+    ///    burn block when it arrived, and `/v3/sortitions` resolves it against the node's
+    ///    canonical fork. A 404 means a burnchain fork orphaned the tenure: everything it built
+    ///    is void, so the conflict is dead no matter what state its block is in.
+    ///
+    /// 2. Does the node's canonical Stacks chain still reach the block?
+    ///    * If it does, the block is real chain state, so it keeps blocking. (If the reorg-timing
+    ///      rules sanctioned replacing it, the tenure is recorded as superseded and the conflict
+    ///      never reaches this check at all.)
+    ///    * If it does not, and the block was once globally accepted, the node had it and a
+    ///      reorg moved past it. That is proof it is dead, so it stops blocking.
+    ///    * If it does not, and the block was only locally accepted, the node may simply never
+    ///      have been handed it, since that only happens once the whole signer set has signed.
+    ///      We cannot tell "dead" from "not yet known", so a sibling at the same height keeps
+    ///      blocking (signing both would be the double-sign this guard is for), while a block
+    ///      above the proposal does not: it is no sibling, and abandoning an unconfirmed block
+    ///      to restart beneath it is a reorg rather than an equivocation.
+    ///
+    /// If we have no saved burn block, or the node is unreachable, the conflict keeps blocking.
+    /// That only delays the replacement until our signature goes stale, whereas wrongly signing
+    /// cannot be taken back.
+    fn conflict_still_blocks(
+        &self,
         stacks_client: &StacksClient,
-        new_burn_block_height: u64,
-    ) {
-        let orphaned = match self.signer_db.get_orphaned_tenures() {
-            Ok(orphaned) => orphaned,
-            Err(e) => {
-                warn!("{self}: Failed to load the orphaned tenures: {e:?}");
-                return;
-            }
-        };
-        for (consensus_hash, burn_block_height) in orphaned {
-            if burn_block_height.saturating_add(MAX_FORK_DEPTH) < new_burn_block_height {
-                self.clear_orphaned_tenure(&consensus_hash);
-                continue;
-            }
-            let burn_block = match self.signer_db.get_burn_block_by_ch(&consensus_hash) {
-                Ok(burn_block) => burn_block,
-                Err(e) => {
-                    debug!("{self}: No record of an orphaned tenure's burn block, so cannot re-check it: {e:?}";
-                        "consensus_hash" => %consensus_hash,
-                    );
-                    continue;
-                }
-            };
+        conflict: &SignedConflictInfo,
+        proposed_height: u64,
+    ) -> bool {
+        if let Ok(burn_block) = self
+            .signer_db
+            .get_burn_block_by_ch(&conflict.consensus_hash)
+        {
             match stacks_client.get_sortition_by_burn_hash(&burn_block.block_hash) {
                 Ok(_) => {
-                    info!("{self}: The burnchain forked back onto a tenure we had orphaned. Blocks in it conflict with a block proposal again.";
-                        "consensus_hash" => %consensus_hash,
+                    // The tenure's sortition is still canonical: the conflict is live at the
+                    // burn chain level, so fall through to the block-level questions.
+                }
+                Err(ClientError::RequestFailure(reqwest::StatusCode::NOT_FOUND)) => {
+                    info!("{self}: A conflicting block's tenure was orphaned by a burnchain fork. The conflict no longer blocks.";
+                        "conflicting_consensus_hash" => %conflict.consensus_hash,
+                        "conflicting_block_height" => conflict.stacks_height,
                         "burn_block_hash" => %burn_block.block_hash,
-                        "burn_block_height" => burn_block_height,
                     );
-                    self.clear_orphaned_tenure(&consensus_hash);
-                }
-                Err(ClientError::RequestFailure(status))
-                    if status == reqwest::StatusCode::NOT_FOUND =>
-                {
-                    // Still off the canonical chain: leave the record in place.
+                    return false;
                 }
                 Err(e) => {
-                    warn!("{self}: Failed to re-check whether an orphaned tenure is canonical again: {e:?}. Leaving the record in place.";
-                        "consensus_hash" => %consensus_hash,
+                    warn!("{self}: Failed to check whether a conflicting block's tenure is still canonical: {e:?}. Leaving the conflict in place.";
+                        "conflicting_consensus_hash" => %conflict.consensus_hash,
                     );
+                    return true;
                 }
             }
         }
-    }
-
-    /// Forget that a tenure was orphaned, logging rather than propagating a db failure: leaving
-    /// the record in place only costs a delayed replacement, never a double-signed block.
-    fn clear_orphaned_tenure(&mut self, consensus_hash: &ConsensusHash) {
-        if let Err(e) = self.signer_db.clear_orphaned_tenure(consensus_hash) {
-            warn!("{self}: Failed to clear an orphaned tenure: {e:?}";
-                "consensus_hash" => %consensus_hash,
-            );
-        }
-    }
-
-    /// Record the tenures that the burnchain orphaned when it moved to the tip the local state
-    /// machine has just settled on, and clear the records of any it forked back onto.
-    ///
-    /// `prior_burn_tip` is the tip the state machine had settled on before it was updated. If
-    /// the state machine has moved to a tip that is not the next block along that branch, the
-    /// burnchain forked away from it: walk our record of the abandoned branch backwards,
-    /// marking each tenure orphaned, until we reach the burn block the two branches share.
-    ///
-    /// Keying this off a *settled* tip rather than off the arriving burn block event is what
-    /// makes the node's answers usable. A burn block event is dispatched from inside
-    /// `evaluate_sortition` (`sortdb.rs`), before the sortition transaction commits, so when
-    /// the event arrives the node still serves the pre-fork branch as canonical and would
-    /// report nothing as orphaned. The state machine only settles on a burn block once the node
-    /// reports it as the canonical tip, by which point that sortition -- and the invalidation of
-    /// the branch it replaced -- is committed and queryable. `bitcoin_block_arrival` already
-    /// holds the update in `Pending` until then, and every event retries it, so a fork observed
-    /// too early is picked up as soon as the node catches up rather than being missed.
-    ///
-    /// Handling the fork here, once, is what keeps the signing path simple. A signature over a
-    /// block in an orphaned tenure stops counting as a conflict from this point on, so
-    /// `handle_block_pre_commit` never has to work out whether a tenure its node knows nothing
-    /// about was orphaned or merely unprocessed -- a question the node cannot answer at that
-    /// point, since a block we accepted locally isn't handed to the node until it has been
-    /// signed by the whole signer set.
-    pub(super) fn update_orphaned_tenures(
-        &mut self,
-        stacks_client: &StacksClient,
-        prior_burn_tip: Option<NewBurnBlock>,
-    ) {
-        let Some(new_tip) = self.local_state_machine.settled_burn_tip() else {
-            // We have no view of the burn chain yet, so we abandoned nothing.
-            return;
-        };
-        let Some(prior_burn_tip) = prior_burn_tip else {
-            // Same: nothing to walk back from.
-            return;
-        };
-        if prior_burn_tip.consensus_hash == new_tip.consensus_hash {
-            // The tip did not move, so the burn chain cannot have forked under us.
-            return;
-        }
-
-        // The tip we settled on is canonical by construction: the node just reported it as its
-        // burnchain tip. If the burnchain previously forked away from it and has now forked
-        // back, its tenure is live again.
-        self.clear_orphaned_tenure(&new_tip.consensus_hash);
-
-        let mut candidate = match self
-            .signer_db
-            .get_burn_block_by_ch(&prior_burn_tip.consensus_hash)
-        {
-            Ok(burn_block) => burn_block,
+        let node_reaches_conflict = match stacks_client.get_tenure_tip(&conflict.consensus_hash) {
+            Ok(tip) => tip.anchored_header.height() >= conflict.stacks_height,
+            // A 404 is an answer, not a failure: the node has no blocks in that tenure at all.
+            Err(ClientError::RequestFailure(reqwest::StatusCode::NOT_FOUND)) => false,
             Err(e) => {
-                // Expected after a restart, when the tip we adopted from the node predates any
-                // burn block event we have seen: with no record of that branch there is
-                // nothing to walk.
-                debug!("{self}: No record of the prior burn chain tip, so cannot tell whether it was orphaned: {e:?}";
-                    "prior_tip_consensus_hash" => %prior_burn_tip.consensus_hash,
+                warn!("{self}: Failed to fetch the canonical tip of a conflicting block's tenure: {e:?}. Leaving the conflict in place.";
+                    "conflicting_consensus_hash" => %conflict.consensus_hash,
+                    "conflicting_block_height" => conflict.stacks_height,
                 );
-                return;
+                return true;
             }
         };
-        if self
-            .signer_db
-            .get_burn_block_by_ch(&new_tip.consensus_hash)
-            .is_ok_and(|new_tip_block| new_tip_block.parent_burn_block_hash == candidate.block_hash)
-        {
-            // The common case: the new tip builds directly on the tip we had, so no branch was
-            // abandoned and there is nothing to ask the node.
-            return;
-        }
-
-        // A fork can also *restore* tenures: the burnchain may have forked back onto a branch
-        // we abandoned earlier. The walk below will not visit those tenures -- they sit on the
-        // new canonical branch, not the one we are leaving -- and nothing else will tell us
-        // about them either, because the node re-validates sortitions it has already processed
-        // without announcing them again (`try_revalidate_sortition` in the chains coordinator),
-        // so a fork back only emits events for the burn blocks that are genuinely new. Re-check
-        // the records themselves instead, every time the burnchain forks.
-        self.revalidate_orphaned_tenures(stacks_client, new_tip.burn_block_height);
-
-        for _ in 0..MAX_FORK_DEPTH {
-            match stacks_client.get_sortition_by_burn_hash(&candidate.block_hash) {
-                Ok(_) => {
-                    // The node still has this burn block on its canonical chain, so this is
-                    // where the two branches meet: everything below it is canonical too.
-                    self.clear_orphaned_tenure(&candidate.consensus_hash);
-                    return;
-                }
-                Err(ClientError::RequestFailure(status))
-                    if status == reqwest::StatusCode::NOT_FOUND =>
-                {
-                    info!("{self}: A burnchain fork orphaned a tenure. Blocks in it no longer conflict with a block proposal.";
-                        "consensus_hash" => %candidate.consensus_hash,
-                        "burn_block_hash" => %candidate.block_hash,
-                        "burn_block_height" => candidate.block_height,
-                        "new_burn_block_consensus_hash" => %new_tip.consensus_hash,
-                    );
-                    if let Err(e) = self
-                        .signer_db
-                        .mark_tenure_orphaned(&candidate.consensus_hash, candidate.block_height)
-                    {
-                        // Leaving the tenure unmarked is safe: its blocks keep counting as
-                        // conflicts, which can delay a replacement but never double-signs.
-                        warn!("{self}: Failed to mark a tenure as orphaned: {e:?}";
-                            "consensus_hash" => %candidate.consensus_hash,
-                        );
-                        return;
-                    }
-                }
-                Err(e) => {
-                    warn!("{self}: Failed to determine whether a burn block is on the canonical chain: {e:?}. Leaving its tenure alone.";
-                        "burn_block_hash" => %candidate.block_hash,
-                    );
-                    return;
-                }
-            }
-            candidate = match self
-                .signer_db
-                .get_burn_block_by_hash(&candidate.parent_burn_block_hash)
-            {
-                Ok(parent) => parent,
-                Err(e) => {
-                    // We never saw the rest of this branch, so we cannot walk any further.
-                    debug!("{self}: Reached the end of our record of the abandoned burn chain branch: {e:?}";
-                        "burn_block_hash" => %candidate.parent_burn_block_hash,
-                    );
-                    return;
-                }
-            };
-        }
-        error!(
-            "{self}: Stopped walking an abandoned burn chain branch after {MAX_FORK_DEPTH} blocks. Tenures below it still count as conflicts.";
-            "new_burn_block_consensus_hash" => %new_tip.consensus_hash,
-        );
+        node_reaches_conflict
+            || (!conflict.globally_accepted && conflict.stacks_height <= proposed_height)
     }
 
     /// Handle pre-commit message from another signer
@@ -1442,10 +1305,10 @@ impl Signer {
         // same or higher height in ANY tenure is a conflict: two blocks at the same height are
         // siblings no matter which tenure they belong to (e.g. the next tenure's tenure-start
         // block conflicts with the current tenure's block at the same height). Blocks in
-        // tenures whose replacement we already sanctioned are not conflicts and never reach us
-        // here: `update_orphaned_tenures` voids a tenure a burnchain fork orphaned, and
-        // `check_parent_tenure_choice` voids one whose reorg the reorg-timing rules permitted.
-        // Both are recorded when observed, so this path never has to re-derive them.
+        // tenures whose reorg we sanctioned under the reorg-timing rules never reach us here
+        // (`check_parent_tenure_choice` records that decision, and `get_signed_conflicts`
+        // excludes those tenures); every other question about whether a conflict is still
+        // live is derived from the node in `conflict_still_blocks`.
         //
         // Unlike the chainstate check above, a refusal here is "for now" rather than a
         // broadcast rejection: a later pre-commit re-evaluation may still sign the block once
@@ -1465,10 +1328,16 @@ impl Signer {
                 .tenure_last_block_proposal_timeout
                 .as_secs(),
         );
-        if let Some(conflict) = conflicts
-            .iter()
-            .find(|conflict| conflict.last_endorsed > freshness_cutoff)
-        {
+        // A fresh signature only blocks while the block it covers could still be part of the
+        // chain: see `conflict_still_blocks`, which asks the node whether it is.
+        if let Some(conflict) = conflicts.iter().find(|conflict| {
+            conflict.last_endorsed > freshness_cutoff
+                && self.conflict_still_blocks(
+                    stacks_client,
+                    conflict,
+                    block_info.block.header.chain_length,
+                )
+        }) {
             warn!(
                 "{self}: Reached the pre-commit threshold for a block, but we have recently signed or accepted a different block at the same or higher height. Refusing to sign.";
                 "signer_signature_hash" => %block_hash,
@@ -1480,13 +1349,14 @@ impl Signer {
             return;
         }
 
-        // Every conflict has gone stale without being confirmed. A stale conflict in another
-        // tenure no longer speaks for us: whether this block may replace what another tenure
-        // built is settled by the chainstate checks above. A stale conflict in this block's own
-        // tenure still blocks if the node already has that tenure at or above the proposed
-        // height, since the proposal then duplicates state the node has already built on. (The
-        // chainstate checks don't cover this for tenure-change blocks: those check the parent
-        // tenure instead of their own.)
+        // No conflict is both fresh and still live. A conflict that no longer matters, i.e.
+        // stale, or provably dead per `conflict_still_blocks`, cannot veto on its own. A
+        // stale conflict in another tenure in particular no longer speaks for us: whether this
+        // block may replace what another tenure built is settled by the chainstate checks above.
+        // A stale conflict in this block's own tenure still blocks if the node already has that
+        // tenure at or above the proposed height, since the proposal then duplicates state the
+        // node has already built on. (The chainstate checks don't cover this for tenure-change
+        // blocks: those check the parent tenure instead of their own.)
         if conflicts
             .iter()
             .any(|conflict| conflict.consensus_hash == block_info.block.header.consensus_hash)
