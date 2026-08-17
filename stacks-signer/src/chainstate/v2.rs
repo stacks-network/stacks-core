@@ -331,9 +331,11 @@ impl GlobalStateView {
             return Err(RejectReason::InvalidParentBlock);
         }
         // We already confirmed in check miner activity that the current tenure is valid. So check we are not
-        // reorging the tenure blocks
+        // reorging the tenure blocks. Only blocks we have signed (locally or globally accepted) count
+        // here: a block we have merely pre-committed to carries no signature from us, so it is safe to
+        // accept a competing tenure-start block in its place if it failed to reach consensus.
         let last_in_current_tenure = signer_db
-            .get_last_accepted_block(&block.header.consensus_hash)
+            .get_last_signed_block(&block.header.consensus_hash)
             .map_err(|e| {
                 SignerChainstateError::from(ClientError::InvalidResponse(e.to_string()))
             })?;

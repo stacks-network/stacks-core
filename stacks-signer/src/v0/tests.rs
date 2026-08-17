@@ -315,3 +315,523 @@ impl Signer {
         false
     }
 }
+
+/// Tests for the asynchronous-validation tenure-start timing gap.
+///
+/// `check_proposal` rejects a second tenure-start block for a tenure, but it runs before the
+/// node's async validation, so two sibling tenure-start blocks proposed within the validation
+/// window can both be pre-committed. A signer must still refuse to place a *signature* on a
+/// second sibling while its signature on the first is fresh, so a single winning miner cannot
+/// obtain two signer certificates for one sortition. Once the signature has timed out, the
+/// signer consults the node and signs the replacement only if the signed sibling is not
+/// canonical at that height, so a sibling that failed to be confirmed can still be replaced.
+#[cfg(test)]
+mod async_sibling_validation {
+    use std::io::{Read, Write};
+    use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{mpsc, Arc};
+    use std::thread;
+    use std::time::Duration;
+
+    use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+    use blockstack_lib::chainstate::stacks::{
+        CoinbasePayload, SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction,
+        TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionAuth,
+        TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
+        TransactionSpendingCondition, TransactionVersion,
+    };
+    use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
+    use blockstack_lib::net::api::postblock_proposal::{BlockValidateOk, BlockValidateResponse};
+    use clarity::util::hash::{Hash160, Sha512Trunc256Sum};
+    use clarity::util::vrf::VRFProof;
+    use clarity::vm::costs::ExecutionCost;
+    use libsigner::v0::messages::SignerMessage;
+    use libsigner::{BlockProposal, BlockProposalData, SignerEntries, SignerEvent};
+    use stacks_common::bitvec::BitVec;
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::chainstate::{
+        ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
+    };
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::MerkleTree;
+    use stacks_common::util::secp256k1::MessageSignature;
+
+    use crate::client::{SignerSlotID, StacksClient};
+    use crate::config::{
+        SignerConfig, SignerConfigMode, DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+    };
+    use crate::signerdb::{BlockInfo, BlockState};
+    use crate::v0::signer::Signer;
+    use crate::Signer as SignerTrait;
+
+    /// Build a tenure-start block for `tenure` with the mandatory tenure-change (idx 0) and
+    /// coinbase (idx 1). `timestamp` is varied to produce distinct-hash siblings.
+    fn tenure_start(
+        miner: &StacksPrivateKey,
+        tenure: &ConsensusHash,
+        parent_tenure: &ConsensusHash,
+        parent: &StacksBlockId,
+        timestamp: u64,
+    ) -> NakamotoBlock {
+        let payload = TenureChangePayload {
+            tenure_consensus_hash: tenure.clone(),
+            prev_tenure_consensus_hash: parent_tenure.clone(),
+            burn_view_consensus_hash: tenure.clone(),
+            previous_tenure_end: parent.clone(),
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(miner)),
+        };
+        let tenure_tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: CHAIN_ID_TESTNET,
+            auth: TransactionAuth::Standard(TransactionSpendingCondition::Singlesig(
+                SinglesigSpendingCondition {
+                    hash_mode: SinglesigHashMode::P2PKH,
+                    signer: Hash160([0; 20]),
+                    nonce: 0,
+                    tx_fee: 0,
+                    key_encoding: TransactionPublicKeyEncoding::Compressed,
+                    signature: MessageSignature::empty(),
+                },
+            )),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TenureChange(payload),
+        };
+        let coinbase = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
+            TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, Some(VRFProof::empty())),
+        );
+        let txs = vec![tenure_tx, coinbase];
+        let txid_vecs: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+        let tx_merkle_root = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root();
+        let header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 10,
+            burn_spent: 10,
+            consensus_hash: tenure.clone(),
+            parent_block_id: parent.clone(),
+            tx_merkle_root,
+            state_index_root: TrieHash([0; 32]),
+            timestamp,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        let mut block = NakamotoBlock::new(header, txs);
+        block.header.sign_miner(miner).unwrap();
+        block
+    }
+
+    /// A mock stacks-node that serves a tenure tip per consensus hash (so the tenure-change
+    /// parent check and the signing-time tip check each see their own tenure's tip) and an
+    /// empty `/v2/info`; everything else 404s. `tips` maps a path fragment to a response body,
+    /// first match wins.
+    fn serve_node(listener: TcpListener, tips: Vec<(String, String)>, exit: Arc<AtomicBool>) {
+        listener.set_nonblocking(true).unwrap();
+        while !exit.load(Ordering::SeqCst) {
+            let Ok((mut stream, _)) = listener.accept() else {
+                thread::sleep(Duration::from_millis(2));
+                continue;
+            };
+            let _ = stream.set_nonblocking(false);
+            let _ = stream.set_read_timeout(Some(Duration::from_millis(100)));
+            // Read until the request head is complete (or the peer stalls); the path we
+            // dispatch on is in the request line.
+            let mut request = Vec::new();
+            let mut buf = [0u8; 4096];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                match stream.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(bytes_read) => request.extend_from_slice(&buf[..bytes_read]),
+                }
+            }
+            let request = String::from_utf8_lossy(&request);
+            let tip_body = tips
+                .iter()
+                .find(|(fragment, _)| request.contains(fragment.as_str()))
+                .map(|(_, body)| body.as_str());
+            let (status, body) = if let Some(body) = tip_body {
+                ("200 OK", body)
+            } else if request.contains("/v2/info") {
+                ("200 OK", "{}")
+            } else {
+                ("404 Not Found", "")
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    }
+
+    fn validate_ok(hash: &Sha512Trunc256Sum) -> SignerEvent<SignerMessage> {
+        SignerEvent::BlockValidationResponse(BlockValidateResponse::Ok(BlockValidateOk {
+            signer_signature_hash: hash.clone(),
+            cost: ExecutionCost::ZERO,
+            size: 0,
+            validation_time_ms: 1,
+            replay_tx_hash: None,
+            replay_tx_exhausted: false,
+        }))
+    }
+
+    /// Drive the sibling race: two conflicting tenure-start blocks A and B are both tracked
+    /// (as they would be after screening two proposals within the async-validation window),
+    /// A's validation returns first and is signed, then B's validation returns. Returns the
+    /// resulting `BlockInfo` for A (captured right after its own validation), for B (captured
+    /// right after its validation), and for B after an optional re-proposal.
+    ///
+    /// `tenure_last_block_proposal_timeout` controls whether A's signature is still fresh when
+    /// B crosses the pre-commit threshold. `serve_sibling_as_tip` controls whether the mock
+    /// node reports A (height 10) or the parent (height 9) as the canonical tenure tip, which
+    /// is what the signer consults once the signature has timed out. If `re_propose_b_after` is
+    /// set, the miner re-submits B's proposal after that delay (as it does after a signature
+    /// timeout) and B's `BlockInfo` is captured again as the third element.
+    fn run_sibling_scenario(
+        tenure_last_block_proposal_timeout: Duration,
+        serve_sibling_as_tip: bool,
+        re_propose_b_after: Option<Duration>,
+    ) -> (BlockInfo, BlockInfo, Option<BlockInfo>) {
+        let miner = StacksPrivateKey::from_seed(&[0, 1]);
+        let tenure = ConsensusHash([1; 20]);
+        let parent_tenure = ConsensusHash([0; 20]);
+
+        // The parent block of the tenure (height 9); both siblings build on it at height 10.
+        let mut parent_header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 9,
+            burn_spent: 10,
+            consensus_hash: parent_tenure.clone(),
+            parent_block_id: StacksBlockId([9; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp: 9,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        parent_header.sign_miner(&miner).unwrap();
+        let parent_id = parent_header.block_id();
+
+        // Two conflicting sibling tenure-start blocks: same tenure, parent, and height; the only
+        // difference is the timestamp (hence the hash). The timestamps are current so that a
+        // re-proposal of B passes the proposal age check.
+        let now = get_epoch_time_secs();
+        let block_a = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, now);
+        let block_b = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, now + 1);
+        let hash_a = block_a.header.signer_signature_hash();
+        let hash_b = block_b.header.signer_signature_hash();
+        assert_ne!(hash_a, hash_b);
+        assert_eq!(block_a.header.consensus_hash, block_b.header.consensus_hash);
+        assert_eq!(block_a.header.chain_length, block_b.header.chain_length);
+
+        // The parent tenure's tip is always the parent block, so the tenure-change parent
+        // check passes for both siblings. The current tenure's tip is what the signing-time
+        // check consults once a conflicting signature has timed out: either A itself (it
+        // became canonical) or still the parent (it did not).
+        let parent_tip = BlockHeaderWithMetadata {
+            anchored_header: parent_header.clone().into(),
+            burn_view: Some(tenure.clone()),
+        };
+        let tenure_tip = if serve_sibling_as_tip {
+            BlockHeaderWithMetadata {
+                anchored_header: block_a.header.clone().into(),
+                burn_view: Some(tenure.clone()),
+            }
+        } else {
+            BlockHeaderWithMetadata {
+                anchored_header: parent_header.into(),
+                burn_view: Some(tenure.clone()),
+            }
+        };
+        let tips = vec![
+            (
+                format!("/v3/tenures/tip_metadata/{parent_tenure}"),
+                serde_json::to_string(&parent_tip).unwrap(),
+            ),
+            (
+                format!("/v3/tenures/tip_metadata/{tenure}"),
+                serde_json::to_string(&tenure_tip).unwrap(),
+            ),
+            // Accept signed-block uploads immediately, so the broadcast after a signing does
+            // not spend seconds in retry backoff (which would let fresh signatures go stale
+            // mid-test and make the freshness-window timing unreliable).
+            (
+                "/v3/blocks/upload".to_string(),
+                format!(r#"{{"stacks_block_id":"{parent_id}","accepted":true}}"#),
+            ),
+        ];
+
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let exit = Arc::new(AtomicBool::new(false));
+        let server_exit = exit.clone();
+        let server = thread::spawn(move || serve_node(listener, tips, server_exit));
+
+        let client = StacksClient::new(
+            &StacksPrivateKey::random(),
+            SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).to_string(),
+            "regression-auth".into(),
+            false,
+            CHAIN_ID_TESTNET,
+        );
+
+        // Single registered signer (weight 1).
+        let signer_key = StacksPrivateKey::from_seed(&[9, 1]);
+        let signer_pk = StacksPublicKey::from_private(&signer_key);
+        let signer_addr = StacksAddress::p2pkh(false, &signer_pk);
+        let signer_entries = SignerEntries {
+            signer_addr_to_id: [(signer_addr.clone(), 0)].into_iter().collect(),
+            signer_id_to_addr: [(0, signer_addr.clone())].into_iter().collect(),
+            signer_id_to_pk: [(0, signer_pk.clone())].into_iter().collect(),
+            signer_pk_to_id: [(signer_pk.clone(), 0)].into_iter().collect(),
+            signer_pks: vec![signer_pk.clone()],
+            signer_addresses: vec![signer_addr.clone()],
+            signer_addr_to_weight: [(signer_addr.clone(), 1)].into_iter().collect(),
+        };
+
+        let db_path = std::env::temp_dir().join(format!(
+            "stacks-signer-sibling-regression-{}-{port}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&db_path);
+
+        let signer_config = SignerConfig {
+            reward_cycle: 1,
+            supported_signer_protocol_version: 2,
+            signer_entries,
+            signer_slot_ids: vec![SignerSlotID(0)],
+            stacks_private_key: signer_key,
+            node_host: SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).to_string(),
+            mainnet: false,
+            db_path: db_path.clone(),
+            first_proposal_burn_block_timing: Duration::from_secs(30),
+            block_proposal_timeout: Duration::from_secs(5),
+            tenure_last_block_proposal_timeout,
+            block_proposal_validation_timeout: Duration::from_secs(30),
+            tenure_idle_timeout: Duration::from_secs(300),
+            read_count_idle_timeout: Duration::from_secs(12_000),
+            tenure_idle_timeout_buffer: Duration::from_secs(2),
+            block_proposal_max_age_secs: 30,
+            reorg_attempts_activity_timeout: Duration::from_secs(3),
+            signer_mode: SignerConfigMode::DryRun,
+            proposal_wait_for_parent_time: Duration::ZERO,
+            validate_with_replay_tx: false,
+            reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+            capitulate_miner_view_timeout: Duration::from_secs(30),
+            stackerdb_timeout: Duration::from_secs(2),
+        };
+
+        let mut signer = <Signer as SignerTrait<SignerMessage>>::new(&client, signer_config);
+
+        // Track both blocks (Unprocessed), as the signer would after screening the two proposals.
+        for block in [&block_a, &block_b] {
+            let info = BlockInfo::from(BlockProposal {
+                block: block.clone(),
+                burn_height: 1,
+                reward_cycle: 1,
+                block_proposal_data: BlockProposalData::empty(),
+            });
+            signer.signer_db.insert_block(&info).unwrap();
+        }
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+
+        // A's validation returns first. (With a single weight-1 signer the pre-commit threshold
+        // is met immediately, so A can promote past PreCommitted in a single event.)
+        signer.process_event(
+            &client,
+            &mut sortition,
+            Some(&validate_ok(&hash_a)),
+            &result_tx,
+            1,
+        );
+        let info_a = signer.signer_db.block_lookup(&hash_a).unwrap().unwrap();
+
+        // B's validation returns while A is already signed.
+        signer.process_event(
+            &client,
+            &mut sortition,
+            Some(&validate_ok(&hash_b)),
+            &result_tx,
+            1,
+        );
+        let info_b = signer.signer_db.block_lookup(&hash_b).unwrap().unwrap();
+
+        // The miner re-submits B's proposal, as it does after a signature timeout. The signer
+        // must re-run the pre-commit evaluation (threshold + conflict checks) rather than
+        // responding with a signature directly off the tracked `valid` flag.
+        let info_b_reproposed = re_propose_b_after.map(|delay| {
+            thread::sleep(delay);
+            let proposal_b = SignerMessage::BlockProposal(BlockProposal {
+                block: block_b.clone(),
+                burn_height: 1,
+                reward_cycle: 1,
+                block_proposal_data: BlockProposalData::empty(),
+            });
+            signer.process_event(
+                &client,
+                &mut sortition,
+                Some(&SignerEvent::MinerMessages(vec![proposal_b])),
+                &result_tx,
+                1,
+            );
+            signer.signer_db.block_lookup(&hash_b).unwrap().unwrap()
+        });
+
+        // Clean up before the callers assert, so failures do not leak the db file.
+        exit.store(true, Ordering::SeqCst);
+        let _ = server.join();
+        let _ = std::fs::remove_file(&db_path);
+
+        (info_a, info_b, info_b_reproposed)
+    }
+
+    /// Assert that A was signed as soon as its validation returned.
+    fn assert_a_signed(info_a: &BlockInfo) {
+        assert_eq!(
+            info_a.state,
+            BlockState::LocallyAccepted,
+            "block A should be signed once its validation returns"
+        );
+        assert!(
+            info_a.signed_self.is_some(),
+            "block A should carry our signature"
+        );
+    }
+
+    #[test]
+    fn signer_refuses_to_sign_second_sibling_tenure_start() {
+        // Pin the fresh window far beyond the test's runtime so the guard can only take the
+        // fresh branch; the stale branch is covered by the tests below.
+        let (info_a, info_b, _) = run_sibling_scenario(Duration::from_secs(100_000), false, None);
+        assert_a_signed(&info_a);
+        // B is still pre-committed (the sibling is allowed to reach pre-commit), but the signer
+        // must refuse to place a second signature on a conflicting same-height block in this
+        // tenure while its signature on A is fresh.
+        assert_eq!(
+            info_b.state,
+            BlockState::PreCommitted,
+            "block B should be pre-committed but not promoted, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_none(),
+            "block B must NOT be signed: the signer already signed a conflicting sibling in this tenure"
+        );
+    }
+
+    #[test]
+    fn stale_sibling_still_refused_when_canonical_tip_at_height() {
+        // A zero timeout makes A's signature stale immediately, but the node reports A as the
+        // canonical tip at the same height, so the replacement must still be refused.
+        let (info_a, info_b, _) = run_sibling_scenario(Duration::ZERO, true, None);
+        assert_a_signed(&info_a);
+        assert_eq!(
+            info_b.state,
+            BlockState::PreCommitted,
+            "block B should be pre-committed but not promoted, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_none(),
+            "block B must NOT be signed: the conflicting sibling is canonical at this height"
+        );
+    }
+
+    #[test]
+    fn stale_sibling_replaced_when_canonical_tip_below() {
+        // A zero timeout makes A's signature stale immediately, and the node's canonical tip
+        // is still the parent (height 9): A failed to be confirmed, so the signer must sign
+        // the replacement rather than stall the tenure (the reorg-recovery case).
+        let (info_a, info_b, _) = run_sibling_scenario(Duration::ZERO, false, None);
+        assert_a_signed(&info_a);
+        assert_eq!(
+            info_b.state,
+            BlockState::LocallyAccepted,
+            "block B should be signed: the conflicting sibling timed out and is not canonical, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_some(),
+            "block B should carry our signature after the conflict timed out unconfirmed"
+        );
+    }
+
+    /// Assert that B was refused while A's signature was fresh: pre-committed but not signed.
+    fn assert_b_refused(info_b: &BlockInfo, context: &str) {
+        assert_eq!(
+            info_b.state,
+            BlockState::PreCommitted,
+            "block B should be pre-committed but not promoted ({context}), got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_none(),
+            "block B must NOT be signed ({context})"
+        );
+    }
+
+    #[test]
+    fn reproposal_cannot_bypass_fresh_conflict() {
+        // B is refused while A's signature is fresh, then the miner re-submits B's proposal
+        // while the signature is STILL fresh. The re-proposal must go back through the
+        // pre-commit evaluation and be refused again, not be signed directly off the tracked
+        // `valid` flag.
+        let (info_a, info_b, info_b_reproposed) =
+            run_sibling_scenario(Duration::from_secs(100_000), false, Some(Duration::ZERO));
+        assert_a_signed(&info_a);
+        assert_b_refused(&info_b, "after validation");
+        assert_b_refused(
+            &info_b_reproposed.unwrap(),
+            "after re-proposal while the conflicting signature is fresh",
+        );
+    }
+
+    #[test]
+    fn reproposal_still_refused_when_canonical_tip_at_height() {
+        // B is refused while A's signature is fresh. After the signature times out the miner
+        // re-submits B's proposal, but the node reports A as the canonical tip at the same
+        // height, so B must still be refused.
+        let (info_a, info_b, info_b_reproposed) =
+            run_sibling_scenario(Duration::from_secs(3), true, Some(Duration::from_secs(4)));
+        assert_a_signed(&info_a);
+        assert_b_refused(&info_b, "after validation");
+        assert_b_refused(
+            &info_b_reproposed.unwrap(),
+            "after re-proposal: the conflicting sibling is canonical at this height",
+        );
+    }
+
+    #[test]
+    fn reproposal_signs_replacement_after_conflict_times_out() {
+        // B is refused while A's signature is fresh. After the signature times out the miner
+        // re-submits B's proposal, and the node's canonical tip is still the parent: A failed
+        // to be confirmed, so the re-proposal must lead to B being signed (the stall-recovery
+        // case; the re-proposal is what re-triggers the pre-commit evaluation).
+        let (info_a, info_b, info_b_reproposed) =
+            run_sibling_scenario(Duration::from_secs(3), false, Some(Duration::from_secs(4)));
+        assert_a_signed(&info_a);
+        assert_b_refused(&info_b, "after validation");
+        let info_b_reproposed = info_b_reproposed.unwrap();
+        assert_eq!(
+            info_b_reproposed.state,
+            BlockState::LocallyAccepted,
+            "block B should be signed on re-proposal: the conflicting signature timed out and the sibling is not canonical, got: {}",
+            info_b_reproposed.state
+        );
+        assert!(
+            info_b_reproposed.signed_self.is_some(),
+            "block B should carry our signature after the re-proposal"
+        );
+    }
+}

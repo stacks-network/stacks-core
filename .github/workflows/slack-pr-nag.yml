@@ -27,40 +27,28 @@ jobs:
           IGNORE_DRAFTS: 'true'
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
           
-          # CENTRAL USER REGISTRY (FOR DISPLAY NAMES)
-          USER_MAPPING: |
+          # CENTRAL TEAM REGISTRY
+          # Membership in this registry is what marks a PR author as internal;
+          # anyone absent from it is treated as an external contributor.
+          #   name   : display name (Slack mention fallback + sort key)
+          #   slack  : Slack member ID, enables an actual @-mention
+          #   triage : whether this member takes part in the external-PR
+          #            triage rotation (omitted is treated as true)
+          TEAM_REGISTRY: |
             {
-              "aaronb-stacks": "Aaron",
-              "adriano-stacks": "Adriano",
-              "benjamin-stacks": "Benjamin",
-              "brice-stacks": "Brice",
-              "cylewitruk-stacks": "Cyle",
-              "dhaney-stacks": "David",
-              "djordon-stacks": "Daniel",
-              "federico-stacks": "Federico",
-              "francesco-stacks": "Francesco",
-              "hstove-stacks": "Hank",
-              "radu-stacks": "Radu",
-              "rob-stacks": "Roberto",
-              "simone-stacks": "Simone"
-            }
-
-          # SLACK USER REGISTRY (FOR REFERENCE)
-          SLACK_MAPPING: |
-            {
-              "aaronb-stacks": "U067F1SRYT0",
-              "adriano-stacks": "U07CAH5D38Q",
-              "benjamin-stacks": "U09N5BM0SGP",
-              "brice-stacks": "U067BVCJE30",
-              "cylewitruk-stacks": "U06815BCSB0",
-              "dhaney-stacks": "U09538PV0RZ",
-              "djordon-stacks": "U07GRAS4X42",
-              "federico-stacks": "U08ASJ1LKEV",
-              "francesco-stacks": "U07MCETKTKN",
-              "hstove-stacks": "U068W8VBSQM",
-              "radu-stacks": "U0ANRRXD080",
-              "rob-stacks": "U07UNFAS4BD",
-              "simone-stacks": "U09NA1TP8PK"
+              "aaronb-stacks":     { "name": "Aaron",     "slack": "U067F1SRYT0", "triage": true  },
+              "adriano-stacks":    { "name": "Adriano",   "slack": "U07CAH5D38Q", "triage": false },
+              "benjamin-stacks":   { "name": "Benjamin",  "slack": "U09N5BM0SGP", "triage": true  },
+              "brice-stacks":      { "name": "Brice",     "slack": "U067BVCJE30", "triage": true  },
+              "cylewitruk-stacks": { "name": "Cyle",      "slack": "U06815BCSB0", "triage": true  },
+              "dhaney-stacks":     { "name": "David",     "slack": "U09538PV0RZ", "triage": false },
+              "djordon-stacks":    { "name": "Daniel",    "slack": "U07GRAS4X42", "triage": false },
+              "federico-stacks":   { "name": "Federico",  "slack": "U08ASJ1LKEV", "triage": true  },
+              "francesco-stacks":  { "name": "Francesco", "slack": "U07MCETKTKN", "triage": true  },
+              "hstove-stacks":     { "name": "Hank",      "slack": "U068W8VBSQM", "triage": true  },
+              "radu-stacks":       { "name": "Radu",      "slack": "U0ANRRXD080", "triage": true  },
+              "rob-stacks":        { "name": "Roberto",   "slack": "U07UNFAS4BD", "triage": true  },
+              "simone-stacks":     { "name": "Simone",    "slack": "U09NA1TP8PK", "triage": true  }
             }
           # ------------------------------
           
@@ -77,32 +65,33 @@ jobs:
               return;
             }
 
-            // 1. Parse Registry Objects safely
-            let userMap = {};
-            let slackMap = {};
+            // 1. Parse the team registry safely
+            let registry = {};
             try {
-              const rawMap = JSON.parse(process.env.USER_MAPPING || '{}');
-              userMap = Object.fromEntries(Object.entries(rawMap).map(([k, v]) => [k.toLowerCase(), v]));
-              
-              const rawSlackMap = JSON.parse(process.env.SLACK_MAPPING || '{}');
-              slackMap = Object.fromEntries(Object.entries(rawSlackMap).map(([k, v]) => [k.toLowerCase(), v]));
+              const rawRegistry = JSON.parse(process.env.TEAM_REGISTRY || '{}');
+              registry = Object.fromEntries(Object.entries(rawRegistry).map(([k, v]) => [k.toLowerCase(), v]));
             } catch (e) {
-              core.setFailed('Error parsing configuration registries JSON objects.');
+              core.setFailed('Error parsing TEAM_REGISTRY JSON object.');
               return;
             }
 
-            const allowedUsers = new Set(Object.keys(userMap));
+            // Team membership marks a PR author as internal.
+            const allowedUsers = new Set(Object.keys(registry));
+            // Triage rotation is an opt-out subset of the team.
+            const triagerPool = Object.keys(registry)
+              .filter(login => registry[login]?.triage !== false)
+              .sort();
 
             // Helper to get Slack mention or display name
             const getSlackMention = (githubUsername) => {
-              const clean = githubUsername.toLowerCase();
+              const entry = registry[githubUsername.toLowerCase()];
               // If we have a Slack ID, return it as a mention
-              if (slackMap[clean]) {
-                return `<@${slackMap[clean]}>`;
+              if (entry?.slack) {
+                return `<@${entry.slack}>`;
               }
               // Fallback to display name
-              if (userMap[clean]) {
-                return userMap[clean];
+              if (entry?.name) {
+                return entry.name;
               }
               // Fallback to capitalized login
               return githubUsername.charAt(0).toUpperCase() + githubUsername.slice(1);
@@ -258,9 +247,10 @@ jobs:
               const needsTriage = isExternal && (pr.assignees || []).length === 0;
 
               if (needsTriage) {
-                const teamLogins = Object.keys(userMap).sort();
-                const triager = teamLogins[pr.number % teamLogins.length];
-                explanation = `External PR — ${getSlackMention(triager)} to triage (assign yourself/someone + request reviewers)`;
+                const triager = triagerPool.length > 0
+                  ? getSlackMention(triagerPool[pr.number % triagerPool.length])
+                  : 'Someone';
+                explanation = `External PR — ${triager} to triage (assign yourself/someone + request reviewers)`;
                 sortWeight = -1;
                 statusIcon = '🆕';
               } else if (changesRequested) {
@@ -329,7 +319,7 @@ jobs:
               // Helper to extract the plain display name for consistent sorting
               const getPlainName = (login) => {
                 const clean = login.toLowerCase();
-                if (userMap[clean]) return userMap[clean];
+                if (registry[clean]?.name) return registry[clean].name;
                 const base = clean.replace('-stacks', '');
                 return base.charAt(0).toUpperCase() + base.slice(1);
               };
