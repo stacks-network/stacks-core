@@ -126,6 +126,10 @@ pub struct Signer {
     pub block_proposal_max_age_secs: u64,
     /// The signer's local state machine used in signer set agreement
     pub local_state_machine: LocalStateMachine,
+    /// Process-local count of validations queued successfully in signer DB.
+    pending_block_validations: u64,
+    /// Last process wall-clock timestamp at which the local state changed.
+    local_state_last_changed_timestamp_seconds: Option<u64>,
     /// Cache of stacks block IDs for blocks recently processed by our stacks-node
     recently_processed: RecentlyProcessedBlocks<100>,
     /// The signer's global state evaluator
@@ -296,6 +300,14 @@ impl SignerTrait<SignerMessage> for Signer {
             warn!("Failed to initialize local state machine for signer: {e:?}");
             LocalStateMachine::Uninitialized
         });
+        let pending_block_validations = signer_db
+            .get_pending_block_validation_count()
+            .unwrap_or_else(|error| {
+                warn!("Failed to initialize pending-validation metric: {error:?}");
+                0
+            });
+        let local_state_last_changed_timestamp_seconds =
+            (!matches!(signer_state, LocalStateMachine::Uninitialized)).then(get_epoch_time_secs);
         Self {
             private_key: signer_config.stacks_private_key,
             stacks_address,
@@ -312,6 +324,8 @@ impl SignerTrait<SignerMessage> for Signer {
             block_proposal_validation_timeout: signer_config.block_proposal_validation_timeout,
             block_proposal_max_age_secs: signer_config.block_proposal_max_age_secs,
             local_state_machine: signer_state,
+            pending_block_validations,
+            local_state_last_changed_timestamp_seconds,
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
             validate_with_replay_tx: signer_config.validate_with_replay_tx,
@@ -360,13 +374,14 @@ impl SignerTrait<SignerMessage> for Signer {
             self.proposal_config.tenure_last_block_proposal_timeout,
             &mut self.last_capitulate_miner_view,
         );
-
         if prior_state != self.local_state_machine {
+            self.note_local_state_change();
             let version = self.get_signer_protocol_version();
             self.local_state_machine
                 .send_signer_update_message(&mut self.stackerdb, version);
             prior_state = self.local_state_machine.clone();
         }
+        self.update_current_cycle_metrics(current_reward_cycle);
 
         let event_parity = match event {
             // Block proposal events do have reward cycles, but each proposal has its own cycle,
@@ -409,10 +424,12 @@ impl SignerTrait<SignerMessage> for Signer {
         self.check_pending_block_validations(stacks_client);
 
         if prior_state != self.local_state_machine {
+            self.note_local_state_change();
             let version = self.get_signer_protocol_version();
             self.local_state_machine
                 .send_signer_update_message(&mut self.stackerdb, version);
         }
+        self.update_current_cycle_metrics(current_reward_cycle);
     }
 
     fn has_unprocessed_blocks(&self) -> bool {
@@ -452,6 +469,54 @@ impl SignerTrait<SignerMessage> for Signer {
 }
 
 impl Signer {
+    fn note_local_state_change(&mut self) {
+        self.local_state_last_changed_timestamp_seconds = Some(get_epoch_time_secs());
+    }
+
+    fn update_current_cycle_metrics(&self, current_reward_cycle: u64) {
+        // A signer process can briefly host current and next reward-cycle
+        // instances. Export only the current one through the unlabelled gauges
+        // so the next instance cannot overwrite operational readiness.
+        if self.reward_cycle == current_reward_cycle {
+            crate::monitoring::actions::update_global_state_agreement(
+                self.global_state_evaluator.agreement_snapshot(),
+            );
+            crate::monitoring::actions::update_signer_state(
+                self.local_state_machine.burn_block_height(),
+                self.local_state_last_changed_timestamp_seconds,
+                self.pending_block_validations,
+            );
+        }
+    }
+
+    fn enqueue_pending_block_validation(
+        &mut self,
+        signer_signature_hash: &Sha512Trunc256Sum,
+        added_epoch_time: u64,
+    ) {
+        match self
+            .signer_db
+            .insert_pending_block_validation(signer_signature_hash, added_epoch_time)
+        {
+            Ok(()) => {
+                self.pending_block_validations = self.pending_block_validations.saturating_add(1);
+            }
+            Err(error) => {
+                warn!("{self}: Failed to insert pending block validation: {error:?}");
+            }
+        }
+    }
+
+    fn take_pending_block_validation(
+        &mut self,
+    ) -> Result<Option<(Sha512Trunc256Sum, u64)>, DBError> {
+        let pending = self.signer_db.get_and_remove_pending_block_validation()?;
+        if pending.is_some() {
+            self.pending_block_validations = self.pending_block_validations.saturating_sub(1);
+        }
+        Ok(pending)
+    }
+
     /// Determine this signers response to a proposed block
     /// Returns a BlockResponse if we have already validated the block
     /// Returns None otherwise
@@ -1697,11 +1762,10 @@ impl Signer {
                 warn!("{self}: cannot submit block proposal for validation as we are already waiting for a response for a prior submission. Inserting pending proposal.";
                     "signer_signature_hash" => signer_signature_hash.to_string(),
                 );
-                self.signer_db
-                    .insert_pending_block_validation(&signer_signature_hash, get_epoch_time_secs())
-                    .unwrap_or_else(|e| {
-                        warn!("{self}: Failed to insert pending block validation: {e:?}")
-                    });
+                self.enqueue_pending_block_validation(
+                    &signer_signature_hash,
+                    get_epoch_time_secs(),
+                );
             }
 
             // Do not store KNOWN invalid blocks as this could DOS the signer. We only store blocks that are valid or unknown.
@@ -2077,17 +2141,16 @@ impl Signer {
             return;
         }
 
-        let (signer_sig_hash, insert_ts) =
-            match self.signer_db.get_and_remove_pending_block_validation() {
-                Ok(Some(x)) => x,
-                Ok(None) => {
-                    return;
-                }
-                Err(e) => {
-                    warn!("{self}: Failed to get pending block validation: {e:?}");
-                    return;
-                }
-            };
+        let (signer_sig_hash, insert_ts) = match self.take_pending_block_validation() {
+            Ok(Some(x)) => x,
+            Ok(None) => {
+                return;
+            }
+            Err(e) => {
+                warn!("{self}: Failed to get pending block validation: {e:?}");
+                return;
+            }
+        };
 
         info!("{self}: Found a pending block validation: {signer_sig_hash:?}");
         match self.signer_db.block_lookup(&signer_sig_hash) {
@@ -2591,11 +2654,7 @@ impl Signer {
                         "signer_signature_hash" => %signer_signature_hash,
                         "parent_block_id" => %block.header.parent_block_id,
                 );
-                self.signer_db
-                    .insert_pending_block_validation(&signer_signature_hash, added_epoch_time)
-                    .unwrap_or_else(|e| {
-                        warn!("{self}: Failed to insert pending block validation: {e:?}")
-                    });
+                self.enqueue_pending_block_validation(&signer_signature_hash, added_epoch_time);
                 return;
             } else {
                 debug!("{self}: Cannot confirm that we have processed parent, but we've waited proposal_wait_for_parent_time, will submit proposal");
@@ -2620,11 +2679,7 @@ impl Signer {
                     info!("{self}: Received 429 from stacks node for block validation request. Inserting pending block validation...";
                         "signer_signature_hash" => %signer_signature_hash,
                     );
-                    self.signer_db
-                        .insert_pending_block_validation(&signer_signature_hash, added_epoch_time)
-                        .unwrap_or_else(|e| {
-                            warn!("{self}: Failed to insert pending block validation: {e:?}")
-                        });
+                    self.enqueue_pending_block_validation(&signer_signature_hash, added_epoch_time);
                 } else {
                     warn!("{self}: Received non-429 status from stacks node: {status}");
                 }

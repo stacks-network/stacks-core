@@ -61,6 +61,7 @@ pub mod actions {
     use crate::monitoring::prometheus::*;
     use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
     use crate::v0::signer_state::LocalStateMachine;
+    use libsigner::v0::signer_state::GlobalStateAgreementSnapshot;
 
     /// Update stacks tip height gauge
     pub fn update_stacks_tip_height(height: i64) {
@@ -70,6 +71,44 @@ pub mod actions {
     /// Update the current reward cycle
     pub fn update_reward_cycle(reward_cycle: i64) {
         CURRENT_REWARD_CYCLE.set(reward_cycle);
+    }
+
+    /// Record whether the outer signer runloop has initialized successfully.
+    pub fn update_runloop_ready(ready: bool) {
+        SIGNER_RUNLOOP_READY.set(i64::from(ready));
+    }
+
+    /// Record whether this process can participate in the current and next
+    /// reward cycles. Runloop initialization alone does not imply either.
+    pub fn update_reward_cycle_registration(current: bool, next: bool) {
+        SIGNER_REGISTERED_CURRENT_REWARD_CYCLE.set(i64::from(current));
+        SIGNER_REGISTERED_NEXT_REWARD_CYCLE.set(i64::from(next));
+    }
+
+    /// Record the current signer's local agreement state and pending backlog.
+    pub fn update_signer_state(
+        burn_block_height: Option<u64>,
+        last_changed_timestamp_seconds: Option<u64>,
+        pending_block_validations: u64,
+    ) {
+        SIGNER_STATE_BURN_BLOCK_HEIGHT.set(
+            burn_block_height
+                .and_then(|height| i64::try_from(height).ok())
+                .unwrap_or_default(),
+        );
+        SIGNER_STATE_LAST_CHANGED_TIMESTAMP_SECONDS.set(
+            last_changed_timestamp_seconds
+                .and_then(|timestamp| i64::try_from(timestamp).ok())
+                .unwrap_or_default(),
+        );
+        SIGNER_PENDING_BLOCK_VALIDATIONS
+            .set(i64::try_from(pending_block_validations).unwrap_or(i64::MAX));
+    }
+
+    /// Record a canonical burn height learned successfully from the companion.
+    pub fn update_companion_burn_block_height(burn_block_height: u64) {
+        SIGNER_COMPANION_BURN_BLOCK_HEIGHT
+            .set(i64::try_from(burn_block_height).unwrap_or(i64::MAX));
     }
 
     /// Increment the block validation responses counter
@@ -162,6 +201,20 @@ pub mod actions {
             .inc();
     }
 
+    /// Record the current reward-cycle global-state support. Values are kept
+    /// as separate bounded gauges so a lifecycle gate can fail closed without
+    /// inferring agreement from proposal/rejection counters.
+    pub fn update_global_state_agreement(snapshot: GlobalStateAgreementSnapshot) {
+        SIGNER_GLOBAL_STATE_AVAILABLE.set(i64::from(snapshot.global_state_available));
+        SIGNER_GLOBAL_STATE_TOTAL_WEIGHT.set(i64::from(snapshot.total_weight));
+        SIGNER_GLOBAL_STATE_KNOWN_WEIGHT.set(i64::from(snapshot.known_weight));
+        SIGNER_GLOBAL_STATE_MAXIMUM_VIEW_WEIGHT.set(i64::from(snapshot.maximum_state_view_weight));
+        SIGNER_GLOBAL_STATE_EVALUATOR_THRESHOLD_WEIGHT
+            .set(i64::from(snapshot.evaluator_threshold_weight));
+        SIGNER_GLOBAL_STATE_CANONICAL_THRESHOLD_WEIGHT
+            .set(i64::from(snapshot.canonical_threshold_weight));
+    }
+
     /// Record the time (seconds) taken for a signer to agree with the signer set
     pub fn record_signer_agreement_capitulation_latency(latency_s: u64) {
         SIGNER_AGREEMENT_CAPITULATION_LATENCIES_HISTOGRAM
@@ -201,6 +254,23 @@ pub mod actions {
 
     /// Update the current reward cycle
     pub fn update_reward_cycle(_reward_cycle: i64) {}
+
+    /// No-op runloop readiness metric when Prometheus is disabled.
+    pub fn update_runloop_ready(_ready: bool) {}
+
+    /// No-op reward-cycle registration metrics when Prometheus is disabled.
+    pub fn update_reward_cycle_registration(_current: bool, _next: bool) {}
+
+    /// No-op local signer state metrics when Prometheus is disabled.
+    pub fn update_signer_state(
+        _burn_block_height: Option<u64>,
+        _last_changed_timestamp_seconds: Option<u64>,
+        _pending_block_validations: u64,
+    ) {
+    }
+
+    /// No-op companion burn height metric when Prometheus is disabled.
+    pub fn update_companion_burn_block_height(_burn_block_height: u64) {}
 
     /// Increment the block validation responses counter
     pub fn increment_block_validation_responses(_accepted: bool) {}
@@ -253,6 +323,12 @@ pub mod actions {
     /// Increment signer agreement state conflict counter
     pub fn increment_signer_agreement_state_conflict(_conflict: SignerAgreementStateConflict) {}
 
+    /// No-op global state support metrics when Prometheus is disabled.
+    pub fn update_global_state_agreement(
+        _snapshot: libsigner::v0::signer_state::GlobalStateAgreementSnapshot,
+    ) {
+    }
+
     /// Record the time (seconds) taken for a signer to agree with the signer set
     pub fn record_signer_agreement_capitulation_latency(_latency_s: u64) {}
 
@@ -285,4 +361,37 @@ fn test_remove_origin_from_path() {
     let origin = "http://localhost:20443";
     let path = remove_origin_from_path(full_path, origin);
     assert_eq!(path, "/v2/info");
+}
+
+#[cfg(all(test, feature = "monitoring_prom"))]
+#[test]
+fn lifecycle_metrics_export_bounded_gauges() {
+    actions::update_runloop_ready(true);
+    actions::update_reward_cycle_registration(true, false);
+    actions::update_signer_state(Some(123), Some(456), 7);
+    actions::update_companion_burn_block_height(125);
+
+    assert_eq!(prometheus::SIGNER_RUNLOOP_READY.get(), 1);
+    assert_eq!(prometheus::SIGNER_REGISTERED_CURRENT_REWARD_CYCLE.get(), 1);
+    assert_eq!(prometheus::SIGNER_REGISTERED_NEXT_REWARD_CYCLE.get(), 0);
+    assert_eq!(prometheus::SIGNER_STATE_BURN_BLOCK_HEIGHT.get(), 123);
+    assert_eq!(
+        prometheus::SIGNER_STATE_LAST_CHANGED_TIMESTAMP_SECONDS.get(),
+        456
+    );
+    assert_eq!(prometheus::SIGNER_PENDING_BLOCK_VALIDATIONS.get(), 7);
+    assert_eq!(prometheus::SIGNER_COMPANION_BURN_BLOCK_HEIGHT.get(), 125);
+
+    let exposition = prometheus::gather_metrics_string();
+    for metric in [
+        "stacks_signer_runloop_ready",
+        "stacks_signer_registered_for_current_reward_cycle",
+        "stacks_signer_registered_for_next_reward_cycle",
+        "stacks_signer_state_burn_block_height",
+        "stacks_signer_state_last_changed_timestamp_seconds",
+        "stacks_signer_companion_burn_block_height",
+        "stacks_signer_pending_block_validations",
+    ] {
+        assert!(exposition.contains(metric), "missing metric {metric}");
+    }
 }

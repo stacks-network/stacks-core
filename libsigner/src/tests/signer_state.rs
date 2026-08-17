@@ -821,3 +821,26 @@ fn thresholds_partition_weight_space() {
     assert!(evaluator.reached_agreement(700_000_000));
     assert!(evaluator.reached_disagreement(700_000_000));
 }
+
+#[test]
+fn agreement_snapshot_exposes_discrete_threshold_gap_and_state_support() {
+    let mut state_test = SignerStateTest::new(19);
+    for weight in state_test.global_eval.address_weights.values_mut() {
+        *weight = 1;
+    }
+    state_test.global_eval.total_weight = 19;
+
+    // Thirteen signers move to one new state; the remaining six retain the
+    // initial state installed by the test fixture.
+    let supporting: Vec<_> = (0..13).collect();
+    state_test.update_signers(&supporting, vec![state_test.tx_a.clone()]);
+
+    let snapshot = state_test.global_eval.agreement_snapshot();
+    assert_eq!(snapshot.total_weight, 19);
+    assert_eq!(snapshot.known_weight, 19);
+    assert_eq!(snapshot.maximum_state_view_weight, 13);
+    assert_eq!(snapshot.evaluator_threshold_weight, 13);
+    assert_eq!(snapshot.canonical_threshold_weight, 14);
+    assert!(snapshot.global_state_available);
+    assert!(snapshot.maximum_state_view_weight < snapshot.canonical_threshold_weight);
+}

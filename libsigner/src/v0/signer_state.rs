@@ -37,6 +37,27 @@ pub struct GlobalStateEvaluator {
     pub total_weight: u32,
 }
 
+/// A bounded, read-only account of the weight currently visible to the global
+/// signer-state evaluator. This is deliberately separate from a consensus
+/// decision: operators need to distinguish "no messages", "messages without
+/// one supported view", and "a global view is available" without parsing
+/// signer logs during an incident.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GlobalStateAgreementSnapshot {
+    /// Total configured signer weight for the reward cycle.
+    pub total_weight: u32,
+    /// Weight from configured signers for which any latest update is known.
+    pub known_weight: u32,
+    /// Greatest weight supporting one exact burn/miner/protocol state view.
+    pub maximum_state_view_weight: u32,
+    /// Rounded-down threshold used by the current evaluator implementation.
+    pub evaluator_threshold_weight: u32,
+    /// Rounded-up threshold enforced for Nakamoto block signatures.
+    pub canonical_threshold_weight: u32,
+    /// Whether the current evaluator can derive a global state.
+    pub global_state_available: bool,
+}
+
 impl GlobalStateEvaluator {
     /// Create a new state evaluator
     pub fn new(
@@ -164,6 +185,58 @@ impl GlobalStateEvaluator {
         }
         self.address_updates.insert(address, update);
         true
+    }
+
+    /// Return current global-state support without mutating evaluator state.
+    ///
+    /// Both threshold values are exposed intentionally. They are presently
+    /// different when `total_weight * 7` is not divisible by ten; retaining
+    /// both makes that protocol inconsistency observable until it can be
+    /// changed with an explicit mixed-version rollout plan.
+    pub fn agreement_snapshot(&self) -> GlobalStateAgreementSnapshot {
+        let known_weight = self.address_updates.keys().fold(0u32, |weight, address| {
+            weight.saturating_add(self.address_weights.get(address).copied().unwrap_or(0))
+        });
+        let evaluator_numerator =
+            u64::from(self.total_weight).strict_mul(NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD);
+        let evaluator_threshold_weight = u32::try_from(evaluator_numerator / 10)
+            .expect("global signer-state threshold cannot exceed u32");
+        let canonical_threshold_weight = u32::try_from(evaluator_numerator.div_ceil(10))
+            .expect("canonical signer threshold cannot exceed u32");
+
+        let active_signer_protocol_version =
+            self.determine_latest_supported_signer_protocol_version();
+        let mut state_views = HashMap::new();
+        if let Some(active_signer_protocol_version) = active_signer_protocol_version {
+            for (address, update) in &self.address_updates {
+                let Some(weight) = self.address_weights.get(address) else {
+                    continue;
+                };
+                let (burn_block, burn_block_height) = update.content.burn_block_view();
+                let state_machine = SignerStateMachine {
+                    burn_block: burn_block.clone(),
+                    burn_block_height,
+                    current_miner: update.content.current_miner().clone().into(),
+                    active_signer_protocol_version,
+                    tx_replay_set: ReplayTransactionSet::none(),
+                };
+                let entry = state_views
+                    .entry(SignerStateMachineKey(state_machine))
+                    .or_insert(0u32);
+                *entry = entry.saturating_add(*weight);
+            }
+        }
+        let maximum_state_view_weight = state_views.values().copied().max().unwrap_or(0);
+
+        GlobalStateAgreementSnapshot {
+            total_weight: self.total_weight,
+            known_weight,
+            maximum_state_view_weight,
+            evaluator_threshold_weight,
+            canonical_threshold_weight,
+            global_state_available: active_signer_protocol_version.is_some()
+                && maximum_state_view_weight >= evaluator_threshold_weight,
+        }
     }
 
     /// Check if the supplied vote weight crosses the global agreement threshold.

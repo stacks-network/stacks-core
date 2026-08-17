@@ -73,6 +73,30 @@ pub enum LocalStateMachine {
     },
 }
 
+#[cfg(test)]
+mod metric_tests {
+    use super::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
+    use stacks_common::types::chainstate::ConsensusHash;
+
+    #[test]
+    fn local_state_reports_only_the_committed_burn_height() {
+        assert_eq!(LocalStateMachine::Uninitialized.burn_block_height(), None);
+
+        let prior = LocalStateMachine::place_holder(1);
+        let initialized = LocalStateMachine::Initialized(prior.clone());
+        assert_eq!(initialized.burn_block_height(), Some(0));
+
+        let pending = LocalStateMachine::Pending {
+            prior,
+            update: StateMachineUpdate::BurnBlock(NewBurnBlock {
+                burn_block_height: 1,
+                consensus_hash: ConsensusHash([1; 20]),
+            }),
+        };
+        assert_eq!(pending.burn_block_height(), Some(0));
+    }
+}
+
 /// A pending update for a signer state machine
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StateMachineUpdate {
@@ -229,6 +253,19 @@ impl LocalStateMachine {
                 Some(update.active_signer_protocol_version)
             }
             LocalStateMachine::Uninitialized => None,
+        }
+    }
+
+    /// Return the burn block height represented by this local state.
+    ///
+    /// A pending state still represents its prior committed view until the
+    /// pending update is applied.
+    pub fn burn_block_height(&self) -> Option<u64> {
+        match self {
+            Self::Initialized(state) | Self::Pending { prior: state, .. } => {
+                Some(state.burn_block_height)
+            }
+            Self::Uninitialized => None,
         }
     }
 
