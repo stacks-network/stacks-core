@@ -1010,6 +1010,7 @@ impl Signer {
             .send_message_with_retry::<SignerMessage>(block_response.into())
         {
             Ok(ack) => {
+                crate::monitoring::actions::record_block_response_delivery(accepted, ack.accepted);
                 if !ack.accepted {
                     warn!(
                         "{self}: Block response not accepted by stacker-db: {:?}",
@@ -1020,6 +1021,7 @@ impl Signer {
                 crate::monitoring::actions::record_block_response_latency(block);
             }
             Err(e) => {
+                crate::monitoring::actions::record_block_response_delivery(accepted, false);
                 warn!("{self}: Failed to send block response to stacker-db: {e:?}",);
             }
         }
@@ -1666,6 +1668,12 @@ impl Signer {
         let block_rejection =
             self.test_reject_block_proposal(block_proposal, &mut block_info, block_rejection);
 
+        crate::monitoring::actions::record_policy_evaluation(
+            block_rejection
+                .as_ref()
+                .map(|rejection| &rejection.response_data.reject_reason),
+        );
+
         if let Some(block_rejection) = block_rejection {
             // We know proposal is invalid. Send rejection message, do not do further validation and do not store it.
             self.send_block_response(&block_info.block, block_rejection.into());
@@ -1934,6 +1942,10 @@ impl Signer {
             return;
         }
 
+        crate::monitoring::actions::record_validation_lifecycle(
+            crate::monitoring::ValidationLifecycleEvent::Accepted,
+        );
+
         if let Some(block_rejection) =
             self.check_block_against_signer_db_state(stacks_client, &block_info.block)
         {
@@ -2008,6 +2020,11 @@ impl Signer {
             debug!("{self}: Block is syntatically invalid; will not store");
             return;
         }
+        crate::monitoring::actions::record_validation_lifecycle(
+            crate::monitoring::ValidationLifecycleEvent::Rejected(
+                block_validate_reject.reason_code,
+            ),
+        );
         if let Err(e) = block_info.mark_locally_rejected() {
             if !block_info.has_reached_consensus() {
                 warn!("{self}: Failed to mark block as locally rejected: {e:?}");
@@ -2090,6 +2107,9 @@ impl Signer {
             };
 
         info!("{self}: Found a pending block validation: {signer_sig_hash:?}");
+        crate::monitoring::actions::record_validation_lifecycle(
+            crate::monitoring::ValidationLifecycleEvent::Retried,
+        );
         match self.signer_db.block_lookup(&signer_sig_hash) {
             Ok(Some(block_info)) => {
                 self.submit_block_for_validation(stacks_client, &block_info.block, insert_ts);
@@ -2143,6 +2163,9 @@ impl Signer {
         warn!(
             "{self}: Failed to receive block validation response within {} ms. Rejecting block.", self.block_proposal_validation_timeout.as_millis();
             "signer_signature_hash" => %proposal_signer_sighash,
+        );
+        crate::monitoring::actions::record_validation_lifecycle(
+            crate::monitoring::ValidationLifecycleEvent::Expired,
         );
         let rejection = self.create_block_rejection(
             RejectReason::ConnectivityIssues(
@@ -2614,6 +2637,9 @@ impl Signer {
         ) {
             Ok(_) => {
                 self.submitted_block_proposal = Some((signer_signature_hash, Instant::now()));
+                crate::monitoring::actions::record_validation_lifecycle(
+                    crate::monitoring::ValidationLifecycleEvent::Submitted,
+                );
             }
             Err(ClientError::RequestFailure(status)) => {
                 if status.as_u16() == TOO_MANY_REQUESTS_STATUS {

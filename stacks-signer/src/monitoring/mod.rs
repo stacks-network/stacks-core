@@ -14,6 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use blockstack_lib::net::api::postblock_proposal::ValidateRejectCode;
+#[cfg(feature = "monitoring_prom")]
+use libsigner::v0::messages::RejectReason;
 use stacks_common::define_named_enum;
 
 #[cfg(feature = "monitoring_prom")]
@@ -50,16 +53,149 @@ SignerAgreementStateConflict {
     MinerView("miner_view"),
 });
 
+/// The finite epistemic classification of a proposal-policy evaluation.
+#[cfg(feature = "monitoring_prom")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PolicyClassification {
+    /// Policy passed and companion validation may proceed.
+    Proceed,
+    /// Policy produced a validity verdict.
+    VerdictReject,
+    /// Policy could not produce a validity verdict.
+    Unavailable,
+}
+
+#[cfg(feature = "monitoring_prom")]
+impl PolicyClassification {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Proceed => "proceed",
+            Self::VerdictReject => "verdict_reject",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+/// The effective action taken by current signer policy.
+#[cfg(feature = "monitoring_prom")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PolicyAction {
+    /// Continue toward companion validation.
+    Continue,
+    /// Emit a rejection.
+    Reject,
+}
+
+#[cfg(feature = "monitoring_prom")]
+impl PolicyAction {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Continue => "continue",
+            Self::Reject => "reject",
+        }
+    }
+}
+
+/// A finite block-validation lifecycle transition.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ValidationLifecycleEvent {
+    /// Submission to the companion succeeded.
+    Submitted,
+    /// A queued validation is being attempted again.
+    Retried,
+    /// The companion accepted the proposal.
+    Accepted,
+    /// The companion rejected the proposal with a bounded code.
+    Rejected(ValidateRejectCode),
+    /// The submitted validation exceeded its response deadline.
+    Expired,
+}
+
+impl ValidationLifecycleEvent {
+    #[cfg(feature = "monitoring_prom")]
+    fn labels(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Submitted => ("submitted", "none"),
+            Self::Retried => ("retried", "none"),
+            Self::Accepted => ("accepted", "none"),
+            Self::Rejected(code) => ("rejected", validate_reject_code_label(code)),
+            Self::Expired => ("expired", "none"),
+        }
+    }
+}
+
+#[cfg(feature = "monitoring_prom")]
+fn policy_classification(reason: Option<&RejectReason>) -> (PolicyClassification, PolicyAction) {
+    match reason {
+        None => (PolicyClassification::Proceed, PolicyAction::Continue),
+        Some(
+            RejectReason::ConnectivityIssues(_)
+            | RejectReason::NoSortitionView
+            | RejectReason::NoSignerConsensus,
+        ) => (PolicyClassification::Unavailable, PolicyAction::Reject),
+        Some(_) => (PolicyClassification::VerdictReject, PolicyAction::Reject),
+    }
+}
+
+#[cfg(feature = "monitoring_prom")]
+fn reject_reason_label(reason: &RejectReason) -> &'static str {
+    match reason {
+        RejectReason::ValidationFailed(_) => "validation_failed",
+        RejectReason::ConnectivityIssues(_) => "connectivity_issues",
+        RejectReason::RejectedInPriorRound => "rejected_in_prior_round",
+        RejectReason::NoSortitionView => "no_sortition_view",
+        RejectReason::SortitionViewMismatch => "sortition_view_mismatch",
+        RejectReason::TestingDirective => "testing_directive",
+        RejectReason::ReorgNotAllowed => "reorg_not_allowed",
+        RejectReason::InvalidBitvec => "invalid_bitvec",
+        RejectReason::PubkeyHashMismatch => "pubkey_hash_mismatch",
+        RejectReason::InvalidMiner => "invalid_miner",
+        RejectReason::NotLatestSortitionWinner => "not_latest_sortition_winner",
+        RejectReason::InvalidParentBlock => "invalid_parent_block",
+        RejectReason::DuplicateBlockFound => "duplicate_block_found",
+        RejectReason::InvalidTenureExtend => "invalid_tenure_extend",
+        RejectReason::IrrecoverablePubkeyHash => "irrecoverable_pubkey_hash",
+        RejectReason::NoSignerConsensus => "no_signer_consensus",
+        RejectReason::ConsensusHashMismatch { .. } => "consensus_hash_mismatch",
+        RejectReason::ProblematicTransactions => "problematic_transactions",
+        RejectReason::Unknown(_) => "unknown",
+        RejectReason::NotRejected => "not_rejected",
+    }
+}
+
+#[cfg(feature = "monitoring_prom")]
+const fn validate_reject_code_label(code: ValidateRejectCode) -> &'static str {
+    match code {
+        ValidateRejectCode::BadBlockHash => "bad_block_hash",
+        ValidateRejectCode::BadTransaction => "bad_transaction",
+        ValidateRejectCode::InvalidBlock => "invalid_block",
+        ValidateRejectCode::ChainstateError => "chainstate_error",
+        ValidateRejectCode::UnknownParent => "unknown_parent",
+        ValidateRejectCode::NonCanonicalTenure => "non_canonical_tenure",
+        ValidateRejectCode::NoSuchTenure => "no_such_tenure",
+        ValidateRejectCode::InvalidTransactionReplay => "invalid_transaction_replay",
+        ValidateRejectCode::InvalidParentBlock => "invalid_parent_block",
+        ValidateRejectCode::InvalidTimestamp => "invalid_timestamp",
+        ValidateRejectCode::NetworkChainMismatch => "network_chain_mismatch",
+        ValidateRejectCode::NotFoundError => "not_found_error",
+        ValidateRejectCode::ProblematicTransaction => "problematic_transaction",
+    }
+}
+
 /// Actions for updating metrics
 #[cfg(feature = "monitoring_prom")]
 pub mod actions {
     use ::prometheus::HistogramTimer;
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+    use libsigner::v0::messages::RejectReason;
     use stacks_common::error;
 
     use crate::config::GlobalConfig;
     use crate::monitoring::prometheus::*;
-    use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
+    use crate::monitoring::{
+        policy_classification, reject_reason_label, SignerAgreementStateChangeReason,
+        SignerAgreementStateConflict, ValidationLifecycleEvent,
+    };
     use crate::v0::signer_state::LocalStateMachine;
 
     /// Update stacks tip height gauge
@@ -89,6 +225,37 @@ pub mod actions {
     /// Increment the number of block proposals received
     pub fn increment_block_proposals_received() {
         BLOCK_PROPOSALS_RECEIVED.inc();
+    }
+
+    /// Record the proposal policy's epistemic classification separately from
+    /// the action taken by the current protocol implementation.
+    pub fn record_policy_evaluation(reason: Option<&RejectReason>) {
+        let (classification, action) = policy_classification(reason);
+        POLICY_EVALUATIONS
+            .with_label_values(&[classification.as_str(), action.as_str()])
+            .inc();
+        if let Some(reason) = reason {
+            POLICY_REJECTIONS
+                .with_label_values(&[reject_reason_label(reason)])
+                .inc();
+        }
+    }
+
+    /// Record a block-validation lifecycle transition.
+    pub fn record_validation_lifecycle(event: ValidationLifecycleEvent) {
+        let (event, reason) = event.labels();
+        BLOCK_VALIDATION_LIFECYCLE
+            .with_label_values(&[event, reason])
+            .inc();
+    }
+
+    /// Record whether a final signer response was delivered to StackerDB.
+    pub fn record_block_response_delivery(accepted: bool, delivered: bool) {
+        let response_type = if accepted { "accepted" } else { "rejected" };
+        let outcome = if delivered { "sent" } else { "failed" };
+        BLOCK_RESPONSE_DELIVERIES
+            .with_label_values(&[response_type, outcome])
+            .inc();
     }
 
     /// Increment the block pre-commit sent counter
@@ -192,9 +359,12 @@ pub mod actions {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
     use stacks_common::info;
 
-    use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
+    use crate::monitoring::{
+        SignerAgreementStateChangeReason, SignerAgreementStateConflict, ValidationLifecycleEvent,
+    };
     use crate::v0::signer_state::LocalStateMachine;
     use crate::GlobalConfig;
+    use libsigner::v0::messages::RejectReason;
 
     /// Update stacks tip height gauge
     pub fn update_stacks_tip_height(_height: i64) {}
@@ -210,6 +380,15 @@ pub mod actions {
 
     /// Increment the number of block proposals received
     pub fn increment_block_proposals_received() {}
+
+    /// No-op proposal-policy evaluation recorder.
+    pub fn record_policy_evaluation(_reason: Option<&RejectReason>) {}
+
+    /// No-op block-validation lifecycle recorder.
+    pub fn record_validation_lifecycle(_event: ValidationLifecycleEvent) {}
+
+    /// No-op final response-delivery recorder.
+    pub fn record_block_response_delivery(_accepted: bool, _delivered: bool) {}
 
     /// Increment the block pre-commits sent counter
     pub fn increment_block_pre_commits_sent() {}
@@ -285,4 +464,119 @@ fn test_remove_origin_from_path() {
     let origin = "http://localhost:20443";
     let path = remove_origin_from_path(full_path, origin);
     assert_eq!(path, "/v2/info");
+}
+
+#[cfg(all(test, feature = "monitoring_prom"))]
+mod tests {
+    use blockstack_lib::net::api::postblock_proposal::ValidateRejectCode;
+    use libsigner::v0::messages::RejectReason;
+
+    use super::actions::{
+        record_block_response_delivery, record_policy_evaluation, record_validation_lifecycle,
+    };
+    use super::prometheus::{
+        BLOCK_RESPONSE_DELIVERIES, BLOCK_VALIDATION_LIFECYCLE, POLICY_EVALUATIONS,
+        POLICY_REJECTIONS,
+    };
+    use super::{
+        policy_classification, validate_reject_code_label, PolicyAction, PolicyClassification,
+        ValidationLifecycleEvent,
+    };
+
+    #[test]
+    fn proposal_outcome_metrics_use_bounded_truthful_labels() {
+        assert_eq!(
+            policy_classification(None),
+            (PolicyClassification::Proceed, PolicyAction::Continue)
+        );
+        assert_eq!(
+            policy_classification(Some(&RejectReason::ConnectivityIssues(
+                "arbitrary RPC text must not become a label".into()
+            ))),
+            (PolicyClassification::Unavailable, PolicyAction::Reject)
+        );
+        assert_eq!(
+            policy_classification(Some(&RejectReason::InvalidTenureExtend)),
+            (PolicyClassification::VerdictReject, PolicyAction::Reject)
+        );
+
+        let proceed = POLICY_EVALUATIONS.with_label_values(&["proceed", "continue"]);
+        let unavailable = POLICY_EVALUATIONS.with_label_values(&["unavailable", "reject"]);
+        let verdict = POLICY_EVALUATIONS.with_label_values(&["verdict_reject", "reject"]);
+        let connectivity = POLICY_REJECTIONS.with_label_values(&["connectivity_issues"]);
+        let invalid_tenure = POLICY_REJECTIONS.with_label_values(&["invalid_tenure_extend"]);
+        let before = (
+            proceed.get(),
+            unavailable.get(),
+            verdict.get(),
+            connectivity.get(),
+            invalid_tenure.get(),
+        );
+
+        record_policy_evaluation(None);
+        record_policy_evaluation(Some(&RejectReason::ConnectivityIssues("first".into())));
+        record_policy_evaluation(Some(&RejectReason::ConnectivityIssues("second".into())));
+        record_policy_evaluation(Some(&RejectReason::InvalidTenureExtend));
+
+        assert_eq!(proceed.get(), before.0 + 1);
+        assert_eq!(unavailable.get(), before.1 + 2);
+        assert_eq!(verdict.get(), before.2 + 1);
+        assert_eq!(connectivity.get(), before.3 + 2);
+        assert_eq!(invalid_tenure.get(), before.4 + 1);
+
+        let submitted = BLOCK_VALIDATION_LIFECYCLE.with_label_values(&["submitted", "none"]);
+        let rejected =
+            BLOCK_VALIDATION_LIFECYCLE.with_label_values(&["rejected", "invalid_parent_block"]);
+        let submitted_before = submitted.get();
+        let rejected_before = rejected.get();
+        record_validation_lifecycle(ValidationLifecycleEvent::Submitted);
+        record_validation_lifecycle(ValidationLifecycleEvent::Rejected(
+            ValidateRejectCode::InvalidParentBlock,
+        ));
+        assert_eq!(submitted.get(), submitted_before + 1);
+        assert_eq!(rejected.get(), rejected_before + 1);
+
+        let sent = BLOCK_RESPONSE_DELIVERIES.with_label_values(&["accepted", "sent"]);
+        let failed = BLOCK_RESPONSE_DELIVERIES.with_label_values(&["accepted", "failed"]);
+        let sent_before = sent.get();
+        let failed_before = failed.get();
+        record_block_response_delivery(true, true);
+        record_block_response_delivery(true, false);
+        assert_eq!(sent.get(), sent_before + 1);
+        assert_eq!(failed.get(), failed_before + 1);
+
+        let validation_labels = [
+            (ValidateRejectCode::BadBlockHash, "bad_block_hash"),
+            (ValidateRejectCode::BadTransaction, "bad_transaction"),
+            (ValidateRejectCode::InvalidBlock, "invalid_block"),
+            (ValidateRejectCode::ChainstateError, "chainstate_error"),
+            (ValidateRejectCode::UnknownParent, "unknown_parent"),
+            (
+                ValidateRejectCode::NonCanonicalTenure,
+                "non_canonical_tenure",
+            ),
+            (ValidateRejectCode::NoSuchTenure, "no_such_tenure"),
+            (
+                ValidateRejectCode::InvalidTransactionReplay,
+                "invalid_transaction_replay",
+            ),
+            (
+                ValidateRejectCode::InvalidParentBlock,
+                "invalid_parent_block",
+            ),
+            (ValidateRejectCode::InvalidTimestamp, "invalid_timestamp"),
+            (
+                ValidateRejectCode::NetworkChainMismatch,
+                "network_chain_mismatch",
+            ),
+            (ValidateRejectCode::NotFoundError, "not_found_error"),
+            (
+                ValidateRejectCode::ProblematicTransaction,
+                "problematic_transaction",
+            ),
+        ];
+        for (code, expected) in validation_labels {
+            assert_eq!(validate_reject_code_label(code), expected);
+        }
+    }
 }
