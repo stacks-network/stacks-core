@@ -4,6 +4,12 @@ name: Docker Image
 
 on:
   workflow_dispatch:
+    inputs:
+      blank_version_build:
+        description: "Should the version info be blank?"
+        required: true
+        type: boolean
+        default: true
   schedule:
     # Run at 05:00 UTC daily
     - cron: "0 5 * * *"
@@ -40,7 +46,7 @@ jobs:
     name: Build Binaries
     # Only run this if it's the public repo or manually triggered
     if: github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.BUILD_RUNNER_LABEL || 'ubuntu-latest' }}
     strategy:
       max-parallel: 2
       matrix:
@@ -74,10 +80,26 @@ jobs:
         with:
           ref: ${{ steps.set-vars.outputs.branch }}
 
+      # Optionally elide build/version info from the binaries.
+      #   - option_env!("GIT_BRANCH"|"GIT_COMMIT"|"STACKS_NODE_VERSION") is read at
+      #     compile time, so exporting these to $GITHUB_ENV before the build overrides
+      #     the git-derived version info baked into the binaries.
+      #   - Only runs when the dispatch input requests it (scheduled runs have no
+      #     input and therefore keep real version info).
+      - name: Blank version info
+        if: ${{ inputs.blank_version_build }}
+        run: |
+          {
+            echo "GIT_BRANCH=No Branch Info"
+            echo "GIT_COMMIT=No Commit Info"
+            echo "STACKS_NODE_VERSION=No Version Info"
+          } >> "$GITHUB_ENV"
+
       # Configure target platform, install Rust toolchain, and build binaries
       - name: Build Binaries
         id: build-binaries
         env:
+          CARGO_BUILD_JOBS: ${{ vars.CARGO_BUILD_JOBS || '1' }}
           MATRIX_CPU: ${{ matrix.cpu }}
           # Set the build target statically, since we only need to build for linux-glibc
           MATRIX_ARCH: linux-glibc
@@ -109,8 +131,9 @@ jobs:
     name: Build Image
     needs:
       - build-binaries
-    # Only run this if it's the public repo or manually triggered
-    if: github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public'
+    # Only run this if it's the public repo or manually triggered, and skip it
+    # entirely for blanked builds (binaries only, no image).
+    if: ${{ (github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public') && !inputs.blank_version_build }}
     runs-on: ubuntu-latest
     permissions:
       contents: read       # required for checkout

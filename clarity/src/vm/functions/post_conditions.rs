@@ -396,6 +396,12 @@ fn evaluate_body_with_allowance_check(
             Ok(last_result)
         })();
 
+    // A block-rejecting error raised inside the body must abort the transaction.
+    if matches!(&eval_result, Err(err) if err.rejectable()) {
+        exec_state.global_context.roll_back()?;
+        return Err(eval_result.unwrap_err());
+    }
+
     let asset_maps = exec_state.global_context.get_readonly_asset_map()?;
 
     // If the allowances are violated:
