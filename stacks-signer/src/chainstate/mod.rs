@@ -160,9 +160,11 @@ impl SortitionData {
     /// Check if the tenure defined by `sortition_state` is building off of an
     ///  appropriate tenure.
     ///
-    /// A permitted reorg is recorded as it is permitted: each tenure whose blocks this one is
-    /// allowed to replace is marked superseded (see [`SignerDb::mark_tenure_superseded`]), so a
-    /// signature we already placed on one of those blocks does not later block the replacement.
+    /// A permitted reorg is recorded once the whole reorg is permitted: each tenure whose
+    /// blocks this one is allowed to replace is marked superseded (see
+    /// [`SignerDb::mark_tenure_superseded`]), so a signature we already placed on one of those
+    /// blocks does not later block the replacement. Nothing is recorded for a refused reorg,
+    /// even for the tenures in it that individually qualified.
     pub fn check_parent_tenure_choice(
         &self,
         signer_db: &mut SignerDb,
@@ -194,6 +196,9 @@ impl SortitionData {
         let sortition_state_received_time =
             signer_db.get_burn_block_receive_time(&self.burn_block_hash)?;
 
+        // Track which tenures are superseded by the reorg, then mark them in
+        // the DB after the reorg is permitted.
+        let mut superseded_tenures = Vec::new();
         for tenure in tenures_reorged.iter() {
             if tenure.consensus_hash == self.parent_tenure_id {
                 // this was a built-upon tenure, no need to check this tenure as part of the reorg.
@@ -219,8 +224,9 @@ impl SortitionData {
                 // The node saw no blocks in this tenure, so the reorg takes nothing away from
                 // the canonical chain. We may still hold a signature over a block in it that
                 // the node has never seen (a block we accept locally is not handed to the node
-                // until the whole signer set has signed it), so still record the reorg.
-                Self::record_superseded_tenure(signer_db, tenure);
+                // until the whole signer set has signed it), so the reorg must still be
+                // recorded if it is permitted.
+                superseded_tenures.push(tenure);
                 continue;
             };
             let Some(local_block_info) =
@@ -261,7 +267,7 @@ impl SortitionData {
                         "first_proposal_burn_block_timing_secs" => first_proposal_burn_block_timing.as_secs(),
                         "proposal_to_sortition" => proposal_to_sortition,
                     );
-                    Self::record_superseded_tenure(signer_db, tenure);
+                    superseded_tenures.push(tenure);
                     continue;
                 }
                 true
@@ -278,6 +284,10 @@ impl SortitionData {
                 "checked_proposal_timing" => checked_proposal_timing,
             );
             return Ok(false);
+        }
+        // Every reorged tenure cleared the rules, so the reorg is permitted.
+        for tenure in superseded_tenures {
+            Self::record_superseded_tenure(signer_db, tenure);
         }
         Ok(true)
     }

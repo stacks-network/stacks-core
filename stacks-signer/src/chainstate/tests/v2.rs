@@ -379,6 +379,79 @@ fn check_parent_tenure_choice_reorg_timing_ok() {
     );
 }
 
+#[test]
+fn refused_reorg_supersedes_nothing() {
+    // A multi-tenure reorg where the FIRST reorged tenure qualifies (the node saw no blocks in
+    // it) but a LATER one fails the rules. The sanction is a verdict on the reorg as a whole,
+    // so the qualifying tenure must not be left recorded as superseded: that record voids our
+    // signatures over its blocks as conflicts, for a replacement we never permitted.
+    let (_stacks_client, mut signer_db, _block_sk, _block, mut cur_sortition, last_sortition, _) =
+        setup_test_environment(function_name!());
+    cur_sortition.data.parent_tenure_id = last_sortition.data.parent_tenure_id.clone();
+
+    let empty_tenure_ch = ConsensusHash([64; 20]);
+    let expected_result = vec![
+        // Evaluated first: qualifies via the empty-tenure branch.
+        TenureForkingInfo {
+            burn_block_hash: BurnchainHeaderHash([64; 32]),
+            burn_block_height: 2,
+            sortition_id: SortitionId([2; 32]),
+            parent_sortition_id: SortitionId([1; 32]),
+            consensus_hash: empty_tenure_ch.clone(),
+            was_sortition: true,
+            first_block_mined: None,
+            nakamoto_blocks: None,
+        },
+        // Evaluated second: fails, because it mined a block and we have no local knowledge of
+        // that block's timing.
+        TenureForkingInfo {
+            burn_block_hash: last_sortition.data.burn_block_hash,
+            burn_block_height: 1,
+            sortition_id: SortitionId([1; 32]),
+            parent_sortition_id: SortitionId([0; 32]),
+            consensus_hash: last_sortition.data.consensus_hash,
+            was_sortition: true,
+            first_block_mined: Some(StacksBlockId([1; 32])),
+            nakamoto_blocks: None,
+        },
+        // The built-upon parent tenure itself: skipped by the check, but the client paginates
+        // fork info until it reaches it, so the response must end here.
+        TenureForkingInfo {
+            burn_block_hash: BurnchainHeaderHash([128; 32]),
+            burn_block_height: 0,
+            sortition_id: SortitionId([0; 32]),
+            parent_sortition_id: SortitionId([128; 32]),
+            consensus_hash: cur_sortition.data.parent_tenure_id.clone(),
+            was_sortition: true,
+            first_block_mined: Some(StacksBlockId([2; 32])),
+            nakamoto_blocks: None,
+        },
+    ];
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+    let h = std::thread::spawn(move || {
+        let result = cur_sortition.data.check_parent_tenure_choice(
+            &mut signer_db,
+            &client,
+            &Duration::from_secs(30),
+        );
+        let superseded = signer_db.is_tenure_superseded(&empty_tenure_ch).unwrap();
+        (result, superseded)
+    });
+    crate::client::tests::write_response(
+        server,
+        format!("HTTP/1.1 200 Ok\n\n{}", serde_json::json!(expected_result)).as_bytes(),
+    );
+    let (result, superseded) = h.join().unwrap();
+    assert!(
+        !result.unwrap(),
+        "the reorg must be refused: a reorged tenure mined a block we know nothing about"
+    );
+    assert!(
+        !superseded,
+        "a refused reorg must supersede nothing, even the tenures in it that individually qualified"
+    );
+}
+
 fn make_tenure_change_payload() -> TenureChangePayload {
     TenureChangePayload {
         tenure_consensus_hash: ConsensusHash([0; 20]),
