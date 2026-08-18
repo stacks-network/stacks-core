@@ -1,0 +1,1 @@
+Refactored chainstate persistence to support in-memory test backends, substantially reducing full-suite test runtime.
