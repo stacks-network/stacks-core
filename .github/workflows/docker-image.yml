@@ -44,8 +44,8 @@ jobs:
   # Build arch dependent binaries from source
   build-binaries:
     name: Build Binaries
-    # Only run this if it's the public repo or manually triggered
-    if: github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public'
+    # Only run this if it's the official repo or manually triggered
+    if: github.event_name == 'workflow_dispatch' || github.repository == 'stacks-network/stacks-core'
     runs-on: ${{ vars.BUILD_RUNNER_LABEL || 'ubuntu-latest' }}
     strategy:
       max-parallel: 2
@@ -131,9 +131,8 @@ jobs:
     name: Build Image
     needs:
       - build-binaries
-    # Only run this if it's the public repo or manually triggered, and skip it
-    # entirely for blanked builds (binaries only, no image).
-    if: ${{ (github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public') && !inputs.blank_version_build }}
+    # Only run this if it's the official repo or manually triggered, and skip it entirely for blanked builds (binaries only, no image).
+    if: (github.event_name == 'workflow_dispatch' || github.repository == 'stacks-network/stacks-core') && !inputs.blank_version_build
     runs-on: ubuntu-latest
     permissions:
       contents: read       # required for checkout

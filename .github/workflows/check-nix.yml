@@ -31,6 +31,8 @@ concurrency:
 jobs:
   build-pkg:
     name: Check Nix package
+    # Only run this if it's the official repo
+    if: github.repository == 'stacks-network/stacks-core'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code

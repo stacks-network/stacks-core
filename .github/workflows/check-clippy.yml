@@ -33,6 +33,8 @@ concurrency:
 jobs:
   clippy-stacks:
     name: Clippy Check (stacks)
+    # Only run this if it's the official repo
+    if: github.repository == 'stacks-network/stacks-core'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -53,6 +55,8 @@ jobs:
 
   clippy-stacks-lib:
     name: Clippy Check (stackslib)
+    # Only run this if it's the official repo
+    if: github.repository == 'stacks-network/stacks-core'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
