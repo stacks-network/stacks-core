@@ -3,6 +3,9 @@
   "rust-analyzer.runnables.extraEnv": {
     "BITCOIND_TEST": "1"
   },
+  "rust-analyzer.procMacro.ignored": {
+    "pinny": ["tag"]
+  },
   "rust-analyzer.rustfmt.extraArgs": ["+nightly"],
   "files.eol": "\n",
 }
