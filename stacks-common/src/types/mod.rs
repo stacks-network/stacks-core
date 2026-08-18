@@ -38,7 +38,7 @@ use crate::consts::{
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
-    PEER_VERSION_EPOCH_4_0, STACKS_EPOCH_MAX,
+    PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1, STACKS_EPOCH_MAX,
 };
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
@@ -167,6 +167,7 @@ define_stacks_epochs! {
     Epoch33 = 0x03003 => "3.3",
     Epoch34 = 0x03004 => "3.4",
     Epoch40 = 0x04000 => "4.0",
+    Epoch41 = 0x04001 => "4.1",
 }
 
 #[derive(Debug)]
@@ -506,7 +507,7 @@ impl StacksEpochId {
 
     #[cfg(any(test, feature = "testing"))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch40
+        StacksEpochId::Epoch41
     }
 
     #[cfg(not(any(test, feature = "testing")))]
@@ -539,6 +540,12 @@ impl StacksEpochId {
     ///  Clarity value sanitization on function invocation
     pub fn sanitize_in_function_invocation(&self) -> bool {
         self >= &StacksEpochId::Epoch40
+    }
+
+    /// Whether typed tuple deserialization requires every declared field to be
+    /// present exactly once after sanitization.
+    pub fn enforces_exact_typed_tuple_field_set(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
     }
 
     pub fn supports_specific_budget_extends(&self) -> bool {
@@ -871,6 +878,16 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// During the contract analysis phase, which check runs first --
+    /// the read-only check or the type check? Until Epoch 4.0, the
+    /// read-only check ran first. But since the implementation of the
+    /// read-only checker makes some assumptions about type correctness,
+    /// it is more appropriate for the type checker to run first, so
+    /// this behavior changes beginning with Epoch 4.1.
+    pub fn performs_read_only_checks_before_type_checks(&self) -> bool {
+        self < &StacksEpochId::Epoch41
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {
@@ -888,6 +905,7 @@ impl StacksEpochId {
             StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_3,
             StacksEpochId::Epoch34 => PEER_VERSION_EPOCH_3_4,
             StacksEpochId::Epoch40 => PEER_VERSION_EPOCH_4_0,
+            StacksEpochId::Epoch41 => PEER_VERSION_EPOCH_4_1,
         }
     }
 }

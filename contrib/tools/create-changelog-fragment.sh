@@ -34,23 +34,33 @@ esac
 # --- Category ---
 echo ""
 echo "Category:"
-echo "  1) added"
-echo "  2) changed"
-echo "  3) fixed"
-echo "  4) removed"
+echo "  1) breaking  (⚠️  likely to break users)"
+echo "  2) added"
+echo "  3) changed"
+echo "  4) fixed"
+echo "  5) removed"
 echo ""
-read -rp "Category [1/2/3/4]: " cat_choice
+read -rp "Category [1/2/3/4/5]: " cat_choice
 
 case "$cat_choice" in
-  1) CATEGORY="added" ;;
-  2) CATEGORY="changed" ;;
-  3) CATEGORY="fixed" ;;
-  4) CATEGORY="removed" ;;
+  1) CATEGORY="breaking" ;;
+  2) CATEGORY="added" ;;
+  3) CATEGORY="changed" ;;
+  4) CATEGORY="fixed" ;;
+  5) CATEGORY="removed" ;;
   *)
     echo "Invalid choice. Aborting."
     exit 1
     ;;
 esac
+
+if [[ "$CATEGORY" == "breaking" ]]; then
+  echo ""
+  echo "⚠️  Breaking changes are highlighted at the top of the release's changelog"
+  echo "   section. Describe what breaks and what operators/users must do about it."
+  echo "   If the change also has a non-breaking aspect worth listing, add a second"
+  echo "   fragment in the matching category."
+fi
 
 # --- Filename ---
 DEFAULT_DESC=""

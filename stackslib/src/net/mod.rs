@@ -238,6 +238,7 @@ pub enum Error {
     /// too many writes to a slot
     TooManySlotWrites {
         supplied_version: u32,
+        latest_version: u32,
         max_writes: u32,
     },
     /// too frequent writes to a slot
@@ -395,12 +396,13 @@ impl fmt::Display for Error {
             }
             Error::TooManySlotWrites {
                 supplied_version,
+                latest_version,
                 max_writes,
             } => {
                 write!(
                     f,
-                    "Too many slot writes (max={},given={})",
-                    max_writes, supplied_version
+                    "Too many slot writes (supplied={},latest={},max={})",
+                    supplied_version, latest_version, max_writes
                 )
             }
             Error::TooFrequentSlotWrites(ref deadline) => {

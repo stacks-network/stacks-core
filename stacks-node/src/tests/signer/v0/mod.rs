@@ -120,6 +120,7 @@ use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config
 
 pub mod capitulate_parent_tenure_view;
 pub mod epoch_4_0_multi_miner_distribution;
+pub mod epoch_4_0_reorg;
 pub mod epoch_4_0_waterfall;
 pub mod failed_txs;
 pub mod late_block_proposal;
@@ -4071,8 +4072,6 @@ fn signer_set_rollover() {
         "12345",
         run_stamp,
         3000 + num_signers,
-        Some(100_000),
-        None,
         Some(9000 + num_signers),
         None,
     );
@@ -4111,6 +4110,7 @@ fn signer_set_rollover() {
                     ],
                     timeout_ms: 1000,
                     disable_retries: false,
+                    disable_contract_interface: false,
                 });
             }
             naka_conf.node.rpc_bind = rpc_bind.clone();
@@ -4589,8 +4589,6 @@ fn signer_multinode_rollover() {
         "12345",
         rand::random(),
         3000 + num_signers,
-        Some(100_000),
-        None,
         Some(9000 + num_signers),
         None,
     );
@@ -4631,6 +4629,7 @@ fn signer_multinode_rollover() {
                     ],
                     timeout_ms: 1000,
                     disable_retries: false,
+                    disable_contract_interface: false,
                 });
             }
         },
@@ -6504,8 +6503,6 @@ fn injected_signatures_are_ignored_across_boundaries() {
         "12345",
         run_stamp,
         3000 + num_signers,
-        Some(100_000),
-        None,
         Some(9000 + num_signers),
         None,
     )
@@ -6537,6 +6534,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
                 ],
                 timeout_ms: 1000,
                 disable_retries: false,
+                disable_contract_interface: false,
             });
             naka_conf.node.rpc_bind = rpc_bind.clone();
         },
@@ -9106,7 +9104,7 @@ fn signers_treat_signatures_as_precommits() {
             debug!("Produced a signature: {:?}", chunk.sig);
             let result = session.put_chunk(&chunk).expect("Failed to put chunk");
             accepted = result.accepted;
-            if !accepted && result.code.unwrap() == StackerDBErrorCodes::BadSigner as u32 {
+            if !accepted && result.code.unwrap() == StackerDBErrorCodes::BadSigner.code() {
                 slot_id += 1;
                 assert!(
                     slot_id < num_signers as u32,

@@ -425,14 +425,15 @@ impl StackerDBTx<'_> {
         }
         if slot_desc.slot_version <= slot_validation.version {
             return Err(net_error::StaleChunk {
-                latest_version: slot_validation.version,
                 supplied_version: slot_desc.slot_version,
+                latest_version: slot_validation.version,
             });
         }
         if slot_desc.slot_version > self.config.max_writes {
             return Err(net_error::TooManySlotWrites {
+                supplied_version: slot_desc.slot_version,
+                latest_version: slot_validation.version,
                 max_writes: self.config.max_writes,
-                supplied_version: slot_validation.version,
             });
         }
         self.insert_chunk(smart_contract, slot_desc, chunk)

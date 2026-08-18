@@ -432,8 +432,7 @@ impl RollbackWrapper<'_> {
         epoch: &StacksEpochId,
     ) -> Result<ValueResult, SerializationError> {
         let serialized_byte_len = value_hex.len() as u64 / 2;
-        let sanitize = epoch.value_sanitizing();
-        let value = Value::try_deserialize_hex(value_hex, expected, sanitize)?;
+        let value = Value::try_deserialize_hex_at_epoch(value_hex, expected, epoch)?;
 
         Ok(ValueResult {
             value,

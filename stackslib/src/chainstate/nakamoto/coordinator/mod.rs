@@ -357,6 +357,61 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
     return Ok(Some(rc_info));
 }
 
+/// Load the reward set that was active when a Nakamoto tenure was elected.
+///
+/// `tenure_snapshot` must be the snapshot of the sortition that elected the tenure (the
+/// sortition whose consensus hash the tenure's blocks carry), not the burnchain tip: a tenure
+/// extended across a reward-cycle boundary is still signed by the reward set that was active
+/// at its election. Load errors are folded into `ChainstateError` as block acceptance has
+/// historically classified them.
+pub fn load_nakamoto_reward_set_for_tenure<U: RewardSetProvider>(
+    tenure_snapshot: &BlockSnapshot,
+    burnchain: &Burnchain,
+    chain_state: &mut StacksChainState<impl ChainStatePersistence>,
+    stacks_tip: &StacksBlockId,
+    sort_db: &SortitionDB,
+    provider: &U,
+) -> Result<Option<RewardSet>, ChainstateError> {
+    let reward_cycle = burnchain
+        .block_height_to_reward_cycle(tenure_snapshot.block_height)
+        .ok_or_else(|| {
+            ChainstateError::Expects(format!(
+                "Nakamoto tenure election at burn height {} has no reward cycle",
+                tenure_snapshot.block_height
+            ))
+        })?;
+
+    let Some((reward_cycle_info, _)) = load_nakamoto_reward_set(
+        reward_cycle,
+        &tenure_snapshot.sortition_id,
+        burnchain,
+        chain_state,
+        stacks_tip,
+        sort_db,
+        provider,
+    )
+    .map_err(|e| match e {
+        Error::ChainstateError(e) => e,
+        Error::DBError(DBError::NotFoundError) => ChainstateError::PoxNoRewardCycle,
+        Error::DBError(e) => ChainstateError::DBError(e),
+        e => {
+            error!(
+                "Failed to load reward set for tenure election at burn height {}: {e:?}",
+                tenure_snapshot.block_height
+            );
+            ChainstateError::PoxNoRewardCycle
+        }
+    })?
+    else {
+        return Ok(None);
+    };
+    let reward_set = reward_cycle_info
+        .known_selected_anchor_block_owned()
+        .ok_or_else(|| ChainstateError::NoRegisteredSigners(reward_cycle))?;
+
+    Ok(Some(reward_set))
+}
+
 /// Helper to get the Nakamoto reward set for a given reward cycle, identified by `reward_cycle`.
 ///
 /// In all but the first Nakamoto reward cycle, this will load up the stored reward set from the

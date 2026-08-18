@@ -27,12 +27,14 @@ use clarity::consts::{
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
-    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_4_0, STACKS_EPOCH_MAX,
+    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1,
+    STACKS_EPOCH_MAX,
 };
 use clarity::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
 use clarity::vm::ast::parser::v1::CONTRACT_MAX_NAME_LENGTH;
+use clarity::vm::clarity::ClarityConnection as _;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::STXBalance;
 use clarity::vm::types::*;
@@ -2092,9 +2094,16 @@ impl<'a, CSP: ChainStatePersistence> TestChainstate<'a, CSP> {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch40,
                 start_height: first_burnchain_height + 5,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 6,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_4_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch41,
+                start_height: first_burnchain_height + 6,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_4_1,
             },
         ])
     }
@@ -2201,9 +2210,16 @@ impl<'a, CSP: ChainStatePersistence> TestChainstate<'a, CSP> {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch40,
                 start_height: first_burnchain_height + 33,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 34,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_4_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch41,
+                start_height: first_burnchain_height + 34,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_4_1,
             },
         ])
     }
@@ -2245,6 +2261,7 @@ fn advance_through_all_epochs() {
         StacksEpochId::Epoch33,
         StacksEpochId::Epoch34,
         StacksEpochId::Epoch40,
+        StacksEpochId::Epoch41,
     ] {
         chainstate.advance_to_epoch_boundary(&privk, target_epoch);
         let burn_block_height = chainstate.get_burn_block_height();
@@ -2261,6 +2278,55 @@ fn advance_through_all_epochs() {
                 .epoch_id;
         assert_eq!(next_epoch, target_epoch);
     }
+}
+
+#[test]
+/// Cross the Epoch 4.0 -> 4.1 boundary for real.
+///
+/// `advance_through_all_epochs` stops one block *short* of each activation
+/// height, so nothing else executes the 4.0 -> 4.1 transition arm.
+fn advance_into_epoch_41_runs_the_epoch_transition() {
+    let privk = StacksPrivateKey::random();
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_pox_constants(7, 3)
+        .with_private_key(privk.clone());
+    let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
+        + boot_plan.pox_constants.reward_cycle_length
+        + 1) as u64;
+    let epochs =
+        TestChainstate::<SharedMemoryChainStateBackend>::all_epochs(first_burnchain_height);
+    boot_plan = boot_plan.with_epochs(epochs);
+    let mut chainstate =
+        boot_plan.to_shared_ephemeral_chainstate(None, Some(first_burnchain_height));
+
+    chainstate.advance_into_epoch(&privk, StacksEpochId::Epoch41);
+
+    let burn_block_height = chainstate.get_burn_block_height();
+    let current_epoch =
+        SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height)
+            .unwrap()
+            .unwrap()
+            .epoch_id;
+    assert_eq!(current_epoch, StacksEpochId::Epoch41);
+
+    // `initialize_epoch_4_1` deploys nothing, so the persisted Clarity epoch is
+    // its only observable effect.
+    let sortdb = chainstate.sortdb.take().unwrap();
+    let (consensus_hash, block_bhh) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+    let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
+    let iconn = sortdb.index_handle_at_tip();
+    let clarity_epoch = chainstate
+        .chainstate()
+        .with_read_only_clarity_tx(&iconn, &stacks_block_id, |conn| conn.get_epoch())
+        .expect("failed to open a read-only Clarity connection at the tip");
+    chainstate.sortdb = Some(sortdb);
+
+    assert_eq!(
+        clarity_epoch,
+        StacksEpochId::Epoch41,
+        "initialize_epoch_4_1 must bump the Clarity DB epoch version"
+    );
 }
 
 #[test]

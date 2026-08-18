@@ -2255,6 +2255,32 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         })
     }
 
+    pub fn initialize_epoch_4_1(&mut self) -> Result<Vec<StacksTransactionReceipt>, ClarityError> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+            self.epoch = StacksEpochId::Epoch41;
+            self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch41)?;
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 4.1 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch41;
+            });
+
+            info!("Epoch 4.1 initialized");
+            (old_cost_tracker, Ok(vec![]))
+        })
+    }
+
     pub fn start_transaction_processing(&mut self) -> ClarityTransactionConnection<'_, '_> {
         ClarityTransactionConnection::new(
             &mut self.datastore,
@@ -2380,14 +2406,16 @@ impl Drop for ClarityTransactionConnection<'_, '_> {
 }
 
 impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
-    fn with_abort_callback<F, A, R, E>(
-        &mut self,
+    fn with_abort_callback<'hooks, F, A, R, E>(
+        &'hooks mut self,
         to_do: F,
         abort_call_back: A,
     ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
-        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
+        F: FnOnce(
+            &mut OwnedEnvironment<'_, 'hooks>,
+        ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<VmExecutionError>,
     {
         using!(self.log, "log", |log| {

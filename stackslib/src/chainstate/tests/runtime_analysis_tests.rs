@@ -1141,7 +1141,7 @@ fn bad_trait_implementation_mismatched_args() {
 /// Caused by: deserializing an invalid ascii string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
 /// Outcome: Block accepted
 /// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
-/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
+/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact_at_epoch`.
 #[test]
 fn invalid_characters_detected_invalid_ascii() {
     contract_deploy_consensus_snap_test!(
@@ -1160,7 +1160,7 @@ fn invalid_characters_detected_invalid_ascii() {
 /// Caused by: deserializing an invalid utf8 string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
 /// Outcome: Block accepted
 /// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
-/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
+/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact_at_epoch`.
 #[test]
 fn invalid_characters_detected_invalid_utf8() {
     contract_deploy_consensus_snap_test!(

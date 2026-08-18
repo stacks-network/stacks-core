@@ -59,6 +59,7 @@ use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::address::AddressHashMode;
 use crate::stacks_common::types::Address;
 use crate::stacks_common::util::hash::{bytes_to_hex, hex_bytes};
+use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::*;
 use crate::tests::*;
 use crate::{neon, BitcoinRegtestController, BurnchainController, Keychain};
@@ -645,6 +646,7 @@ fn transition_fixes_bitcoin_rigidity() {
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
+    let counters = run_loop.get_counters();
 
     let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -700,10 +702,8 @@ fn transition_fixes_bitcoin_rigidity() {
     // mine it
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    // let's fire off a transfer op that will not land in the Stacks 2.1 epoch.  It should not be
-    // applied, even though it's within 6 blocks of the next Stacks block, which will be in epoch
-    // 2.1.  This verifies that the new burnchain consideration window only applies to sortitions
-    // that happen in Stacks 2.1.
+    // Fire off a transfer op that lands pre-2.1, within window distance of the 2.1 boundary: the
+    // 2.1 burnchain consideration window must not reach back before the 2.1 epoch start.
     let recipient_sk = StacksPrivateKey::random();
     let recipient_addr = to_addr(&recipient_sk);
     let transfer_stx_op = TransferStxOp {
@@ -731,11 +731,32 @@ fn transition_fixes_bitcoin_rigidity() {
         "Transfer operation should submit successfully"
     );
 
-    // mine it without a sortition
+    let parent_burn_height = get_chain_info(&conf).burn_block_height;
+    let op_burn_height = parent_burn_height + 1;
+    // the op's block must win a sortition to preserve the expected miner nonce
+    wait_for(60, || {
+        Ok(counters.neon_submitted_commit_last_burn_height.get() >= parent_burn_height)
+    })
+    .expect("Timed out waiting for the miner to submit a block-commit");
     btc_regtest_controller.build_next_block(1);
 
+    let empty_burn_height = op_burn_height + 1;
+    // a sortition here would elect a block that processes the transfer under pre-2.1 rules
+    btc_regtest_controller.build_empty_block();
+
+    // the epoch-boundary checks below require sortitions again
+    wait_for(60, || {
+        Ok(counters.neon_submitted_commit_last_burn_height.get() >= empty_burn_height)
+    })
+    .expect("Timed out waiting for the miner to re-submit its block-commit");
+    assert_eq!(
+        get_chain_info(&conf).burn_block_height,
+        empty_burn_height,
+        "The empty block should be the burn tip before crossing into 2.1"
+    );
+
     // these should all succeed across the epoch 2.1 boundary
-    for _i in 0..3 {
+    for _i in 0..2 {
         let tip_info = get_chain_info(&conf);
 
         // this block is the epoch transition?

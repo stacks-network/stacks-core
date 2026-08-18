@@ -648,6 +648,7 @@ fn pox_2_unlock_all() {
         events_keys: vec![EventKeyType::AnyEvent],
         timeout_ms: 1000,
         disable_retries: false,
+        disable_contract_interface: false,
     });
     conf.initial_balances.append(&mut initial_balances);
 

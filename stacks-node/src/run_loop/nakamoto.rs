@@ -96,16 +96,8 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let event_dispatcher = event_dispatcher.unwrap_or_else(|| {
-            let mut event_dispatcher = EventDispatcher::new_with_custom_queue_size(
-                config.get_working_dir(),
-                config.node.effective_event_dispatcher_queue_size(),
-            );
-            for observer in config.events_observers.iter() {
-                event_dispatcher.register_observer(observer);
-            }
-            event_dispatcher
-        });
+        let event_dispatcher =
+            event_dispatcher.unwrap_or_else(|| EventDispatcher::from_config(&config));
 
         Self {
             config,
@@ -183,9 +175,10 @@ impl RunLoop {
             }
             let keychain = Keychain::default(self.config.node.seed.clone());
             let mut op_signer = keychain.generate_op_signer();
-            if let Err(e) = burnchain.create_wallet_if_dne() {
-                warn!("Error when creating wallet: {e:?}");
-            }
+
+            // a miner cannot operate without a wallet; retry: bitcoind may
+            // still be starting up
+            burnchain.ensure_miner_wallet_loaded();
             let mut btc_addrs = vec![(
                 StacksEpochId::Epoch2_05,
                 // legacy

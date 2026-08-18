@@ -18,10 +18,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use clarity::types::chainstate::StacksBlockId;
 use clarity::types::Address;
 use clarity::vm::database::{ClaritySerializable, DataMapMetadata, DataVariableMetadata};
-use clarity::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use clarity::vm::types::TypeSignature;
 use stacks_common::types::chainstate::StacksAddress;
 
-use super::test_rpc;
+use super::{test_rpc, TEST_CONTRACT_ID};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::Error as HttpError;
@@ -70,15 +70,7 @@ fn test_try_parse_request() {
         handler.clarity_metadata_key,
         Some("vm-metadata::9::contract-size".to_string())
     );
-    assert_eq!(
-        handler.contract_identifier,
-        Some(
-            QualifiedContractIdentifier::parse(
-                "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world"
-            )
-            .unwrap()
-        )
-    );
+    assert_eq!(handler.contract_identifier, Some(TEST_CONTRACT_ID.clone()));
 
     assert_eq!(&preamble, request.preamble());
 
@@ -205,15 +197,7 @@ fn test_try_parse_request_for_analysis() {
 
     // consumed path args
     assert_eq!(handler.clarity_metadata_key, Some("analysis".to_string()));
-    assert_eq!(
-        handler.contract_identifier,
-        Some(
-            QualifiedContractIdentifier::parse(
-                "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world"
-            )
-            .unwrap()
-        )
-    );
+    assert_eq!(handler.contract_identifier, Some(TEST_CONTRACT_ID.clone()));
 
     assert_eq!(&preamble, request.preamble());
 
