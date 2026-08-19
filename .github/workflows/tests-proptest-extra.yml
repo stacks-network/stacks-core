@@ -68,8 +68,8 @@ jobs:
   # from users with write+ permission to be at least `REQUIRED_APPROVALS`.
   check-approvals:
     name: Check Approval Count
-    # Only run this if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' and EITHER: it's manually triggered OR a PR review is approved targeted the main branch
-    if: vars.ENABLE_CI_WORKFLOWS == 'true' && ((github.event_name == 'workflow_dispatch') || (github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'))
+    # Only run this if it's manually triggered OR ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository AND a PR review is approved targeting the main branch
+    if: github.event_name == 'workflow_dispatch' || ((vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main')
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.count.outputs.ready }}

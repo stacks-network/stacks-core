@@ -29,9 +29,9 @@ See the branching document in [branching.md](./docs/branching.md).
 
 ### Enabling CI on Forks
 
-By default, CI workflows will be disabled on forks. You generally won't need to enable them, but there may be cases where you want to test the workflows.
+The CI will always run on `stacks-network/stacks-core` with other forks and cloned repos able to opt-in.
 
-To **enable** CI workflows within your fork or repository, add a GitHub Actions Variable:
+To **enable** CI workflows within your fork or cloned repository, add a GitHub Actions Variable:
 
 - Name: `ENABLE_CI_WORKFLOWS`
 - Value: `true`
@@ -39,8 +39,8 @@ To **enable** CI workflows within your fork or repository, add a GitHub Actions 
 This will enable CI functionality within your repo or fork, as our CI workflow files check for it as follows:
 
 ```
-# Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
-if: vars.ENABLE_CI_WORKFLOWS == 'true'
+# Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
+if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
 ```
 
 ### Merging PRs from Forks

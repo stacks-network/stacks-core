@@ -31,8 +31,8 @@ concurrency:
 jobs:
   build-pkg:
     name: Check Nix package
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
-    if: vars.ENABLE_CI_WORKFLOWS == 'true'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
+    if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code

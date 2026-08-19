@@ -46,8 +46,8 @@ jobs:
   ############################################################################
   setup-env:
     name: "Setup: Global Variables"
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
-    if: vars.ENABLE_CI_WORKFLOWS == 'true'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
+    if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
     runs-on: &shared_config ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
@@ -71,8 +71,8 @@ jobs:
   ############################################################################
   check-changelog:
     name: "Check: Changelog"
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
-    if: vars.ENABLE_CI_WORKFLOWS == 'true'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
+    if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
     runs-on: *shared_config
     permissions:
       contents: read
@@ -344,8 +344,8 @@ jobs:
   ### Create Job Summary: Slow & Failed Tests
   ############################################################################
   create-slow-failed-tests-summary:
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
-    if: vars.ENABLE_CI_WORKFLOWS == 'true' && always() && github.event_name != 'merge_group'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
+    if: (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && always() && github.event_name != 'merge_group'
     name: "Create: Slow & Failed Tests Report"
     runs-on: *shared_config
     needs:
@@ -498,8 +498,8 @@ jobs:
   ### Create Code Coverage Report
   ############################################################################
   create-code-coverage-report:
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' and the repository is public
-    if: vars.ENABLE_CI_WORKFLOWS == 'true' && always() && github.event.repository.visibility == 'public'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository and the repository is public
+    if: (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && always() && github.event.repository.visibility == 'public'
     name: "Create: Code Coverage Report"
     runs-on: *shared_config
     needs:
