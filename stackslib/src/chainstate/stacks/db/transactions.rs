@@ -1326,7 +1326,7 @@ impl StacksChainState {
                         let runtime_err = handle_clarity_runtime_error(e, epoch_id);
                         match runtime_err {
                             ClarityRuntimeTxError::Included(
-                                IncludedRuntimeTxError::Acceptable {
+                                IncludedRuntimeTxError::Runtime {
                                     error, err_type, ..
                                 },
                             ) => {
@@ -1425,7 +1425,7 @@ impl StacksChainState {
                                 return Err(Error::ExecutionResourceBudgetExceeded(s));
                             }
                             ClarityRuntimeTxError::Rejected(
-                                RejectedRuntimeTxError::Rejectable { error: e, .. },
+                                RejectedRuntimeTxError::Clarity { error: e, .. },
                             ) => {
                                 error!("Unexpected error in validating transaction: if included, this will invalidate a block";
                                            "txid" => %tx.txid(),
@@ -1602,7 +1602,7 @@ impl StacksChainState {
                         let runtime_err = handle_clarity_runtime_error(e, epoch_id);
                         match runtime_err {
                             ClarityRuntimeTxError::Included(
-                                IncludedRuntimeTxError::Acceptable {
+                                IncludedRuntimeTxError::Runtime {
                                     error, err_type, ..
                                 },
                             ) => {
@@ -1698,7 +1698,7 @@ impl StacksChainState {
                                 return Err(Error::ExecutionResourceBudgetExceeded(s));
                             }
                             ClarityRuntimeTxError::Rejected(
-                                RejectedRuntimeTxError::Rejectable { error: e, .. },
+                                RejectedRuntimeTxError::Clarity { error: e, .. },
                             ) => {
                                 error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
                                            "txid" => %tx.txid(),

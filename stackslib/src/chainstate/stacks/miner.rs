@@ -666,7 +666,7 @@ impl TransactionResult {
     ) -> (bool, Error) {
         let error = match error {
             Error::ClarityError(e) => match handle_clarity_runtime_error(e, epoch_id) {
-                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Rejectable {
+                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
                     error: e,
                     ..
                 }) => {

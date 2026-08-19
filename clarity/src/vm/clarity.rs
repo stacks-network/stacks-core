@@ -111,9 +111,9 @@ impl std::error::Error for ClarityError {
 // Left unboxed, as it was in `stackslib`.
 #[allow(clippy::large_enum_variant)]
 pub enum IncludedRuntimeTxError {
-    /// An execution failure that does not invalidate the transaction.
+    /// An error raised by the interpreter while executing the transaction.
     #[non_exhaustive]
-    Acceptable {
+    Runtime {
         /// The underlying interpreter error: always a runtime error or an early return.
         error: VmExecutionError,
         /// A short description used when logging the failure.
@@ -147,9 +147,9 @@ pub enum RejectedRuntimeTxError {
     /// Execution exceeded a non-consensus resource budget.
     #[non_exhaustive]
     ExecutionResourceBudgetExceeded { message: String },
-    /// An error that invalidates the transaction.
+    /// A Clarity error with no more specific variant in this enum.
     #[non_exhaustive]
-    Rejectable { error: ClarityError },
+    Clarity { error: ClarityError },
 }
 
 /// The authoritative block-inclusion disposition of an execution-phase failure.
@@ -177,20 +177,20 @@ pub fn handle_clarity_runtime_error(
 ) -> ClarityRuntimeTxError {
     let included_error = match error {
         ClarityError::Interpreter(error @ VmExecutionError::Runtime(..)) => {
-            IncludedRuntimeTxError::Acceptable {
+            IncludedRuntimeTxError::Runtime {
                 error,
                 err_type: "runtime error",
             }
         }
         ClarityError::Interpreter(error @ VmExecutionError::EarlyReturn(_)) => {
-            IncludedRuntimeTxError::Acceptable {
+            IncludedRuntimeTxError::Runtime {
                 error,
                 err_type: "short return/panic",
             }
         }
         ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_check_err)) => {
             if runtime_check_err.rejectable() || epoch_id < StacksEpochId::Epoch21 {
-                return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Rejectable {
+                return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
                     error: ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
                         runtime_check_err,
                     )),
@@ -223,7 +223,7 @@ pub fn handle_clarity_runtime_error(
             );
         }
         unhandled_error => {
-            return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Rejectable {
+            return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
                 error: unhandled_error,
             });
         }
@@ -274,7 +274,7 @@ impl From<IncludedRuntimeTxError> for ClarityError {
     /// [`handle_clarity_runtime_error`], less the logging label.
     fn from(included: IncludedRuntimeTxError) -> Self {
         match included {
-            IncludedRuntimeTxError::Acceptable { error, .. } => ClarityError::Interpreter(error),
+            IncludedRuntimeTxError::Runtime { error, .. } => ClarityError::Interpreter(error),
             IncludedRuntimeTxError::AbortedByCallback {
                 output,
                 assets_modified,
@@ -723,7 +723,7 @@ mod unit_tests {
         ));
 
         match handle_clarity_runtime_error(error, StacksEpochId::latest()) {
-            ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Acceptable {
+            ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Runtime {
                 error,
                 err_type,
                 ..
