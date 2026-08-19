@@ -763,6 +763,14 @@ CREATE TABLE IF NOT EXISTS superseded_tenures (
     consensus_hash TEXT PRIMARY KEY,
     -- burn block height of the superseded tenure's sortition, used to age the record out
     burn_block_height INTEGER NOT NULL,
+    -- consensus hash of the tenure that was permitted to do the reorg. The permit only means
+    -- anything while this tenure's sortition is still canonical: if a burnchain fork orphans
+    -- it, the reorg we sanctioned can no longer happen and the record stops excluding the
+    -- superseded tenure's blocks from conflict checks.
+    superseded_by_consensus_hash TEXT NOT NULL,
+    -- burn block hash of the permitting tenure's sortition, used to ask the node whether that
+    -- sortition is still canonical
+    superseded_by_burn_block_hash TEXT NOT NULL,
     -- epoch seconds at which we permitted the reorg
     superseded_at INTEGER NOT NULL
 ) STRICT;"#;
@@ -1472,7 +1480,9 @@ impl SignerDb {
     /// Note: this includes blocks that were only pre-committed (because `mark_pre_committed`
     /// records an `approved_time`). It is therefore NOT a test of whether this signer put a
     /// signature over a block in the tenure -- use [`SignerDb::has_signed_block_in_tenure`] for
-    /// that.
+    /// that (which is why production code no longer uses this; it is kept for tests pinning
+    /// down the approved-vs-signed distinction).
+    #[cfg(any(test, feature = "testing"))]
     pub fn has_approved_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
         let query = "SELECT 1 FROM blocks WHERE consensus_hash = ? AND (signed_self IS NOT NULL OR signed_group IS NOT NULL OR approved_time IS NOT NULL) LIMIT 1;";
         let result: Option<u64> = query_row(&self.db, query, [tenure])?;
@@ -1570,23 +1580,24 @@ impl SignerDb {
     /// with a fresh signature over the other.
     ///
     /// Blocks in tenures whose reorg we sanctioned under the reorg-timing rules (see
-    /// [`SignerDb::mark_tenure_superseded`]) are never returned: a signature we put over one of
-    /// them must not stand in the way of the replacement we permitted. Note this is the only
-    /// filter applied here beyond block state -- whether a conflict is still *live* (its
-    /// sortition canonical, its block still reachable) is derived from the node per evaluation
-    /// by `Signer::conflict_still_blocks`, not recorded.
+    /// [`SignerDb::mark_tenure_superseded`]) are still returned, but annotated with the
+    /// permitting tenure's sortition (`superseded_by_*`): the permit only holds while that
+    /// sortition is canonical, which the caller derives from the node per evaluation (see
+    /// `Signer::reorg_permit_stands`) -- like every other question about whether a conflict is
+    /// still *live* (`Signer::conflict_still_blocks`), it is not recorded.
     pub fn get_signed_conflicts(
         &self,
         height: u64,
         excluded_signer_signature_hash: &Sha512Trunc256Sum,
     ) -> Result<Vec<SignedConflictInfo>, DBError> {
-        let query = "SELECT consensus_hash, signer_signature_hash, stacks_height, state,
-                MAX(COALESCE(signed_self, 0), COALESCE(signed_group, 0)) AS last_endorsed
-            FROM blocks
-            WHERE state IN (?1, ?2) AND stacks_height >= ?3
-                AND signer_signature_hash != ?4
-                AND consensus_hash NOT IN (SELECT consensus_hash FROM superseded_tenures)
-            ORDER BY stacks_height DESC";
+        let query = "SELECT b.consensus_hash, b.signer_signature_hash, b.stacks_height, b.state,
+                MAX(COALESCE(b.signed_self, 0), COALESCE(b.signed_group, 0)) AS last_endorsed,
+                st.superseded_by_consensus_hash, st.superseded_by_burn_block_hash
+            FROM blocks b
+            LEFT JOIN superseded_tenures st ON st.consensus_hash = b.consensus_hash
+            WHERE b.state IN (?1, ?2) AND b.stacks_height >= ?3
+                AND b.signer_signature_hash != ?4
+            ORDER BY b.stacks_height DESC";
         let args = params![
             &BlockState::GloballyAccepted.to_string(),
             &BlockState::LocallyAccepted.to_string(),
@@ -1596,28 +1607,35 @@ impl SignerDb {
         query_rows(&self.db, query, args)
     }
 
-    /// Record that we permitted a later tenure to reorg this one under the reorg-timing rules
-    /// (`first_proposal_burn_block_timing`).
+    /// Record that we permitted the tenure identified by `superseded_by_*` to reorg this one
+    /// under the reorg-timing rules (`first_proposal_burn_block_timing`).
     ///
     /// Having sanctioned the replacement, our own signature over what this tenure built must not
-    /// then block it: its blocks stop counting as conflicts in
-    /// [`SignerDb::get_signed_conflicts`]. Recorded when the reorg is permitted rather than
+    /// then block it: its blocks stop counting as conflicts (see
+    /// [`SignerDb::get_signed_conflicts`]). Recorded when the reorg is permitted rather than
     /// derived at signing time, because by the time a replacement reaches the pre-commit
     /// threshold the sortition view that sanctioned the reorg may be long gone.
     ///
-    /// Unlike an orphaned tenure, this is never reconsidered: the sortition stays canonical, so
-    /// there is nothing to re-check it against. Records age out via
+    /// The permit is only honored while the permitting tenure's sortition is still canonical
+    /// (checked against the node when the record is applied): if a burnchain fork orphans it,
+    /// the reorg we sanctioned can no longer happen, so the record must not keep suppressing
+    /// this tenure's conflicts. A re-permit by a different tenure replaces the record, so the
+    /// latest permitting sortition is the one checked. Records age out via
     /// [`SignerDb::prune_superseded_tenures`].
     pub fn mark_tenure_superseded(
         &mut self,
         consensus_hash: &ConsensusHash,
         burn_block_height: u64,
+        superseded_by_consensus_hash: &ConsensusHash,
+        superseded_by_burn_block_hash: &BurnchainHeaderHash,
     ) -> Result<(), DBError> {
         self.db.execute(
-            "INSERT OR IGNORE INTO superseded_tenures (consensus_hash, burn_block_height, superseded_at) VALUES (?1, ?2, ?3)",
+            "INSERT OR REPLACE INTO superseded_tenures (consensus_hash, burn_block_height, superseded_by_consensus_hash, superseded_by_burn_block_hash, superseded_at) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 consensus_hash,
                 u64_to_sql(burn_block_height)?,
+                superseded_by_consensus_hash,
+                superseded_by_burn_block_hash,
                 u64_to_sql(get_epoch_time_secs())?
             ],
         )?;
@@ -1625,6 +1643,7 @@ impl SignerDb {
     }
 
     /// Whether we permitted a later tenure to reorg this one
+    #[cfg(any(test, feature = "testing"))]
     pub fn is_tenure_superseded(&self, consensus_hash: &ConsensusHash) -> Result<bool, DBError> {
         let query = "SELECT 1 FROM superseded_tenures WHERE consensus_hash = ?1";
         Ok(query_row::<i64, _>(&self.db, query, params![consensus_hash])?.is_some())
@@ -2627,6 +2646,22 @@ pub struct SignedConflictInfo {
     /// it: a locally accepted block is not handed to the node until the whole signer set has
     /// signed it, so the node not having one says nothing about whether it is still live.
     pub globally_accepted: bool,
+    /// The sortition of the tenure we permitted to reorg this block's tenure, if we recorded
+    /// such a permit (see [`SignerDb::mark_tenure_superseded`]). The permit excludes this
+    /// conflict only while that sortition is still canonical, which the caller must derive
+    /// from the node.
+    pub superseded_by: Option<SupersededBy>,
+}
+
+/// The sortition of a tenure we permitted to reorg another tenure, as carried by
+/// [`SignedConflictInfo::superseded_by`].
+#[derive(Debug)]
+pub struct SupersededBy {
+    /// The consensus hash of the permitting tenure
+    pub consensus_hash: ConsensusHash,
+    /// The burn block hash of the permitting tenure's sortition, used to ask the node whether
+    /// that sortition is still canonical
+    pub burn_block_hash: BurnchainHeaderHash,
 }
 
 impl FromRow<SignedConflictInfo> for SignedConflictInfo {
@@ -2636,12 +2671,23 @@ impl FromRow<SignedConflictInfo> for SignedConflictInfo {
         let stacks_height = u64::from_column(row, "stacks_height")?;
         let last_endorsed = u64::from_column(row, "last_endorsed")?;
         let state: String = row.get("state")?;
+        let superseded_by_ch: Option<ConsensusHash> = row.get("superseded_by_consensus_hash")?;
+        let superseded_by_bbh: Option<BurnchainHeaderHash> =
+            row.get("superseded_by_burn_block_hash")?;
+        let superseded_by = match (superseded_by_ch, superseded_by_bbh) {
+            (Some(consensus_hash), Some(burn_block_hash)) => Some(SupersededBy {
+                consensus_hash,
+                burn_block_hash,
+            }),
+            _ => None,
+        };
         Ok(SignedConflictInfo {
             consensus_hash,
             signer_signature_hash,
             stacks_height,
             last_endorsed,
             globally_accepted: state == BlockState::GloballyAccepted.to_string(),
+            superseded_by,
         })
     }
 }
@@ -3586,37 +3632,64 @@ pub mod tests {
             .unwrap()
             .is_empty());
 
-        // A tenure whose reorg we permitted under the reorg-timing rules is void: its blocks
-        // stop counting as conflicts, no matter how recently they were endorsed. Superseding
-        // tenure 1 drops blocks 2 and 3, leaving only block 4 (tenure 2).
+        // A tenure whose reorg we permitted under the reorg-timing rules stays in the results
+        // but carries the permitting tenure's sortition, so the caller can honor the permit
+        // only while that sortition is still canonical. Superseding tenure 1 annotates blocks
+        // 2 and 3; block 4 (tenure 2) stays unannotated.
+        let permitting_ch = ConsensusHash([0x77; 20]);
+        let permitting_bbh = BurnchainHeaderHash([0x88; 32]);
         assert!(!db.is_tenure_superseded(&consensus_hash_1).unwrap());
-        db.mark_tenure_superseded(&consensus_hash_1, 42).unwrap();
+        db.mark_tenure_superseded(&consensus_hash_1, 42, &permitting_ch, &permitting_bbh)
+            .unwrap();
         assert!(db.is_tenure_superseded(&consensus_hash_1).unwrap());
         let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
-        assert_eq!(conflicts.len(), 1);
-        assert_eq!(conflicts[0].consensus_hash, consensus_hash_2);
-        assert_eq!(
-            conflicts[0].signer_signature_hash,
-            block_info_4.block.header.signer_signature_hash()
-        );
+        assert_eq!(conflicts.len(), 3);
+        for conflict in &conflicts {
+            if conflict.consensus_hash == consensus_hash_1 {
+                let superseded_by = conflict.superseded_by.as_ref().unwrap();
+                assert_eq!(superseded_by.consensus_hash, permitting_ch);
+                assert_eq!(superseded_by.burn_block_hash, permitting_bbh);
+            } else {
+                assert!(conflict.superseded_by.is_none());
+            }
+        }
 
-        // Superseding every tenure leaves nothing to conflict with.
-        db.mark_tenure_superseded(&consensus_hash_2, 43).unwrap();
+        // A re-permit by a different tenure replaces the record, so the latest permitting
+        // sortition is the one carried.
+        let repermitting_ch = ConsensusHash([0x79; 20]);
+        let repermitting_bbh = BurnchainHeaderHash([0x8a; 32]);
+        db.mark_tenure_superseded(&consensus_hash_1, 42, &repermitting_ch, &repermitting_bbh)
+            .unwrap();
+        let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
+        let annotated = conflicts
+            .iter()
+            .find(|c| c.consensus_hash == consensus_hash_1)
+            .unwrap();
+        let superseded_by = annotated.superseded_by.as_ref().unwrap();
+        assert_eq!(superseded_by.consensus_hash, repermitting_ch);
+        assert_eq!(superseded_by.burn_block_hash, repermitting_bbh);
+
+        db.mark_tenure_superseded(&consensus_hash_2, 43, &permitting_ch, &permitting_bbh)
+            .unwrap();
         assert!(db
             .get_signed_conflicts(2, &unrelated_hash)
             .unwrap()
-            .is_empty());
+            .iter()
+            .all(|c| c.superseded_by.is_some()));
 
         // Pruning only drops records for sortitions below the cutoff: tenure 1 (burn 42) goes,
-        // tenure 2 (burn 43) stays, so tenure 1's blocks conflict again.
+        // tenure 2 (burn 43) stays, so tenure 1's blocks lose their annotation.
         db.prune_superseded_tenures(43).unwrap();
         assert!(!db.is_tenure_superseded(&consensus_hash_1).unwrap());
         assert!(db.is_tenure_superseded(&consensus_hash_2).unwrap());
         let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
-        assert_eq!(conflicts.len(), 2);
-        assert!(conflicts
-            .iter()
-            .all(|c| c.consensus_hash == consensus_hash_1));
+        assert_eq!(conflicts.len(), 3);
+        for conflict in &conflicts {
+            assert_eq!(
+                conflict.superseded_by.is_some(),
+                conflict.consensus_hash == consensus_hash_2
+            );
+        }
     }
 
     fn generate_tenure_blocks() -> Vec<BlockInfo> {

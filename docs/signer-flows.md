@@ -111,9 +111,11 @@ flowchart LR
     classDef good fill:#17a45c22,stroke:#1d9d5f,stroke-width:1.5px;
 ```
 
-A `NewBlock` event is the node announcing a processed block: it is the only path
-that marks a block _globally accepted_ without counting signatures. Seeing the
-chain adopt the block is the ground truth.
+A `NewBlock` event is the node announcing a processed block. Global acceptance
+is never derived from counting signatures: it is marked either here, when the
+node announces the block, or in `check_latest_block_in_tenure` (section 7), when
+the node reports the block as the processed tip of its tenure. Seeing the chain
+adopt the block is the ground truth.
 
 `StatusCheck` and `NewBurnBlock` are the two events a signer handles before its
 own reward cycle has started; everything else is dropped until then. The parity
@@ -245,12 +247,14 @@ flowchart TB
     TH -- no --> N3(["wait for more pre-commits"])
     TH -- yes --> RECHECK{"chainstate checks still pass?<br/>check_block_against_signer_db_state<br/>→ section 7"}
     RECHECK -- no --> REJ["mark_locally_rejected,<br/>handle_block_rejection,<br/>broadcast rejection"]:::bad
-    RECHECK -- yes --> CONF["signed conflicts at height ≥ h, in ANY<br/>tenure whose reorg we did not sanction<br/>get_signed_conflicts"]
-    CONF --> FRESH{"any of them still fresh?<br/>last_endorsed > cutoff"}
+    RECHECK -- yes --> CONF["signed conflicts at height ≥ h,<br/>in ANY tenure<br/>get_signed_conflicts"]
+    CONF --> PERM{"covered by a reorg permit whose<br/>permitting sortition is still canonical?<br/>reorg_permit_stands"}
+    PERM -- yes --> EXCL(["excluded — our signature must not<br/>block a replacement we sanctioned"]):::good
+    PERM -- no --> FRESH{"any of them still fresh?<br/>last_endorsed > cutoff"}
     FRESH -- yes --> SORT{"conflict_still_blocks, question 1:<br/>is its tenure's sortition still on the<br/>canonical burn chain?<br/>get_sortition_by_burn_hash"}
-    SORT -- "404 — a burnchain fork<br/>orphaned the tenure" --> OWN
+    SORT -- "404, with the node's burnchain tip<br/>at or past the burn block — a fork<br/>orphaned the tenure" --> OWN
     SORT -- "canonical, or we never<br/>saved its burn block" --> LIVE{"question 2: does the node's chain<br/>still reach the block itself?<br/>get_tenure_tip(its tenure)"}
-    SORT -- "could not ask" --> HOLD1
+    SORT -- "could not ask, or 404 with the<br/>node's tip still below the burn block" --> HOLD1
     LIVE -- "yes — real chain state" --> HOLD1["refuse to sign for now<br/>(may sign once conflict is stale)"]:::hold
     LIVE -- "no, and it was<br/>globally accepted" --> OWN
     LIVE -- "no, only locally accepted<br/>— but above this height" --> OWN
@@ -296,9 +300,13 @@ pre-commit or re-proposal. Two questions, in order:
    saved the tenure's burn block when it arrived (section 8), and
    `/v3/sortitions/burn/:hash` resolves it against the node's canonical fork. A
    404 means a burnchain fork orphaned the tenure: everything it built is void,
-   and the conflict is dead no matter what state its block is in. If the burn
-   block was never saved (a restart, or the tenure predates us), the question is
-   skipped rather than guessed.
+   and the conflict is dead no matter what state its block is in. But a 404
+   alone is not proof — the same endpoint 404s a perfectly canonical burn block
+   when the node is still catching up (and on internal data misses), so it is
+   only trusted once the node's burnchain tip (`get_peer_info`) is at or past
+   the stored burn block's height; below that, the conflict keeps blocking and
+   the next evaluation retries. If the burn block was never saved (a restart,
+   or the tenure predates us), the question is skipped rather than guessed.
 2. **Does the node's canonical Stacks chain still reach the block itself?**
    - **it does** — real chain state; keep blocking;
    - **it does not, and the block was globally accepted** — the node once _did_
@@ -316,14 +324,20 @@ the replacement until the signature goes stale, whereas wrongly signing cannot b
 taken back. The one recorded exception is a tenure whose reorg we sanctioned
 under the reorg-timing rules (section 8): there the node still serves the
 conflict as fully live — replacing it is only legitimate because we permitted it
-— so no question asked here could clear it, and `get_signed_conflicts` excludes
-those tenures outright. For the own-tenure question below, an unreachable node is
-instead treated as unconfirmed and the signature goes out.
+— so no question asked of the node about the _conflict_ could clear it. Instead
+the record carries the permitting tenure's sortition, and `reorg_permit_stands`
+asks the node whether that sortition is still canonical: while it is, the
+conflict is excluded outright; if a burnchain fork orphaned it, the reorg we
+sanctioned can no longer happen and the conflict gets its voice back. A false
+404 there needs no tip-height guard — it merely restores a conflict, which at
+worst delays the replacement. For the own-tenure question below, an unreachable
+node is instead treated as unconfirmed and the signature goes out.
 
 > Anchors: `handle_block_pre_commit`, `conflict_still_blocks`,
-> `check_block_against_signer_db_state` (signer.rs); `get_signed_conflicts`,
-> `SignedConflictInfo`, `get_burn_block_by_ch` (signerdb.rs); `get_tenure_tip`,
-> `get_sortition_by_burn_hash` (client/stacks_client.rs)
+> `reorg_permit_stands`, `check_block_against_signer_db_state` (signer.rs);
+> `get_signed_conflicts`, `SignedConflictInfo`, `get_burn_block_by_ch`
+> (signerdb.rs); `get_tenure_tip`, `get_sortition_by_burn_hash`, `get_peer_info`
+> (client/stacks_client.rs)
 
 ## 6. Responses from other signers
 
@@ -481,7 +495,11 @@ its first block too close to the next sortition to count
 signer records those tenures as **superseded** (`mark_tenure_superseded`), so its
 own signature over what they built does not then block the replacement it just
 permitted — the node cannot answer this one at signing time, since it still
-serves the reorged tenure as fully live until the replacement lands. A record
+serves the reorged tenure as fully live until the replacement lands. What _is_
+still derived from the node is the permit's own validity: the record carries the
+permitting tenure's sortition, and it only excludes conflicts while that
+sortition remains canonical (section 5, `reorg_permit_stands`), so a burnchain
+fork that orphans the permitting tenure automatically voids the permit. A record
 more than `MAX_FORK_DEPTH` (100) burn blocks below the tip is dropped; a fork
 that deep would cause far bigger problems than a stale conflict.
 

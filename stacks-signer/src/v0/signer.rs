@@ -1150,12 +1150,36 @@ impl Signer {
                     // burn chain level, so fall through to the block-level questions.
                 }
                 Err(ClientError::RequestFailure(reqwest::StatusCode::NOT_FOUND)) => {
-                    info!("{self}: A conflicting block's tenure was orphaned by a burnchain fork. The conflict no longer blocks.";
-                        "conflicting_consensus_hash" => %conflict.consensus_hash,
-                        "conflicting_block_height" => conflict.stacks_height,
-                        "burn_block_hash" => %burn_block.block_hash,
-                    );
-                    return false;
+                    // A 404 only proves the sortition was orphaned if the node's burnchain
+                    // view actually covers the burn block's height: a node still catching up
+                    // 404s canonical burn blocks it hasn't processed yet (and the
+                    // endpoint also 404s on internal data misses). Only trust it once the
+                    // node's burnchain tip is at or past the stored burn block.
+                    match stacks_client.get_peer_info() {
+                        Ok(peer_info) if peer_info.burn_block_height >= burn_block.block_height => {
+                            info!("{self}: A conflicting block's tenure was orphaned by a burnchain fork. The conflict no longer blocks.";
+                                "conflicting_consensus_hash" => %conflict.consensus_hash,
+                                "conflicting_block_height" => conflict.stacks_height,
+                                "burn_block_hash" => %burn_block.block_hash,
+                            );
+                            return false;
+                        }
+                        Ok(peer_info) => {
+                            info!("{self}: The node does not know a conflicting block's burn block, but its burnchain tip has not reached that height, so this does not prove the tenure was orphaned. Leaving the conflict in place.";
+                                "conflicting_consensus_hash" => %conflict.consensus_hash,
+                                "burn_block_hash" => %burn_block.block_hash,
+                                "burn_block_height" => burn_block.block_height,
+                                "node_burn_block_height" => peer_info.burn_block_height,
+                            );
+                            return true;
+                        }
+                        Err(e) => {
+                            warn!("{self}: Failed to fetch the node's burnchain tip while checking a conflicting block's tenure: {e:?}. Leaving the conflict in place.";
+                                "conflicting_consensus_hash" => %conflict.consensus_hash,
+                            );
+                            return true;
+                        }
+                    }
                 }
                 Err(e) => {
                     warn!("{self}: Failed to check whether a conflicting block's tenure is still canonical: {e:?}. Leaving the conflict in place.";
@@ -1179,6 +1203,48 @@ impl Signer {
         };
         node_reaches_conflict
             || (!conflict.globally_accepted && conflict.stacks_height <= proposed_height)
+    }
+
+    /// Whether a reorg permit recorded for this conflict's tenure still stands.
+    ///
+    /// `check_parent_tenure_choice` records a permit when the reorg-timing rules sanction a
+    /// later tenure replacing what the conflict's tenure built (see
+    /// [`SignerDb::mark_tenure_superseded`]). A standing permit excludes the conflict entirely:
+    /// our signature must not stand in the way of a replacement we sanctioned. But the permit
+    /// is only as alive as the sortition it was granted to: if a burnchain fork orphaned the
+    /// permitting sortition, the reorg we sanctioned can no longer happen, and the record must
+    /// not keep suppressing the conflict.
+    ///
+    /// A false 404 here (e.g. from a node still catching up) only restores a conflict the
+    /// permit could have excluded, which at worst delays the replacement, so unlike
+    /// `conflict_still_blocks` no tip-height guard is needed. A node error voids the permit for
+    /// the same reason: blocking is the direction that can be taken back.
+    fn reorg_permit_stands(
+        &self,
+        stacks_client: &StacksClient,
+        conflict: &SignedConflictInfo,
+    ) -> bool {
+        let Some(superseded_by) = &conflict.superseded_by else {
+            return false;
+        };
+        match stacks_client.get_sortition_by_burn_hash(&superseded_by.burn_block_hash) {
+            Ok(_) => true,
+            Err(ClientError::RequestFailure(reqwest::StatusCode::NOT_FOUND)) => {
+                info!("{self}: The tenure we permitted to reorg a conflicting block's tenure was itself orphaned by a burnchain fork. The permit no longer excludes the conflict.";
+                    "conflicting_consensus_hash" => %conflict.consensus_hash,
+                    "superseded_by_consensus_hash" => %superseded_by.consensus_hash,
+                    "superseded_by_burn_block_hash" => %superseded_by.burn_block_hash,
+                );
+                false
+            }
+            Err(e) => {
+                warn!("{self}: Failed to check whether the sortition that permitted a reorg is still canonical: {e:?}. Treating the permit as void.";
+                    "conflicting_consensus_hash" => %conflict.consensus_hash,
+                    "superseded_by_consensus_hash" => %superseded_by.consensus_hash,
+                );
+                false
+            }
+        }
     }
 
     /// Handle pre-commit message from another signer
@@ -1305,10 +1371,11 @@ impl Signer {
         // same or higher height in ANY tenure is a conflict: two blocks at the same height are
         // siblings no matter which tenure they belong to (e.g. the next tenure's tenure-start
         // block conflicts with the current tenure's block at the same height). Blocks in
-        // tenures whose reorg we sanctioned under the reorg-timing rules never reach us here
-        // (`check_parent_tenure_choice` records that decision, and `get_signed_conflicts`
-        // excludes those tenures); every other question about whether a conflict is still
-        // live is derived from the node in `conflict_still_blocks`.
+        // tenures whose reorg we sanctioned under the reorg-timing rules are excluded, but
+        // only while the sortition the permit was granted to is still canonical
+        // (`check_parent_tenure_choice` records the permit, `reorg_permit_stands` re-derives
+        // its validity from the node); every other question about whether a conflict is
+        // still live is derived from the node in `conflict_still_blocks`.
         //
         // Unlike the chainstate check above, a refusal here is "for now" rather than a
         // broadcast rejection: a later pre-commit re-evaluation may still sign the block once
@@ -1323,6 +1390,10 @@ impl Signer {
                 return;
             }
         };
+        let conflicts: Vec<_> = conflicts
+            .into_iter()
+            .filter(|conflict| !self.reorg_permit_stands(stacks_client, conflict))
+            .collect();
         let freshness_cutoff = get_epoch_time_secs().saturating_sub(
             self.proposal_config
                 .tenure_last_block_proposal_timeout

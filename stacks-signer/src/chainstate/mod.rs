@@ -163,8 +163,10 @@ impl SortitionData {
     /// A permitted reorg is recorded once the whole reorg is permitted: each tenure whose
     /// blocks this one is allowed to replace is marked superseded (see
     /// [`SignerDb::mark_tenure_superseded`]), so a signature we already placed on one of those
-    /// blocks does not later block the replacement. Nothing is recorded for a refused reorg,
-    /// even for the tenures in it that individually qualified.
+    /// blocks does not later block the replacement. The record carries this tenure's sortition
+    /// as the permitting one, so the permit stops applying if a burnchain fork later orphans
+    /// it. Nothing is recorded for a refused reorg, even for the tenures in it that
+    /// individually qualified.
     pub fn check_parent_tenure_choice(
         &self,
         signer_db: &mut SignerDb,
@@ -287,22 +289,27 @@ impl SortitionData {
         }
         // Every reorged tenure cleared the rules, so the reorg is permitted.
         for tenure in superseded_tenures {
-            Self::record_superseded_tenure(signer_db, tenure);
+            self.record_superseded_tenure(signer_db, tenure);
         }
         Ok(true)
     }
 
-    /// Note that we have sanctioned replacing whatever `tenure` built, so a signature we already
-    /// placed on one of its blocks must stop counting as a conflict.
+    /// Note that we have sanctioned `self`'s tenure replacing whatever `tenure` built, so a
+    /// signature we already placed on one of its blocks must stop counting as a conflict while
+    /// `self`'s sortition remains canonical.
     ///
     /// A failure to record only costs a delayed replacement -- the conflict keeps blocking until
     /// the signature goes stale -- so it is logged rather than propagated.
-    fn record_superseded_tenure(signer_db: &mut SignerDb, tenure: &TenureForkingInfo) {
-        if let Err(e) =
-            signer_db.mark_tenure_superseded(&tenure.consensus_hash, tenure.burn_block_height)
-        {
+    fn record_superseded_tenure(&self, signer_db: &mut SignerDb, tenure: &TenureForkingInfo) {
+        if let Err(e) = signer_db.mark_tenure_superseded(
+            &tenure.consensus_hash,
+            tenure.burn_block_height,
+            &self.consensus_hash,
+            &self.burn_block_hash,
+        ) {
             warn!("Failed to record a tenure whose reorg we permitted: {e}";
                 "superseded_tenure_id" => %tenure.consensus_hash,
+                "superseded_by" => %self.consensus_hash,
             );
         }
     }

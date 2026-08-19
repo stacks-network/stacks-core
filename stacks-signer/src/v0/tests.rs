@@ -347,13 +347,13 @@ mod async_sibling_validation {
     use clarity::util::hash::{Hash160, Sha512Trunc256Sum};
     use clarity::util::vrf::VRFProof;
     use clarity::vm::costs::ExecutionCost;
-    use libsigner::v0::messages::SignerMessage;
+    use libsigner::v0::messages::{PeerInfo, SignerMessage};
     use libsigner::{BlockProposal, BlockProposalData, SignerEntries, SignerEvent};
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::{
-        BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
-        StacksPrivateKey, StacksPublicKey, TrieHash,
+        BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
+        StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
     };
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::MerkleTree;
@@ -881,11 +881,22 @@ mod async_sibling_validation {
         /// canonical: the tenure is provably live at the burn chain level.
         SortitionStillCanonical,
         /// We saw tenure 1's burn block arrive, and the node now 404s its sortition: a
-        /// burnchain fork orphaned the tenure.
+        /// burnchain fork orphaned the tenure. The node's burnchain tip has reached the burn
+        /// block's height, so the 404 is trusted.
         SortitionOrphaned,
+        /// We saw tenure 1's burn block arrive and the node 404s its sortition, but its
+        /// burnchain tip has not reached the burn block's height: the node is still catching
+        /// up, so the 404 proves nothing.
+        SortitionOrphanedNodeBehind,
         /// A was globally accepted -- so the node had it -- and the node has since reorged
         /// past it.
         GloballyAcceptedThenReorged,
+        /// We permitted tenure 2 to reorg tenure 1 under the reorg-timing rules, and the
+        /// permitting sortition is still canonical: the permit stands.
+        SupersededPermitCanonical,
+        /// We permitted a reorg of tenure 1, but the permitting sortition was itself orphaned
+        /// by a burnchain fork: the permit is void.
+        SupersededPermitOrphaned,
     }
 
     /// Drive the cross-tenure race: block A starts tenure 1 and block B starts tenure 2, both
@@ -969,10 +980,14 @@ mod async_sibling_validation {
         );
         match fate {
             TenureAFate::Live => {}
-            TenureAFate::SortitionStillCanonical | TenureAFate::SortitionOrphaned => {
+            TenureAFate::SortitionStillCanonical
+            | TenureAFate::SortitionOrphaned
+            | TenureAFate::SortitionOrphanedNodeBehind => {
                 // We heard tenure 1's burn block arrive, so the signing path can ask the node
                 // whether its sortition is still canonical. The mock node answers only for
-                // the burn hash it serves: everything else 404s (= orphaned).
+                // the burn hash it serves: everything else 404s (= orphaned). A 404 is only
+                // trusted once the node's burnchain tip (`/v2/info`) has reached the burn
+                // block's height, so the orphan fates also decide what that reports.
                 let tenure_a_burn_hash = BurnchainHeaderHash([0xaa; 32]);
                 node.signer
                     .signer_db
@@ -984,11 +999,39 @@ mod async_sibling_validation {
                         &BurnchainHeaderHash([0xa9; 32]),
                     )
                     .unwrap();
-                if matches!(fate, TenureAFate::SortitionStillCanonical) {
+                let mut tips = node.tips.lock().unwrap();
+                match fate {
+                    TenureAFate::SortitionStillCanonical => {
+                        tips.push((
+                            format!("/v3/sortitions/burn/{}", tenure_a_burn_hash.to_hex()),
+                            canonical_sortition_response(&tenure_a_burn_hash, 1),
+                        ));
+                    }
+                    TenureAFate::SortitionOrphaned => {
+                        tips.push(("/v2/info".to_string(), peer_info_response(1)));
+                    }
+                    TenureAFate::SortitionOrphanedNodeBehind => {
+                        tips.push(("/v2/info".to_string(), peer_info_response(0)));
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            TenureAFate::SupersededPermitCanonical | TenureAFate::SupersededPermitOrphaned => {
+                // We sanctioned tenure 2 reorging tenure 1 under the reorg-timing rules; the
+                // record names the permitting sortition, and the permit is honored only while
+                // that sortition is still canonical. The mock node answers only for the burn
+                // hash it serves: everything else 404s (= the permitting sortition was
+                // orphaned).
+                let permitting_burn_hash = BurnchainHeaderHash([0xbb; 32]);
+                node.signer
+                    .signer_db
+                    .mark_tenure_superseded(&tenure_a, 1, &tenure_b, &permitting_burn_hash)
+                    .unwrap();
+                if matches!(fate, TenureAFate::SupersededPermitCanonical) {
                     let mut tips = node.tips.lock().unwrap();
                     tips.push((
-                        format!("/v3/sortitions/burn/{}", tenure_a_burn_hash.to_hex()),
-                        canonical_sortition_response(&tenure_a_burn_hash, 1),
+                        format!("/v3/sortitions/burn/{}", permitting_burn_hash.to_hex()),
+                        canonical_sortition_response(&permitting_burn_hash, 2),
                     ));
                 }
             }
@@ -1054,6 +1097,22 @@ mod async_sibling_validation {
         serde_json::to_string(&vec![info]).unwrap()
     }
 
+    /// Build the JSON the node serves for `/v2/info` with the given burnchain tip height. A
+    /// 404 orphan verdict is only trusted once this tip is at or past the conflict's burn
+    /// block.
+    fn peer_info_response(burn_block_height: u64) -> String {
+        let info = PeerInfo {
+            burn_block_height,
+            stacks_tip_consensus_hash: ConsensusHash([0; 20]),
+            stacks_tip: BlockHeaderHash([0; 32]),
+            stacks_tip_height: 9,
+            pox_consensus: ConsensusHash([0; 20]),
+            server_version: "test".into(),
+            network_id: CHAIN_ID_TESTNET,
+        };
+        serde_json::to_string(&info).unwrap()
+    }
+
     #[test]
     fn fresh_conflict_in_another_tenure_blocks_signing() {
         // A sibling at the same height in a DIFFERENT tenure is just as much a double-sign as
@@ -1114,6 +1173,51 @@ mod async_sibling_validation {
         assert!(
             info_b.signed_self.is_some(),
             "block B should carry our signature once the conflicting tenure was orphaned"
+        );
+    }
+
+    #[test]
+    fn orphan_404_not_trusted_while_node_is_behind() {
+        // A 404 for the conflict's burn block only proves a burnchain fork if the node's
+        // burnchain view covers that height: a node still catching up 404s canonical burn
+        // blocks it has not processed yet. With the node's tip below the conflict's burn
+        // block, the conflict must keep blocking.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::SortitionOrphanedNodeBehind);
+        assert_a_signed(&info_a);
+        assert_b_refused(
+            &info_b,
+            "the node's burnchain tip has not reached the conflict's burn block",
+        );
+    }
+
+    #[test]
+    fn standing_reorg_permit_clears_conflict() {
+        // Having sanctioned tenure 2 reorging tenure 1, our fresh signature over A must not
+        // stand in the way of the replacement we permitted: B is signed immediately.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::SupersededPermitCanonical);
+        assert_a_signed(&info_a);
+        assert_eq!(
+            info_b.state,
+            BlockState::LocallyAccepted,
+            "block B should be signed: we permitted the reorg that replaces the conflicting sibling, got: {}",
+            info_b.state
+        );
+        assert!(
+            info_b.signed_self.is_some(),
+            "block B should carry our signature while the reorg permit stands"
+        );
+    }
+
+    #[test]
+    fn orphaned_reorg_permit_restores_conflict() {
+        // The permit is only as alive as the sortition it was granted to. Once a burnchain
+        // fork orphans the permitting sortition, the reorg we sanctioned can no longer
+        // happen, so the record must stop suppressing the conflict and B is refused again.
+        let (info_a, info_b) = run_cross_tenure_scenario(TenureAFate::SupersededPermitOrphaned);
+        assert_a_signed(&info_a);
+        assert_b_refused(
+            &info_b,
+            "the sortition that permitted the reorg was itself orphaned",
         );
     }
 
