@@ -9,7 +9,8 @@ All releases are built via a Github Actions workflow named [`CI`](../.github/wor
   - Building binary archives and calculating checksums
   - Publishing Docker images
 
-1. Releases are only created when the [CI workflow](../.github/workflows/ci.yml) is triggered against a release branch (ex: `release/X.Y.Z.A.n`, or `release/signer-X.Y.Z.A.n.x`).
+1. Releases are only created when the [CI workflow](../.github/workflows/ci.yml) is triggered against a release branch (ex: `release/X.Y.Z`).
+   The node and signer share a single version and ship in one combined release, so there is no separate signer release branch.
 2. [Caching](https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows) is used to speed up testing - a cache is created based on the type of data (i.e. cargo) and the commit sha.
    Tests can be retried quickly since the cache will persist until the cleanup job is run or the cache is evicted.
 3. [Nextest](https://nexte.st/) is used to run the tests from a cached build archive file (using commit sha as the cache key).
@@ -25,17 +26,18 @@ All releases are built via a Github Actions workflow named [`CI`](../.github/wor
   - `stacks-core:<pr-number>`
 - An untagged build of any branch will produce a single image built from source on Debian with glibc:
   - `stacks-core:<branch-name>`
-- Running the [CI workflow](../.github/workflows/ci.yml) on a `release/X.Y.Z.A.n` branch will produce:
-  - Github Release of the branch with:
-    - Binary archives for several architectures
+- Running the [CI workflow](../.github/workflows/ci.yml) on a `release/X.Y.Z` branch will produce:
+  - A single Github Release of the branch with:
+    - Binary archives for several architectures, each containing both the `stacks-node` and `stacks-signer` binaries
     - Checksum file containing hashes for each archive
-  - Git tag of the `release/X.Y.Z.A.n` version, in the format of: `X.Y.Z.A.n`
-  - Docker Debian images for several architectures tagged with:
-    - `stacks-core:latest`
-    - `stacks-core:X.Y.Z.A.n`
-    - `stacks-core:X.Y.Z.A.n-debian`
-  - Docker Alpine images for several architectures tagged with:
-    - `stacks-core:X.Y.Z.A.n-alpine`
+  - Git tag of the `release/X.Y.Z` version, in the format of: `X.Y.Z`
+  - Docker Debian images for several architectures, for both `stacks-core` and `stacks-signer`, tagged with:
+    - `latest` and `latest-debian` (release candidates are not tagged `latest`)
+    - `X.Y.Z`
+    - `X.Y.Z-debian`
+  - Docker Alpine images for several architectures, for both `stacks-core` and `stacks-signer`, tagged with:
+    - `latest-alpine` (release candidates are not tagged `latest-alpine`)
+    - `X.Y.Z-alpine`
 
 ## Release workflow
 

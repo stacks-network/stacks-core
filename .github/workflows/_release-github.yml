@@ -1,0 +1,225 @@
+# Github workflow to create a github release and upload binary artifacts
+
+name: "Release: GitHub"
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release Tag (shared by the node and signer)"
+        required: true
+        type: string
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Configure concurrency so that we can only have one release at a time
+concurrency:
+  group: release-github
+  # Always cancel duplicate jobs
+  cancel-in-progress: true
+
+run-name: ${{ inputs.tag }}
+
+# Build arch dependent binaries from source
+#
+# Runs when the following is true:
+#  - a release tag is provided
+#  - workflow approval is provided
+jobs:
+  # If the codebase contains "DO NOT RELEASE", abort the release (and let us know)
+  check-do-not-release:
+    name: 'Check Codebase for "DO NOT RELEASE"'
+    if: >-
+      inputs.tag != ''
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      - name: Checkout the latest code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+           
+      - name: 'Check for "DO NOT RELEASE" in codebase'
+        shell: bash
+        run: |
+          # Search recursively (-r), with line numbers (-n), skipping binaries (-I) and ignoring .git and .github directories as well as CONTRIBUTING.md
+          # This file always has the string "DO NOT RELEASE" in it so the .github folder MUST be skipped or we'll always find this.
+          # '|| true' prevents GitHub Action's default 'set -e' from exiting early when grep finds no matches (exit code 1).
+          
+          FOUND_MATCHES=$(grep -rnI --exclude-dir=.git --exclude-dir=.github --exclude=CONTRIBUTING.md "DO NOT RELEASE" . || true)
+          
+          if [ -n "$FOUND_MATCHES" ]; then
+            {
+              echo "### ❌ Release Blocked"
+              echo 'Found phrase `"DO NOT RELEASE"` in the following location(s):'
+              echo '```text'
+              echo "$FOUND_MATCHES"
+              echo '```'
+              echo 'These instances must be removed before a release can be completed.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          
+            echo "::error::Found 'DO NOT RELEASE' in codebase. Aborting release."
+            exit 1
+          fi
+          
+          echo "No 'DO NOT RELEASE' markers found in codebase. Proceeding with release."
+
+  # Wait for someone to pull the andon cord (as configured in the "Builds Release" GitHub Actions environment)
+  andon-cord:
+    name: Andon Cord
+    needs:
+      - check-do-not-release
+    if: >-
+      inputs.tag != ''
+    runs-on: ubuntu-latest
+    environment: "Build Release"
+    steps:
+      - name: Check Approval
+        run: |
+          exit 0
+
+  # Build binaries as artifacts
+  build-binaries:
+    name: Build Binaries
+    needs:
+      - andon-cord
+    if: |
+      inputs.tag != ''
+    permissions:
+      contents: read       # required for checkout inside release-build.yml
+      id-token: write      # required for attestation inside release-build.yml
+      attestations: write  # required for attestation inside release-build.yml
+    uses: ./.github/workflows/_release-build.yml
+    with:
+      tag: ${{ inputs.tag }}
+
+  # Build docker images using the binary artifacts
+  docker-images:
+    name: Build Docker Images
+    needs:
+      - andon-cord
+      - build-binaries
+    if: |
+      inputs.tag != ''
+    permissions:
+      contents: read       # required for checkout inside release-docker.yml
+      id-token: write      # required for attestation inside release-docker.yml
+      attestations: write  # required for attestation inside release-docker.yml
+      packages: write      # required for image push inside release-docker.yml
+    strategy:
+      fail-fast: false
+      # Build a maximum of 2 images concurrently based on matrix.dist
+      max-parallel: 2
+      matrix:
+        type:
+          - stacks-core
+          - stacks-signer
+    # Build the docker images
+    uses: ./.github/workflows/_release-docker.yml
+    with:
+      tag: ${{ inputs.tag }} # 3-part version shared by the node and signer, i.e. 4.0.0
+      release_type: ${{ matrix.type }} # one of stacks-signer or stacks-core
+
+  # Consolidate all digest artifacts from docker-images matrix into a single manifest
+  consolidate-digests:
+    name: Consolidate Digest Artifacts
+    needs: docker-images
+    if: "!cancelled() && needs.docker-images.result != 'skipped'"
+    runs-on: ubuntu-latest
+    steps:
+      # Download all individual digest artifacts from all matrix jobs
+      - name: Download All Digest Artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digest-*
+          path: /tmp/digest-artifacts
+          merge-multiple: true
+
+      # Consolidate individual digests into single manifest
+      - name: Create Consolidated Digest Manifest
+        run: |
+          echo "Consolidating digests from all matrix jobs"
+          echo "Files downloaded:"
+          find /tmp/digest-artifacts -type f -name "*.json" | sort
+
+          # Initialize the manifest JSON
+          manifest='{}'
+
+          # Process each digest file and merge into manifest
+          for digest_file in /tmp/digest-artifacts/*.json; do
+            if [[ ! -f "${digest_file}" ]]; then
+              continue
+            fi
+
+            echo "Processing: $(basename ${digest_file})"
+            # Extract release_type and libc_variant from the file
+            release_type=$(jq -r '.release_type // empty' "${digest_file}" 2>/dev/null)
+            libc_variant=$(jq -r '.libc_variant // empty' "${digest_file}" 2>/dev/null)
+            digest=$(jq -r '.digest // empty' "${digest_file}" 2>/dev/null)
+            package_id=$(jq -r '.package_id // empty' "${digest_file}" 2>/dev/null)
+
+            # Only process if all required fields are present
+            if [[ -n "${release_type}" && -n "${libc_variant}" && -n "${digest}" && -n "${package_id}" ]]; then
+              echo "  Adding: ${release_type}/${libc_variant} = ${digest:0:20}... (package_id: ${package_id})"
+              # Add to manifest using jq with safe variable substitution
+              manifest=$(printf '%s' "${manifest}" | jq \
+                --arg rt "${release_type}" \
+                --arg lc "${libc_variant}" \
+                --arg d "${digest}" \
+                --arg pid "${package_id}" \
+                '.[$rt] |= . // {} | .[$rt][$lc] = {digest: $d, package_id: $pid}' 2>/dev/null)
+            fi
+          done
+
+          # Write the consolidated manifest
+          echo "${manifest}" | jq . > /tmp/digest-manifest.json
+          echo "Consolidated manifest created:"
+          jq . /tmp/digest-manifest.json
+
+      # Upload the consolidated manifest as an artifact
+      - name: Upload Consolidated Manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-manifest
+          path: /tmp/digest-manifest.json
+          retention-days: 1
+
+  # Create the github release
+  create-release:
+    name: Create Release
+    needs:
+      - andon-cord
+      - build-binaries
+      - docker-images
+      - consolidate-digests
+    if: >-
+      github.event.repository.visibility == 'public' &&
+      inputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Download consolidated digest manifest from consolidate-digests job
+      - name: Download Docker Image Digest Manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: digest-manifest
+          path: /tmp
+
+      # Creates the combined github release
+      - name: Create Release
+        uses: ./.github/actions/release
+        with:
+          tag: ${{ inputs.tag }}
+          digest_manifest: /tmp/digest-manifest.json

@@ -754,6 +754,8 @@ impl Config {
                 Ok(StacksEpochId::Epoch34)
             } else if epoch_name == EPOCH_CONFIG_4_0_0 {
                 Ok(StacksEpochId::Epoch40)
+            } else if epoch_name == EPOCH_CONFIG_4_1_0 {
+                Ok(StacksEpochId::Epoch41)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -849,6 +851,54 @@ impl Config {
         resolve_bootstrap_nodes: bool,
     ) -> Result<Config, String> {
         Self::from_config_default(config_file, Config::default(), resolve_bootstrap_nodes)
+    }
+
+    /// A real (non-mock) miner needs a named bitcoin wallet: Bitcoin Core >= 31
+    /// removed the default unnamed wallet, so RPCs must target one explicitly.
+    ///
+    /// Any configured name must also be safe to route with; see
+    /// [`Self::validate_wallet_name_is_path_safe`].
+    fn validate_wallet_name(node: &NodeConfig, burnchain: &BurnchainConfig) -> Result<(), String> {
+        let Some(wallet_name) = burnchain.wallet_name.as_deref() else {
+            if node.miner && !node.mock_mining {
+                return Err("Config is missing the setting `burnchain.wallet_name` \
+                     (mandatory and non-empty for miners)"
+                    .into());
+            }
+            return Ok(());
+        };
+        Self::validate_wallet_name_is_path_safe(wallet_name)
+    }
+
+    /// Wallet RPCs interpolate the name into a `/wallet/<name>` request path,
+    /// which the HTTP layer parses, percent-decodes and normalizes before
+    /// sending. A name that does not survive that round trip unchanged silently
+    /// targets a *different* wallet (`a?b` becomes `a`, `a/../b` becomes `b`).
+    /// bitcoind accepts such names; we fail at startup instead.
+    fn validate_wallet_name_is_path_safe(wallet_name: &str) -> Result<(), String> {
+        // `/` is allowed: bitcoind resolves wallet names beneath `-walletdir`,
+        // so nested wallet paths are legitimate and survive the path unchanged
+        const ALLOWED_PUNCTUATION: [char; 4] = ['.', '_', '-', '/'];
+
+        if let Some(bad) = wallet_name
+            .chars()
+            .find(|c| !c.is_ascii_alphanumeric() && !ALLOWED_PUNCTUATION.contains(c))
+        {
+            return Err(format!(
+                "Invalid setting `burnchain.wallet_name` (`{wallet_name}`): \
+                 character {bad:?} is not allowed; use ASCII letters, digits, \
+                 `.`, `_`, `-` or `/`"
+            ));
+        }
+
+        // a `..` segment is resolved away when the request path is parsed
+        if wallet_name.contains("..") {
+            return Err(format!(
+                "Invalid setting `burnchain.wallet_name` (`{wallet_name}`): \
+                 `..` is not allowed"
+            ));
+        }
+        Ok(())
     }
 
     fn from_config_default(
@@ -958,6 +1008,8 @@ impl Config {
             );
         }
 
+        Self::validate_wallet_name(&node, &burnchain)?;
+
         if node.stacker || node.miner {
             node.add_miner_stackerdb(is_mainnet);
             node.add_signers_stackerdbs(is_mainnet);
@@ -1015,6 +1067,9 @@ impl Config {
                         events_keys,
                         timeout_ms: observer.timeout_ms.unwrap_or(1_000),
                         disable_retries: observer.disable_retries.unwrap_or(false),
+                        disable_contract_interface: observer
+                            .disable_contract_interface
+                            .unwrap_or(false),
                     });
                 }
                 observers
@@ -1029,6 +1084,7 @@ impl Config {
                 events_keys: vec![EventKeyType::AnyEvent],
                 timeout_ms: 1_000,
                 disable_retries: false,
+                disable_contract_interface: false,
             });
         };
 
@@ -1651,14 +1707,23 @@ pub struct BurnchainConfig {
     /// node. Used to interact with a specific named wallet if the bitcoin node
     /// manages multiple wallets.
     ///
-    /// If the specified wallet doesn't exist, the node will attempt to create it via
-    /// the `createwallet` RPC call. This is particularly useful for miners who need
-    /// to manage separate wallets.
+    /// If the specified wallet exists but is not loaded, the node will load it for
+    /// the current session via the `loadwallet` RPC call. Miner startup fails if
+    /// the wallet does not exist. A name is required for mining nodes; followers
+    /// and mock miners do not use wallet RPCs and leave this unset.
     /// ---
-    /// @default: `""` (empty string, implying the default wallet or no specific wallet needed)
+    /// @default: `None` (valid only for followers and mock miners)
     /// @notes:
-    ///   - Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
-    pub wallet_name: String,
+    ///   - Required when [`NodeConfig::miner`] is `true`, unless
+    ///     [`NodeConfig::mock_mining`] is also `true`.
+    ///   - A blank value is treated as unset. The name is restricted to ASCII
+    ///     alphanumerics and `. _ - /`.
+    ///   - Loading is session-only; configure `wallet=<name>` in `bitcoin.conf` so
+    ///     the wallet survives a bitcoind restart.
+    ///   - On Bitcoin Core >= 31 `migratewallet` may split a legacy wallet into a
+    ///     primary and a `<name>_watchonly` wallet; set `wallet_name` to the one
+    ///     holding the miner's watched addresses.
+    pub wallet_name: Option<String>,
     /// Fault injection setting for testing. Introduces an artificial delay (in
     /// milliseconds) before processing each burnchain block download. Simulates a
     /// slow burnchain connection.
@@ -1724,7 +1789,7 @@ impl BurnchainConfig {
             pox_reward_length: None,
             sunset_start: None,
             sunset_end: None,
-            wallet_name: "".to_string(),
+            wallet_name: None,
             fault_injection_burnchain_block_delay: 0,
             max_unspent_utxos: Some(1024),
         }
@@ -1785,6 +1850,7 @@ pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 pub const EPOCH_CONFIG_3_3_0: &str = "3.3";
 pub const EPOCH_CONFIG_3_4_0: &str = "3.4";
 pub const EPOCH_CONFIG_4_0_0: &str = "4.0";
+pub const EPOCH_CONFIG_4_1_0: &str = "4.1";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
@@ -1951,9 +2017,14 @@ impl BurnchainConfigFile {
                 .or(default_burnchain_config.pox_2_activation),
             sunset_start: self.sunset_start.or(default_burnchain_config.sunset_start),
             sunset_end: self.sunset_end.or(default_burnchain_config.sunset_end),
-            wallet_name: self
-                .wallet_name
-                .unwrap_or(default_burnchain_config.wallet_name.clone()),
+            // a blank name is "unset", not a wallet: deployment templates emit
+            // `wallet_name = ""` unconditionally, including for followers
+            wallet_name: match self.wallet_name {
+                Some(name) if !name.trim().is_empty() => Some(name),
+                // present but blank means unset
+                Some(_) => None,
+                None => default_burnchain_config.wallet_name.clone(),
+            },
             pox_reward_length: self
                 .pox_reward_length
                 .or(default_burnchain_config.pox_reward_length),
@@ -4743,6 +4814,17 @@ pub struct EventObserverConfigFile {
     ///   - **Warning:** Setting this to `true` can lead to missed events if the
     ///     observer endpoint is temporarily unavailable or experiences issues.
     pub disable_retries: Option<bool>,
+    /// Controls whether the generated contract interface (ABI) is included in the
+    /// event payloads sent to this observer.
+    ///
+    /// If `true`, the `contract_interface` field of every transaction in `new_block`
+    /// and `new_microblocks` event payloads sent to this observer is emitted as
+    /// `null`, regardless of whether the transaction deployed a contract. This only
+    /// affects the event stream sent to this observer; it does not affect consensus,
+    /// block validation, other observers, or any other event field.
+    /// ---
+    /// @default: `false` (contract interfaces are included)
+    pub disable_contract_interface: Option<bool>,
 }
 
 #[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
@@ -4751,6 +4833,7 @@ pub struct EventObserverConfig {
     pub events_keys: Vec<EventKeyType>,
     pub timeout_ms: u64,
     pub disable_retries: bool,
+    pub disable_contract_interface: bool,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
@@ -4863,6 +4946,8 @@ pub struct InitialBalanceFile {
 mod tests {
     use std::path::Path;
 
+    use rstest::rstest;
+
     use super::*;
 
     mod utils {
@@ -4938,6 +5023,164 @@ mod tests {
         );
 
         assert!(Config::from_config_file(ConfigFile::from_str("").unwrap(), false).is_ok());
+    }
+
+    #[test]
+    fn test_wallet_name_is_required_for_real_miners() {
+        for wallet_setting in ["", "wallet_name = \"   \""] {
+            let config = format!(
+                r#"
+                [node]
+                miner = true
+
+                [burnchain]
+                {wallet_setting}
+                "#
+            );
+            let err = Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false)
+                .unwrap_err();
+            assert_eq!(
+                err,
+                "Config is missing the setting `burnchain.wallet_name` \
+                 (mandatory and non-empty for miners)"
+            );
+        }
+
+        let named_miner = Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                miner = true
+
+                [burnchain]
+                wallet_name = "miner-wallet"
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("A real miner with a named wallet should be valid");
+        assert_eq!(
+            named_miner.burnchain.wallet_name.as_deref(),
+            Some("miner-wallet")
+        );
+
+        Config::from_config_file(
+            ConfigFile::from_str(
+                r#"
+                [node]
+                miner = true
+                mock_mining = true
+                "#,
+            )
+            .unwrap(),
+            false,
+        )
+        .expect("A mock miner does not use wallet RPCs");
+
+        Config::from_config_file(ConfigFile::from_str("").unwrap(), false)
+            .expect("A follower does not need a wallet");
+    }
+
+    /// Build a miner config with the given `burnchain.wallet_name`.
+    fn config_for_wallet_name(wallet_name: &str) -> Result<Config, String> {
+        let config = format!(
+            r#"
+            [node]
+            miner = true
+
+            [burnchain]
+            wallet_name = "{wallet_name}"
+            "#
+        );
+        Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false)
+    }
+
+    // these names do not survive the `/wallet/<name>` request path unchanged,
+    // and would silently route wallet RPCs to a different wallet
+    #[rstest]
+    #[case::embedded_space("my wallet", ' ')]
+    #[case::trailing_space("trailing ", ' ')]
+    #[case::leading_space(" leading", ' ')]
+    #[case::tab("tab\there", '\t')]
+    #[case::query("a?b", '?')]
+    #[case::fragment("a#b", '#')]
+    #[case::percent_escape("a%2Fb", '%')]
+    #[case::colon("wallet:1", ':')]
+    #[case::non_ascii("wallét", 'é')]
+    fn test_wallet_name_rejects_path_unsafe_characters(
+        #[case] wallet_name: &str,
+        #[case] bad: char,
+    ) {
+        let err = config_for_wallet_name(wallet_name).unwrap_err();
+        assert_eq!(
+            err,
+            format!(
+                "Invalid setting `burnchain.wallet_name` (`{wallet_name}`): \
+                 character {bad:?} is not allowed; use ASCII letters, digits, \
+                 `.`, `_`, `-` or `/`"
+            )
+        );
+    }
+
+    #[test]
+    fn test_wallet_name_rejects_parent_dir_traversal() {
+        // `..` is made of allowed characters but is resolved away by path parsing
+        let err = config_for_wallet_name("nested/../escape").unwrap_err();
+        assert_eq!(
+            err,
+            "Invalid setting `burnchain.wallet_name` (`nested/../escape`): `..` is not allowed"
+        );
+    }
+
+    #[rstest]
+    #[case::hyphen("miner-wallet")]
+    #[case::underscore_and_dot("miner_wallet.v2")]
+    #[case::nested_path("nested/miner")]
+    #[case::alphanumeric("w1")]
+    fn test_wallet_name_accepts_path_safe_characters(#[case] wallet_name: &str) {
+        let config = config_for_wallet_name(wallet_name)
+            .unwrap_or_else(|e| panic!("{wallet_name:?} should be valid, got: {e}"));
+        assert_eq!(config.burnchain.wallet_name.as_deref(), Some(wallet_name));
+    }
+
+    // deployment templates (e.g. the helm chart) emit `wallet_name = ""`
+    // unconditionally, so a follower must not be rejected for it
+    #[rstest]
+    #[case::empty("")]
+    #[case::whitespace("   ")]
+    fn test_blank_wallet_name_is_treated_as_unset(#[case] wallet_name: &str) {
+        let config = format!(
+            r#"
+            [burnchain]
+            wallet_name = "{wallet_name}"
+            "#
+        );
+        let follower = Config::from_config_file(ConfigFile::from_str(&config).unwrap(), false)
+            .expect("A blank wallet name is unset, which is valid for a follower");
+        assert_eq!(follower.burnchain.wallet_name, None);
+    }
+
+    // a blank name is explicitly unset: the default must not win over it
+    #[rstest]
+    #[case::absent_inherits_default(None, Some("default-wallet"))]
+    #[case::blank_stays_unset(Some("  "), None)]
+    fn test_blank_wallet_name_does_not_fall_back_to_default(
+        #[case] configured: Option<&str>,
+        #[case] expected: Option<&str>,
+    ) {
+        let default_burnchain_config = BurnchainConfig {
+            wallet_name: Some("default-wallet".into()),
+            ..BurnchainConfig::default()
+        };
+
+        let merged = BurnchainConfigFile {
+            wallet_name: configured.map(String::from),
+            ..BurnchainConfigFile::default()
+        }
+        .into_config_default(default_burnchain_config)
+        .unwrap();
+        assert_eq!(merged.wallet_name.as_deref(), expected);
     }
 
     #[test]
