@@ -35,6 +35,10 @@ concurrency:
 env:
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
   DEBUG_BINARY_PATH: "./target/debug/"
+  # Whether or not to create the slow and failed tests summary
+  CREATE_SLOW_FAILED_TESTS_SUMMARY: ${{ (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event_name != 'merge_group' }}
+  # Whether or not to create the code coverage report
+  CREATE_CODE_COVERAGE_REPORT: ${{ github.repository == 'stacks-network/stacks-core' }}
 
 jobs:
   ############################################################################
@@ -52,6 +56,8 @@ jobs:
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
       debug-binary-path: ${{ steps.set-env.outputs.debug_binary_path }}
+      create-slow-failed-tests-summary: ${{ steps.set-env.outputs.create_slow_failed_tests_summary }}
+      create-code-coverage-report: ${{ steps.set-env.outputs.create_code_coverage_report }}
     steps:
       - name: Export Env Variables
         id: set-env
@@ -62,6 +68,8 @@ jobs:
 
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
           echo "debug_binary_path=${{ env.DEBUG_BINARY_PATH }}" >> $GITHUB_OUTPUT
+          echo "create_slow_failed_tests_summary=$CREATE_SLOW_FAILED_TESTS_SUMMARY" >> $GITHUB_OUTPUT
+          echo "create_code_coverage_report=$CREATE_CODE_COVERAGE_REPORT" >> $GITHUB_OUTPUT
 
   ############################################################################
   ### Changelog Check
@@ -245,6 +253,8 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
   ### Run Bitcoin Tests
@@ -261,6 +271,8 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
   ### Run Bitcoin RPC Tests
@@ -293,6 +305,8 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
   ### Run Epoch Tests (Release Only)
@@ -313,6 +327,8 @@ jobs:
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
   ### Create Release
@@ -343,8 +359,7 @@ jobs:
   ### Create Job Summary: Slow & Failed Tests
   ############################################################################
   create-slow-failed-tests-summary:
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository AND we're not in the merge queue
-    if: (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && always() && github.event_name != 'merge_group'
+    if: always() && needs.setup-env.outputs.create-slow-failed-tests-summary == 'true'
     name: "Create: Slow & Failed Tests Report"
     runs-on: *shared_config
     needs:
@@ -497,8 +512,7 @@ jobs:
   ### Create Code Coverage Report
   ############################################################################
   create-code-coverage-report:
-    # Only execute if we're on the official repository
-    if: github.repository == 'stacks-network/stacks-core' && always()
+    if: always() && needs.setup-env.outputs.create-code-coverage-report == 'true'
     name: "Create: Code Coverage Report"
     runs-on: *shared_config
     needs:

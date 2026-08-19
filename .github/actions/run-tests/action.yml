@@ -27,6 +27,12 @@ inputs:
   codecov-test-name:
     description: "Code coverage test name"
     required: true
+  upload-junit-xml:
+    description: "Whether or not to upload the nextest JUnit XML artifact"
+    required: true
+  upload-code-coverage:
+    description: "Whether or not to upload the code coverage artifact"
+    required: true
 
 runs:
   using: "composite"
@@ -186,18 +192,9 @@ runs:
     ### Upload the nextest JUnit XML
     ############################################################################
 
-    # TODO: delete this after testing
-    - name: Debug Variable
-      run: |
-        echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
-        echo "Repository: '${{ github.repository }}'"
-        echo "Event Name: '${{ github.event_name }}'"
-
     # Store JUnit file in GitHub CI artifacts (with SHA and "nextest" prefix)
-    # always() is needed to execute this step for test failures
     - name: Store JUnit Report as Artifact
-      # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository AND we're not in the merge queue
-      if: (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && always() && github.event_name != 'merge_group'
+      if: inputs.upload-junit-xml == 'true'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
         name: nextest-${{ steps.generate-sanitized-file-name.outputs.file-name }}
@@ -214,8 +211,7 @@ runs:
     # Generate code coverage using grcov
     # Resulting coverage filenames must be unique, so use test-name input to name the file
     - name: Run grcov
-      # Only execute if we're on the official repository
-      if: github.repository == 'stacks-network/stacks-core'
+      if: inputs.upload-code-coverage == 'true'
       shell: bash
       run: |
         grcov . \
@@ -248,8 +244,7 @@ runs:
 
     # Store coverage file in GitHub CI artifacts (with SHA and "lcov" prefix)
     - name: Store Code Coverage as Artifact
-      # Only execute if we're on the official repository
-      if: github.repository == 'stacks-network/stacks-core'
+      if: inputs.upload-code-coverage == 'true'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
         name: codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}

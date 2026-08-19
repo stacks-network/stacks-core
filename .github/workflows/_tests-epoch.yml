@@ -13,6 +13,14 @@ on:
         description: "Debug binary path"
         required: true
         type: string
+      upload-junit-xml:
+        description: "Whether or not to upload the nextest JUnit XML artifact"
+        required: true
+        type: boolean
+      upload-code-coverage:
+        description: "Whether or not to upload the code coverage artifact"
+        required: true
+        type: boolean
 
 # Set default permissions
 permissions:
@@ -79,6 +87,8 @@ jobs:
           archive-file: ${{ inputs.archive-file }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: ${{ matrix.test-name }}
+          upload-junit-xml: ${{ inputs.upload-junit-xml }}
+          upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
   # Check that all jobs in this workflow have succeeded.
   #   - will not run if the job is cancelled
