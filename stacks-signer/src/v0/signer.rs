@@ -1124,12 +1124,12 @@ impl Signer {
     ///      never reaches this check at all.)
     ///    * If it does not, and the block was once globally accepted, the node had it and a
     ///      reorg moved past it. That is proof it is dead, so it stops blocking.
-    ///    * If it does not, and the block was only locally accepted, the node may simply never
-    ///      have been handed it, since that only happens once the whole signer set has signed.
-    ///      We cannot tell "dead" from "not yet known", so a sibling at the same height keeps
+    ///    * If it does not, and the block was never globally accepted, the node may simply never
+    ///      have been handed it, since that only happens once the whole signer set has signed. We
+    ///      cannot tell "dead" from "not yet known", so a sibling at the same height keeps
     ///      blocking (signing both would be the double-sign this guard is for), while a block
-    ///      above the proposal does not: it is no sibling, and abandoning an unconfirmed block
-    ///      to restart beneath it is a reorg rather than an equivocation.
+    ///      above the proposal does not: it is no sibling, and abandoning an unconfirmed block to
+    ///      restart beneath it is a reorg rather than an equivocation.
     ///
     /// If we have no saved burn block, or the node is unreachable, the conflict keeps blocking.
     /// That only delays the replacement until our signature goes stale, whereas wrongly signing

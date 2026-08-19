@@ -1118,6 +1118,9 @@ static SCHEMA_19: &[&str] = &[
 
 static SCHEMA_20: &[&str] = &[
     CREATE_SUPERSEDED_TENURES_TABLE,
+    // `get_signed_conflicts` filters on a height range near the chain tip across all tenures;
+    // a plain height index makes that a bounded range scan and serves its ORDER BY.
+    "CREATE INDEX IF NOT EXISTS blocks_stacks_height ON blocks (stacks_height DESC);",
     "INSERT INTO db_config (version) VALUES (20);",
 ];
 
@@ -1490,12 +1493,21 @@ impl SignerDb {
         Ok(result.is_some())
     }
 
-    /// Return whether this signer has signed a block, or observed the signer set sign a block, in
-    /// a tenure (identified by its consensus hash).
+    /// Return whether this signer has signed a block, or observed the signer set sign a block,
+    /// in a tenure (identified by its consensus hash). Used by `is_timed_out` to keep a tenure
+    /// we are committed to from being timed out.
     ///
     /// Unlike [`SignerDb::has_approved_block_in_tenure`] this excludes blocks that were only
     /// pre-committed. A pre-commit does not put a signature over the block, so it does not
     /// represent a commitment that would be violated by abandoning the tenure.
+    ///
+    /// Rejection, even global rejection, does NOT clear the commitment. A rejection is a
+    /// revocable opinion; a signature is a bearer instrument. Once ours is public, anyone can
+    /// aggregate it toward the 70% threshold should enough rejecting signers change their
+    /// minds, so a block we signed binds us to its tenure no matter what state it later fell
+    /// to. This is deliberately a different predicate from
+    /// [`SignerDb::get_last_signed_block`], which answers a tip question rather than a
+    /// commitment question (see there).
     pub fn has_signed_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
         let query = "SELECT 1 FROM blocks WHERE consensus_hash = ? AND (signed_self IS NOT NULL OR signed_group IS NOT NULL) LIMIT 1;";
         let result: Option<u64> = query_row(&self.db, query, [tenure])?;
@@ -1553,6 +1565,10 @@ impl SignerDb {
     /// A block is considered signed if it is locally or globally accepted. Blocks that
     /// have only been pre-committed are excluded, because a pre-commit does not put a
     /// signature over the block and may be safely superseded by a competing proposal.
+    ///
+    /// This answers "what is the tenure's signed tip?", a different question from
+    /// [`SignerDb::has_signed_block_in_tenure`]'s "does a signature bind us to this tenure?",
+    /// which is why the predicates deliberately differ on rejected blocks (see there).
     pub fn get_last_signed_block(
         &self,
         tenure: &ConsensusHash,
@@ -1570,9 +1586,11 @@ impl SignerDb {
 
     /// Return every signed block at or above the given Stacks height, in ANY tenure, excluding
     /// the block with the given signer signature hash, ordered by height (highest first). A
-    /// block is considered signed if it is locally or globally accepted. Each row carries the
-    /// most recent endorsement time (`signed_self`/`signed_group`, whichever is later; 0 if
-    /// neither was recorded) so the caller can judge freshness per conflict.
+    /// block is considered signed if a signature was ever put over it, ours (`signed_self`)
+    /// or the observed group's (`signed_group`). Blocks that were only pre-committed carry no
+    /// signature and are never returned. Each row carries the most recent endorsement time
+    /// (`signed_self`/`signed_group`, whichever is later) so the caller can judge freshness per
+    /// conflict.
     ///
     /// The search deliberately spans all tenures: two blocks at the same height are siblings
     /// no matter which tenure they belong to (e.g. a tenure-start block conflicts with the
@@ -1595,12 +1613,11 @@ impl SignerDb {
                 st.superseded_by_consensus_hash, st.superseded_by_burn_block_hash
             FROM blocks b
             LEFT JOIN superseded_tenures st ON st.consensus_hash = b.consensus_hash
-            WHERE b.state IN (?1, ?2) AND b.stacks_height >= ?3
-                AND b.signer_signature_hash != ?4
+            WHERE (b.signed_self IS NOT NULL OR b.signed_group IS NOT NULL)
+                AND b.stacks_height >= ?1
+                AND b.signer_signature_hash != ?2
             ORDER BY b.stacks_height DESC";
         let args = params![
-            &BlockState::GloballyAccepted.to_string(),
-            &BlockState::LocallyAccepted.to_string(),
             u64_to_sql(height)?,
             excluded_signer_signature_hash.to_string(),
         ];
@@ -3690,6 +3707,24 @@ pub mod tests {
                 conflict.consensus_hash == consensus_hash_2
             );
         }
+
+        // Rejection does not clear a conflict: the signature over block 3 is public and can
+        // still be aggregated toward the 70% threshold if rejecting signers change their
+        // minds, so it keeps conflicting even once globally rejected. The tip question is
+        // different: a rejected block is no longer the tenure's signed tip.
+        block_info_3.mark_globally_rejected().unwrap();
+        db.insert_block(&block_info_3).unwrap();
+        let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
+        assert_eq!(conflicts.len(), 3);
+        assert!(conflicts.iter().any(|c| {
+            c.signer_signature_hash == block_info_3.block.header.signer_signature_hash()
+                && !c.globally_accepted
+        }));
+        let tip = db
+            .get_last_signed_block(&consensus_hash_1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(tip, block_info_2);
     }
 
     fn generate_tenure_blocks() -> Vec<BlockInfo> {
@@ -4097,6 +4132,15 @@ pub mod tests {
         assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
 
         block_info.signed_group = Some(get_epoch_time_secs());
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        // Global rejection does not clear the commitment: a rejection is a revocable opinion,
+        // while the signature is public and can still be aggregated toward the 70% threshold
+        // if enough rejecting signers change their minds. The block must keep counting.
+        block_info.mark_globally_rejected().unwrap();
         db.insert_block(&block_info).unwrap();
 
         assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());

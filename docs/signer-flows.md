@@ -311,13 +311,20 @@ pre-commit or re-proposal. Two questions, in order:
    - **it does** — real chain state; keep blocking;
    - **it does not, and the block was globally accepted** — the node once _did_
      have it, so a reorg moved past it. That is proof it is dead;
-   - **it does not, and the block was only locally accepted** — a block is not
-     handed to the node until the whole signer set has signed it, so this may
-     mean "not yet seen" rather than "dead". A sibling at the same height
+   - **it does not, and the block was never globally accepted** — a block is
+     not handed to the node until the whole signer set has signed it, so this
+     may mean "not yet seen" rather than "dead". A sibling at the same height
      therefore keeps blocking, since signing both would be the double-sign this
      guard exists for; a block _above_ the proposal does not, because it is no
      sibling and abandoning an unconfirmed block to restart beneath it is a
      reorg, not an equivocation.
+
+A conflict is any block a signature was ever put over — ours, or a group
+threshold we observed — whatever its state now. In particular rejection, even
+_global_ rejection, does not clear one: a rejection is a revocable opinion,
+while a signature is a bearer instrument that can still be aggregated toward
+the 70% threshold if rejecting signers change their minds. Only staleness or
+node-derived death (the two questions above) clears a conflict.
 
 Whenever the node cannot be asked, the conflict keeps blocking: that only delays
 the replacement until the signature goes stale, whereas wrongly signing cannot be
@@ -397,7 +404,7 @@ flowchart TB
     TC -- no --> SAME["confirms_latest_block_in_same_tenure =<br/>check_latest_block_in_tenure(OWN tenure)"]
     PARENT --> CLB
     SAME --> CLB["check_latest_block_in_tenure(tenure_id)"]
-    CLB --> LSB{"fresh SIGNED tip in that tenure?<br/>get_tenure_last_block_info =<br/>get_last_signed_block + freshness<br/>(tenure_last_block_proposal_timeout)"}
+    CLB --> LSB{"fresh SIGNED tip in that tenure?<br/>get_tenure_last_block_info =<br/>get_last_signed_block + freshness from<br/>the last signature time<br/>(tenure_last_block_proposal_timeout)"}
     LSB -- "yes, and proposal not higher" --> RA["fails the check<br/>(a reorg attempt within<br/>reorg_attempts_activity_timeout still<br/>counts as miner activity:<br/>update_last_activity_time)"]:::bad
     LSB -- "no signed tip, or proposal higher" --> CARVE{"fresh PRE-COMMITTED block<br/>at ≥ this height?<br/>get_last_accepted_block"}
     CARVE -- yes --> ACT["count miner activity only —<br/>a pre-commit never vetoes<br/>update_last_activity_time"]
@@ -505,7 +512,11 @@ that deep would cause far bigger problems than a stale conflict.
 
 Signatures, not pre-commits, are what pin the view: a tenure whose only block
 was pre-committed (never signed) can still time out, and a pre-committed block
-never appears as the parent-tenure tip. So a 50/50 pre-commit split converges on
+never appears as the parent-tenure tip. The pin survives rejection, even global
+rejection: a rejection is a revocable opinion, while a signature is a bearer
+instrument — once public it can still be aggregated toward the 70% threshold if
+rejecting signers change their minds — so a block we signed binds us no matter
+what state it later fell to. So a 50/50 pre-commit split converges on
 the node tip immediately, while a genuine 50% _signature_ split heals through
 the freshness timeout. Both dynamics are pinned by integration tests:
 `pre_commit_50_50_split_agrees_on_node_tip` and
