@@ -139,8 +139,8 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-    if: >-
-      github.event.repository.visibility == 'public'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
+    if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
     runs-on: *shared_config
     outputs:
       tag: ${{ steps.check-release.outputs.tag }}
@@ -328,7 +328,6 @@ jobs:
       - check-release
       - check-rustfmt
     if: >-
-      github.event.repository.visibility == 'public' &&
       needs.check-release.outputs.is_release == 'true' &&
       github.event_name != 'merge_group'
     permissions:
@@ -344,7 +343,7 @@ jobs:
   ### Create Job Summary: Slow & Failed Tests
   ############################################################################
   create-slow-failed-tests-summary:
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository AND we're not in the merge queue
     if: (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && always() && github.event_name != 'merge_group'
     name: "Create: Slow & Failed Tests Report"
     runs-on: *shared_config
@@ -498,8 +497,8 @@ jobs:
   ### Create Code Coverage Report
   ############################################################################
   create-code-coverage-report:
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository and the repository is public
-    if: (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && always() && github.event.repository.visibility == 'public'
+    # Only execute if we're on the official repository
+    if: github.repository == 'stacks-network/stacks-core' && always()
     name: "Create: Code Coverage Report"
     runs-on: *shared_config
     needs:
