@@ -676,7 +676,7 @@ impl TransactionResult {
                 }
                 // An included failure is still mineable: recover the original `ClarityError`.
                 ClarityRuntimeTxError::Included(included) => Error::ClarityError(included.into()),
-                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::CostError {
+                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Cost {
                     cost,
                     budget,
                     ..

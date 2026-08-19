@@ -133,14 +133,14 @@ pub enum IncludedRuntimeTxError {
     },
     /// A non-rejectable runtime analysis error in Epoch 2.1 or later.
     #[non_exhaustive]
-    AnalysisError { error: RuntimeCheckErrorKind },
+    Analysis { error: RuntimeCheckErrorKind },
 }
 
 /// An execution-phase failure that prevents a transaction from being included in a block.
 pub enum RejectedRuntimeTxError {
     /// The execution cost and the budget it exceeded.
     #[non_exhaustive]
-    CostError {
+    Cost {
         cost: ExecutionCost,
         budget: ExecutionCost,
     },
@@ -196,7 +196,7 @@ pub fn handle_clarity_runtime_error(
                     )),
                 });
             }
-            IncludedRuntimeTxError::AnalysisError {
+            IncludedRuntimeTxError::Analysis {
                 error: runtime_check_err,
             }
         }
@@ -212,10 +212,7 @@ pub fn handle_clarity_runtime_error(
             reason,
         },
         ClarityError::CostError(cost, budget) => {
-            return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::CostError {
-                cost,
-                budget,
-            });
+            return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Cost { cost, budget });
         }
         ClarityError::ExecutionResourceBudgetExceeded(s) => {
             return ClarityRuntimeTxError::Rejected(
@@ -286,7 +283,7 @@ impl From<IncludedRuntimeTxError> for ClarityError {
                 tx_events,
                 reason,
             },
-            IncludedRuntimeTxError::AnalysisError { error } => {
+            IncludedRuntimeTxError::Analysis { error } => {
                 ClarityError::Interpreter(VmExecutionError::RuntimeCheck(error))
             }
         }
