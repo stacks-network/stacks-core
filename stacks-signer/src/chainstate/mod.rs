@@ -319,10 +319,14 @@ impl SortitionData {
     /// triggers the signer to consult the Stacks node for the latest globally
     /// accepted block. This is needed to handle Bitcoin reorgs correctly.
     ///
-    /// Blocks that were only pre-committed are deliberately excluded: a pre-commit puts no
-    /// signature over the block, so it may be superseded by a competing proposal and must not
-    /// be treated as the tenure's tip (e.g. when validating a replacement block at the same
-    /// height, or when computing the parent tenure's last block).
+    /// The timeout window is measured from the last time a signature actually covered the
+    /// block: our own (`signed_self`) or the observed group/global acceptance
+    /// (`signed_group`), whichever is later, matching how `get_signed_conflicts` measures
+    /// endorsement freshness. `approved_time` is deliberately not used: it is stamped at
+    /// pre-commit, which carries no signature, so it would close the window early. This also
+    /// means a globally accepted block we never signed ourselves gets a full window from the
+    /// time its acceptance was observed, rather than timing out instantly for lack of a
+    /// timestamp.
     pub fn get_tenure_last_block_info(
         consensus_hash: &ConsensusHash,
         signer_db: &SignerDb,
@@ -337,7 +341,8 @@ impl SortitionData {
             return Ok(None);
         };
 
-        let Some(signed_over_time) = block_info.approved_time else {
+        // `approved_time` may hold the pre-commit time; use the actual signature time.
+        let Some(signed_over_time) = block_info.signed_self.max(block_info.signed_group) else {
             return Ok(None);
         };
 
