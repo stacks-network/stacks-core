@@ -13,8 +13,9 @@ permissions:
 jobs:
   nag-slack:
     runs-on: ubuntu-latest
-    # Only execute if running in our core repo
-    if: github.repository == 'stacks-network/stacks-core'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' and we're on `stacks-network/stacks-core`
+    # We only want this to run on our official repo, because it manages our open PRs for us
+    if: vars.ENABLE_CI_WORKFLOWS == 'true' && github.repository == 'stacks-network/stacks-core'
     steps:
       - name: Fetch PRs and Post Nags to Slack
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

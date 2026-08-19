@@ -52,10 +52,8 @@ jobs:
   cache-bitcoin-binary:
     name: "Create: Bitcoin Binary Cache"
     runs-on: ubuntu-latest
-    # Execute if running in our core repo on `main` OR manually if SEED_CACHES GitHub Actions variable is 'true'
-    if: |
-      (github.repository == 'stacks-network/stacks-core' && github.ref_name == 'main') ||
-      vars.SEED_CACHES == 'true'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
+    if: vars.ENABLE_CI_WORKFLOWS == 'true'
     steps:
       # Checkout the code
       #   - only .github is required for checking caches
@@ -83,10 +81,8 @@ jobs:
   cache-cargo:
     name: "Create: Cargo Cache"
     runs-on: ubuntu-latest
-    # Execute if running in our core repo on `main` OR manually if SEED_CACHES GitHub Actions variable is 'true'
-    if: |
-      (github.repository == 'stacks-network/stacks-core' && github.ref_name == 'main') ||
-      vars.SEED_CACHES == 'true'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
+    if: vars.ENABLE_CI_WORKFLOWS == 'true'
     steps:
       # Checkout the code
       #   - only .github is required for checking caches

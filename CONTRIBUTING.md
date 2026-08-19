@@ -27,6 +27,22 @@ This project and everyone participating in it is governed by this [Code of Condu
 
 See the branching document in [branching.md](./docs/branching.md).
 
+### Enabling CI on Forks
+
+By default, CI workflows will be disabled on forks. You generally won't need to enable them, but there may be cases where you want to test the workflows.
+
+To **enable** CI workflows within your fork or repository, add a GitHub Actions Variable:
+
+- Name: `ENABLE_CI_WORKFLOWS`
+- Value: `true`
+
+This will enable CI functionality within your repo or fork, as our CI workflow files check for it as follows:
+
+```
+# Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
+if: vars.ENABLE_CI_WORKFLOWS == 'true'
+```
+
 ### Merging PRs from Forks
 
 PRs from forks or opened by contributors without commit access require

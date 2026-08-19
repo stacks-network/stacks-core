@@ -62,8 +62,8 @@ env:
 jobs:
   proptests-nightly:
     name: Run All Proptest Tests
-    # Only run this if it's the official repo or manually triggered
-    if: github.event_name == 'workflow_dispatch' || github.repository == 'stacks-network/stacks-core'
+    # Only run this if it's manually triggered or if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
+    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_CI_WORKFLOWS == 'true'
     runs-on: ubuntu-latest
     steps:
       # Compute env variables depending on the workflow trigger (schedule vs dispatch)

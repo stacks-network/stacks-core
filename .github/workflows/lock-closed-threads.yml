@@ -20,10 +20,9 @@ concurrency:
 jobs:
   lock:
     name: Lock Closed Issues, PRs, & Discussions
-    # Only execute if running in our core repo. The CRON schedule will run against `main` which is intended
-    if: |
-      github.repository == 'stacks-network/stacks-core' &&
-      github.ref_name == 'main'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' and we're on `stacks-network/stacks-core`
+    # We only want this to run on our official repo, because it manages Issues discussions
+    if: vars.ENABLE_CI_WORKFLOWS == 'true' && github.repository == 'stacks-network/stacks-core'
     runs-on: ubuntu-latest
     steps:
       - name: Lock Threads

@@ -33,8 +33,8 @@ concurrency:
 jobs:
   clippy-stacks:
     name: Clippy Check (stacks)
-    # Only run this if it's the official repo
-    if: github.repository == 'stacks-network/stacks-core'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
+    if: vars.ENABLE_CI_WORKFLOWS == 'true'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -55,8 +55,8 @@ jobs:
 
   clippy-stacks-lib:
     name: Clippy Check (stackslib)
-    # Only run this if it's the official repo
-    if: github.repository == 'stacks-network/stacks-core'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
+    if: vars.ENABLE_CI_WORKFLOWS == 'true'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code

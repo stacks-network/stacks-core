@@ -1,3 +1,19 @@
+## Enabling CI
+
+To **enable** CI workflows within your fork or repository, add a GitHub Actions Variable:
+
+- Name: `ENABLE_CI_WORKFLOWS`
+- Value: `true`
+
+This will enable CI functionality within your repo or fork, as our CI workflow files check for it as follows:
+
+```
+# Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
+if: vars.ENABLE_CI_WORKFLOWS == 'true'
+```
+
+## Folder Structure
+
 ALL runnable workflows must be in the root of the .github/workflows folder. Subfolders are not allowed.
 
 When adding or changing files, follow this file naming guidance:
