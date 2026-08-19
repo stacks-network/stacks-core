@@ -1811,18 +1811,23 @@ impl BlockMinerThread {
             &replay_transactions,
         )
         .map_err(|e| {
-            if !matches!(
-                e,
-                ChainstateError::MinerAborted | ChainstateError::NoTransactionsToMine
-            ) {
-                error!("Relayer: Failure mining anchored block: {e}");
+            match e {
+                ChainstateError::NoTransactionsToMine => {
+                    // The walk selected nothing, so the caches still reflect
+                    // the chainstate as of the parent tip. Keeping them valid
+                    // means an idle miner does not reset its caches on every
+                    // empty-mempool retry.
+                    self.mempool_caches_valid_for = Some(parent_tip.clone());
+                }
+                ChainstateError::MinerAborted => {}
+                ref e => error!("Relayer: Failure mining anchored block: {e}"),
             }
             e
         })?;
 
         if block_metadata.block.tx_count() == 0 {
-            // The walk selected nothing, so the caches still reflect the
-            // chainstate as of the parent tip.
+            // Defensive check: an empty block exits above through the
+            // `NoTransactionsToMine` error, so this should be unreachable.
             self.mempool_caches_valid_for = Some(parent_tip);
             return Err(ChainstateError::NoTransactionsToMine.into());
         }
