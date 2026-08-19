@@ -1018,10 +1018,21 @@ impl BlockMinerThread {
         }
 
         loop {
-            let (_, processed, _, _) = chain_state
+            let processed = match chain_state
                 .nakamoto_blocks_db()
-                .get_block_processed_and_signed_weight(last_consensus_hash, &last_bhh)?
-                .ok_or_else(|| NakamotoNodeError::UnexpectedChainState)?;
+                .get_block_processed_and_signed_weight(last_consensus_hash, &last_bhh)
+            {
+                Ok(Some((_, processed, _, _))) => processed,
+                Ok(None) => return Err(NakamotoNodeError::UnexpectedChainState),
+                Err(e) => {
+                    // Transient DB errors (e.g. lock contention with the chains
+                    // coordinator) are expected occasionally. Fall through to
+                    // the abort and burn-tip checks below, then retry rather
+                    // than exiting the miner thread.
+                    warn!("Miner: transient DB error while checking block processed status, will try again: {e:?}");
+                    false
+                }
+            };
 
             // Once the block has been processed and the miner is no longer
             // blocked, we can continue mining.
