@@ -16,11 +16,11 @@ on:
       upload-junit-xml:
         description: "Whether or not to upload the nextest JUnit XML artifact"
         required: true
-        type: boolean
+        type: string
       upload-code-coverage:
         description: "Whether or not to upload the code coverage artifact"
         required: true
-        type: boolean
+        type: string
 
 # Set default permissions
 permissions:
