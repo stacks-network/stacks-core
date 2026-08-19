@@ -19,9 +19,7 @@ run-name: "Create: Test Caches [${{ github.ref_name }}]"
 # and build them on-the-fly. This allows slightly stale caches to still be very useful.
 #
 # NOTE: 
-#   This job ONLY runs if EITHER of the following is true:
-#     1. We're on the `main` branch of `stacks-network/stacks-core`, OR
-#     2. A GitHub Action variable is set: SEED_CACHES = true
+#   This job ONLY runs if a GitHub Action variable is set: ENABLE_CI_WORKFLOWS = true
 ################################################################################################################################
 
 on:
@@ -45,15 +43,15 @@ jobs:
   #######################################################################################################################
   ### Create Reusable Caches for Tests
   ###
-  ### Caches can only be created from `main` (or via manual seeding when the SEED_CACHES Actions variable is 'true').
+  ### Caches are created from `main` branch when a GitHub Action variable is set: ENABLE_CI_WORKFLOWS = true
   ### When run on `main`, this workflow creates canonical re-usable caches for future CI runs.
   ### When manually dispatched from another branch, any created caches will be scoped to that branch.
   #######################################################################################################################
   cache-bitcoin-binary:
     name: "Create: Bitcoin Binary Cache"
     runs-on: ubuntu-latest
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
-    if: vars.ENABLE_CI_WORKFLOWS == 'true'
+    # Only run this if it's manually triggered or if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
+    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_CI_WORKFLOWS == 'true'
     steps:
       # Checkout the code
       #   - only .github is required for checking caches
@@ -81,8 +79,8 @@ jobs:
   cache-cargo:
     name: "Create: Cargo Cache"
     runs-on: ubuntu-latest
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
-    if: vars.ENABLE_CI_WORKFLOWS == 'true'
+    # Only run this if it's manually triggered or if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true'
+    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_CI_WORKFLOWS == 'true'
     steps:
       # Checkout the code
       #   - only .github is required for checking caches
