@@ -53,9 +53,9 @@ use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
 use crate::signerdb::{BlockInfo, BlockState, PendingBlockResponses, SignerDb};
+use crate::v0::signer_state::NewBurnBlock;
 #[cfg(not(any(test, feature = "testing")))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
-use crate::v0::signer_state::{NewBurnBlock, ReplayScopeOpt};
 use crate::Signer as SignerTrait;
 
 /// A global variable that can be used to make signers repeat their proposal
@@ -126,12 +126,6 @@ pub struct Signer {
     recently_processed: RecentlyProcessedBlocks<100>,
     /// The signer's global state evaluator
     pub global_state_evaluator: GlobalStateEvaluator,
-    /// Whether to validate blocks with replay transactions
-    pub validate_with_replay_tx: bool,
-    /// Scope of Tx Replay in terms of Burn block boundaries
-    pub tx_replay_scope: ReplayScopeOpt,
-    /// The number of blocks after the past tip to reset the replay set
-    pub reset_replay_set_after_fork_blocks: u64,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
     /// The last time we capitulated our miner viewpoint
@@ -310,9 +304,6 @@ impl SignerTrait<SignerMessage> for Signer {
             local_state_machine: signer_state,
             recently_processed: RecentlyProcessedBlocks::new(),
             global_state_evaluator,
-            validate_with_replay_tx: signer_config.validate_with_replay_tx,
-            tx_replay_scope: None,
-            reset_replay_set_after_fork_blocks: signer_config.reset_replay_set_after_fork_blocks,
             capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
             last_capitulate_miner_view: SystemTime::now(),
             #[cfg(any(test, feature = "testing"))]
@@ -342,7 +333,7 @@ impl SignerTrait<SignerMessage> for Signer {
         if self.reward_cycle <= current_reward_cycle {
             self.local_state_machine.handle_pending_update(&self.signer_db, stacks_client,
                 &self.proposal_config,
-                &mut self.tx_replay_scope, &self.global_state_evaluator, local_signer_protocol_version)
+                &self.global_state_evaluator, local_signer_protocol_version)
                 .unwrap_or_else(|e| error!("{self}: failed to update local state machine for pending update"; "err" => ?e));
         }
         // See if we should capitulate our viewpoint...
@@ -653,8 +644,7 @@ impl Signer {
                         burn_block_height: *burn_height,
                         consensus_hash: consensus_hash.clone(),
                     }),
-                    &mut self.tx_replay_scope
-                , &self.global_state_evaluator, active_signer_protocol_version)
+                    &self.global_state_evaluator, active_signer_protocol_version)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest bitcoin block arrival"; "err" => ?e));
                 *sortition_state = None;
             }
@@ -690,7 +680,7 @@ impl Signer {
                     "total_txs" => transactions.len()
                 );
                 self.local_state_machine
-                    .stacks_block_arrival(consensus_hash, *block_height, block_id, signer_sighash, &self.signer_db, transactions)
+                    .stacks_block_arrival(consensus_hash, *block_height, block_id)
                     .unwrap_or_else(|e| error!("{self}: failed to update local state machine for latest stacks block arrival"; "err" => ?e));
 
                 if let Ok(Some(mut block_info)) = self
@@ -882,15 +872,7 @@ impl Signer {
 
         // Check if proposal can be rejected now if not valid against sortition view
         if let Some(sortition_state) = sortition_state {
-            match sortition_state.check_proposal(
-                stacks_client,
-                &mut self.signer_db,
-                block,
-                true,
-                self.global_state_evaluator
-                    .get_global_tx_replay_set()
-                    .unwrap_or_default(),
-            ) {
+            match sortition_state.check_proposal(stacks_client, &mut self.signer_db, block, true) {
                 // Error validating block
                 Err(RejectReason::ConnectivityIssues(e)) => {
                     warn!(
@@ -1071,12 +1053,8 @@ impl Signer {
         update: &StateMachineUpdate,
         received_time: &SystemTime,
     ) {
-        let replay_txids = update.content.replay_txids();
         let pubkey = signer_public_key.to_hex();
-        info!(
-            "{self}: Received state machine update from signer {pubkey}: {update}";
-            "replay_txids" => ?replay_txids
-        );
+        info!("{self}: Received state machine update from signer {pubkey}: {update}");
         let address = StacksAddress::p2pkh(self.mainnet, signer_public_key);
         // Store the state machine update so we can reload it if we crash
         if let Err(e) = self.signer_db.insert_state_machine_update(
@@ -1643,21 +1621,6 @@ impl Signer {
             .unwrap_or(false)
         {
             self.submitted_block_proposal = None;
-        }
-        if let Some(replay_tx_hash) = block_validate_ok.replay_tx_hash {
-            info!("Inserting block validated by replay tx";
-                "signer_signature_hash" => %signer_signature_hash,
-                "replay_tx_hash" => replay_tx_hash
-            );
-            self.signer_db
-                .insert_block_validated_by_replay_tx(
-                    signer_signature_hash,
-                    replay_tx_hash,
-                    block_validate_ok.replay_tx_exhausted,
-                )
-                .unwrap_or_else(|e| {
-                    warn!("{self}: Failed to insert block validated by replay tx: {e:?}")
-                });
         }
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
         let Some(mut block_info) = self.block_lookup_by_reward_cycle(signer_signature_hash) else {
@@ -2345,17 +2308,7 @@ impl Signer {
                 debug!("{self}: Cannot confirm that we have processed parent, but we've waited proposal_wait_for_parent_time, will submit proposal");
             }
         }
-        match stacks_client.submit_block_for_validation(
-            block.clone(),
-            if self.validate_with_replay_tx {
-                self.global_state_evaluator
-                    .get_global_tx_replay_set()
-                    .unwrap_or_default()
-                    .clone_as_optional()
-            } else {
-                None
-            },
-        ) {
+        match stacks_client.submit_block_for_validation(block.clone()) {
             Ok(_) => {
                 self.submitted_block_proposal = Some((signer_signature_hash, Instant::now()));
             }
