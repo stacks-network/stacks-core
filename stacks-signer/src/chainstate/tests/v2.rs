@@ -14,7 +14,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::fs;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -43,7 +42,6 @@ use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
 };
-use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::{function_name, info};
@@ -113,10 +111,8 @@ fn setup_test_environment(
         CHAIN_ID_TESTNET,
     );
 
-    let signer_db_dir = "/tmp/stacks-node-tests/signer-units/";
-    let signer_db_path = format!("{signer_db_dir}/{fn_name}.{}.sqlite", get_epoch_time_secs());
-    fs::create_dir_all(signer_db_dir).unwrap();
-    let signer_db = SignerDb::new(signer_db_path).unwrap();
+    let signer_db = SignerDb::new(":memory:")
+        .unwrap_or_else(|error| panic!("failed to create signer DB for {fn_name}: {error}"));
 
     let mut block = NakamotoBlock::new(
         NakamotoBlockHeader {
@@ -506,10 +502,8 @@ fn check_proposal_with_extend_during_replay() {
         config: _,
     } = MockServerClient::new();
 
-    let rand_int = server.local_addr().unwrap().port();
-
     let (_, mut signer_db, block_sk, mut block, cur_sortition, _, mut sortitions_view) =
-        setup_test_environment(&format!("{}_{rand_int}", function_name!()));
+        setup_test_environment(function_name!());
 
     let parent_block_header = make_parent_header_meta(&block_sk, &mut block);
     let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);
@@ -656,10 +650,8 @@ fn check_tenure_change_rejects_when_locally_accepted_block_exists() {
         client: stacks_client,
         config: _,
     } = MockServerClient::new();
-    let rand_int = server.local_addr().unwrap().port();
-
     let (_stacks_client, mut signer_db, block_sk, mut block, cur_sortition, _, sortitions_view) =
-        setup_test_environment(&format!("{}_{rand_int}", function_name!()));
+        setup_test_environment(function_name!());
 
     // Set up the block in the current tenure
     block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
@@ -762,10 +754,8 @@ fn check_tenure_change_accepts_when_only_pre_committed_block_exists() {
         client: stacks_client,
         config: _,
     } = MockServerClient::new();
-    let rand_int = server.local_addr().unwrap().port();
-
     let (_stacks_client, mut signer_db, block_sk, mut block, cur_sortition, _, sortitions_view) =
-        setup_test_environment(&format!("{}_{rand_int}", function_name!()));
+        setup_test_environment(function_name!());
 
     // Set up the block in the current tenure
     block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();

@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
-use std::fs;
 use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
@@ -36,7 +35,6 @@ use libsigner::v0::signer_state::{
     GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
 };
 use stacks_common::bitvec::BitVec;
-use stacks_common::function_name;
 
 use crate::chainstate::{ProposalEvalConfig, SortitionData};
 use crate::client::tests::{build_get_tenure_tip_response, MockServerClient};
@@ -1021,11 +1019,7 @@ fn check_miner_inactivity_timeout() {
     let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
     let stacks_client = StacksClient::from(&config);
 
-    let fn_name = function_name!();
-    let signer_db_dir = "/tmp/stacks-node-tests/signer-units/";
-    let signer_db_path = format!("{signer_db_dir}/{fn_name}.{}.sqlite", get_epoch_time_secs());
-    fs::create_dir_all(signer_db_dir).unwrap();
-    let mut signer_db = SignerDb::new(signer_db_path).unwrap();
+    let mut signer_db = SignerDb::new(":memory:").unwrap();
 
     let mut proposal_config = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(30),
