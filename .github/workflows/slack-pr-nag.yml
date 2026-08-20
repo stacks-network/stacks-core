@@ -11,10 +11,32 @@ permissions:
   pull-requests: read
 
 jobs:
-  nag-slack:
+  # Execute only on our official repo, because it manages Slack PR nags for us
+  check-ci-enabled:
+    name: "Check: CI Enabled"
     runs-on: ubuntu-latest
-    # Execute only on our official repo, because it manages Slack PR nags for us
-    if: github.repository == 'stacks-network/stacks-core'
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "github.repository:   '${{ github.repository }}'"
+    
+          if [[ "${{ github.repository }}" == "stacks-network/stacks-core" ]]; then
+            echo "Result: CI is ENABLED"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: CI is DISABLED"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  nag-slack:
+    name: "Slack: Nag Team"
+    needs:
+      - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
     steps:
       - name: Fetch PRs and Post Nags to Slack
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

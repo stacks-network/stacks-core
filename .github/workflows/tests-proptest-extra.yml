@@ -63,22 +63,36 @@ env:
 
 jobs:
   check-ci-enabled:
-    # Only run this if it's manually triggered or ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
-    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
+    name: "Check: CI Enabled"
     runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
     steps:
-      - run: echo "CI enabled"
+      - id: check
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
+          echo "github.repository:   '${{ github.repository }}'"
+          echo "github.event_name:   '${{ github.event_name }}'"
+    
+          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Result: CI is ENABLED"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: CI is DISABLED"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
 
   # Gate 1: on manual dispatch, always proceed.
   # On pull_request_review, proceed only when the triggering review is an
   # approval targeting the `main` base branch and check approvals
   # from users with write+ permission to be at least `REQUIRED_APPROVALS`.
   check-approvals:
-    name: Check Approval Count
+    name: "Check: Approval Count"
     needs:
       - check-ci-enabled
     # Only run this if a PR review is approved targeting the main branch
-    if: github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'
+    if: needs.check-ci-enabled.outputs.enabled == 'true' && github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.count.outputs.ready }}
@@ -137,7 +151,7 @@ jobs:
   # Skips the expensive test listing/filtering job when a PR does not
   # introduce any new proptest tests.
   check-changes:
-    name: Detect New Proptest Tests
+    name: "Detect: New Proptest Tests"
     needs:
       - check-ci-enabled
       - check-approvals

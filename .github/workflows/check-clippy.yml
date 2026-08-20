@@ -32,16 +32,30 @@ concurrency:
 
 jobs:
   check-ci-enabled:
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
-    if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
+    name: "Check: CI Enabled"
     runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
     steps:
-      - run: echo "CI enabled"
+      - id: check
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
+          echo "github.repository:   '${{ github.repository }}'"
+    
+          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" ]]; then
+            echo "Result: CI is ENABLED"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: CI is DISABLED"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
 
   clippy-stacks:
-    name: Clippy Check (stacks)
+    name: "Check: Clippy (stacks)"
     needs:
       - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -61,9 +75,10 @@ jobs:
         run: cargo clippy-stacks
 
   clippy-stacks-lib:
-    name: Clippy Check (stackslib)
+    name: "Check: Clippy (stackslib)"
     needs:
       - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
