@@ -18,6 +18,9 @@ inputs:
   total-partitions:
     description: "Total number of partitions (e.g., 4)"
     required: false
+  test-timings-file:
+    description: "Historical timings used to runtime-balance partitioned tests"
+    required: false
   archive-file:
     description: "Archive file to use for tests"
     required: true
@@ -171,13 +174,32 @@ runs:
       shell: bash
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
-        
+
+        PARTITION_ARGS=(--partition count:${{ inputs.partition }}/${{ inputs.total-partitions }})
+        TEST_ARGS=()
+
+        if [[ -n "${{ inputs.test-timings-file }}" ]]; then
+          TEST_LIST_FILE=$(mktemp)
+          trap 'rm -f "$TEST_LIST_FILE"' EXIT
+          NEXTEST_ARCHIVE="${{ inputs.archive-file }}" \
+          TEST_TIMINGS_FILE="${{ inputs.test-timings-file }}" \
+          PARTITION="${{ inputs.partition }}" \
+          TOTAL_PARTITIONS="${{ inputs.total-partitions }}" \
+          TEST_LIST_OUTPUT="$TEST_LIST_FILE" \
+            bash ./.github/scripts/balance_unit_tests.sh
+
+          mapfile -t TEST_NAMES < "$TEST_LIST_FILE"
+          PARTITION_ARGS=()
+          TEST_ARGS=(-- "${TEST_NAMES[@]}" --exact)
+        fi
+
         # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
         cargo nextest run \
           --config-file ./.github/nextest/ci-nextest.toml \
           --profile ci-parallel \
-          --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
-          --archive-file ${{ inputs.archive-file }}
+          "${PARTITION_ARGS[@]}" \
+          --archive-file "${{ inputs.archive-file }}" \
+          "${TEST_ARGS[@]}"
           
         # rename the resulting junit file from the toml config
         mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml

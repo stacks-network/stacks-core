@@ -2,12 +2,14 @@
 # Generate a balanced test matrix for the Bitcoin integration test workflow.
 #
 # Discovers all ignored tests in the stacks-node binary via cargo nextest,
-# removes a hardcoded exclude list, then chunks them into batches.
+# removes a hardcoded exclude list, then balances them into batches using
+# historical JUnit timings.
 #
 # Optional env vars:
 #   BATCH_SIZE       - Number of tests grouped into a single runner batch (default: 50)
 #   NEXTEST_ARCHIVE  - Nextest archive to use (default: ./test_archive.tar.zst)
 #   TEST_TAG_CI_SKIP - Tag name used to exclude tests from CI (default: ci_skip)
+#   TEST_TIMINGS_FILE - Historical timing data used to balance batches
 #
 # Outputs:
 #   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner)
@@ -20,6 +22,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 ## --- Configuration ----------------------------------------------------------
 # Set batch size for test grouping. default is 50
 batch_size="${BATCH_SIZE:-50}"
+# Historical durations used by the longest-processing-time scheduler.
+timings_file="${TEST_TIMINGS_FILE:-.github/test-timings/bitcoin-integration.json}"
 # Set the nextest archive to use
 nextest_archive="${NEXTEST_ARCHIVE:-./test_archive.tar.zst}"
 # Safely replace a leading ~ with the actual absolute $HOME path if provided in the env var
@@ -43,10 +47,28 @@ for cmd in cargo comm grep jq sort wc; do
 done
 [[ "${missing}" -eq 1 ]] && exit 1
 
+if ! [[ "${batch_size}" =~ ^[1-9][0-9]*$ ]]; then
+    error "BATCH_SIZE must be a positive integer (found $(hl "${batch_size}"))"
+    exit 1
+fi
+
+if [[ ! -f "${timings_file}" ]]; then
+    error "Test timings file not found: $(hl "${timings_file}")"
+    exit 1
+fi
+
+jq -e '
+    (.default_seconds | type == "number" and . > 0) and
+    (.tests | type == "object")
+' "${timings_file}" > /dev/null || {
+    error "Invalid test timings file: $(hl "${timings_file}")"
+    exit 1
+}
+
 ## --- List all ignored tests via nextest -------------------------------------
 info "Listing ignored tests from nextest archive..."
 cargo nextest list --archive-file "${nextest_archive}" -Tjson > nextest_output.json || {
-    error "Error listing tests in $(hl ${nextest_archive})"
+    error "Error listing tests in $(hl "${nextest_archive}")"
     exit 1
 }
 
@@ -55,7 +77,8 @@ jq -c '
     | [to_entries[] | select(.value.ignored) | .key]
 ' nextest_output.json > ignored_tests.json
 
-info "Ignored tests count: $(hl $(jq 'length' ignored_tests.json))"
+ignored_count=$(jq 'length' ignored_tests.json)
+info "Ignored tests count: $(hl "${ignored_count}")"
 
 ## ── Build list of excluded tests --------------------------------------------
 info "Building exclude list..."
@@ -114,12 +137,14 @@ EOF
 ## ── Append tests tagged with ci_skip to the exclude list ────────────────────
 ci_skip_regex=":t::(?:.*::)?${ci_skip_tag}::"
 info "Excluding tests matching tag: $(hl "${ci_skip_tag}") (regex: $(hl "${ci_skip_regex}"))"
-jq -r '.[]' ignored_tests.json | grep -P "${ci_skip_regex}" >> raw_exclude.txt || true
+jq -r --arg regex "${ci_skip_regex}" '.[] | select(test($regex))' \
+    ignored_tests.json >> raw_exclude.txt
 
 ## ── Strip blank lines and comments, then convert to JSON array ──────────────
 grep -v '^\s*$' raw_exclude.txt | grep -v '^\s*#' > clean_exclude.txt
 jq -R . clean_exclude.txt | jq -s . > exclude.json
-info "Excluded tests count: $(hl $(jq length exclude.json))"
+excluded_count=$(jq length exclude.json)
+info "Excluded tests count: $(hl "${excluded_count}")"
 
 ## ── Filter out excluded tests -----------------------------------------------
 info "Filtering excluded tests..."
@@ -132,31 +157,34 @@ jq -r '.[]' exclude.json        | sort > exclude_sorted.txt
 comm -23 ignored_sorted.txt exclude_sorted.txt > filtered.txt
 
 total=$(wc -l < filtered.txt)
-info "Final test count: $(hl ${total})"
+info "Final test count: $(hl "${total}")"
 
-## ── Chunk all tests into batches ──────────────────────────────────────────
-info "Grouping $(hl ${total}) tests into batches of size $(hl ${batch_size})...."
-mapfile -t tests < filtered.txt
+## ── Runtime-balance tests into batches ─────────────────────────────────────
+batch_count=$(( (total + batch_size - 1) / batch_size ))
+info "Balancing $(hl "${total}") tests across $(hl "${batch_count}") batches of at most $(hl "${batch_size}") tests..."
 
-batches_json="[]"
-idx=1
+if (( total == 0 )); then
+    batches_json='[]'
+else
+    balancer="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/runtime_balance_tests.sh"
+    balanced_batches=$(
+        TEST_LIST_FILE=filtered.txt \
+        TEST_TIMINGS_FILE="${timings_file}" \
+        BATCH_COUNT="${batch_count}" \
+        MAX_BATCH_SIZE="${batch_size}" \
+            bash "${balancer}"
+    )
 
-for (( j = 0; j < total; j += batch_size )); do
-    chunk=("${tests[@]:j:batch_size}")
-    
-    # Safely join array elements using a comma character
-    old_ifs="$IFS"
-    IFS=','
-    csv_chunk="${chunk[*]}"
-    IFS="$old_ifs"
-    
-    # Append an object containing both the index and the raw CSV string to the master JSON array
-    batches_json=$(echo "$batches_json" | jq --argjson idx "$idx" --arg csv "$csv_chunk" '. += [{"index": $idx, "csv": $csv}]')
-    
-    ((idx++))
-done
+    # The workflow action accepts each batch as a comma-separated list.
+    batches_json=$(jq '[.[] | {
+        index,
+        estimated_seconds,
+        csv: (.tests | join(","))
+    }]' <<< "${balanced_batches}")
+fi
 
-info "Generated $(hl $(jq 'length' <<< "$batches_json")) dynamic matrix batches."
+generated_batch_count=$(jq 'length' <<< "$batches_json")
+info "Generated $(hl "${generated_batch_count}") dynamic matrix batches."
 
 # Export to GitHub Actions or stdout
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
