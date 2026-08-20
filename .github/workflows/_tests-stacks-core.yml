@@ -21,7 +21,7 @@ permissions:
 # Set default env vars
 #   - transferred to composite action steps
 env:
-  NUM_UNIT_TEST_PARTITIONS: 16
+  NUM_UNIT_TEST_PARTITIONS: 6
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
@@ -41,9 +41,9 @@ jobs:
     steps:
       - id: setup-matrix
         run: |
-          # Generates a JSON array like [1, 2, 3, ..., 16] using jq
+          # Generate a JSON array from 1 through NUM_UNIT_TEST_PARTITIONS.
           ARRAY=$(seq 1 ${{ env.NUM_UNIT_TEST_PARTITIONS }} | jq -s -c .)
-          echo "result=$ARRAY" >> $GITHUB_OUTPUT
+          echo "result=$ARRAY" >> "$GITHUB_OUTPUT"
 
   # Unit tests with code coverage
   unit-tests:
