@@ -2,7 +2,8 @@
 
 These files contain historical JUnit runtimes used to balance GitHub Actions
 test jobs. Unknown tests receive `default_seconds`, so newly added tests still
-run without requiring an immediate timing update.
+run without requiring an immediate timing update. Retried attempts are included
+in each test's runtime so flaky tests do not silently underweight a partition.
 
 The Bitcoin file records every integration test. The unit file records only
 tests taking at least five seconds, which keeps the file small while
@@ -23,6 +24,10 @@ python3 .github/scripts/generate_test_timings.py \
   --minimum-seconds 5 \
   --output .github/test-timings/unit.json
 ```
+
+For a more stable estimate, download several representative runs into separate
+directories and repeat `--input-dir` for each one. The generator retains each
+test's maximum observed runtime; set `--source-run` to the newest included run.
 
 For Bitcoin integrations, use the artifact pattern
 `nextest-batched-integration-tests-*`, omit `--minimum-seconds`, and output to

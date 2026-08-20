@@ -85,6 +85,17 @@ def collect_test_durations(junit_files: list[Path]) -> dict[str, float]:
 
             key = (testcase.get("classname", ""), name)
             parsed_duration = float(duration)
+            for retry in testcase:
+                if retry.tag not in {
+                    "flakyFailure",
+                    "flakyError",
+                    "rerunFailure",
+                    "rerunError",
+                }:
+                    continue
+                retry_duration = retry.get("time")
+                if retry_duration is not None:
+                    parsed_duration += float(retry_duration)
             instance_durations[key] = max(
                 parsed_duration, instance_durations.get(key, 0.0)
             )

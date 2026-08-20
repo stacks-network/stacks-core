@@ -75,11 +75,10 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
      
-      # Setup rust toolchain with llvm-tools-preview
+      # Setup Rust toolchain. These version-compatibility tests do not produce
+      # coverage, so they do not need llvm-tools-preview.
       - name: Setup Rust Toolchain
         uses: ./.github/actions/setup-rust-toolchain
-        with:
-          components: llvm-tools-preview
      
       # Restore bitcoin cache data
       - name: Restore Bitcoin Binary Cache
@@ -120,6 +119,7 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT_MINS) }}
         env:
           BITCOIN_IMAGE_TAG: ${{ matrix.bitcoin_version }}
+          LLVM_PROFILE_FILE: /dev/null
           TEST_ARCHIVE_FILE: ${{ inputs.archive-file }}
         run: |
           # Safely replace a leading ~ with the actual absolute $HOME path

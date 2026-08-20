@@ -21,7 +21,9 @@ permissions:
 # Set default env vars
 #   - transferred to composite action steps
 env:
-  NUM_UNIT_TEST_PARTITIONS: 6
+  # Five partitions save a runner while unit tests remain below the Bitcoin
+  # critical path. Re-evaluate this count if the Bitcoin suite gets faster.
+  NUM_UNIT_TEST_PARTITIONS: 5
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
