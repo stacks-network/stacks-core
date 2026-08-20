@@ -367,6 +367,7 @@ jobs:
       - check-rustfmt
       - check-release
       - check-test-caches
+      - setup-env
       - tests-bitcoin
       - tests-epoch
       - tests-p2p
@@ -520,6 +521,7 @@ jobs:
       - check-rustfmt
       - check-release
       - check-test-caches
+      - setup-env
       - tests-bitcoin
       - tests-epoch
       - tests-p2p
