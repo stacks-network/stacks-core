@@ -40,6 +40,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-ci-enabled:
+    # Only run this if it's manually triggered or ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
+    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CI enabled"
+
   #######################################################################################################################
   ### Create Reusable Caches for Tests
   ###
@@ -49,9 +56,9 @@ jobs:
   #######################################################################################################################
   cache-bitcoin-binary:
     name: "Create: Bitcoin Binary Cache"
+    needs:
+      - check-ci-enabled
     runs-on: ubuntu-latest
-    # Only run this if it's manually triggered or ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
-    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
     steps:
       # Checkout the code
       #   - only .github is required for checking caches
@@ -78,9 +85,9 @@ jobs:
 
   cache-cargo:
     name: "Create: Cargo Cache"
+    needs:
+      - check-ci-enabled
     runs-on: ubuntu-latest
-    # Only run this if it's manually triggered or ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
-    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
     steps:
       # Checkout the code
       #   - only .github is required for checking caches

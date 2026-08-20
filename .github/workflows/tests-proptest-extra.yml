@@ -62,14 +62,23 @@ env:
   BTC_VERSION: "25.0"
 
 jobs:
+  check-ci-enabled:
+    # Only run this if it's manually triggered or ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
+    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CI enabled"
+
   # Gate 1: on manual dispatch, always proceed.
   # On pull_request_review, proceed only when the triggering review is an
   # approval targeting the `main` base branch and check approvals
   # from users with write+ permission to be at least `REQUIRED_APPROVALS`.
   check-approvals:
     name: Check Approval Count
-    # Only run this if it's manually triggered OR ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository AND a PR review is approved targeting the main branch
-    if: github.event_name == 'workflow_dispatch' || ((vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main')
+    needs:
+      - check-ci-enabled
+    # Only run this if a PR review is approved targeting the main branch
+    if: github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main')
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.count.outputs.ready }}
@@ -129,7 +138,9 @@ jobs:
   # introduce any new proptest tests.
   check-changes:
     name: Detect New Proptest Tests
-    needs: check-approvals
+    needs:
+      - check-ci-enabled
+      - check-approvals
     if: needs.check-approvals.outputs.ready == 'true'
     runs-on: ubuntu-latest
     outputs:

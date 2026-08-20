@@ -79,8 +79,8 @@ jobs:
   ############################################################################
   check-changelog:
     name: "Check: Changelog"
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
-    if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
+    needs:
+      - setup-env
     runs-on: *shared_config
     permissions:
       contents: read

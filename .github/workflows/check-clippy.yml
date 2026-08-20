@@ -31,10 +31,17 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  clippy-stacks:
-    name: Clippy Check (stacks)
+  check-ci-enabled:
     # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
     if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CI enabled"
+
+  clippy-stacks:
+    name: Clippy Check (stacks)
+    needs:
+      - check-ci-enabled
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -55,8 +62,8 @@ jobs:
 
   clippy-stacks-lib:
     name: Clippy Check (stackslib)
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
-    if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
+    needs:
+      - check-ci-enabled
     runs-on: ubuntu-latest
     steps:
       # Checkout the code

@@ -41,11 +41,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-ci-enabled:
+    # Only run this if it's manually triggered or ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
+    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CI enabled"
+
   # Build arch dependent binaries from source
   build-binaries:
     name: Build Binaries
-    # Only run this if it's manually triggered or ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
-    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
+    needs:
+      - check-ci-enabled
     runs-on: ${{ vars.BUILD_RUNNER_LABEL || 'ubuntu-latest' }}
     strategy:
       max-parallel: 2
@@ -130,9 +137,10 @@ jobs:
   image:
     name: Build Image
     needs:
+      - check-ci-enabled
       - build-binaries
-    # Only run this if it's manually triggered or if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository, and skip it entirely for blanked builds (binaries only, no image)
-    if: (github.event_name == 'workflow_dispatch' || vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && !inputs.blank_version_build
+    # Only run this for versioned builds (skip for blanked builds)
+    if: ${{ !inputs.blank_version_build }}
     runs-on: ubuntu-latest
     permissions:
       contents: read       # required for checkout
