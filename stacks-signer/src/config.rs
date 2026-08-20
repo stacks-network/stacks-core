@@ -61,7 +61,7 @@ pub const DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS: u64 = 2;
 /// machine view point and capitulating to other signers tenure view
 const DEFAULT_CAPITULATE_MINER_VIEW_SECS: u64 = 20;
 /// Default HTTP timeout (in seconds) for read/write operations with StackerDB.
-pub const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
+pub const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 10;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
