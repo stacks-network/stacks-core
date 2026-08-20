@@ -1390,19 +1390,19 @@ impl Signer {
                 return;
             }
         };
-        let conflicts: Vec<_> = conflicts
-            .into_iter()
-            .filter(|conflict| !self.reorg_permit_stands(stacks_client, conflict))
-            .collect();
         let freshness_cutoff = get_epoch_time_secs().saturating_sub(
             self.proposal_config
                 .tenure_last_block_proposal_timeout
                 .as_secs(),
         );
         // A fresh signature only blocks while the block it covers could still be part of the
-        // chain: see `conflict_still_blocks`, which asks the node whether it is.
+        // chain: see `conflict_still_blocks`, which asks the node whether it is. Check
+        // freshness first: it is a local timestamp comparison, while `reorg_permit_stands`
+        // and `conflict_still_blocks` each query the node, so stale conflicts cost no
+        // round-trips.
         if let Some(conflict) = conflicts.iter().find(|conflict| {
             conflict.last_endorsed > freshness_cutoff
+                && !self.reorg_permit_stands(stacks_client, conflict)
                 && self.conflict_still_blocks(
                     stacks_client,
                     conflict,
@@ -1428,10 +1428,11 @@ impl Signer {
         // tenure at or above the proposed height, since the proposal then duplicates state the
         // node has already built on. (The chainstate checks don't cover this for tenure-change
         // blocks: those check the parent tenure instead of their own.)
-        if conflicts
-            .iter()
-            .any(|conflict| conflict.consensus_hash == block_info.block.header.consensus_hash)
-        {
+        // The permit check is deferred to here so that only same-tenure conflicts pay for it.
+        if conflicts.iter().any(|conflict| {
+            conflict.consensus_hash == block_info.block.header.consensus_hash
+                && !self.reorg_permit_stands(stacks_client, conflict)
+        }) {
             match stacks_client.get_tenure_tip(&block_info.block.header.consensus_hash) {
                 Ok(tip) => {
                     let tip_height = tip.anchored_header.height();
@@ -1456,7 +1457,7 @@ impl Signer {
         }
         if !conflicts.is_empty() {
             info!(
-                "{self}: Reached the pre-commit threshold for a block that conflicts with previously signed or accepted blocks, but all of those conflicts have gone stale. Signing the replacement.";
+                "{self}: Reached the pre-commit threshold for a block that conflicts with previously signed or accepted blocks, but none of those conflicts still blocks it. Signing the replacement.";
                 "signer_signature_hash" => %block_hash,
                 "block_height" => block_info.block.header.chain_length,
                 "num_conflicts" => conflicts.len(),
