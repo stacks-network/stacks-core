@@ -36,12 +36,7 @@ To **enable** CI workflows within your fork or cloned repository, add a GitHub A
 - Name: `ENABLE_CI_WORKFLOWS`
 - Value: `true`
 
-This will enable CI functionality within your repo or fork, as our CI workflow files check for it as follows:
-
-```
-# Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
-if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
-```
+This will enable CI functionality within your repo or fork.
 
 ### Merging PRs from Forks
 
