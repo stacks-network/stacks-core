@@ -78,7 +78,7 @@ jobs:
     needs:
       - check-ci-enabled
     # Only run this if a PR review is approved targeting the main branch
-    if: github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main')
+    if: github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.count.outputs.ready }}
