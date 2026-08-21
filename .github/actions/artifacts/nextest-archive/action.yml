@@ -111,6 +111,25 @@ runs:
           --features monitoring_prom \
           --archive-file "$ARCHIVE_FILE"
 
+        cargo nextest list \
+          --archive-file "$ARCHIVE_FILE" \
+          --message-format json \
+          > nextest-test-list.json
+
+    # Matrix-generation jobs only need the test manifest. Keep it separate so
+    # they do not download the much larger archive and debug binaries.
+    - name: Create Nextest Test List Artifact
+      if: |
+        inputs.action == 'create'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+      with:
+        name: "nextest-test-list"
+        path: nextest-test-list.json
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 9
+        overwrite: true
+
     - name: Create Nextest Archive Artifact
       if: |
         inputs.action == 'create'

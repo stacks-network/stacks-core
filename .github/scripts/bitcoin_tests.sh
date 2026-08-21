@@ -8,6 +8,8 @@
 # Optional env vars:
 #   BATCH_SIZE       - Number of tests grouped into a single runner batch (default: 50)
 #   NEXTEST_ARCHIVE  - Nextest archive to use (default: ./test_archive.tar.zst)
+#   NEXTEST_LIST_FILE - Pre-generated nextest JSON test manifest. When set,
+#                       the archive and cargo-nextest are not needed.
 #   TEST_TAG_CI_SKIP - Tag name used to exclude tests from CI (default: ci_skip)
 #   TEST_TIMINGS_FILE - Historical timing data used to balance batches
 #
@@ -28,6 +30,8 @@ timings_file="${TEST_TIMINGS_FILE:-.github/test-timings/bitcoin-integration.json
 nextest_archive="${NEXTEST_ARCHIVE:-./test_archive.tar.zst}"
 # Safely replace a leading ~ with the actual absolute $HOME path if provided in the env var
 nextest_archive="${nextest_archive/#\~/$HOME}"
+# Reuse the manifest produced while creating the archive when available.
+nextest_list_file="${NEXTEST_LIST_FILE:-}"
 # Exclude tests tagged with a skip tag
 ci_skip_tag="${TEST_TAG_CI_SKIP:-ci_skip}"
 
@@ -38,8 +42,13 @@ if [[ "${BASH_VERSINFO[0]}" -lt 5 ]]; then
 fi
 
 ## ── Check for required binaries ─────────────────────────────────────────────
+required_commands=(comm grep jq sort wc)
+if [[ -z "${nextest_list_file}" ]]; then
+    required_commands+=(cargo)
+fi
+
 missing=0
-for cmd in cargo comm grep jq sort wc; do
+for cmd in "${required_commands[@]}"; do
     if ! command -v "${cmd}" > /dev/null 2>&1; then
         error "Missing required command: $(hl "${cmd}")"
         missing=1
@@ -66,16 +75,26 @@ jq -e '
 }
 
 ## --- List all ignored tests via nextest -------------------------------------
-info "Listing ignored tests from nextest archive..."
-cargo nextest list --archive-file "${nextest_archive}" -Tjson > nextest_output.json || {
-    error "Error listing tests in $(hl "${nextest_archive}")"
-    exit 1
-}
+if [[ -n "${nextest_list_file}" ]]; then
+    if [[ ! -f "${nextest_list_file}" ]]; then
+        error "Nextest test manifest not found: $(hl "${nextest_list_file}")"
+        exit 1
+    fi
+    nextest_output="${nextest_list_file}"
+    info "Reading ignored tests from nextest manifest $(hl "${nextest_output}")..."
+else
+    nextest_output="nextest_output.json"
+    info "Listing ignored tests from nextest archive..."
+    cargo nextest list --archive-file "${nextest_archive}" -Tjson > "${nextest_output}" || {
+        error "Error listing tests in $(hl "${nextest_archive}")"
+        exit 1
+    }
+fi
 
 jq -c '
     .["rust-suites"]["stacks-node::bin/stacks-node"]["testcases"]
     | [to_entries[] | select(.value.ignored) | .key]
-' nextest_output.json > ignored_tests.json
+' "${nextest_output}" > ignored_tests.json
 
 ignored_count=$(jq 'length' ignored_tests.json)
 info "Ignored tests count: $(hl "${ignored_count}")"
