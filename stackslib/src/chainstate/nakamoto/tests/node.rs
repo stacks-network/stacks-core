@@ -20,6 +20,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::*;
 use rusqlite::params;
 use stacks_common::address::*;
+use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId, VRFSeed};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
@@ -35,7 +36,7 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::NullEventDispatcher;
 use crate::chainstate::coordinator::{ChainsCoordinator, OnChainRewardSetProvider};
-use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set_for_tenure;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::staging_blocks::{
     NakamotoBlockObtainMethod, NakamotoStagingBlocksConnRef,
@@ -45,6 +46,7 @@ use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, StacksDBIndexed,
 };
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::TestStacksNode;
@@ -838,54 +840,23 @@ impl TestStacksNode {
             if let Some(timestamp) = timestamp {
                 builder.header.timestamp = timestamp;
             }
-            miner_setup(&mut builder);
 
             tenure_change = None;
             coinbase = None;
 
-            let (mut nakamoto_block, size, cost) = Self::make_nakamoto_block_from_txs(
+            let (mut nakamoto_block, size, cost, reward_set) = Self::make_nakamoto_block_from_txs(
                 builder,
                 chainstate,
                 &sortdb.index_handle_at_tip(),
                 txs,
+                &mut miner_setup,
             )?;
             let try_to_process = after_block(&mut nakamoto_block);
             miner.sign_nakamoto_block(&mut nakamoto_block);
 
-            let tenure_sn =
-                SortitionDB::get_block_snapshot_consensus(sortdb.conn(), tenure_id_consensus_hash)?
-                    .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
-
-            let cycle = sortdb
-                .pox_constants
-                .block_height_to_reward_cycle(sortdb.first_block_height, tenure_sn.block_height)
-                .unwrap();
-
-            // Get the reward set
-            let sort_tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-            let reward_set = load_nakamoto_reward_set(
-                miner
-                    .burnchain
-                    .block_height_to_reward_cycle(sort_tip_sn.block_height)
-                    .expect("FATAL: no reward cycle for sortition"),
-                &sort_tip_sn.sortition_id,
-                &miner.burnchain,
-                chainstate,
-                &nakamoto_block.header.parent_block_id,
-                sortdb,
-                &OnChainRewardSetProvider::new(),
-            )
-            .expect("Failed to load reward set")
-            .expect("Expected a reward set")
-            .0
-            .known_selected_anchor_block_owned()
-            .expect("Unknown reward set");
-
             test_debug!(
-                "Signing Nakamoto block {} in tenure {} with key in cycle {}",
-                nakamoto_block.block_id(),
-                tenure_id_consensus_hash,
-                cycle
+                "Signing Nakamoto block {} in tenure {tenure_id_consensus_hash} with its elected reward set",
+                nakamoto_block.block_id()
             );
 
             signers.sign_block_with_reward_set(&mut nakamoto_block, &reward_set);
@@ -894,14 +865,11 @@ impl TestStacksNode {
 
             if try_to_process {
                 debug!(
-                    "Process Nakamoto block {} ({:?}",
-                    &block_id, &nakamoto_block.header
+                    "Process Nakamoto block {block_id} ({:?}",
+                    &nakamoto_block.header
                 );
             }
-            debug!(
-                "Nakamoto block {} txs: {:?}",
-                &block_id, &nakamoto_block.txs
-            );
+            debug!("Nakamoto block {block_id} txs: {:?}", &nakamoto_block.txs);
 
             let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
             let mut sort_handle = sortdb.index_handle(&sort_tip);
@@ -1024,12 +992,22 @@ impl TestStacksNode {
             .collect())
     }
 
-    pub fn make_nakamoto_block_from_txs(
+    /// Build a Nakamoto block from `txs`.
+    ///
+    /// `miner_setup` runs after tenure information and reward-set-dependent header defaults
+    /// (including `pox_treatment`) are initialized, but before tenure execution begins. It can
+    /// override those defaults, but must not change the header's `consensus_hash` (which
+    /// identifies the tenure) or `parent_block_id`.
+    pub fn make_nakamoto_block_from_txs<S>(
         mut builder: NakamotoBlockBuilder,
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
-    ) -> Result<(NakamotoBlock, u64, ExecutionCost), ChainstateError> {
+        mut miner_setup: S,
+    ) -> Result<(NakamotoBlock, u64, ExecutionCost, RewardSet), ChainstateError>
+    where
+        S: FnMut(&mut NakamotoBlockBuilder),
+    {
         debug!("Build Nakamoto block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
@@ -1044,6 +1022,24 @@ impl TestStacksNode {
 
         let mut miner_tenure_info =
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
+        let reward_set = miner_tenure_info.active_reward_set.clone();
+        builder.header.pox_treatment = BitVec::ones(reward_set.pox_treatment_bitvec_len())
+            .map_err(|_| {
+                ChainstateError::InvalidStacksBlock(
+                    "Active reward set produced an invalid PoX treatment length".into(),
+                )
+            })?;
+        let tenure_consensus_hash = builder.header.consensus_hash.clone();
+        let tenure_parent_block_id = builder.header.parent_block_id.clone();
+        miner_setup(&mut builder);
+        assert_eq!(
+            builder.header.consensus_hash, tenure_consensus_hash,
+            "miner_setup must not change the header's `consensus_hash`, which identifies the tenure"
+        );
+        assert_eq!(
+            builder.header.parent_block_id, tenure_parent_block_id,
+            "miner_setup must not change the already-resolved tenure parent"
+        );
         let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
         let mut total = 0;
@@ -1097,7 +1093,7 @@ impl TestStacksNode {
         let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
         let size = builder.bytes_so_far;
         let cost = builder.tenure_finish(tenure_tx).unwrap();
-        Ok((block, size, cost))
+        Ok((block, size, cost, reward_set))
     }
 
     /// Insert a staging pre-Nakamoto block and microblocks
@@ -1221,8 +1217,6 @@ impl TestStacksNode {
     pub fn process_pushed_next_ready_block<'a>(
         stacks_node: &mut TestStacksNode,
         sortdb: &mut SortitionDB,
-        miner: &mut TestMiner,
-        tenure_id_consensus_hash: &ConsensusHash,
         coord: &mut ChainsCoordinator<
             'a,
             TestEventObserver,
@@ -1233,41 +1227,13 @@ impl TestStacksNode {
             BitcoinIndexer,
         >,
         nakamoto_block: NakamotoBlock,
+        reward_set: &RewardSet,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
         // Before processeding, make sure the caller did not accidentally construct a test with unprocessed blocks already in the queue
         let nakamoto_blocks_db = stacks_node.chainstate.nakamoto_blocks_db();
         assert!(nakamoto_blocks_db
             .next_ready_nakamoto_block(stacks_node.chainstate.db())
             .unwrap().is_none(), "process_pushed_next_ready_block can only be called if the staging blocks queue is empty");
-
-        let tenure_sn =
-            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), tenure_id_consensus_hash)?
-                .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
-
-        let cycle = sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(sortdb.first_block_height, tenure_sn.block_height)
-            .unwrap();
-
-        // Get the reward set
-        let sort_tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
-        let reward_set = load_nakamoto_reward_set(
-            miner
-                .burnchain
-                .block_height_to_reward_cycle(sort_tip_sn.block_height)
-                .expect("FATAL: no reward cycle for sortition"),
-            &sort_tip_sn.sortition_id,
-            &miner.burnchain,
-            &mut stacks_node.chainstate,
-            &nakamoto_block.header.parent_block_id,
-            sortdb,
-            &OnChainRewardSetProvider::new(),
-        )
-        .expect("Failed to load reward set")
-        .expect("Expected a reward set")
-        .0
-        .known_selected_anchor_block_owned()
-        .expect("Unknown reward set");
 
         let block_id = nakamoto_block.block_id();
 
@@ -1284,7 +1250,7 @@ impl TestStacksNode {
             &mut stacks_node.chainstate,
             &nakamoto_block,
             &mut sort_handle,
-            &reward_set,
+            reward_set,
             NakamotoBlockObtainMethod::Pushed,
         )?;
         debug!("Accepted Nakamoto block {}", &nakamoto_block.block_id());
@@ -2578,15 +2544,17 @@ impl TestPeer<'_> {
         )
         .unwrap();
 
-        // Get the reward set
-        let sort_tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        let reward_set = load_nakamoto_reward_set(
-            self.chain
-                .miner
-                .burnchain
-                .block_height_to_reward_cycle(sort_tip_sn.block_height)
-                .expect("FATAL: no reward cycle for sortition"),
-            &sort_tip_sn.sortition_id,
+        // Get the reward set whose total signing weight the shadow block
+        // claims (shadow blocks carry no signer signatures). The tenure's
+        // consensus hash comes from the empty sortition created above (also
+        // the canonical tip here), so key off that sortition's snapshot
+        // explicitly.
+        let tenure_snapshot =
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &tenure_id_consensus_hash)
+                .unwrap()
+                .expect("FATAL: no snapshot for the shadow tenure");
+        let reward_set = load_nakamoto_reward_set_for_tenure(
+            &tenure_snapshot,
             &self.chain.miner.burnchain,
             &mut stacks_node.chainstate,
             &shadow_block.header.parent_block_id,
@@ -2594,10 +2562,7 @@ impl TestPeer<'_> {
             &OnChainRewardSetProvider::new(),
         )
         .expect("Failed to load reward set")
-        .expect("Expected a reward set")
-        .0
-        .known_selected_anchor_block_owned()
-        .expect("Unknown reward set");
+        .expect("Expected a reward set");
 
         // check signer weight
         let mut max_signing_weight = 0;
