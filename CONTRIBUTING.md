@@ -60,8 +60,7 @@ For an example of this process, see PRs
 ### Documentation Updates
 
 - Any changes should be added to the Changelog via
-  [Changelog Fragments](changelog.d/README.md) (note that there is a separate
-  changelog for the [signer](stacks-signer/changelog.d/README.md)).
+  [Changelog Fragments](changelog.d/README.md).
 - Mention any required documentation changes in the description of your pull request.
 - If adding or updating an RPC endpoint, ensure the change is documented in the
   OpenAPI spec: [`./docs/rpc/openapi.yaml`](./docs/rpc/openapi.yaml).
