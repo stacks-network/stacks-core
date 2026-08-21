@@ -4,6 +4,7 @@ members = [
     "stackslib",
     "stacks-common",
     "stacks-codec",
+    "stacks-postconditions",
     "pox-locking",
     "clarity-types",
     "clarity",

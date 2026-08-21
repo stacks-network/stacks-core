@@ -1,0 +1,39 @@
+[package]
+name = "stacks-postconditions"
+version = "0.1.0"
+authors = [
+    "Jude Nelson <jude@stacks.org>",
+    "Aaron Blankstein <aaron@blockstack.com>",
+    "Ludo Galabru <ludovic@blockstack.com>",
+]
+license = "GPL-3.0"
+homepage = "https://github.com/stacks-network/stacks-core"
+repository = "https://github.com/stacks-network/stacks-core"
+description = "Transaction post-condition verification for the Stacks blockchain"
+keywords = ["stacks", "stx", "blockchain", "post-conditions"]
+edition = "2024"
+
+[lib]
+name = "stacks_postconditions"
+path = "src/lib.rs"
+
+[dependencies]
+clarity = { package = "clarity", path = "../clarity", default-features = false }
+clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false }
+stacks-codec = { package = "stacks-codec", path = "../stacks-codec", default-features = false }
+stacks-common = { package = "stacks-common", path = "../stacks-common", default-features = false }
+[dev-dependencies]
+pinny = { workspace = true }
+proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+
+[features]
+default = []
+wasm-web = [
+    "clarity/wasm-web",
+    "clarity-types/wasm-web",
+    "stacks-codec/wasm-web",
+    "stacks-common/wasm-web",
+]
+
+[package.metadata.pinny]
+allowed = ["t_prop"]
