@@ -112,6 +112,7 @@ mod postmempoolquery;
 mod postmicroblock;
 mod poststackerdbchunk;
 mod posttransaction;
+mod txsimulate;
 
 /// Contract identifier of `TEST_CONTRACT`, deployed as `hello-world` by `TestRPC::setup`.
 static TEST_CONTRACT_ID: LazyLock<QualifiedContractIdentifier> = LazyLock::new(|| {
