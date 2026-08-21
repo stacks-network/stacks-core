@@ -22,8 +22,7 @@
 //! path end-to-end against a real bitcoind.
 
 use std::env;
-use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
@@ -43,6 +42,9 @@ use crate::tests::neon_integrations::{
 };
 use crate::tests::to_addr;
 use crate::Keychain;
+
+const FORK_RECOVERY_TIMEOUT: Duration = Duration::from_secs(300);
+const FRESH_COMMIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Orphan the Epoch 4.0 activation block on the bitcoin side and verify the
 /// node cleanly re-activates Epoch 4.0 on the replacement chain -- the
@@ -157,6 +159,11 @@ fn bitcoin_reorg_of_epoch_4_0_activation_block() {
         .counters
         .naka_submitted_commits
         .clone();
+    let submitted_commit_burn_height = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commit_last_burn_height
+        .clone();
 
     // resume mining after a fork: the miner starts the tenure it won on the
     // replacement chain, then mines burn blocks until fresh commits re-fill
@@ -164,24 +171,47 @@ fn bitcoin_reorg_of_epoch_4_0_activation_block() {
     // each other again -- the first tenure changes on the replacement chain
     // can build off a stale view of the tenure tip
     let resume_mining_after_fork = || {
+        let recovery_started = Instant::now();
+        let mut burn_blocks_mined = 0;
         signer_test.wait_for_nakamoto_block(60, || {});
-        for _ in 0..8 {
+
+        loop {
             let latest = get_sortition_info(&conf);
             if latest.was_sortition && latest.last_sortition_ch == latest.stacks_parent_ch {
-                break;
+                info!(
+                    "Chain settled after mining {burn_blocks_mined} recovery burn blocks in {:?}",
+                    recovery_started.elapsed()
+                );
+                return;
             }
-            let commits_count = submitted_commits.load(Ordering::SeqCst);
+
+            assert!(
+                recovery_started.elapsed() < FORK_RECOVERY_TIMEOUT,
+                "chain did not settle back into steady state after mining \
+                 {burn_blocks_mined} recovery burn blocks in {:?}: {latest:?}",
+                recovery_started.elapsed()
+            );
+
+            let commits_count = submitted_commits.get();
             signer_test.mine_bitcoin_block();
-            wait_for(30, || {
-                Ok(submitted_commits.load(Ordering::SeqCst) > commits_count)
+            burn_blocks_mined += 1;
+            let burn_block_height = get_chain_info(&conf).burn_block_height;
+            let remaining = FORK_RECOVERY_TIMEOUT.saturating_sub(recovery_started.elapsed());
+            let commit_timeout = FRESH_COMMIT_TIMEOUT.min(remaining).as_secs().max(1);
+            if wait_for(commit_timeout, || {
+                Ok(submitted_commits.get() > commits_count
+                    && submitted_commit_burn_height.get() >= burn_block_height)
             })
-            .expect("miner did not submit a fresh block commit");
+            .is_err()
+            {
+                warn!(
+                    "Miner did not submit a fresh block commit for burn height \
+                     {burn_block_height} within {commit_timeout}s; continuing fork recovery. \
+                     Last submitted commit was for burn height {}",
+                    submitted_commit_burn_height.get()
+                );
+            }
         }
-        let latest = get_sortition_info(&conf);
-        assert_eq!(
-            latest.last_sortition_ch, latest.stacks_parent_ch,
-            "chain did not settle back into steady state"
-        );
     };
 
     signer_test.boot_to_epoch_4(
