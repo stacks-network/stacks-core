@@ -3786,6 +3786,53 @@ fn empty_tenure_delayed() {
     signer_test.shutdown();
 }
 
+/// Wait for the miner StackerDB to contain a valid mock block at `burn_block_height`.
+fn wait_for_mock_block(
+    miners_stackerdb_contract: &QualifiedContractIdentifier,
+    burn_block_height: u64,
+    signer_public_keys: &[StacksPublicKey],
+) {
+    let started_at = Instant::now();
+    loop {
+        for chunk in test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .filter_map(|chunk| {
+                if chunk.contract_id != *miners_stackerdb_contract {
+                    return None;
+                }
+                Some(chunk.modified_slots)
+            })
+            .flatten()
+        {
+            if chunk.data.is_empty() {
+                continue;
+            }
+            let SignerMessage::MockBlock(mock_block) =
+                SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage")
+            else {
+                continue;
+            };
+            if mock_block.mock_proposal.peer_info.burn_block_height != burn_block_height {
+                continue;
+            }
+            for mock_signature in &mock_block.mock_signatures {
+                assert!(signer_public_keys.iter().any(|signer| {
+                    mock_signature
+                        .verify(&StacksPublicKey::from_slice(signer.to_bytes().as_slice()).unwrap())
+                        .expect("Failed to verify mock signature")
+                }));
+            }
+            return;
+        }
+        assert!(
+            started_at.elapsed() <= Duration::from_secs(30),
+            "Failed to find mock miner message for burn block {burn_block_height} within timeout"
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
 #[test]
 #[ignore]
 /// This test checks that Epoch 2.5 signers will issue a mock signature per burn block they receive.
@@ -3853,8 +3900,6 @@ fn mock_sign_epoch_25() {
         .get_headers_height()
         < epoch_3_boundary
     {
-        let mut mock_block_mesage = None;
-        let mock_poll_time = Instant::now();
         signer_test
             .running_nodes
             .btc_regtest_controller
@@ -3864,52 +3909,11 @@ fn mock_sign_epoch_25() {
             .btc_regtest_controller
             .get_headers_height();
         debug!("Waiting for mock miner message for burn block height {current_burn_block_height}");
-        while mock_block_mesage.is_none() {
-            std::thread::sleep(Duration::from_millis(100));
-            let chunks = test_observer::get_stackerdb_chunks();
-            for chunk in chunks
-                .into_iter()
-                .filter_map(|chunk| {
-                    if chunk.contract_id != miners_stackerdb_contract {
-                        return None;
-                    }
-                    Some(chunk.modified_slots)
-                })
-                .flatten()
-            {
-                if chunk.data.is_empty() {
-                    continue;
-                }
-                let SignerMessage::MockBlock(mock_block) =
-                    SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                        .expect("Failed to deserialize SignerMessage")
-                else {
-                    continue;
-                };
-                if mock_block.mock_proposal.peer_info.burn_block_height == current_burn_block_height
-                {
-                    mock_block
-                        .mock_signatures
-                        .iter()
-                        .for_each(|mock_signature| {
-                            assert!(signer_public_keys.iter().any(|signer| {
-                                mock_signature
-                                    .verify(
-                                        &StacksPublicKey::from_slice(signer.to_bytes().as_slice())
-                                            .unwrap(),
-                                    )
-                                    .expect("Failed to verify mock signature")
-                            }));
-                        });
-                    mock_block_mesage = Some(mock_block);
-                    break;
-                }
-            }
-            assert!(
-                mock_poll_time.elapsed() <= Duration::from_secs(15),
-                "Failed to find mock miner message within timeout"
-            );
-        }
+        wait_for_mock_block(
+            &miners_stackerdb_contract,
+            current_burn_block_height,
+            &signer_public_keys,
+        );
         assert!(
             main_poll_time.elapsed() <= Duration::from_secs(145),
             "Timed out waiting to advance epoch 3.0 boundary"
@@ -3967,57 +3971,14 @@ fn multiple_miners_mock_sign_epoch_25() {
 
     // Only advance to the boundary as the epoch 2.5 miner will be shut down at this point.
     while miners.btc_regtest_controller_mut().get_headers_height() < epoch_3_boundary {
-        let mut mock_block_mesage = None;
-        let mock_poll_time = Instant::now();
         miners.btc_regtest_controller_mut().build_next_block(1);
         let current_burn_block_height = miners.btc_regtest_controller_mut().get_headers_height();
         debug!("Waiting for mock miner message for burn block height {current_burn_block_height}");
-        while mock_block_mesage.is_none() {
-            std::thread::sleep(Duration::from_millis(100));
-            let chunks = test_observer::get_stackerdb_chunks();
-            for chunk in chunks
-                .into_iter()
-                .filter_map(|chunk| {
-                    if chunk.contract_id != miners_stackerdb_contract {
-                        return None;
-                    }
-                    Some(chunk.modified_slots)
-                })
-                .flatten()
-            {
-                if chunk.data.is_empty() {
-                    continue;
-                }
-                let SignerMessage::MockBlock(mock_block) =
-                    SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                        .expect("Failed to deserialize SignerMessage")
-                else {
-                    continue;
-                };
-                if mock_block.mock_proposal.peer_info.burn_block_height == current_burn_block_height
-                {
-                    mock_block
-                        .mock_signatures
-                        .iter()
-                        .for_each(|mock_signature| {
-                            assert!(signer_public_keys.iter().any(|signer| {
-                                mock_signature
-                                    .verify(
-                                        &StacksPublicKey::from_slice(signer.to_bytes().as_slice())
-                                            .unwrap(),
-                                    )
-                                    .expect("Failed to verify mock signature")
-                            }));
-                        });
-                    mock_block_mesage = Some(mock_block);
-                    break;
-                }
-            }
-            assert!(
-                mock_poll_time.elapsed() <= Duration::from_secs(15),
-                "Failed to find mock miner message within timeout"
-            );
-        }
+        wait_for_mock_block(
+            &miners_stackerdb_contract,
+            current_burn_block_height,
+            &signer_public_keys,
+        );
     }
 }
 
