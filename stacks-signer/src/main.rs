@@ -127,7 +127,7 @@ fn handle_generate_staking_signature(
 ) -> MessageSignature {
     let config = GlobalConfig::try_from(&args.config).unwrap();
 
-    let private_key = config.stacks_private_key.clone();
+    let private_key = config.stacks_private_key;
     let public_key = StacksPublicKey::from_private(&private_key);
     let pk_hex = to_hex(&public_key.to_bytes_compressed());
 
