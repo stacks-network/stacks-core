@@ -9,10 +9,6 @@ inputs:
   archive-file:
     description: "The nextest archive file"
     required: true
-  debug-binary-path:
-    description: "Debug binary path"
-    required: true
-
 runs:
   using: "composite"
   steps:
@@ -139,15 +135,9 @@ runs:
         path: |
           ${{ inputs.archive-file }}
           ci-tools/
-          ${{ inputs.debug-binary-path }}
-          !${{ inputs.debug-binary-path }}/examples/**
-          !${{ inputs.debug-binary-path }}/incremental/**
-          !${{ inputs.debug-binary-path }}/.fingerprint/**
-          !${{ inputs.debug-binary-path }}/build/**
-          !${{ inputs.debug-binary-path }}/deps/**/*.d
-          !${{ inputs.debug-binary-path }}/deps/**/*.rlib
-          !${{ inputs.debug-binary-path }}/deps/**/*.rmeta
         if-no-files-found: error
         retention-days: 1
-        compression-level: 9 # 0 (none) - 9 (most)
+        # The nextest archive and tool binaries are already compressed or
+        # incompressible; recompressing them only delays every test job.
+        compression-level: 0
         overwrite: true  

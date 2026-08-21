@@ -86,7 +86,6 @@ runs:
       with:
         action: restore
         archive-file: ${{ inputs.archive-file }}
-        debug-binary-path: ${{ inputs.debug-binary-path }}
 
     ############################################################################
     ### Run the tests
@@ -179,6 +178,8 @@ runs:
           --profile ci-sequential \
           --run-ignored all \
           --archive-file ${{ inputs.archive-file }} \
+          --extract-to . \
+          --extract-overwrite \
           "${NEXTEST_FAILURE_ARGS[@]}" \
           -E "$FILTERSET" \
           || test_exit=$?
@@ -219,6 +220,8 @@ runs:
           --profile ci-parallel \
           "${PARTITION_ARGS[@]}" \
           --archive-file "${{ inputs.archive-file }}" \
+          --extract-to . \
+          --extract-overwrite \
           "${TEST_ARGS[@]}" \
           || test_exit=$?
           
