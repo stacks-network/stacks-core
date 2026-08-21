@@ -231,6 +231,14 @@ To safeguard against accidentally deploying incomplete work, experimental featur
 - **CI Safety Check:** During automated release workflows, the `check-do-not-release` job recursively scans the codebase (excluding `.git` and `.github`). If it detects the string anywhere, it immediately halts the pipeline, logs an inline error annotation, and writes a detailed breakdown to the GitHub Job Summary showing every location where the phrase was found.
 - **Resolving the block:** A release cannot proceed until all instances of `"DO NOT RELEASE"` are removed from the codebase and merged to the target branch.
 
+### Blocking a Release With a Label (`X.Y.Z-blocker`)
+
+Work that must land _before_ a given release can also be tracked with a label instead of a marker in the code.
+
+- **How to use it:** Apply the label `X.Y.Z-blocker` (where `X.Y.Z` is the release version, i.e. `4.0.0-blocker`) to any issue or pull request that must be resolved before that release ships.
+- **CI Safety Check:** During automated release workflows, the `check-release-blockers` job derives the label from the release tag and queries the repository for open issues and pull requests carrying it. If any are found, it halts the pipeline, logs an inline error annotation, and writes a list of the blocking issues/PRs to the GitHub Job Summary.
+- **Resolving the block:** A release cannot proceed until every issue/PR with that label is closed (or merged), or the label is removed from anything that turns out not to be a blocker.
+
 # Coding Guidelines
 
 ## Documentation
