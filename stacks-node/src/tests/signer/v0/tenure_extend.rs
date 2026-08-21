@@ -4232,7 +4232,7 @@ fn continue_after_fast_block_no_sortition() {
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
     );
-    let (conf_1, _) = miners.get_node_configs();
+    let (conf_1, conf_2) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
     let (_, miner_pk_2) = miners.get_miner_public_keys();
 
@@ -4256,6 +4256,31 @@ fn continue_after_fast_block_no_sortition() {
 
     miners.boot_to_epoch_3();
 
+    // Both nodes can report the same heights before they agree on the
+    // canonical burn and Stacks tips. Wait for the exact shared view, then
+    // wait for a signer supermajority to publish that view before starting a
+    // new tenure. Otherwise the first proposal can race signer consensus and
+    // be rejected with SortitionViewMismatch.
+    wait_for(60, || {
+        let node_1 = get_chain_info(&conf_1);
+        let node_2 = get_chain_info(&conf_2);
+        Ok(node_1.burn_block_height == node_2.burn_block_height
+            && node_1.pox_consensus == node_2.pox_consensus
+            && node_1.stacks_tip_height == node_2.stacks_tip_height
+            && node_1.stacks_tip == node_2.stacks_tip
+            && node_1.stacks_tip_consensus_hash == node_2.stacks_tip_consensus_hash)
+    })
+    .expect("Miners did not converge before Tenure A");
+    let boot_info = get_chain_info(&conf_1);
+    wait_for_state_machine_update(
+        60,
+        &boot_info.pox_consensus,
+        boot_info.burn_block_height,
+        None,
+        &miners.signer_test.signer_addresses_versions(),
+    )
+    .expect("Signers did not converge before Tenure A");
+
     let burnchain = conf_1.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
@@ -4275,7 +4300,7 @@ fn continue_after_fast_block_no_sortition() {
 
     info!("------------------------- Miner 1 Mines a Normal Tenure A -------------------------");
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
         .expect("Failed to start Tenure A");
     btc_blocks_mined += 1;
 
