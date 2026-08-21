@@ -1,0 +1,1 @@
+removed `reset_replay_set_after_fork_blocks` config from signer toml.
