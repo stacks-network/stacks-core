@@ -72,6 +72,7 @@ tests::neon_integrations::run_with_custom_wallet
 tests::neon_integrations::test_competing_miners_build_anchor_blocks_on_same_chain_without_rbf
 tests::neon_integrations::test_one_miner_build_anchor_blocks_on_same_chain_without_rbf
 tests::signer::v0::tenure_extend::tenure_extend_after_2_bad_commits
+# Epoch tests are covered by the epoch-tests CI workflow, and don't need to run on every PR (for older epochs)
 tests::epoch_205::test_cost_limit_switch_version205
 tests::epoch_205::test_dynamic_db_method_costs
 tests::epoch_205::test_exact_block_costs
@@ -93,7 +94,9 @@ tests::epoch_22::pox_2_unlock_all
 tests::epoch_23::trait_invocation_behavior
 tests::epoch_24::fix_to_pox_contract
 tests::epoch_24::verify_auto_unlock_behavior
+# Disable this flaky test. We don't need continue testing Epoch 2 -> 3 transition
 tests::nakamoto_integrations::flash_blocks_on_epoch_3_FLAKY
+# These mempool tests take a long time to run, and are meant to be run manually
 tests::nakamoto_integrations::large_mempool_original_constant_fee
 tests::nakamoto_integrations::large_mempool_original_random_fee
 tests::nakamoto_integrations::large_mempool_next_constant_fee
@@ -101,13 +104,16 @@ tests::nakamoto_integrations::large_mempool_next_random_fee
 tests::nakamoto_integrations::larger_mempool
 tests::nakamoto_integrations::check_block_info_rewards
 tests::signer::v0::larger_mempool
+# This test takes too long run in CI
 tests::pox_5_integrations::check_pox_5_register_for_second_bond_no_downtime
 EOF
 
+## ── Append tests tagged with ci_skip to the exclude list ────────────────────
 ci_skip_regex=":t::(?:.*::)?${ci_skip_tag}::"
 info "Excluding tests matching tag: $(hl "${ci_skip_tag}") (regex: $(hl "${ci_skip_regex}"))"
 jq -r '.[]' ignored_tests.json | grep -P "${ci_skip_regex}" >> raw_exclude.txt || true
 
+## ── Strip blank lines and comments, then convert to JSON array ──────────────
 grep -v '^\s*$' raw_exclude.txt | grep -v '^\s*#' > clean_exclude.txt
 jq -R . clean_exclude.txt | jq -s . > exclude.json
 info "Excluded tests count: $(hl $(jq length exclude.json))"
