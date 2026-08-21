@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::thread;
 
 use clarity::vm::costs::ExecutionCost;
-use stacks_common::util::{get_epoch_time_secs, sleep_ms};
+use stacks_common::util::get_epoch_time_secs;
 
 use crate::core::{
     EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
@@ -33,6 +33,45 @@ use crate::net::*;
 use crate::util_lib::test::*;
 
 const TEST_IN_OUT_DEGREES: u64 = 0x1;
+// These tests step all peers in-process, so keep idle polls short while
+// preserving TestPeer's default timeout for other callers.
+const NEIGHBOR_TEST_POLL_TIMEOUT_MS: u64 = 10;
+
+/// Step a neighbor-walk test peer without paying the default 100ms idle poll on
+/// every simulated peer.
+fn step_neighbor(peer: &mut TestPeer) {
+    let _ = peer.step_with_poll_timeout(NEIGHBOR_TEST_POLL_TIMEOUT_MS);
+}
+
+/// Force the next walk step past the per-state timeout check.
+fn age_neighbor_walk_state_timeout(peer: &mut TestPeer) {
+    if let Some(walk) = peer.network.walk.as_mut() {
+        walk.walk_state_time = get_epoch_time_secs().saturating_sub(walk.walk_state_timeout + 1);
+    }
+}
+
+/// Force the current walk past its wall-clock reset interval.
+fn age_neighbor_walk_reset_interval(peer: &mut TestPeer) {
+    if let Some(walk) = peer.network.walk.as_mut() {
+        walk.walk_instantiation_time =
+            get_epoch_time_secs().saturating_sub(walk.walk_reset_interval + 1);
+    }
+}
+
+/// Force throttled walk retries to be eligible on the next step.
+fn age_neighbor_walk_deadline(peer: &mut TestPeer) {
+    peer.network.walk_deadline = get_epoch_time_secs().saturating_sub(1);
+}
+
+/// Force heartbeat queuing without waiting for real time to pass.
+fn age_heartbeat_conversations(peer: &mut TestPeer) {
+    let now = get_epoch_time_secs();
+    let neighbor_request_timeout = peer.network.connection_opts.neighbor_request_timeout;
+    for convo in peer.network.peers.values_mut() {
+        let stale_by = (convo.heartbeat as u64) + neighbor_request_timeout + 1;
+        convo.stats.last_send_time = now.saturating_sub(stale_by);
+    }
+}
 
 #[test]
 fn test_step_walk_1_neighbor_plain() {
@@ -56,8 +95,8 @@ fn test_step_walk_1_neighbor_plain() {
                 .get_neighbor_stats(&peer_2.to_neighbor().addr)
                 .is_none()
         {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
 
             walk_1_count = peer_1.network.walk_total_step_count;
             walk_2_count = peer_2.network.walk_total_step_count;
@@ -162,8 +201,8 @@ fn test_step_walk_1_neighbor_plain_no_natpunch() {
         let mut stats_1 = None;
 
         while (walk_1_count < 20 || walk_2_count < 20) || stats_1.is_none() {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
 
             walk_1_count = peer_1.network.walk_total_step_count;
             walk_2_count = peer_2.network.walk_total_step_count;
@@ -271,8 +310,8 @@ fn test_step_walk_1_neighbor_denied() {
         // walks just don't start.
         // neither peer learns their public IP addresses.
         while walk_1_retries < 20 && walk_2_retries < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
 
             walk_1_count = peer_1.network.walk_total_step_count;
             walk_2_count = peer_2.network.walk_total_step_count;
@@ -295,6 +334,12 @@ fn test_step_walk_1_neighbor_denied() {
                 assert!(w.result.broken_connections.is_empty());
                 assert!(w.result.replaced_neighbors.is_empty());
             };
+
+            // Failed walk starts throttle on walk_deadline after the initial
+            // retry burst; advance that deadline so this test keeps exercising
+            // retry accounting instead of wall-clock waiting.
+            age_neighbor_walk_deadline(&mut peer_1);
+            age_neighbor_walk_deadline(&mut peer_2);
 
             i += 1;
         }
@@ -359,8 +404,8 @@ fn test_step_walk_1_neighbor_bad_epoch() {
         // walks just don't start.
         // neither peer learns their public IP addresses.
         while walk_1_retries < 20 && walk_2_retries < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
 
             walk_1_count = peer_1.network.walk_total_step_count;
             walk_2_count = peer_2.network.walk_total_step_count;
@@ -383,6 +428,12 @@ fn test_step_walk_1_neighbor_bad_epoch() {
                 assert!(w.result.broken_connections.is_empty());
                 assert!(w.result.replaced_neighbors.is_empty());
             };
+
+            // Failed walk starts throttle on walk_deadline after the initial
+            // retry burst; advance that deadline so this test keeps exercising
+            // attempt accounting instead of wall-clock waiting.
+            age_neighbor_walk_deadline(&mut peer_1);
+            age_neighbor_walk_deadline(&mut peer_2);
 
             i += 1;
 
@@ -419,8 +470,8 @@ fn test_step_walk_1_neighbor_heartbeat_ping() {
         let mut walk_2_count = 0;
 
         while walk_1_count < 20 && walk_2_count < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
 
             walk_1_count = peer_1.network.walk_total_step_count;
             walk_2_count = peer_2.network.walk_total_step_count;
@@ -482,8 +533,10 @@ fn test_step_walk_1_neighbor_heartbeat_ping() {
         assert!(peer_1.network.relay_handles.is_empty());
         assert!(peer_2.network.relay_handles.is_empty());
 
-        info!("Wait 60 seconds for ping timeout");
-        sleep_ms(60000);
+        // Heartbeat pings are due once last_send_time plus heartbeat and
+        // neighbor_request_timeout is in the past.
+        age_heartbeat_conversations(&mut peer_1);
+        age_heartbeat_conversations(&mut peer_2);
 
         peer_1.network.queue_ping_heartbeats();
         peer_2.network.queue_ping_heartbeats();
@@ -519,8 +572,8 @@ fn test_step_walk_1_neighbor_bootstrapping() {
         let neighbor_2 = peer_2.to_neighbor();
 
         while walk_1_count < 20 && walk_2_count < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
 
             walk_1_count = peer_1.network.walk_total_step_count;
             walk_2_count = peer_2.network.walk_total_step_count;
@@ -597,8 +650,8 @@ fn test_step_walk_1_neighbor_behind() {
                 .get_neighbor_stats(&peer_2.to_neighbor().addr)
                 .is_none()
         {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
 
             walk_1_count = peer_1.network.walk_total_step_count;
             walk_2_count = peer_2.network.walk_total_step_count;
@@ -715,11 +768,11 @@ fn test_step_walk_10_neighbors_of_neighbor_plain() {
             let mut walk_1_count = 0;
             let mut walk_2_count = 0;
             while walk_1_count < 20 && walk_2_count < 20 {
-                let _ = peer_1.step();
-                let _ = peer_2.step();
+                step_neighbor(&mut peer_1);
+                step_neighbor(&mut peer_2);
 
                 for j in 0..10 {
-                    let _ = peer_2_neighbors[j].step();
+                    step_neighbor(&mut peer_2_neighbors[j]);
                 }
 
                 walk_1_count = peer_1.network.walk_total_step_count;
@@ -862,11 +915,11 @@ fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
             let mut walk_1_count = 0;
             let mut walk_2_count = 0;
             while walk_1_count < 20 && walk_2_count < 20 {
-                let _ = peer_1.step();
-                let _ = peer_2.step();
+                step_neighbor(&mut peer_1);
+                step_neighbor(&mut peer_2);
 
                 for j in 0..10 {
-                    let _ = peer_2_neighbors[j].step();
+                    step_neighbor(&mut peer_2_neighbors[j]);
                 }
 
                 walk_1_count = peer_1.network.walk_total_step_count;
@@ -1002,8 +1055,8 @@ fn test_step_walk_2_neighbors_plain() {
 
         // NOTE: 2x the max walk duration
         while walk_1_count < 20 || walk_2_count < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
 
             walk_1_count = peer_1.network.walk_total_step_count;
             walk_2_count = peer_2.network.walk_total_step_count;
@@ -1118,8 +1171,8 @@ fn test_step_walk_2_neighbors_state_timeout() {
         peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
 
         for _i in 0..10 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
 
             let walk_1_count = peer_1.network.walk_total_step_count;
             let walk_2_count = peer_2.network.walk_total_step_count;
@@ -1130,7 +1183,16 @@ fn test_step_walk_2_neighbors_state_timeout() {
                 walk_2_count
             );
 
-            sleep_ms(3_000);
+            // The assertion below is already satisfied, so extra steps would
+            // only exercise unrelated walk activity.
+            if peer_1.network.walk_resets > 0 && peer_2.network.walk_resets > 0 {
+                break;
+            }
+
+            // Age the current walk state after each step so the next step
+            // deterministically exercises the state-timeout reset path.
+            age_neighbor_walk_state_timeout(&mut peer_1);
+            age_neighbor_walk_state_timeout(&mut peer_2);
         }
 
         // state resets trigger walk resets
@@ -1165,15 +1227,14 @@ fn test_step_walk_2_neighbors_walk_timeout() {
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
         peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
 
-        let mut i = 0;
         let mut walk_1_step_count = 0;
         let mut walk_2_step_count = 0;
         let mut walk_1_count = 0;
         let mut walk_2_count = 0;
 
         while walk_1_step_count < 20 || walk_2_step_count < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
 
             walk_1_step_count = peer_1.network.walk_total_step_count;
             walk_2_step_count = peer_2.network.walk_total_step_count;
@@ -1184,26 +1245,35 @@ fn test_step_walk_2_neighbors_walk_timeout() {
                 walk_2_step_count
             );
 
-            if walk_1_count < peer_1.network.walk_count || walk_2_count < peer_2.network.walk_count
-            {
-                // force walk to time out
-                sleep_ms(11_000);
+            // The assertion below is already satisfied, so extra steps would
+            // only exercise unrelated walk activity.
+            if peer_1.network.walk_resets > 0 && peer_2.network.walk_resets > 0 {
+                break;
             }
 
+            // Age active walks after walk progress so the next step exercises
+            // the reset-interval branch deterministically.
+            if walk_1_count < peer_1.network.walk_count || walk_2_count < peer_2.network.walk_count
+            {
+                age_neighbor_walk_reset_interval(&mut peer_1);
+                age_neighbor_walk_reset_interval(&mut peer_2);
+            }
+
+            // Snapshot each peer's active walk independently; peers can advance
+            // and reset independently, and the next iteration uses these values
+            // to decide whether to age the reset interval.
             walk_1_count = peer_1
                 .network
                 .walk
                 .as_ref()
                 .map(|w| w.walk_step_count)
                 .unwrap_or(0);
-            walk_2_count = peer_1
+            walk_2_count = peer_2
                 .network
                 .walk
                 .as_ref()
                 .map(|w| w.walk_step_count)
                 .unwrap_or(0);
-
-            i += 1;
         }
 
         // walk timeouts trigger walk resets
@@ -1257,9 +1327,9 @@ fn test_step_walk_3_neighbors_inbound() {
         let mut peer_2_frontier_size = 0;
         let mut peer_3_frontier_size = 0;
         while peer_2_frontier_size < 2 || peer_3_frontier_size < 2 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
-            let _ = peer_3.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
+            step_neighbor(&mut peer_3);
 
             walk_1_count = peer_1.network.walk_total_step_count;
             walk_2_count = peer_2.network.walk_total_step_count;
@@ -1423,8 +1493,8 @@ fn test_step_walk_2_neighbors_rekey() {
         // walk for a bit
         for i in 0..10 {
             for j in 0..5 {
-                let _ = peer_1.step();
-                let _ = peer_2.step();
+                step_neighbor(&mut peer_1);
+                step_neighbor(&mut peer_2);
 
                 if let Some(ref w) = peer_1.network.walk {
                     assert!(w.result.broken_connections.is_empty());
@@ -1515,8 +1585,8 @@ fn test_step_walk_2_neighbors_different_networks() {
         let mut walk_2_count = 0;
         let mut i = 0;
         while walk_1_count < 20 && walk_2_count < 20 {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            step_neighbor(&mut peer_1);
+            step_neighbor(&mut peer_2);
 
             walk_1_count = peer_1.network.walk_total_step_count;
             walk_2_count = peer_2.network.walk_total_step_count;
@@ -1575,7 +1645,7 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
 
         let t = thread::spawn(move || {
             while run_thread.load(Ordering::SeqCst) {
-                let _ = peer.step();
+                step_neighbor(&mut peer);
             }
         });
 
@@ -1591,7 +1661,7 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
                     .neighbor_session_begin(&mut peer_client.network, &peer_addr)
                     .unwrap();
             }
-            let _ = peer_client.step();
+            step_neighbor(&mut peer_client);
             for (_, reply) in comms.collect_replies(&mut peer_client.network) {
                 match reply.payload {
                     StacksMessageType::HandshakeAccept(..)
@@ -1636,7 +1706,7 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
         while get_epoch_time_secs() < now + 60
             && (rpc_comms_1_reply.is_none() || rpc_comms_2_reply.is_none())
         {
-            let _ = peer_client.step();
+            step_neighbor(&mut peer_client);
             for (_, reply) in rpc_comms_1.collect_replies(&mut peer_client.network) {
                 if rpc_comms_1_reply.is_none() {
                     rpc_comms_1_reply = Some(reply);

@@ -3040,6 +3040,7 @@ impl ConversationP2P {
 
 #[cfg(test)]
 mod test {
+    use std::collections::VecDeque;
     use std::fs;
     use std::net::{Ipv4Addr, SocketAddr};
 
@@ -6502,245 +6503,84 @@ mod test {
         assert_eq!(stats.get_health_score(), 0.0);
     }
 
-    #[test]
-    fn test_neighbor_stats_block_push_bandwidth() {
-        let mut stats = NeighborStats::new(false);
-
-        assert_eq!(stats.get_block_push_bandwidth(), 0.0);
-
-        stats.add_block_push(100);
-        assert_eq!(stats.get_block_push_bandwidth(), 0.0);
-
-        // this should all happen in one second
-        let bw_stats = loop {
-            let mut bw_stats = stats.clone();
-            let start = get_epoch_time_secs();
-
-            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
-                bw_stats.add_block_push(100);
-            }
-
-            let end = get_epoch_time_secs();
-            if end == start {
-                break bw_stats;
-            }
-        };
-
-        assert_eq!(
-            bw_stats.get_block_push_bandwidth(),
-            (NUM_BANDWIDTH_POINTS as f64) * 100.0
-        );
-
-        // space some out; make sure it takes 11 seconds
-        let bw_stats = loop {
-            let mut bw_stats = NeighborStats::new(false);
-            let start = get_epoch_time_secs();
-            for _ in 0..11 {
-                bw_stats.add_block_push(100);
-                sleep_ms(1001);
-            }
-
-            let end = get_epoch_time_secs();
-            if end == start + 11 {
-                break bw_stats;
-            }
-        };
-
-        // 100 bytes/sec
-        assert_eq!(bw_stats.get_block_push_bandwidth(), 110.0);
+    fn set_bandwidth_sample_times(
+        rx_counts: &mut VecDeque<(u64, u64)>,
+        start_time: u64,
+        spacing_secs: u64,
+    ) {
+        for (i, (sample_time, _)) in rx_counts.iter_mut().enumerate() {
+            *sample_time = start_time + (i as u64 * spacing_secs);
+        }
     }
 
-    #[test]
-    fn test_neighbor_stats_transaction_push_bandwidth() {
-        let mut stats = NeighborStats::new(false);
+    macro_rules! neighbor_stats_bandwidth_test {
+        ($name:ident, $add_push:ident, $get_bandwidth:ident, $rx_counts:ident) => {
+            #[test]
+            fn $name() {
+                let mut stats = NeighborStats::new(false);
 
-        assert_eq!(stats.get_transaction_push_bandwidth(), 0.0);
+                assert_eq!(stats.$get_bandwidth(), 0.0);
 
-        stats.add_transaction_push(100);
-        assert_eq!(stats.get_transaction_push_bandwidth(), 0.0);
+                stats.$add_push(100);
+                assert_eq!(stats.$get_bandwidth(), 0.0);
 
-        // this should all happen in one second
-        let bw_stats = loop {
-            let mut bw_stats = stats.clone();
-            let start = get_epoch_time_secs();
+                let mut bw_stats = NeighborStats::new(false);
+                for _ in 0..NUM_BANDWIDTH_POINTS {
+                    bw_stats.$add_push(100);
+                }
+                set_bandwidth_sample_times(&mut bw_stats.$rx_counts, get_epoch_time_secs(), 0);
+                assert_eq!(
+                    bw_stats.$get_bandwidth(),
+                    (NUM_BANDWIDTH_POINTS as f64) * 100.0
+                );
 
-            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
-                bw_stats.add_transaction_push(100);
-            }
+                let mut bw_stats = NeighborStats::new(false);
+                for _ in 0..11 {
+                    bw_stats.$add_push(100);
+                }
+                // Populate the timestamp window directly instead of waiting on wall-clock time.
+                set_bandwidth_sample_times(
+                    &mut bw_stats.$rx_counts,
+                    get_epoch_time_secs().saturating_sub(10),
+                    1,
+                );
 
-            let end = get_epoch_time_secs();
-            if end == start {
-                break bw_stats;
-            }
-        };
-
-        assert_eq!(
-            bw_stats.get_transaction_push_bandwidth(),
-            (NUM_BANDWIDTH_POINTS as f64) * 100.0
-        );
-
-        // space some out; make sure it takes 11 seconds
-        let bw_stats = loop {
-            let mut bw_stats = NeighborStats::new(false);
-            let start = get_epoch_time_secs();
-            for _ in 0..11 {
-                bw_stats.add_transaction_push(100);
-                sleep_ms(1001);
-            }
-
-            let end = get_epoch_time_secs();
-            if end == start + 11 {
-                break bw_stats;
+                // 100 bytes/sec
+                assert_eq!(bw_stats.$get_bandwidth(), 110.0);
             }
         };
-
-        // 100 bytes/sec
-        assert_eq!(bw_stats.get_transaction_push_bandwidth(), 110.0);
     }
 
-    #[test]
-    fn test_neighbor_stats_microblocks_push_bandwidth() {
-        let mut stats = NeighborStats::new(false);
-
-        assert_eq!(stats.get_microblocks_push_bandwidth(), 0.0);
-
-        stats.add_microblocks_push(100);
-        assert_eq!(stats.get_microblocks_push_bandwidth(), 0.0);
-
-        // this should all happen in one second
-        let bw_stats = loop {
-            let mut bw_stats = stats.clone();
-            let start = get_epoch_time_secs();
-
-            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
-                bw_stats.add_microblocks_push(100);
-            }
-
-            let end = get_epoch_time_secs();
-            if end == start {
-                break bw_stats;
-            }
-        };
-
-        assert_eq!(
-            bw_stats.get_microblocks_push_bandwidth(),
-            (NUM_BANDWIDTH_POINTS as f64) * 100.0
-        );
-
-        // space some out; make sure it takes 11 seconds
-        let bw_stats = loop {
-            let mut bw_stats = NeighborStats::new(false);
-            let start = get_epoch_time_secs();
-            for _ in 0..11 {
-                bw_stats.add_microblocks_push(100);
-                sleep_ms(1001);
-            }
-
-            let end = get_epoch_time_secs();
-            if end == start + 11 {
-                break bw_stats;
-            }
-        };
-
-        // 100 bytes/sec
-        assert_eq!(bw_stats.get_microblocks_push_bandwidth(), 110.0);
-    }
-
-    #[test]
-    fn test_neighbor_stats_stackerdb_push_bandwidth() {
-        let mut stats = NeighborStats::new(false);
-
-        assert_eq!(stats.get_stackerdb_push_bandwidth(), 0.0);
-
-        stats.add_stackerdb_push(100);
-        assert_eq!(stats.get_stackerdb_push_bandwidth(), 0.0);
-
-        // this should all happen in one second
-        let bw_stats = loop {
-            let mut bw_stats = stats.clone();
-            let start = get_epoch_time_secs();
-
-            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
-                bw_stats.add_stackerdb_push(100);
-            }
-
-            let end = get_epoch_time_secs();
-            if end == start {
-                break bw_stats;
-            }
-        };
-
-        assert_eq!(
-            bw_stats.get_stackerdb_push_bandwidth(),
-            (NUM_BANDWIDTH_POINTS as f64) * 100.0
-        );
-
-        // space some out; make sure it takes 11 seconds
-        let bw_stats = loop {
-            let mut bw_stats = NeighborStats::new(false);
-            let start = get_epoch_time_secs();
-            for _ in 0..11 {
-                bw_stats.add_stackerdb_push(100);
-                sleep_ms(1001);
-            }
-
-            let end = get_epoch_time_secs();
-            if end == start + 11 {
-                break bw_stats;
-            }
-        };
-
-        // 100 bytes/sec
-        assert_eq!(bw_stats.get_stackerdb_push_bandwidth(), 110.0);
-    }
-
-    #[test]
-    fn test_neighbor_stats_nakamoto_block_push_bandwidth() {
-        let mut stats = NeighborStats::new(false);
-
-        assert_eq!(stats.get_nakamoto_block_push_bandwidth(), 0.0);
-
-        stats.add_nakamoto_block_push(100);
-        assert_eq!(stats.get_nakamoto_block_push_bandwidth(), 0.0);
-
-        // this should all happen in one second
-        let bw_stats = loop {
-            let mut bw_stats = stats.clone();
-            let start = get_epoch_time_secs();
-
-            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
-                bw_stats.add_nakamoto_block_push(100);
-            }
-
-            let end = get_epoch_time_secs();
-            if end == start {
-                break bw_stats;
-            }
-        };
-
-        assert_eq!(
-            bw_stats.get_nakamoto_block_push_bandwidth(),
-            (NUM_BANDWIDTH_POINTS as f64) * 100.0
-        );
-
-        // space some out; make sure it takes 11 seconds
-        let bw_stats = loop {
-            let mut bw_stats = NeighborStats::new(false);
-            let start = get_epoch_time_secs();
-            for _ in 0..11 {
-                bw_stats.add_nakamoto_block_push(100);
-                sleep_ms(1001);
-            }
-
-            let end = get_epoch_time_secs();
-            if end == start + 11 {
-                break bw_stats;
-            }
-        };
-
-        // 100 bytes/sec
-        assert_eq!(bw_stats.get_nakamoto_block_push_bandwidth(), 110.0);
-    }
+    neighbor_stats_bandwidth_test!(
+        test_neighbor_stats_block_push_bandwidth,
+        add_block_push,
+        get_block_push_bandwidth,
+        block_push_rx_counts
+    );
+    neighbor_stats_bandwidth_test!(
+        test_neighbor_stats_transaction_push_bandwidth,
+        add_transaction_push,
+        get_transaction_push_bandwidth,
+        transaction_push_rx_counts
+    );
+    neighbor_stats_bandwidth_test!(
+        test_neighbor_stats_microblocks_push_bandwidth,
+        add_microblocks_push,
+        get_microblocks_push_bandwidth,
+        microblocks_push_rx_counts
+    );
+    neighbor_stats_bandwidth_test!(
+        test_neighbor_stats_stackerdb_push_bandwidth,
+        add_stackerdb_push,
+        get_stackerdb_push_bandwidth,
+        stackerdb_push_rx_counts
+    );
+    neighbor_stats_bandwidth_test!(
+        test_neighbor_stats_nakamoto_block_push_bandwidth,
+        add_nakamoto_block_push,
+        get_nakamoto_block_push_bandwidth,
+        nakamoto_block_push_rx_counts
+    );
 
     #[test]
     fn test_sign_relay_forward_message() {
