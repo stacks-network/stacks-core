@@ -144,7 +144,7 @@ const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
 /// phase of a transaction before timing out.
 const DEFAULT_MAX_ANALYSIS_TIME_SECS: u64 = 30;
 /// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
-const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 10;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
 pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Default maximum memory allocation during miner block assembly
