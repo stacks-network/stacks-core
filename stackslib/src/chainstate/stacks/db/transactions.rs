@@ -665,7 +665,6 @@ impl StacksChainState {
         config: &DBConfig,
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
-        auth_verification_mode_override: Option<TransactionAuthVerificationMode>,
     ) -> Result<(), Error> {
         // valid auth?
         if !tx.auth.is_supported_in_epoch(epoch_id) {
@@ -677,13 +676,11 @@ impl StacksChainState {
 
             return Err(Error::InvalidStacksTransaction(msg, false));
         }
-        let verification_mode = auth_verification_mode_override.unwrap_or_else(|| {
-            if epoch_id.allows_tx_signatures_with_high_s() {
-                TransactionAuthVerificationMode::AllowHighS
-            } else {
-                TransactionAuthVerificationMode::EnforceLowS
-            }
-        });
+        let verification_mode = if epoch_id.allows_tx_signatures_with_high_s() {
+            TransactionAuthVerificationMode::AllowHighS
+        } else {
+            TransactionAuthVerificationMode::EnforceLowS
+        };
 
         tx.verify(verification_mode)?;
 
@@ -1910,7 +1907,7 @@ impl StacksChainState {
         // Static precheck (size, version, anchor mode, multisig encoding,
         // Clarity version...). A problematic marker only skips payload
         // execution; the transaction must still be otherwise valid.
-        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch, None)?;
+        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch)?;
 
         let mut transaction = clarity_block.connection().start_transaction_processing();
 
@@ -1956,7 +1953,7 @@ impl StacksChainState {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let epoch = clarity_block.get_epoch();
 
-        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch, None)?;
+        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch)?;
 
         let mut transaction = clarity_block.connection().start_transaction_processing();
 
