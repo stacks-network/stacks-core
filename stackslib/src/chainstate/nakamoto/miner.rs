@@ -30,6 +30,7 @@ use crate::chainstate::nakamoto::{
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::{DummyEventDispatcher, MAX_RECEIPT_SIZES};
+use crate::chainstate::stacks::db::transactions::TransactionProcessor;
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
@@ -876,12 +877,13 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-            let (_fee, receipt) = match StacksChainState::process_transaction_with_check(
-                clarity_tx,
-                tx,
-                quiet,
-                resource_budgets,
-                |receipt| {
+
+            let tx_processor = TransactionProcessor::from(tx)
+                .execute()
+                .using_clarity_tx(clarity_tx)
+                .with_resource_policy(*resource_budgets)
+                .quiet(quiet)
+                .with_check(|receipt| {
                     if !receipt.post_condition_aborted {
                         let all_events_valid = receipt.events.iter().all(|event| {
                             crate::net::api::postblock_proposal::is_event_pox_addr_valid(
@@ -905,8 +907,9 @@ impl BlockBuilder for NakamotoBlockBuilder {
                         *total_receipts_size = next_size;
                         Ok(())
                     }
-                },
-            ) {
+                });
+
+            let (_fee, receipt) = match tx_processor.process() {
                 Ok(x) => x,
                 Err(e) => {
                     return parse_process_transaction_error(

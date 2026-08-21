@@ -32,9 +32,8 @@ use crate::burnchains::tests::TestBurnchainBlock;
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, TxToProcess,
-};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
+use crate::chainstate::stacks::db::transactions::TxToProcess;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksEpochReceipt};
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::miner::{BlockBuilder, TransactionResourceBudgets};

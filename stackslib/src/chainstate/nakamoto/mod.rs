@@ -55,6 +55,7 @@ use super::stacks::boot::{
     RewardSet, RewardSetData, BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
 };
 use super::stacks::db::accounts::MinerReward;
+use super::stacks::db::transactions::TxToProcess;
 use super::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerRewardInfo, StacksBlockHeaderTypes,
     StacksEpochReceipt, StacksHeaderInfo,
@@ -651,9 +652,9 @@ pub struct SetupBlockResult<'a, 'b> {
 /// is known-problematic and that its payload must not be executed during replay.
 ///
 /// When a marker is present, replay still performs the static precheck, debits
-/// the fee, and bumps the origin (and sponsor) nonces — but skips
-/// `process_transaction_payload`. The `category` byte is opaque to consensus
-/// and conveys the reason the miner/signers flagged the transaction.
+/// the fee, and bumps the origin (and sponsor) nonces — but skips payload
+/// processing. The `category` byte is opaque to consensus and conveys the
+/// reason the miner/signers flagged the transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProblematicTxMarker {
     /// Index into `NakamotoBlock::txs` of the problematic transaction.
@@ -680,69 +681,6 @@ impl StacksMessageCodec for ProblematicTxMarker {
 /// Maximum number of `ProblematicTxMarker`s permitted in a single Nakamoto
 /// block header. This bounds the header serialization.
 pub const MAX_PROBLEMATIC_TX_MARKERS: usize = (MAX_BLOCK_LEN / MIN_TRANSACTION_LEN) as usize;
-
-/// A transaction paired with its problematic marker.
-///
-/// Block replay consumes a list of these rather than a bare
-/// `&[StacksTransaction]` plus a separate `problematic_txs` marker list. Fusing
-/// the two up front (see [`NakamotoBlock::txs`]) means the replay
-/// loop cannot execute a problematic transaction by forgetting to cross-
-/// reference the markers: the disposition travels with the transaction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TxToProcess<'a> {
-    /// Execute the transaction's payload normally.
-    Execute(&'a StacksTransaction),
-    /// Skip executing the transaction's payload because it was marked
-    /// problematic; the fee is still charged and nonces still bumped. Carries
-    /// the `category` byte from the marker.
-    Skip {
-        tx: &'a StacksTransaction,
-        category: u8,
-    },
-}
-
-impl<'a> TxToProcess<'a> {
-    /// Wrap a plain transaction list as all-to-execute, for blocks that carry
-    /// no problematic markers (every pre-Nakamoto block, and any Nakamoto block
-    /// with an empty marker list).
-    pub fn all_execute(txs: &'a [StacksTransaction]) -> impl Iterator<Item = TxToProcess<'a>> + 'a {
-        txs.iter().map(TxToProcess::Execute)
-    }
-
-    /// Get the transaction ID of this transaction, regardless of whether it's
-    /// marked problematic or not.
-    pub fn txid(&self) -> Txid {
-        match self {
-            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => tx.txid(),
-        }
-    }
-
-    /// Get the raw transaction, regardless of whether it's marked problematic
-    /// and should not be executed.
-    pub fn payload(&self) -> &'a TransactionPayload {
-        match self {
-            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => &tx.payload,
-        }
-    }
-
-    /// Is this transaction marked problematic?
-    pub fn is_problematic(&self) -> bool {
-        matches!(self, TxToProcess::Skip { .. })
-    }
-
-    /// Extract the underlying transaction, **deliberately ignoring** its
-    /// problematic state (whether it should be executed or skipped as
-    /// problematic).
-    ///
-    /// This is the one escape hatch out of [`TxToProcess`]. Call it only when
-    /// the raw transaction is genuinely all that is needed, never on the
-    /// replay execution path, where the problematic state must be honored.
-    pub fn tx_ignoring_problematic_state(&self) -> &'a StacksTransaction {
-        match self {
-            TxToProcess::Execute(tx) | TxToProcess::Skip { tx, .. } => tx,
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockHeader {

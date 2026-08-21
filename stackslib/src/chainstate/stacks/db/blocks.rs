@@ -47,16 +47,18 @@ use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation};
-use crate::chainstate::nakamoto::{NakamotoChainState, TxToProcess};
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
+use crate::chainstate::stacks::db::transactions::{
+    TransactionNonceMismatch, TransactionProcessor, TxToProcess,
+};
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::StacksBlockEventData;
 use crate::chainstate::stacks::{
-    Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    Error, MicroblockSignerMatch, StacksBlockHeader, StacksMicroblockHeader,
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
 use crate::clarity_vm::database::SortitionDBRef;
@@ -3937,9 +3939,12 @@ impl StacksChainState {
         for microblock in microblocks.iter() {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
-                let (tx_fee, mut tx_receipt) =
-                    StacksChainState::process_transaction(clarity_tx, tx, false, None)
-                        .map_err(|e| (e, microblock.block_hash()))?;
+                let (tx_fee, mut tx_receipt) = TransactionProcessor::from(tx)
+                    .execute()
+                    .using_clarity_tx(clarity_tx)
+                    .with_unlimited_resource_policy()
+                    .process()
+                    .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
                 tx_receipt.tx_index = u32::try_from(tx_index).expect("more than 2^32 items");
@@ -4529,14 +4534,10 @@ impl StacksChainState {
         let mut receipts = vec![];
         let mut total_size = 0u64;
         for tx_to_process in block_txs {
-            let (tx_fee, mut tx_receipt) = match tx_to_process {
-                TxToProcess::Skip { tx, category } => {
-                    StacksChainState::process_skipped_transaction(clarity_tx, tx, category, false)?
-                }
-                TxToProcess::Execute(tx) => {
-                    StacksChainState::process_transaction(clarity_tx, tx, false, None)?
-                }
-            };
+            let (tx_fee, mut tx_receipt) = TransactionProcessor::from(tx_to_process)
+                .using_clarity_tx(clarity_tx)
+                .with_unlimited_resource_policy()
+                .process()?;
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             total_size = total_size.saturating_add(tx_receipt.size().ok_or_else(|| {
@@ -6614,19 +6615,20 @@ impl StacksChainState {
 
         // 2: it must be validly signed.
         let epoch = clarity_connection.get_epoch();
+        let tx_processor = TransactionProcessor::from(tx);
 
         // Enforce low-S on the transaction signatures. While consensus allows high-S
         // signatures at the time of writing, they are a concern because the ambiguity
         // makes transaction ids malleable. That's why we don't admit them to the mempol,
         // and signers reject blocks with them. Once Epoch 4.0 begins, they will also
         // not be allowed by consensus anymore.
-        StacksChainState::process_transaction_precheck(
-            chainstate_config,
-            tx,
-            epoch,
-            Some(TransactionAuthVerificationMode::EnforceLowS),
-        )
-        .map_err(MemPoolRejection::FailedToValidate)?;
+        tx_processor
+            .precheck(
+                chainstate_config,
+                epoch,
+                Some(TransactionAuthVerificationMode::EnforceLowS),
+            )
+            .map_err(MemPoolRejection::FailedToValidate)?;
 
         // 3: it must pay a tx fee
         let fee = tx.get_tx_fee();
@@ -6646,43 +6648,42 @@ impl StacksChainState {
         }
 
         // 5: the account nonces must be correct
-        let (origin, payer) =
-            match StacksChainState::check_transaction_nonces(clarity_connection, tx, true) {
-                Ok(x) => x,
-                // if errored, check if MEMPOOL_TX_CHAINING would admit this TX
-                Err((e, (origin, payer))) => {
-                    // if the nonce is less than expected, then TX_CHAINING would not allow in any case
-                    if e.actual < e.expected {
-                        return Err(e.into());
-                    }
+        let (origin, payer) = match tx_processor.check_nonces(clarity_connection, true) {
+            Ok(x) => x,
+            // if errored, check if MEMPOOL_TX_CHAINING would admit this TX
+            Err((e, (origin, payer))) => {
+                // if the nonce is less than expected, then TX_CHAINING would not allow in any case
+                if e.actual < e.expected {
+                    return Err(e.into());
+                }
 
-                    let tx_origin_nonce = tx.get_origin().nonce();
+                let tx_origin_nonce = tx.get_origin().nonce();
 
-                    let origin_max_nonce = origin.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
-                    if origin_max_nonce < tx_origin_nonce {
+                let origin_max_nonce = origin.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
+                if origin_max_nonce < tx_origin_nonce {
+                    return Err(MemPoolRejection::TooMuchChaining {
+                        max_nonce: origin_max_nonce,
+                        actual_nonce: tx_origin_nonce,
+                        principal: tx.origin_address().into(),
+                        is_origin: true,
+                    });
+                }
+
+                if let Some(sponsor_addr) = tx.sponsor_address() {
+                    let tx_sponsor_nonce = tx.get_payer().nonce();
+                    let sponsor_max_nonce = payer.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
+                    if sponsor_max_nonce < tx_sponsor_nonce {
                         return Err(MemPoolRejection::TooMuchChaining {
-                            max_nonce: origin_max_nonce,
-                            actual_nonce: tx_origin_nonce,
-                            principal: tx.origin_address().into(),
-                            is_origin: true,
+                            max_nonce: sponsor_max_nonce,
+                            actual_nonce: tx_sponsor_nonce,
+                            principal: sponsor_addr.into(),
+                            is_origin: false,
                         });
                     }
-
-                    if let Some(sponsor_addr) = tx.sponsor_address() {
-                        let tx_sponsor_nonce = tx.get_payer().nonce();
-                        let sponsor_max_nonce = payer.nonce + 1 + MAXIMUM_MEMPOOL_TX_CHAINING;
-                        if sponsor_max_nonce < tx_sponsor_nonce {
-                            return Err(MemPoolRejection::TooMuchChaining {
-                                max_nonce: sponsor_max_nonce,
-                                actual_nonce: tx_sponsor_nonce,
-                                principal: sponsor_addr.into(),
-                                is_origin: false,
-                            });
-                        }
-                    }
-                    (origin, payer)
                 }
-            };
+                (origin, payer)
+            }
+        };
 
         if !StacksChainState::is_valid_address_version(
             chainstate_config.mainnet,
@@ -6858,20 +6859,19 @@ impl StacksChainState {
                     return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict);
                 }
 
-                let microblock_pkh_1 = microblock_header_1
-                    .check_recover_pubkey()
-                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
-                let microblock_pkh_2 = microblock_header_2
-                    .check_recover_pubkey()
-                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
-
-                if microblock_pkh_1 != microblock_pkh_2 {
-                    return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict);
-                }
+                let microblock_pkh = match microblock_header_1
+                    .recover_signer_match(microblock_header_2)
+                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?
+                {
+                    MicroblockSignerMatch::Common(signer) => signer,
+                    MicroblockSignerMatch::Different { .. } => {
+                        return Err(MemPoolRejection::PoisonMicroblocksDoNotConflict);
+                    }
+                };
 
                 if !has_microblock_pubkey {
                     return Err(MemPoolRejection::NoAnchorBlockWithPubkeyHash(
-                        microblock_pkh_1,
+                        microblock_pkh,
                     ));
                 }
             }

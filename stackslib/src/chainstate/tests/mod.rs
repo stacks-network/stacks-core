@@ -68,8 +68,8 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, StacksDBInd
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::make_pox_4_lockup_chain_id;
 use crate::chainstate::stacks::boot::{POX_5_NAME, POX_5_SIGNER_SET_MIN_USTX};
+use crate::chainstate::stacks::db::transactions::TransactionProcessor;
 use crate::chainstate::stacks::db::{StacksChainState, *};
-use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksMicroblockHeader, *};
 use crate::core::{
@@ -339,13 +339,11 @@ impl<'a> TestChainstate<'a> {
                         boot_code_auth,
                         smart_contract,
                     );
-                    StacksChainState::process_transaction_payload(
-                        clarity,
-                        &smart_contract_tx,
-                        &boot_code_account,
-                        &TransactionResourceBudgets::unlimited(),
-                    )
-                    .expect("FATAL: failed to deploy sbtc stub")
+                    TransactionProcessor::from(&smart_contract_tx)
+                        .using_clarity_transaction(clarity, &boot_code_account)
+                        .with_unlimited_resource_policy()
+                        .process_payload()
+                        .expect("FATAL: failed to deploy sbtc stub")
                 })
             };
             receipts.push(deploy_stub(
@@ -404,13 +402,11 @@ impl<'a> TestChainstate<'a> {
                         boot_code_auth,
                         smart_contract,
                     );
-                    StacksChainState::process_transaction_payload(
-                        clarity,
-                        &boot_code_smart_contract,
-                        &boot_code_account,
-                        &TransactionResourceBudgets::unlimited(),
-                    )
-                    .unwrap()
+                    TransactionProcessor::from(&boot_code_smart_contract)
+                        .using_clarity_transaction(clarity, &boot_code_account)
+                        .with_unlimited_resource_policy()
+                        .process_payload()
+                        .unwrap()
                 });
                 receipts.push(receipt);
             }

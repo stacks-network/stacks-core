@@ -58,13 +58,13 @@ use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
 use crate::chainstate::stacks::db::accounts::*;
 use crate::chainstate::stacks::db::blocks::*;
+use crate::chainstate::stacks::db::transactions::TransactionProcessor;
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::events::*;
 use crate::chainstate::stacks::index::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::{
     Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
@@ -1414,12 +1414,10 @@ impl StacksChainState {
                 StacksTransaction::new(tx_version, boot_code_auth.clone(), smart_contract);
 
             let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
-                StacksChainState::process_transaction_payload(
-                    clarity,
-                    &boot_code_smart_contract,
-                    &boot_code_account,
-                    &TransactionResourceBudgets::unlimited(),
-                )
+                TransactionProcessor::from(&boot_code_smart_contract)
+                    .using_clarity_transaction(clarity, &boot_code_account)
+                    .with_unlimited_resource_policy()
+                    .process_payload()
             })?;
             receipts.push(tx_receipt);
 

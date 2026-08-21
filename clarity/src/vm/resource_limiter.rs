@@ -168,23 +168,19 @@ impl MemoryTracker {
 ///
 /// During consensus-critical work, the budget MUST be [`ResourceBudget::unlimited`]
 /// to ensure determinism.
+#[derive(Debug, Clone, Copy)]
 pub struct ResourceBudget {
     max_duration: Option<Duration>,
     max_allocated_bytes: Option<u64>,
 }
 
 impl ResourceBudget {
-    pub fn new() -> Self {
+    /// Creates a new instance with no configured budgets.
+    pub fn unlimited() -> Self {
         Self {
             max_duration: None,
             max_allocated_bytes: None,
         }
-    }
-
-    pub fn unlimited() -> Self {
-        // identical to Self::new(), but also provided under the name `unlimited`
-        // to make intentions obvious at the call site
-        Self::new()
     }
 
     pub fn with_max_duration(mut self, duration: Option<Duration>) -> Self {
@@ -201,12 +197,6 @@ impl ResourceBudget {
     /// is not exceeded (relative to the baseline that is taken at call time).
     pub fn start_tracking(&self) -> ResourceLimiter {
         ResourceLimiter::from_budget(self)
-    }
-}
-
-impl Default for ResourceBudget {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
