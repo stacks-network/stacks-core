@@ -103,19 +103,7 @@ pub fn mem_type_check(
         true,
         ResourceLimiter::unlimited(),
     ) {
-        Ok(x) => {
-            // return the first type result of the type checker
-
-            let first_type = x
-                .type_map
-                .as_ref()
-                .ok_or_else(|| StaticCheckErrorKind::Unreachable("Should be non-empty".into()))?
-                .get_type_expected(x.expressions.last().ok_or_else(|| {
-                    StaticCheckErrorKind::Unreachable("Should be non-empty".into())
-                })?)
-                .cloned();
-            Ok((first_type, x))
-        }
+        Ok(analysis) => Ok((analysis.type_of_final_expression()?, analysis)),
         Err(e) => Err(e.0),
     }
 }
@@ -199,7 +187,12 @@ pub fn run_analysis(
         version,
     );
     let result = analysis_db.execute(|db| {
-        ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
+        let read_only_before_types = epoch.performs_read_only_checks_before_type_checks();
+        let read_only_after_types = !read_only_before_types;
+
+        if read_only_before_types {
+            ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
+        }
         if epoch >= StacksEpochId::Epoch21 {
             TypeChecker2_1::run_pass(
                 &epoch,
@@ -210,6 +203,9 @@ pub fn run_analysis(
             )?;
         } else {
             TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db, build_type_map)?;
+        }
+        if read_only_after_types {
+            ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
         }
         TraitChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);

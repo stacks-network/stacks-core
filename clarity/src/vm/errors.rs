@@ -245,6 +245,27 @@ impl From<ClarityTypeError> for VmExecutionError {
     }
 }
 
+impl VmExecutionError {
+    /// Returns `true` if this error, were it to propagate out of transaction processing, makes the
+    /// transaction non-includable (a block that contains it is invalid), as opposed to producing an
+    /// includable failure receipt.
+    pub fn rejectable(&self) -> bool {
+        match self {
+            VmExecutionError::RuntimeCheck(check) => {
+                check.rejectable()
+                    || matches!(
+                        check,
+                        RuntimeCheckErrorKind::CostOverflow
+                            | RuntimeCheckErrorKind::CostBalanceExceeded(..)
+                            | RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(_)
+                    )
+            }
+            VmExecutionError::Internal(_) => true,
+            VmExecutionError::Runtime(..) | VmExecutionError::EarlyReturn(_) => false,
+        }
+    }
+}
+
 impl From<CostErrors> for VmExecutionError {
     fn from(err: CostErrors) -> Self {
         match err {

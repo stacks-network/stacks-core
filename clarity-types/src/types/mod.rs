@@ -1731,6 +1731,36 @@ impl From<ContractName> for ASCIIData {
     }
 }
 
+/// How deserialization treats a typed tuple whose data disagrees with the
+/// declared field set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TupleFieldsBehavior {
+    allow_duplicate_fields: bool,
+    allow_missing_fields: bool,
+}
+
+impl TupleFieldsBehavior {
+    /// Pre-Epoch 4.1: duplicate fields overwrite and missing fields are allowed.
+    pub const LEGACY: Self = Self {
+        allow_duplicate_fields: true,
+        allow_missing_fields: true,
+    };
+
+    /// Epoch 4.1+: reject duplicates and require exactly the declared fields.
+    pub const EXACT_FIELD_SET: Self = Self {
+        allow_duplicate_fields: false,
+        allow_missing_fields: false,
+    };
+
+    pub fn from_epoch(epoch: &StacksEpochId) -> Self {
+        if epoch.enforces_exact_typed_tuple_field_set() {
+            Self::EXACT_FIELD_SET
+        } else {
+            Self::LEGACY
+        }
+    }
+}
+
 impl TupleData {
     fn new(
         type_signature: TupleTypeSignature,
@@ -1773,11 +1803,13 @@ impl TupleData {
     }
 
     // TODO: add tests from mutation testing results #4834
+    /// Construct a typed tuple, checking `data` against `expected`.
     #[cfg_attr(test, mutants::skip)]
     pub fn from_data_typed(
         epoch: &StacksEpochId,
         data: Vec<(ClarityName, Value)>,
         expected: &TupleTypeSignature,
+        behavior: TupleFieldsBehavior,
     ) -> Result<TupleData, ClarityTypeError> {
         let mut data_map = BTreeMap::new();
 
@@ -1795,7 +1827,31 @@ impl TupleData {
                 ));
             }
 
-            data_map.insert(name, value);
+            match data_map.entry(name) {
+                Entry::Vacant(e) => {
+                    e.insert(value);
+                }
+                Entry::Occupied(mut e) => {
+                    if !behavior.allow_duplicate_fields {
+                        return Err(ClarityTypeError::DuplicateTupleField(e.key().to_string()));
+                    }
+                    // Lossy pre-4.1 behavior: the last duplicate wins
+                    e.insert(value);
+                }
+            }
+        }
+
+        // With duplicates rejected, equal cardinality means the field sets
+        // match exactly.
+        if !behavior.allow_missing_fields && data_map.len() as u64 != expected.len() {
+            let mut actual_types = BTreeMap::new();
+            for (name, value) in data_map.iter() {
+                actual_types.insert(name.clone(), TypeSignature::type_of(value)?);
+            }
+            return Err(ClarityTypeError::TypeMismatch(
+                Box::new(expected.clone().into()),
+                Box::new(TupleTypeSignature::try_from(actual_types)?.into()),
+            ));
         }
 
         Ok(Self::new(expected.clone(), data_map))

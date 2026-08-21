@@ -19,9 +19,7 @@ run-name: "Create: Test Caches [${{ github.ref_name }}]"
 # and build them on-the-fly. This allows slightly stale caches to still be very useful.
 #
 # NOTE: 
-#   This job ONLY runs if EITHER of the following is true:
-#     1. We're on the `main` branch of `stacks-network/stacks-core`, OR
-#     2. A GitHub Action variable is set: SEED_CACHES = true
+#   This job ONLY runs if a GitHub Action variable is set: ENABLE_CI_WORKFLOWS = true
 ################################################################################################################################
 
 on:
@@ -38,23 +36,44 @@ permissions:
 #   - when multiple pushes to `main` happen in a short time, cancel 
 #     the current run and start the new one with the most recent code.
 concurrency:
-  group: seed-caches
+  group: create-caches
   cancel-in-progress: true
 
 jobs:
-  ##############################################################################
+  check-ci-enabled:
+    name: "Check: CI Enabled"
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
+          echo "github.repository:   '${{ github.repository }}'"
+          echo "github.event_name:   '${{ github.event_name }}'"
+    
+          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Result: CI is ENABLED"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: CI is DISABLED"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  #######################################################################################################################
   ### Create Reusable Caches for Tests
   ###
-  ### Caches can only be created from `main`. This workflow runs only from 
-  ### `main` and therefore will successfully create canonical re-usable caches.
-  ##############################################################################
+  ### Caches are created from `main` branch when a GitHub Action variable is set: ENABLE_CI_WORKFLOWS = true
+  ### When run on `main`, this workflow creates canonical re-usable caches for future CI runs.
+  ### When manually dispatched from another branch, any created caches will be scoped to that branch.
+  #######################################################################################################################
   cache-bitcoin-binary:
     name: "Create: Bitcoin Binary Cache"
+    needs:
+      - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
     runs-on: ubuntu-latest
-    # Execute if running in our core repo on `main` OR if SEED_CACHES GitHub Actions variable is 'true'
-    if: |
-      (github.repository == 'stacks-network/stacks-core' && github.ref_name == 'main') ||
-      vars.SEED_CACHES == 'true'
     steps:
       # Checkout the code
       #   - only .github is required for checking caches
@@ -65,18 +84,26 @@ jobs:
           sparse-checkout: |
             .github
 
+      # Check cache for bitcoin binary
+      # We don't need multiple caches of the same Bitcoin binary, so skip create if one already exists
+      - name: Check Bitcoin Cache
+        id: bitcoin
+        uses: ./.github/actions/cache/bitcoin
+
+      # Only create when a binary doesn't already exist
       - name: Create Bitcoin Cache
+        if: >-
+          !steps.bitcoin.outputs.cache-matched-key
         uses: ./.github/actions/cache/bitcoin
         with:
           action: create
 
   cache-cargo:
     name: "Create: Cargo Cache"
+    needs:
+      - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
     runs-on: ubuntu-latest
-    # Execute if running in our core repo on `main` OR if SEED_CACHES GitHub Actions variable is 'true'
-    if: |
-      (github.repository == 'stacks-network/stacks-core' && github.ref_name == 'main') ||
-      vars.SEED_CACHES == 'true'
     steps:
       # Checkout the code
       #   - only .github is required for checking caches

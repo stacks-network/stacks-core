@@ -31,7 +31,7 @@ use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
-use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set_for_tenure;
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
@@ -837,16 +837,37 @@ impl BlockMinerThread {
                     return Err(e);
                 }
                 NakamotoNodeError::StackerDBUploadError(ref ack) => {
-                    if ack.code == Some(StackerDBErrorCodes::BadSigner.code()) {
-                        error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
+                    // A rejected ack must carry an error code. A missing code indicates a malformed
+                    // or unexpected response. Treat it as a terminal error.
+                    let Some(code) = ack.code else {
+                        error!("Error while gathering signatures: malformed miner StackerDB ack (chunk rejected without an error code): {ack:?}. Giving up.";
                             "signer_signature_hash" => %new_block.header.signer_signature_hash(),
                             "block_height" => new_block.header.chain_length,
                             "consensus_hash" => %new_block.header.consensus_hash,
                         );
                         return Err(e);
+                    };
+                    // Classify the rejection by its error code. `DataAlreadyExists` (a stale
+                    // slot version) is the only retryable case — bump the version and
+                    // re-upload. Every other code, plus any unknown code, is permanent for an
+                    // identical payload, so retrying can never succeed.
+                    match StackerDBErrorCodes::from_code(code) {
+                        Some(StackerDBErrorCodes::DataAlreadyExists) => {
+                            self.pause_and_retry(&new_block, last_block_rejected, &e);
+                            return Ok(false);
+                        }
+                        _ => {
+                            // Terminal for an identical chunk. `TooManySlotWrites` can't really occur:
+                            // `.miners` uses `max_writes = u32::MAX`, so the local `MinerDB`
+                            // version never needs to attempt reconciling with the replica.
+                            error!("Error while gathering signatures: failed to upload miner StackerDB data: {ack:?}. Giving up.";
+                                "signer_signature_hash" => %new_block.header.signer_signature_hash(),
+                                "block_height" => new_block.header.chain_length,
+                                "consensus_hash" => %new_block.header.consensus_hash,
+                            );
+                            return Err(e);
+                        }
                     }
-                    self.pause_and_retry(&new_block, last_block_rejected, &e);
-                    return Ok(false);
                 }
                 NakamotoNodeError::SignersRejected {
                     ref temporarily_excluded_txids,
@@ -1051,26 +1072,23 @@ impl BlockMinerThread {
                 ))
             })?;
 
-        let burn_election_height = self.burn_election_block.block_height;
-
-        let reward_cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(burn_election_height)
-            .expect("FATAL: no reward cycle for sortition");
-
-        let reward_info = match load_nakamoto_reward_set(
-            reward_cycle,
-            &self.burn_election_block.sortition_id,
+        let reward_set = match load_nakamoto_reward_set_for_tenure(
+            &self.burn_election_block,
             &self.burnchain,
             &mut chain_state,
             &self.parent_tenure_id,
             &sort_db,
             &OnChainRewardSetProvider::new(),
         ) {
-            Ok(Some((reward_info, _))) => reward_info,
+            Ok(Some(reward_set)) => reward_set,
             Ok(None) => {
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(
                     "No reward set stored yet. Cannot mine!".into(),
+                ));
+            }
+            Err(ChainstateError::NoRegisteredSigners(..)) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "Current reward cycle did not select a reward set. Cannot mine!".into(),
                 ));
             }
             Err(e) => {
@@ -1078,12 +1096,6 @@ impl BlockMinerThread {
                     "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
                 )));
             }
-        };
-
-        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
-            return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                "Current reward cycle did not select a reward set. Cannot mine!".into(),
-            ));
         };
 
         self.signer_set_cache = Some(reward_set.clone());
