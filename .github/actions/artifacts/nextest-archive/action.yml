@@ -48,6 +48,13 @@ runs:
       with:
         components: llvm-tools-preview
 
+    # Cache workspace-crate compilations by content. The Cargo cache excludes
+    # them because restored target mtimes can otherwise mask source changes.
+    - name: Setup sccache
+      if: |
+        inputs.action == 'create'
+      uses: ./.github/actions/setup-sccache
+
     #  Install nextest and grcov
     #    grcov is not needed to build the archive, but it is bundled into the
     #    artifact for the test jobs (see the staging step below)

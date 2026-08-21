@@ -75,6 +75,13 @@ runs:
       uses: ./.github/actions/setup-rust-toolchain
       with:
         components: llvm-tools-preview
+
+    # Populate the shared compiler cache while creating the default-branch
+    # Cargo cache so pull-request builds can reuse unchanged workspace crates.
+    - name: Setup sccache
+      if: |
+        inputs.action == 'create'
+      uses: ./.github/actions/setup-sccache
     
     #  Install nextest
     - name: Install nextest
