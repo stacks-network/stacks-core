@@ -1,33 +1,26 @@
 #!/usr/bin/env bash
-# Generate a balanced test matrix for the Bitcoin integration test workflow.
 #
-# Discovers all ignored tests in the stacks-node binary via cargo nextest,
-# removes a hardcoded exclude list, then chunks them into batches.
+# Generates dynamic single-test matrices for the Bitcoin integration test workflow.
+# Every test runs in its own job and partitions output into
+# multiple matrix outputs (batches_1, batches_2, etc.) to bypass the GitHub Actions 256 matrix limit.
 #
 # Optional env vars:
-#   BATCH_SIZE       - Number of tests grouped into a single runner batch (default: 50)
+#   MAX_PER_CHUNK    - Max tests per matrix output chunk (default: 256)
 #   NEXTEST_ARCHIVE  - Nextest archive to use (default: ./test_archive.tar.zst)
 #   TEST_TAG_CI_SKIP - Tag name used to exclude tests from CI (default: ci_skip)
-#
-# Outputs:
-#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner)
+
 set -euo pipefail
 
-# Load logging functions from logging.sh for color and standardized output
-# shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 
 ## --- Configuration ----------------------------------------------------------
-# Set batch size for test grouping. default is 50
-batch_size="${BATCH_SIZE:-50}"
-# Set the nextest archive to use
+max_chunks="${MAX_CHUNKS:-2}"
+max_per_chunk="${MAX_PER_CHUNK:-256}"
 nextest_archive="${NEXTEST_ARCHIVE:-./test_archive.tar.zst}"
-# Safely replace a leading ~ with the actual absolute $HOME path if provided in the env var
 nextest_archive="${nextest_archive/#\~/$HOME}"
-# Exclude tests tagged with a skip tag
 ci_skip_tag="${TEST_TAG_CI_SKIP:-ci_skip}"
 
-## ── Require bash 5+ (mapfile with -t flag behaviour) ────────────────────────
+## ── Require bash 5+ ─────────────────────────────────────────────────────────
 if [[ "${BASH_VERSINFO[0]}" -lt 5 ]]; then
     error "Bash version 5 or higher is required (found ${BASH_VERSION})"
     exit 1
@@ -55,12 +48,10 @@ jq -c '
     | [to_entries[] | select(.value.ignored) | .key]
 ' nextest_output.json > ignored_tests.json
 
-info "Ignored tests count: $(hl $(jq 'length' ignored_tests.json))"
-
 ## ── Build list of excluded tests --------------------------------------------
 info "Building exclude list..."
 cat << 'EOF' > raw_exclude.txt
-# The following tests are excluded from CI runs. Some of these may be worth investigating adding back into the CI
+# The following tests are excluded from CI runs.
 tests::nakamoto_integrations::consensus_hash_event_dispatcher
 tests::neon_integrations::atlas_integration_test
 tests::neon_integrations::atlas_stress_integration_test
@@ -111,56 +102,46 @@ tests::signer::v0::larger_mempool
 tests::pox_5_integrations::check_pox_5_register_for_second_bond_no_downtime
 EOF
 
-## ── Append tests tagged with ci_skip to the exclude list ────────────────────
 ci_skip_regex=":t::(?:.*::)?${ci_skip_tag}::"
-info "Excluding tests matching tag: $(hl "${ci_skip_tag}") (regex: $(hl "${ci_skip_regex}"))"
 jq -r '.[]' ignored_tests.json | grep -P "${ci_skip_regex}" >> raw_exclude.txt || true
 
-## ── Strip blank lines and comments, then convert to JSON array ──────────────
 grep -v '^\s*$' raw_exclude.txt | grep -v '^\s*#' > clean_exclude.txt
 jq -R . clean_exclude.txt | jq -s . > exclude.json
-info "Excluded tests count: $(hl $(jq length exclude.json))"
 
-## ── Filter out excluded tests -----------------------------------------------
-info "Filtering excluded tests..."
-jq -e 'type == "array"' ignored_tests.json > /dev/null
-jq -e 'type == "array"' exclude.json > /dev/null
-
+## ── Filter excluded tests --------------------------------------------------
 jq -r '.[]' ignored_tests.json | sort > ignored_sorted.txt
 jq -r '.[]' exclude.json        | sort > exclude_sorted.txt
 
 comm -23 ignored_sorted.txt exclude_sorted.txt > filtered.txt
 
-total=$(wc -l < filtered.txt)
-info "Final test count: $(hl ${total})"
-
-## ── Chunk all tests into batches ──────────────────────────────────────────
-info "Grouping $(hl ${total}) tests into batches of size $(hl ${batch_size})...."
 mapfile -t tests < filtered.txt
+total=${#tests[@]}
+info "Total tests to run individually: $(hl ${total})"
 
-batches_json="[]"
+## ── Create Single-Test Batches ──────────────────────────────────────────────
+all_batches="[]"
 idx=1
-
-for (( j = 0; j < total; j += batch_size )); do
-    chunk=("${tests[@]:j:batch_size}")
-    
-    # Safely join array elements using a comma character
-    old_ifs="$IFS"
-    IFS=','
-    csv_chunk="${chunk[*]}"
-    IFS="$old_ifs"
-    
-    # Append an object containing both the index and the raw CSV string to the master JSON array
-    batches_json=$(echo "$batches_json" | jq --argjson idx "$idx" --arg csv "$csv_chunk" '. += [{"index": $idx, "csv": $csv}]')
-    
+for test_name in "${tests[@]}"; do
+    [[ -z "${test_name}" ]] && continue
+    all_batches=$(echo "$all_batches" | jq --argjson idx "$idx" --arg csv "$test_name" '. += [{"index": $idx, "csv": $csv}]')
     ((idx++))
 done
 
-info "Generated $(hl $(jq 'length' <<< "$batches_json")) dynamic matrix batches."
+## ── Partition Single-Test Batches into Dynamic Chunks ────────────────────────
+# Output chunks: batches_1, batches_2, etc. based on `max_chunks`
+for (( c=1; c<=max_chunks; c++ )); do
+    start_offset=$(( (c - 1) * max_per_chunk ))
+    
+    chunk_json=$(echo "$all_batches" | jq -c ".[${start_offset}:${start_offset}+${max_per_chunk}]")
+    
+    if [[ "$chunk_json" == "null" ]] || [[ -z "$chunk_json" ]]; then
+        chunk_json="[]"
+    fi
 
-# Export to GitHub Actions or stdout
-if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-    echo "batches=$(jq -c . <<< "$batches_json")" >> "${GITHUB_OUTPUT}"
-else
-    jq -c . <<< "$batches_json"
-fi
+    chunk_length=$(echo "$chunk_json" | jq 'length')
+    info "Chunk ${c} (batches_${c}): $(hl "${chunk_length}") single-test jobs"
+
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+        echo "batches_${c}=${chunk_json}" >> "${GITHUB_OUTPUT}"
+    fi
+done
