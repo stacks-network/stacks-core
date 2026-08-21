@@ -31,7 +31,7 @@ use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
-use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use stacks::chainstate::nakamoto::coordinator::load_nakamoto_reward_set_for_tenure;
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
@@ -1072,26 +1072,23 @@ impl BlockMinerThread {
                 ))
             })?;
 
-        let burn_election_height = self.burn_election_block.block_height;
-
-        let reward_cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(burn_election_height)
-            .expect("FATAL: no reward cycle for sortition");
-
-        let reward_info = match load_nakamoto_reward_set(
-            reward_cycle,
-            &self.burn_election_block.sortition_id,
+        let reward_set = match load_nakamoto_reward_set_for_tenure(
+            &self.burn_election_block,
             &self.burnchain,
             &mut chain_state,
             &self.parent_tenure_id,
             &sort_db,
             &OnChainRewardSetProvider::new(),
         ) {
-            Ok(Some((reward_info, _))) => reward_info,
+            Ok(Some(reward_set)) => reward_set,
             Ok(None) => {
                 return Err(NakamotoNodeError::SigningCoordinatorFailure(
                     "No reward set stored yet. Cannot mine!".into(),
+                ));
+            }
+            Err(ChainstateError::NoRegisteredSigners(..)) => {
+                return Err(NakamotoNodeError::SigningCoordinatorFailure(
+                    "Current reward cycle did not select a reward set. Cannot mine!".into(),
                 ));
             }
             Err(e) => {
@@ -1099,12 +1096,6 @@ impl BlockMinerThread {
                     "Failure while fetching reward set. Cannot initialize miner coordinator. {e:?}"
                 )));
             }
-        };
-
-        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
-            return Err(NakamotoNodeError::SigningCoordinatorFailure(
-                "Current reward cycle did not select a reward set. Cannot mine!".into(),
-            ));
         };
 
         self.signer_set_cache = Some(reward_set.clone());

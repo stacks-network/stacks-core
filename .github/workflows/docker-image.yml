@@ -41,11 +41,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-ci-enabled:
+    name: "Check: CI Enabled"
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
+          echo "github.repository:   '${{ github.repository }}'"
+          echo "github.event_name:   '${{ github.event_name }}'"
+    
+          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Result: CI is ENABLED"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: CI is DISABLED"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Build arch dependent binaries from source
   build-binaries:
-    name: Build Binaries
-    # Only run this if it's the public repo or manually triggered
-    if: github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public'
+    name: "Build: Binaries"
+    needs:
+      - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
     runs-on: ${{ vars.BUILD_RUNNER_LABEL || 'ubuntu-latest' }}
     strategy:
       max-parallel: 2
@@ -128,12 +150,12 @@ jobs:
 
   # Build and publish the docker images using the binary archives
   image:
-    name: Build Image
+    name: "Build: Image"
     needs:
+      - check-ci-enabled
       - build-binaries
-    # Only run this if it's the public repo or manually triggered, and skip it
-    # entirely for blanked builds (binaries only, no image).
-    if: ${{ (github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public') && !inputs.blank_version_build }}
+    # Only run this for versioned builds (skip for blanked builds)
+    if: needs.check-ci-enabled.outputs.enabled == 'true' && !inputs.blank_version_build
     runs-on: ubuntu-latest
     permissions:
       contents: read       # required for checkout
