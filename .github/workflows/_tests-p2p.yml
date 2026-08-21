@@ -41,31 +41,32 @@ concurrency:
 jobs:
   # P2P integration tests with code coverage
   integration-tests:
-    name: Integration Tests
+    name: Integration Tests (${{ matrix.batch.name }})
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     strategy:
       # Continue with the test matrix even if we've had a failure
       fail-fast: false
       matrix:
-        test-name:
-          - net::tests::convergence::test_walk_ring_allow_15
-          - net::tests::convergence::test_walk_ring_15_plain
-          - net::tests::convergence::test_walk_ring_15_pingback
-          - net::tests::convergence::test_walk_ring_15_org_biased
-          - net::tests::convergence::test_walk_line_allowed_15
-          - net::tests::convergence::test_walk_line_15_plain
-          - net::tests::convergence::test_walk_line_15_org_biased
-          - net::tests::convergence::test_walk_line_15_pingback
-          - net::tests::convergence::test_walk_star_allowed_15
-          - net::tests::convergence::test_walk_star_15_plain
-          - net::tests::convergence::test_walk_star_15_pingback
-          - net::tests::convergence::test_walk_star_15_org_biased
-          - net::tests::convergence::test_walk_inbound_line_15
-          - net::server::test::test_http_10_threads_getinfo
-          - net::server::test::test_http_10_threads_getblock
-          - net::server::test::test_http_too_many_clients
-          - net::server::test::test_http_slow_client
+        # Pair convergence tests by observed runtime and group the shorter HTTP
+        # tests, reducing repeated setup while keeping batch durations balanced.
+        batch:
+          - name: convergence-1
+            tests: net::tests::convergence::test_walk_inbound_line_15,net::tests::convergence::test_walk_ring_15_pingback
+          - name: convergence-2
+            tests: net::tests::convergence::test_walk_line_15_org_biased,net::tests::convergence::test_walk_star_allowed_15
+          - name: convergence-3
+            tests: net::tests::convergence::test_walk_line_15_pingback,net::tests::convergence::test_walk_star_15_pingback
+          - name: convergence-4
+            tests: net::tests::convergence::test_walk_ring_15_plain,net::tests::convergence::test_walk_star_15_plain
+          - name: convergence-5
+            tests: net::tests::convergence::test_walk_star_15_org_biased,net::tests::convergence::test_walk_ring_allow_15
+          - name: convergence-6
+            tests: net::tests::convergence::test_walk_ring_15_org_biased,net::tests::convergence::test_walk_line_allowed_15
+          - name: convergence-7
+            tests: net::tests::convergence::test_walk_line_15_plain
+          - name: http-server
+            tests: net::server::test::test_http_10_threads_getinfo,net::server::test::test_http_10_threads_getblock,net::server::test::test_http_too_many_clients,net::server::test::test_http_slow_client
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -81,10 +82,11 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
-          test-names: ${{ matrix.test-name }}
+          test-names: ${{ matrix.batch.tests }}
           archive-file: ${{ inputs.archive-file }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
-          codecov-test-name: ${{ matrix.test-name }}
+          codecov-test-name: p2p-${{ matrix.batch.name }}
+          no-fail-fast: "true"
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 

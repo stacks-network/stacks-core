@@ -21,6 +21,10 @@ inputs:
   test-timings-file:
     description: "Historical timings used to runtime-balance partitioned tests"
     required: false
+  no-fail-fast:
+    description: "Whether to continue running selected tests after a failure"
+    required: false
+    default: "false"
   archive-file:
     description: "Archive file to use for tests"
     required: true
@@ -157,6 +161,11 @@ runs:
       shell: bash
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
+
+        NEXTEST_FAILURE_ARGS=()
+        if [[ "${{ inputs.no-fail-fast }}" == "true" ]]; then
+          NEXTEST_FAILURE_ARGS+=(--no-fail-fast)
+        fi
         
         # Convert CSV string to Nextest exact-match Filterset format
         # e.g., "a, b" becomes "test(=a)|test(=b)"
@@ -164,15 +173,19 @@ runs:
         FILTERSET="test(=${FILTERSET})"
 
         # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
+        test_exit=0
         cargo nextest run \
           --config-file ./.github/nextest/ci-nextest.toml \
           --profile ci-sequential \
           --run-ignored all \
           --archive-file ${{ inputs.archive-file }} \
-          -E "$FILTERSET"
+          "${NEXTEST_FAILURE_ARGS[@]}" \
+          -E "$FILTERSET" \
+          || test_exit=$?
           
         # rename the resulting junit file from the toml config
         mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
+        exit "$test_exit"
 
     # Mode 2: Run Partitioned Tests (If partition IS specified)
     - name: Run Partitioned Tests
@@ -200,15 +213,18 @@ runs:
         fi
 
         # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
+        test_exit=0
         cargo nextest run \
           --config-file ./.github/nextest/ci-nextest.toml \
           --profile ci-parallel \
           "${PARTITION_ARGS[@]}" \
           --archive-file "${{ inputs.archive-file }}" \
-          "${TEST_ARGS[@]}"
+          "${TEST_ARGS[@]}" \
+          || test_exit=$?
           
         # rename the resulting junit file from the toml config
         mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
+        exit "$test_exit"
           
     ############################################################################
     ### Upload the nextest JUnit XML
