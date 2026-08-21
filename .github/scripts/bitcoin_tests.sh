@@ -14,7 +14,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 
 ## --- Configuration ----------------------------------------------------------
-max_chunks="${MAX_CHUNKS:-4}"
+max_chunks="${MAX_CHUNKS:-2}"
 max_per_chunk="${MAX_PER_CHUNK:-256}"
 nextest_archive="${NEXTEST_ARCHIVE:-./test_archive.tar.zst}"
 nextest_archive="${nextest_archive/#\~/$HOME}"

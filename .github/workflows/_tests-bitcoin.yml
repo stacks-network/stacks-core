@@ -36,7 +36,7 @@ env:
   TEST_TIMEOUT: 30
   TEST_TAG_CI_SKIP: ci_skip
   # This should match the number of jobs we use below
-  MAX_CHUNKS: 4
+  MAX_CHUNKS: 2
   # GitHub Actions have a 256 matrix limit
   MAX_PER_CHUNK: 256
 
@@ -134,62 +134,6 @@ jobs:
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
-  integration-tests-3:
-    name: Integration Tests (Partition 3)
-    needs: generate-tests
-    runs-on: ubuntu-latest
-    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batches_3 != '[]'
-    strategy:
-      fail-fast: false
-      matrix:
-        batch: ${{ fromJSON(needs.generate-tests.outputs.batches_3) }}
-    steps:
-      - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-          sparse-checkout: .github
-          
-      # Setup, run tests, generate and upload code coverage artifact
-      - name: Setup + Run Tests + Codecov
-        uses: ./.github/actions/run-tests
-        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        with:
-          test-names: ${{ matrix.batch.csv }}
-          archive-file: ${{ inputs.archive-file }}
-          debug-binary-path: ${{ inputs.debug-binary-path }}
-          codecov-test-name: isolated-test-${{ matrix.batch.index }}
-          upload-junit-xml: ${{ inputs.upload-junit-xml }}
-          upload-code-coverage: ${{ inputs.upload-code-coverage }}
-
-  integration-tests-4:
-    name: Integration Tests (Partition 4)
-    needs: generate-tests
-    runs-on: ubuntu-latest
-    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batches_4 != '[]'
-    strategy:
-      fail-fast: false
-      matrix:
-        batch: ${{ fromJSON(needs.generate-tests.outputs.batches_4) }}
-    steps:
-      - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-          sparse-checkout: .github
-          
-      # Setup, run tests, generate and upload code coverage artifact
-      - name: Setup + Run Tests + Codecov
-        uses: ./.github/actions/run-tests
-        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        with:
-          test-names: ${{ matrix.batch.csv }}
-          archive-file: ${{ inputs.archive-file }}
-          debug-binary-path: ${{ inputs.debug-binary-path }}
-          codecov-test-name: isolated-test-${{ matrix.batch.index }}
-          upload-junit-xml: ${{ inputs.upload-junit-xml }}
-          upload-code-coverage: ${{ inputs.upload-code-coverage }}
-
   # Check that all jobs in this workflow have succeeded.
   check-tests:
     name: Check Tests
@@ -197,8 +141,6 @@ jobs:
       - generate-tests
       - integration-tests-1
       - integration-tests-2
-      - integration-tests-3
-      - integration-tests-4
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
