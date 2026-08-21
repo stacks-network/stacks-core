@@ -157,21 +157,31 @@ jobs:
             org.opencontainers.image.title=${{ inputs.release_type }}
             org.opencontainers.image.description=${{ steps.repo-desc.outputs.description }} | ${{ steps.set-vars.outputs.annotation_pattern }} Image
           tags: |
-            # debian tags #
-            #  latest tag
+            # -----------------------------------------------------------------
+            # DISTRO TAGS (Applies to both Alpine and Debian)
+            # -----------------------------------------------------------------
+
+            # 'latest-<dist>' tag (e.g., latest-alpine, latest-debian)
+            type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' }}
+
+            # Minor version-dist tag (e.g., 1.2-alpine, 1.2-debian)
+            type=semver,pattern={{major}}.{{minor}},suffix=-${{ matrix.dist }},value=${{ steps.set-vars.outputs.docker_tag }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' }}
+
+            # Full version-dist tag (e.g., 1.2.3-alpine, 1.2.3-debian)
+            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' }}
+
+            # -----------------------------------------------------------------
+            # DEFAULT ALIAS TAGS (Debian default)
+            # -----------------------------------------------------------------
+
+            # 'latest' tag
             type=raw,value=latest,enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
-            #  latest-debian tag
-            type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
-            #  version tag
-            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},enable=${{ steps.set-vars.outputs.docker_tag != '' && matrix.dist == 'debian'}}
-            #  version-dist tag
-            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && matrix.dist == 'debian' }}
-            #
-            # alpine tags #
-            #   latest-alpine tag
-            type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'alpine' }}
-            #  version-dist tag
-            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ steps.set-vars.outputs.docker_tag != '' && matrix.dist == 'alpine' }}
+
+            # Minor version tag (e.g., 1.2)
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.set-vars.outputs.docker_tag }},enable=${{ steps.set-vars.outputs.docker_tag != '' && steps.set-vars.outputs.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
+
+            # Full version tag (e.g., 1.2.3)
+            type=raw,value=${{ steps.set-vars.outputs.docker_tag }},enable=${{ steps.set-vars.outputs.docker_tag != '' && matrix.dist == 'debian' }}
 
       # Build docker image for release
       - name: Build and Push ( ${{matrix.dist}} )
