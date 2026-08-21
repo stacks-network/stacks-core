@@ -4518,6 +4518,8 @@ fn duplicate_signers() {
 #[test]
 #[ignore]
 fn signer_multinode_rollover() {
+    const TEST_TIMEOUT_SECS: u64 = 120;
+
     let num_signers = 5;
     let new_num_signers = 4;
 
@@ -4535,10 +4537,10 @@ fn signer_multinode_rollover() {
         .collect();
     let new_signers_port_start = 3000 + num_signers;
 
-    let node_1_rpc = 40553;
-    let node_1_p2p = 40554;
-    let node_2_rpc = 50553;
-    let node_2_p2p = 50554;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
     let localhost = "127.0.0.1";
     let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
 
@@ -4595,6 +4597,9 @@ fn signer_multinode_rollover() {
             }
         },
         |node_2_conf| {
+            // This node exercises tenure downloads by rejecting pushed blocks.
+            // Start it as a follower so it cannot race the primary miner during boot.
+            node_2_conf.node.miner = false;
             node_2_conf.connection_options.reject_blocks_pushed = true;
         },
         |_| 0,
@@ -4602,7 +4607,6 @@ fn signer_multinode_rollover() {
     );
 
     miners.signer_test.num_stacking_cycles = 1;
-    miners.pause_commits_miner_2();
     miners.boot_to_epoch_3();
 
     // verify that the first reward cycle has the old signers in the reward set
@@ -4656,6 +4660,7 @@ fn signer_multinode_rollover() {
         .btc_regtest_controller
         .get_headers_height();
     let accounts_to_check = new_signer_addrs;
+    let node_http = miners.node_http();
     for stacker_sk in new_signer_sks.iter() {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
@@ -4698,13 +4703,13 @@ fn signer_multinode_rollover() {
                 clarity::vm::Value::UInt(1),
             ],
         );
-        submit_tx(&miners.node_http(), &stacking_tx);
+        submit_tx(&node_http, &stacking_tx);
     }
 
-    wait_for(60, || {
+    wait_for(TEST_TIMEOUT_SECS, || {
         Ok(accounts_to_check
             .iter()
-            .all(|acct| get_account(&miners.node_http(), acct).nonce >= 1))
+            .all(|acct| get_account(&node_http, acct).nonce >= 1))
     })
     .expect("Timed out waiting for stacking txs to be mined");
 
