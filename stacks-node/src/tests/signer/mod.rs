@@ -66,6 +66,7 @@ use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use stacks_signer::{Signer, SpawnedSigner};
 
+use super::bitcoin::core_container::{BitcoinCoreContainer, BITCOIN_DEFAULT_IMAGE_TAG};
 use super::nakamoto_integrations::{
     check_nakamoto_empty_block_heuristics, next_block_and, wait_for,
 };
@@ -88,8 +89,6 @@ use crate::tests::signer::v0::{
 };
 use crate::tests::{test_port, to_addr};
 use crate::BitcoinRegtestController;
-
-use super::bitcoin::core_container::{BitcoinCoreContainer, BITCOIN_DEFAULT_IMAGE_TAG};
 
 /// Bitcoin daemon owned by a signer integration-test harness.
 enum BitcoinTestDaemon {
