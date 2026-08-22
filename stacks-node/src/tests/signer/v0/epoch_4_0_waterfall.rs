@@ -29,6 +29,8 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ContractName;
 use pinny::tag;
 use stacks::burnchains::Txid;
+use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use stacks::chainstate::stacks::boot::POX_5_NAME;
 use stacks::chainstate::stacks::sbtc::sbtc_pox5_deposit_taproot_output_key;
@@ -54,32 +56,54 @@ fn make_sbtc_recipient_fixture(pubkey: &[u8; 33], is_mainnet: bool) -> PoxAddres
     PoxAddress::Addr32(is_mainnet, PoxAddressType32::P2TR, output_key)
 }
 
-/// Get the most recent unconfirmed block-commit bitcoin transaction, if one
-/// is in the mempool.
-fn get_unconfirmed_commit_tx(
+/// Get an unconfirmed commit that targets a child of `burn_parent_height`.
+fn get_unconfirmed_commit_tx_for_burn_parent(
     btc_controller: &BitcoinRegtestController,
     miner_pk: &Secp256k1PublicKey,
+    burn_parent_height: u64,
 ) -> Option<BitcoinTransaction> {
-    let unconfirmed_utxo = btc_controller
+    let expected_modulus = u8::try_from(burn_parent_height % BURN_BLOCK_MINED_AT_MODULUS)
+        .expect("burn-parent modulus fits in a byte");
+
+    btc_controller
         .get_all_utxos(miner_pk)
         .into_iter()
-        .find(|utxo| utxo.confirmations == 0)?;
-    let unconfirmed_txid = Txid::from_bitcoin_tx_hash(&unconfirmed_utxo.txid);
-    Some(btc_controller.get_raw_transaction(&unconfirmed_txid))
+        .filter(|utxo| utxo.confirmations == 0)
+        .find_map(|utxo| {
+            let txid = Txid::from_bitcoin_tx_hash(&utxo.txid);
+            let tx = btc_controller.get_raw_transaction(&txid);
+            let op_return = tx.output.first()?.script_pubkey.as_bytes();
+            let payload_start = op_return.len().checked_sub(77)?;
+            let payload = LeaderBlockCommitOp::parse_data(op_return.get(payload_start..)?)?;
+            (payload.burn_parent_modulus == expected_modulus).then_some(tx)
+        })
 }
 
-/// Wait for the miner's current unconfirmed block commit to enter bitcoind's mempool.
-fn wait_for_unconfirmed_commit_tx(
-    btc_controller: &BitcoinRegtestController,
+/// Wait for a commit targeting a child of `burn_parent_height` to enter the mempool.
+fn wait_for_unconfirmed_commit_tx_for_burn_parent<Z: super::SpawnedSignerTrait>(
+    signer_test: &SignerTest<Z>,
     miner_pk: &Secp256k1PublicKey,
+    burn_parent_height: u64,
     timeout_secs: u64,
 ) -> BitcoinTransaction {
+    let counters = &signer_test.running_nodes.counters;
+    let btc_controller = &signer_test.running_nodes.btc_regtest_controller;
     let mut commit_tx = None;
     wait_for(timeout_secs, || {
-        commit_tx = get_unconfirmed_commit_tx(btc_controller, miner_pk);
+        if counters.naka_submitted_commit_last_burn_height.get() < burn_parent_height {
+            return Ok(false);
+        }
+        commit_tx =
+            get_unconfirmed_commit_tx_for_burn_parent(btc_controller, miner_pk, burn_parent_height);
         Ok(commit_tx.is_some())
     })
-    .expect("timed out waiting for an unconfirmed block commit");
+    .unwrap_or_else(|error| {
+        panic!(
+            "timed out waiting for an unconfirmed block commit for burn parent \
+             {burn_parent_height}; last submitted commit used burn parent {}: {error}",
+            counters.naka_submitted_commit_last_burn_height.get()
+        )
+    });
     commit_tx.expect("unconfirmed block commit disappeared after it was observed")
 }
 
@@ -126,9 +150,10 @@ fn advance_to_commit_for_block<Z: super::SpawnedSignerTrait>(
         "advanced past target burn block {target_block}"
     );
 
-    wait_for_unconfirmed_commit_tx(
-        &signer_test.running_nodes.btc_regtest_controller,
+    wait_for_unconfirmed_commit_tx_for_burn_parent(
+        signer_test,
         miner_pk,
+        target_parent,
         timeout_secs,
     )
 }
@@ -154,9 +179,10 @@ fn mine_boundary_and_assert_next_waterfall_commit<Z: super::SpawnedSignerTrait>(
         info.burn_block_height, expected_burn_block,
         "mined an unexpected burn block at a waterfall boundary"
     );
-    let tx = wait_for_unconfirmed_commit_tx(
-        &signer_test.running_nodes.btc_regtest_controller,
+    let tx = wait_for_unconfirmed_commit_tx_for_burn_parent(
+        signer_test,
         miner_pk,
+        expected_burn_block,
         timeout.as_secs(),
     );
     assert_waterfall_commit(&tx, sbtc_script_pubkey);
