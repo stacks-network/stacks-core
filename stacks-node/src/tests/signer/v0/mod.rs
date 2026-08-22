@@ -1766,11 +1766,39 @@ impl MultipleMinerTest {
             };
             Ok(node_1_info.burn_block_height >= target_burn_height
                 && node_2_info.burn_block_height >= target_burn_height
+                && node_1_info.pox_consensus == node_2_info.pox_consensus
                 && node_1_info.stacks_tip_height == node_2_info.stacks_tip_height
-                && node_1_info.stacks_tip_consensus_hash == node_2_info.stacks_tip_consensus_hash)
+                && node_1_info.stacks_tip == node_2_info.stacks_tip
+                && node_1_info.stacks_tip_consensus_hash
+                    == node_2_info.stacks_tip_consensus_hash
+                // With two fresh commits there must be a tenure for this
+                // sortition. Do not mine through a prepare phase while the
+                // winning tenure-change block is still being signed.
+                && node_1_info.stacks_tip_consensus_hash == node_1_info.pox_consensus)
         })
         .map_err(|error| {
-            format!("nodes did not process the tenure at burn height {target_burn_height}: {error}")
+            let node_1 = get_chain_info_opt(&self.signer_test.running_nodes.conf).map(|info| {
+                (
+                    info.burn_block_height,
+                    info.pox_consensus,
+                    info.stacks_tip_height,
+                    info.stacks_tip,
+                    info.stacks_tip_consensus_hash,
+                )
+            });
+            let node_2 = get_chain_info_opt(&self.conf_node_2).map(|info| {
+                (
+                    info.burn_block_height,
+                    info.pox_consensus,
+                    info.stacks_tip_height,
+                    info.stacks_tip,
+                    info.stacks_tip_consensus_hash,
+                )
+            });
+            format!(
+                "nodes did not process the tenure at burn height {target_burn_height}: \
+                 node_1={node_1:?}, node_2={node_2:?}: {error}"
+            )
         })?;
 
         Ok(target_burn_height)
