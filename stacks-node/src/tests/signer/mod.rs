@@ -29,9 +29,7 @@ use std::{env, thread};
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::Value;
-use libsigner::v0::messages::{
-    BlockAccepted, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
-};
+use libsigner::v0::messages::{BlockResponse, MessageSlotID, PeerInfo, SignerMessage};
 use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use serde::{Deserialize, Serialize};
@@ -1626,14 +1624,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             panic!("Latest message from slot #{slot_id} isn't a block acceptance");
         };
         block_response
-    }
-
-    /// Get the latest block acceptance from the given slot
-    pub fn get_latest_block_acceptance(&self, slot_id: u32) -> BlockAccepted {
-        self.get_latest_block_response(slot_id)
-            .as_block_accepted()
-            .expect("Latest block response from slot #{slot_id} isn't a block acceptance")
-            .clone()
     }
 
     /// Get miner stackerDB messages

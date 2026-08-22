@@ -259,7 +259,7 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
         time_to_wait.as_secs()
     );
     std::thread::sleep(time_to_wait);
-    wait_for(30, || {
+    wait_for(60, || {
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
         for (chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {

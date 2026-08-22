@@ -587,11 +587,22 @@ fn stx_transfers_dont_effect_idle_timeout() {
 
     let slot_id = 0_u32;
     let wait_for_block_acceptance = |expected_block_hash: &Sha512Trunc256Sum| {
+        let mut found_acceptance = None;
         wait_for(30, || {
-            Ok(signer_test
-                .get_latest_block_response(slot_id)
-                .as_block_accepted()
-                .is_some_and(|acceptance| &acceptance.signer_signature_hash == expected_block_hash))
+            for (chunk, message) in get_stackerdb_signer_messages() {
+                if chunk.slot_id != slot_id {
+                    continue;
+                }
+                let SignerMessage::BlockResponse(BlockResponse::Accepted(acceptance)) = message
+                else {
+                    continue;
+                };
+                if &acceptance.signer_signature_hash == expected_block_hash {
+                    found_acceptance = Some(acceptance);
+                    return Ok(true);
+                }
+            }
+            Ok(false)
         })
         .unwrap_or_else(|error| {
             panic!(
@@ -599,7 +610,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
                  {expected_block_hash}: {error}"
             )
         });
-        signer_test.get_latest_block_acceptance(slot_id)
+        found_acceptance.expect("wait_for returned before capturing the matching acceptance")
     };
 
     let initial_acceptance = wait_for_block_acceptance(&last_block_hash);
