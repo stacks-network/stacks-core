@@ -586,9 +586,23 @@ fn stx_transfers_dont_effect_idle_timeout() {
     let last_block_hash = get_last_block_hash();
 
     let slot_id = 0_u32;
+    let wait_for_block_acceptance = |expected_block_hash: &Sha512Trunc256Sum| {
+        wait_for(30, || {
+            Ok(signer_test
+                .get_latest_block_response(slot_id)
+                .as_block_accepted()
+                .is_some_and(|acceptance| &acceptance.signer_signature_hash == expected_block_hash))
+        })
+        .unwrap_or_else(|error| {
+            panic!(
+                "Timed out waiting for signer slot {slot_id} to accept block \
+                 {expected_block_hash}: {error}"
+            )
+        });
+        signer_test.get_latest_block_acceptance(slot_id)
+    };
 
-    let initial_acceptance = signer_test.get_latest_block_acceptance(slot_id);
-    assert_eq!(initial_acceptance.signer_signature_hash, last_block_hash);
+    let initial_acceptance = wait_for_block_acceptance(&last_block_hash);
 
     info!(
         "---- Last idle timeout: {} ----",
@@ -617,10 +631,8 @@ fn stx_transfers_dont_effect_idle_timeout() {
             sender_nonce += 1;
         });
 
-        let latest_acceptance = signer_test.get_latest_block_acceptance(slot_id);
         let last_block_hash = get_last_block_hash();
-
-        assert_eq!(latest_acceptance.signer_signature_hash, last_block_hash);
+        let latest_acceptance = wait_for_block_acceptance(&last_block_hash);
 
         if first_global_acceptance.is_none() {
             assert!(latest_acceptance.response_data.tenure_extend_timestamp < initial_acceptance.response_data.tenure_extend_timestamp, "First global acceptance should be less than initial guesstimated acceptance as its based on block proposal time rather than epoch time at time of response.");

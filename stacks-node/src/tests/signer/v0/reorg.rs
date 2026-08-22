@@ -3622,9 +3622,15 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     assert_ne!(tip_c.burn_header_hash, tip_a.burn_header_hash);
     assert_eq!(tip_c.block_height, burn_height_before + 1);
 
-    info!("--------------- Waiting for {} Signers to Capitulate to Miner {miner_pkh_1} with tenure id {} ----------------",  allow_reorg_signers.len(), info.pox_consensus);
-    wait_for_state_machine_update_by_miner_tenure_id(30, &info.pox_consensus, &allow_reorg_signers)
-        .expect("Failed to update signer state machines");
+    info!("--------------- Waiting for {} Signers to Capitulate to Miner {miner_pkh_1} with tenure id {} at burn block {} ----------------",  allow_reorg_signers.len(), info.pox_consensus, tip_c.consensus_hash);
+    wait_for_state_machine_update(
+        30,
+        &tip_c.consensus_hash,
+        tip_c.block_height,
+        Some((miner_pkh_1.clone(), tip_a.stacks_block_height)),
+        &allow_reorg_signers,
+    )
+    .expect("Failed to update signer state machines at the current burn block");
     info!("--------------- Miner 1 Extends Tenure B over Tenure C ---------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let _tenure_extend_block =

@@ -1173,9 +1173,27 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         use_nakamoto_blocks_mined: bool,
     ) {
         let info_before = get_chain_info(&self.running_nodes.conf);
+        let counters = &self.running_nodes.counters;
+        wait_for(timeout.as_secs(), || {
+            Ok(counters.naka_submitted_commit_last_burn_height.get()
+                >= info_before.burn_block_height
+                && counters.naka_submitted_commit_last_stacks_tip.get()
+                    >= info_before.stacks_tip_height)
+        })
+        .unwrap_or_else(|error| {
+            panic!(
+                "Failed to observe a block commit for burn height {} and Stacks height {}; \
+                 latest commit used burn height {} and Stacks height {}: {error}",
+                info_before.burn_block_height,
+                info_before.stacks_tip_height,
+                counters.naka_submitted_commit_last_burn_height.get(),
+                counters.naka_submitted_commit_last_stacks_tip.get(),
+            )
+        });
+
         info!("Pausing stacks block mining");
         TEST_MINE_SKIP.set(true);
-        let mined_blocks = self.running_nodes.counters.naka_mined_blocks.clone();
+        let mined_blocks = counters.naka_mined_blocks.clone();
         let mined_before = mined_blocks.get();
         self.mine_bitcoin_block();
         wait_for_state_machine_update_by_miner_tenure_id(
