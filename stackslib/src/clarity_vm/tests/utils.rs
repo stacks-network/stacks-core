@@ -54,13 +54,14 @@ pub fn next_test_block_id(block_id_byte: &mut u8) -> StacksBlockId {
     block_id
 }
 
-/// Create a new [`ClarityInstance`] on a temporary MARF and commit its genesis
+/// Create a new [`ClarityInstance`] on an in-memory MARF and commit its genesis
 /// block.
 ///
 /// Returns the instance, the genesis tip to build the next block on, and the
 /// next free block-id byte to hand to [`next_test_block_id`].
 pub fn new_cost_test_clarity_instance(use_mainnet: bool) -> (ClarityInstance, StacksBlockId, u8) {
-    let marf_kv = MarfedKV::temporary();
+    let marf_kv = MarfedKV::open_ephemeral(None, None)
+        .expect("failed to create in-memory MARF for Clarity cost test");
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
 
