@@ -56,11 +56,12 @@ fn make_sbtc_recipient_fixture(pubkey: &[u8; 33], is_mainnet: bool) -> PoxAddres
     PoxAddress::Addr32(is_mainnet, PoxAddressType32::P2TR, output_key)
 }
 
-/// Get an unconfirmed commit that targets a child of `burn_parent_height`.
-fn get_unconfirmed_commit_tx_for_burn_parent(
+/// Get a waterfall commit that targets a child of `burn_parent_height`.
+fn get_unconfirmed_waterfall_commit_for_burn_parent(
     btc_controller: &BitcoinRegtestController,
     miner_pk: &Secp256k1PublicKey,
     burn_parent_height: u64,
+    sbtc_script_pubkey: &[u8],
 ) -> Option<BitcoinTransaction> {
     let expected_modulus = u8::try_from(burn_parent_height % BURN_BLOCK_MINED_AT_MODULUS)
         .expect("burn-parent modulus fits in a byte");
@@ -75,15 +76,19 @@ fn get_unconfirmed_commit_tx_for_burn_parent(
             let op_return = tx.output.first()?.script_pubkey.as_bytes();
             let payload_start = op_return.len().checked_sub(77)?;
             let payload = LeaderBlockCommitOp::parse_data(op_return.get(payload_start..)?)?;
-            (payload.burn_parent_modulus == expected_modulus).then_some(tx)
+            (payload.burn_parent_modulus == expected_modulus
+                && tx.output.len() == 3
+                && tx.output[1].script_pubkey.as_bytes() == sbtc_script_pubkey)
+                .then_some(tx)
         })
 }
 
-/// Wait for a commit targeting a child of `burn_parent_height` to enter the mempool.
-fn wait_for_unconfirmed_commit_tx_for_burn_parent<Z: super::SpawnedSignerTrait>(
+/// Wait for a waterfall commit targeting a child of `burn_parent_height`.
+fn wait_for_unconfirmed_waterfall_commit_for_burn_parent<Z: super::SpawnedSignerTrait>(
     signer_test: &SignerTest<Z>,
     miner_pk: &Secp256k1PublicKey,
     burn_parent_height: u64,
+    sbtc_script_pubkey: &[u8],
     timeout_secs: u64,
 ) -> BitcoinTransaction {
     let counters = &signer_test.running_nodes.counters;
@@ -93,13 +98,17 @@ fn wait_for_unconfirmed_commit_tx_for_burn_parent<Z: super::SpawnedSignerTrait>(
         if counters.naka_submitted_commit_last_burn_height.get() < burn_parent_height {
             return Ok(false);
         }
-        commit_tx =
-            get_unconfirmed_commit_tx_for_burn_parent(btc_controller, miner_pk, burn_parent_height);
+        commit_tx = get_unconfirmed_waterfall_commit_for_burn_parent(
+            btc_controller,
+            miner_pk,
+            burn_parent_height,
+            sbtc_script_pubkey,
+        );
         Ok(commit_tx.is_some())
     })
     .unwrap_or_else(|error| {
         panic!(
-            "timed out waiting for an unconfirmed block commit for burn parent \
+            "timed out waiting for an unconfirmed waterfall commit for burn parent \
              {burn_parent_height}; last submitted commit used burn parent {}: {error}",
             counters.naka_submitted_commit_last_burn_height.get()
         )
@@ -128,6 +137,7 @@ fn advance_to_commit_for_block<Z: super::SpawnedSignerTrait>(
     signer_test: &SignerTest<Z>,
     miner_pk: &Secp256k1PublicKey,
     target_block: u64,
+    sbtc_script_pubkey: &[u8],
     timeout_secs: u64,
 ) -> BitcoinTransaction {
     let target_parent = target_block
@@ -150,10 +160,11 @@ fn advance_to_commit_for_block<Z: super::SpawnedSignerTrait>(
         "advanced past target burn block {target_block}"
     );
 
-    wait_for_unconfirmed_commit_tx_for_burn_parent(
+    wait_for_unconfirmed_waterfall_commit_for_burn_parent(
         signer_test,
         miner_pk,
         target_parent,
+        sbtc_script_pubkey,
         timeout_secs,
     )
 }
@@ -179,10 +190,11 @@ fn mine_boundary_and_assert_next_waterfall_commit<Z: super::SpawnedSignerTrait>(
         info.burn_block_height, expected_burn_block,
         "mined an unexpected burn block at a waterfall boundary"
     );
-    let tx = wait_for_unconfirmed_commit_tx_for_burn_parent(
+    let tx = wait_for_unconfirmed_waterfall_commit_for_burn_parent(
         signer_test,
         miner_pk,
         expected_burn_block,
+        sbtc_script_pubkey,
         timeout.as_secs(),
     );
     assert_waterfall_commit(&tx, sbtc_script_pubkey);
@@ -305,6 +317,7 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
         &signer_test,
         &miner_pk,
         first_waterfall_block,
+        sbtc_script_pubkey.as_bytes(),
         TENURE_TIMEOUT.as_secs(),
     );
     assert_waterfall_commit(&tx, sbtc_script_pubkey.as_bytes());
@@ -323,6 +336,7 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
         &signer_test,
         &miner_pk,
         first_prepare_block,
+        sbtc_script_pubkey.as_bytes(),
         TENURE_TIMEOUT.as_secs(),
     );
     assert_waterfall_commit(&tx, sbtc_script_pubkey.as_bytes());
@@ -343,6 +357,7 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
         &signer_test,
         &miner_pk,
         next_cycle_start,
+        sbtc_script_pubkey.as_bytes(),
         TENURE_TIMEOUT.as_secs(),
     );
     assert_waterfall_commit(&tx, sbtc_script_pubkey.as_bytes());
