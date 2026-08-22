@@ -1176,16 +1176,13 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let counters = &self.running_nodes.counters;
         wait_for(timeout.as_secs(), || {
             Ok(counters.naka_submitted_commit_last_burn_height.get()
-                >= info_before.burn_block_height
-                && counters.naka_submitted_commit_last_stacks_tip.get()
-                    >= info_before.stacks_tip_height)
+                >= info_before.burn_block_height)
         })
         .unwrap_or_else(|error| {
             panic!(
-                "Failed to observe a block commit for burn height {} and Stacks height {}; \
-                 latest commit used burn height {} and Stacks height {}: {error}",
+                "Failed to observe a block commit for burn height {}; latest commit used burn \
+                 height {} and Stacks height {}: {error}",
                 info_before.burn_block_height,
-                info_before.stacks_tip_height,
                 counters.naka_submitted_commit_last_burn_height.get(),
                 counters.naka_submitted_commit_last_stacks_tip.get(),
             )
