@@ -2059,6 +2059,15 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// Return bitcoind's current fully validated chain height.
+    #[cfg(test)]
+    pub fn get_bitcoin_chain_height(&self) -> u64 {
+        self.get_rpc_client()
+            .get_blockchain_info()
+            .expect("failed to query bitcoind chain height")
+            .blocks
+    }
+
     /// Instruct a regtest Bitcoin node to build an empty block.
     #[cfg(test)]
     pub fn build_empty_block(&self) {

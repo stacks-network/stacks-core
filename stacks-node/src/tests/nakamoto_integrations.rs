@@ -2734,7 +2734,7 @@ fn mine_multiple_per_tenure_integration() {
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
 ///  struct handles the epoch-2/3 tear-down and spin-up.
 /// This test makes four assertions:
-///  * 15 tenures are mined after 3.0 starts
+///  * Both miners win at least two tenures after 3.0 starts
 ///  * Each tenure has 6 blocks (the coinbase block and 5 interim blocks)
 ///  * Both nodes see the same chainstate at the end of the test
 ///  * Both nodes have the same `PeerNetwork::highest_stacks_height_of_neighbors`
@@ -2754,8 +2754,10 @@ fn multiple_miners() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let tenure_count = 15;
-    let inter_blocks_per_tenure = 6;
+    const REQUIRED_TENURES_PER_MINER: u64 = 2;
+    const MAX_TENURES: u64 = 20;
+    const INTER_BLOCKS_PER_TENURE: u64 = 6;
+    const BLOCKS_PER_TENURE: u64 = INTER_BLOCKS_PER_TENURE + 1;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
@@ -2763,7 +2765,7 @@ fn multiple_miners() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        (send_amt + send_fee) * MAX_TENURES * INTER_BLOCKS_PER_TENURE,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -2899,8 +2901,17 @@ fn multiple_miners() {
     // Wait one block to confirm the VRF register, wait until a block commit is submitted
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    // Mine `tenure_count` nakamoto tenures
-    for tenure_ix in 0..tenure_count {
+    let miner_1_blocks_before = rl1_counters.naka_mined_blocks.get();
+    let miner_2_blocks_before = rl2_counters.naka_mined_blocks.get();
+    let mut tenure_count = 0;
+
+    while tenure_count < MAX_TENURES
+        && (rl1_counters.naka_mined_blocks.get() - miner_1_blocks_before
+            < REQUIRED_TENURES_PER_MINER * BLOCKS_PER_TENURE
+            || rl2_counters.naka_mined_blocks.get() - miner_2_blocks_before
+                < REQUIRED_TENURES_PER_MINER * BLOCKS_PER_TENURE)
+    {
+        let tenure_ix = tenure_count;
         info!("Mining tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
@@ -2910,13 +2921,13 @@ fn multiple_miners() {
         let mut last_tip_height = 0;
 
         // mine the interim blocks
-        for interim_block_ix in 0..inter_blocks_per_tenure {
+        for interim_block_ix in 0..INTER_BLOCKS_PER_TENURE {
             let blocks_processed_before = coord_channel
                 .lock()
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
-            let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
+            let sender_nonce = tenure_ix * INTER_BLOCKS_PER_TENURE + interim_block_ix;
             let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
@@ -2948,7 +2959,18 @@ fn multiple_miners() {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
         .unwrap();
+        tenure_count += 1;
     }
+
+    let miner_1_tenures =
+        (rl1_counters.naka_mined_blocks.get() - miner_1_blocks_before) / BLOCKS_PER_TENURE;
+    let miner_2_tenures =
+        (rl2_counters.naka_mined_blocks.get() - miner_2_blocks_before) / BLOCKS_PER_TENURE;
+    assert!(
+        miner_1_tenures >= REQUIRED_TENURES_PER_MINER
+            && miner_2_tenures >= REQUIRED_TENURES_PER_MINER,
+        "Both miners must win at least {REQUIRED_TENURES_PER_MINER} tenures; miner 1 won {miner_1_tenures}, miner 2 won {miner_2_tenures}"
+    );
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -2981,7 +3003,7 @@ fn multiple_miners() {
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert_eq!(
         tip.stacks_block_height,
-        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
+        block_height_pre_3_0 + (BLOCKS_PER_TENURE * tenure_count),
         "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
     );
 
@@ -14036,9 +14058,8 @@ fn test_sip_031_last_phase() {
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    // let's assume funds for 200 tenures
-    let tenure_count = 200;
-    let inter_blocks_per_tenure = 9;
+    let tenure_count = 10;
+    let inter_blocks_per_tenure = 3;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
@@ -14060,19 +14081,19 @@ fn test_sip_031_last_phase() {
     set_test_sip_031_emission_schedule(Some(vec![
         SIP031EmissionInterval {
             amount: 0,
-            start_height: epoch32_start_height + 40,
+            start_height: epoch32_start_height + 8,
         },
         SIP031EmissionInterval {
             amount: 300_000,
-            start_height: epoch32_start_height + 30,
+            start_height: epoch32_start_height + 6,
         },
         SIP031EmissionInterval {
             amount: 200_000,
-            start_height: epoch32_start_height + 20,
+            start_height: epoch32_start_height + 4,
         },
         SIP031EmissionInterval {
             amount: 100_000,
-            start_height: epoch32_start_height + 10,
+            start_height: epoch32_start_height + 2,
         },
     ]));
 
@@ -14197,13 +14218,13 @@ fn test_sip_031_last_phase() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     let mut sender_nonce = 0;
-    // 50 more tenures (each one with 3 stacks blocks)
+    // Mine through every test emission interval, with three blocks per tenure.
     let principal = PrincipalData::from(sender_signer_addr);
-    for _ in 0..50 {
+    for _ in 0..tenure_count {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_blocks(
             &mut btc_regtest_controller,
-            3,
+            inter_blocks_per_tenure,
             60,
             &coord_channel,
             || {
@@ -14275,8 +14296,8 @@ fn test_sip_031_last_phase() {
         }
     }
 
-    // (100_000 + 200_000 + 300_000) * 10
-    assert_eq!(total_minted_and_transferred, 6_000_000);
+    // (100_000 + 200_000 + 300_000) * 2
+    assert_eq!(total_minted_and_transferred, 1_200_000);
 
     let latest_stacks_block_id = StacksBlockId::from_hex(
         &test_observer::get_blocks()

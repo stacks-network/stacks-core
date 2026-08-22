@@ -48,7 +48,7 @@ use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
 
 /// Compute the expected sBTC PoxAddress recipient
-fn make_sbtc_recipient_fixture(pubkey: &[u8; 33], is_mainnet: bool) -> PoxAddress {
+pub fn make_sbtc_recipient_fixture(pubkey: &[u8; 33], is_mainnet: bool) -> PoxAddress {
     let recipient = PrincipalData::Contract(boot_code_id(POX_5_NAME, is_mainnet));
     let output_key =
         sbtc_pox5_deposit_taproot_output_key(pubkey, &recipient, POX_5_SBTC_DEPOSIT_MAX_FEE_SATS)
@@ -57,7 +57,7 @@ fn make_sbtc_recipient_fixture(pubkey: &[u8; 33], is_mainnet: bool) -> PoxAddres
 }
 
 /// Get a waterfall commit that targets a child of `burn_parent_height`.
-fn get_unconfirmed_waterfall_commit_for_burn_parent(
+pub fn get_unconfirmed_waterfall_commit_for_burn_parent(
     btc_controller: &BitcoinRegtestController,
     miner_pk: &Secp256k1PublicKey,
     burn_parent_height: u64,

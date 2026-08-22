@@ -1349,11 +1349,7 @@ impl MultipleMinerTest {
         submit_tx(&http_origin_1, &registry_tx);
 
         // 2. Mine one bitcoin block to include them.
-        let sortdb = conf_1
-            .get_burnchain()
-            .open_sortition_db(true)
-            .expect("open sortition db");
-        self.mine_bitcoin_block_and_wait_for_both_miners(&sortdb, 60)
+        self.mine_bitcoin_block_and_wait_for_both_miners(60)
             .expect("mine one bitcoin block to include contract publishes");
 
         // 3. Wait for /v2/contracts/source on BOTH nodes. Only proceed once
@@ -1397,11 +1393,11 @@ impl MultipleMinerTest {
         //    must accept the new tenure and both miners must submit a
         //    block-commit pointing at its tip.
         while self.get_peer_info().burn_block_height < epoch_40_start {
-            self.mine_bitcoin_block_and_wait_for_both_miners(&sortdb, 60)
+            self.mine_bitcoin_block_and_wait_for_both_miners(60)
                 .expect("mine bitcoin block toward Epoch 4.0 boundary");
         }
         // One more block so chain is producing under Epoch 4.0 on both nodes.
-        self.mine_bitcoin_block_and_wait_for_both_miners(&sortdb, 60)
+        self.mine_bitcoin_block_and_wait_for_both_miners(60)
             .expect("mine one bitcoin block past Epoch 4.0 boundary");
         info!(
             "Multi-miner: reached Epoch 4.0; current burn_height={}",
@@ -1447,10 +1443,6 @@ impl MultipleMinerTest {
         let chain_id = conf_1.burnchain.chain_id;
         let http_origin_1 = format!("http://{}", conf_1.node.rpc_bind);
         let http_origin_2 = format!("http://{}", conf_2.node.rpc_bind);
-        let sortdb = conf_1
-            .get_burnchain()
-            .open_sortition_db(true)
-            .expect("open sortition db");
         let publish_fee: u64 = 3_000;
         let call_fee: u64 = 1_000;
 
@@ -1598,7 +1590,7 @@ impl MultipleMinerTest {
 
         // Settle once more so block-commits land before the test starts
         // exercising post-boundary tenures.
-        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
+        self.wait_for_both_miners_committed_to_current_tenure(60)
             .expect("settle after stake");
 
         info!(
@@ -1660,6 +1652,11 @@ impl MultipleMinerTest {
         &mut self.signer_test.running_nodes.btc_regtest_controller
     }
 
+    /// Return the shared Bitcoin regtest controller.
+    pub fn btc_regtest_controller(&self) -> &BitcoinRegtestController {
+        &self.signer_test.running_nodes.btc_regtest_controller
+    }
+
     /// Mine `nmb_blocks` blocks on the bitcoin regtest chain and wait for the sortition
     /// database to confirm the block.
     pub fn mine_bitcoin_blocks_and_confirm(
@@ -1696,29 +1693,71 @@ impl MultipleMinerTest {
     /// on the resulting tenure.
     pub fn mine_bitcoin_block_and_wait_for_both_miners(
         &mut self,
-        sortdb: &SortitionDB,
         timeout_secs: u64,
     ) -> Result<(), String> {
         let started_at = Instant::now();
-        let burn_height_before = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-            .map_err(|error| format!("get canonical burn-chain tip: {error}"))?
-            .block_height;
-
-        self.btc_regtest_controller_mut().build_next_block(1);
-        wait_for(timeout_secs, || {
-            let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-                .map_err(|error| format!("get canonical burn-chain tip: {error}"))?
-                .block_height;
-            Ok(burn_height > burn_height_before)
-        })
-        .map_err(|error| {
-            format!("burn-chain tip did not advance past {burn_height_before}: {error}")
-        })?;
+        let target_burn_height = self.mine_bitcoin_block_and_wait_for_both_nodes(timeout_secs)?;
 
         let remaining_secs = timeout_secs
             .saturating_sub(started_at.elapsed().as_secs())
             .max(1);
-        self.wait_for_both_miners_committed_to_current_tenure(sortdb, remaining_secs)
+        self.wait_for_both_miners_committed_to_burn_height(target_burn_height, remaining_secs)
+    }
+
+    /// Mine one Bitcoin block and wait for both nodes to process its tenure.
+    pub fn mine_bitcoin_block_and_wait_for_both_nodes(
+        &mut self,
+        timeout_secs: u64,
+    ) -> Result<u64, String> {
+        let started_at = Instant::now();
+        let bitcoind_height_before = self.btc_regtest_controller().get_bitcoin_chain_height();
+
+        // Do not add another burn block while either node is still processing
+        // a block already mined in bitcoind.
+        let remaining_secs = timeout_secs
+            .saturating_sub(started_at.elapsed().as_secs())
+            .max(1);
+        wait_for(remaining_secs, || {
+            let Some(node_1_info) = get_chain_info_opt(&self.signer_test.running_nodes.conf) else {
+                return Ok(false);
+            };
+            let Some(node_2_info) = get_chain_info_opt(&self.conf_node_2) else {
+                return Ok(false);
+            };
+            Ok(node_1_info.burn_block_height >= bitcoind_height_before
+                && node_2_info.burn_block_height >= bitcoind_height_before)
+        })
+        .map_err(|error| {
+            format!(
+                "nodes did not process existing bitcoind height {bitcoind_height_before}: {error}"
+            )
+        })?;
+
+        self.btc_regtest_controller_mut().build_next_block(1);
+        let target_burn_height = self.btc_regtest_controller().get_bitcoin_chain_height();
+        if target_burn_height != bitcoind_height_before.saturating_add(1) {
+            return Err(format!(
+                "bitcoind advanced from {bitcoind_height_before} to {target_burn_height} after mining one block"
+            ));
+        }
+
+        wait_for(timeout_secs, || {
+            let Some(node_1_info) = get_chain_info_opt(&self.signer_test.running_nodes.conf) else {
+                return Ok(false);
+            };
+            let Some(node_2_info) = get_chain_info_opt(&self.conf_node_2) else {
+                return Ok(false);
+            };
+            Ok(node_1_info.burn_block_height >= target_burn_height
+                && node_2_info.burn_block_height >= target_burn_height
+                && node_1_info.stacks_tip_height == node_2_info.stacks_tip_height
+                && node_1_info.stacks_tip_consensus_hash == node_2_info.stacks_tip_consensus_hash)
+        })
+        .map_err(|error| {
+            format!("nodes did not process the tenure at burn height {target_burn_height}: {error}")
+        })?;
+
+        Ok(target_burn_height)
     }
 
     /// Mine `nmb_blocks` blocks on the bitcoin regtest chain and wait for the sortition
@@ -2118,13 +2157,18 @@ impl MultipleMinerTest {
     /// pointing at the current stacks tip.
     pub fn wait_for_both_miners_committed_to_current_tenure(
         &self,
-        sortdb: &SortitionDB,
         timeout_secs: u64,
     ) -> Result<(), String> {
-        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-            .map_err(|e| format!("get_canonical_burn_chain_tip: {e}"))?;
-        let target_burn_height = burn_tip.block_height;
+        let target_burn_height = self.get_peer_info().burn_block_height;
+        self.wait_for_both_miners_committed_to_burn_height(target_burn_height, timeout_secs)
+    }
 
+    /// Wait for both nodes and miners to settle on `target_burn_height`.
+    fn wait_for_both_miners_committed_to_burn_height(
+        &self,
+        target_burn_height: u64,
+        timeout_secs: u64,
+    ) -> Result<(), String> {
         // Both nodes must have a stacks tip in the current tenure, and both
         // miners must have submitted a block-commit at the current burn
         // height and pointing at that tenure.
@@ -2958,7 +3002,17 @@ fn mine_2_nakamoto_reward_cycles() {
     info!("------------------------- Test Setup -------------------------");
     let nmb_reward_cycles = 2;
     let num_signers = 5;
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |_| {},
+        |config| {
+            config.burnchain.pox_prepare_length = Some(3);
+            config.burnchain.pox_reward_length = Some(12);
+        },
+        None,
+        None,
+    );
     let timeout = Duration::from_secs(200);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
