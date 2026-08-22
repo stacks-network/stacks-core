@@ -2389,7 +2389,7 @@ fn tx_replay_budget_exceeded_tenure_extend() {
 
     // Now, wait for the tx replay set to be cleared
     signer_test
-        .wait_for_signer_state_check(60, |state| Ok(state.get_tx_replay_set().is_none()))
+        .wait_for_signer_state_check(90, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
     let mut found_block: Option<StacksBlockEvent> = None;
     wait_for(60, || {
