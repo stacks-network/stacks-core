@@ -28,6 +28,12 @@ inherits = "ci"
 # Options: A positive integer (e.g., 4), "num-cpus", or a negative integer (e.g., -1)
 test-threads = 1
 
+# This test starts 20 signer instances and can time out during registration
+# when another signer-heavy integration test runs beside it.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::block_validation_check_rejection_timeout_heuristic)'
+threads-required = "num-test-threads"
+
 [profile.ci-parallel]
 inherits = "ci"
 # The number of tests to run simultaneously
