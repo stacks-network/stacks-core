@@ -28,7 +28,7 @@ all_tests=$(mktemp)
 balanced_batches=$(mktemp)
 trap 'rm -f "${nextest_output}" "${all_tests}" "${balanced_batches}"' EXIT
 
-cargo nextest list \
+cargo-nextest nextest list \
     --config-file ./.github/nextest/ci-nextest.toml \
     --archive-file "${nextest_archive}" \
     -Tjson > "${nextest_output}"

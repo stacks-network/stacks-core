@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Generate a balanced test matrix for the Bitcoin integration test workflow.
 #
-# Discovers all ignored tests in the stacks-node binary via cargo nextest,
+# Discovers all ignored tests in the stacks-node binary via nextest,
 # removes a hardcoded exclude list, then balances them into batches using
 # historical JUnit timings.
 #
@@ -44,7 +44,7 @@ fi
 ## ── Check for required binaries ─────────────────────────────────────────────
 required_commands=(comm grep jq sort wc)
 if [[ -z "${nextest_list_file}" ]]; then
-    required_commands+=(cargo)
+    required_commands+=(cargo-nextest)
 fi
 
 missing=0
@@ -85,7 +85,7 @@ if [[ -n "${nextest_list_file}" ]]; then
 else
     nextest_output="nextest_output.json"
     info "Listing ignored tests from nextest archive..."
-    cargo nextest list --archive-file "${nextest_archive}" -Tjson > "${nextest_output}" || {
+    cargo-nextest nextest list --archive-file "${nextest_archive}" -Tjson > "${nextest_output}" || {
         error "Error listing tests in $(hl "${nextest_archive}")"
         exit 1
     }

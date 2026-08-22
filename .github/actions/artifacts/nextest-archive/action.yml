@@ -20,17 +20,16 @@ runs:
         name: "nextest-archive"
 
     # Install the tool binaries bundled in the artifact (see the staging step
-    # in the create path below)
+    # in the create path below).
     - name: Install Bundled Tools
       if: |
         inputs.action == 'restore'
       shell: bash
       run: |
-        # upload-artifact does not preserve file permissions, so restore the
-        # executable bit before putting the tools on $PATH
-        chmod +x ci-tools/*
         mkdir -p "$HOME/.cargo/bin"
-        mv -f ci-tools/* "$HOME/.cargo/bin/"
+        tar --extract --zstd --file ci-tools.tar.zst --directory "$HOME/.cargo/bin"
+        chmod +x "$HOME/.cargo/bin"/{cargo-nextest,grcov,llvm-cov,llvm-profdata}
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
     # Checkout the code
     - name: Checkout the latest code
@@ -65,16 +64,24 @@ runs:
       with:
         tools: nextest, grcov
 
-    # Stage the tool binaries so they are uploaded with the artifact. The many
-    # parallel test jobs restore them from there instead of each downloading
-    # from GitHub Releases, which rate-limits the runners' shared IPs (429)
+    # Stage the runtime tools so test jobs need neither GitHub release downloads
+    # nor a Rust toolchain. grcov requires llvm-cov and llvm-profdata from the
+    # exact toolchain used to instrument the archived binaries.
     - name: Stage Tool Binaries for Upload
       if: |
         inputs.action == 'create'
       shell: bash
       run: |
         mkdir -p ci-tools
-        cp "$(command -v cargo-nextest)" "$(command -v grcov)" ci-tools/
+        RUST_HOST=$(rustc -vV | sed -n 's/^host: //p')
+        LLVM_TOOLS_DIR="$(rustc --print sysroot)/lib/rustlib/${RUST_HOST}/bin"
+        cp \
+          "$(command -v cargo-nextest)" \
+          "$(command -v grcov)" \
+          "${LLVM_TOOLS_DIR}/llvm-cov" \
+          "${LLVM_TOOLS_DIR}/llvm-profdata" \
+          ci-tools/
+        tar --create --zstd --file ci-tools.tar.zst --directory ci-tools .
 
     # Install mold linker and clang (faster than default)      
     - name: Install mold Linker (and clang)
@@ -141,7 +148,7 @@ runs:
         name: "nextest-archive"
         path: |
           ${{ inputs.archive-file }}
-          ci-tools/
+          ci-tools.tar.zst
         if-no-files-found: error
         retention-days: 1
         # The nextest archive and tool binaries are already compressed or

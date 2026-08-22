@@ -71,11 +71,6 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
      
-      # Setup Rust toolchain. These version-compatibility tests do not produce
-      # coverage, so they do not need llvm-tools-preview.
-      - name: Setup Rust Toolchain
-        uses: ./.github/actions/setup-rust-toolchain
-     
       # Restore bitcoin cache data
       - name: Restore Bitcoin Binary Cache
         uses: ./.github/actions/cache/bitcoin
@@ -120,7 +115,7 @@ jobs:
           run_bitcoin_rpc_tests() {
             local bitcoin_version="$1"
 
-            if ! BITCOIN_IMAGE_TAG="$bitcoin_version" cargo nextest run \
+            if ! BITCOIN_IMAGE_TAG="$bitcoin_version" cargo-nextest nextest run \
               --config-file ./.github/nextest/ci-nextest.toml \
               --profile ci-parallel \
               --run-ignored all \
