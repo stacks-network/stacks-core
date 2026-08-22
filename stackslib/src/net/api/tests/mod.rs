@@ -39,7 +39,9 @@ use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, SharedMemoryChainStateBackend, StacksHeadersDb,
+};
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksBlockHeader, StacksMicroblock,
@@ -54,7 +56,7 @@ use crate::net::httpcore::{
 use crate::net::relay::Relayer;
 use crate::net::rpc::ConversationHttp;
 use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
-use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs_ext;
+use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs_ext_shared;
 use crate::net::tests::NakamotoBootPlan;
 use crate::net::{
     Attachment, AttachmentInstance, MemPoolEventDispatcher, StackerDBConfig, StacksNodeState,
@@ -182,7 +184,10 @@ const TEST_CONTRACT_UNCONFIRMED: &str = "
 ";
 
 /// This helper function drives I/O between a sender and receiver Http conversation.
-fn convo_send_recv(sender: &mut ConversationHttp, receiver: &mut ConversationHttp) {
+fn convo_send_recv<CSP: ChainStatePersistence>(
+    sender: &mut ConversationHttp<CSP>,
+    receiver: &mut ConversationHttp<CSP>,
+) {
     let (mut pipe_read, mut pipe_write) = Pipe::new();
     pipe_read.set_nonblocking(true);
 
@@ -214,15 +219,15 @@ fn convo_send_recv(sender: &mut ConversationHttp, receiver: &mut ConversationHtt
 }
 
 /// TestRPC state
-pub struct TestRPC<'a> {
+pub struct TestRPC<'a, CSP: ChainStatePersistence = SharedMemoryChainStateBackend> {
     pub privk1: StacksPrivateKey,
     pub privk2: StacksPrivateKey,
-    pub peer_1: TestPeer<'a>,
-    pub peer_2: TestPeer<'a>,
+    pub peer_1: TestPeer<'a, CSP>,
+    pub peer_2: TestPeer<'a, CSP>,
     pub peer_1_indexer: BitcoinIndexer,
     pub peer_2_indexer: BitcoinIndexer,
-    pub convo_1: ConversationHttp,
-    pub convo_2: ConversationHttp,
+    pub convo_1: ConversationHttp<CSP>,
+    pub convo_2: ConversationHttp<CSP>,
     /// hash of the chain tip
     pub canonical_tip: StacksBlockId,
     /// block header hash of the chain tip
@@ -247,8 +252,8 @@ pub struct TestRPC<'a> {
     pub unconfirmed_state: bool,
 }
 
-impl<'a> TestRPC<'a> {
-    pub fn setup(test_name: &str) -> TestRPC<'a> {
+impl<'a> TestRPC<'a, SharedMemoryChainStateBackend> {
+    pub fn setup(test_name: &str) -> Self {
         Self::setup_ex(test_name, true, None, None)
     }
 
@@ -256,7 +261,7 @@ impl<'a> TestRPC<'a> {
         test_name: &str,
         rpc_handler_args_opt_1: Option<RPCHandlerArgsType>,
         rpc_handler_args_opt_2: Option<RPCHandlerArgsType>,
-    ) -> TestRPC<'a> {
+    ) -> Self {
         Self::setup_ex(
             test_name,
             true,
@@ -270,7 +275,7 @@ impl<'a> TestRPC<'a> {
         process_microblock: bool,
         rpc_handler_args_opt_1: Option<RPCHandlerArgsType>,
         rpc_handler_args_opt_2: Option<RPCHandlerArgsType>,
-    ) -> TestRPC<'a> {
+    ) -> Self {
         Self::setup_ex_with_config(
             test_name,
             process_microblock,
@@ -288,7 +293,7 @@ impl<'a> TestRPC<'a> {
         rpc_handler_args_opt_2: Option<RPCHandlerArgsType>,
         with_peer_1_config: F0,
         with_peer_2_config: F1,
-    ) -> TestRPC<'a>
+    ) -> Self
     where
         F0: Fn(&mut TestPeerConfig),
         F1: Fn(&mut TestPeerConfig),
@@ -323,8 +328,10 @@ impl<'a> TestRPC<'a> {
         )
         .unwrap();
 
-        let mut peer_1_config = TestPeerConfig::new(&format!("{test_name}-peer1"), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(&format!("{test_name}-peer2"), 0, 0);
+        let mut peer_1_config =
+            TestPeerConfig::new_shared_ephemeral(&format!("{test_name}-peer1"), 0, 0);
+        let mut peer_2_config =
+            TestPeerConfig::new_shared_ephemeral(&format!("{test_name}-peer2"), 0, 0);
 
         peer_1_config.private_key = privk1.clone();
         peer_2_config.private_key = privk2.clone();
@@ -388,8 +395,8 @@ impl<'a> TestRPC<'a> {
         with_peer_1_config(&mut peer_1_config);
         with_peer_2_config(&mut peer_2_config);
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         peer_1.rpc_handler_args = rpc_handler_args_opt_1;
         peer_2.rpc_handler_args = rpc_handler_args_opt_2;
@@ -512,7 +519,7 @@ impl<'a> TestRPC<'a> {
         let (burn_ops, stacks_block, microblocks) = peer_1.make_tenure(
             |ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -522,7 +529,7 @@ impl<'a> TestRPC<'a> {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -782,7 +789,7 @@ impl<'a> TestRPC<'a> {
         let (next_burn_ops, next_stacks_block, _) = peer_1.make_tenure(
             |ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, _| {
                 let parent_tip = match parent_opt {
-                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                     Some(block) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -792,7 +799,7 @@ impl<'a> TestRPC<'a> {
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
-                        StacksChainState::get_anchored_block_header_info(
+                        StacksHeadersDb::get_anchored_block_header_info(
                             chainstate.db(),
                             &snapshot.consensus_hash,
                             &snapshot.winning_stacks_block_hash,
@@ -857,7 +864,7 @@ impl<'a> TestRPC<'a> {
             tx.commit().unwrap();
         }
 
-        let convo_1 = ConversationHttp::new(
+        let convo_1 = ConversationHttp::<SharedMemoryChainStateBackend>::new(
             format!("127.0.0.1:{}", peer_1_http)
                 .parse::<SocketAddr>()
                 .unwrap(),
@@ -868,7 +875,7 @@ impl<'a> TestRPC<'a> {
             32,
         );
 
-        let convo_2 = ConversationHttp::new(
+        let convo_2 = ConversationHttp::<SharedMemoryChainStateBackend>::new(
             format!("127.0.0.1:{}", peer_2_http)
                 .parse::<SocketAddr>()
                 .unwrap(),
@@ -905,13 +912,13 @@ impl<'a> TestRPC<'a> {
     }
 
     /// Set up the peers as Nakamoto nodes
-    pub fn setup_nakamoto(test_name: &str, observer: &'a TestEventObserver) -> TestRPC<'a> {
+    pub fn setup_nakamoto(test_name: &str, observer: &'a TestEventObserver) -> Self {
         let bitvecs = vec![vec![
             true, true, true, true, true, true, true, true, true, true,
         ]];
 
         let (mut peer, mut other_peers) =
-            make_nakamoto_peers_from_invs_ext(test_name, observer, bitvecs, |boot_plan| {
+            make_nakamoto_peers_from_invs_ext_shared(test_name, observer, bitvecs, |boot_plan| {
                 boot_plan
                     .with_pox_constants(10, 3)
                     .with_extra_peers(1)
@@ -925,7 +932,7 @@ impl<'a> TestRPC<'a> {
         let peer_2_indexer =
             BitcoinIndexer::new_unit_test(&other_peer.config.chain_config.burnchain.working_dir);
 
-        let convo_1 = ConversationHttp::new(
+        let convo_1 = ConversationHttp::<SharedMemoryChainStateBackend>::new(
             format!("127.0.0.1:{}", peer.config.http_port)
                 .parse::<SocketAddr>()
                 .unwrap(),
@@ -936,7 +943,7 @@ impl<'a> TestRPC<'a> {
             32,
         );
 
-        let convo_2 = ConversationHttp::new(
+        let convo_2 = ConversationHttp::<SharedMemoryChainStateBackend>::new(
             format!("127.0.0.1:{}", other_peer.config.http_port)
                 .parse::<SocketAddr>()
                 .unwrap(),
@@ -1004,7 +1011,7 @@ impl<'a> TestRPC<'a> {
         test_name: &str,
         observer: &'a TestEventObserver,
         boot_plan_fn: F,
-    ) -> TestRPC<'a>
+    ) -> Self
     where
         F: FnOnce(NakamotoBootPlan) -> NakamotoBootPlan,
     {
@@ -1013,7 +1020,7 @@ impl<'a> TestRPC<'a> {
         ]];
 
         let (mut peer, mut other_peers) =
-            make_nakamoto_peers_from_invs_ext(function_name!(), observer, bitvecs, |boot_plan| {
+            make_nakamoto_peers_from_invs_ext_shared(test_name, observer, bitvecs, |boot_plan| {
                 boot_plan_fn(
                     boot_plan
                         .with_pox_constants(10, 3)
@@ -1029,7 +1036,7 @@ impl<'a> TestRPC<'a> {
         let peer_2_indexer =
             BitcoinIndexer::new_unit_test(&other_peer.config.chain_config.burnchain.working_dir);
 
-        let convo_1 = ConversationHttp::new(
+        let convo_1 = ConversationHttp::<SharedMemoryChainStateBackend>::new(
             format!("127.0.0.1:{}", peer.config.http_port)
                 .parse::<SocketAddr>()
                 .unwrap(),
@@ -1040,7 +1047,7 @@ impl<'a> TestRPC<'a> {
             32,
         );
 
-        let convo_2 = ConversationHttp::new(
+        let convo_2 = ConversationHttp::<SharedMemoryChainStateBackend>::new(
             format!("127.0.0.1:{}", other_peer.config.http_port)
                 .parse::<SocketAddr>()
                 .unwrap(),
@@ -1123,7 +1130,10 @@ impl<'a> TestRPC<'a> {
         wait_for: F,
     ) -> Vec<StacksHttpResponse>
     where
-        F: Fn(&mut TestPeer, &mut TestPeer) -> bool,
+        F: Fn(
+            &mut TestPeer<SharedMemoryChainStateBackend>,
+            &mut TestPeer<SharedMemoryChainStateBackend>,
+        ) -> bool,
     {
         let mut peer_1 = self.peer_1;
         let mut peer_2 = self.peer_2;

@@ -172,7 +172,9 @@ impl HttpRequest for RPCCallReadOnlyRequestHandler {
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCCallReadOnlyRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.contract_identifier = None;
@@ -187,7 +189,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,

@@ -22,6 +22,7 @@ use std::{fs, thread};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::db::DiskChainStateBackend;
 use stacks::net::p2p::PeerNetwork;
 use stacks_common::types::StacksEpochId;
 
@@ -37,12 +38,15 @@ use crate::Config;
 #[derive(Default)]
 pub struct Neon2NakaData {
     pub leader_key_registration_state: LeaderKeyRegistrationState,
-    pub peer_network: Option<PeerNetwork>,
+    pub peer_network: Option<PeerNetwork<DiskChainStateBackend>>,
 }
 
 impl Neon2NakaData {
     /// Take needed values from `NeonGlobals` and optionally `PeerNetwork`, consuming them
-    pub fn new(globals: NeonGlobals, peer_network: Option<PeerNetwork>) -> Self {
+    pub fn new(
+        globals: NeonGlobals,
+        peer_network: Option<PeerNetwork<DiskChainStateBackend>>,
+    ) -> Self {
         let key_state = globals
             .leader_key_registration_state
             .lock()

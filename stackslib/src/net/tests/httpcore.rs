@@ -166,7 +166,7 @@ fn make_test_transaction() -> StacksTransaction {
 
 #[test]
 fn test_http_request_type_codec() {
-    let convo = ConversationHttp::new(
+    let convo = ConversationHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
         "127.0.0.1:12345".parse().unwrap(),
         None,
         PeerHost::DNS("localhost".to_string(), 12345),
@@ -328,7 +328,7 @@ fn test_http_request_type_codec() {
         expected_bytes.append(&mut expected_http_body.clone());
 
         let mut bytes = vec![];
-        let mut http = StacksHttp::new(
+        let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
             "127.0.0.1:12345".parse().unwrap(),
             &ConnectionOptions::default(),
         );
@@ -351,7 +351,7 @@ fn test_http_request_type_codec_err() {
         "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 0\r\n\r\n",
     ];
     for bad_content_length in bad_content_lengths {
-        let mut http = StacksHttp::new(
+        let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
             "127.0.0.1:20443".parse().unwrap(),
             &ConnectionOptions::default(),
         );
@@ -373,7 +373,7 @@ fn test_http_request_type_codec_err() {
         "POST /v2/transactions HTTP/1.1\r\nUser-Agent: stacks/2.0\r\nHost: bad:123\r\nContent-Length: 1\r\n\r\nb",
     ];
     for bad_content_type in bad_content_types {
-        let mut http = StacksHttp::new(
+        let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
             "127.0.0.1:20443".parse().unwrap(),
             &ConnectionOptions::default(),
         );
@@ -730,7 +730,7 @@ fn test_http_response_type_codec() {
                 .zip(expected_http_bodies.iter()),
         )
     {
-        let mut http = StacksHttp::new(
+        let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
             "127.0.0.1:20443".parse().unwrap(),
             &ConnectionOptions::default(),
         );
@@ -827,7 +827,7 @@ fn test_http_response_type_codec_err() {
             expected_error
         );
 
-        let mut http = StacksHttp::new(
+        let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
             "127.0.0.1:20443".parse().unwrap(),
             &ConnectionOptions::default(),
         );
@@ -852,7 +852,7 @@ fn test_http_duplicate_concurrent_streamed_response_fails() {
     let invalid_neighbors_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n10\r\nxxxxxxxxxxxxxxxx\r\n0\r\n\r\n";
     let invalid_chunked_response = "HTTP/1.1 200 OK\r\nServer: stacks/v2.0\r\nX-Request-Id: 123\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n38\r\n{\"bootstrap\":[],\"sample\":[],\"inbound\":[],\"outbound\":[]}\r\n0\r\n\r\n";
 
-    let mut http = StacksHttp::new(
+    let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
         "127.0.0.1:20443".parse().unwrap(),
         &ConnectionOptions::default(),
     );
@@ -1029,7 +1029,7 @@ fn test_http_parse_proof_request_query() {
 
 #[test]
 fn test_metrics_identifiers() {
-    let convo = ConversationHttp::new(
+    let convo = ConversationHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
         "127.0.0.1:12345".parse().unwrap(),
         None,
         PeerHost::DNS("localhost".to_string(), 12345),
@@ -1327,7 +1327,10 @@ fn test_http_error_responses() {
 
     for (verb, path, expected_status, allow_contains) in fixtures {
         let addr = "127.0.0.1:20443".parse().unwrap();
-        let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+        let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
+            addr,
+            &ConnectionOptions::default(),
+        );
 
         let request_data =
             format!("{verb} {path} HTTP/1.1\r\nHost: localhost:20443\r\nConnection: close\r\n\r\n");

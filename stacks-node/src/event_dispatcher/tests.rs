@@ -15,9 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::net::TcpListener;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::costs::ExecutionCost;
@@ -55,6 +56,48 @@ use tiny_http::{Method, Response, Server, StatusCode};
 
 use crate::event_dispatcher::payloads::*;
 use crate::event_dispatcher::*;
+
+const REQUEST_GATE_TIMEOUT: Duration = Duration::from_secs(5);
+// Keep the HTTP client alive long enough for the test-side gate to diagnose blocked dispatches.
+const OBSERVER_TIMEOUT_MS: u64 = 10_000;
+
+/// Blocks mock HTTP responses until the test explicitly releases them.
+struct RequestGate {
+    started_tx: Sender<()>,
+    release_rx: Mutex<Receiver<()>>,
+}
+
+impl RequestGate {
+    fn new() -> (Arc<Self>, Receiver<()>, Sender<()>) {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let gate = Arc::new(Self {
+            started_tx,
+            release_rx: Mutex::new(release_rx),
+        });
+        (gate, started_rx, release_tx)
+    }
+
+    fn wait_for_release(&self) -> Vec<u8> {
+        self.started_tx.send(()).unwrap();
+        self.release_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(REQUEST_GATE_TIMEOUT)
+            .expect("test did not release mock HTTP request");
+        vec![]
+    }
+}
+
+fn dispatch_empty_nakamoto_block(dispatcher: &EventDispatcher) {
+    dispatcher.process_mined_nakamoto_block_event(
+        0,
+        &NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]),
+        0,
+        &ExecutionCost::max_value(),
+        vec![],
+    );
+}
 
 #[test]
 fn test_post_condition_aborted_transaction_does_not_emit_events() {
@@ -1190,21 +1233,12 @@ fn test_block_proposal_validation_event() {
 #[test]
 fn test_http_delivery_non_blocking() {
     let mut slow_server = mockito::Server::new();
-
-    let start_count = Arc::new(AtomicU32::new(0));
-    let end_count = Arc::new(AtomicU32::new(0));
-
-    let start_count2 = start_count.clone();
-    let end_count2 = end_count.clone();
+    let (request_gate, started_rx, release_tx) = RequestGate::new();
+    let handler_gate = Arc::clone(&request_gate);
 
     let mock = slow_server
         .mock("POST", "/mined_nakamoto_block")
-        .with_body_from_request(move |_| {
-            start_count2.fetch_add(1, Ordering::SeqCst);
-            thread::sleep(Duration::from_secs(2));
-            end_count2.fetch_add(1, Ordering::SeqCst);
-            "".into()
-        })
+        .with_body_from_request(move |_| handler_gate.wait_for_release())
         .create();
 
     let endpoint = slow_server
@@ -1219,37 +1253,27 @@ fn test_http_delivery_non_blocking() {
     dispatcher.register_observer(&EventObserverConfig {
         endpoint: endpoint.clone(),
         events_keys: vec![EventKeyType::MinedBlocks],
-        timeout_ms: 3_000,
+        timeout_ms: OBSERVER_TIMEOUT_MS,
         disable_retries: false,
         disable_contract_interface: false,
     });
 
-    let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
+    let (dispatched_tx, dispatched_rx) = mpsc::channel();
+    let dispatching = dispatcher.clone();
+    let dispatch_thread = thread::spawn(move || {
+        dispatch_empty_nakamoto_block(&dispatching);
+        dispatched_tx.send(()).unwrap();
+    });
 
-    let start = Instant::now();
-
-    dispatcher.process_mined_nakamoto_block_event(
-        0,
-        &nakamoto_block,
-        0,
-        &ExecutionCost::max_value(),
-        vec![],
-    );
-
-    assert!(
-        start.elapsed() < Duration::from_millis(100),
-        "dispatcher blocked while sending event"
-    );
-
-    thread::sleep(Duration::from_secs(1));
-
-    assert!(start_count.load(Ordering::SeqCst) == 1);
-    assert!(end_count.load(Ordering::SeqCst) == 0);
-
-    thread::sleep(Duration::from_secs(2));
-
-    assert!(start_count.load(Ordering::SeqCst) == 1);
-    assert!(end_count.load(Ordering::SeqCst) == 1);
+    dispatched_rx
+        .recv_timeout(REQUEST_GATE_TIMEOUT)
+        .expect("dispatcher blocked while enqueueing event");
+    started_rx
+        .recv_timeout(REQUEST_GATE_TIMEOUT)
+        .expect("mock HTTP request did not start");
+    release_tx.send(()).unwrap();
+    dispatcher.worker.noop().unwrap().wait_until_complete();
+    dispatch_thread.join().unwrap();
 
     mock.assert();
 }
@@ -1257,23 +1281,13 @@ fn test_http_delivery_non_blocking() {
 #[test]
 fn test_http_delivery_blocks_once_queue_is_full() {
     let mut slow_server = mockito::Server::new();
+    let (request_gate, started_rx, release_tx) = RequestGate::new();
+    let handler_gate = Arc::clone(&request_gate);
 
-    let start_count = Arc::new(AtomicU32::new(0));
-    let end_count = Arc::new(AtomicU32::new(0));
-
-    let start_count2 = start_count.clone();
-    let end_count2 = end_count.clone();
-
-    // this server takes 2 seconds until it finally responds
     let mock = slow_server
         .mock("POST", "/mined_nakamoto_block")
         .expect(4)
-        .with_body_from_request(move |_| {
-            start_count2.fetch_add(1, Ordering::SeqCst);
-            thread::sleep(Duration::from_secs(2));
-            end_count2.fetch_add(1, Ordering::SeqCst);
-            "".into()
-        })
+        .with_body_from_request(move |_| handler_gate.wait_for_release())
         .create();
 
     let endpoint = slow_server
@@ -1291,80 +1305,61 @@ fn test_http_delivery_blocks_once_queue_is_full() {
     dispatcher.register_observer(&EventObserverConfig {
         endpoint: endpoint.clone(),
         events_keys: vec![EventKeyType::MinedBlocks],
-        timeout_ms: 3_000,
+        timeout_ms: OBSERVER_TIMEOUT_MS,
         disable_retries: false,
         disable_contract_interface: false,
     });
 
-    let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
+    // Send the first three requests from a guarded thread. They fit in the queue and must not
+    // wait for the first HTTP response.
+    let initial_dispatcher = dispatcher.clone();
+    let (initial_done_tx, initial_done_rx) = mpsc::channel();
+    let initial_thread = thread::spawn(move || {
+        for _ in 1..=3 {
+            dispatch_empty_nakamoto_block(&initial_dispatcher);
+        }
+        initial_done_tx.send(()).unwrap();
+    });
+    initial_done_rx
+        .recv_timeout(REQUEST_GATE_TIMEOUT)
+        .expect("dispatcher blocked before the event queue became full");
+    initial_thread.join().unwrap();
 
-    let start = Instant::now();
-
-    // send the first three requests
-    for _ in 1..=3 {
-        dispatcher.process_mined_nakamoto_block_event(
-            0,
-            &nakamoto_block,
-            0,
-            &ExecutionCost::max_value(),
-            vec![],
-        );
-    }
-
-    let elapsed = start.elapsed();
-    // this shouldn't block because they fit in the queue
-    assert!(
-        elapsed < Duration::from_millis(500),
-        "dispatcher blocked while sending first three events"
-    );
-
-    thread::sleep(Duration::from_millis(500) - elapsed);
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 1);
-    assert_eq!(end_count.load(Ordering::SeqCst), 0);
-
-    let start = Instant::now();
+    started_rx
+        .recv_timeout(REQUEST_GATE_TIMEOUT)
+        .expect("first mock HTTP request did not start");
 
     // send the fourth request -- this should now block until the first request is complete
-    dispatcher.process_mined_nakamoto_block_event(
-        0,
-        &nakamoto_block,
-        0,
-        &ExecutionCost::max_value(),
-        vec![],
+    let fourth_dispatcher = dispatcher.clone();
+    let (fourth_started_tx, fourth_started_rx) = mpsc::channel();
+    let (fourth_done_tx, fourth_done_rx) = mpsc::channel();
+    let fourth_thread = thread::spawn(move || {
+        fourth_started_tx.send(()).unwrap();
+        dispatch_empty_nakamoto_block(&fourth_dispatcher);
+        fourth_done_tx.send(()).unwrap();
+    });
+    fourth_started_rx.recv().unwrap();
+    assert_eq!(
+        fourth_done_rx.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout),
+        "dispatcher did not block when enqueueing fourth event"
     );
 
-    // we waited 500ms previously, so it should take on the order of 1.5s until
-    // the first request is complete
-    assert!(
-        start.elapsed() > Duration::from_millis(1000),
-        "dispatcher did not block when sending fourth event"
-    );
+    // Finishing the first request frees a queue slot for the fourth event.
+    release_tx.send(()).unwrap();
+    fourth_done_rx
+        .recv_timeout(REQUEST_GATE_TIMEOUT)
+        .expect("fourth event remained blocked after a queue slot was freed");
+    fourth_thread.join().unwrap();
 
-    assert!(
-        start.elapsed() < Duration::from_millis(2000),
-        "dispatcher blocked unexpectedly long after sending fourth event"
-    );
-
-    thread::sleep(Duration::from_millis(100));
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 2);
-    assert_eq!(end_count.load(Ordering::SeqCst), 1);
-
-    thread::sleep(Duration::from_secs(2));
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 3);
-    assert_eq!(end_count.load(Ordering::SeqCst), 2);
-
-    thread::sleep(Duration::from_secs(2));
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 4);
-    assert_eq!(end_count.load(Ordering::SeqCst), 3);
-
-    thread::sleep(Duration::from_secs(2));
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 4);
-    assert_eq!(end_count.load(Ordering::SeqCst), 4);
+    // Release the remaining requests one at a time and then drain the worker.
+    for _ in 2..=4 {
+        started_rx
+            .recv_timeout(REQUEST_GATE_TIMEOUT)
+            .expect("queued mock HTTP request did not start");
+        release_tx.send(()).unwrap();
+    }
+    dispatcher.worker.noop().unwrap().wait_until_complete();
 
     mock.assert();
 }
@@ -1372,21 +1367,12 @@ fn test_http_delivery_blocks_once_queue_is_full() {
 #[test]
 fn test_http_delivery_always_blocks_if_queue_size_is_zero() {
     let mut slow_server = mockito::Server::new();
-
-    let start_count = Arc::new(AtomicU32::new(0));
-    let end_count = Arc::new(AtomicU32::new(0));
-
-    let start_count2 = start_count.clone();
-    let end_count2 = end_count.clone();
+    let (request_gate, started_rx, release_tx) = RequestGate::new();
+    let handler_gate = Arc::clone(&request_gate);
 
     let mock = slow_server
         .mock("POST", "/mined_nakamoto_block")
-        .with_body_from_request(move |_| {
-            start_count2.fetch_add(1, Ordering::SeqCst);
-            thread::sleep(Duration::from_secs(2));
-            end_count2.fetch_add(1, Ordering::SeqCst);
-            "".into()
-        })
+        .with_body_from_request(move |_| handler_gate.wait_for_release())
         .create();
 
     let endpoint = slow_server
@@ -1401,32 +1387,30 @@ fn test_http_delivery_always_blocks_if_queue_size_is_zero() {
     dispatcher.register_observer(&EventObserverConfig {
         endpoint: endpoint.clone(),
         events_keys: vec![EventKeyType::MinedBlocks],
-        timeout_ms: 3_000,
+        timeout_ms: OBSERVER_TIMEOUT_MS,
         disable_retries: false,
         disable_contract_interface: false,
     });
 
-    let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
-
-    let start = Instant::now();
-
-    dispatcher.process_mined_nakamoto_block_event(
-        0,
-        &nakamoto_block,
-        0,
-        &ExecutionCost::max_value(),
-        vec![],
+    let (dispatch_done_tx, dispatch_done_rx) = mpsc::channel();
+    let dispatch_thread = thread::spawn(move || {
+        dispatch_empty_nakamoto_block(&dispatcher);
+        dispatch_done_tx.send(()).unwrap();
+    });
+    started_rx
+        .recv_timeout(REQUEST_GATE_TIMEOUT)
+        .expect("mock HTTP request did not start");
+    assert_eq!(
+        dispatch_done_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty),
+        "dispatcher returned before the HTTP request completed"
     );
 
-    assert!(
-        start.elapsed() > Duration::from_millis(1900),
-        "dispatcher did not block while sending event"
-    );
-
-    thread::sleep(Duration::from_millis(100));
-
-    assert!(start_count.load(Ordering::SeqCst) == 1);
-    assert!(end_count.load(Ordering::SeqCst) == 1);
+    release_tx.send(()).unwrap();
+    dispatch_done_rx
+        .recv_timeout(REQUEST_GATE_TIMEOUT)
+        .expect("dispatcher remained blocked after HTTP request completed");
+    dispatch_thread.join().unwrap();
 
     mock.assert();
 }

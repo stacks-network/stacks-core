@@ -30,23 +30,44 @@ use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::NakamotoBlockHeader;
+use crate::chainstate::stacks::db::SharedMemoryChainStateBackend;
 use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::*;
-use crate::chainstate::tests::TestChainstate;
 use crate::net::relay::{AcceptedNakamotoBlocks, ProcessedNetReceipts, Relayer};
 use crate::net::stackerdb::{StackerDBConfig, StackerDBs};
 use crate::net::test::*;
-use crate::net::tests::inv::nakamoto::make_nakamoto_peers_from_invs;
+use crate::net::tests::inv::nakamoto::{
+    make_nakamoto_peers_from_invs, make_nakamoto_peers_from_invs_ext_shared,
+};
 use crate::net::{Error as NetError, *};
+
+fn make_shared_nakamoto_relay_peers_from_invs<'a>(
+    test_name: &str,
+    observer: &'a TestEventObserver,
+    rc_len: u32,
+    prepare_len: u32,
+    bitvecs: Vec<Vec<bool>>,
+    num_peers: usize,
+) -> (
+    TestPeer<'a, SharedMemoryChainStateBackend>,
+    Vec<TestPeer<'a, SharedMemoryChainStateBackend>>,
+) {
+    make_nakamoto_peers_from_invs_ext_shared(test_name, observer, bitvecs, |boot_plan| {
+        boot_plan
+            .with_pox_constants(rc_len, prepare_len)
+            .with_extra_peers(num_peers)
+            .with_initial_balances(vec![])
+    })
+}
 
 /// Everything in a TestPeer, except the coordinator (which is encumbered by the lifetime of its
 /// chains coordinator's event observer)
 struct ExitedPeer {
     pub config: TestPeerConfig,
-    pub network: PeerNetwork,
+    pub network: PeerNetwork<SharedMemoryChainStateBackend>,
     pub sortdb: Option<SortitionDB>,
     pub miner: TestMiner,
-    pub stacks_node: Option<TestStacksNode>,
+    pub stacks_node: Option<TestStacksNode<SharedMemoryChainStateBackend>>,
     pub relayer: Relayer,
     pub mempool: Option<MemPoolDB>,
     pub chainstate_path: String,
@@ -55,7 +76,7 @@ struct ExitedPeer {
 
 impl ExitedPeer {
     /// Instantiate the exited peer from the TestPeer
-    fn from_test_peer(peer: TestPeer) -> Self {
+    fn from_test_peer(peer: TestPeer<SharedMemoryChainStateBackend>) -> Self {
         Self {
             config: peer.config,
             network: peer.network,
@@ -169,7 +190,7 @@ impl SeedNode {
     ///
     /// The contents of `peer` will be sent back to the unit test via an `ExitedPeer` struct, so
     /// the unit test can query it or even run its networking stack.
-    pub fn main(mut peer: TestPeer, rc_len: u64, comms: SeedComms) {
+    pub fn main(mut peer: TestPeer<SharedMemoryChainStateBackend>, rc_len: u64, comms: SeedComms) {
         let private_key = StacksPrivateKey::from_seed(&[2]);
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -433,14 +454,20 @@ fn test_no_buffer_ready_nakamoto_blocks() {
     ]];
 
     let rc_len = 10u64;
-    let (peer, mut followers) =
-        make_nakamoto_peers_from_invs(function_name!(), &observer, rc_len as u32, 5, bitvecs, 1);
+    let (peer, mut followers) = make_shared_nakamoto_relay_peers_from_invs(
+        function_name!(),
+        &observer,
+        rc_len as u32,
+        5,
+        bitvecs,
+        1,
+    );
     let peer_nk = peer.to_neighbor().addr;
     let mut follower = followers.pop().unwrap();
 
-    let test_path = TestChainstate::make_test_path(&follower.config.chain_config);
-    let stackerdb_path = format!("{}/stacker_db.sqlite", &test_path);
-    let follower_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
+    let stackerdb_memory_namespace = format!("{}-stackerdb", &follower.chain.test_path);
+    let follower_stacker_dbs =
+        StackerDBs::connect_memory_shared(&stackerdb_memory_namespace).unwrap();
     let mut follower_relayer = Relayer::from_p2p(&mut follower.network, follower_stacker_dbs);
 
     // disable the follower's ability to download blocks from the seed peer
@@ -741,14 +768,20 @@ fn test_buffer_nonready_nakamoto_blocks() {
     ]];
 
     let rc_len = 10u64;
-    let (peer, mut followers) =
-        make_nakamoto_peers_from_invs(function_name!(), &observer, rc_len as u32, 5, bitvecs, 1);
+    let (peer, mut followers) = make_shared_nakamoto_relay_peers_from_invs(
+        function_name!(),
+        &observer,
+        rc_len as u32,
+        5,
+        bitvecs,
+        1,
+    );
     let peer_nk = peer.to_neighbor().addr;
     let mut follower = followers.pop().unwrap();
 
-    let test_path = TestChainstate::make_test_path(&follower.config.chain_config);
-    let stackerdb_path = format!("{}/stacker_db.sqlite", &test_path);
-    let follower_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
+    let stackerdb_memory_namespace = format!("{}-stackerdb", &follower.chain.test_path);
+    let follower_stacker_dbs =
+        StackerDBs::connect_memory_shared(&stackerdb_memory_namespace).unwrap();
     let mut follower_relayer = Relayer::from_p2p(&mut follower.network, follower_stacker_dbs);
 
     // disable the follower's ability to download blocks from the seed peer
@@ -1012,14 +1045,20 @@ fn test_nakamoto_boot_node_from_block_push() {
     ];
 
     let rc_len = 10u64;
-    let (peer, mut followers) =
-        make_nakamoto_peers_from_invs(function_name!(), &observer, rc_len as u32, 5, bitvecs, 1);
+    let (peer, mut followers) = make_shared_nakamoto_relay_peers_from_invs(
+        function_name!(),
+        &observer,
+        rc_len as u32,
+        5,
+        bitvecs,
+        1,
+    );
     let peer_nk = peer.to_neighbor().addr;
     let mut follower = followers.pop().unwrap();
 
-    let test_path = TestChainstate::make_test_path(&follower.config.chain_config);
-    let stackerdb_path = format!("{}/stacker_db.sqlite", &test_path);
-    let follower_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
+    let stackerdb_memory_namespace = format!("{}-stackerdb", &follower.chain.test_path);
+    let follower_stacker_dbs =
+        StackerDBs::connect_memory_shared(&stackerdb_memory_namespace).unwrap();
 
     // disable the follower's ability to download blocks from the seed peer
     follower.network.connection_opts.disable_block_download = true;

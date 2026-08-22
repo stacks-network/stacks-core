@@ -85,7 +85,10 @@ pub struct UnconfirmedState {
 impl UnconfirmedState {
     /// Make a new unconfirmed state, but don't do anything with it yet.  Caller should immediately
     /// call .refresh() to instatiate and store the underlying state trie.
-    fn new(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
+    fn new<B: ChainStatePersistence>(
+        chainstate: &StacksChainState<B>,
+        tip: StacksBlockId,
+    ) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(
             &chainstate.clarity_state_index_root,
             None,
@@ -94,7 +97,7 @@ impl UnconfirmedState {
 
         let clarity_instance = ClarityInstance::new(chainstate.mainnet, chainstate.chain_id, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
-        let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
+        let cost_so_far = StacksHeadersDb::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
 
         Ok(UnconfirmedState {
@@ -161,8 +164,8 @@ impl UnconfirmedState {
     }
 
     /// Make a new unconfirmed state, but don't do anything with it yet, and deny refreshes.
-    fn new_readonly(
-        chainstate: &StacksChainState,
+    fn new_readonly<B: ChainStatePersistence>(
+        chainstate: &StacksChainState<B>,
         tip: StacksBlockId,
     ) -> Result<UnconfirmedState, Error> {
         let marf = MarfedKV::open_unconfirmed(
@@ -173,7 +176,7 @@ impl UnconfirmedState {
 
         let clarity_instance = ClarityInstance::new(chainstate.mainnet, chainstate.chain_id, marf);
         let unconfirmed_tip = MARF::make_unconfirmed_chain_tip(&tip);
-        let cost_so_far = StacksChainState::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
+        let cost_so_far = StacksHeadersDb::get_stacks_block_anchored_cost(chainstate.db(), &tip)?
             .ok_or(Error::NoSuchBlockError)?;
 
         Ok(UnconfirmedState {
@@ -209,7 +212,7 @@ impl UnconfirmedState {
     /// Idempotent.
     fn append_microblocks(
         &mut self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         burn_dbconn: &dyn BurnStateDB,
         mblocks: Vec<StacksMicroblock>,
     ) -> ProcessedUnconfirmedState {
@@ -255,7 +258,7 @@ impl UnconfirmedState {
             // NOTE: we *must* commit the clarity_tx now that it's begun.
             // Otherwise, microblock miners can leave the MARF in a partially-initialized state,
             // leading to a node crash.
-            let mut clarity_tx = StacksChainState::chainstate_begin_unconfirmed(
+            let mut clarity_tx = ClarityTxFactory::chainstate_begin_unconfirmed(
                 db_config,
                 &headers_db,
                 &mut self.clarity_inst,
@@ -290,7 +293,7 @@ impl UnconfirmedState {
                 );
 
                 let (stx_fees, stx_burns, receipts) =
-                    match StacksChainState::process_microblocks_transactions(
+                    match Epoch2BlockProcessor::process_microblocks_transactions(
                         &mut clarity_tx,
                         &[mblock.clone()],
                     ) {
@@ -360,7 +363,7 @@ impl UnconfirmedState {
     /// Load up the Stacks microblock stream to process, composed of only the new microblocks
     fn load_child_microblocks(
         &self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
     ) -> Result<Option<Vec<StacksMicroblock>>, Error> {
         let (consensus_hash, anchored_block_hash) =
             match chainstate.get_block_header_hashes(&self.confirmed_chain_tip)? {
@@ -370,7 +373,7 @@ impl UnconfirmedState {
                 }
             };
 
-        StacksChainState::load_descendant_staging_microblock_stream(
+        Epoch2StagingBlocksDb::load_descendant_staging_microblock_stream(
             chainstate.db(),
             &StacksBlockId::new(&consensus_hash, &anchored_block_hash),
             0,
@@ -382,7 +385,7 @@ impl UnconfirmedState {
     /// Returns ProcessedUnconfirmedState for the microblocks newly added to the unconfirmed state
     pub fn refresh(
         &mut self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         burn_dbconn: &dyn BurnStateDB,
     ) -> Result<ProcessedUnconfirmedState, Error> {
         assert!(
@@ -474,7 +477,7 @@ impl UnconfirmedState {
     }
 }
 
-impl StacksChainState {
+impl<B: ChainStatePersistence> StacksChainState<B> {
     /// Clear the current unconfirmed state
     fn drop_unconfirmed_state(&mut self, mut unconfirmed: UnconfirmedState) {
         if !unconfirmed.have_state {
@@ -651,15 +654,12 @@ mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut peer_config = TestPeerConfig::new(function_name!(), 7000, 7001);
+        let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 7000, 7001);
         peer_config.chain_config.initial_balances =
             vec![(addr.to_account_principal(), initial_balance)];
         let burnchain = peer_config.chain_config.burnchain.clone();
 
-        let mut peer = TestPeer::new(peer_config);
-
-        let chainstate_path = peer.chain.chainstate_path.clone();
-
+        let mut peer = TestPeer::new_shared_ephemeral(peer_config);
         let num_blocks = 10;
         let first_stacks_block_height = {
             let sn = SortitionDB::get_canonical_burn_chain_tip(
@@ -700,7 +700,7 @@ mod test {
                  ref parent_opt,
                  _| {
                     let parent_tip = match parent_opt {
-                        None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                        None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                         Some(block) => {
                             let ic = sortdb.index_conn();
                             let snapshot =
@@ -711,7 +711,7 @@ mod test {
                                 )
                                 .unwrap()
                                 .unwrap(); // succeeds because we don't fork
-                            StacksChainState::get_anchored_block_header_info(
+                            StacksHeadersDb::get_anchored_block_header_info(
                                 chainstate.db(),
                                 &snapshot.consensus_hash,
                                 &snapshot.winning_stacks_block_hash,
@@ -732,7 +732,7 @@ mod test {
 
                     let coinbase_tx = make_coinbase(miner, tenure_id);
                     let (anchored_block, anchored_block_size, anchored_block_cost) =
-                        StacksBlockBuilder::make_anchored_block_from_txs(
+                        StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                             block_builder,
                             chainstate,
                             &sortdb.index_handle_at_tip(),
@@ -891,15 +891,12 @@ mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut peer_config = TestPeerConfig::new(function_name!(), 7002, 7003);
+        let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 7002, 7003);
         peer_config.chain_config.initial_balances =
             vec![(addr.to_account_principal(), initial_balance)];
         let burnchain = peer_config.chain_config.burnchain.clone();
 
-        let mut peer = TestPeer::new(peer_config);
-
-        let chainstate_path = peer.chain.chainstate_path.clone();
-
+        let mut peer = TestPeer::new_shared_ephemeral(peer_config);
         let num_blocks = 10;
         let first_stacks_block_height = {
             let tip = SortitionDB::get_canonical_burn_chain_tip(
@@ -940,7 +937,7 @@ mod test {
                  ref parent_opt,
                  _| {
                     let parent_tip = match parent_opt {
-                        None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                        None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                         Some(block) => {
                             let ic = sortdb.index_conn();
                             let snapshot =
@@ -951,7 +948,7 @@ mod test {
                                 )
                                 .unwrap()
                                 .unwrap(); // succeeds because we don't fork
-                            StacksChainState::get_anchored_block_header_info(
+                            StacksHeadersDb::get_anchored_block_header_info(
                                 chainstate.db(),
                                 &snapshot.consensus_hash,
                                 &snapshot.winning_stacks_block_hash,
@@ -972,7 +969,7 @@ mod test {
 
                     let coinbase_tx = make_coinbase(miner, tenure_id);
                     let (anchored_block, anchored_block_size, anchored_block_cost) =
-                        StacksBlockBuilder::make_anchored_block_from_txs(
+                        StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                             block_builder,
                             chainstate,
                             &sortdb.index_handle_at_tip(),
@@ -1141,7 +1138,7 @@ mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut peer_config = TestPeerConfig::new(function_name!(), 7004, 7005);
+        let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 7004, 7005);
         peer_config.chain_config.initial_balances =
             vec![(addr.to_account_principal(), initial_balance)];
         peer_config.chain_config.epochs = Some(EpochList::new(&[StacksEpoch {
@@ -1153,9 +1150,7 @@ mod test {
         }]));
         let burnchain = peer_config.chain_config.burnchain.clone();
 
-        let mut peer = TestPeer::new(peer_config);
-        let chainstate_path = peer.chain.chainstate_path.clone();
-
+        let mut peer = TestPeer::new_shared_ephemeral(peer_config);
         let num_blocks = 5;
         let num_microblocks = 3;
         let first_stacks_block_height = {
@@ -1202,7 +1197,7 @@ mod test {
                  ref parent_opt,
                  _| {
                     let parent_tip = match parent_opt {
-                        None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                        None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                         Some(block) => {
                             let ic = sortdb.index_conn();
                             let snapshot =
@@ -1213,7 +1208,7 @@ mod test {
                                 )
                                 .unwrap()
                                 .unwrap(); // succeeds because we don't fork
-                            StacksChainState::get_anchored_block_header_info(
+                            StacksHeadersDb::get_anchored_block_header_info(
                                 chainstate.db(),
                                 &snapshot.consensus_hash,
                                 &snapshot.winning_stacks_block_hash,
@@ -1270,7 +1265,7 @@ mod test {
 
                     let coinbase_tx = make_coinbase(miner, tenure_id);
                     let (anchored_block, anchored_block_size, anchored_block_cost) =
-                        StacksBlockBuilder::make_anchored_block_from_txs(
+                        StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                             block_builder,
                             chainstate,
                             &sortdb.index_handle_at_tip(),

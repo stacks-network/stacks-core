@@ -1583,8 +1583,8 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
 pub type ConnectionP2P = NetworkConnection<StacksP2P>;
 pub type ReplyHandleP2P = NetworkReplyHandle<StacksP2P>;
 
-pub type ConnectionHttp = NetworkConnection<StacksHttp>;
-pub type ReplyHandleHttp = NetworkReplyHandle<StacksHttp>;
+pub type ConnectionHttp<CSP> = NetworkConnection<StacksHttp<CSP>>;
+pub type ReplyHandleHttp<CSP> = NetworkReplyHandle<StacksHttp<CSP>>;
 
 #[cfg(test)]
 mod test {
@@ -1604,7 +1604,9 @@ mod test {
     #[test]
     /// Cover the eof/disconnect/read 0 bytes behavior of ConnectionOutbox::send_bytes.
     fn connection_outbox_send_bytes() {
-        let mut outbox: ConnectionOutbox<StacksHttp> = ConnectionOutbox::new(1);
+        let mut outbox: ConnectionOutbox<
+            StacksHttp<crate::chainstate::stacks::db::DiskChainStateBackend>,
+        > = ConnectionOutbox::new(1);
         let (pipe_out, mut pipe_in_0) = Pipe::new();
         outbox.queue_message(pipe_out, None).unwrap();
         pipe_in_0.write_all(&[1; 32]).unwrap();

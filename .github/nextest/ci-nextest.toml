@@ -33,3 +33,10 @@ inherits = "ci"
 # The number of tests to run simultaneously
 # Options: A positive integer (e.g., 4), "num-cpus", or a negative integer (e.g., -1)
 test-threads = "num-cpus"
+
+# This parser stress test and the large-contract tests contend heavily for
+# memory bandwidth. Reserving the runner for it prevents both workloads from
+# becoming several times slower while leaving the rest of the suite parallel.
+[[profile.ci-parallel.overrides]]
+filter = 'test(=chainstate::tests::parse_tests::test_cost_balance_exceeded)'
+threads-required = "num-test-threads"

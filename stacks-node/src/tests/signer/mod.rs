@@ -66,6 +66,7 @@ use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use stacks_signer::{Signer, SpawnedSigner};
 
+use super::bitcoin::core_container::{BitcoinCoreContainer, BITCOIN_DEFAULT_IMAGE_TAG};
 use super::nakamoto_integrations::{
     check_nakamoto_empty_block_heuristics, next_block_and, wait_for,
 };
@@ -86,14 +87,75 @@ use crate::tests::neon_integrations::{
 use crate::tests::signer::v0::{
     wait_for_state_machine_update, wait_for_state_machine_update_by_miner_tenure_id,
 };
-use crate::tests::to_addr;
+use crate::tests::{test_port, to_addr};
 use crate::BitcoinRegtestController;
+
+/// Bitcoin daemon owned by a signer integration-test harness.
+enum BitcoinTestDaemon {
+    Native(BitcoinCoreController),
+    Container(Box<BitcoinCoreContainer>),
+}
+
+impl BitcoinTestDaemon {
+    /// Start a container when requested and the test uses standard burnchain
+    /// ports; tests that intentionally proxy custom ports retain native
+    /// bitcoind behavior.
+    fn start(config: &mut NeonConfig) -> Self {
+        let use_container = env::var("BITCOIN_TESTCONTAINERS") == Ok("1".into())
+            && env::var("STACKS_TEST_SNAPSHOT") != Ok("1".into())
+            && config.burnchain.rpc_port == test_port(18443)
+            && config.burnchain.peer_port == test_port(18444);
+
+        if use_container {
+            let image_tag = env::var("BITCOIN_IMAGE_TAG")
+                .ok()
+                .filter(|tag| !tag.trim().is_empty())
+                .unwrap_or_else(|| BITCOIN_DEFAULT_IMAGE_TAG.into());
+            let username = config
+                .burnchain
+                .username
+                .as_deref()
+                .expect("Signer integration tests require a Bitcoin RPC username");
+            let password = config
+                .burnchain
+                .password
+                .as_deref()
+                .expect("Signer integration tests require a Bitcoin RPC password");
+            let mut container =
+                BitcoinCoreContainer::new_with_credentials(&image_tag, username, password);
+            container.start();
+            config.burnchain.rpc_port = container.get_host_rpc_port();
+            config.burnchain.peer_port = container.get_host_p2p_port();
+            info!(
+                "Started signer-test bitcoind container";
+                "rpc_port" => config.burnchain.rpc_port,
+                "peer_port" => config.burnchain.peer_port,
+            );
+            Self::Container(Box::new(container))
+        } else {
+            let mut controller = BitcoinCoreController::from_stx_config(config);
+            controller
+                .start_bitcoind()
+                .map_err(|_e| ())
+                .expect("Failed starting bitcoind");
+            Self::Native(controller)
+        }
+    }
+
+    /// Stop the owned daemon.
+    fn stop(&mut self) {
+        match self {
+            Self::Native(controller) => controller.stop_bitcoind().unwrap(),
+            Self::Container(container) => container.stop(),
+        }
+    }
+}
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]
 pub struct RunningNodes {
     pub btc_regtest_controller: BitcoinRegtestController,
-    pub btcd_controller: BitcoinCoreController,
+    btcd_controller: BitcoinTestDaemon,
     pub run_loop_thread: thread::JoinHandle<()>,
     pub run_loop_stopper: Arc<AtomicBool>,
     pub counters: Counters,
@@ -270,8 +332,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             &Network::Testnet,
             password,
             run_stamp,
-            3000,
-            Some(9000),
+            usize::from(test_port(3000)),
+            Some(usize::from(test_port(9000))),
             None,
         )
         .into_iter()
@@ -1173,9 +1235,24 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         use_nakamoto_blocks_mined: bool,
     ) {
         let info_before = get_chain_info(&self.running_nodes.conf);
+        let counters = &self.running_nodes.counters;
+        wait_for(timeout.as_secs(), || {
+            Ok(counters.naka_submitted_commit_last_burn_height.get()
+                >= info_before.burn_block_height)
+        })
+        .unwrap_or_else(|error| {
+            panic!(
+                "Failed to observe a block commit for burn height {}; latest commit used burn \
+                 height {} and Stacks height {}: {error}",
+                info_before.burn_block_height,
+                counters.naka_submitted_commit_last_burn_height.get(),
+                counters.naka_submitted_commit_last_stacks_tip.get(),
+            )
+        });
+
         info!("Pausing stacks block mining");
         TEST_MINE_SKIP.set(true);
-        let mined_blocks = self.running_nodes.counters.naka_mined_blocks.clone();
+        let mined_blocks = counters.naka_mined_blocks.clone();
         let mined_before = mined_blocks.get();
         self.mine_bitcoin_block();
         wait_for_state_machine_update_by_miner_tenure_id(
@@ -1511,7 +1588,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         {
             let client = reqwest::blocking::Client::new();
             client
-                .get("http://localhost:9000/metrics")
+                .get(format!("http://localhost:{}/metrics", test_port(9000)))
                 .send()
                 .unwrap()
                 .text()
@@ -1545,7 +1622,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
         // Stop bitcoind after the run loop is fully shut down,
         // so the relayer doesn't hit ConnectionRefused.
-        self.running_nodes.btcd_controller.stop_bitcoind().unwrap();
+        self.running_nodes.btcd_controller.stop();
 
         if needs_snapshot {
             Self::make_snapshot(
@@ -1820,7 +1897,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
 
     // Spawn a test observer for verification purposes
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    let observer_port = test_observer::event_observer_port();
     naka_conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
         events_keys: vec![
@@ -1860,12 +1937,8 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     }
     node_config_modifier(&mut naka_conf);
 
-    info!("Make new BitcoinCoreController");
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
-    btcd_controller
-        .start_bitcoind()
-        .map_err(|_e| ())
-        .expect("Failed starting bitcoind");
+    info!("Start bitcoind");
+    let btcd_controller = BitcoinTestDaemon::start(&mut naka_conf);
 
     info!("Make new BitcoinRegtestController");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);

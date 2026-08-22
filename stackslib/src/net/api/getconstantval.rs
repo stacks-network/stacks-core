@@ -98,7 +98,9 @@ impl HttpRequest for RPCGetConstantValRequestHandler {
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCGetConstantValRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCGetConstantValRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.contract_identifier = None;
@@ -110,7 +112,7 @@ impl RPCRequestHandler for RPCGetConstantValRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let contract_identifier = self.contract_identifier.take().ok_or(NetError::SendError(
             "`contract_identifier` not set".to_string(),

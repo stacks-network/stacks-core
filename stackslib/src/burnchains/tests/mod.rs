@@ -36,6 +36,7 @@ use crate::chainstate::burn::operations::{BlockstackOperationType, *};
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::comm::*;
 use crate::chainstate::coordinator::*;
+use crate::chainstate::stacks::db::ChainStatePersistence;
 use crate::chainstate::stacks::*;
 use crate::core::STACKS_EPOCH_2_4_MARKER;
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
@@ -622,11 +623,12 @@ impl TestBurnchainBlock {
         CE: CostEstimator,
         FE: FeeEstimator,
         B: BurnchainHeaderReader,
+        CSP: ChainStatePersistence,
     >(
         &self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B, CSP>,
     ) -> BlockSnapshot {
         let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
         let parent_hdr = indexer
@@ -762,11 +764,12 @@ impl TestBurnchainFork {
         CE: CostEstimator,
         FE: FeeEstimator,
         B: BurnchainHeaderReader,
+        CSP: ChainStatePersistence,
     >(
         &mut self,
         db: &mut SortitionDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'_, T, N, R, CE, FE, B, CSP>,
     ) -> BlockSnapshot {
         let mut snapshot = {
             let ic = db.index_conn();

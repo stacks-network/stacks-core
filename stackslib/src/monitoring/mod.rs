@@ -24,6 +24,7 @@ use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::uint::{Uint256, Uint512};
 
 use crate::burnchains::{BurnchainSigner, Txid};
+use crate::chainstate::stacks::db::ChainStatePersistence;
 use crate::net::httpcore::StacksHttpRequest;
 use crate::net::rpc::ConversationHttp;
 use crate::net::Error as net_error;
@@ -43,13 +44,14 @@ pub fn increment_rpc_calls_counter() {
 }
 
 #[allow(unused_mut)]
-pub fn instrument_http_request_handler<F, R>(
-    conv_http: &mut ConversationHttp,
+pub fn instrument_http_request_handler<CSP, F, R>(
+    conv_http: &mut ConversationHttp<CSP>,
     #[allow(unused_mut)] mut req: StacksHttpRequest,
     handler: F,
 ) -> Result<R, net_error>
 where
-    F: FnOnce(&mut ConversationHttp, StacksHttpRequest) -> Result<R, net_error>,
+    CSP: ChainStatePersistence,
+    F: FnOnce(&mut ConversationHttp<CSP>, StacksHttpRequest) -> Result<R, net_error>,
 {
     #[cfg(feature = "monitoring_prom")]
     increment_rpc_calls_counter();

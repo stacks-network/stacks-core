@@ -6,7 +6,7 @@ use stacks::burnchains::PoxConstants;
 #[cfg(test)]
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::db::sortdb::SortitionHandleConn;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::{
     StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
@@ -83,7 +83,7 @@ impl Tenure {
             elapsed = Instant::now().duration_since(self.burnchain_tip.received_at);
         }
 
-        let (chain_state, _) = StacksChainState::open(
+        let (chain_state, _) = StacksChainState::<DiskChainStateBackend>::open(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.config.get_chainstate_path_str(),
@@ -118,10 +118,10 @@ impl Tenure {
     }
 
     #[cfg(test)]
-    pub fn open_chainstate(&self) -> StacksChainState {
+    pub fn open_chainstate(&self) -> StacksChainState<DiskChainStateBackend> {
         use stacks::core::CHAIN_ID_TESTNET;
 
-        let (chain_state, _) = StacksChainState::open(
+        let (chain_state, _) = StacksChainState::<DiskChainStateBackend>::open(
             false,
             CHAIN_ID_TESTNET,
             &self.config.get_chainstate_path_str(),

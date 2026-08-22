@@ -255,7 +255,9 @@ impl HttpRequest for RPCMempoolQueryRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCMempoolQueryRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.mempool_query = None;
@@ -267,7 +269,7 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let mempool_query = self
             .mempool_query

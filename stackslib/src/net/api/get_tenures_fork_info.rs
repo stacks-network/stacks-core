@@ -23,7 +23,7 @@ use stacks_common::util::serde_serializers::{prefix_hex, prefix_opt_hex, prefix_
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState, StacksHeadersDb};
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
@@ -140,7 +140,7 @@ impl TenureForkingInfo {
     fn from_snapshot(
         sn: &BlockSnapshot,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         tip_block_id: &StacksBlockId,
     ) -> Result<Self, ChainError> {
         let (first_block_mined, nakamoto_blocks) = if !sn.sortition {
@@ -158,7 +158,7 @@ impl TenureForkingInfo {
             )?;
             if epoch.epoch_id < StacksEpochId::Epoch30 {
                 (
-                    StacksChainState::get_stacks_block_header_info_by_consensus_hash(
+                    StacksHeadersDb::get_stacks_block_header_info_by_consensus_hash(
                         chainstate.db(),
                         &sn.consensus_hash,
                     )?
@@ -194,7 +194,9 @@ impl TenureForkingInfo {
     }
 }
 
-impl RPCRequestHandler for GetTenuresForkInfo {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for GetTenuresForkInfo
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.start_sortition = None;
@@ -206,7 +208,7 @@ impl RPCRequestHandler for GetTenuresForkInfo {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let result = node.with_node_state(|network, sortdb, chainstate, _mempool, _rpc_args| {
             let start_from = self

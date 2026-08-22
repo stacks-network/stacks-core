@@ -39,7 +39,8 @@ use crate::chainstate::coordinator::{
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::{RewardSet, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{
-    StacksBlockHeaderTypes, StacksChainState, StacksDBConn, StacksHeaderInfo,
+    ChainStatePersistence, StacksBlockHeaderTypes, StacksChainState, StacksDBConn,
+    StacksHeaderInfo, StacksHeadersDb,
 };
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::Error as ChainstateError;
@@ -82,7 +83,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     ///  RPC endpoints to expose this without flooding loggers.
     pub fn read_reward_set_nakamoto(
         &self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         cycle: u64,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
@@ -98,7 +99,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     pub fn read_reward_set_nakamoto_of_cycle(
         &self,
         cycle: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
         debug_log: bool,
@@ -145,7 +146,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     pub fn get_height_of_pox_calculation(
         &self,
         cycle: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sort_handle: &SortitionHandleConn,
         block_id: &StacksBlockId,
     ) -> Result<u64, Error> {
@@ -184,7 +185,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
     pub fn read_reward_set_at_calculated_block(
         &self,
         coinbase_height_of_calculation: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         block_id: &StacksBlockId,
         debug_log: bool,
     ) -> Result<RewardSet, Error> {
@@ -301,7 +302,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
     sortition_tip: &SortitionId,
     reward_cycle: u64,
     burnchain: &Burnchain,
-    chain_state: &mut StacksChainState,
+    chain_state: &mut StacksChainState<impl ChainStatePersistence>,
     stacks_tip: &StacksBlockId,
     sort_db: &mut SortitionDB,
     provider: &U,
@@ -366,7 +367,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
 pub fn load_nakamoto_reward_set_for_tenure<U: RewardSetProvider>(
     tenure_snapshot: &BlockSnapshot,
     burnchain: &Burnchain,
-    chain_state: &mut StacksChainState,
+    chain_state: &mut StacksChainState<impl ChainStatePersistence>,
     stacks_tip: &StacksBlockId,
     sort_db: &SortitionDB,
     provider: &U,
@@ -425,7 +426,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     reward_cycle: u64,
     sortition_tip: &SortitionId,
     burnchain: &Burnchain,
-    chain_state: &mut StacksChainState,
+    chain_state: &mut StacksChainState<impl ChainStatePersistence>,
     stacks_tip: &StacksBlockId,
     sort_db: &SortitionDB,
     provider: &U,
@@ -494,7 +495,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
             };
 
             let Some(anchor_block_header) =
-                StacksChainState::get_stacks_block_header_info_by_consensus_hash(
+                StacksHeadersDb::get_stacks_block_header_info_by_consensus_hash(
                     chain_state.db(),
                     &anchor_block_snapshot.consensus_hash,
                 )?
@@ -555,7 +556,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
                 Ok(None) => {}, // pass: if cannot find nakamoto block, maybe it was a 2.x block?
             }
 
-            match StacksChainState::get_stacks_block_header_info_by_consensus_hash(
+            match StacksHeadersDb::get_stacks_block_header_info_by_consensus_hash(
                 chain_state.db(),
                 &sn.consensus_hash,
             ) {
@@ -650,7 +651,7 @@ fn is_naka_reward_cycle_start_for_epoch(burnchain: &Burnchain, block_height: u64
 pub fn get_nakamoto_next_recipients(
     sortition_tip: &BlockSnapshot,
     sort_db: &mut SortitionDB,
-    chain_state: &mut StacksChainState,
+    chain_state: &mut StacksChainState<impl ChainStatePersistence>,
     stacks_tip: &StacksBlockId,
     burnchain: &Burnchain,
 ) -> Result<Option<RewardSetInfo>, Error> {
@@ -689,7 +690,8 @@ impl<
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
         B: BurnchainHeaderReader,
-    > ChainsCoordinator<'_, T, N, U, CE, FE, B>
+        CSP: ChainStatePersistence,
+    > ChainsCoordinator<'_, T, N, U, CE, FE, B, CSP>
 {
     /// Get the first nakamoto reward cycle
     fn get_first_nakamoto_reward_cycle(&self) -> u64 {

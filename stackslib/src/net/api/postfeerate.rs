@@ -186,7 +186,9 @@ impl HttpRequest for RPCPostFeeRateRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCPostFeeRateRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.estimated_len = None;
@@ -200,7 +202,7 @@ impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let estimated_len = self
             .estimated_len
@@ -213,8 +215,8 @@ impl RPCRequestHandler for RPCPostFeeRateRequestHandler {
 
         let data_resp =
             node.with_node_state(|_network, sortdb, _chainstate, _mempool, rpc_args| {
-                let tip = self.get_canonical_burn_chain_tip(&preamble, sortdb)?;
-                let stacks_epoch = self.get_stacks_epoch(&preamble, sortdb, tip.block_height)?;
+                let tip = <RPCPostFeeRateRequestHandler as RPCRequestHandler<CSP>>::get_canonical_burn_chain_tip(self, &preamble, sortdb)?;
+                let stacks_epoch = <RPCPostFeeRateRequestHandler as RPCRequestHandler<CSP>>::get_stacks_epoch(self, &preamble, sortdb, tip.block_height)?;
 
                 if let Some((cost_estimator, fee_estimator, metric)) = rpc_args.get_estimators_ref()
                 {

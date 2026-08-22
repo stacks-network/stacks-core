@@ -31,7 +31,6 @@ use stacks_common::types::chainstate::SortitionId;
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::tests::*;
 use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::stacks::db::testing::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
@@ -71,7 +70,7 @@ where
         AddressHashMode::SerializeP2PKH,
     );
 
-    let mut node = TestStacksNode::new(
+    let mut node = TestStacksNode::new_shared_ephemeral(
         false,
         0x80000000,
         &full_test_name,
@@ -86,7 +85,10 @@ where
         0,
     );
 
-    let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork);
+    let mut first_burn_block = TestStacksNode::<SharedMemoryChainStateBackend>::next_burn_block(
+        &mut burn_node.sortdb,
+        &mut fork,
+    );
 
     // first, register a VRF key
     node.add_key_register(&mut first_burn_block, &mut miner);
@@ -113,6 +115,7 @@ where
         // next key
         node.add_key_register(&mut burn_block, &mut miner);
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner,
@@ -123,7 +126,6 @@ where
             |mut builder, ref mut miner, sortdb| {
                 test_debug!("Produce anchored stacks block");
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -220,7 +222,8 @@ where
         miner_trace.push(next_miner_trace);
     }
 
-    TestMinerTrace::new(burn_node, vec![miner], miner_trace)
+    let chainstates = HashMap::from([(full_test_name, node.chainstate)]);
+    TestMinerTrace::new(burn_node, vec![miner], miner_trace, chainstates)
 }
 
 /// one miner begins a chain, and another miner joins it in the same fork at rounds/2.
@@ -255,7 +258,7 @@ where
         AddressHashMode::SerializeP2PKH,
     );
 
-    let mut node = TestStacksNode::new(
+    let mut node = TestStacksNode::new_shared_ephemeral(
         false,
         0x80000000,
         &full_test_name,
@@ -273,7 +276,10 @@ where
         0,
     );
 
-    let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork);
+    let mut first_burn_block = TestStacksNode::<SharedMemoryChainStateBackend>::next_burn_block(
+        &mut burn_node.sortdb,
+        &mut fork,
+    );
 
     // first, register a VRF key
     node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -301,6 +307,7 @@ where
         node.add_key_register(&mut burn_block, &mut miner_1);
         node.add_key_register(&mut burn_block, &mut miner_2);
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block, microblocks, block_commit_op) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_1,
@@ -311,7 +318,6 @@ where
             |mut builder, ref mut miner, sortdb| {
                 test_debug!("Produce anchored stacks block");
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -439,6 +445,7 @@ where
         node.add_key_register(&mut burn_block, &mut miner_1);
         node.add_key_register(&mut burn_block, &mut miner_2);
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_1,
@@ -452,7 +459,6 @@ where
                     miner.origin_address().unwrap().to_string()
                 );
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -487,6 +493,7 @@ where
             },
         );
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_2,
@@ -500,7 +507,6 @@ where
                     miner.origin_address().unwrap().to_string()
                 );
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -641,7 +647,8 @@ where
         miner_trace.push(next_miner_trace);
     }
 
-    TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
+    let chainstates = HashMap::from([(full_test_name, node.chainstate)]);
+    TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace, chainstates)
 }
 
 /// two miners begin working on the same stacks chain, and then the stacks chain forks
@@ -706,7 +713,7 @@ where
         AddressHashMode::SerializeP2PKH,
     );
 
-    let mut node = TestStacksNode::new(
+    let mut node = TestStacksNode::new_shared_ephemeral(
         false,
         0x80000000,
         &full_test_name,
@@ -724,7 +731,10 @@ where
         0,
     );
 
-    let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork);
+    let mut first_burn_block = TestStacksNode::<SharedMemoryChainStateBackend>::next_burn_block(
+        &mut burn_node.sortdb,
+        &mut fork,
+    );
 
     // first, register a VRF key
     node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -779,6 +789,7 @@ where
         node.add_key_register(&mut burn_block, &mut miner_1);
         node.add_key_register(&mut burn_block, &mut miner_2);
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_1,
@@ -792,7 +803,6 @@ where
                     miner.origin_address().unwrap().to_string()
                 );
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -827,6 +837,7 @@ where
             },
         );
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_2,
@@ -840,7 +851,6 @@ where
                     miner.origin_address().unwrap().to_string()
                 );
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -998,7 +1008,9 @@ where
         let mut last_winning_snapshot_1 = {
             let ic = burn_node.sortdb.index_conn();
             let tip = fork.get_tip(&ic);
-            match TestStacksNode::get_last_winning_snapshot(&ic, &tip, &miner_1) {
+            match TestStacksNode::<SharedMemoryChainStateBackend>::get_last_winning_snapshot(
+                &ic, &tip, &miner_1,
+            ) {
                 Some(sn) => sn,
                 None => SortitionDB::get_first_block_snapshot(&ic).unwrap(),
             }
@@ -1007,7 +1019,9 @@ where
         let mut last_winning_snapshot_2 = {
             let ic = burn_node.sortdb.index_conn();
             let tip = fork.get_tip(&ic);
-            match TestStacksNode::get_last_winning_snapshot(&ic, &tip, &miner_2) {
+            match TestStacksNode::<SharedMemoryChainStateBackend>::get_last_winning_snapshot(
+                &ic, &tip, &miner_2,
+            ) {
                 Some(sn) => sn,
                 None => SortitionDB::get_first_block_snapshot(&ic).unwrap(),
             }
@@ -1035,6 +1049,7 @@ where
         node.add_key_register(&mut burn_block, &mut miner_1);
         node_2.add_key_register(&mut burn_block, &mut miner_2);
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_1,
@@ -1049,7 +1064,6 @@ where
                     miner.origin_address().unwrap().to_string()
                 );
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -1084,6 +1098,7 @@ where
             },
         );
 
+        let mut miner_chainstate = node_2.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_2, microblocks_2, block_commit_op_2) = node_2.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_2,
@@ -1098,7 +1113,6 @@ where
                     miner.origin_address().unwrap().to_string()
                 );
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name_2);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -1271,7 +1285,11 @@ where
             .unwrap();
     }
 
-    TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
+    let chainstates = HashMap::from([
+        (full_test_name, node.chainstate),
+        (full_test_name_2, node_2.chainstate),
+    ]);
+    TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace, chainstates)
 }
 
 /// two miners work on the same fork, and the burnchain splits them.
@@ -1307,7 +1325,7 @@ where
         AddressHashMode::SerializeP2PKH,
     );
 
-    let mut node = TestStacksNode::new(
+    let mut node = TestStacksNode::new_shared_ephemeral(
         false,
         0x80000000,
         &full_test_name,
@@ -1325,7 +1343,10 @@ where
         0,
     );
 
-    let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork_1);
+    let mut first_burn_block = TestStacksNode::<SharedMemoryChainStateBackend>::next_burn_block(
+        &mut burn_node.sortdb,
+        &mut fork_1,
+    );
 
     // first, register a VRF key
     node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -1380,6 +1401,7 @@ where
         node.add_key_register(&mut burn_block, &mut miner_1);
         node.add_key_register(&mut burn_block, &mut miner_2);
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_1,
@@ -1390,7 +1412,6 @@ where
             |mut builder, ref mut miner, sortdb| {
                 test_debug!("Produce anchored stacks block from miner 1");
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -1425,6 +1446,7 @@ where
             },
         );
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_2,
@@ -1435,7 +1457,6 @@ where
             |mut builder, ref mut miner, sortdb| {
                 test_debug!("Produce anchored stacks block from miner 2");
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -1620,6 +1641,7 @@ where
         let last_microblock_header_opt_2 =
             get_last_microblock_header(&node, &miner_2, parent_block_opt_2.as_ref());
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_1,
@@ -1633,7 +1655,6 @@ where
                     miner.origin_address().unwrap().to_string()
                 );
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -1668,6 +1689,7 @@ where
             },
         );
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_2,
@@ -1681,7 +1703,6 @@ where
                     miner.origin_address().unwrap().to_string()
                 );
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -1828,7 +1849,8 @@ where
         miner_trace.push(next_miner_trace);
     }
 
-    TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
+    let chainstates = HashMap::from([(full_test_name, node.chainstate)]);
+    TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace, chainstates)
 }
 
 /// two miners begin working on separate forks, and the burnchain splits out under them,
@@ -1865,7 +1887,7 @@ where
         AddressHashMode::SerializeP2PKH,
     );
 
-    let mut node = TestStacksNode::new(
+    let mut node = TestStacksNode::new_shared_ephemeral(
         false,
         0x80000000,
         &full_test_name,
@@ -1883,7 +1905,10 @@ where
         0,
     );
 
-    let mut first_burn_block = TestStacksNode::next_burn_block(&mut burn_node.sortdb, &mut fork_1);
+    let mut first_burn_block = TestStacksNode::<SharedMemoryChainStateBackend>::next_burn_block(
+        &mut burn_node.sortdb,
+        &mut fork_1,
+    );
 
     // first, register a VRF key
     node.add_key_register(&mut first_burn_block, &mut miner_1);
@@ -1910,9 +1935,13 @@ where
             let ic = burn_node.sortdb.index_conn();
             let chain_tip = fork_1.get_tip(&ic);
             let block_1_snapshot_opt =
-                TestStacksNode::get_last_winning_snapshot(&ic, &chain_tip, &miner_1);
+                TestStacksNode::<SharedMemoryChainStateBackend>::get_last_winning_snapshot(
+                    &ic, &chain_tip, &miner_1,
+                );
             let block_2_snapshot_opt =
-                TestStacksNode::get_last_winning_snapshot(&ic, &chain_tip, &miner_2);
+                TestStacksNode::<SharedMemoryChainStateBackend>::get_last_winning_snapshot(
+                    &ic, &chain_tip, &miner_2,
+                );
             (block_1_snapshot_opt, block_2_snapshot_opt)
         };
 
@@ -1935,6 +1964,7 @@ where
         node.add_key_register(&mut burn_block, &mut miner_1);
         node.add_key_register(&mut burn_block, &mut miner_2);
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_1,
@@ -1945,7 +1975,6 @@ where
             |mut builder, ref mut miner, sortdb| {
                 test_debug!("Produce anchored stacks block");
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -1980,6 +2009,7 @@ where
             },
         );
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_2,
@@ -1990,7 +2020,6 @@ where
             |mut builder, ref mut miner, sortdb| {
                 test_debug!("Produce anchored stacks block");
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -2148,12 +2177,16 @@ where
         let block_1_snapshot_opt = {
             let ic = burn_node.sortdb.index_conn();
             let chain_tip = fork_1.get_tip(&ic);
-            TestStacksNode::get_last_winning_snapshot(&ic, &chain_tip, &miner_1)
+            TestStacksNode::<SharedMemoryChainStateBackend>::get_last_winning_snapshot(
+                &ic, &chain_tip, &miner_1,
+            )
         };
         let block_2_snapshot_opt = {
             let ic = burn_node.sortdb.index_conn();
             let chain_tip = fork_2.get_tip(&ic);
-            TestStacksNode::get_last_winning_snapshot(&ic, &chain_tip, &miner_2)
+            TestStacksNode::<SharedMemoryChainStateBackend>::get_last_winning_snapshot(
+                &ic, &chain_tip, &miner_2,
+            )
         };
 
         let parent_block_opt_1 = match block_1_snapshot_opt {
@@ -2175,6 +2208,7 @@ where
         let last_microblock_header_opt_2 =
             get_last_microblock_header(&node, &miner_2, parent_block_opt_2.as_ref());
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_1, microblocks_1, block_commit_op_1) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_1,
@@ -2188,7 +2222,6 @@ where
                     miner.origin_address().unwrap().to_string()
                 );
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -2223,6 +2256,7 @@ where
             },
         );
 
+        let mut miner_chainstate = node.chainstate.open_mining_candidate().unwrap();
         let (stacks_block_2, microblocks_2, block_commit_op_2) = node.mine_stacks_block(
             &burn_node.sortdb,
             &mut miner_2,
@@ -2236,7 +2270,6 @@ where
                     miner.origin_address().unwrap().to_string()
                 );
 
-                let mut miner_chainstate = open_chainstate(false, 0x80000000, &full_test_name);
                 let all_prev_mining_rewards = get_all_mining_rewards(
                     &mut miner_chainstate,
                     &builder.chain_tip,
@@ -2383,17 +2416,19 @@ where
         miner_trace.push(next_miner_trace);
     }
 
-    TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace)
+    let chainstates = HashMap::from([(full_test_name, node.chainstate)]);
+    TestMinerTrace::new(burn_node, vec![miner_1, miner_2], miner_trace, chainstates)
 }
 
 /// compare two chainstates to see if they have exactly the same blocks and microblocks.
-fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
-    let ch1 = open_chainstate(false, 0x80000000, test_name_1);
-    let ch2 = open_chainstate(false, 0x80000000, test_name_2);
-
+fn assert_chainstate_blocks_eq<B1, B2>(ch1: &StacksChainState<B1>, ch2: &StacksChainState<B2>)
+where
+    B1: ChainStatePersistence,
+    B2: ChainStatePersistence,
+{
     // check presence of anchored blocks
-    let mut all_blocks_1 = StacksChainState::list_blocks(ch1.db()).unwrap();
-    let mut all_blocks_2 = StacksChainState::list_blocks(ch2.db()).unwrap();
+    let mut all_blocks_1 = Epoch2StagingBlocksDb::list_blocks(ch1.db()).unwrap();
+    let mut all_blocks_2 = Epoch2StagingBlocksDb::list_blocks(ch2.db()).unwrap();
 
     all_blocks_1.sort();
     all_blocks_2.sort();
@@ -2405,9 +2440,9 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
 
     // check presence and ordering of microblocks
     let mut all_microblocks_1 =
-        StacksChainState::list_microblocks(ch1.db(), &ch1.blocks_path).unwrap();
+        Epoch2StagingBlocksDb::list_microblocks(ch1.db(), &ch1.blocks_path).unwrap();
     let mut all_microblocks_2 =
-        StacksChainState::list_microblocks(ch2.db(), &ch2.blocks_path).unwrap();
+        Epoch2StagingBlocksDb::list_microblocks(ch2.db(), &ch2.blocks_path).unwrap();
 
     all_microblocks_1.sort();
     all_microblocks_2.sort();
@@ -2425,14 +2460,14 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
 
     // compare block status (staging vs confirmed) and contents
     for i in 0..all_blocks_1.len() {
-        let staging_1_opt = StacksChainState::load_staging_block(
+        let staging_1_opt = Epoch2StagingBlocksDb::load_staging_block(
             ch1.db(),
-            &ch2.blocks_path,
+            &ch1.blocks_path,
             &all_blocks_1[i].0,
             &all_blocks_1[i].1,
         )
         .unwrap();
-        let staging_2_opt = StacksChainState::load_staging_block(
+        let staging_2_opt = Epoch2StagingBlocksDb::load_staging_block(
             ch2.db(),
             &ch2.blocks_path,
             &all_blocks_2[i].0,
@@ -2441,10 +2476,10 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
         .unwrap();
 
         let chunk_1_opt =
-            StacksChainState::load_block(&ch1.blocks_path, &all_blocks_1[i].0, &all_blocks_1[i].1)
+            StacksBlockStore::load_block(&ch1.blocks_path, &all_blocks_1[i].0, &all_blocks_1[i].1)
                 .unwrap();
         let chunk_2_opt =
-            StacksChainState::load_block(&ch2.blocks_path, &all_blocks_2[i].0, &all_blocks_2[i].1)
+            StacksBlockStore::load_block(&ch2.blocks_path, &all_blocks_2[i].0, &all_blocks_2[i].1)
                 .unwrap();
 
         match (staging_1_opt, staging_2_opt) {
@@ -2473,7 +2508,7 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
             continue;
         }
 
-        let chunk_1_opt = StacksChainState::load_descendant_staging_microblock_stream(
+        let chunk_1_opt = Epoch2StagingBlocksDb::load_descendant_staging_microblock_stream(
             ch1.db(),
             &StacksBlockHeader::make_index_block_hash(
                 &all_microblocks_1[i].0,
@@ -2483,8 +2518,8 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
             u16::MAX,
         )
         .unwrap();
-        let chunk_2_opt = StacksChainState::load_descendant_staging_microblock_stream(
-            ch1.db(),
+        let chunk_2_opt = Epoch2StagingBlocksDb::load_descendant_staging_microblock_stream(
+            ch2.db(),
             &StacksBlockHeader::make_index_block_hash(
                 &all_microblocks_2[i].0,
                 &all_microblocks_2[i].1,
@@ -2505,14 +2540,14 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
         }
         for j in 0..all_microblocks_1[i].2.len() {
             // staging status is the same
-            let staging_1_opt = StacksChainState::load_staging_microblock(
+            let staging_1_opt = Epoch2StagingBlocksDb::load_staging_microblock(
                 ch1.db(),
                 &all_microblocks_1[i].0,
                 &all_microblocks_1[i].1,
                 &all_microblocks_1[i].2[j],
             )
             .unwrap();
-            let staging_2_opt = StacksChainState::load_staging_microblock(
+            let staging_2_opt = Epoch2StagingBlocksDb::load_staging_microblock(
                 ch2.db(),
                 &all_microblocks_2[i].0,
                 &all_microblocks_2[i].1,
@@ -2549,7 +2584,7 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
     let mut nodes = HashMap::new();
     for (i, test_name) in test_names.iter().enumerate() {
         let rnd_test_name = format!("{}-replay_randomized", test_name);
-        let next_node = TestStacksNode::new(
+        let next_node = TestStacksNode::new_shared_ephemeral(
             false,
             0x80000000,
             &rnd_test_name,
@@ -2673,8 +2708,11 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
 
     // must have processed all blocks the same way
     for test_name in test_names.iter() {
-        let rnd_test_name = format!("{}-replay_randomized", test_name);
-        assert_chainstate_blocks_eq(test_name, &rnd_test_name);
+        let source = miner_trace.chainstate(test_name);
+        let replay = nodes
+            .get(test_name)
+            .unwrap_or_else(|| panic!("No replay chainstate for {test_name}"));
+        assert_chainstate_blocks_eq(source, &replay.chainstate);
     }
 }
 
@@ -2685,10 +2723,8 @@ pub fn mine_empty_anchored_block(
     burnchain_height: usize,
     parent_microblock_header: Option<&StacksMicroblockHeader>,
 ) -> (StacksBlock, Vec<StacksMicroblock>) {
-    let miner_account = StacksChainState::get_account(
-        clarity_tx,
-        &miner.origin_address().unwrap().to_account_principal(),
-    );
+    let miner_account =
+        clarity_tx.get_account(&miner.origin_address().unwrap().to_account_principal());
     miner.set_nonce(miner_account.nonce);
 
     // make a coinbase for this miner
@@ -2724,10 +2760,8 @@ pub fn mine_empty_anchored_block_with_burn_height_pubkh(
     pubkh_bytes[0..8].copy_from_slice(&burnchain_height.to_be_bytes());
     assert!(builder.set_microblock_pubkey_hash(Hash160(pubkh_bytes)));
 
-    let miner_account = StacksChainState::get_account(
-        clarity_tx,
-        &miner.origin_address().unwrap().to_account_principal(),
-    );
+    let miner_account =
+        clarity_tx.get_account(&miner.origin_address().unwrap().to_account_principal());
 
     miner.set_nonce(miner_account.nonce);
 
@@ -2765,10 +2799,8 @@ pub fn mine_empty_anchored_block_with_stacks_height_pubkh(
     pubkh_bytes[0..8].copy_from_slice(&burnchain_height.to_be_bytes());
     assert!(builder.set_microblock_pubkey_hash(Hash160(pubkh_bytes)));
 
-    let miner_account = StacksChainState::get_account(
-        clarity_tx,
-        &miner.origin_address().unwrap().to_account_principal(),
-    );
+    let miner_account =
+        clarity_tx.get_account(&miner.origin_address().unwrap().to_account_principal());
     miner.set_nonce(miner_account.nonce);
 
     // make a coinbase for this miner
@@ -2802,10 +2834,8 @@ pub fn mine_invalid_token_transfers_block(
     burnchain_height: usize,
     parent_microblock_header: Option<&StacksMicroblockHeader>,
 ) -> (StacksBlock, Vec<StacksMicroblock>) {
-    let miner_account = StacksChainState::get_account(
-        clarity_tx,
-        &miner.origin_address().unwrap().to_account_principal(),
-    );
+    let miner_account =
+        clarity_tx.get_account(&miner.origin_address().unwrap().to_account_principal());
     miner.set_nonce(miner_account.nonce);
 
     // make a coinbase for this miner
@@ -2881,10 +2911,8 @@ pub fn mine_smart_contract_contract_call_block(
     burnchain_height: usize,
     parent_microblock_header: Option<&StacksMicroblockHeader>,
 ) -> (StacksBlock, Vec<StacksMicroblock>) {
-    let miner_account = StacksChainState::get_account(
-        clarity_tx,
-        &miner.origin_address().unwrap().to_account_principal(),
-    );
+    let miner_account =
+        clarity_tx.get_account(&miner.origin_address().unwrap().to_account_principal());
     miner.set_nonce(miner_account.nonce);
 
     // make a coinbase for this miner
@@ -2961,22 +2989,19 @@ pub fn mine_smart_contract_block_contract_call_microblock(
                 )
                 .unwrap(),
             );
-            let contract = StacksChainState::get_contract(clarity_tx, &prev_contract_id).unwrap();
+            let contract = clarity_tx.get_contract(&prev_contract_id).unwrap();
             if contract.is_none() {
                 continue;
             }
 
-            let prev_bar_value =
-                StacksChainState::get_data_var(clarity_tx, &prev_contract_id, "bar").unwrap();
+            let prev_bar_value = clarity_tx.get_data_var(&prev_contract_id, "bar").unwrap();
             assert_eq!(prev_bar_value, Some(Value::Int(3)));
             break;
         }
     }
 
-    let miner_account = StacksChainState::get_account(
-        clarity_tx,
-        &miner.origin_address().unwrap().to_account_principal(),
-    );
+    let miner_account =
+        clarity_tx.get_account(&miner.origin_address().unwrap().to_account_principal());
     miner.set_nonce(miner_account.nonce);
 
     // make a coinbase for this miner
@@ -3057,23 +3082,20 @@ pub fn mine_smart_contract_block_contract_call_microblock_exception(
                 )
                 .unwrap(),
             );
-            let contract = StacksChainState::get_contract(clarity_tx, &prev_contract_id).unwrap();
+            let contract = clarity_tx.get_contract(&prev_contract_id).unwrap();
             if contract.is_none() {
                 continue;
             }
 
             test_debug!("Found contract {:?}", &prev_contract_id);
-            let prev_bar_value =
-                StacksChainState::get_data_var(clarity_tx, &prev_contract_id, "bar").unwrap();
+            let prev_bar_value = clarity_tx.get_data_var(&prev_contract_id, "bar").unwrap();
             assert_eq!(prev_bar_value, Some(Value::Int(0)));
             break;
         }
     }
 
-    let miner_account = StacksChainState::get_account(
-        clarity_tx,
-        &miner.origin_address().unwrap().to_account_principal(),
-    );
+    let miner_account =
+        clarity_tx.get_account(&miner.origin_address().unwrap().to_account_principal());
     miner.set_nonce(miner_account.nonce);
 
     // make a coinbase for this miner
@@ -3597,7 +3619,7 @@ fn mine_anchored_invalid_token_transfer_blocks_single() {
     );
 
     let full_test_name = "invalid-token-transfers-1_fork_1_miner_1_burnchain";
-    let chainstate = open_chainstate(false, 0x80000000, full_test_name);
+    let chainstate = miner_trace.chainstate(full_test_name);
 
     // each block must be orphaned
     for point in miner_trace.points.iter() {
@@ -3609,7 +3631,7 @@ fn mine_anchored_invalid_token_transfer_blocks_single() {
             )
             .unwrap()
             .unwrap();
-            assert!(StacksChainState::is_block_orphaned(
+            assert!(Epoch2StagingBlocksDb::is_block_orphaned(
                 chainstate.db(),
                 &sn.consensus_hash,
                 &bc.block_header_hash

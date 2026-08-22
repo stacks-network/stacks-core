@@ -20,7 +20,7 @@
 use std::path::{Path, PathBuf};
 
 use stacks_common::types::chainstate::StacksBlockId;
-use stackslib::chainstate::stacks::db::StacksChainState;
+use stackslib::chainstate::stacks::db::StacksBlockStore;
 
 /// Relative path of the Clarity MARF within a chainstate tree.
 pub const CLARITY_MARF_REL: &str = "chainstate/vm/clarity/marf.sqlite";
@@ -87,11 +87,11 @@ pub fn canonical_rel_path(rel: &Path) -> String {
 }
 
 /// Relative path of an epoch-2.x block file: the blocks dir followed by the
-/// node's own index-hash sharding ([`StacksChainState::index_block_hash_to_rel_path`]).
+/// node's own index-hash sharding ([`StacksBlockStore::index_block_hash_to_rel_path`]).
 pub fn epoch2_block_rel_path(index_block_hash: &StacksBlockId) -> String {
     format!(
         "{BLOCKS_DIR_REL}/{}",
-        canonical_rel_path(&StacksChainState::index_block_hash_to_rel_path(
+        canonical_rel_path(&StacksBlockStore::index_block_hash_to_rel_path(
             index_block_hash
         ))
     )

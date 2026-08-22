@@ -257,7 +257,6 @@ jobs:
         with:
           action: create
           archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-          debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
   ############################################################################
   ### Run Stacks Core Tests
@@ -309,7 +308,6 @@ jobs:
     uses: ./.github/workflows/_tests-bitcoin-rpc.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
   ############################################################################
   ### Run P2P Tests

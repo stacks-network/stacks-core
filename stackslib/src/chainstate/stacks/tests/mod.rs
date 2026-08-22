@@ -179,6 +179,7 @@ pub struct TestMinerTrace {
     pub points: Vec<TestMinerTracePoint>,
     pub burn_node: TestBurnchainNode,
     pub miners: Vec<TestMiner>,
+    pub chainstates: HashMap<String, StacksChainState<SharedMemoryChainStateBackend>>,
 }
 
 impl TestMinerTrace {
@@ -186,12 +187,20 @@ impl TestMinerTrace {
         burn_node: TestBurnchainNode,
         miners: Vec<TestMiner>,
         points: Vec<TestMinerTracePoint>,
+        chainstates: HashMap<String, StacksChainState<SharedMemoryChainStateBackend>>,
     ) -> TestMinerTrace {
         TestMinerTrace {
             points,
             burn_node,
             miners,
+            chainstates,
         }
+    }
+
+    pub fn chainstate(&self, test_name: &str) -> &StacksChainState<SharedMemoryChainStateBackend> {
+        self.chainstates
+            .get(test_name)
+            .unwrap_or_else(|| panic!("No chainstate retained for {test_name}"))
     }
 
     /// how many blocks represented here?
@@ -225,7 +234,7 @@ impl TestMinerTrace {
         self.points.len()
     }
 
-    /// what are the chainstate directories?
+    /// What logical chainstates contributed blocks to this trace?
     pub fn get_test_names(&self) -> Vec<String> {
         let mut all_test_names = HashSet::new();
         for p in self.points.iter() {
@@ -245,8 +254,8 @@ impl TestMinerTrace {
     }
 }
 
-pub struct TestStacksNode {
-    pub chainstate: StacksChainState,
+pub struct TestStacksNode<CSP: ChainStatePersistence = DiskChainStateBackend> {
+    pub chainstate: StacksChainState<CSP>,
     pub prev_keys: Vec<LeaderKeyRegisterOp>, // _all_ keys generated
     pub key_ops: HashMap<VRFPublicKey, usize>, // map VRF public keys to their locations in the prev_keys array
     pub anchored_blocks: Vec<StacksBlock>,
@@ -258,13 +267,13 @@ pub struct TestStacksNode {
     forkable: bool,
 }
 
-impl TestStacksNode {
+impl TestStacksNode<DiskChainStateBackend> {
     pub fn new(
         mainnet: bool,
         chain_id: u32,
         test_name: &str,
         mut initial_balance_recipients: Vec<StacksAddress>,
-    ) -> TestStacksNode {
+    ) -> Self {
         initial_balance_recipients.sort();
         let initial_balances = initial_balance_recipients
             .into_iter()
@@ -279,7 +288,7 @@ impl TestStacksNode {
             .with_chain_id(chain_id)
             .with_balances(initial_balances)
             .build();
-        TestStacksNode {
+        Self {
             chainstate,
             prev_keys: vec![],
             key_ops: HashMap::new(),
@@ -293,9 +302,9 @@ impl TestStacksNode {
         }
     }
 
-    pub fn open(mainnet: bool, chain_id: u32, test_name: &str) -> TestStacksNode {
+    pub fn open(mainnet: bool, chain_id: u32, test_name: &str) -> Self {
         let chainstate = open_chainstate(mainnet, chain_id, test_name);
-        TestStacksNode {
+        Self {
             chainstate,
             prev_keys: vec![],
             key_ops: HashMap::new(),
@@ -306,26 +315,11 @@ impl TestStacksNode {
             nakamoto_commit_ops: HashMap::new(),
             test_name: test_name.to_string(),
             forkable: true,
-        }
-    }
-
-    pub fn from_chainstate(chainstate: StacksChainState) -> TestStacksNode {
-        TestStacksNode {
-            chainstate,
-            prev_keys: vec![],
-            key_ops: HashMap::new(),
-            anchored_blocks: vec![],
-            microblocks: vec![],
-            nakamoto_blocks: vec![],
-            commit_ops: HashMap::new(),
-            nakamoto_commit_ops: HashMap::new(),
-            test_name: "".to_string(),
-            forkable: false,
         }
     }
 
     // NOTE: can't do this if instantiated via from_chainstate()
-    pub fn fork(&self, new_test_name: &str) -> TestStacksNode {
+    pub fn fork(&self, new_test_name: &str) -> Self {
         if !self.forkable {
             panic!("Tried to fork an unforkable chainstate instance");
         }
@@ -344,6 +338,65 @@ impl TestStacksNode {
             self.chainstate.chain_id,
             new_test_name,
         );
+        self.with_forked_chainstate(chainstate, new_test_name)
+    }
+}
+
+impl TestStacksNode<SharedMemoryChainStateBackend> {
+    pub fn new_shared_ephemeral(
+        mainnet: bool,
+        chain_id: u32,
+        test_name: &str,
+        mut initial_balance_recipients: Vec<StacksAddress>,
+    ) -> Self {
+        initial_balance_recipients.sort();
+        let initial_balances = initial_balance_recipients
+            .into_iter()
+            .map(|addr| (PrincipalData::from(addr), 10_000_000_000))
+            .collect();
+
+        let mut boot_data = ChainStateBootData {
+            initial_balances,
+            post_flight_callback: None,
+            first_burnchain_block_hash: BurnchainHeaderHash::zero(),
+            first_burnchain_block_height: 0,
+            first_burnchain_block_timestamp: 0,
+            pox_constants: PoxConstants::testnet_default(),
+            get_bulk_initial_lockups: None,
+            get_bulk_initial_balances: None,
+            get_bulk_initial_names: None,
+            get_bulk_initial_namespaces: None,
+        };
+        let (chainstate, _) =
+            StacksChainState::new_shared_ephemeral(mainnet, chain_id, Some(&mut boot_data), None)
+                .unwrap();
+
+        Self {
+            chainstate,
+            prev_keys: vec![],
+            key_ops: HashMap::new(),
+            anchored_blocks: vec![],
+            microblocks: vec![],
+            nakamoto_blocks: vec![],
+            commit_ops: HashMap::new(),
+            nakamoto_commit_ops: HashMap::new(),
+            test_name: test_name.to_string(),
+            forkable: true,
+        }
+    }
+
+    pub fn fork(&self, new_test_name: &str) -> Self {
+        let chainstate = self.chainstate.fork_shared_ephemeral().unwrap();
+        self.with_forked_chainstate(chainstate, new_test_name)
+    }
+}
+
+impl<CSP: ChainStatePersistence> TestStacksNode<CSP> {
+    fn with_forked_chainstate<NextCSP: ChainStatePersistence>(
+        &self,
+        chainstate: StacksChainState<NextCSP>,
+        test_name: &str,
+    ) -> TestStacksNode<NextCSP> {
         TestStacksNode {
             chainstate,
             prev_keys: self.prev_keys.clone(),
@@ -353,8 +406,23 @@ impl TestStacksNode {
             nakamoto_blocks: self.nakamoto_blocks.clone(),
             commit_ops: self.commit_ops.clone(),
             nakamoto_commit_ops: self.nakamoto_commit_ops.clone(),
-            test_name: new_test_name.to_string(),
+            test_name: test_name.to_string(),
             forkable: true,
+        }
+    }
+
+    pub fn from_chainstate(chainstate: StacksChainState<CSP>) -> Self {
+        Self {
+            chainstate,
+            prev_keys: vec![],
+            key_ops: HashMap::new(),
+            anchored_blocks: vec![],
+            microblocks: vec![],
+            nakamoto_blocks: vec![],
+            commit_ops: HashMap::new(),
+            nakamoto_commit_ops: HashMap::new(),
+            test_name: "".to_string(),
+            forkable: false,
         }
     }
 
@@ -463,14 +531,14 @@ impl TestStacksNode {
                 }
             };
 
-            if StacksChainState::has_stored_block(
+            if Epoch2StagingBlocksDb::has_stored_block(
                 self.chainstate.db(),
                 &self.chainstate.blocks_path,
                 &consensus_hash,
                 &bc.block_header_hash,
             )
             .unwrap()
-                && !StacksChainState::is_block_orphaned(
+                && !Epoch2StagingBlocksDb::is_block_orphaned(
                     self.chainstate.db(),
                     &consensus_hash,
                     &bc.block_header_hash,
@@ -554,7 +622,7 @@ impl TestStacksNode {
         );
 
         // send block commit for this block
-        let block_commit_op = TestStacksNode::add_block_commit(
+        let block_commit_op = Self::add_block_commit(
             sortdb,
             burn_block,
             miner,
@@ -635,7 +703,7 @@ impl TestStacksNode {
                     parent_stacks_block_snapshot
                 };
 
-                let parent_chain_tip = StacksChainState::get_anchored_block_header_info(
+                let parent_chain_tip = StacksHeadersDb::get_anchored_block_header_info(
                     self.chainstate.db(),
                     &parent_stacks_block_snapshot.consensus_hash,
                     &parent_stacks_block.header.block_hash(),
@@ -696,7 +764,7 @@ impl TestStacksNode {
 /// Return Some(bool) to indicate whether or not the anchored block was accepted into the queue.
 /// Return None if the block was not submitted at all.
 pub fn preprocess_stacks_block_data(
-    node: &mut TestStacksNode,
+    node: &mut TestStacksNode<impl ChainStatePersistence>,
     burn_node: &mut TestBurnchainNode,
     fork_snapshot: &BlockSnapshot,
     stacks_block: &StacksBlock,
@@ -791,14 +859,14 @@ pub fn preprocess_stacks_block_data(
 
 /// Verify that the stacks block's state root matches the state root in the chain state
 pub fn check_block_state_index_root(
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     consensus_hash: &ConsensusHash,
     stacks_header: &StacksBlockHeader,
 ) -> bool {
     let index_block_hash =
         StacksBlockHeader::make_index_block_hash(consensus_hash, &stacks_header.block_hash());
     let mut state_root_index =
-        StacksChainState::open_index(&chainstate.clarity_state_index_path, None).unwrap();
+        DiskIndexDb::open_marf_index(&chainstate.clarity_state_index_path, None).unwrap();
     let state_root = state_root_index
         .borrow_storage_backend()
         .read_block_root_hash(&index_block_hash)
@@ -920,7 +988,10 @@ pub fn check_mining_reward(
         }
     }
 
-    let amount = TestStacksNode::get_miner_balance(clarity_tx, &miner.origin_address().unwrap());
+    let amount = TestStacksNode::<DiskChainStateBackend>::get_miner_balance(
+        clarity_tx,
+        &miner.origin_address().unwrap(),
+    );
     if amount == 0 {
         test_debug!(
             "Miner {} '{}' has no mature funds in this fork",
@@ -938,7 +1009,7 @@ pub fn check_mining_reward(
 }
 
 pub fn get_last_microblock_header(
-    node: &TestStacksNode,
+    node: &TestStacksNode<impl ChainStatePersistence>,
     miner: &TestMiner,
     parent_block_opt: Option<&StacksBlock>,
 ) -> Option<StacksMicroblockHeader> {
@@ -950,7 +1021,7 @@ pub fn get_last_microblock_header(
 }
 
 pub fn get_all_mining_rewards(
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     tip: &StacksHeaderInfo,
     block_height: u64,
 ) -> Vec<Vec<MinerPaymentSchedule>> {
@@ -958,8 +1029,7 @@ pub fn get_all_mining_rewards(
 
     (0..block_height)
         .map(|i| {
-            StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, tip, i)
-                .unwrap()
+            MinerRewardsDb::get_scheduled_block_rewards_in_fork_at_height(&mut tx, tip, i).unwrap()
         })
         .collect()
 }
@@ -1386,7 +1456,13 @@ pub fn sign_sponsored_singlesig_tx(
     tx_signer.get_tx().unwrap()
 }
 
-pub fn get_stacks_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAccount {
+pub fn get_stacks_account<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
+    addr: &PrincipalData,
+) -> StacksAccount
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     let account = peer
         .with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {
             let (consensus_hash, block_bhh) =
@@ -1397,7 +1473,7 @@ pub fn get_stacks_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAc
                 .with_read_only_clarity_tx(
                     &sortdb.index_handle_at_tip(),
                     &stacks_block_id,
-                    |clarity_tx| StacksChainState::get_account(clarity_tx, addr),
+                    |clarity_tx| clarity_tx.get_account(addr),
                 )
                 .unwrap();
             Ok(acct)
@@ -1412,7 +1488,7 @@ pub fn instantiate_and_exec(
     test_name: &str,
     balances: Vec<(StacksAddress, u64)>,
     post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
-) -> StacksChainState {
+) -> StacksChainState<DiskChainStateBackend> {
     let path = chainstate_path(test_name);
     if fs::metadata(&path).is_ok() {
         fs::remove_dir_all(&path).unwrap();

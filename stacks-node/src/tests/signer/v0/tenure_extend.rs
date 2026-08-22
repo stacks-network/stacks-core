@@ -24,7 +24,7 @@ use pinny::tag;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::NakamotoChainState;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionResourceBudgets,
 };
@@ -63,7 +63,7 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, submit_tx, submit_tx_fallible, test_observer,
     wait_for_tenure_change_tx,
 };
-use crate::tests::{self};
+use crate::tests::{self, test_port};
 
 #[test]
 #[ignore]
@@ -586,9 +586,23 @@ fn stx_transfers_dont_effect_idle_timeout() {
     let last_block_hash = get_last_block_hash();
 
     let slot_id = 0_u32;
+    let wait_for_block_acceptance = |expected_block_hash: &Sha512Trunc256Sum| {
+        wait_for(30, || {
+            Ok(signer_test
+                .get_latest_block_response(slot_id)
+                .as_block_accepted()
+                .is_some_and(|acceptance| &acceptance.signer_signature_hash == expected_block_hash))
+        })
+        .unwrap_or_else(|error| {
+            panic!(
+                "Timed out waiting for signer slot {slot_id} to accept block \
+                 {expected_block_hash}: {error}"
+            )
+        });
+        signer_test.get_latest_block_acceptance(slot_id)
+    };
 
-    let initial_acceptance = signer_test.get_latest_block_acceptance(slot_id);
-    assert_eq!(initial_acceptance.signer_signature_hash, last_block_hash);
+    let initial_acceptance = wait_for_block_acceptance(&last_block_hash);
 
     info!(
         "---- Last idle timeout: {} ----",
@@ -617,10 +631,8 @@ fn stx_transfers_dont_effect_idle_timeout() {
             sender_nonce += 1;
         });
 
-        let latest_acceptance = signer_test.get_latest_block_acceptance(slot_id);
         let last_block_hash = get_last_block_hash();
-
-        assert_eq!(latest_acceptance.signer_signature_hash, last_block_hash);
+        let latest_acceptance = wait_for_block_acceptance(&last_block_hash);
 
         if first_global_acceptance.is_none() {
             assert!(latest_acceptance.response_data.tenure_extend_timestamp < initial_acceptance.response_data.tenure_extend_timestamp, "First global acceptance should be less than initial guesstimated acceptance as its based on block proposal time rather than epoch time at time of response.");
@@ -1023,7 +1035,7 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -3449,7 +3461,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         num_txs,
         |signer_config| {
             let port = signer_config.endpoint.port();
-            let is_minority = port < 3000 + non_block_minority as u16;
+            let is_minority = port < test_port(3000) + non_block_minority as u16;
             // Minority signers that favour incoming get a long timeout (tolerant of incoming),
             // while minority signers that favour prev get a short timeout (will mark incoming invalid).
             // The majority gets the opposite timeout.
@@ -4232,7 +4244,7 @@ fn continue_after_fast_block_no_sortition() {
             config.miner.block_commit_delay = Duration::from_secs(0);
         },
     );
-    let (conf_1, _) = miners.get_node_configs();
+    let (conf_1, conf_2) = miners.get_node_configs();
     let (miner_pkh_1, miner_pkh_2) = miners.get_miner_public_key_hashes();
     let (_, miner_pk_2) = miners.get_miner_public_keys();
 
@@ -4256,6 +4268,31 @@ fn continue_after_fast_block_no_sortition() {
 
     miners.boot_to_epoch_3();
 
+    // Both nodes can report the same heights before they agree on the
+    // canonical burn and Stacks tips. Wait for the exact shared view, then
+    // wait for a signer supermajority to publish that view before starting a
+    // new tenure. Otherwise the first proposal can race signer consensus and
+    // be rejected with SortitionViewMismatch.
+    wait_for(60, || {
+        let node_1 = get_chain_info(&conf_1);
+        let node_2 = get_chain_info(&conf_2);
+        Ok(node_1.burn_block_height == node_2.burn_block_height
+            && node_1.pox_consensus == node_2.pox_consensus
+            && node_1.stacks_tip_height == node_2.stacks_tip_height
+            && node_1.stacks_tip == node_2.stacks_tip
+            && node_1.stacks_tip_consensus_hash == node_2.stacks_tip_consensus_hash)
+    })
+    .expect("Miners did not converge before Tenure A");
+    let boot_info = get_chain_info(&conf_1);
+    wait_for_state_machine_update(
+        60,
+        &boot_info.pox_consensus,
+        boot_info.burn_block_height,
+        None,
+        &miners.signer_test.signer_addresses_versions(),
+    )
+    .expect("Signers did not converge before Tenure A");
+
     let burnchain = conf_1.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
@@ -4275,7 +4312,7 @@ fn continue_after_fast_block_no_sortition() {
 
     info!("------------------------- Miner 1 Mines a Normal Tenure A -------------------------");
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
         .expect("Failed to start Tenure A");
     btc_blocks_mined += 1;
 

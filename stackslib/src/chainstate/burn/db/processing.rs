@@ -27,7 +27,7 @@ use crate::chainstate::burn::operations::leader_block_commit::{MissedBlockCommit
 use crate::chainstate::burn::operations::{BlockstackOperationType, Error as OpError};
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::RewardCycleInfo;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::Epoch2BlockProcessor;
 use crate::core::INITIAL_MINING_BONUS_WINDOW;
 
 impl SortitionHandleTx<'_> {
@@ -167,7 +167,7 @@ impl SortitionHandleTx<'_> {
                 snapshot.block_height - burnchain.initial_reward_start_block;
             let mut total_reward = 0;
             for burn_block_height in burnchain.initial_reward_start_block..snapshot.block_height {
-                total_reward += StacksChainState::get_coinbase_reward(
+                total_reward += Epoch2BlockProcessor::get_coinbase_reward(
                     snapshot_epoch.epoch_id,
                     mainnet,
                     burn_block_height,

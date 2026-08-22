@@ -29,7 +29,9 @@ permissions:
 # Set default env vars
 #   - transferred to composite action steps
 env:
-  NUM_UNIT_TEST_PARTITIONS: 16
+  # Five partitions save a runner while unit tests remain below the Bitcoin
+  # critical path. Re-evaluate this count if the Bitcoin suite gets faster.
+  NUM_UNIT_TEST_PARTITIONS: 5
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
@@ -49,9 +51,9 @@ jobs:
     steps:
       - id: setup-matrix
         run: |
-          # Generates a JSON array like [1, 2, 3, ..., 16] using jq
+          # Generate a JSON array from 1 through NUM_UNIT_TEST_PARTITIONS.
           ARRAY=$(seq 1 ${{ env.NUM_UNIT_TEST_PARTITIONS }} | jq -s -c .)
-          echo "result=$ARRAY" >> $GITHUB_OUTPUT
+          echo "result=$ARRAY" >> "$GITHUB_OUTPUT"
 
   # Unit tests with code coverage
   unit-tests:
@@ -85,6 +87,7 @@ jobs:
         with:
           partition: ${{ matrix.partition }}
           total-partitions: ${{ strategy.job-total }}
+          test-timings-file: .github/test-timings/unit.json
           archive-file: ${{ inputs.archive-file }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: ${{ github.job }}-${{ matrix.partition }}

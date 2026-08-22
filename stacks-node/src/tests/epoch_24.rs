@@ -23,7 +23,7 @@ use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::RawRewardSetEntry;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
 use stacks::config::InitialBalance;
 use stacks::core::test_util::{make_contract_call, to_addr};
@@ -46,7 +46,7 @@ use crate::{neon, BitcoinRegtestController, BurnchainController};
 
 #[cfg(test)]
 pub fn get_reward_set_entries_at_block(
-    state: &mut StacksChainState,
+    state: &mut StacksChainState<DiskChainStateBackend>,
     burnchain: &Burnchain,
     sortdb: &SortitionDB,
     block_id: &StacksBlockId,
@@ -468,7 +468,7 @@ fn fix_to_pox_contract() {
     let tip_info = get_chain_info(&conf);
     let tip = StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
 
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         false,
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -1072,7 +1072,7 @@ fn verify_auto_unlock_behavior() {
     // Check that the "raw" reward sets for all cycles just contains entries for both addrs
     //  for the next few cycles.
     for _cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
-        let (mut chainstate, _) = StacksChainState::open(
+        let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
             false,
             conf.burnchain.chain_id,
             &conf.get_chainstate_path_str(),
@@ -1147,7 +1147,7 @@ fn verify_auto_unlock_behavior() {
     let account = get_account(&http_origin, &spender_2_stx_addr);
     assert_eq!(account.locked, 0);
 
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         false,
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),

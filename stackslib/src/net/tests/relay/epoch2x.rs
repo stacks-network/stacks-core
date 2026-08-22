@@ -31,6 +31,9 @@ use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::tests::TestMiner;
 use crate::chainstate::stacks::db::blocks::{MemPoolRejection, MINIMUM_TX_FEE_RATE_PER_BYTE};
+use crate::chainstate::stacks::db::{
+    SharedMemoryChainStateBackend, StacksChainState, StacksHeadersDb,
+};
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
 use crate::chainstate::stacks::test::codec_all_transactions;
 use crate::chainstate::stacks::tests::{
@@ -478,6 +481,7 @@ fn test_relay_outbound_peer_rankings() {
         0x80000000,
         0,
         4032,
+        4032,
         UrlString::try_from("http://foo.com").unwrap(),
         &[asn1, asn2],
         &[n1, n2, n3],
@@ -615,12 +619,13 @@ fn http_rpc(peer_http: u16, request: StacksHttpRequest) -> Result<StacksHttpResp
     }
 
     test_debug!("Client received {} bytes", resp.len());
-    let response = StacksHttp::parse_response(
-        &request.preamble().verb,
-        &request.preamble().path_and_query_str,
-        &resp,
-    )
-    .unwrap();
+    let response =
+        StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::parse_response(
+            &request.preamble().verb,
+            &request.preamble().path_and_query_str,
+            &resp,
+        )
+        .unwrap();
     match response {
         StacksHttpMessage::Response(x) => Ok(x),
         _ => {
@@ -915,7 +920,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1225,7 +1230,7 @@ fn test_get_blocks_and_microblocks_upload_blocks_http() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1444,7 +1449,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1819,7 +1824,7 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -2129,7 +2134,7 @@ fn test_get_blocks_and_microblocks_2_peers_antientropy() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -2247,7 +2252,7 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     if block_num == 0 {
                         for i in 1..peers.len() {
@@ -2533,7 +2538,7 @@ fn process_new_blocks_rejects_problematic_asts() {
 
     let initial_balances = vec![(addr.to_account_principal(), 100000000000)];
 
-    let mut peer_config = TestPeerConfig::new(function_name!(), 32019, 32020);
+    let mut peer_config = TestPeerConfig::new_ephemeral(function_name!(), 32019, 32020);
     peer_config.chain_config.initial_balances = initial_balances;
     peer_config.chain_config.epochs = Some(EpochList::new(&[
         StacksEpoch {
@@ -2554,7 +2559,7 @@ fn process_new_blocks_rejects_problematic_asts() {
     let burnchain = peer_config.chain_config.burnchain.clone();
 
     // activate new AST rules right away
-    let mut peer = TestPeer::new(peer_config);
+    let mut peer = TestPeer::new_ephemeral(peer_config);
     let sortdb = peer.chain.sortdb.take().unwrap();
     peer.chain.sortdb = Some(sortdb);
 
@@ -2589,7 +2594,7 @@ fn process_new_blocks_rejects_problematic_asts() {
          ref parent_opt,
          ref parent_microblock_header_opt| {
             let parent_tip = match parent_opt {
-                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                 Some(block) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -2599,7 +2604,7 @@ fn process_new_blocks_rejects_problematic_asts() {
                     )
                     .unwrap()
                     .unwrap(); // succeeds because we don't fork
-                    StacksChainState::get_anchored_block_header_info(
+                    StacksHeadersDb::get_anchored_block_header_info(
                         chainstate.db(),
                         &snapshot.consensus_hash,
                         &snapshot.winning_stacks_block_hash,
@@ -2622,7 +2627,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             )
             .unwrap();
 
-            let block = StacksBlockBuilder::make_anchored_block_from_txs(
+            let block = StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                 block_builder,
                 chainstate,
                 &sortdb.index_handle(&tip.sortition_id),
@@ -2648,7 +2653,7 @@ fn process_new_blocks_rejects_problematic_asts() {
          ref parent_opt,
          ref parent_microblock_header_opt| {
             let parent_tip = match parent_opt {
-                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                 Some(block) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -2658,7 +2663,7 @@ fn process_new_blocks_rejects_problematic_asts() {
                     )
                     .unwrap()
                     .unwrap(); // succeeds because we don't fork
-                    StacksChainState::get_anchored_block_header_info(
+                    StacksHeadersDb::get_anchored_block_header_info(
                         chainstate.db(),
                         &snapshot.consensus_hash,
                         &snapshot.winning_stacks_block_hash,
@@ -2688,7 +2693,7 @@ fn process_new_blocks_rejects_problematic_asts() {
 
             // this tx would be problematic without our checks
             if let Err(ChainstateError::ProblematicTransaction(txid)) =
-                StacksBlockBuilder::make_anchored_block_from_txs(
+                StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                     block_builder,
                     chainstate,
                     &sortdb.index_handle(&tip.sortition_id),
@@ -2710,7 +2715,7 @@ fn process_new_blocks_rejects_problematic_asts() {
                 &Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
             )
             .unwrap();
-            let bad_block = StacksBlockBuilder::make_anchored_block_from_txs(
+            let bad_block = StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                 block_builder,
                 chainstate,
                 &sortdb.index_handle(&tip.sortition_id),
@@ -2916,7 +2921,7 @@ fn process_new_blocks_rejects_problematic_asts() {
 
 #[test]
 fn test_block_pay_to_contract_gated_at_v210() {
-    let mut peer_config = TestPeerConfig::new(function_name!(), 4246, 4247);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 4246, 4247);
     let epochs = EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
@@ -2950,12 +2955,12 @@ fn test_block_pay_to_contract_gated_at_v210() {
     peer_config.chain_config.epochs = Some(epochs);
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
 
     let mut make_tenure =
         |miner: &mut TestMiner,
          sortdb: &mut SortitionDB,
-         chainstate: &mut StacksChainState,
+         chainstate: &mut StacksChainState<SharedMemoryChainStateBackend>,
          vrfproof: &VRFProof,
          parent_opt: Option<&StacksBlock>,
          microblock_parent_opt: Option<&StacksMicroblockHeader>| {
@@ -2964,7 +2969,7 @@ fn test_block_pay_to_contract_gated_at_v210() {
             let stacks_tip_opt =
                 NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb).unwrap();
             let parent_tip = match stacks_tip_opt {
-                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                 Some(header_tip) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -2974,7 +2979,7 @@ fn test_block_pay_to_contract_gated_at_v210() {
                     )
                     .unwrap()
                     .unwrap(); // succeeds because we don't fork
-                    StacksChainState::get_anchored_block_header_info(
+                    StacksHeadersDb::get_anchored_block_header_info(
                         chainstate.db(),
                         &snapshot.consensus_hash,
                         &snapshot.winning_stacks_block_hash,
@@ -3014,13 +3019,14 @@ fn test_block_pay_to_contract_gated_at_v210() {
             )
             .unwrap();
 
-            let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
-                builder,
-                chainstate,
-                &sortdb.index_handle(&tip.sortition_id),
-                vec![coinbase_tx],
-            )
-            .unwrap();
+            let anchored_block =
+                StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
+                    builder,
+                    chainstate,
+                    &sortdb.index_handle(&tip.sortition_id),
+                    vec![coinbase_tx],
+                )
+                .unwrap();
 
             (anchored_block.0, vec![])
         };
@@ -3084,7 +3090,7 @@ fn test_block_pay_to_contract_gated_at_v210() {
 
 #[test]
 fn test_block_versioned_smart_contract_gated_at_v210() {
-    let mut peer_config = TestPeerConfig::new(function_name!(), 4248, 4249);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 4248, 4249);
 
     let initial_balances = vec![(
         PrincipalData::from(
@@ -3132,12 +3138,12 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
     peer_config.chain_config.initial_balances = initial_balances;
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
 
     let mut make_tenure =
         |miner: &mut TestMiner,
          sortdb: &mut SortitionDB,
-         chainstate: &mut StacksChainState,
+         chainstate: &mut StacksChainState<SharedMemoryChainStateBackend>,
          vrfproof: &VRFProof,
          parent_opt: Option<&StacksBlock>,
          microblock_parent_opt: Option<&StacksMicroblockHeader>| {
@@ -3146,7 +3152,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
             let stacks_tip_opt =
                 NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb).unwrap();
             let parent_tip = match stacks_tip_opt {
-                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                 Some(header_tip) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -3156,7 +3162,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
                     )
                     .unwrap()
                     .unwrap(); // succeeds because we don't fork
-                    StacksChainState::get_anchored_block_header_info(
+                    StacksHeadersDb::get_anchored_block_header_info(
                         chainstate.db(),
                         &snapshot.consensus_hash,
                         &snapshot.winning_stacks_block_hash,
@@ -3198,13 +3204,14 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
             )
             .unwrap();
 
-            let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
-                builder,
-                chainstate,
-                &sortdb.index_handle(&tip.sortition_id),
-                vec![coinbase_tx, versioned_contract],
-            )
-            .unwrap();
+            let anchored_block =
+                StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
+                    builder,
+                    chainstate,
+                    &sortdb.index_handle(&tip.sortition_id),
+                    vec![coinbase_tx, versioned_contract],
+                )
+                .unwrap();
 
             eprintln!("{:?}", &anchored_block.0);
             (anchored_block.0, vec![])
@@ -3265,7 +3272,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
 
 #[test]
 fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
-    let mut peer_config = TestPeerConfig::new(function_name!(), 4250, 4251);
+    let mut peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 4250, 4251);
 
     let initial_balances = vec![(
         PrincipalData::from(
@@ -3313,14 +3320,14 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
     peer_config.chain_config.initial_balances = initial_balances;
     let burnchain = peer_config.chain_config.burnchain.clone();
 
-    let mut peer = TestPeer::new(peer_config);
+    let mut peer = TestPeer::new_shared_ephemeral(peer_config);
     let versioned_contract_opt: RefCell<Option<StacksTransaction>> = RefCell::new(None);
     let nonce: RefCell<u64> = RefCell::new(0);
 
     let mut make_tenure =
         |miner: &mut TestMiner,
          sortdb: &mut SortitionDB,
-         chainstate: &mut StacksChainState,
+         chainstate: &mut StacksChainState<SharedMemoryChainStateBackend>,
          vrfproof: &VRFProof,
          parent_opt: Option<&StacksBlock>,
          microblock_parent_opt: Option<&StacksMicroblockHeader>| {
@@ -3329,7 +3336,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
             let stacks_tip_opt =
                 NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb).unwrap();
             let parent_tip = match stacks_tip_opt {
-                None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                 Some(header_tip) => {
                     let ic = sortdb.index_conn();
                     let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
@@ -3339,7 +3346,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
                     )
                     .unwrap()
                     .unwrap(); // succeeds because we don't fork
-                    StacksChainState::get_anchored_block_header_info(
+                    StacksHeadersDb::get_anchored_block_header_info(
                         chainstate.db(),
                         &snapshot.consensus_hash,
                         &snapshot.winning_stacks_block_hash,
@@ -3389,13 +3396,14 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
             )
             .unwrap();
 
-            let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
-                builder,
-                chainstate,
-                &sortdb.index_handle(&tip.sortition_id),
-                vec![coinbase_tx],
-            )
-            .unwrap();
+            let anchored_block =
+                StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
+                    builder,
+                    chainstate,
+                    &sortdb.index_handle(&tip.sortition_id),
+                    vec![coinbase_tx],
+                )
+                .unwrap();
 
             eprintln!("{:?}", &anchored_block.0);
             (anchored_block.0, vec![])

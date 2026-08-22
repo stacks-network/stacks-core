@@ -1,7 +1,7 @@
 name: Run Tests
 description: |
-  1. Sets up the runner with grcov, nextest tooling, etc.
-  2. Runs tests using cargo nextest, either sequentially by name or in parallel via partitions.
+  1. Restores the archived test tooling and installs LLVM coverage tools.
+  2. Runs tests using nextest, either sequentially by name or in parallel via partitions.
   3. Generates and uploads the code coverage artifact
 
 inputs:
@@ -12,12 +12,23 @@ inputs:
   test-names:
     description: "Comma-separated list of literal test names to run (Required if not partitioning)"
     required: false
+  test-threads:
+    description: "Number of named tests to run concurrently"
+    required: false
+    default: "1"
   partition:
     description: "Partition to run (e.g., 1)"
     required: false
   total-partitions:
     description: "Total number of partitions (e.g., 4)"
     required: false
+  test-timings-file:
+    description: "Historical timings used to runtime-balance partitioned tests"
+    required: false
+  no-fail-fast:
+    description: "Whether to continue running selected tests after a failure"
+    required: false
+    default: "false"
   archive-file:
     description: "Archive file to use for tests"
     required: true
@@ -48,7 +59,8 @@ runs:
       with:
         ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-    # Setup rust toolchain with llvm-tools-preview
+    # Unit tests call Cargo at runtime to locate workspace fixtures, and grcov's
+    # LLVM tools depend on shared libraries from the matching Rust sysroot.
     - name: Setup Rust Toolchain
       uses: ./.github/actions/setup-rust-toolchain
       with:
@@ -79,7 +91,6 @@ runs:
       with:
         action: restore
         archive-file: ${{ inputs.archive-file }}
-        debug-binary-path: ${{ inputs.debug-binary-path }}
 
     ############################################################################
     ### Run the tests
@@ -154,6 +165,11 @@ runs:
       shell: bash
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
+
+        NEXTEST_FAILURE_ARGS=()
+        if [[ "${{ inputs.no-fail-fast }}" == "true" ]]; then
+          NEXTEST_FAILURE_ARGS+=(--no-fail-fast)
+        fi
         
         # Convert CSV string to Nextest exact-match Filterset format
         # e.g., "a, b" becomes "test(=a)|test(=b)"
@@ -161,15 +177,22 @@ runs:
         FILTERSET="test(=${FILTERSET})"
 
         # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
-        cargo nextest run \
+        test_exit=0
+        cargo-nextest nextest run \
           --config-file ./.github/nextest/ci-nextest.toml \
           --profile ci-sequential \
+          --test-threads "${{ inputs.test-threads }}" \
           --run-ignored all \
           --archive-file ${{ inputs.archive-file }} \
-          -E "$FILTERSET"
+          --extract-to . \
+          --extract-overwrite \
+          "${NEXTEST_FAILURE_ARGS[@]}" \
+          -E "$FILTERSET" \
+          || test_exit=$?
           
         # rename the resulting junit file from the toml config
         mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
+        exit "$test_exit"
 
     # Mode 2: Run Partitioned Tests (If partition IS specified)
     - name: Run Partitioned Tests
@@ -177,16 +200,40 @@ runs:
       shell: bash
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
-        
+
+        PARTITION_ARGS=(--partition count:${{ inputs.partition }}/${{ inputs.total-partitions }})
+        TEST_ARGS=()
+
+        if [[ -n "${{ inputs.test-timings-file }}" ]]; then
+          TEST_LIST_FILE=$(mktemp)
+          trap 'rm -f "$TEST_LIST_FILE"' EXIT
+          NEXTEST_ARCHIVE="${{ inputs.archive-file }}" \
+          TEST_TIMINGS_FILE="${{ inputs.test-timings-file }}" \
+          PARTITION="${{ inputs.partition }}" \
+          TOTAL_PARTITIONS="${{ inputs.total-partitions }}" \
+          TEST_LIST_OUTPUT="$TEST_LIST_FILE" \
+            bash ./.github/scripts/balance_unit_tests.sh
+
+          mapfile -t TEST_NAMES < "$TEST_LIST_FILE"
+          PARTITION_ARGS=()
+          TEST_ARGS=(-- "${TEST_NAMES[@]}" --exact)
+        fi
+
         # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
-        cargo nextest run \
+        test_exit=0
+        cargo-nextest nextest run \
           --config-file ./.github/nextest/ci-nextest.toml \
           --profile ci-parallel \
-          --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
-          --archive-file ${{ inputs.archive-file }}
+          "${PARTITION_ARGS[@]}" \
+          --archive-file "${{ inputs.archive-file }}" \
+          --extract-to . \
+          --extract-overwrite \
+          "${TEST_ARGS[@]}" \
+          || test_exit=$?
           
         # rename the resulting junit file from the toml config
         mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
+        exit "$test_exit"
           
     ############################################################################
     ### Upload the nextest JUnit XML
@@ -241,6 +288,11 @@ runs:
           --ignore "**/*.yml" \
           -o lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
         || exit 1
+
+        if ! grep -q '^SF:' lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info; then
+          echo "::error::grcov produced an empty LCOV report"
+          exit 1
+        fi
 
     # Store coverage file in GitHub CI artifacts (with SHA and "lcov" prefix)
     - name: Store Code Coverage as Artifact

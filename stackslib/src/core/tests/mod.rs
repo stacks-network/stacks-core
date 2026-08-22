@@ -43,7 +43,9 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::testing::{chainstate_path, TestChainstateBuilder};
-use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, ClarityTxFactory, StacksChainState, StacksHeaderInfo, StacksHeadersDb,
+};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::test::codec_all_transactions;
@@ -77,7 +79,7 @@ fn mempool_db_init() {
 }
 
 pub fn make_block(
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     block_consensus: ConsensusHash,
     parent: &(ConsensusHash, BlockHeaderHash),
     burn_height: u64,
@@ -102,7 +104,7 @@ pub fn make_block(
 
     let block_hash = anchored_header.block_hash();
 
-    let c_tx = StacksChainState::chainstate_block_begin(
+    let c_tx = ClarityTxFactory::chainstate_block_begin(
         &chainstate_tx,
         clar_tx,
         &TEST_BURN_STATE_DB,
@@ -140,7 +142,7 @@ pub fn make_block(
         )
         .unwrap();
 
-    StacksChainState::insert_stacks_block_header(
+    StacksHeadersDb::insert_stacks_block_header(
         &chainstate_tx,
         &new_index_hash,
         &new_tip_info,

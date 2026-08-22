@@ -21,7 +21,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 
 use crate::chainstate::nakamoto::NakamotoBlock;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::core::EpochList;
 use crate::net::download::nakamoto::{AvailableTenures, NakamotoTenureDownloader, TenureStartEnd};
 use crate::net::neighbors::rpc::NeighborRPC;
@@ -522,9 +522,9 @@ impl NakamotoTenureDownloaderSet {
     /// full confirmed tenures.
     pub fn run(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         neighbor_rpc: &mut NeighborRPC,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     ) -> HashMap<ConsensusHash, Vec<NakamotoBlock>> {
         let addrs: Vec<_> = self.peers.keys().cloned().collect();
         let mut finished = vec![];

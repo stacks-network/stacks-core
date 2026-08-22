@@ -1,0 +1,17 @@
+name: Setup sccache
+description: Install sccache and enable its GitHub Actions cache backend.
+
+runs:
+  using: composite
+  steps:
+    - name: Install sccache
+      uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      with:
+        version: v0.16.0
+
+    - name: Enable sccache
+      shell: bash
+      run: |
+        echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+        echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+        echo "SCCACHE_BASEDIRS=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"

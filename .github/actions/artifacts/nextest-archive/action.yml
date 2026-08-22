@@ -9,10 +9,6 @@ inputs:
   archive-file:
     description: "The nextest archive file"
     required: true
-  debug-binary-path:
-    description: "Debug binary path"
-    required: true
-
 runs:
   using: "composite"
   steps:
@@ -24,17 +20,16 @@ runs:
         name: "nextest-archive"
 
     # Install the tool binaries bundled in the artifact (see the staging step
-    # in the create path below)
+    # in the create path below).
     - name: Install Bundled Tools
       if: |
         inputs.action == 'restore'
       shell: bash
       run: |
-        # upload-artifact does not preserve file permissions, so restore the
-        # executable bit before putting the tools on $PATH
-        chmod +x ci-tools/*
         mkdir -p "$HOME/.cargo/bin"
-        mv -f ci-tools/* "$HOME/.cargo/bin/"
+        tar --extract --zstd --file ci-tools.tar.zst --directory "$HOME/.cargo/bin"
+        chmod +x "$HOME/.cargo/bin"/{cargo-nextest,grcov}
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
     # Checkout the code
     - name: Checkout the latest code
@@ -52,6 +47,13 @@ runs:
       with:
         components: llvm-tools-preview
 
+    # Cache workspace-crate compilations by content. The Cargo cache excludes
+    # them because restored target mtimes can otherwise mask source changes.
+    - name: Setup sccache
+      if: |
+        inputs.action == 'create'
+      uses: ./.github/actions/setup-sccache
+
     #  Install nextest and grcov
     #    grcov is not needed to build the archive, but it is bundled into the
     #    artifact for the test jobs (see the staging step below)
@@ -62,16 +64,20 @@ runs:
       with:
         tools: nextest, grcov
 
-    # Stage the tool binaries so they are uploaded with the artifact. The many
-    # parallel test jobs restore them from there instead of each downloading
-    # from GitHub Releases, which rate-limits the runners' shared IPs (429)
+    # Stage the tools that do not ship with the Rust toolchain. Coverage jobs
+    # install llvm-tools-preview because its binaries depend on matching shared
+    # libraries from the toolchain sysroot.
     - name: Stage Tool Binaries for Upload
       if: |
         inputs.action == 'create'
       shell: bash
       run: |
         mkdir -p ci-tools
-        cp "$(command -v cargo-nextest)" "$(command -v grcov)" ci-tools/
+        cp \
+          "$(command -v cargo-nextest)" \
+          "$(command -v grcov)" \
+          ci-tools/
+        tar --create --zstd --file ci-tools.tar.zst --directory ci-tools .
 
     # Install mold linker and clang (faster than default)      
     - name: Install mold Linker (and clang)
@@ -111,6 +117,25 @@ runs:
           --features monitoring_prom \
           --archive-file "$ARCHIVE_FILE"
 
+        cargo nextest list \
+          --archive-file "$ARCHIVE_FILE" \
+          --message-format json \
+          > nextest-test-list.json
+
+    # Matrix-generation jobs only need the test manifest. Keep it separate so
+    # they do not download the much larger archive and debug binaries.
+    - name: Create Nextest Test List Artifact
+      if: |
+        inputs.action == 'create'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+      with:
+        name: "nextest-test-list"
+        path: nextest-test-list.json
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 9
+        overwrite: true
+
     - name: Create Nextest Archive Artifact
       if: |
         inputs.action == 'create'
@@ -119,16 +144,10 @@ runs:
         name: "nextest-archive"
         path: |
           ${{ inputs.archive-file }}
-          ci-tools/
-          ${{ inputs.debug-binary-path }}
-          !${{ inputs.debug-binary-path }}/examples/**
-          !${{ inputs.debug-binary-path }}/incremental/**
-          !${{ inputs.debug-binary-path }}/.fingerprint/**
-          !${{ inputs.debug-binary-path }}/build/**
-          !${{ inputs.debug-binary-path }}/deps/**/*.d
-          !${{ inputs.debug-binary-path }}/deps/**/*.rlib
-          !${{ inputs.debug-binary-path }}/deps/**/*.rmeta
+          ci-tools.tar.zst
         if-no-files-found: error
         retention-days: 1
-        compression-level: 9 # 0 (none) - 9 (most)
+        # The nextest archive and tool binaries are already compressed or
+        # incompressible; recompressing them only delays every test job.
+        compression-level: 0
         overwrite: true  

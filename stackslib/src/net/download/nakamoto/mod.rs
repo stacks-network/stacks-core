@@ -116,7 +116,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoBlock;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::net::p2p::PeerNetwork;
 use crate::net::Error as NetError;
 
@@ -138,7 +138,7 @@ pub use crate::net::download::nakamoto::tenure_downloader_unconfirmed::{
     NakamotoUnconfirmedDownloadState, NakamotoUnconfirmedTenureDownloader,
 };
 
-impl PeerNetwork {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> PeerNetwork<CSP> {
     /// Set up the Nakamoto block downloader
     pub fn init_nakamoto_block_downloader(&mut self) {
         if self.block_downloader_nakamoto.is_some() {
@@ -155,7 +155,7 @@ impl PeerNetwork {
         &mut self,
         burnchain_height: u64,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         ibd: bool,
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         if self.block_downloader_nakamoto.is_none() {
@@ -177,7 +177,7 @@ impl PeerNetwork {
         &mut self,
         burnchain_height: u64,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         ibd: bool,
     ) -> Result<HashMap<ConsensusHash, Vec<NakamotoBlock>>, NetError> {
         if self.connection_opts.disable_block_download {

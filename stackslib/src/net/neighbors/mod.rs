@@ -102,7 +102,7 @@ pub const NEIGHBOR_WALK_INTERVAL: u64 = 120; // seconds
 /// connected to at least one always-allowed node
 pub const WALK_SEED_PROBABILITY: f64 = 0.9;
 
-impl PeerNetwork {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> PeerNetwork<CSP> {
     /// Begin an outbound walk or a pingback walk, depending on whether or not we have pingback
     /// state.
     /// If we do, then do a pingback walk with 50% probability.  Otherwise do an outbound walk.

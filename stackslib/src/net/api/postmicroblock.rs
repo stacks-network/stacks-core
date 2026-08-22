@@ -21,7 +21,7 @@ use stacks_common::types::net::PeerHost;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::Epoch2StagingBlocksDb;
 use crate::chainstate::stacks::{Error as ChainError, StacksBlockHeader, StacksMicroblock};
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
@@ -109,7 +109,9 @@ impl HttpRequest for RPCPostMicroblockRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCPostMicroblockRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.microblock = None;
@@ -120,7 +122,7 @@ impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let microblock = self
             .microblock
@@ -133,7 +135,7 @@ impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
             }
         };
         let data_resp = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-            let stacks_tip = match StacksChainState::load_staging_block_info(chainstate.db(), &tip) {
+            let stacks_tip = match Epoch2StagingBlocksDb::load_staging_block_info(chainstate.db(), &tip) {
                 Ok(Some(tip_info)) => tip_info,
                 Ok(None) => {
                     return Err(StacksHttpResponse::new_error(&preamble, &HttpNotFound::new("No such stacks tip".into())));
@@ -162,7 +164,7 @@ impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
             let parent_block_snapshot = Relayer::get_parent_stacks_block_snapshot(&sort_handle, consensus_hash, block_hash)
                 .map_err(|e| StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Failed to load parent block for Stacks tip: {:?}", &e))))?;
 
-            let epoch_id = self.get_stacks_epoch(&preamble, sortdb, parent_block_snapshot.block_height)?.epoch_id;
+            let epoch_id = <RPCPostMicroblockRequestHandler as RPCRequestHandler<CSP>>::get_stacks_epoch(self, &preamble, sortdb, parent_block_snapshot.block_height)?.epoch_id;
 
             if !Relayer::static_check_problematic_relayed_microblock(
                 chainstate.mainnet,

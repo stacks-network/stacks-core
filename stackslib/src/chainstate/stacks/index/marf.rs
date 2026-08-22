@@ -1262,6 +1262,28 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(MARF::from_storage(file_storage))
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    pub fn try_clone_ephemeral(&self) -> Result<MARF<T>, Error> {
+        self.try_clone_ephemeral_at(":memory:")
+    }
+
+    /// Clone this in-memory MARF into another in-memory SQLite database.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn try_clone_ephemeral_at(&self, db_path: &str) -> Result<MARF<T>, Error> {
+        if self.open_chain_tip.is_some() {
+            error!(
+                "MARF at {} is already in the process of writing",
+                &self.storage.db_path
+            );
+            return Err(Error::InProgressError);
+        }
+
+        Ok(MARF {
+            storage: self.storage.try_clone_ephemeral_at(db_path)?,
+            open_chain_tip: None,
+        })
+    }
+
     pub fn get_by_path(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,

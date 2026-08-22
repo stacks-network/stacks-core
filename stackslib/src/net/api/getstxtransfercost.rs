@@ -70,7 +70,9 @@ impl HttpRequest for RPCGetStxTransferCostRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCGetStxTransferCostRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {}
 
@@ -79,15 +81,15 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         // NOTE: The estimated length isn't needed per se because we're returning a fee rate, but
         // we do need an absolute length to use the estimator (so supply a common one).
         let estimated_len = SINGLESIG_TX_TRANSFER_LEN;
 
         let fee_resp = node.with_node_state(|_network, sortdb, _chainstate, _mempool, rpc_args| {
-            let tip = self.get_canonical_burn_chain_tip(&preamble, sortdb)?;
-            let stacks_epoch = self.get_stacks_epoch(&preamble, sortdb, tip.block_height)?;
+            let tip = <RPCGetStxTransferCostRequestHandler as RPCRequestHandler<CSP>>::get_canonical_burn_chain_tip(self, &preamble, sortdb)?;
+            let stacks_epoch = <RPCGetStxTransferCostRequestHandler as RPCRequestHandler<CSP>>::get_stacks_epoch(self, &preamble, sortdb, tip.block_height)?;
 
             if let Some((_, fee_estimator, metric)) = rpc_args.get_estimators_ref() {
                 // STX transfer transactions have zero runtime cost

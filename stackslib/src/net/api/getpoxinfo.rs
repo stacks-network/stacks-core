@@ -32,7 +32,9 @@ use crate::chainstate::nakamoto::signer_set::{pox_5_sbtc_contract, pox_5_sbtc_re
 use crate::chainstate::stacks::boot::{
     POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME, POX_5_NAME, POX_5_SIGNER_SET_MIN_USTX,
 };
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, PoxRewardSetCalculator, StacksChainState,
+};
 use crate::chainstate::stacks::Error as ChainError;
 use crate::core::StacksEpoch;
 use crate::net::http::{
@@ -149,7 +151,7 @@ pub struct RPCPoxInfoData {
 impl RPCPoxInfoData {
     pub fn from_db(
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         tip: &StacksBlockId,
         burnchain: &Burnchain,
         current_reward_sets: &BTreeMap<u64, CurrentRewardSet>,
@@ -385,13 +387,13 @@ impl RPCPoxInfoData {
 
         let reward_slots = pox_consts.reward_slots() as u64;
 
-        let cur_cycle_threshold_live = StacksChainState::get_threshold_from_participation(
+        let cur_cycle_threshold_live = PoxRewardSetCalculator::get_threshold_from_participation(
             total_liquid_supply_ustx as u128,
             cur_cycle_stacked_ustx,
             reward_slots as u128,
         ) as u64;
 
-        let next_threshold_live = StacksChainState::get_threshold_from_participation(
+        let next_threshold_live = PoxRewardSetCalculator::get_threshold_from_participation(
             total_liquid_supply_ustx as u128,
             next_cycle_stacked_ustx,
             reward_slots as u128,
@@ -546,7 +548,7 @@ impl RPCPoxInfoData {
     /// Falls back to `None` if the reward set has not been persisted yet.
     fn get_persisted_cycle_threshold(
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         tip: &StacksBlockId,
         burnchain_tip: &crate::chainstate::burn::BlockSnapshot,
         current_reward_sets: &BTreeMap<u64, CurrentRewardSet>,
@@ -627,7 +629,9 @@ impl HttpRequest for RPCPoxInfoRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCPoxInfoRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCPoxInfoRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {}
 
@@ -636,7 +640,7 @@ impl RPCRequestHandler for RPCPoxInfoRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,

@@ -8,7 +8,7 @@ use stacks::chainstate::burn::operations::LeaderKeyRegisterOp;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::chainstate::stacks::miner::MinerStatus;
 use stacks::config::{BurnchainConfig, MinerConfig};
 use stacks::net::NetworkResult;
@@ -190,7 +190,7 @@ impl<T> Globals<T> {
     /// Called by the relayer to pass unconfirmed txs to the p2p thread, so the p2p thread doesn't
     /// need to do the disk I/O needed to instantiate the unconfirmed state trie they represent.
     /// Clears the unconfirmed transactions, and replaces them with the chainstate's.
-    pub fn send_unconfirmed_txs(&self, chainstate: &StacksChainState) {
+    pub fn send_unconfirmed_txs(&self, chainstate: &StacksChainState<DiskChainStateBackend>) {
         let Some(ref unconfirmed) = chainstate.unconfirmed_state else {
             return;
         };
@@ -205,7 +205,7 @@ impl<T> Globals<T> {
 
     /// Called by the p2p thread to accept the unconfirmed tx state processed by the relayer.
     /// Puts the shared unconfirmed transactions to chainstate.
-    pub fn recv_unconfirmed_txs(&self, chainstate: &mut StacksChainState) {
+    pub fn recv_unconfirmed_txs(&self, chainstate: &mut StacksChainState<DiskChainStateBackend>) {
         let Some(ref mut unconfirmed) = chainstate.unconfirmed_state else {
             return;
         };

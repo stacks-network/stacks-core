@@ -144,7 +144,7 @@ fn variant_coverage_report(variant: StaticCheckErrorKind) {
         ReturnTypesMustMatch(type_signature, type_signature1) => Tested(vec![static_check_error_return_types_must_match]),
         NoSuchContract(_) => Tested(vec![static_check_error_no_such_contract]),
         NoSuchPublicFunction(_, _) => Tested(vec![static_check_error_no_such_public_function]),
-        ContractAlreadyExists(_) => Unreachable_Functionally("During normal operations, `StacksChainState::process_transaction_payload` will check if the contract exists already, invalidating the block before executing analysis. see `error_invalid_stacks_transaction_duplicate_contract`"),
+        ContractAlreadyExists(_) => Unreachable_Functionally("During normal operations, `ClarityTransactionConnection::process_transaction_payload` will check if the contract exists already, invalidating the block before executing analysis. see `error_invalid_stacks_transaction_duplicate_contract`"),
         ContractCallExpectName => Tested(vec![static_check_error_contract_call_expect_name]),
         ExpectedCallableType(type_signature) => Tested(vec![static_check_error_expected_callable_type]),
         NoSuchBlockInfoProperty(_) => Tested(vec![static_check_error_no_such_block_info_property]),

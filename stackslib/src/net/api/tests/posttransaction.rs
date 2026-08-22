@@ -32,7 +32,10 @@ use crate::net::{Attachment, ProtocolFamily};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+    let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
+        addr,
+        &ConnectionOptions::default(),
+    );
 
     // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
     let privk1 = StacksPrivateKey::from_hex(
@@ -86,7 +89,9 @@ fn test_try_parse_request() {
 
     assert_eq!(&preamble, request.preamble());
 
-    handler.restart();
+    RPCRequestHandler::<crate::chainstate::stacks::db::DiskChainStateBackend>::restart(
+        &mut handler,
+    );
     assert!(handler.tx.is_none());
     assert!(handler.attachment.is_none());
 
@@ -111,7 +116,9 @@ fn test_try_parse_request() {
     assert_eq!(handler.tx, Some(tx_cc_signed.clone()));
     assert_eq!(handler.attachment, None);
 
-    handler.restart();
+    RPCRequestHandler::<crate::chainstate::stacks::db::DiskChainStateBackend>::restart(
+        &mut handler,
+    );
     assert!(handler.tx.is_none());
     assert!(handler.attachment.is_none());
 
@@ -149,7 +156,9 @@ fn test_try_parse_request() {
 
     assert_eq!(&preamble, request.preamble());
 
-    handler.restart();
+    RPCRequestHandler::<crate::chainstate::stacks::db::DiskChainStateBackend>::restart(
+        &mut handler,
+    );
     assert!(handler.tx.is_none());
     assert!(handler.attachment.is_none());
 }

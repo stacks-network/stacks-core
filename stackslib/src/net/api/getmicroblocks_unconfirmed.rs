@@ -22,7 +22,9 @@ use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::retry::BoundReader;
 
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, Epoch2StagingBlocksDb, StacksChainState,
+};
 use crate::chainstate::stacks::{Error as ChainError, StacksMicroblock};
 use crate::net::http::{
     parse_bytes, Error, HttpChunkGenerator, HttpContentType, HttpNotFound, HttpRequest,
@@ -62,11 +64,11 @@ pub struct StacksUnconfirmedMicroblockStream {
 
 impl StacksUnconfirmedMicroblockStream {
     pub fn new(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         parent_block_id: &StacksBlockId,
         seq: u16,
     ) -> Result<Self, ChainError> {
-        let mblock_info = StacksChainState::load_next_descendant_microblock(
+        let mblock_info = Epoch2StagingBlocksDb::load_next_descendant_microblock(
             chainstate.db(),
             parent_block_id,
             seq,
@@ -131,7 +133,9 @@ impl HttpRequest for RPCMicroblocksUnconfirmedRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCMicroblocksUnconfirmedRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCMicroblocksUnconfirmedRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.parent_block_id = None;
@@ -143,7 +147,7 @@ impl RPCRequestHandler for RPCMicroblocksUnconfirmedRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_id = self
             .parent_block_id
@@ -231,7 +235,7 @@ impl HttpChunkGenerator for StacksUnconfirmedMicroblockStream {
             x => x + 1,
         };
 
-        let next_mblock_opt = StacksChainState::load_next_descendant_microblock(
+        let next_mblock_opt = Epoch2StagingBlocksDb::load_next_descendant_microblock(
             &self.chainstate_db,
             &self.parent_index_block_hash,
             next_seq,

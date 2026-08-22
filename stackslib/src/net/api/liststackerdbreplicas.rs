@@ -85,7 +85,9 @@ impl HttpRequest for RPCListStackerDBReplicasRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCListStackerDBReplicasRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCListStackerDBReplicasRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.contract_identifier = None;
@@ -96,7 +98,7 @@ impl RPCRequestHandler for RPCListStackerDBReplicasRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let contract_identifier = self
             .contract_identifier

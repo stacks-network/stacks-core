@@ -68,15 +68,16 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, StacksDBInd
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::make_pox_4_lockup_chain_id;
 use crate::chainstate::stacks::boot::{POX_5_NAME, POX_5_SIGNER_SET_MIN_USTX};
-use crate::chainstate::stacks::db::{StacksChainState, *};
+use crate::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState, *};
 use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksMicroblockHeader, *};
 use crate::core::{
     EpochList, StacksEpoch, StacksEpochExtension, BLOCK_LIMIT_MAINNET_21, BOOT_BLOCK_HASH,
 };
+use crate::net::atlas::{AtlasConfig, AtlasDB};
 use crate::net::relay::Relayer;
-use crate::net::test::TestEventObserver;
+use crate::net::test::{TestEventObserver, TestPeerChainstateFactory};
 use crate::net::tests::NakamotoBootPlan;
 use crate::util_lib::boot::{boot_code_id, boot_code_test_addr, boot_code_tx_auth};
 use crate::util_lib::signed_structured_data::pox4::{
@@ -126,6 +127,13 @@ const POX_5_SBTC_REGISTRY_STUB_BODY: &str = r#"
 "#;
 
 // describes a chainstate's initial configuration
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestChainstateStorage {
+    Disk,
+    Ephemeral,
+    SharedEphemeral,
+}
+
 #[derive(Debug, Clone)]
 pub struct TestChainstateConfig {
     pub network_id: u32,
@@ -143,6 +151,7 @@ pub struct TestChainstateConfig {
     /// (NOTE: will be used post-Nakamoto)
     pub aggregate_public_key: Option<Vec<u8>>,
     pub txindex: bool,
+    pub storage: TestChainstateStorage,
 }
 
 impl Default for TestChainstateConfig {
@@ -175,6 +184,7 @@ impl Default for TestChainstateConfig {
             test_stackers: None,
             test_signers: None,
             txindex: false,
+            storage: TestChainstateStorage::Disk,
         }
     }
 }
@@ -186,13 +196,25 @@ impl TestChainstateConfig {
             ..Self::default()
         }
     }
+
+    pub fn new_ephemeral(test_name: &str) -> Self {
+        let mut config = Self::new(test_name);
+        config.storage = TestChainstateStorage::Ephemeral;
+        config
+    }
+
+    pub fn new_shared_ephemeral(test_name: &str) -> Self {
+        let mut config = Self::new(test_name);
+        config.storage = TestChainstateStorage::SharedEphemeral;
+        config
+    }
 }
 
-pub struct TestChainstate<'a> {
+pub struct TestChainstate<'a, CSP: ChainStatePersistence = DiskChainStateBackend> {
     pub config: TestChainstateConfig,
     pub sortdb: Option<SortitionDB>,
     pub miner: TestMiner,
-    pub stacks_node: Option<TestStacksNode>,
+    pub stacks_node: Option<TestStacksNode<CSP>>,
     pub indexer: Option<BitcoinIndexer>,
     pub coord: ChainsCoordinator<
         'a,
@@ -202,6 +224,7 @@ pub struct TestChainstate<'a> {
         (),
         (),
         BitcoinIndexer,
+        CSP,
     >,
     pub nakamoto_parent_tenure_opt: Option<Vec<NakamotoBlock>>,
     /// list of malleablized blocks produced when mining.
@@ -211,11 +234,117 @@ pub struct TestChainstate<'a> {
     pub chainstate_path: String,
 }
 
-impl<'a> TestChainstate<'a> {
-    pub fn new(config: TestChainstateConfig) -> TestChainstate<'a> {
+impl<'a> TestChainstate<'a, DiskChainStateBackend> {
+    pub fn new(config: TestChainstateConfig) -> Self {
         Self::new_with_observer(config, None)
     }
 
+    pub fn new_with_observer(
+        mut config: TestChainstateConfig,
+        observer: Option<&'a TestEventObserver>,
+    ) -> Self {
+        config.storage = TestChainstateStorage::Disk;
+        Self::new_with_observer_from_parts(
+            config,
+            observer,
+            |network_id, chainstate_path, boot_data| {
+                StacksChainState::open_and_exec(
+                    false,
+                    network_id,
+                    chainstate_path,
+                    Some(boot_data),
+                    None,
+                )
+                .unwrap()
+                .0
+            },
+            |config, test_path, observer, indexer, _chainstate| {
+                ChainsCoordinator::test_new_full(
+                    &config.burnchain,
+                    config.network_id,
+                    test_path,
+                    OnChainRewardSetProvider(observer),
+                    observer,
+                    indexer,
+                    None,
+                    config.txindex,
+                )
+            },
+        )
+    }
+}
+
+impl<'a> TestChainstate<'a, MemoryChainStateBackend> {
+    pub fn new_ephemeral_with_observer(
+        mut config: TestChainstateConfig,
+        observer: Option<&'a TestEventObserver>,
+    ) -> Self {
+        config.storage = TestChainstateStorage::Ephemeral;
+        Self::new_with_observer_from_parts(
+            config,
+            observer,
+            |network_id, chainstate_path, boot_data| {
+                let (chainstate, _) =
+                    StacksChainState::new_ephemeral(false, network_id, Some(boot_data), None)
+                        .unwrap();
+                *chainstate_path = chainstate.root_path.clone();
+                chainstate
+            },
+            |config, _test_path, observer, indexer, _chainstate| {
+                ChainsCoordinator::test_new_full_ephemeral(
+                    &config.burnchain,
+                    config.network_id,
+                    OnChainRewardSetProvider(observer),
+                    observer,
+                    indexer,
+                    None,
+                    config.txindex,
+                )
+            },
+        )
+    }
+}
+
+impl<'a> TestChainstate<'a, SharedMemoryChainStateBackend> {
+    pub fn new_shared_ephemeral_with_observer(
+        mut config: TestChainstateConfig,
+        observer: Option<&'a TestEventObserver>,
+    ) -> Self {
+        config.storage = TestChainstateStorage::SharedEphemeral;
+        Self::new_with_observer_from_parts(
+            config,
+            observer,
+            |network_id, chainstate_path, boot_data| {
+                let (chainstate, _) = StacksChainState::new_shared_ephemeral(
+                    false,
+                    network_id,
+                    Some(boot_data),
+                    None,
+                )
+                .unwrap();
+                *chainstate_path = chainstate.root_path.clone();
+                chainstate
+            },
+            |config, _test_path, observer, indexer, chainstate| {
+                let (coord_chainstate, _) = chainstate.reopen().unwrap();
+                let atlas_config = AtlasConfig::new(false);
+                let atlas_db = AtlasDB::connect_memory(atlas_config.clone()).unwrap();
+                ChainsCoordinator::test_new_full_with_chainstate(
+                    &config.burnchain,
+                    coord_chainstate,
+                    OnChainRewardSetProvider(observer),
+                    observer,
+                    indexer,
+                    atlas_db,
+                    Some(atlas_config),
+                    config.txindex,
+                )
+            },
+        )
+    }
+}
+
+impl<'a, CSP: ChainStatePersistence> TestChainstate<'a, CSP> {
     pub fn test_path(config: &TestChainstateConfig) -> String {
         let random = thread_rng().gen::<u64>();
         let random_bytes = to_hex(&random.to_be_bytes());
@@ -223,6 +352,13 @@ impl<'a> TestChainstate<'a> {
         format!(
             "/tmp/stacks-node-tests/units-test-consensus/{cleaned_config_test_name}-{random_bytes}"
         )
+    }
+
+    pub fn test_namespace(config: &TestChainstateConfig) -> String {
+        let random = thread_rng().gen::<u64>();
+        let random_bytes = to_hex(&random.to_be_bytes());
+        let cleaned_config_test_name = config.test_name.replace("::", "_");
+        format!("memory://stacks-test/{cleaned_config_test_name}-{random_bytes}")
     }
 
     pub fn make_test_path(config: &TestChainstateConfig) -> String {
@@ -235,12 +371,42 @@ impl<'a> TestChainstate<'a> {
         test_path
     }
 
-    pub fn new_with_observer(
+    pub fn test_root(config: &TestChainstateConfig) -> String {
+        match config.storage {
+            TestChainstateStorage::Disk => Self::make_test_path(config),
+            TestChainstateStorage::Ephemeral | TestChainstateStorage::SharedEphemeral => {
+                Self::test_namespace(config)
+            }
+        }
+    }
+
+    fn new_with_observer_from_parts<OpenChainstate, MakeCoordinator>(
         mut config: TestChainstateConfig,
         observer: Option<&'a TestEventObserver>,
-    ) -> TestChainstate<'a> {
-        let test_path = Self::make_test_path(&config);
-        let chainstate_path = get_chainstate_path_str(&test_path);
+        open_chainstate: OpenChainstate,
+        make_coordinator: MakeCoordinator,
+    ) -> TestChainstate<'a, CSP>
+    where
+        OpenChainstate: FnOnce(u32, &mut String, &mut ChainStateBootData) -> StacksChainState<CSP>,
+        MakeCoordinator: FnOnce(
+            &TestChainstateConfig,
+            &str,
+            Option<&'a TestEventObserver>,
+            BitcoinIndexer,
+            &StacksChainState<CSP>,
+        ) -> ChainsCoordinator<
+            'a,
+            TestEventObserver,
+            (),
+            OnChainRewardSetProvider<'a, TestEventObserver>,
+            (),
+            (),
+            BitcoinIndexer,
+            CSP,
+        >,
+    {
+        let test_path = Self::test_root(&config);
+        let mut chainstate_path = get_chainstate_path_str(&test_path);
         let mut miner_factory = TestMinerFactory::new();
         miner_factory.chain_id = config.network_id;
         let mut miner = miner_factory.next_miner(
@@ -253,6 +419,12 @@ impl<'a> TestChainstate<'a> {
         miner.test_with_tx_fees = false;
 
         config.burnchain.working_dir = get_burnchain(&test_path, None).working_dir;
+        if matches!(
+            config.storage,
+            TestChainstateStorage::Ephemeral | TestChainstateStorage::SharedEphemeral
+        ) {
+            config.burnchain.use_in_memory_databases(&test_path);
+        }
 
         let epochs = config.epochs.clone().unwrap_or_else(|| {
             StacksEpoch::unit_test_up_to(
@@ -339,13 +511,13 @@ impl<'a> TestChainstate<'a> {
                         boot_code_auth,
                         smart_contract,
                     );
-                    StacksChainState::process_transaction_payload(
-                        clarity,
-                        &smart_contract_tx,
-                        &boot_code_account,
-                        &TransactionResourceBudgets::unlimited(),
-                    )
-                    .expect("FATAL: failed to deploy sbtc stub")
+                    clarity
+                        .process_transaction_payload(
+                            &smart_contract_tx,
+                            &boot_code_account,
+                            &TransactionResourceBudgets::unlimited(),
+                        )
+                        .expect("FATAL: failed to deploy sbtc stub")
                 })
             };
             receipts.push(deploy_stub(
@@ -404,13 +576,13 @@ impl<'a> TestChainstate<'a> {
                         boot_code_auth,
                         smart_contract,
                     );
-                    StacksChainState::process_transaction_payload(
-                        clarity,
-                        &boot_code_smart_contract,
-                        &boot_code_account,
-                        &TransactionResourceBudgets::unlimited(),
-                    )
-                    .unwrap()
+                    clarity
+                        .process_transaction_payload(
+                            &boot_code_smart_contract,
+                            &boot_code_account,
+                            &TransactionResourceBudgets::unlimited(),
+                        )
+                        .unwrap()
                 });
                 receipts.push(receipt);
             }
@@ -429,26 +601,10 @@ impl<'a> TestChainstate<'a> {
                 Some(Box::new(move || Box::new(lockups.into_iter())));
         }
 
-        let (chainstate, _) = StacksChainState::open_and_exec(
-            false,
-            config.network_id,
-            &chainstate_path,
-            Some(&mut boot_data),
-            None,
-        )
-        .unwrap();
+        let chainstate = open_chainstate(config.network_id, &mut chainstate_path, &mut boot_data);
 
-        let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
-        let mut coord = ChainsCoordinator::test_new_full(
-            &config.burnchain,
-            config.network_id,
-            &test_path,
-            OnChainRewardSetProvider(observer),
-            observer,
-            indexer,
-            None,
-            config.txindex,
-        );
+        let indexer = BitcoinIndexer::new_unit_test_for_working_dir(&config.burnchain.working_dir);
+        let mut coord = make_coordinator(&config, &test_path, observer, indexer, &chainstate);
         coord.handle_new_burnchain_block().unwrap();
 
         let mut stacks_node = TestStacksNode::from_chainstate(chainstate);
@@ -475,7 +631,7 @@ impl<'a> TestChainstate<'a> {
             }
         }
 
-        let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
+        let indexer = BitcoinIndexer::new_unit_test_for_working_dir(&config.burnchain.working_dir);
 
         TestChainstate {
             config,
@@ -498,7 +654,9 @@ impl<'a> TestChainstate<'a> {
         &mut self,
         private_key: &StacksPrivateKey,
         target_epoch: StacksEpochId,
-    ) {
+    ) where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let mut burn_block_height = self.get_burn_block_height();
         let mut target_height = self
             .config
@@ -666,7 +824,10 @@ impl<'a> TestChainstate<'a> {
     /// Mines a new bitcoin block with a new tenure block-commit, using it to mine the start of a new Stacks Nakmoto tenure,
     /// It will mine subsequently mine the coinbase and tenure change Stacks txs.
     /// NOTE: mines a total of one Bitcoin block and one Stacks block.
-    fn mine_nakamoto_tenure(&mut self) {
+    fn mine_nakamoto_tenure(&mut self)
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let burn_block_height = self.get_burn_block_height();
         let (burn_ops, mut tenure_change, miner_key) =
             self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -694,7 +855,9 @@ impl<'a> TestChainstate<'a> {
         &mut self,
         private_key: &StacksPrivateKey,
         target_epoch: StacksEpochId,
-    ) {
+    ) where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let burn_block_height = self.get_burn_block_height();
         let target_height = self
             .config
@@ -842,7 +1005,7 @@ impl<'a> TestChainstate<'a> {
         test_debug!(
                 "make_next_burnchain_block: tip_block_height={tip_block_height} tip_block_hash={tip_block_hash} num_ops={num_ops}"
             );
-        let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
+        let indexer = BitcoinIndexer::new_unit_test_for_working_dir(&burnchain.working_dir);
         let parent_hdr = indexer
             .read_burnchain_header(tip_block_height)
             .unwrap()
@@ -885,7 +1048,7 @@ impl<'a> TestChainstate<'a> {
     ) {
         let mut burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), true).unwrap();
 
-        let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
+        let mut indexer = BitcoinIndexer::new_unit_test_for_working_dir(&burnchain.working_dir);
 
         test_debug!(
             "Store header and block ops for {}-{} ({})",
@@ -1043,7 +1206,11 @@ impl<'a> TestChainstate<'a> {
                 &block.block_hash(),
                 &pox_id
             );
+            self.sync_ephemeral_chainstate_to_coordinator(&node)
+                .unwrap();
             self.coord.handle_new_stacks_block().unwrap();
+            self.sync_ephemeral_chainstate_from_coordinator(&mut node)
+                .unwrap();
         }
 
         self.sortdb = Some(sortdb);
@@ -1114,7 +1281,11 @@ impl<'a> TestChainstate<'a> {
                 .preprocess_stacks_epoch(&ic, &tip, block, microblocks)
                 .unwrap();
         }
+        self.sync_ephemeral_chainstate_to_coordinator(&node)
+            .unwrap();
         self.coord.handle_new_stacks_block().unwrap();
+        self.sync_ephemeral_chainstate_from_coordinator(&mut node)
+            .unwrap();
 
         let pox_id = {
             let ic = sortdb.index_conn();
@@ -1136,7 +1307,7 @@ impl<'a> TestChainstate<'a> {
     fn inner_process_stacks_epoch_at_tip(
         &mut self,
         sortdb: &SortitionDB,
-        node: &mut TestStacksNode,
+        node: &mut TestStacksNode<CSP>,
         block: &StacksBlock,
         microblocks: &[StacksMicroblock],
     ) -> Result<(), CoordinatorError> {
@@ -1146,7 +1317,9 @@ impl<'a> TestChainstate<'a> {
             node.chainstate
                 .preprocess_stacks_epoch(&ic, &tip, block, microblocks)?;
         }
+        self.sync_ephemeral_chainstate_to_coordinator(node)?;
         self.coord.handle_new_stacks_block()?;
+        self.sync_ephemeral_chainstate_from_coordinator(node)?;
 
         let pox_id = {
             let ic = sortdb.index_conn();
@@ -1205,7 +1378,11 @@ impl<'a> TestChainstate<'a> {
                     .unwrap();
             }
         }
+        self.sync_ephemeral_chainstate_to_coordinator(&node)
+            .unwrap();
         self.coord.handle_new_stacks_block().unwrap();
+        self.sync_ephemeral_chainstate_from_coordinator(&mut node)
+            .unwrap();
 
         let pox_id = {
             let ic = sortdb.index_conn();
@@ -1236,12 +1413,43 @@ impl<'a> TestChainstate<'a> {
         result
     }
 
-    pub fn chainstate(&mut self) -> &mut StacksChainState {
+    pub fn chainstate(&mut self) -> &mut StacksChainState<CSP> {
         &mut self.stacks_node.as_mut().unwrap().chainstate
     }
 
-    pub fn chainstate_ref(&self) -> &StacksChainState {
+    pub fn chainstate_ref(&self) -> &StacksChainState<CSP> {
         &self.stacks_node.as_ref().unwrap().chainstate
+    }
+
+    /// In ephemeral mode, copy the node chainstate into the coordinator before
+    /// coordinator processing. Disk-backed tests already share state through
+    /// their reopened filesystem handles.
+    pub fn sync_ephemeral_chainstate_to_coordinator(
+        &mut self,
+        node: &TestStacksNode<CSP>,
+    ) -> Result<(), CoordinatorError> {
+        if matches!(
+            self.config.storage,
+            TestChainstateStorage::Ephemeral | TestChainstateStorage::SharedEphemeral
+        ) {
+            self.coord.chain_state_db = node.chainstate.reopen()?.0;
+        }
+        Ok(())
+    }
+
+    /// In ephemeral mode, copy coordinator-applied chainstate changes back to
+    /// the node handle used by the test harness.
+    pub fn sync_ephemeral_chainstate_from_coordinator(
+        &mut self,
+        node: &mut TestStacksNode<CSP>,
+    ) -> Result<(), CoordinatorError> {
+        if matches!(
+            self.config.storage,
+            TestChainstateStorage::Ephemeral | TestChainstateStorage::SharedEphemeral
+        ) {
+            node.chainstate = self.coord.chain_state_db.reopen()?.0;
+        }
+        Ok(())
     }
 
     pub fn sortdb(&mut self) -> &mut SortitionDB {
@@ -1252,11 +1460,11 @@ impl<'a> TestChainstate<'a> {
         self.sortdb.as_ref().unwrap()
     }
 
-    pub fn stacks_node(&mut self) -> &mut TestStacksNode {
+    pub fn stacks_node(&mut self) -> &mut TestStacksNode<CSP> {
         self.stacks_node.as_mut().unwrap()
     }
 
-    pub fn stacks_node_ref(&self) -> &TestStacksNode {
+    pub fn stacks_node_ref(&self) -> &TestStacksNode<CSP> {
         self.stacks_node.as_ref().unwrap()
     }
 
@@ -1293,14 +1501,14 @@ impl<'a> TestChainstate<'a> {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-                let parent_tip = StacksChainState::get_anchored_block_header_info(
+                let parent_tip = StacksHeadersDb::get_anchored_block_header_info(
                     chainstate.db(),
                     &tip.canonical_stacks_tip_consensus_hash,
                     &tip.canonical_stacks_tip_hash,
                 )
                 .unwrap()
                 .unwrap_or_else(|| {
-                    StacksChainState::get_genesis_header_info(chainstate.db()).unwrap()
+                    StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap()
                 });
 
                 let coinbase_tx = make_coinbase(miner, tip.block_height.try_into().unwrap());
@@ -1323,7 +1531,7 @@ impl<'a> TestChainstate<'a> {
                 )
                 .unwrap();
                 let (anchored_block, _size, _cost) =
-                    StacksBlockBuilder::make_anchored_block_from_txs(
+                    StacksBlockBuilder::make_anchored_block_from_txs_in_test_chainstate(
                         block_builder,
                         chainstate,
                         &sortdb.index_handle(&tip.sortition_id),
@@ -1434,7 +1642,7 @@ impl<'a> TestChainstate<'a> {
         F: FnMut(
             &mut TestMiner,
             &mut SortitionDB,
-            &mut StacksChainState,
+            &mut StacksChainState<CSP>,
             &VRFProof,
             Option<&StacksBlock>,
             Option<&StacksMicroblockHeader>,
@@ -1553,7 +1761,7 @@ impl<'a> TestChainstate<'a> {
                 ))
             } else if let Some(parent_block) = parent_block_opt.as_ref() {
                 let parent_header_info =
-                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                    StacksHeadersDb::get_stacks_block_header_info_by_index_block_hash(
                         stacks_node.chainstate.db(),
                         &last_tenure_id,
                     )
@@ -1729,14 +1937,17 @@ impl<'a> TestChainstate<'a> {
         tenure_change: StacksTransaction,
         coinbase: StacksTransaction,
         timestamp: Option<u64>,
-    ) -> Result<Vec<(NakamotoBlock, u64, ExecutionCost)>, ChainstateError> {
+    ) -> Result<Vec<(NakamotoBlock, u64, ExecutionCost)>, ChainstateError>
+    where
+        CSP: TestPeerChainstateFactory<'a>,
+    {
         let cycle = self.get_reward_cycle();
         let mut signers = self.config.test_signers.clone().unwrap_or_default();
         signers.generate_aggregate_key(cycle);
 
         let mut sortdb = self.sortdb.take().unwrap();
         let mut stacks_node = self.stacks_node.take().unwrap();
-        let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
+        let blocks = TestStacksNode::<CSP>::make_nakamoto_tenure_blocks(
             &mut stacks_node.chainstate,
             &mut sortdb,
             &mut self.miner,
@@ -2025,7 +2236,7 @@ fn advance_through_all_epochs() {
         + boot_plan.pox_constants.reward_cycle_length
         + 1) as u64;
 
-    let epochs = TestChainstate::all_epochs(first_burnchain_height);
+    let epochs = TestChainstate::<DiskChainStateBackend>::all_epochs(first_burnchain_height);
     boot_plan = boot_plan.with_epochs(epochs);
     let mut chainstate = boot_plan.to_chainstate(None, Some(first_burnchain_height));
     let burn_block_height = chainstate.get_burn_block_height();
@@ -2082,9 +2293,11 @@ fn advance_into_epoch_41_runs_the_epoch_transition() {
     let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
         + boot_plan.pox_constants.reward_cycle_length
         + 1) as u64;
-    let epochs = TestChainstate::all_epochs(first_burnchain_height);
+    let epochs =
+        TestChainstate::<SharedMemoryChainStateBackend>::all_epochs(first_burnchain_height);
     boot_plan = boot_plan.with_epochs(epochs);
-    let mut chainstate = boot_plan.to_chainstate(None, Some(first_burnchain_height));
+    let mut chainstate =
+        boot_plan.to_shared_ephemeral_chainstate(None, Some(first_burnchain_height));
 
     chainstate.advance_into_epoch(&privk, StacksEpochId::Epoch41);
 
@@ -2131,7 +2344,7 @@ fn pox_5_get_pox_info_min_amount_matches_rust_constant() {
     let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
         + boot_plan.pox_constants.reward_cycle_length
         + 1) as u64;
-    let epochs = TestChainstate::all_epochs(first_burnchain_height);
+    let epochs = TestChainstate::<DiskChainStateBackend>::all_epochs(first_burnchain_height);
     boot_plan = boot_plan.with_epochs(epochs);
     let mut chainstate = boot_plan.to_chainstate(None, Some(first_burnchain_height));
 
@@ -2185,7 +2398,7 @@ fn advance_to_nakamoto_bootstrapped() {
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_pox_constants(7, 3)
         .with_private_key(privk.clone());
-    let epochs = TestChainstate::epoch_2_5_onwards(
+    let epochs = TestChainstate::<DiskChainStateBackend>::epoch_2_5_onwards(
         (boot_plan.pox_constants.pox_4_activation_height
             + boot_plan.pox_constants.reward_cycle_length
             + 1) as u64,
@@ -2216,7 +2429,7 @@ fn advance_through_nakamoto_bootstrapped() {
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_pox_constants(7, 3)
         .with_private_key(privk.clone());
-    let epochs = TestChainstate::epoch_2_5_onwards(
+    let epochs = TestChainstate::<DiskChainStateBackend>::epoch_2_5_onwards(
         (boot_plan.pox_constants.pox_4_activation_height
             + boot_plan.pox_constants.reward_cycle_length
             + 1) as u64,

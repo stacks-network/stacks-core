@@ -46,7 +46,9 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::POX_4_NAME;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{
+    DiskChainStateBackend, Epoch2StagingBlocksDb, StacksChainState,
+};
 use stacks::chainstate::stacks::miner::{
     TransactionErrorEvent, TransactionEvent, TransactionSuccessEvent,
 };
@@ -307,9 +309,13 @@ pub mod test_observer {
     use warp::{self, Filter};
 
     use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
+    use crate::tests::test_port;
     use crate::Config;
 
-    pub const EVENT_OBSERVER_PORT: u16 = 50303;
+    /// Return the event-observer port assigned to this test process.
+    pub fn event_observer_port() -> u16 {
+        test_port(50303)
+    }
 
     pub static NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     pub static MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
@@ -656,7 +662,7 @@ pub mod test_observer {
         clear();
         thread::spawn(|| {
             let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
-            rt.block_on(serve(EVENT_OBSERVER_PORT));
+            rt.block_on(serve(event_observer_port()));
         });
     }
 
@@ -756,7 +762,7 @@ pub mod test_observer {
 
     pub fn register(config: &mut Config, event_keys: &[EventKeyType]) {
         config.events_observers.insert(EventObserverConfig {
-            endpoint: format!("localhost:{EVENT_OBSERVER_PORT}"),
+            endpoint: format!("localhost:{}", event_observer_port()),
             events_keys: event_keys.to_vec(),
             timeout_ms: 1000,
             disable_retries: false,
@@ -3255,7 +3261,7 @@ fn bitcoind_resubmission_test() {
     //  this behavior is not guaranteed to continue to work like this, so at some point this
     //  test will need to be updated to handle that.
     {
-        let (mut chainstate, _) = StacksChainState::open(
+        let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
             false,
             conf.burnchain.chain_id,
             &conf.get_chainstate_path_str(),
@@ -3287,7 +3293,7 @@ fn bitcoind_resubmission_test() {
         garbage_block.sign(&ublock_privk).unwrap();
 
         eprintln!("Minting microblock at {}/{}", &chain_tip.0, &chain_tip.1);
-        StacksChainState::store_staging_microblock(
+        Epoch2StagingBlocksDb::store_staging_microblock(
             &mut tx,
             &consensus_hash,
             &stacks_block.header.block_hash(),
@@ -5790,7 +5796,7 @@ fn atlas_integration_test() {
     conf_follower_node
         .events_observers
         .insert(EventObserverConfig {
-            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            endpoint: format!("localhost:{}", test_observer::event_observer_port()),
             events_keys: vec![EventKeyType::AnyEvent],
             timeout_ms: 1000,
             disable_retries: false,
@@ -6322,7 +6328,7 @@ fn antientropy_integration_test() {
     conf_follower_node
         .events_observers
         .insert(EventObserverConfig {
-            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            endpoint: format!("localhost:{}", test_observer::event_observer_port()),
             events_keys: vec![EventKeyType::AnyEvent],
             timeout_ms: 1000,
             disable_retries: false,
@@ -7515,7 +7521,7 @@ fn use_latest_tip_integration_test() {
     let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
     let tip_hash =
         StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         false,
         CHAIN_ID_TESTNET,
         &conf.get_chainstate_path_str(),

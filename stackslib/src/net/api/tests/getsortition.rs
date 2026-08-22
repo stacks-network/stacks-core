@@ -46,7 +46,10 @@ fn make_preamble(query: &str) -> HttpRequestPreamble {
 #[test]
 fn test_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let http = StacksHttp::new(addr, &ConnectionOptions::default());
+    let http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
+        addr,
+        &ConnectionOptions::default(),
+    );
     let mut handler = GetSortitionHandler::new();
 
     let tests = vec![
@@ -89,7 +92,9 @@ fn test_parse_request() {
     ];
 
     for (inp, expected_result) in tests.into_iter() {
-        handler.restart();
+        RPCRequestHandler::<crate::chainstate::stacks::db::DiskChainStateBackend>::restart(
+            &mut handler,
+        );
         let parsed_request = http.handle_try_parse_request(&mut handler, &inp, &[]);
         eprintln!("{}", &inp.path_and_query_str);
         eprintln!("{parsed_request:?}");

@@ -44,7 +44,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::miner::TransactionEvent;
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
@@ -53,9 +53,9 @@ use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core::nonce_cache::NonceCache;
 use crate::core::{ExecutionCost, StacksEpochId, FIRST_BURNCHAIN_CONSENSUS_HASH};
 use crate::cost_estimates::metrics::CostMetric;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 use crate::cost_estimates::metrics::UnitMetric;
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 use crate::cost_estimates::UnitEstimator;
 use crate::cost_estimates::{CostEstimator, EstimatorError};
 use crate::monitoring::increment_stx_mempool_gc;
@@ -63,8 +63,9 @@ use crate::net::api::postblock_proposal::{BlockValidateOk, BlockValidateReject};
 use crate::net::Error as net_error;
 use crate::util_lib::bloom::{bloom_hash_count, BloomCounter, BloomFilter, BloomNodeHasher};
 use crate::util_lib::db::{
-    query_int, query_row, query_row_columns, query_rows, sqlite_open, table_exists,
-    tx_begin_immediate, u64_to_sql, DBConn, DBTx, Error as db_error, Error, FromColumn, FromRow,
+    is_sqlite_memory_path, query_int, query_row, query_row_columns, query_rows, sqlite_open,
+    table_exists, tx_begin_immediate, u64_to_sql, DBConn, DBTx, Error as db_error, Error,
+    FromColumn, FromRow,
 };
 use crate::{cost_estimates, monitoring};
 
@@ -360,7 +361,7 @@ impl MemPoolAdmitter {
     }
     pub fn will_admit_tx(
         &mut self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         tx: &StacksTransaction,
         tx_size: u64,
@@ -1387,6 +1388,44 @@ impl MemPoolDB {
         MemPoolDB::open(mainnet, chain_id, chainstate_path, estimator, metric)
     }
 
+    #[cfg(any(test, feature = "testing"))]
+    pub fn open_memory_test() -> Result<MemPoolDB, db_error> {
+        let estimator = Box::new(UnitEstimator);
+        let metric = Box::new(UnitMetric);
+        let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
+        let namespace = crate::util_lib::db::sqlite_memory_namespace(&format!(
+            "mempool-{}-{}",
+            std::process::id(),
+            rand::thread_rng().gen::<u64>()
+        ));
+        let db_path = format!("file:{namespace}?mode=memory&cache=shared");
+        let mut conn = sqlite_open(
+            &db_path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+            true,
+        )?;
+        MemPoolDB::instantiate_mempool_db(&mut conn)?;
+        let bloom_counter = BloomCounter::<BloomNodeHasher>::try_load(&conn, BLOOM_COUNTER_TABLE)?
+            .ok_or(db_error::Other("Failed to load bloom counter".to_string()))?;
+
+        Ok(MemPoolDB {
+            db: conn,
+            path: db_path,
+            admitter,
+            bloom_counter,
+            max_tx_tags: DEFAULT_MAX_TX_TAGS,
+            cost_estimator: estimator,
+            metric,
+            blacklist_timeout: DEFAULT_BLACKLIST_TIMEOUT,
+            blacklist_max_size: DEFAULT_BLACKLIST_MAX_SIZE,
+        })
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
     pub fn open_db(
         db_path: &str,
         cost_estimator: Box<dyn CostEstimator>,
@@ -1432,8 +1471,10 @@ impl MemPoolDB {
     }
 
     pub fn reopen(&self, readwrite: bool) -> Result<DBConn, db_error> {
-        if let Err(e) = fs::metadata(&self.path) {
-            return Err(db_error::IOError(e));
+        if !is_sqlite_memory_path(&self.path) {
+            if let Err(e) = fs::metadata(&self.path) {
+                return Err(db_error::IOError(e));
+            }
         }
 
         let open_flags = if readwrite {
@@ -2090,7 +2131,7 @@ impl MemPoolDB {
     /// That is, is one block an ancestor of another?
     /// TODO: Nakamoto-ize
     fn are_blocks_in_same_fork(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         first_consensus_hash: &ConsensusHash,
         first_stacks_block: &BlockHeaderHash,
         second_consensus_hash: &ConsensusHash,
@@ -2140,7 +2181,7 @@ impl MemPoolDB {
     /// Don't call directly; use submit().
     pub(crate) fn try_add_tx(
         tx: &mut MemPoolTx,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         tip_consensus_hash: &ConsensusHash,
         tip_block_header_hash: &BlockHeaderHash,
         resolve_tenure: bool,
@@ -2377,7 +2418,7 @@ impl MemPoolDB {
     /// Submit a transaction to the mempool at a particular chain tip.
     fn tx_submit(
         mempool_tx: &mut MemPoolTx,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
@@ -2487,7 +2528,7 @@ impl MemPoolDB {
     /// the tenure-start block internally.
     pub fn submit(
         &mut self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
@@ -2541,7 +2582,7 @@ impl MemPoolDB {
     /// Miner-driven submit (e.g. for poison microblocks), where no checks are performed
     pub fn miner_submit(
         &mut self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
@@ -2572,7 +2613,7 @@ impl MemPoolDB {
     #[cfg(any(test, feature = "testing"))]
     pub fn submit_raw(
         &mut self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,

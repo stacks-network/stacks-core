@@ -101,7 +101,9 @@ impl HttpRequest for RPCGetIsTraitImplementedRequestHandler {
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCGetIsTraitImplementedRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCGetIsTraitImplementedRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.contract_identifier = None;
@@ -114,7 +116,7 @@ impl RPCRequestHandler for RPCGetIsTraitImplementedRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let contract_identifier = self
             .contract_identifier

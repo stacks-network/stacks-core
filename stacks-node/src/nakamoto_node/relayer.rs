@@ -36,7 +36,7 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use stacks::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::chainstate::stacks::miner::{
     set_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
 };
@@ -414,7 +414,7 @@ pub struct RelayerThread {
     /// Handle to the sortition DB
     sortdb: SortitionDB,
     /// Handle to the chainstate DB
-    chainstate: StacksChainState,
+    chainstate: StacksChainState<DiskChainStateBackend>,
     /// Handle to the mempool DB
     mempool: MemPoolDB,
     /// Handle to global state and inter-thread communication channels
@@ -1507,7 +1507,7 @@ impl RelayerThread {
     /// Returns true if the sortition `sn` commits to the tenure start block of the ongoing Stacks tenure `stacks_tip_sn`.
     /// Returns false otherwise.
     fn sortition_commits_to_stacks_tip_tenure(
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         stacks_tip_id: &StacksBlockId,
         stacks_tip_sn: &BlockSnapshot,
         sn: &BlockSnapshot,
@@ -1552,7 +1552,7 @@ impl RelayerThread {
     /// Returns Err(..) on DB errors.
     fn has_higher_sortition_commits_to_stacks_tip_tenure(
         sortdb: &SortitionDB,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         sortition_tip: &BlockSnapshot,
         elected_tenure: &BlockSnapshot,
     ) -> Result<bool, NakamotoNodeError> {

@@ -41,7 +41,7 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState, StacksHeaderInfo};
 use crate::core::StacksEpoch;
 use crate::net::connection::{ConnectionOptions, NetworkConnection};
 use crate::net::http::common::{parse_raw_bytes, HTTP_PREAMBLE_MAX_ENCODED_SIZE};
@@ -390,27 +390,30 @@ impl HttpRequestContentsExtensions for HttpRequestContents {
 }
 
 /// Work around Clone blanket implementations not being object-safe
-pub trait RPCRequestHandlerClone {
-    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler>;
+pub trait RPCRequestHandlerClone<CSP: ChainStatePersistence> {
+    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler<CSP>>;
 }
 
-impl<T> RPCRequestHandlerClone for T
+impl<T, CSP> RPCRequestHandlerClone<CSP> for T
 where
-    T: 'static + RPCRequestHandler + Clone,
+    T: 'static + RPCRequestHandler<CSP> + Clone,
+    CSP: ChainStatePersistence,
 {
-    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler> {
+    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler<CSP>> {
         Box::new(self.clone())
     }
 }
 
-impl Clone for Box<dyn RPCRequestHandler> {
-    fn clone(&self) -> Box<dyn RPCRequestHandler> {
+impl<CSP: ChainStatePersistence> Clone for Box<dyn RPCRequestHandler<CSP>> {
+    fn clone(&self) -> Box<dyn RPCRequestHandler<CSP>> {
         self.clone_rpc_handler_box()
     }
 }
 
 /// Trait that every HTTP round-trip request type must implement.
-pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone {
+pub trait RPCRequestHandler<CSP: ChainStatePersistence>:
+    HttpRequest + HttpResponse + RPCRequestHandlerClone<CSP>
+{
     /// Reset the RPC handler.  This clears any internal state this handler stored between calls to
     /// `try_handle_request()`
     fn restart(&mut self);
@@ -419,7 +422,7 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
         &mut self,
         request_preamble: HttpRequestPreamble,
         request_body: HttpRequestContents,
-        state: &mut StacksNodeState,
+        state: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError>;
 
     /// Helper to get the canonical sortition tip
@@ -462,7 +465,7 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
         &self,
         preamble: &HttpRequestPreamble,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<CSP>,
     ) -> Result<StacksHeaderInfo, StacksHttpResponse> {
         NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
             .map_err(|e| {
@@ -981,7 +984,7 @@ impl HttpResponse for RPCArbitraryResponseHandler {
 /// and must receive a follow-up HTTP reply (or the state machine errors out).  A server receives
 /// an HTTP request, and sends an HTTP reply.
 #[derive(Clone)]
-pub struct StacksHttp {
+pub struct StacksHttp<CSP: ChainStatePersistence> {
     /// Address of peer
     peer_addr: SocketAddr,
     /// offset body after '\r\n\r\n' if known
@@ -1002,7 +1005,7 @@ pub struct StacksHttp {
     request_handler_index: Option<usize>,
     /// HTTP request handlers (verb, regex, permissive_regex, request-handler)
     /// The permissive_regex is used for 405 Method Not Allowed detection
-    request_handlers: Vec<(String, Regex, Regex, Box<dyn RPCRequestHandler>)>,
+    request_handlers: Vec<(String, Regex, Regex, Box<dyn RPCRequestHandler<CSP>>)>,
     /// Maximum size of call arguments
     pub maximum_call_argument_size: u32,
     /// Maximum execution budget of a read-only call
@@ -1017,10 +1020,10 @@ pub struct StacksHttp {
     pub read_only_call_max_mem_bytes: u64,
 }
 
-impl StacksHttp {
+impl<CSP: ChainStatePersistence> StacksHttp<CSP> {
     /// Create an HTTP protocol state machine that handles the built-in RPC API.
     /// Used for building the RPC server
-    pub fn new(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp {
+    pub fn new(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp<CSP> {
         let mut http = StacksHttp {
             peer_addr,
             body_start: None,
@@ -1045,7 +1048,7 @@ impl StacksHttp {
 
     /// Create an HTTP protocol state machine that can handle arbitrary responses.
     /// Used for building clients.
-    pub fn new_client(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp {
+    pub fn new_client(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp<CSP> {
         StacksHttp {
             peer_addr,
             body_start: None,
@@ -1069,7 +1072,7 @@ impl StacksHttp {
     /// Register an API RPC endpoint.
     /// Auto-generates a permissive regex for 400/404/405 detection
     /// unless the handler provides its own via path_regex_permissive().
-    pub fn register_rpc_endpoint<Handler: RPCRequestHandler + 'static>(
+    pub fn register_rpc_endpoint<Handler: RPCRequestHandler<CSP> + 'static>(
         &mut self,
         handler: Handler,
     ) {
@@ -1136,7 +1139,7 @@ impl StacksHttp {
     #[cfg(test)]
     pub fn handle_try_parse_request(
         &self,
-        handler: &mut dyn RPCRequestHandler,
+        handler: &mut dyn RPCRequestHandler<CSP>,
         preamble: &HttpRequestPreamble,
         body: &[u8],
     ) -> Result<StacksHttpRequest, NetError> {
@@ -1302,7 +1305,7 @@ impl StacksHttp {
     pub fn try_handle_request(
         &mut self,
         request: StacksHttpRequest,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let (decoded_path, _) = decode_request_path(&request.preamble().path_and_query_str)?;
         let Some(response_handler_index) = request
@@ -1505,7 +1508,7 @@ impl StacksHttp {
         request_path: &str,
         response_buf: &[u8],
     ) -> Result<StacksHttpMessage, NetError> {
-        let mut http = StacksHttp::new(
+        let mut http = StacksHttp::<CSP>::new(
             "127.0.0.1:20443".parse().unwrap(),
             &ConnectionOptions::default(),
         );
@@ -1537,7 +1540,7 @@ impl StacksHttp {
     }
 }
 
-impl ProtocolFamily for StacksHttp {
+impl<CSP: ChainStatePersistence> ProtocolFamily for StacksHttp<CSP> {
     type Preamble = StacksHttpPreamble;
     type Message = StacksHttpMessage;
 
@@ -1870,7 +1873,7 @@ impl ProtocolFamily for StacksHttp {
     }
 }
 
-impl PeerNetwork {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> PeerNetwork<CSP> {
     /// Send a (non-blocking) HTTP request to a remote peer.
     /// Returns the event ID on success.
     #[cfg_attr(test, mutants::skip)]
@@ -1880,8 +1883,8 @@ impl PeerNetwork {
         addr: SocketAddr,
         request: StacksHttpRequest,
     ) -> Result<usize, NetError> {
-        PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
-            PeerNetwork::with_http(network, |ref mut network, ref mut http| {
+        Self::with_network_state(self, |ref mut network, ref mut network_state| {
+            Self::with_http(network, |ref mut network, ref mut http| {
                 match http.connect_http(
                     network_state,
                     network,
@@ -2018,7 +2021,9 @@ pub fn send_http_request(
     // Step 1-2: set up the connection and request handle
     // NOTE: we don't need anything special for connection options, so just use the default
     let conn_opts = ConnectionOptions::default();
-    let http = StacksHttp::new_client(addr, &conn_opts);
+    let http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new_client(
+        addr, &conn_opts,
+    );
     let mut connection = NetworkConnection::new(http, &conn_opts, None);
     let mut request_handle = connection
         .make_request_handle(0, get_epoch_time_secs() + timeout.as_secs(), 0)

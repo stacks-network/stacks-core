@@ -34,6 +34,7 @@ use crate::chainstate::nakamoto::coordinator::tests::{
 };
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, SharedMemoryChainStateBackend};
 use crate::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
     TransactionAuth, TransactionPayload, TransactionVersion,
@@ -42,7 +43,7 @@ use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::test_util::to_addr;
 use crate::core::StacksEpochExtension;
 use crate::net::inv::nakamoto::{InvGenerator, NakamotoInvStateMachine, NakamotoTenureInv};
-use crate::net::test::{TestEventObserver, TestPeer};
+use crate::net::test::{TestEventObserver, TestPeer, TestPeerChainstateFactory};
 use crate::net::tests::{NakamotoBootPlan, NakamotoBootStep, NakamotoBootTenure};
 use crate::net::{
     GetNakamotoInvData, HandshakeData, NakamotoInvData, NeighborAddress, PeerNetworkComms,
@@ -51,10 +52,10 @@ use crate::net::{
 use crate::stacks_common::types::Address;
 
 /// Handshake with and get the reward cycle inventories for a range of reward cycles
-pub fn peer_get_nakamoto_invs<'a>(
-    mut peer: TestPeer<'a>,
+pub fn peer_get_nakamoto_invs<'a, CSP: ChainStatePersistence + TestPeerChainstateFactory<'a>>(
+    mut peer: TestPeer<'a, CSP>,
     reward_cycles: &[u64],
-) -> (TestPeer<'a>, Vec<StacksMessageType>) {
+) -> (TestPeer<'a, CSP>, Vec<StacksMessageType>) {
     let privk = StacksPrivateKey::random();
     let mut convo = peer.make_client_convo();
     let client_peer = peer.make_client_local_peer(privk.clone());
@@ -400,8 +401,11 @@ pub fn make_nakamoto_peers_from_invs<'a>(
     prepare_len: u32,
     bitvecs: Vec<Vec<bool>>,
     num_peers: usize,
-) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
-    make_nakamoto_peers_from_invs_ext(test_name, observer, bitvecs, |boot_plan| {
+) -> (
+    TestPeer<'a, SharedMemoryChainStateBackend>,
+    Vec<TestPeer<'a, SharedMemoryChainStateBackend>>,
+) {
+    make_nakamoto_peers_from_invs_ext_shared(test_name, observer, bitvecs, |boot_plan| {
         boot_plan
             .with_pox_constants(rc_len, prepare_len)
             .with_extra_peers(num_peers)
@@ -419,8 +423,11 @@ pub fn make_nakamoto_peers_from_invs_and_balances<'a>(
     bitvecs: Vec<Vec<bool>>,
     num_peers: usize,
     initial_balances: Vec<(PrincipalData, u64)>,
-) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
-    make_nakamoto_peers_from_invs_ext(test_name, observer, bitvecs, |boot_plan| {
+) -> (
+    TestPeer<'a, SharedMemoryChainStateBackend>,
+    Vec<TestPeer<'a, SharedMemoryChainStateBackend>>,
+) {
+    make_nakamoto_peers_from_invs_ext_shared(test_name, observer, bitvecs, |boot_plan| {
         boot_plan
             .with_pox_constants(rc_len, prepare_len)
             .with_extra_peers(num_peers)
@@ -428,15 +435,11 @@ pub fn make_nakamoto_peers_from_invs_and_balances<'a>(
     })
 }
 
-/// Make peers from inventories and balances
-/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
-/// the peers here.  However, it appears unavoidable to the borrow-checker.
-pub fn make_nakamoto_peers_from_invs_ext<'a, F>(
+fn make_nakamoto_boot_plan_from_invs<F>(
     test_name: &str,
-    observer: &'a TestEventObserver,
     bitvecs: Vec<Vec<bool>>,
     boot_config: F,
-) -> (TestPeer<'a>, Vec<TestPeer<'a>>)
+) -> (NakamotoBootPlan, Vec<NakamotoBootTenure>)
 where
     F: FnOnce(NakamotoBootPlan) -> NakamotoBootPlan,
 {
@@ -517,6 +520,7 @@ where
 
     let mut plan = boot_config(
         NakamotoBootPlan::new(test_name)
+            .shared_ephemeral()
             .with_private_key(private_key)
             .with_test_signers(test_signers)
             .with_test_stackers(test_stackers),
@@ -549,8 +553,44 @@ where
         }
     }
 
-    let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(observer));
-    (peer, other_peers)
+    (plan, boot_tenures)
+}
+
+/// Make peers from inventories and balances.
+/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
+/// the peers here.  However, it appears unavoidable to the borrow-checker.
+pub fn make_nakamoto_peers_from_invs_ext<'a, F>(
+    test_name: &str,
+    observer: &'a TestEventObserver,
+    bitvecs: Vec<Vec<bool>>,
+    boot_config: F,
+) -> (TestPeer<'a>, Vec<TestPeer<'a>>)
+where
+    F: FnOnce(NakamotoBootPlan) -> NakamotoBootPlan,
+{
+    let (plan, boot_tenures) = make_nakamoto_boot_plan_from_invs(test_name, bitvecs, |boot_plan| {
+        boot_config(boot_plan.disk())
+    });
+    plan.boot_into_nakamoto_peers(boot_tenures, Some(observer))
+}
+
+/// Make shared-memory peers from inventories and balances.
+/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
+/// the peers here.  However, it appears unavoidable to the borrow-checker.
+pub fn make_nakamoto_peers_from_invs_ext_shared<'a, F>(
+    test_name: &str,
+    observer: &'a TestEventObserver,
+    bitvecs: Vec<Vec<bool>>,
+    boot_config: F,
+) -> (
+    TestPeer<'a, SharedMemoryChainStateBackend>,
+    Vec<TestPeer<'a, SharedMemoryChainStateBackend>>,
+)
+where
+    F: FnOnce(NakamotoBootPlan) -> NakamotoBootPlan,
+{
+    let (plan, boot_tenures) = make_nakamoto_boot_plan_from_invs(test_name, bitvecs, boot_config);
+    plan.boot_into_nakamoto_peers_shared_ephemeral(boot_tenures, Some(observer))
 }
 
 pub fn make_nakamoto_peer_from_invs<'a>(
@@ -559,7 +599,7 @@ pub fn make_nakamoto_peer_from_invs<'a>(
     rc_len: u32,
     prepare_len: u32,
     bitvecs: Vec<Vec<bool>>,
-) -> TestPeer<'a> {
+) -> TestPeer<'a, SharedMemoryChainStateBackend> {
     make_nakamoto_peers_from_invs(test_name, observer, rc_len, prepare_len, bitvecs, 0).0
 }
 
@@ -1186,8 +1226,8 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     // ---------------------- basic operations ----------------------
     //
 
-    let sortdb = peer.sortdb_ref().reopen().unwrap();
-    let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
+    let mut sortdb = peer.sortdb_ref().reopen().unwrap();
+    let (mut chainstate, _) = peer.chainstate_ref().reopen().unwrap();
 
     let first_burn_block_height = sortdb.first_block_height;
 
@@ -1347,6 +1387,9 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
         );
 
         peer.refresh_burnchain_view();
+        sortdb = peer.sortdb_ref().reopen().unwrap();
+        let (updated_chainstate, _) = peer.chainstate_ref().reopen().unwrap();
+        chainstate = updated_chainstate;
         let naka_tip = peer.network.stacks_tip.block_id();
         let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
         let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
@@ -1398,6 +1441,9 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     );
 
     peer.refresh_burnchain_view();
+    sortdb = peer.sortdb_ref().reopen().unwrap();
+    let (updated_chainstate, _) = peer.chainstate_ref().reopen().unwrap();
+    chainstate = updated_chainstate;
     let new_naka_tip = peer.network.stacks_tip.block_id();
     let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     let tip_rc = sortdb
@@ -1494,6 +1540,9 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     );
 
     peer.refresh_burnchain_view();
+    sortdb = peer.sortdb_ref().reopen().unwrap();
+    let (updated_chainstate, _) = peer.chainstate_ref().reopen().unwrap();
+    chainstate = updated_chainstate;
     let new_naka_tip = peer.network.stacks_tip.block_id();
     let new_naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
     let new_naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
@@ -1642,6 +1691,9 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
         peer.refresh_burnchain_view();
         peer.mine_nakamoto_on(vec![naka_block.clone()]);
     }
+    sortdb = peer.sortdb_ref().reopen().unwrap();
+    let (updated_chainstate, _) = peer.chainstate_ref().reopen().unwrap();
+    chainstate = updated_chainstate;
     let naka_tip = peer.network.stacks_tip.block_id();
     let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
     let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();

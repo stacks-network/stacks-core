@@ -26,6 +26,9 @@ use crate::burnchains::tests::TestMiner;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, DiskChainStateBackend, StacksChainState, StacksHeadersDb,
+};
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::*;
@@ -36,11 +39,14 @@ use crate::stacks_common::types::PublicKey;
 use crate::util_lib::strings::*;
 use crate::util_lib::test::*;
 
-fn get_peer_availability(
-    peer: &mut TestPeer,
+fn get_peer_availability<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     start_height: u64,
     end_height: u64,
-) -> Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)> {
+) -> Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)>
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     let inv_state = peer.network.inv_state.take().unwrap();
     let availability = peer
         .with_network_state(
@@ -67,8 +73,8 @@ fn get_peer_availability(
 #[test]
 fn test_get_block_availability() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 3210, 3211);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 3212, 3213);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 3210, 3211);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 3212, 3213);
 
         // don't bother downloading blocks
         peer_1_config.connection_opts.disable_block_download = true;
@@ -83,8 +89,8 @@ fn test_get_block_availability() {
             .pox_constants
             .reward_cycle_length as u64;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         let num_blocks = 10;
         let first_stacks_block_height = {
@@ -104,7 +110,7 @@ fn test_get_block_availability() {
                 peer_2.next_burnchain_block(burn_ops.clone());
             peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-            TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+            TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
             // We do not have the anchor block for peer 1, therefore it cannot advance its tip.
             if i < 6 {
@@ -537,7 +543,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain() {
                         peers[1].next_burnchain_block(burn_ops.clone());
                     peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     peers[0].next_burnchain_block_raw(burn_ops);
 
@@ -586,7 +592,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain() {
 fn make_contract_call_transaction(
     miner: &mut TestMiner,
     sortdb: &mut SortitionDB,
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     spending_account: &mut TestMiner,
     contract_address: StacksAddress,
     contract_name: &str,
@@ -699,7 +705,9 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                 // function to make a tenure in which a the peer's miner stacks its STX
                 let mut make_stacking_tenure = |miner: &mut TestMiner,
                                                 sortdb: &mut SortitionDB,
-                                                chainstate: &mut StacksChainState,
+                                                chainstate: &mut StacksChainState<
+                    DiskChainStateBackend,
+                >,
                                                 vrfproof: &VRFProof,
                                                 parent_opt: Option<&StacksBlock>,
                                                 microblock_parent_opt: Option<
@@ -711,7 +719,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                         NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
                             .unwrap();
                     let parent_tip = match stacks_tip_opt {
-                        None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                        None => StacksHeadersDb::get_genesis_header_info(chainstate.db()).unwrap(),
                         Some(header) => {
                             let ic = sortdb.index_conn();
                             let snapshot =
@@ -722,7 +730,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                                 )
                                 .unwrap()
                                 .unwrap(); // succeeds because we don't fork
-                            StacksChainState::get_anchored_block_header_info(
+                            StacksHeadersDb::get_anchored_block_header_info(
                                 chainstate.db(),
                                 &snapshot.consensus_hash,
                                 &snapshot.winning_stacks_block_hash,
@@ -797,7 +805,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                     builder.set_microblock_privkey(mblock_privkey);
 
                     let (anchored_block, _size, _cost, microblock_opt) =
-                        StacksBlockBuilder::make_anchored_block_and_microblock_from_txs(
+                        StacksBlockBuilder::make_anchored_block_and_microblock_from_txs_in_test_chainstate(
                             builder,
                             chainstate,
                             &sortdb.index_handle_at_tip(),
@@ -820,7 +828,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                         peers[1].next_burnchain_block(burn_ops.clone());
                     peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     peers[0].next_burnchain_block_raw(burn_ops);
 
@@ -906,7 +914,7 @@ pub fn test_get_blocks_and_microblocks_5_peers_star() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -977,7 +985,7 @@ pub fn test_get_blocks_and_microblocks_5_peers_line() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1056,7 +1064,7 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1132,7 +1140,7 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_sockets() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1219,7 +1227,7 @@ pub fn test_get_blocks_and_microblocks_ban_url() {
                     peers[1].next_burnchain_block(burn_ops.clone());
                 peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                 peers[0].next_burnchain_block_raw(burn_ops);
 
@@ -1352,7 +1360,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
 
                         peers[1].process_stacks_epoch(&stacks_block, &consensus_hash, &microblocks);
 
-                        TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                        TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                         peers[0].next_burnchain_block_raw(burn_ops);
 
@@ -1387,7 +1395,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                              ref parent_opt,
                              ref parent_microblock_header_opt| {
                                 let mut parent_tip =
-                                    StacksChainState::get_anchored_block_header_info(
+                                    StacksHeadersDb::get_anchored_block_header_info(
                                         chainstate.db(),
                                         &block_data[0].0,
                                         &block_data[0].1.as_ref().unwrap().block_hash(),
@@ -1442,7 +1450,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
 
                         peers[1].process_stacks_epoch(&stacks_block, &consensus_hash, &[]);
 
-                        TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                        TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                         peers[0].next_burnchain_block_raw(burn_ops);
 

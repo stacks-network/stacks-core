@@ -91,7 +91,9 @@ impl HttpRequest for RPCGetTransactionUnconfirmedRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCGetTransactionUnconfirmedRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCGetTransactionUnconfirmedRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.txid = None;
@@ -102,7 +104,7 @@ impl RPCRequestHandler for RPCGetTransactionUnconfirmedRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let txid = self
             .txid

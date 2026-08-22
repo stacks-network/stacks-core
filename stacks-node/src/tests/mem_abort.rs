@@ -228,6 +228,7 @@ fn test_analysis_limit_fine_but_execution_limit_too_low() {
 fn test_read_only_call_max_mem_bytes_threaded_into_http() {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+    use stacks::chainstate::stacks::db::DiskChainStateBackend;
     use stacks::net::connection::ConnectionOptions;
     use stacks::net::httpcore::StacksHttp;
 
@@ -235,6 +236,6 @@ fn test_read_only_call_max_mem_bytes_threaded_into_http() {
     let mut conn_opts = ConnectionOptions::default();
     conn_opts.read_only_call_max_mem_bytes = 12345;
 
-    let http = StacksHttp::new(addr, &conn_opts);
+    let http = StacksHttp::<DiskChainStateBackend>::new(addr, &conn_opts);
     assert_eq!(http.read_only_call_max_mem_bytes, 12345);
 }

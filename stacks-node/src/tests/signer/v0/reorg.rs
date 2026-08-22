@@ -24,7 +24,9 @@ use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::chainstate::nakamoto::NakamotoChainState;
-use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{
+    DiskChainStateBackend, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+};
 use stacks::chainstate::stacks::TenureChangeCause;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::test_util::{make_stacks_transfer_serialized, to_addr};
@@ -57,7 +59,7 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_sortition_info, submit_tx, test_observer,
     TestProxy,
 };
-use crate::tests::{self, gen_random_port};
+use crate::tests::{self, gen_random_port, test_port};
 use crate::{BitcoinRegtestController, Keychain};
 
 #[test]
@@ -1677,7 +1679,7 @@ fn forked_tenure_testing(
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -3185,8 +3187,8 @@ fn bitcoin_reorg_extended_tenure() {
         |config| {
             // we will interpose with the testproxy on the second node's bitcoind
             //  connection, so that we can shut off communication before the reorg.
-            config.burnchain.rpc_port = 28132;
-            config.burnchain.peer_port = 28133;
+            config.burnchain.rpc_port = test_port(28132);
+            config.burnchain.peer_port = test_port(28133);
         },
         |signer_port| {
             // only put 1 out of 5 signers on the second node.
@@ -3203,13 +3205,13 @@ fn bitcoin_reorg_extended_tenure() {
 
     let (conf_1, _conf_2) = miners.get_node_configs();
     let btc_p2p_proxy = TestProxy {
-        bind_port: 28133,
+        bind_port: test_port(28133),
         forward_port: conf_1.burnchain.peer_port,
         drop_control: Arc::new(Mutex::new(false)),
         keep_running: Arc::new(Mutex::new(true)),
     };
     let btc_rpc_proxy = TestProxy {
-        bind_port: 28132,
+        bind_port: test_port(28132),
         forward_port: conf_1.burnchain.rpc_port,
         drop_control: Arc::new(Mutex::new(false)),
         keep_running: Arc::new(Mutex::new(true)),
@@ -3502,7 +3504,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
 
     let burnchain = conf_1.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf_1.is_mainnet(),
         conf_1.burnchain.chain_id,
         &conf_1.get_chainstate_path_str(),
@@ -3632,9 +3634,15 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     assert_ne!(tip_c.burn_header_hash, tip_a.burn_header_hash);
     assert_eq!(tip_c.block_height, burn_height_before + 1);
 
-    info!("--------------- Waiting for {} Signers to Capitulate to Miner {miner_pkh_1} with tenure id {} ----------------",  allow_reorg_signers.len(), info.pox_consensus);
-    wait_for_state_machine_update_by_miner_tenure_id(30, &info.pox_consensus, &allow_reorg_signers)
-        .expect("Failed to update signer state machines");
+    info!("--------------- Waiting for {} Signers to Capitulate to Miner {miner_pkh_1} with tenure id {} at burn block {} ----------------",  allow_reorg_signers.len(), info.pox_consensus, tip_c.consensus_hash);
+    wait_for_state_machine_update(
+        30,
+        &tip_c.consensus_hash,
+        tip_c.block_height,
+        Some((miner_pkh_1.clone(), tip_a.stacks_block_height)),
+        &allow_reorg_signers,
+    )
+    .expect("Failed to update signer state machines at the current burn block");
     info!("--------------- Miner 1 Extends Tenure B over Tenure C ---------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let _tenure_extend_block =

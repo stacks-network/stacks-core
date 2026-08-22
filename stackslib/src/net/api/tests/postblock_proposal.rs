@@ -35,7 +35,7 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{SharedMemoryChainStateBackend, StacksChainState};
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
 };
@@ -62,7 +62,8 @@ use crate::net::ProtocolFamily;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+    let mut http =
+        StacksHttp::<SharedMemoryChainStateBackend>::new(addr, &ConnectionOptions::default());
 
     let block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &StacksPrivateKey::random());
     let proposal = NakamotoBlockProposal {
@@ -126,7 +127,7 @@ fn test_try_parse_request() {
 
     assert_eq!(&preamble, request.preamble());
 
-    handler.restart();
+    RPCRequestHandler::<SharedMemoryChainStateBackend>::restart(&mut handler);
     assert!(handler.auth.is_some());
     assert!(handler.block_proposal.is_none());
 }
@@ -284,7 +285,7 @@ fn test_try_make_response() {
             .peer_1
             .with_db_state(
                 |sort_db: &mut SortitionDB,
-                 chainstate: &mut StacksChainState,
+                 chainstate: &mut StacksChainState<SharedMemoryChainStateBackend>,
                  _: &mut Relayer,
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
@@ -426,7 +427,8 @@ fn test_try_make_response() {
     let proposal_observer = Arc::clone(&observer.proposal_observer);
 
     info!("Run requests with observer");
-    let wait_for = |peer_1: &mut TestPeer, peer_2: &mut TestPeer| {
+    let wait_for = |peer_1: &mut TestPeer<SharedMemoryChainStateBackend>,
+                    peer_2: &mut TestPeer<SharedMemoryChainStateBackend>| {
         !peer_1.network.is_proposal_thread_running() && !peer_2.network.is_proposal_thread_running()
     };
 
@@ -590,7 +592,7 @@ fn test_block_proposal_validation_timeout() {
             .peer_1
             .with_db_state(
                 |sort_db: &mut SortitionDB,
-                 chainstate: &mut StacksChainState,
+                 chainstate: &mut StacksChainState<SharedMemoryChainStateBackend>,
                  _: &mut Relayer,
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
@@ -655,7 +657,8 @@ fn test_block_proposal_validation_timeout() {
     let observer = ProposalTestObserver::new();
     let proposal_observer = Arc::clone(&observer.proposal_observer);
 
-    let wait_for = |peer_1: &mut TestPeer, peer_2: &mut TestPeer| {
+    let wait_for = |peer_1: &mut TestPeer<SharedMemoryChainStateBackend>,
+                    peer_2: &mut TestPeer<SharedMemoryChainStateBackend>| {
         !peer_1.network.is_proposal_thread_running() && !peer_2.network.is_proposal_thread_running()
     };
 
@@ -782,7 +785,7 @@ fn test_block_proposal_validation_execution_time_expired_blames_tx() {
             .peer_1
             .with_db_state(
                 |sort_db: &mut SortitionDB,
-                 chainstate: &mut StacksChainState,
+                 chainstate: &mut StacksChainState<SharedMemoryChainStateBackend>,
                  _: &mut Relayer,
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
@@ -834,7 +837,8 @@ fn test_block_proposal_validation_execution_time_expired_blames_tx() {
     let observer = ProposalTestObserver::new();
     let proposal_observer = Arc::clone(&observer.proposal_observer);
 
-    let wait_for = |peer_1: &mut TestPeer, peer_2: &mut TestPeer| {
+    let wait_for = |peer_1: &mut TestPeer<SharedMemoryChainStateBackend>,
+                    peer_2: &mut TestPeer<SharedMemoryChainStateBackend>| {
         !peer_1.network.is_proposal_thread_running() && !peer_2.network.is_proposal_thread_running()
     };
 
@@ -959,7 +963,7 @@ fn test_block_proposal_validation_analysis_time_expired_blames_tx() {
             .peer_1
             .with_db_state(
                 |sort_db: &mut SortitionDB,
-                 chainstate: &mut StacksChainState,
+                 chainstate: &mut StacksChainState<SharedMemoryChainStateBackend>,
                  _: &mut Relayer,
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
@@ -1011,7 +1015,8 @@ fn test_block_proposal_validation_analysis_time_expired_blames_tx() {
     let observer = ProposalTestObserver::new();
     let proposal_observer = Arc::clone(&observer.proposal_observer);
 
-    let wait_for = |peer_1: &mut TestPeer, peer_2: &mut TestPeer| {
+    let wait_for = |peer_1: &mut TestPeer<SharedMemoryChainStateBackend>,
+                    peer_2: &mut TestPeer<SharedMemoryChainStateBackend>| {
         !peer_1.network.is_proposal_thread_running() && !peer_2.network.is_proposal_thread_running()
     };
 
@@ -1105,7 +1110,7 @@ fn replay_validation_test(
             .peer_1
             .with_db_state(
                 |sort_db: &mut SortitionDB,
-                 chainstate: &mut StacksChainState,
+                 chainstate: &mut StacksChainState<SharedMemoryChainStateBackend>,
                  _: &mut Relayer,
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
@@ -1165,7 +1170,8 @@ fn replay_validation_test(
     let observer = ProposalTestObserver::new();
     let proposal_observer = Arc::clone(&observer.proposal_observer);
 
-    let wait_for = |peer_1: &mut TestPeer, peer_2: &mut TestPeer| {
+    let wait_for = |peer_1: &mut TestPeer<SharedMemoryChainStateBackend>,
+                    peer_2: &mut TestPeer<SharedMemoryChainStateBackend>| {
         !peer_1.network.is_proposal_thread_running() && !peer_2.network.is_proposal_thread_running()
     };
 

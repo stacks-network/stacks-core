@@ -25,7 +25,7 @@ use clarity::vm::tests::BurnStateDB;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksMicroblock, StacksMicroblockHeader, StacksTransaction,
@@ -562,7 +562,7 @@ pub fn make_contract_call_mblock_only(
 
 pub fn make_microblock(
     privk: &StacksPrivateKey,
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     burn_dbconn: &dyn BurnStateDB,
     consensus_hash: ConsensusHash,
     block: StacksBlock,

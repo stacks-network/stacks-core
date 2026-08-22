@@ -44,28 +44,6 @@ jobs:
     name: Integration Tests
     if: always() && !cancelled()
     runs-on: ubuntu-latest
-    strategy:
-      # Continue with the test matrix even if we've had a failure
-      fail-fast: false
-      matrix:
-        test-name:
-          - net::tests::convergence::test_walk_ring_allow_15
-          - net::tests::convergence::test_walk_ring_15_plain
-          - net::tests::convergence::test_walk_ring_15_pingback
-          - net::tests::convergence::test_walk_ring_15_org_biased
-          - net::tests::convergence::test_walk_line_allowed_15
-          - net::tests::convergence::test_walk_line_15_plain
-          - net::tests::convergence::test_walk_line_15_org_biased
-          - net::tests::convergence::test_walk_line_15_pingback
-          - net::tests::convergence::test_walk_star_allowed_15
-          - net::tests::convergence::test_walk_star_15_plain
-          - net::tests::convergence::test_walk_star_15_pingback
-          - net::tests::convergence::test_walk_star_15_org_biased
-          - net::tests::convergence::test_walk_inbound_line_15
-          - net::server::test::test_http_10_threads_getinfo
-          - net::server::test::test_http_10_threads_getblock
-          - net::server::test::test_http_too_many_clients
-          - net::server::test::test_http_slow_client
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -81,10 +59,31 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
-          test-names: ${{ matrix.test-name }}
+          # The tests use disjoint port ranges and nextest gives each test its own
+          # process, so four can share a 4-vCPU runner without state collisions.
+          test-names: >-
+            net::tests::convergence::test_walk_inbound_line_15,
+            net::tests::convergence::test_walk_ring_15_pingback,
+            net::tests::convergence::test_walk_line_15_org_biased,
+            net::tests::convergence::test_walk_star_allowed_15,
+            net::tests::convergence::test_walk_line_15_pingback,
+            net::tests::convergence::test_walk_star_15_pingback,
+            net::tests::convergence::test_walk_ring_15_plain,
+            net::tests::convergence::test_walk_star_15_plain,
+            net::tests::convergence::test_walk_star_15_org_biased,
+            net::tests::convergence::test_walk_ring_allow_15,
+            net::tests::convergence::test_walk_ring_15_org_biased,
+            net::tests::convergence::test_walk_line_allowed_15,
+            net::tests::convergence::test_walk_line_15_plain,
+            net::server::test::test_http_10_threads_getinfo,
+            net::server::test::test_http_10_threads_getblock,
+            net::server::test::test_http_too_many_clients,
+            net::server::test::test_http_slow_client
+          test-threads: "4"
           archive-file: ${{ inputs.archive-file }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
-          codecov-test-name: ${{ matrix.test-name }}
+          codecov-test-name: p2p
+          no-fail-fast: "true"
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 

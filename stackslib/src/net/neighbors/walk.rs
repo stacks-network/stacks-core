@@ -261,7 +261,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     pub(crate) fn instantiate_walk(
         db: DB,
         comms: NC,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<NeighborWalk<DB, NC>, net_error> {
         let first_neighbor = db.get_next_walk_neighbor(network)?;
         let w = NeighborWalk::new(
@@ -290,7 +290,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     pub(crate) fn instantiate_walk_to_always_allowed(
         db: DB,
         comms: NC,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         ibd: bool,
     ) -> Result<NeighborWalk<DB, NC>, net_error> {
         let allowed_peers = db.get_initial_walk_neighbors(network, ibd)?;
@@ -340,7 +340,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     pub(crate) fn instantiate_walk_from_inbound(
         db: DB,
         comms: NC,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<NeighborWalk<DB, NC>, net_error> {
         let event_ids: Vec<_> = network.iter_peer_event_ids().collect();
         if event_ids.is_empty() {
@@ -425,7 +425,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     pub(crate) fn instantiate_walk_from_pingback(
         db: DB,
         comms: NC,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<NeighborWalk<DB, NC>, net_error> {
         if network.get_walk_pingbacks().is_empty() {
             debug!("{:?}: no walk pingbacks", network.get_local_peer());
@@ -597,7 +597,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// On success, return Ok(true) and transition to HandshakeFinish
     /// On failure, return an Err(...)
     /// If we're not yet connected, return Ok(false).  The caller should try again.
-    pub fn handshake_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn handshake_begin(
+        &mut self,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> Result<bool, net_error> {
         if self.comms.count_inflight() > 0 {
             // in progress already
             return Ok(true);
@@ -675,7 +678,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// Returns Err(..) if we failed to validate the request or we have a DB error.
     fn handle_handshake_accept(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
         db_data: Option<&StackerDBHandshakeData>,
@@ -739,7 +742,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// Finish handshaking with our current neighbor, thereby ensuring that it is connected
     /// Returns true if we finished talking to the neighbor
     /// Returns false if not
-    pub fn handshake_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn handshake_try_finish(
+        &mut self,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> Result<bool, net_error> {
         assert!(self.state == NeighborWalkState::HandshakeFinish);
         if self.comms.count_inflight() == 0 {
             // can't proceed
@@ -815,7 +821,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
 
     /// Begin refreshing our knowledge of peer in/out degrees.
     /// Ask self.cur_neighbor for its neighbors
-    pub fn getneighbors_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn getneighbors_begin(
+        &mut self,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> Result<bool, net_error> {
         assert!(self.state == NeighborWalkState::GetNeighborsBegin);
 
         if self.comms.count_inflight() > 0 {
@@ -845,7 +854,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// Returns false if we're still waiting
     pub fn getneighbors_try_finish(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<bool, net_error> {
         assert!(self.state == NeighborWalkState::GetNeighborsFinish);
 
@@ -978,7 +987,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// ReplyHandleP2Ps should be reply handles for Handshake requests.
     pub fn neighbor_handshakes_begin(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<bool, net_error> {
         assert!(self.state == NeighborWalkState::GetHandshakesBegin);
 
@@ -1091,7 +1100,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// Handle a handshake accept from a neighbor as part of our neighbor-handshake step
     fn handle_neighbor_handshake_accept(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         naddr: NeighborAddress,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
@@ -1132,7 +1141,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// Returns Err(..) on DB errors
     pub fn neighbor_handshakes_try_finish(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<bool, net_error> {
         assert!(self.state == NeighborWalkState::GetHandshakesFinish);
 
@@ -1277,7 +1286,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// connections to them.
     pub fn getneighbors_neighbors_begin(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<bool, net_error> {
         assert!(self.state == NeighborWalkState::GetNeighborsNeighborsBegin);
 
@@ -1325,7 +1334,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// Returns Err(..) on irrecoverable error
     pub fn getneighbors_neighbors_try_finish(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<bool, net_error> {
         assert!(self.state == NeighborWalkState::GetNeighborsNeighborsFinish);
 
@@ -1463,7 +1472,12 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// measure how represented each neighbor's AS is in the peer graph.  We *bias* the sample so
     /// that peers in under-represented ASs are more likely to be walked to than they otherwise
     /// would be if considering only neighbor degrees.
-    fn degree_ratio(&self, network: &PeerNetwork, n1: &Neighbor, n2: &Neighbor) -> f64 {
+    fn degree_ratio(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        n1: &Neighbor,
+        n2: &Neighbor,
+    ) -> f64 {
         let d1 = n1.degree() as f64;
         let d2 = n2.degree() as f64;
         let as_d1 = self.neighbor_db.get_asn_count(network, n1.asn) as f64;
@@ -1485,7 +1499,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// peer's AS's node count to the current peer's AS's node count.
     ///
     /// This method updates self.next_neighbor with a new neighbor to step to, or None to restart.
-    pub fn step(&mut self, network: &PeerNetwork) {
+    pub fn step(
+        &mut self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) {
         test_debug!(
             "{:?}: execute neighbor step from {:?}",
             network.get_local_peer(),
@@ -1588,7 +1605,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// Start to connect to newly-discovered inbound peers
     pub fn pingback_handshakes_begin(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<bool, net_error> {
         // caller will have already populated the pending_pingback_handshakes hashmap
         assert!(self.state == NeighborWalkState::PingbackHandshakesBegin);
@@ -1682,7 +1699,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// Finish up connecting to newly-discovered inbound peers
     pub fn pingback_handshakes_try_finish(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<bool, net_error> {
         assert!(self.state == NeighborWalkState::PingbackHandshakesFinish);
 
@@ -1745,7 +1762,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// through getting the neighbors of our neighbor, or though pingbacks)
     pub fn ping_existing_neighbors_begin(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<bool, net_error> {
         assert!(self.state == NeighborWalkState::ReplacedNeighborsPingBegin);
 
@@ -1787,7 +1804,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// If it was a StackerDBHandshakeAccept, then also handle the newly-announced DBs
     fn handle_handshake_accept_from_ping(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
         db_data: Option<&StackerDBHandshakeData>,
@@ -1820,7 +1837,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// Returns Err(..) on unrecoverable error
     pub fn ping_existing_neighbors_try_finish(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<Option<NeighborWalkResult>, net_error> {
         assert!(self.state == NeighborWalkState::ReplacedNeighborsPingFinish);
 
@@ -1926,7 +1943,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     /// Returns Err(..) if the walk failed and ought to be terminated
     pub fn run(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<Option<NeighborWalkResult>, net_error> {
         // synchronize local peer state, in case we learn e.g. the public IP address in the mean
         // time

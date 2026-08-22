@@ -34,15 +34,17 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::pox_4_tests::prepare_pox4_test;
 use crate::chainstate::stacks::boot::test::{key_to_stacks_addr, with_sortdb};
 use crate::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_NAME};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, PoxRewardSetCalculator, StacksChainState,
+};
 use crate::chainstate::stacks::TenureChangeCause;
 use crate::net::stackerdb::STACKERDB_CONFIG_FUNCTION;
-use crate::net::test::{TestEventObserver, TestPeer};
+use crate::net::test::{TestEventObserver, TestPeer, TestPeerChainstateFactory};
 use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 
 #[test]
 fn make_signer_units() {
-    assert_eq!(StacksChainState::make_signer_set(100, &[]), None);
+    assert_eq!(PoxRewardSetCalculator::make_signer_set(100, &[]), None);
 
     fn stub_entry(signer: u64, amount: u128) -> RawRewardSetEntry {
         let mut signer_bytes = [0; SIGNERS_PK_LEN];
@@ -74,7 +76,7 @@ fn make_signer_units() {
             .map(|(signer, amount, weight)| stub_out(*signer, *amount, *weight))
             .collect();
         assert_eq!(
-            StacksChainState::make_signer_set(threshold, &in_entries),
+            PoxRewardSetCalculator::make_signer_set(threshold, &in_entries),
             Some(expected)
         );
     }
@@ -124,7 +126,7 @@ fn make_signer_sanity_panic_0() {
             signer: None,
         },
     ];
-    StacksChainState::make_signer_set(5, &bad_set);
+    PoxRewardSetCalculator::make_signer_set(5, &bad_set);
 }
 
 #[test]
@@ -144,7 +146,7 @@ fn make_signer_sanity_panic_1() {
             signer: Some([0; SIGNERS_PK_LEN]),
         },
     ];
-    StacksChainState::make_signer_set(5, &bad_set);
+    PoxRewardSetCalculator::make_signer_set(5, &bad_set);
 }
 
 #[test]
@@ -410,12 +412,15 @@ pub fn prepare_signers_test<'a>(
     (peer, test_signers, latest_block_id, current_reward_cycle)
 }
 
-fn advance_blocks(
-    peer: &mut TestPeer,
+fn advance_blocks<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     test_signers: &mut TestSigners,
     stacker_private_key: &StacksPrivateKey,
     num_blocks: u64,
-) -> StacksBlockId {
+) -> StacksBlockId
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     let current_height = peer.get_burnchain_view().unwrap().burn_block_height;
 
     //let key = peer.config.private_key;
@@ -460,20 +465,23 @@ fn advance_blocks(
     latest_block_id
 }
 
-pub fn readonly_call(
-    peer: &mut TestPeer,
+pub fn readonly_call<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     tip: &StacksBlockId,
     boot_contract: ContractName,
     function_name: ClarityName,
     args: Vec<Value>,
-) -> Value {
+) -> Value
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     with_sortdb(peer, |chainstate, sortdb| {
         readonly_call_with_sortdb(chainstate, sortdb, tip, boot_contract, function_name, args)
     })
 }
 
 pub fn readonly_call_with_sortdb(
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     sortdb: &SortitionDB,
     tip: &StacksBlockId,
     boot_contract: ContractName,
@@ -510,12 +518,15 @@ pub fn readonly_call_with_sortdb(
         .unwrap()
 }
 
-pub fn get_signer_index(
-    peer: &mut TestPeer<'_>,
+pub fn get_signer_index<'a, CSP>(
+    peer: &mut TestPeer<'a, CSP>,
     latest_block_id: &StacksBlockId,
     signer_address: &StacksAddress,
     cycle_index: u128,
-) -> u128 {
+) -> u128
+where
+    CSP: TestPeerChainstateFactory<'a>,
+{
     let cycle_mod = cycle_index % 2;
     let signers = readonly_call(
         peer,

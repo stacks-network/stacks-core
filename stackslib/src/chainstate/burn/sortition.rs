@@ -31,7 +31,7 @@ use crate::chainstate::burn::{
     BlockSnapshot, BurnchainHeaderHash, ConsensusHash, ConsensusHashExtensions, OpsHash,
     SortitionHash,
 };
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::Epoch2BlockProcessor;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::*;
 use crate::util_lib::db::Error as db_error;
@@ -562,7 +562,7 @@ impl BlockSnapshot {
         } else if parent_snapshot.sortition {
             initial_mining_bonus_ustx
         } else {
-            let missed_coinbase = StacksChainState::get_coinbase_reward(
+            let missed_coinbase = Epoch2BlockProcessor::get_coinbase_reward(
                 epoch_id,
                 mainnet,
                 parent_snapshot.block_height,

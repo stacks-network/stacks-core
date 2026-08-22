@@ -23,6 +23,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 use crate::tests::signer::v0::{
     MultipleMinerTest, wait_for_block_pre_commits_from_signers, wait_for_block_proposal, wait_for_block_pushed_by_miner_key, wait_for_block_rejections_from_signers
 };
+use crate::tests::test_port;
 
 #[test]
 #[ignore]
@@ -70,7 +71,7 @@ fn signers_reprocess_bitcoin_block_not_found_proposals() {
         |_| {},
         |_| {},
         // Distribute signers so first 2 go to node 2, last 3 go to node 1
-        |port| if port < 3002 { 1 } else { 0 },
+        |port| if port < test_port(3002) { 1 } else { 0 },
         None,
     );
     let all_signers = miners.signer_test.signer_test_pks();
@@ -79,7 +80,7 @@ fn signers_reprocess_bitcoin_block_not_found_proposals() {
     let mut regular_signers = Vec::new();
     let mut stalled_signers = Vec::new();
     for (config, signer_pk) in signer_configs.iter().zip(all_signers.iter()) {
-        if config.endpoint.port() < 3002 {
+        if config.endpoint.port() < test_port(3002) {
             stalled_signers.push(signer_pk.clone());
         } else {
             regular_signers.push(signer_pk.clone());
