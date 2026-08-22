@@ -12,6 +12,10 @@ inputs:
   test-names:
     description: "Comma-separated list of literal test names to run (Required if not partitioning)"
     required: false
+  test-threads:
+    description: "Number of named tests to run concurrently"
+    required: false
+    default: "1"
   partition:
     description: "Partition to run (e.g., 1)"
     required: false
@@ -177,6 +181,7 @@ runs:
         cargo-nextest nextest run \
           --config-file ./.github/nextest/ci-nextest.toml \
           --profile ci-sequential \
+          --test-threads "${{ inputs.test-threads }}" \
           --run-ignored all \
           --archive-file ${{ inputs.archive-file }} \
           --extract-to . \
