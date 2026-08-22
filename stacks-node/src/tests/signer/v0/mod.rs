@@ -189,8 +189,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         info!("Signer set calculated");
     }
 
-    /// Run the test until the epoch 3 boundary
-    pub fn boot_to_epoch_3(&self) {
+    /// Run the test until the epoch 3 boundary without mining the first Nakamoto tenure.
+    fn boot_to_epoch_3_boundary(&self) {
         TEST_MINE_SKIP.set(true);
         boot_to_epoch_3_reward_set(
             &self.running_nodes.conf,
@@ -217,7 +217,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             Ok(get_chain_info_opt(&self.running_nodes.conf).is_some())
         })
         .expect("Timed out waiting for network to restart after 3.0 boundary reached");
+    }
 
+    /// Mine the first Nakamoto tenure after reaching the epoch 3 boundary.
+    fn mine_first_epoch_3_tenure(&self) {
         if self.snapshot_path.is_some() {
             info!("Booted to epoch 3.0, ready for snapshot.");
             return;
@@ -229,6 +232,12 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         info!("Waiting for first Epoch 3.0 tenure to start");
         self.mine_nakamoto_block(Duration::from_secs(60), false);
         info!("Ready to mine Nakamoto blocks!");
+    }
+
+    /// Boot the test through its first epoch 3 Nakamoto tenure.
+    pub fn boot_to_epoch_3(&self) {
+        self.boot_to_epoch_3_boundary();
+        self.mine_first_epoch_3_tenure();
     }
 
     /// Boot to Epoch 4.0 with sBTC stub contracts published.
@@ -1236,12 +1245,19 @@ impl MultipleMinerTest {
         let prev_skip = self.rl2_counters.skip_commit_op.get();
         self.rl2_counters.skip_commit_op.set(true);
 
-        self.signer_test.boot_to_epoch_3();
+        self.signer_test.boot_to_epoch_3_boundary();
+
+        // The epoch transition temporarily restarts each node's networking and
+        // StackerDB services. Ensure both nodes have caught up before the first
+        // Nakamoto proposal; otherwise signers attached to the lagging node can
+        // miss the proposal and leave it below the acceptance threshold.
+        self.wait_for_matching_chain_tips(600);
+        self.signer_test.mine_first_epoch_3_tenure();
 
         self.rl2_counters.skip_commit_op.set(prev_skip);
 
         // Use a longer timeout for the miners to advance to epoch 3.0 and so that CI runners don't timeout.
-        self.wait_for_chains(600);
+        self.wait_for_matching_chain_tips(600);
 
         info!("------------------------- Reached Epoch 3.0 -------------------------");
     }
@@ -2246,6 +2262,27 @@ impl MultipleMinerTest {
             )
         })
         .expect("Timed out waiting for boostrapped node to catch up to the miner");
+    }
+
+    /// Wait for both nodes to report the same burnchain and Stacks tips.
+    fn wait_for_matching_chain_tips(&self, timeout_secs: u64) {
+        wait_for(timeout_secs, || {
+            let Some(node_1_info) = get_chain_info_opt(&self.signer_test.running_nodes.conf) else {
+                return Ok(false);
+            };
+            let Some(node_2_info) = get_chain_info_opt(&self.conf_node_2) else {
+                return Ok(false);
+            };
+            Ok(
+                node_1_info.burn_block_height == node_2_info.burn_block_height
+                    && node_1_info.pox_consensus == node_2_info.pox_consensus
+                    && node_1_info.stacks_tip_height == node_2_info.stacks_tip_height
+                    && node_1_info.stacks_tip == node_2_info.stacks_tip
+                    && node_1_info.stacks_tip_consensus_hash
+                        == node_2_info.stacks_tip_consensus_hash,
+            )
+        })
+        .expect("Timed out waiting for both nodes to reach matching chain tips");
     }
 
     pub fn assert_last_sortition_winner_reorged(&self) {
