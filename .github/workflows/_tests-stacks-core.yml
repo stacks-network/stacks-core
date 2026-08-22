@@ -29,7 +29,7 @@ permissions:
 # Set default env vars
 #   - transferred to composite action steps
 env:
-  # Five general partitions plus the dedicated parser-stress job keep the unit
+  # Five general partitions plus the dedicated stress-test job keep the unit
   # suite below the Bitcoin critical path without co-scheduling memory hogs.
   NUM_UNIT_TEST_PARTITIONS: 5
   BITCOIND_TEST: 1
@@ -88,15 +88,18 @@ jobs:
           partition: ${{ matrix.partition }}
           total-partitions: ${{ strategy.job-total }}
           test-timings-file: .github/test-timings/unit.json
-          excluded-test-names: chainstate::tests::parse_tests::test_cost_balance_exceeded
+          excluded-test-names: >-
+            chainstate::tests::parse_tests::test_cost_balance_exceeded,
+            chainstate::tests::runtime_analysis_tests::runtime_check_error_cost_balance_exceeded_ccall,
+            tests::signer::v0::test_vtxindex_zero_two_miners
           archive-file: ${{ inputs.archive-file }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: ${{ github.job }}-${{ matrix.partition }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
-  # This test reserves every nextest execution slot. Giving it a small,
-  # dedicated job lets the five balanced partitions continue in parallel.
+  # These tests contend heavily with other CPU- and memory-intensive unit tests.
+  # Running them serially in a dedicated job keeps the balanced partitions moving.
   unit-parser-stress-test:
     name: Unit Parser Stress Test
     if: always() && !cancelled()
@@ -113,7 +116,10 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
-          test-names: chainstate::tests::parse_tests::test_cost_balance_exceeded
+          test-names: >-
+            chainstate::tests::parse_tests::test_cost_balance_exceeded,
+            chainstate::tests::runtime_analysis_tests::runtime_check_error_cost_balance_exceeded_ccall,
+            tests::signer::v0::test_vtxindex_zero_two_miners
           test-threads: "1"
           archive-file: ${{ inputs.archive-file }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
