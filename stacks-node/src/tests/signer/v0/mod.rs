@@ -8992,6 +8992,7 @@ fn signer_loads_stackerdb_updates_on_startup() {
         .signer_test
         .restart_signer(stop_idx, stopped_signer_config);
 
+    miners.signer_test.wait_for_registered();
     info!("------------------------- Miner B Mines Block N+1 (Tenure Change) -------------------------");
     TEST_MINE_SKIP.set(false);
     let block_n_1 =
