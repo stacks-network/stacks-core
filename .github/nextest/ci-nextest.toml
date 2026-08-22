@@ -34,6 +34,12 @@ test-threads = 1
 filter = 'test(=tests::signer::v0::block_validation_check_rejection_timeout_heuristic)'
 threads-required = "num-test-threads"
 
+# These tests build and insert roughly 169,000 signed transactions. Running a
+# second node integration beside them lengthens the batch critical path.
+[[profile.ci-sequential.overrides]]
+filter = 'test(/^tests::(?:signer::v0::large_mempool|marf::.*::large_mempool)/)'
+threads-required = "num-test-threads"
+
 [profile.ci-parallel]
 inherits = "ci"
 # The number of tests to run simultaneously
