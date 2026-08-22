@@ -221,7 +221,8 @@ else
             };
             ($timings.tests[$name] // $timings.default_seconds) as $seconds
             | (
-                if $name == "tests::signer::v0::block_validation_check_rejection_timeout_heuristic"
+                if ($name == "tests::signer::v0::block_validation_check_rejection_timeout_heuristic"
+                    or $name == "tests::signer::v0::signer_multinode_rollover")
                     or ($name | test("^tests::(?:signer::v0::large_mempool|marf::.*::large_mempool)"))
                 then $test_threads
                 elif ($name | startswith("tests::signer::"))

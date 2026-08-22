@@ -34,19 +34,24 @@ test-threads = 1
 filter = 'test(=tests::signer::v0::block_validation_check_rejection_timeout_heuristic)'
 threads-required = "num-test-threads"
 
+# This multinode rollover test has several independently-threaded miners and
+# signer sets; co-scheduling causes progress timeouts throughout the harness.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::signer_multinode_rollover)'
+threads-required = "num-test-threads"
+
 # These tests build and insert roughly 169,000 signed transactions. Running a
 # second node integration beside them lengthens the batch critical path.
 [[profile.ci-sequential.overrides]]
 filter = 'test(/^tests::(?:signer::v0::large_mempool|marf::.*::large_mempool)/)'
 threads-required = "num-test-threads"
 
-# A signer integration test owns a bitcoind container plus one or more Stacks
-# nodes and signers. On four-vCPU runners, charge each test two execution slots
-# so no more than two signer harnesses contend at once. Keep this value aligned
-# with SIGNER_TEST_THREADS_REQUIRED in _tests-bitcoin.yml.
+# Keep ordinary signer resource weights aligned with
+# SIGNER_TEST_THREADS_REQUIRED in _tests-bitcoin.yml. Specific heavyweight
+# signer tests above remain exclusive.
 [[profile.ci-sequential.overrides]]
 filter = 'test(/^tests::signer::/)'
-threads-required = 2
+threads-required = 1
 
 [profile.ci-parallel]
 inherits = "ci"
