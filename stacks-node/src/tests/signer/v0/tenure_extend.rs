@@ -63,7 +63,7 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, submit_tx, submit_tx_fallible, test_observer,
     wait_for_tenure_change_tx,
 };
-use crate::tests::{self};
+use crate::tests::{self, test_port};
 
 #[test]
 #[ignore]
@@ -3461,7 +3461,7 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
         num_txs,
         |signer_config| {
             let port = signer_config.endpoint.port();
-            let is_minority = port < 3000 + non_block_minority as u16;
+            let is_minority = port < test_port(3000) + non_block_minority as u16;
             // Minority signers that favour incoming get a long timeout (tolerant of incoming),
             // while minority signers that favour prev get a short timeout (will mark incoming invalid).
             // The majority gets the opposite timeout.

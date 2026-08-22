@@ -42,7 +42,7 @@ use crate::stacks_common::codec::StacksMessageCodec;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{get_account, get_chain_info, test_observer};
 use crate::tests::signer::SignerTest;
-use crate::tests::{self};
+use crate::tests::{self, test_port};
 use crate::Keychain;
 
 pub enum MultiverSpawnedSigner {
@@ -488,8 +488,8 @@ fn mixed_signer_set_40_percent_new_60_percent_old() {
     let btc_miner_pk = Keychain::default(btc_miner_seed.clone()).get_pub_key();
 
     let localhost = "127.0.0.1";
-    let node_rpc_port = 30500;
-    let node_p2p_port = 30501;
+    let node_rpc_port = test_port(30500);
+    let node_p2p_port = test_port(30501);
 
     // Custom signer config: decide old vs new based on signer index
     let signer_test: SignerTest<MultiverSpawnedSigner> = SignerTest::new_with_config_modifications(
@@ -500,7 +500,7 @@ fn mixed_signer_set_40_percent_new_60_percent_old() {
             // Initially the signer port number is simply sequential
             let signer_index = signer_config.endpoint.port() % num_signers as u16;
             // Update the ports to enforce versioning
-            let base_port = 40000 + signer_index * 10;
+            let base_port = test_port(40000) + signer_index * 10;
             let endpoint_port = if signer_index < num_new_signers as u16 {
                 signer_config.supported_signer_protocol_version = NewSupportedVersion;
                 base_port // even: new version
@@ -635,8 +635,8 @@ fn mixed_signer_set_80_percent_new_20_percent_old() {
     let btc_miner_pk = Keychain::default(btc_miner_seed.clone()).get_pub_key();
 
     let localhost = "127.0.0.1";
-    let node_rpc_port = 30500;
-    let node_p2p_port = 30501;
+    let node_rpc_port = test_port(30500);
+    let node_p2p_port = test_port(30501);
 
     // Custom signer config: decide old vs new based on signer index
     let signer_test: SignerTest<MultiverSpawnedSigner> = SignerTest::new_with_config_modifications(
@@ -647,7 +647,7 @@ fn mixed_signer_set_80_percent_new_20_percent_old() {
             // Initially the signer port number is simply sequential
             let signer_index = signer_config.endpoint.port() % num_signers as u16;
             // Update the ports to enforce versioning
-            let base_port = 40000 + signer_index * 10;
+            let base_port = test_port(40000) + signer_index * 10;
             let endpoint_port = if signer_index < num_new_signers as u16 {
                 signer_config.supported_signer_protocol_version = NewSupportedVersion;
                 base_port // even: new version

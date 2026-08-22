@@ -17,6 +17,6 @@
 //!
 //! Entry point for all bitcoin related test modules
 
-mod core_container;
+pub(super) mod core_container;
 mod core_controller_integrations;
 mod rpc_integrations;

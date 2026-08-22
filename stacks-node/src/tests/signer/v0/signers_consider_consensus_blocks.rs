@@ -39,6 +39,7 @@ use crate::tests::signer::v0::{
     wait_for_block_pushed_by_miner_key, wait_for_block_rejections_from_signers, MultipleMinerTest,
 };
 use crate::tests::signer::SignerTest;
+use crate::tests::test_port;
 
 #[test]
 #[ignore]
@@ -227,7 +228,7 @@ fn signers_respond_to_unprocessed_globally_accepted_block_proposals() {
         |_| {},
         |_| {},
         // Distribute signers so first 1 goes to node 2, last 4 go to node 1
-        |port| if port < 3001 { 1 } else { 0 },
+        |port| if port < test_port(3001) { 1 } else { 0 },
         None,
     );
     let all_signers = miners.signer_test.signer_test_pks();
@@ -235,7 +236,7 @@ fn signers_respond_to_unprocessed_globally_accepted_block_proposals() {
     let mut processing_signers = Vec::new();
     let mut nonprocessing_signers = Vec::new();
     for (config, signer_pk) in signer_configs.iter().zip(all_signers.iter()) {
-        if config.endpoint.port() < 3001 {
+        if config.endpoint.port() < test_port(3001) {
             nonprocessing_signers.push(signer_pk.clone());
         } else {
             processing_signers.push(signer_pk.clone());

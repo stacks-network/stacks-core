@@ -23,7 +23,7 @@
 use std::cell::OnceCell;
 use std::time::Duration;
 
-use testcontainers::core::WaitFor;
+use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::SyncRunner;
 use testcontainers::{Container, GenericImage, ImageExt};
 
@@ -35,6 +35,8 @@ pub const BITCOIN_RPC_USERNAME: &str = "stacksdev";
 pub const BITCOIN_RPC_PASSWORD: &str = BITCOIN_RPC_USERNAME;
 /// Internal bitcoind RPC port used for container-to-host port mapping.
 const CONTAINER_INTERNAL_RPC_PORT: u16 = 18443;
+/// Internal bitcoind P2P port used for container-to-host port mapping.
+const CONTAINER_INTERNAL_P2P_PORT: u16 = 18444;
 
 /// Wrapper for a Bitcoin Core test container.
 ///
@@ -62,6 +64,11 @@ impl BitcoinCoreContainer {
 
     /// Create a container with regtest defaults.
     pub fn new_with_defaults(image_tag: &str) -> Self {
+        Self::new_with_credentials(image_tag, BITCOIN_RPC_USERNAME, BITCOIN_RPC_PASSWORD)
+    }
+
+    /// Create a regtest container with the supplied RPC credentials.
+    pub fn new_with_credentials(image_tag: &str, rpc_username: &str, rpc_password: &str) -> Self {
         let mut result = Self::new(image_tag);
         result
             .add_arg("-regtest=1")
@@ -75,8 +82,8 @@ impl BitcoinCoreContainer {
             .add_arg("-rpcbind=0.0.0.0")
             .add_arg("-rpcallowip=0.0.0.0/0")
             .add_arg("-rpcallowip=::/0")
-            .add_arg(&format!("-rpcuser={BITCOIN_RPC_USERNAME}"))
-            .add_arg(&format!("-rpcpassword={BITCOIN_RPC_PASSWORD}"))
+            .add_arg(&format!("-rpcuser={rpc_username}"))
+            .add_arg(&format!("-rpcpassword={rpc_password}"))
             .add_arg("-fallbackfee=0.00001");
         result
     }
@@ -104,6 +111,8 @@ impl BitcoinCoreContainer {
 
         let container = GenericImage::new("bitcoin/bitcoin", &self.image_tag)
             .with_wait_for(WaitFor::message_on_stdout("Done loading"))
+            .with_exposed_port(CONTAINER_INTERNAL_RPC_PORT.tcp())
+            .with_exposed_port(CONTAINER_INTERNAL_P2P_PORT.tcp())
             .with_startup_timeout(Duration::from_secs(60))
             .with_cmd(self.args.clone())
             .start()
@@ -140,6 +149,21 @@ impl BitcoinCoreContainer {
             .get_host_port_ipv4(CONTAINER_INTERNAL_RPC_PORT)
             .expect("Failed to get mapped RPC port")
     }
+
+    /// Get the host-mapped P2P port for the internal Bitcoin Core P2P port.
+    ///
+    /// Panics if the container has not been started yet.
+    pub fn get_host_p2p_port(&self) -> u16 {
+        if !self.is_started() {
+            panic!("the container has not been started yet");
+        }
+
+        self.raw_container
+            .get()
+            .unwrap()
+            .get_host_port_ipv4(CONTAINER_INTERNAL_P2P_PORT)
+            .expect("Failed to get mapped P2P port")
+    }
 }
 
 impl Drop for BitcoinCoreContainer {
@@ -164,6 +188,8 @@ mod tests {
         container.start();
         assert!(container.is_started());
         assert_ne!(0, container.get_host_rpc_port());
+        assert_ne!(0, container.get_host_p2p_port());
+        assert_ne!(container.get_host_rpc_port(), container.get_host_p2p_port());
 
         container.stop();
         assert!(!container.is_started());

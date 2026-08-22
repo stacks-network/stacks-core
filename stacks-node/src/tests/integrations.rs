@@ -1756,7 +1756,7 @@ fn contract_interface_omitted_from_block_events_when_disabled() {
     test_observer::clear();
     test_observer::spawn();
     conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        endpoint: format!("localhost:{}", test_observer::event_observer_port()),
         events_keys: vec![EventKeyType::AnyEvent],
         timeout_ms: 1000,
         disable_retries: false,

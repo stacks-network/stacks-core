@@ -138,7 +138,7 @@ use crate::tests::neon_integrations::{
 };
 use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source};
 use crate::tests::signer::SignerTest;
-use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
+use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, test_port, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 pub static POX_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
@@ -1857,7 +1857,7 @@ fn simple_neon_integration() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     // set the block commit delay very high, so that we can safely assert that
     //  only one commit is submitted per tenure without generating test flake.
@@ -2088,7 +2088,7 @@ fn restarting_miner() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.activated_vrf_key_path =
         Some(format!("{}/vrf_key", naka_conf.node.working_dir));
@@ -2314,7 +2314,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind);
     let sender_sk = Secp256k1PrivateKey::random();
     // setup sender + recipient for a test stx transfer
@@ -7012,7 +7012,7 @@ fn signer_chainstate() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     let sender_sk = Secp256k1PrivateKey::random();
@@ -7606,7 +7606,7 @@ fn continue_tenure_extend() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.connection_options.block_proposal_max_age_secs = u64::MAX;
     naka_conf.miner.block_commit_delay = Duration::from_secs(600);
@@ -9987,7 +9987,7 @@ fn utxo_check_on_startup_panic() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     println!("Nakamoto node started with config: {naka_conf:?}");
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.min_time_between_blocks_ms = 1_000_000;
 
@@ -10063,7 +10063,7 @@ fn utxo_check_on_startup_recover() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     println!("Nakamoto node started with config: {naka_conf:?}");
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.min_time_between_blocks_ms = 1_000_000;
 
@@ -10573,7 +10573,7 @@ fn skip_mining_long_tx() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.nakamoto_attempt_time_ms = 5_000;
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
@@ -13191,7 +13191,7 @@ fn handle_considered_txs_foreign_key_failure() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.nakamoto_attempt_time_ms = 5_000;
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;

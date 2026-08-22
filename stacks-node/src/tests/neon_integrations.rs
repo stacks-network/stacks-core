@@ -309,9 +309,13 @@ pub mod test_observer {
     use warp::{self, Filter};
 
     use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
+    use crate::tests::test_port;
     use crate::Config;
 
-    pub const EVENT_OBSERVER_PORT: u16 = 50303;
+    /// Return the event-observer port assigned to this test process.
+    pub fn event_observer_port() -> u16 {
+        test_port(50303)
+    }
 
     pub static NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     pub static MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
@@ -658,7 +662,7 @@ pub mod test_observer {
         clear();
         thread::spawn(|| {
             let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
-            rt.block_on(serve(EVENT_OBSERVER_PORT));
+            rt.block_on(serve(event_observer_port()));
         });
     }
 
@@ -758,7 +762,7 @@ pub mod test_observer {
 
     pub fn register(config: &mut Config, event_keys: &[EventKeyType]) {
         config.events_observers.insert(EventObserverConfig {
-            endpoint: format!("localhost:{EVENT_OBSERVER_PORT}"),
+            endpoint: format!("localhost:{}", event_observer_port()),
             events_keys: event_keys.to_vec(),
             timeout_ms: 1000,
             disable_retries: false,
@@ -5792,7 +5796,7 @@ fn atlas_integration_test() {
     conf_follower_node
         .events_observers
         .insert(EventObserverConfig {
-            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            endpoint: format!("localhost:{}", test_observer::event_observer_port()),
             events_keys: vec![EventKeyType::AnyEvent],
             timeout_ms: 1000,
             disable_retries: false,
@@ -6324,7 +6328,7 @@ fn antientropy_integration_test() {
     conf_follower_node
         .events_observers
         .insert(EventObserverConfig {
-            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            endpoint: format!("localhost:{}", test_observer::event_observer_port()),
             events_keys: vec![EventKeyType::AnyEvent],
             timeout_ms: 1000,
             disable_retries: false,

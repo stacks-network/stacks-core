@@ -115,7 +115,7 @@ use crate::tests::neon_integrations::{
 };
 use crate::tests::signer::commands::*;
 use crate::tests::signer::SpawnedSignerTrait;
-use crate::tests::{self, gen_random_port};
+use crate::tests::{self, gen_random_port, test_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
 pub mod capitulate_parent_tenure_view;
@@ -1148,7 +1148,7 @@ impl MultipleMinerTest {
                         );
                         return true;
                     };
-                    if addr.port() == test_observer::EVENT_OBSERVER_PORT {
+                    if addr.port() == test_observer::event_observer_port() {
                         return true;
                     }
                     match signer_distributor(addr.port()) {
@@ -4187,7 +4187,7 @@ fn signer_set_rollover() {
 
     let run_stamp = rand::random();
 
-    let rpc_port = 51024;
+    let rpc_port = test_port(51024);
     let rpc_bind = format!("127.0.0.1:{rpc_port}");
 
     // Setup the new signers that will take over
@@ -4198,8 +4198,8 @@ fn signer_set_rollover() {
         &Network::Testnet,
         "12345",
         run_stamp,
-        3000 + num_signers,
-        Some(9000 + num_signers),
+        usize::from(test_port(3000)) + num_signers,
+        Some(usize::from(test_port(9000)) + num_signers),
         None,
     );
 
@@ -4701,7 +4701,7 @@ fn signer_multinode_rollover() {
         .iter()
         .map(|addr| (addr.clone(), POX_DEFAULT_STACKER_BALANCE))
         .collect();
-    let new_signers_port_start = 3000 + num_signers;
+    let new_signers_port_start = usize::from(test_port(3000)) + num_signers;
 
     let node_1_rpc = gen_random_port();
     let node_1_p2p = gen_random_port();
@@ -4717,8 +4717,8 @@ fn signer_multinode_rollover() {
         &Network::Testnet,
         "12345",
         rand::random(),
-        3000 + num_signers,
-        Some(9000 + num_signers),
+        usize::from(test_port(3000)) + num_signers,
+        Some(usize::from(test_port(9000)) + num_signers),
         None,
     );
 
@@ -6623,7 +6623,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     let run_stamp = rand::random();
 
-    let rpc_port = 51024;
+    let rpc_port = test_port(51024);
     let rpc_bind = format!("127.0.0.1:{rpc_port}");
 
     // Setup the new signers that will take over
@@ -6634,8 +6634,8 @@ fn injected_signatures_are_ignored_across_boundaries() {
         &Network::Testnet,
         "12345",
         run_stamp,
-        3000 + num_signers,
-        Some(9000 + num_signers),
+        usize::from(test_port(3000)) + num_signers,
+        Some(usize::from(test_port(9000)) + num_signers),
         None,
     )
     .first()
@@ -8528,8 +8528,8 @@ fn miner_stackerdb_version_rollover() {
 
     // These are the proxy upstreams, which are where we will tell the
     //  nodes to bind to.
-    let node_1_p2p_rebind = "127.0.0.1:40402";
-    let node_2_p2p_rebind = "127.0.0.1:40502";
+    let node_1_p2p_rebind = format!("127.0.0.1:{}", test_port(40402));
+    let node_2_p2p_rebind = format!("127.0.0.1:{}", test_port(40502));
 
     let mut miners = MultipleMinerTest::new_with_config_modifications(
         num_signers,
@@ -8541,13 +8541,13 @@ fn miner_stackerdb_version_rollover() {
                 [(0, Duration::from_secs(120))].into_iter().collect();
             node_1_p2p_bind = config.node.p2p_bind.clone();
             // change the bind to the proxy upstream
-            config.node.p2p_bind = node_1_p2p_rebind.to_string();
+            config.node.p2p_bind = node_1_p2p_rebind.clone();
         },
         |config| {
             config.miner.block_commit_delay = Duration::from_secs(0);
             node_2_p2p_bind = config.node.p2p_bind.clone();
             // change the bind to the proxy upstream
-            config.node.p2p_bind = node_2_p2p_rebind.to_string();
+            config.node.p2p_bind = node_2_p2p_rebind.clone();
         },
     );
     let node_1_p2p_bind_port = std::net::SocketAddr::from_str(&node_1_p2p_bind)
@@ -8559,14 +8559,14 @@ fn miner_stackerdb_version_rollover() {
 
     let proxy_1 = TestProxy {
         bind_port: node_1_p2p_bind_port,
-        forward_port: 40402,
+        forward_port: test_port(40402),
         drop_control: Arc::new(Mutex::new(false)),
         keep_running: Arc::new(Mutex::new(true)),
     };
 
     let proxy_2 = TestProxy {
         bind_port: node_2_p2p_bind_port,
-        forward_port: 40502,
+        forward_port: test_port(40502),
         drop_control: Arc::new(Mutex::new(false)),
         keep_running: Arc::new(Mutex::new(true)),
     };

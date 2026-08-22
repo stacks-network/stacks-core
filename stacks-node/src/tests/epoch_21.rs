@@ -2119,8 +2119,8 @@ fn test_sortition_divergence_pre_21() {
 
         conf.connection_options.inv_sync_interval = 6;
 
-        let rpc_port = 41113 + 10 * i;
-        let p2p_port = 41113 + 10 * i + 1;
+        let rpc_port = test_port(41113) + 10 * i;
+        let p2p_port = test_port(41114) + 10 * i;
         conf.node.rpc_bind = format!("127.0.0.1:{rpc_port}");
         conf.node.data_url = format!("http://127.0.0.1:{rpc_port}");
         conf.node.p2p_bind = format!("127.0.0.1:{p2p_port}");

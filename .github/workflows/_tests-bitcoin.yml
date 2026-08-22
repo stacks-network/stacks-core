@@ -32,11 +32,16 @@ env:
   BITCOIND_TEST: 1
   # Docker tag for the Bitcoin Core image used when spinning up container with `testcontainers` crate.
   BITCOIN_IMAGE_TAG: "25"
+  # The shared signer harness runs bitcoind in a per-test container. Other
+  # functional tests use slot-namespaced native bitcoind ports.
+  BITCOIN_TESTCONTAINERS: 1
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
   TEST_TAG_CI_SKIP: ci_skip
   # Configure batch size and archive file for bitcoin_tests.sh invocation
-  BATCH_SIZE: 4
+  # At two execution slots, eight tests per batch halves the runner count while
+  # keeping the balanced critical path at the longest-single-test floor.
+  BATCH_SIZE: 8
 
 # Configure concurrency
 concurrency:
@@ -103,6 +108,7 @@ jobs:
         uses: ./.github/actions/run-tests
         with:
           test-names: ${{ matrix.batch.csv }}
+          test-threads: "2"
           archive-file: ${{ inputs.archive-file }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: batched-integration-tests-${{ matrix.batch.index }}

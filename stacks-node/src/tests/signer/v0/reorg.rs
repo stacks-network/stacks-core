@@ -59,7 +59,7 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_sortition_info, submit_tx, test_observer,
     TestProxy,
 };
-use crate::tests::{self, gen_random_port};
+use crate::tests::{self, gen_random_port, test_port};
 use crate::{BitcoinRegtestController, Keychain};
 
 #[test]
@@ -3175,8 +3175,8 @@ fn bitcoin_reorg_extended_tenure() {
         |config| {
             // we will interpose with the testproxy on the second node's bitcoind
             //  connection, so that we can shut off communication before the reorg.
-            config.burnchain.rpc_port = 28132;
-            config.burnchain.peer_port = 28133;
+            config.burnchain.rpc_port = test_port(28132);
+            config.burnchain.peer_port = test_port(28133);
         },
         |signer_port| {
             // only put 1 out of 5 signers on the second node.
@@ -3193,13 +3193,13 @@ fn bitcoin_reorg_extended_tenure() {
 
     let (conf_1, _conf_2) = miners.get_node_configs();
     let btc_p2p_proxy = TestProxy {
-        bind_port: 28133,
+        bind_port: test_port(28133),
         forward_port: conf_1.burnchain.peer_port,
         drop_control: Arc::new(Mutex::new(false)),
         keep_running: Arc::new(Mutex::new(true)),
     };
     let btc_rpc_proxy = TestProxy {
-        bind_port: 28132,
+        bind_port: test_port(28132),
         forward_port: conf_1.burnchain.rpc_port,
         drop_control: Arc::new(Mutex::new(false)),
         keep_running: Arc::new(Mutex::new(true)),
