@@ -23,7 +23,7 @@ inputs:
     description: "Total number of partitions (e.g., 4)"
     required: false
   test-timings-file:
-    description: "Historical timings used to runtime-balance partitioned tests"
+    description: "Historical timings used to balance partitions or prioritize named tests"
     required: false
   no-fail-fast:
     description: "Whether to continue running selected tests after a failure"
@@ -159,6 +159,24 @@ runs:
         SANITIZED_FILE_NAME=$(echo "${{ inputs.codecov-test-name }}" | sed 's/[\\/:\*\?"<>|]/_/g')
         echo "file-name=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
 
+    # Start the longest named tests first so concurrent slots finish together.
+    - name: Generate Named-Test Priority Config
+      id: generate-named-test-priority-config
+      if: inputs.partition == '' && inputs.test-timings-file != ''
+      shell: bash
+      env:
+        TEST_NAMES_CSV: ${{ inputs.test-names }}
+        TEST_TIMINGS_FILE: ${{ inputs.test-timings-file }}
+      run: |
+        OUTPUT_CONFIG_FILE="./.github/nextest/ci-nextest-prioritized.toml"
+        TEST_NAMES_CSV="$TEST_NAMES_CSV" \
+        TEST_TIMINGS_FILE="$TEST_TIMINGS_FILE" \
+        BASE_CONFIG_FILE="./.github/nextest/ci-nextest.toml" \
+        OUTPUT_CONFIG_FILE="$OUTPUT_CONFIG_FILE" \
+        NEXTEST_PROFILE="ci-sequential" \
+          bash ./.github/scripts/generate_nextest_priority_config.sh
+        echo "config-file=$OUTPUT_CONFIG_FILE" >> "$GITHUB_OUTPUT"
+
     # Mode 1: Run specific test names sequentially (If partition is NOT specified)
     - name: Run Tests Sequentially
       if: inputs.partition == '' && inputs.total-partitions == ''
@@ -175,11 +193,13 @@ runs:
         # e.g., "a, b" becomes "test(=a)|test(=b)"
         FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
         FILTERSET="test(=${FILTERSET})"
+        NEXTEST_CONFIG_FILE="${{ steps.generate-named-test-priority-config.outputs.config-file }}"
+        NEXTEST_CONFIG_FILE="${NEXTEST_CONFIG_FILE:-./.github/nextest/ci-nextest.toml}"
 
         # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
         test_exit=0
         cargo-nextest nextest run \
-          --config-file ./.github/nextest/ci-nextest.toml \
+          --config-file "$NEXTEST_CONFIG_FILE" \
           --profile ci-sequential \
           --test-threads "${{ inputs.test-threads }}" \
           --run-ignored all \

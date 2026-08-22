@@ -109,6 +109,7 @@ jobs:
         with:
           test-names: ${{ matrix.batch.csv }}
           test-threads: "2"
+          test-timings-file: .github/test-timings/bitcoin-integration.json
           archive-file: ${{ inputs.archive-file }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: batched-integration-tests-${{ matrix.batch.index }}

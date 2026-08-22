@@ -4,6 +4,8 @@ These files contain historical JUnit runtimes used to balance GitHub Actions
 test jobs. Unknown tests receive `default_seconds`, so newly added tests still
 run without requiring an immediate timing update. Retried attempts are included
 in each test's runtime so flaky tests do not silently underweight a partition.
+Concurrent named batches also use these weights to start their longest tests
+first, reducing idle time near the end of each job.
 
 The Bitcoin file records every integration test. The unit file records only
 tests taking at least five seconds, which keeps the file small while
