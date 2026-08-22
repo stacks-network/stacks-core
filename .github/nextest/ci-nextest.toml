@@ -40,6 +40,14 @@ threads-required = "num-test-threads"
 filter = 'test(/^tests::(?:signer::v0::large_mempool|marf::.*::large_mempool)/)'
 threads-required = "num-test-threads"
 
+# A signer integration test owns a bitcoind container plus one or more Stacks
+# nodes and signers. On four-vCPU runners, charge each test two execution slots
+# so no more than two signer harnesses contend at once. Keep this value aligned
+# with SIGNER_TEST_THREADS_REQUIRED in _tests-bitcoin.yml.
+[[profile.ci-sequential.overrides]]
+filter = 'test(/^tests::signer::/)'
+threads-required = 2
+
 [profile.ci-parallel]
 inherits = "ci"
 # The number of tests to run simultaneously

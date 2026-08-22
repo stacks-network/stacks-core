@@ -38,9 +38,11 @@ env:
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
   TEST_TAG_CI_SKIP: ci_skip
+  BITCOIN_TEST_THREADS: 4
+  SIGNER_TEST_THREADS_REQUIRED: 2
   # Configure batch size and archive file for bitcoin_tests.sh invocation
-  # At two execution slots, eight tests per batch halves the runner count while
-  # keeping the balanced critical path at the longest-single-test floor.
+  # Keep eight tests per batch while validating four-slot resource scheduling.
+  # Consolidate batches only after CI confirms that contention stays bounded.
   BATCH_SIZE: 8
 
 # Configure concurrency
@@ -108,7 +110,7 @@ jobs:
         uses: ./.github/actions/run-tests
         with:
           test-names: ${{ matrix.batch.csv }}
-          test-threads: "2"
+          test-threads: ${{ env.BITCOIN_TEST_THREADS }}
           test-timings-file: .github/test-timings/bitcoin-integration.json
           archive-file: ${{ inputs.archive-file }}
           debug-binary-path: ${{ inputs.debug-binary-path }}

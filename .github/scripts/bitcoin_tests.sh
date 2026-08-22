@@ -12,6 +12,8 @@
 #                       the archive and cargo-nextest are not needed.
 #   TEST_TAG_CI_SKIP - Tag name used to exclude tests from CI (default: ci_skip)
 #   TEST_TIMINGS_FILE - Historical timing data used to balance batches
+#   BITCOIN_TEST_THREADS - Nextest execution slots available to each batch (default: 2)
+#   SIGNER_TEST_THREADS_REQUIRED - Slots reserved by an ordinary signer test (default: 1)
 #
 # Outputs:
 #   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner)
@@ -34,6 +36,10 @@ nextest_archive="${nextest_archive/#\~/$HOME}"
 nextest_list_file="${NEXTEST_LIST_FILE:-}"
 # Exclude tests tagged with a skip tag
 ci_skip_tag="${TEST_TAG_CI_SKIP:-ci_skip}"
+# Resource weights used by the corresponding nextest profile. Exclusive tests
+# reserve every slot; ordinary signer tests reserve the configured subset.
+test_threads="${BITCOIN_TEST_THREADS:-2}"
+signer_test_threads_required="${SIGNER_TEST_THREADS_REQUIRED:-1}"
 
 ## ── Require bash 5+ (mapfile with -t flag behaviour) ────────────────────────
 if [[ "${BASH_VERSINFO[0]}" -lt 5 ]]; then
@@ -58,6 +64,17 @@ done
 
 if ! [[ "${batch_size}" =~ ^[1-9][0-9]*$ ]]; then
     error "BATCH_SIZE must be a positive integer (found $(hl "${batch_size}"))"
+    exit 1
+fi
+
+if ! [[ "${test_threads}" =~ ^[1-9][0-9]*$ ]]; then
+    error "BITCOIN_TEST_THREADS must be a positive integer (found $(hl "${test_threads}"))"
+    exit 1
+fi
+
+if ! [[ "${signer_test_threads_required}" =~ ^[1-9][0-9]*$ ]] ||
+    (( signer_test_threads_required > test_threads )); then
+    error "SIGNER_TEST_THREADS_REQUIRED must be between 1 and BITCOIN_TEST_THREADS"
     exit 1
 fi
 
@@ -186,18 +203,48 @@ if (( total == 0 )); then
     batches_json='[]'
 else
     balancer="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/runtime_balance_tests.sh"
+    scheduling_timings_file=$(mktemp)
+    trap 'rm -f "${scheduling_timings_file}"' EXIT
+
+    # Balance effective slot-seconds rather than raw test-seconds. Without this,
+    # several exclusive stress tests can land in one batch and serialize even
+    # though its raw duration sum appears balanced.
+    jq -Rn \
+        --slurpfile timings "${timings_file}" \
+        --argjson test_threads "${test_threads}" \
+        --argjson signer_threads "${signer_test_threads_required}" '
+        ($timings[0]) as $timings
+        | reduce inputs as $name (
+            {
+              default_seconds: $timings.default_seconds,
+              tests: {}
+            };
+            ($timings.tests[$name] // $timings.default_seconds) as $seconds
+            | (
+                if $name == "tests::signer::v0::block_validation_check_rejection_timeout_heuristic"
+                    or ($name | test("^tests::(?:signer::v0::large_mempool|marf::.*::large_mempool)"))
+                then $test_threads
+                elif ($name | startswith("tests::signer::"))
+                then $signer_threads
+                else 1
+                end
+              ) as $slots
+            | .tests[$name] = ($seconds * $slots)
+          )
+    ' < filtered.txt > "${scheduling_timings_file}"
+
     balanced_batches=$(
         TEST_LIST_FILE=filtered.txt \
-        TEST_TIMINGS_FILE="${timings_file}" \
+        TEST_TIMINGS_FILE="${scheduling_timings_file}" \
         BATCH_COUNT="${batch_count}" \
         MAX_BATCH_SIZE="${batch_size}" \
             bash "${balancer}"
     )
 
     # The workflow action accepts each batch as a comma-separated list.
-    batches_json=$(jq '[.[] | {
+    batches_json=$(jq --argjson test_threads "${test_threads}" '[.[] | {
         index,
-        estimated_seconds,
+        estimated_seconds: (.estimated_seconds / $test_threads),
         csv: (.tests | join(","))
     }]' <<< "${balanced_batches}")
 fi
