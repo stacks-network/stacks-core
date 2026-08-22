@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::types::MAX_TO_ASCII_BUFFER_LEN;
+use clarity_types::types::{MAX_TO_ASCII_BUFFER_LEN, MAX_UTF8_VALUE_SIZE};
 use pinny::tag;
 use proptest::prelude::*;
 use stacks_common::types::StacksEpochId;
@@ -680,6 +680,18 @@ fn evaluate_to_ascii(snippet: &str) -> Value {
     execute_versioned(snippet, ClarityVersion::latest())
         .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))
         .unwrap_or_else(|| panic!("Execution returned no value for snippet `{snippet}`"))
+}
+
+#[test]
+fn test_to_ascii_from_max_length_utf8_string() {
+    let ascii_bytes = vec![b'a'; MAX_UTF8_VALUE_SIZE as usize];
+    let utf8_string = format!("u\"{}\"", "a".repeat(MAX_UTF8_VALUE_SIZE as usize));
+    let evaluation = evaluate_to_ascii(&format!("(to-ascii? {utf8_string})"));
+    let expected_inner = Value::string_ascii_from_bytes(ascii_bytes)
+        .expect("maximum-length UTF-8 string should fit in an ASCII value");
+    let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+    assert_eq!(expected, evaluation);
 }
 
 proptest! {

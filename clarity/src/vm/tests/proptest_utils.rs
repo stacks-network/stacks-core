@@ -20,8 +20,8 @@ use std::collections::BTreeSet;
 use std::result::Result;
 
 use clarity_types::types::{
-    CharType, MAX_TO_ASCII_BUFFER_LEN, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PrincipalData,
-    QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TypeSignature, UTF8Data,
+    CharType, MAX_TO_ASCII_BUFFER_LEN, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier,
+    SequenceData, StandardPrincipalData, TypeSignature, UTF8Data,
 };
 use clarity_types::{ContractName, Value};
 use proptest::array::uniform20;
@@ -259,7 +259,7 @@ pub fn utf8_string_ascii_only_snippet_strategy() -> impl Strategy<Value = (Strin
 
     vec(
         prop::sample::select(ascii_bytes),
-        0..=MAX_UTF8_VALUE_SIZE as usize,
+        0..=UTF8_SNIPPET_MAX_SEGMENTS,
     )
     .prop_map(|bytes| {
         let mut snippet = String::with_capacity(bytes.len() + 3);
@@ -300,7 +300,7 @@ pub fn utf8_string_snippet_strategy() -> impl Strategy<Value = String> {
             simple_escape_segment,
             unicode_escape_segment,
         ],
-        0..=MAX_UTF8_VALUE_SIZE as usize,
+        0..=UTF8_SNIPPET_MAX_SEGMENTS,
     )
     .prop_map(|segments: Vec<String>| format!("u\"{}\"", segments.concat()))
 }
