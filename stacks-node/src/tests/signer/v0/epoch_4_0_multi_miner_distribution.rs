@@ -67,6 +67,10 @@ const MINER_2_FEE: u64 = 10_000;
 /// Number of post-Epoch-4.0 tenures to mine.
 const POST_BOUNDARY_TENURES: u64 = 15;
 
+/// Allow a temporarily split signer view to converge without restarting the
+/// entire multi-minute test.
+const TENURE_SETTLE_TIMEOUT_SECS: u64 = 120;
+
 /// Filter burn-block events to those at or after the Epoch 4.0 start height.
 fn post_boundary_burn_blocks(epoch_40_start: u64) -> Vec<BurnBlockEvent> {
     test_observer::get_burn_blocks()
@@ -160,10 +164,8 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
 
     // Mine N tenures past the boundary.
     //
-    // Before each BTC block, wait for both miners to have committed
-    // pointing at the current tip.
-    //
-    // After each sortition is processed, read the captured
+    // After each BTC block, wait for both nodes and miners to settle on the
+    // resulting tenure. Then read the captured
     // `LATEST_BURN_DISTRIBUTION` and assert per-tenure invariants on the
     // computed `Vec<BurnSamplePoint>`.
     let sortdb = conf_1
@@ -177,10 +179,7 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
     };
     for i in 0..POST_BOUNDARY_TENURES {
         miners
-            .wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
-            .unwrap_or_else(|e| panic!("settle before post-boundary tenure {i} failed: {e}"));
-        miners
-            .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+            .mine_bitcoin_block_and_wait_for_both_miners(&sortdb, TENURE_SETTLE_TIMEOUT_SECS)
             .unwrap_or_else(|e| panic!("post-boundary tenure {i} failed: {e}"));
 
         let dist = LATEST_BURN_DISTRIBUTION

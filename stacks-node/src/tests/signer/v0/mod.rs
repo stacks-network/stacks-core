@@ -1353,7 +1353,7 @@ impl MultipleMinerTest {
             .get_burnchain()
             .open_sortition_db(true)
             .expect("open sortition db");
-        self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        self.mine_bitcoin_block_and_wait_for_both_miners(&sortdb, 60)
             .expect("mine one bitcoin block to include contract publishes");
 
         // 3. Wait for /v2/contracts/source on BOTH nodes. Only proceed once
@@ -1393,23 +1393,16 @@ impl MultipleMinerTest {
 
         // 5. Mine forward until both nodes are past Epoch 4.0.
         //
-        //    Before each BTC block, wait for the chain to settle:
-        //    both nodes must have accepted the previous tenure's
-        //    tenure-change block, and both miners must have submitted
-        //    a block-commit pointing at the current tip.
+        //    After each BTC block, wait for the chain to settle: both nodes
+        //    must accept the new tenure and both miners must submit a
+        //    block-commit pointing at its tip.
         while self.get_peer_info().burn_block_height < epoch_40_start {
-            self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
-                .expect("settle chain before next bitcoin block");
-            self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+            self.mine_bitcoin_block_and_wait_for_both_miners(&sortdb, 60)
                 .expect("mine bitcoin block toward Epoch 4.0 boundary");
         }
         // One more block so chain is producing under Epoch 4.0 on both nodes.
-        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
-            .expect("settle chain before final bitcoin block of boot_to_epoch_4");
-        self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        self.mine_bitcoin_block_and_wait_for_both_miners(&sortdb, 60)
             .expect("mine one bitcoin block past Epoch 4.0 boundary");
-        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
-            .expect("settle chain after Epoch 4.0 boundary");
         info!(
             "Multi-miner: reached Epoch 4.0; current burn_height={}",
             self.get_peer_info().burn_block_height,
@@ -1697,6 +1690,35 @@ impl MultipleMinerTest {
             None,
             &self.signer_test.signer_addresses_versions(),
         )
+    }
+
+    /// Mine one Bitcoin block, then wait for both nodes and miners to settle
+    /// on the resulting tenure.
+    pub fn mine_bitcoin_block_and_wait_for_both_miners(
+        &mut self,
+        sortdb: &SortitionDB,
+        timeout_secs: u64,
+    ) -> Result<(), String> {
+        let started_at = Instant::now();
+        let burn_height_before = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .map_err(|error| format!("get canonical burn-chain tip: {error}"))?
+            .block_height;
+
+        self.btc_regtest_controller_mut().build_next_block(1);
+        wait_for(timeout_secs, || {
+            let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                .map_err(|error| format!("get canonical burn-chain tip: {error}"))?
+                .block_height;
+            Ok(burn_height > burn_height_before)
+        })
+        .map_err(|error| {
+            format!("burn-chain tip did not advance past {burn_height_before}: {error}")
+        })?;
+
+        let remaining_secs = timeout_secs
+            .saturating_sub(started_at.elapsed().as_secs())
+            .max(1);
+        self.wait_for_both_miners_committed_to_current_tenure(sortdb, remaining_secs)
     }
 
     /// Mine `nmb_blocks` blocks on the bitcoin regtest chain and wait for the sortition
@@ -2102,9 +2124,10 @@ impl MultipleMinerTest {
         let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .map_err(|e| format!("get_canonical_burn_chain_tip: {e}"))?;
         let target_burn_height = burn_tip.block_height;
-        let target_consensus_hash = burn_tip.consensus_hash.clone();
 
-        // 1. Both nodes must have a stacks tip in the current tenure
+        // Both nodes must have a stacks tip in the current tenure, and both
+        // miners must have submitted a block-commit at the current burn
+        // height and pointing at that tenure.
         wait_for(timeout_secs, || {
             let Some(node_1_info) = get_chain_info_opt(&self.signer_test.running_nodes.conf) else {
                 return Ok(false);
@@ -2112,29 +2135,53 @@ impl MultipleMinerTest {
             let Some(node_2_info) = get_chain_info_opt(&self.conf_node_2) else {
                 return Ok(false);
             };
-            Ok(
-                node_1_info.stacks_tip_height == node_2_info.stacks_tip_height
-                    && node_1_info.stacks_tip_consensus_hash == target_consensus_hash
-                    && node_2_info.stacks_tip_consensus_hash == target_consensus_hash,
-            )
-        })?;
-
-        // 2. Both miners must have submitted a block-commit at the current
-        //    burn height and pointing at the current tenure
-        wait_for(timeout_secs, || {
             let m1 = &self.signer_test.running_nodes.counters;
             let m2 = &self.rl2_counters;
             let m1_committed = m1
                 .naka_submitted_commit_last_burn_height
                 .load(Ordering::SeqCst)
                 >= target_burn_height
-                && m1.naka_submitted_commit_last_parent_tenure_id.get() == target_consensus_hash;
+                && m1.naka_submitted_commit_last_parent_tenure_id.get()
+                    == node_1_info.stacks_tip_consensus_hash;
             let m2_committed = m2
                 .naka_submitted_commit_last_burn_height
                 .load(Ordering::SeqCst)
                 >= target_burn_height
-                && m2.naka_submitted_commit_last_parent_tenure_id.get() == target_consensus_hash;
-            Ok(m1_committed && m2_committed)
+                && m2.naka_submitted_commit_last_parent_tenure_id.get()
+                    == node_1_info.stacks_tip_consensus_hash;
+            Ok(node_1_info.burn_block_height >= target_burn_height
+                && node_2_info.burn_block_height >= target_burn_height
+                && node_1_info.stacks_tip_height == node_2_info.stacks_tip_height
+                && node_1_info.stacks_tip_consensus_hash == node_2_info.stacks_tip_consensus_hash
+                && m1_committed
+                && m2_committed)
+        })
+        .map_err(|error| {
+            let node_1_tip = get_chain_info_opt(&self.signer_test.running_nodes.conf).map(|info| {
+                (
+                    info.burn_block_height,
+                    info.stacks_tip_height,
+                    info.stacks_tip_consensus_hash,
+                )
+            });
+            let node_2_tip = get_chain_info_opt(&self.conf_node_2).map(|info| {
+                (
+                    info.burn_block_height,
+                    info.stacks_tip_height,
+                    info.stacks_tip_consensus_hash,
+                )
+            });
+            let m1 = &self.signer_test.running_nodes.counters;
+            let m2 = &self.rl2_counters;
+            format!(
+                "nodes and miners did not settle on burn height {target_burn_height}: \
+                 node_1_tip={node_1_tip:?}, node_2_tip={node_2_tip:?}, \
+                 miner_1_commit=({}, {:?}), miner_2_commit=({}, {:?}): {error}",
+                m1.naka_submitted_commit_last_burn_height.get(),
+                m1.naka_submitted_commit_last_parent_tenure_id.get(),
+                m2.naka_submitted_commit_last_burn_height.get(),
+                m2.naka_submitted_commit_last_parent_tenure_id.get(),
+            )
         })?;
 
         Ok(())
