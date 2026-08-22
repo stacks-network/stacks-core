@@ -252,20 +252,31 @@ pub fn ascii_string_snippet_strategy() -> impl Strategy<Value = String> {
     .unwrap()
 }
 
-/// A strategy that generates UTF8 snippets that only contain ASCII characters
-pub fn utf8_string_ascii_only_snippet_strategy() -> impl Strategy<Value = String> {
-    string_regex(&format!(
-        r#"(?x)
-        u"                             # opening quote
-        (?:                            # body: zero or more of...
-          [\x20\x21\x23-\x5B\x5D-\x7E] #   printable ASCII except " and \
-          | \\[\\"ntr]                 #   valid escape sequences
-        ){{0,{}}}                      # up to MAX_UTF8_VALUE_SIZE
-        "                              # closing quote
-        "#,
-        MAX_UTF8_VALUE_SIZE
-    ))
-    .unwrap()
+/// Generate UTF-8 literals containing only ASCII and their decoded bytes.
+pub fn utf8_string_ascii_only_snippet_strategy() -> impl Strategy<Value = (String, Vec<u8>)> {
+    let mut ascii_bytes: Vec<u8> = (0x20..=0x7e).collect();
+    ascii_bytes.extend([b'\n', b'\t', b'\r']);
+
+    vec(
+        prop::sample::select(ascii_bytes),
+        0..=MAX_UTF8_VALUE_SIZE as usize,
+    )
+    .prop_map(|bytes| {
+        let mut snippet = String::with_capacity(bytes.len() + 3);
+        snippet.push_str("u\"");
+        for byte in &bytes {
+            match byte {
+                b'"' => snippet.push_str("\\\""),
+                b'\\' => snippet.push_str("\\\\"),
+                b'\n' => snippet.push_str("\\n"),
+                b'\t' => snippet.push_str("\\t"),
+                b'\r' => snippet.push_str("\\r"),
+                byte => snippet.push(char::from(*byte)),
+            }
+        }
+        snippet.push('"');
+        (snippet, bytes)
+    })
 }
 
 /// A strategy that generates UTF-8 string snippets
