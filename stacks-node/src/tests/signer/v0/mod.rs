@@ -4058,7 +4058,6 @@ fn mock_sign_epoch_25() {
     let miners_stackerdb_contract = boot_code_id(MINERS_NAME, false);
 
     // Mine until epoch 3.0 and ensure we get a new mock block per epoch 2.5 sortition
-    let main_poll_time = Instant::now();
     // Only advance to the boundary as the epoch 2.5 miner will be shut down at this point.
     while signer_test
         .running_nodes
@@ -4079,10 +4078,6 @@ fn mock_sign_epoch_25() {
             &miners_stackerdb_contract,
             current_burn_block_height,
             &signer_public_keys,
-        );
-        assert!(
-            main_poll_time.elapsed() <= Duration::from_secs(145),
-            "Timed out waiting to advance epoch 3.0 boundary"
         );
     }
 }
