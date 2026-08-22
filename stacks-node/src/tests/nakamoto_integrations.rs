@@ -120,6 +120,7 @@ use stacks_signer::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use stacks_signer::v0::SpawnedSigner;
 
+use super::bitcoin::BitcoinTestDaemon;
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_try_stall_miner, fault_injection_unstall_miner,
@@ -140,8 +141,6 @@ use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, test_port, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
-
-use super::bitcoin::BitcoinTestDaemon;
 
 pub static POX_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 pub static POX_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
