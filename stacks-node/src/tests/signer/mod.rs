@@ -66,14 +66,13 @@ use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use stacks_signer::{Signer, SpawnedSigner};
 
-use super::bitcoin::core_container::{BitcoinCoreContainer, BITCOIN_DEFAULT_IMAGE_TAG};
+use super::bitcoin::BitcoinTestDaemon;
 use super::nakamoto_integrations::{
     check_nakamoto_empty_block_heuristics, next_block_and, wait_for,
 };
 use super::neon_integrations::{
     copy_dir_all, get_account, get_sortition_info_ch, submit_tx_fallible, Account,
 };
-use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::nakamoto_node::miner::TEST_MINE_SKIP;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
@@ -89,67 +88,6 @@ use crate::tests::signer::v0::{
 };
 use crate::tests::{test_port, to_addr};
 use crate::BitcoinRegtestController;
-
-/// Bitcoin daemon owned by a signer integration-test harness.
-enum BitcoinTestDaemon {
-    Native(BitcoinCoreController),
-    Container(Box<BitcoinCoreContainer>),
-}
-
-impl BitcoinTestDaemon {
-    /// Start a container when requested and the test uses standard burnchain
-    /// ports; tests that intentionally proxy custom ports retain native
-    /// bitcoind behavior.
-    fn start(config: &mut NeonConfig) -> Self {
-        let use_container = env::var("BITCOIN_TESTCONTAINERS") == Ok("1".into())
-            && env::var("STACKS_TEST_SNAPSHOT") != Ok("1".into())
-            && config.burnchain.rpc_port == test_port(18443)
-            && config.burnchain.peer_port == test_port(18444);
-
-        if use_container {
-            let image_tag = env::var("BITCOIN_IMAGE_TAG")
-                .ok()
-                .filter(|tag| !tag.trim().is_empty())
-                .unwrap_or_else(|| BITCOIN_DEFAULT_IMAGE_TAG.into());
-            let username = config
-                .burnchain
-                .username
-                .as_deref()
-                .expect("Signer integration tests require a Bitcoin RPC username");
-            let password = config
-                .burnchain
-                .password
-                .as_deref()
-                .expect("Signer integration tests require a Bitcoin RPC password");
-            let mut container =
-                BitcoinCoreContainer::new_with_credentials(&image_tag, username, password);
-            container.start();
-            config.burnchain.rpc_port = container.get_host_rpc_port();
-            config.burnchain.peer_port = container.get_host_p2p_port();
-            info!(
-                "Started signer-test bitcoind container";
-                "rpc_port" => config.burnchain.rpc_port,
-                "peer_port" => config.burnchain.peer_port,
-            );
-            Self::Container(Box::new(container))
-        } else {
-            let mut controller = BitcoinCoreController::from_stx_config(config);
-            controller
-                .start_bitcoind()
-                .map_err(|_e| ())
-                .expect("Failed starting bitcoind");
-            Self::Native(controller)
-        }
-    }
-
-    /// Stop the owned daemon.
-    fn stop(&mut self) {
-        match self {
-            Self::Native(controller) => controller.stop_bitcoind().unwrap(),
-            Self::Container(container) => container.stop(),
-        }
-    }
-}
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]

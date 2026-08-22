@@ -21,11 +21,16 @@
 //! repository.
 
 use std::cell::OnceCell;
+use std::env;
 use std::time::Duration;
 
+use stacks::config::Config;
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::SyncRunner;
 use testcontainers::{Container, GenericImage, ImageExt};
+
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
+use crate::tests::test_port;
 
 /// Default bitcoin image tag
 pub const BITCOIN_DEFAULT_IMAGE_TAG: &str = "25";
@@ -169,6 +174,73 @@ impl BitcoinCoreContainer {
 impl Drop for BitcoinCoreContainer {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// Bitcoin daemon owned by an integration test.
+pub struct BitcoinTestDaemon {
+    backend: BitcoinTestDaemonBackend,
+}
+
+enum BitcoinTestDaemonBackend {
+    Native(BitcoinCoreController),
+    Container(Box<BitcoinCoreContainer>),
+}
+
+impl BitcoinTestDaemon {
+    /// Start a container when requested and the test uses standard burnchain
+    /// ports. Tests using snapshots or custom proxy ports retain native
+    /// `bitcoind` behavior.
+    pub fn start(config: &mut Config) -> Self {
+        let use_container = env::var("BITCOIN_TESTCONTAINERS") == Ok("1".into())
+            && env::var("STACKS_TEST_SNAPSHOT") != Ok("1".into())
+            && config.burnchain.rpc_port == test_port(18443)
+            && config.burnchain.peer_port == test_port(18444);
+
+        let backend = if use_container {
+            let image_tag = env::var("BITCOIN_IMAGE_TAG")
+                .ok()
+                .filter(|tag| !tag.trim().is_empty())
+                .unwrap_or_else(|| BITCOIN_DEFAULT_IMAGE_TAG.into());
+            let username = config
+                .burnchain
+                .username
+                .as_deref()
+                .expect("Bitcoin integration tests require an RPC username");
+            let password = config
+                .burnchain
+                .password
+                .as_deref()
+                .expect("Bitcoin integration tests require an RPC password");
+            let mut container =
+                BitcoinCoreContainer::new_with_credentials(&image_tag, username, password);
+            container.start();
+            config.burnchain.rpc_port = container.get_host_rpc_port();
+            config.burnchain.peer_port = container.get_host_p2p_port();
+            info!(
+                "Started integration-test bitcoind container";
+                "rpc_port" => config.burnchain.rpc_port,
+                "peer_port" => config.burnchain.peer_port,
+            );
+            BitcoinTestDaemonBackend::Container(Box::new(container))
+        } else {
+            let mut controller = BitcoinCoreController::from_stx_config(config);
+            controller
+                .start_bitcoind()
+                .map_err(|_e| ())
+                .expect("Failed starting bitcoind");
+            BitcoinTestDaemonBackend::Native(controller)
+        };
+
+        Self { backend }
+    }
+
+    /// Stop the owned daemon.
+    pub fn stop(&mut self) {
+        match &mut self.backend {
+            BitcoinTestDaemonBackend::Native(controller) => controller.stop_bitcoind().unwrap(),
+            BitcoinTestDaemonBackend::Container(container) => container.stop(),
+        }
     }
 }
 

@@ -141,6 +141,8 @@ use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, test_port, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
+use super::bitcoin::BitcoinTestDaemon;
+
 pub static POX_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 pub static POX_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 
@@ -14064,7 +14066,9 @@ fn test_sip_031_last_phase() {
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 10;
-    let inter_blocks_per_tenure = 3;
+    // A coinbase block and one interim block are sufficient to prove that
+    // SIP-031 emission occurs only on the first block of each tenure.
+    let blocks_per_tenure = 2;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
@@ -14072,7 +14076,7 @@ fn test_sip_031_last_phase() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        (send_amt + send_fee) * tenure_count * blocks_per_tenure,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -14105,10 +14109,7 @@ fn test_sip_031_last_phase() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
+    let _btcd_controller = BitcoinTestDaemon::start(&mut naka_conf);
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -14223,13 +14224,14 @@ fn test_sip_031_last_phase() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     let mut sender_nonce = 0;
-    // Mine through every test emission interval, with three blocks per tenure.
+    // Mine through every test emission interval, with a second block in each
+    // tenure proving that the emission is not repeated.
     let principal = PrincipalData::from(sender_signer_addr);
     for _ in 0..tenure_count {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_blocks(
             &mut btc_regtest_controller,
-            inter_blocks_per_tenure,
+            blocks_per_tenure,
             60,
             &coord_channel,
             || {
