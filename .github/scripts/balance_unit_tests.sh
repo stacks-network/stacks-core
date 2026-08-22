@@ -7,6 +7,9 @@
 #   PARTITION         - 1-based partition to select
 #   TOTAL_PARTITIONS  - Total number of runtime-balanced partitions
 #   TEST_LIST_OUTPUT  - Destination for the selected newline-delimited tests
+#
+# Optional env vars:
+#   EXCLUDED_TEST_NAMES_CSV - Tests run separately from these partitions
 set -euo pipefail
 
 nextest_archive="${NEXTEST_ARCHIVE:?NEXTEST_ARCHIVE is required}"
@@ -14,6 +17,7 @@ timings_file="${TEST_TIMINGS_FILE:?TEST_TIMINGS_FILE is required}"
 partition="${PARTITION:?PARTITION is required}"
 total_partitions="${TOTAL_PARTITIONS:?TOTAL_PARTITIONS is required}"
 test_list_output="${TEST_LIST_OUTPUT:?TEST_LIST_OUTPUT is required}"
+excluded_test_names_csv="${EXCLUDED_TEST_NAMES_CSV:-}"
 
 if ! [[ "${partition}" =~ ^[1-9][0-9]*$ ]] ||
     ! [[ "${total_partitions}" =~ ^[1-9][0-9]*$ ]] ||
@@ -24,9 +28,11 @@ fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 nextest_output=$(mktemp)
+discovered_tests=$(mktemp)
 all_tests=$(mktemp)
+excluded_tests=$(mktemp)
 balanced_batches=$(mktemp)
-trap 'rm -f "${nextest_output}" "${all_tests}" "${balanced_batches}"' EXIT
+trap 'rm -f "${nextest_output}" "${discovered_tests}" "${all_tests}" "${excluded_tests}" "${balanced_batches}"' EXIT
 
 cargo-nextest nextest list \
     --config-file ./.github/nextest/ci-nextest.toml \
@@ -45,7 +51,24 @@ jq -r '
         | .key
     ]
     | unique[]
-' "${nextest_output}" > "${all_tests}"
+' "${nextest_output}" > "${discovered_tests}"
+
+jq -Rnr --arg test_names "${excluded_test_names_csv}" '
+    $test_names
+    | split(",")
+    | map(gsub("^[[:space:]]+|[[:space:]]+$"; ""))
+    | map(select(length > 0))
+    | unique[]
+' > "${excluded_tests}"
+
+missing_exclusions=$(comm -23 "${excluded_tests}" "${discovered_tests}")
+if [[ -n "${missing_exclusions}" ]]; then
+    echo "Excluded unit tests were not discovered:" >&2
+    echo "${missing_exclusions}" >&2
+    exit 1
+fi
+
+comm -23 "${discovered_tests}" "${excluded_tests}" > "${all_tests}"
 
 TEST_LIST_FILE="${all_tests}" \
 TEST_TIMINGS_FILE="${timings_file}" \

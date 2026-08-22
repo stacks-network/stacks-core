@@ -25,6 +25,9 @@ inputs:
   test-timings-file:
     description: "Historical timings used to balance partitions or prioritize named tests"
     required: false
+  excluded-test-names:
+    description: "Comma-separated literal test names excluded from runtime-balanced partitions"
+    required: false
   no-fail-fast:
     description: "Whether to continue running selected tests after a failure"
     required: false
@@ -229,6 +232,7 @@ runs:
           trap 'rm -f "$TEST_LIST_FILE"' EXIT
           NEXTEST_ARCHIVE="${{ inputs.archive-file }}" \
           TEST_TIMINGS_FILE="${{ inputs.test-timings-file }}" \
+          EXCLUDED_TEST_NAMES_CSV="${{ inputs.excluded-test-names }}" \
           PARTITION="${{ inputs.partition }}" \
           TOTAL_PARTITIONS="${{ inputs.total-partitions }}" \
           TEST_LIST_OUTPUT="$TEST_LIST_FILE" \

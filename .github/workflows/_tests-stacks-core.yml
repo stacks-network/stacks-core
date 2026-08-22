@@ -29,8 +29,8 @@ permissions:
 # Set default env vars
 #   - transferred to composite action steps
 env:
-  # Five partitions save a runner while unit tests remain below the Bitcoin
-  # critical path. Re-evaluate this count if the Bitcoin suite gets faster.
+  # Five general partitions plus the dedicated parser-stress job keep the unit
+  # suite below the Bitcoin critical path without co-scheduling memory hogs.
   NUM_UNIT_TEST_PARTITIONS: 5
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
@@ -88,9 +88,36 @@ jobs:
           partition: ${{ matrix.partition }}
           total-partitions: ${{ strategy.job-total }}
           test-timings-file: .github/test-timings/unit.json
+          excluded-test-names: chainstate::tests::parse_tests::test_cost_balance_exceeded
           archive-file: ${{ inputs.archive-file }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: ${{ github.job }}-${{ matrix.partition }}
+          upload-junit-xml: ${{ inputs.upload-junit-xml }}
+          upload-code-coverage: ${{ inputs.upload-code-coverage }}
+
+  # This test reserves every nextest execution slot. Giving it a small,
+  # dedicated job lets the five balanced partitions continue in parallel.
+  unit-parser-stress-test:
+    name: Unit Parser Stress Test
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      - name: Setup + Run Tests + Codecov
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: ./.github/actions/run-tests
+        with:
+          test-names: chainstate::tests::parse_tests::test_cost_balance_exceeded
+          test-threads: "1"
+          archive-file: ${{ inputs.archive-file }}
+          debug-binary-path: ${{ inputs.debug-binary-path }}
+          codecov-test-name: unit-parser-stress-test
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
@@ -156,6 +183,7 @@ jobs:
     name: Check Tests
     needs:
       - unit-tests
+      - unit-parser-stress-test
       - open-api-validation
       - node-config-docsgen
       - core-contracts-clarinet-test
