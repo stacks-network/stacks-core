@@ -52,9 +52,9 @@ const FRESH_COMMIT_TIMEOUT: Duration = Duration::from_secs(30);
 /// 960229 right at the hard fork.
 ///
 /// Test Setup:
-/// Five signers and one Nakamoto miner, with Epoch 4.0 at burn height 262.
-/// The boundary sits mid reward phase of cycle 13, so the pox-4 signer set
-/// stays in charge for the whole test and no pox-5 stake is needed.
+/// Five signers and one Nakamoto miner, with Epoch 4.0 at burn height 258.
+/// The boundary sits near the start of a 32-block reward cycle, so the pox-4
+/// signer set stays in charge for the whole test and no pox-5 stake is needed.
 ///
 /// Test Execution:
 /// Boot into Epoch 4.0, then invalidate the activation block and rebuild on
@@ -107,6 +107,25 @@ fn bitcoin_reorg_of_epoch_4_0_activation_block() {
                 node_config.node.pox_5_sbtc_contract = Some(token_contract_id.clone());
                 node_config.node.pox_5_sbtc_registry_contract = Some(registry_contract_id.clone());
                 enable_epoch_4_0(node_config);
+
+                // Keep fork recovery away from the next reward-cycle boundary.
+                // If recovery reaches that boundary after orphaning its anchor,
+                // the coordinator cannot process it and the test measures an
+                // unrelated missing-anchor failure instead of Epoch 4.0 reorgs.
+                node_config.burnchain.pox_reward_length = Some(32);
+                let epochs = node_config
+                    .burnchain
+                    .epochs
+                    .as_mut()
+                    .expect("missing integration-test epoch schedule");
+                epochs
+                    .get_mut(StacksEpochId::Epoch34)
+                    .expect("missing Epoch 3.4")
+                    .end_height = 258;
+                epochs
+                    .get_mut(StacksEpochId::Epoch40)
+                    .expect("missing Epoch 4.0")
+                    .start_height = 258;
             },
             None,
             None,
