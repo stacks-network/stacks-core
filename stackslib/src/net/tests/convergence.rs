@@ -32,6 +32,10 @@ use crate::util_lib::test::*;
 
 type ConvergenceTestPeer<'a> = TestPeer<'a, SharedMemoryChainStateBackend>;
 
+// Coverage-instrumented CI can take longer than the production 60-second
+// pingback TTL. Keep candidates alive for the tests' full convergence window.
+const CONVERGENCE_PINGBACK_TIMEOUT: u64 = 900;
+
 /// Assert that all surviving peer conversations completed their handshakes successfully.
 /// NACKs are not errors here because peer-table diversity pruning uses them as normal responses.
 fn assert_no_handshake_rejects(peers: &[ConvergenceTestPeer]) {
@@ -188,6 +192,7 @@ fn test_walk_ring_15_pingback() {
             conf.denied = 0;
             conf.connection_opts.disable_pingbacks = false;
             conf.connection_opts.disable_inbound_walks = true;
+            conf.connection_opts.pingback_timeout = CONVERGENCE_PINGBACK_TIMEOUT;
 
             peer_configs.push(conf);
         }
@@ -443,6 +448,7 @@ fn test_walk_line_15_pingback() {
             conf.denied = 0;
             conf.connection_opts.disable_pingbacks = false;
             conf.connection_opts.disable_inbound_walks = true;
+            conf.connection_opts.pingback_timeout = CONVERGENCE_PINGBACK_TIMEOUT;
 
             peer_configs.push(conf);
         }
@@ -572,6 +578,7 @@ fn test_walk_star_15_pingback() {
             conf.connection_opts.disable_pingbacks = false;
             conf.connection_opts.disable_inbound_walks = true;
             conf.connection_opts.soft_max_neighbors_per_org = peer_count as u64;
+            conf.connection_opts.pingback_timeout = CONVERGENCE_PINGBACK_TIMEOUT;
 
             peer_configs.push(conf);
         }
