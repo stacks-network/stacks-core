@@ -28,7 +28,7 @@ runs:
       run: |
         mkdir -p "$HOME/.cargo/bin"
         tar --extract --zstd --file ci-tools.tar.zst --directory "$HOME/.cargo/bin"
-        chmod +x "$HOME/.cargo/bin"/{cargo-nextest,grcov,llvm-cov,llvm-profdata}
+        chmod +x "$HOME/.cargo/bin"/{cargo-nextest,grcov}
         echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
     # Checkout the code
@@ -64,22 +64,18 @@ runs:
       with:
         tools: nextest, grcov
 
-    # Stage the runtime tools so test jobs need neither GitHub release downloads
-    # nor a Rust toolchain. grcov requires llvm-cov and llvm-profdata from the
-    # exact toolchain used to instrument the archived binaries.
+    # Stage the tools that do not ship with the Rust toolchain. Coverage jobs
+    # install llvm-tools-preview because its binaries depend on matching shared
+    # libraries from the toolchain sysroot.
     - name: Stage Tool Binaries for Upload
       if: |
         inputs.action == 'create'
       shell: bash
       run: |
         mkdir -p ci-tools
-        RUST_HOST=$(rustc -vV | sed -n 's/^host: //p')
-        LLVM_TOOLS_DIR="$(rustc --print sysroot)/lib/rustlib/${RUST_HOST}/bin"
         cp \
           "$(command -v cargo-nextest)" \
           "$(command -v grcov)" \
-          "${LLVM_TOOLS_DIR}/llvm-cov" \
-          "${LLVM_TOOLS_DIR}/llvm-profdata" \
           ci-tools/
         tar --create --zstd --file ci-tools.tar.zst --directory ci-tools .
 
