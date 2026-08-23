@@ -595,68 +595,20 @@ jobs:
         run: |
           EXT="${{ env.REPORT_FILES_EXT }}"
           DIR="${{ env.REPORT_FILES_DIR }}"
-          INTERMEDIATE_FILES=()
-          PIDS=() # Array to track background process IDs
 
           cd "$DIR" || exit 1
 
-          # 1. Collect all files into an array
           mapfile -d '' ALL_FILES < <(find . -type f -name "*.$EXT" -print0)
-
-          # 2. Process in chunks (Dynamically calculated for 4 threads)
-          TOTAL_FILES=${#ALL_FILES[@]}
-          CHUNK_SIZE=$(( (TOTAL_FILES + 3) / $REPORT_MERGE_NUM_THREADS ))
-
-          # Guardrail: Ensure CHUNK_SIZE is at least 1 to prevent infinite loops
-          if [ "$CHUNK_SIZE" -le 0 ]; then
-              CHUNK_SIZE=1
-          fi
-
-          echo "Total files to process: $TOTAL_FILES. Calculated chunk size for $REPORT_MERGE_NUM_THREADS threads: $CHUNK_SIZE"
-
-          for (( i=0; i<TOTAL_FILES; i+=CHUNK_SIZE )); do
-              # Slice the array for the current chunk
-              CHUNK=("${ALL_FILES[@]:i:CHUNK_SIZE}")
-
-              # Build the lcov arguments for this specific chunk
-              CHUNK_ARGS=()
-              for file in "${CHUNK[@]}"; do
-                  CHUNK_ARGS+=(-a "$file")
-              done
-
-              # Define a unique name for the intermediate report
-              PART_FILE="code_coverage_part_$((i / CHUNK_SIZE)).$EXT"
-              INTERMEDIATE_FILES+=("$PART_FILE")
-
-              # Run lcov in the background
-              echo "Processing chunk $((i / CHUNK_SIZE + 1))..."
-              lcov "${CHUNK_ARGS[@]}" -o "$PART_FILE" &
-              PIDS+=("$!") # Capture the PID of the process just put in the background
+          LCOV_ARGS=()
+          for file in "${ALL_FILES[@]}"; do
+              LCOV_ARGS+=(-a "$file")
           done
 
-          # 3. Wait for all background processes to finish and catch errors
-          echo "Waiting for ${#PIDS[@]} background jobs to complete..."
-          FAILED=0
-          for pid in "${PIDS[@]}"; do
-              if ! wait "$pid"; then
-                  echo "ERROR: Background process with PID $pid failed."
-                  FAILED=1
-              fi
-          done
-
-          if [ "$FAILED" -ne 0 ]; then
-              echo "ERROR: One or more lcov chunk operations failed. Aborting final merge."
-              exit 1
-          fi
-
-          # 4. Final Merge: Combine the intermediate files into the final report
-          FINAL_ARGS=()
-          for part in "${INTERMEDIATE_FILES[@]}"; do
-              FINAL_ARGS+=(-a "$part")
-          done
-
-          echo "Performing final merge of ${#INTERMEDIATE_FILES[@]} intermediate files..."
-          lcov "${FINAL_ARGS[@]}" -o "code-coverage-report.$EXT"
+          echo "Merging ${#ALL_FILES[@]} reports with $REPORT_MERGE_NUM_THREADS workers"
+          lcov \
+            "${LCOV_ARGS[@]}" \
+            --parallel "$REPORT_MERGE_NUM_THREADS" \
+            -o "code-coverage-report.$EXT"
 
           cd ..
 
