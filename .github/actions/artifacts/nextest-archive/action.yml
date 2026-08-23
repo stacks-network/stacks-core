@@ -125,7 +125,8 @@ runs:
         ARCHIVE_PACKAGE: ${{ inputs.package }}
         RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         CARGO_INCREMENTAL: 0
-      # This command should be kept in sync with the same command in cache/cargo action
+      # Keep these package and feature combinations represented in the
+      # default-branch builds in cache/cargo.
       run: |
         # Capture the archive file input, then expand the leading ~ to $HOME
         INPUT_FILE="${{ inputs.archive-file }}"

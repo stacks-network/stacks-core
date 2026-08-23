@@ -107,7 +107,8 @@ runs:
       with:
         make-default: false
   
-    # Build the cargo crates
+    # Build the exact archive topologies consumed by pull-request CI. Cargo
+    # keeps their distinct feature fingerprints side-by-side in target/.
     - name: Build Cargo Crates
       if: |
         inputs.action == 'create'
@@ -115,14 +116,28 @@ runs:
       env:
         RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         CARGO_INCREMENTAL: 0
-      # This command should be kept in sync with the same command in artifacts/nextest-archive action
       run: |
-        cargo nextest archive \
+        build_cache_archive() {
+          local archive_name="$1"
+          local features="$2"
+          shift 2
+
+          cargo nextest archive \
+            "$@" \
+            --tests \
+            --locked \
+            --features "$features" \
+            --archive-file "$RUNNER_TEMP/$archive_name.tar.zst"
+        }
+
+        build_cache_archive remaining monitoring_prom \
           --workspace \
-          --tests \
-          --locked \
-          --features monitoring_prom \
-          --archive-file "not_used.tar.zst"
+          --exclude stacks-node \
+          --exclude stackslib
+        build_cache_archive bitcoin monitoring_prom,stacks-signer/monitoring_prom \
+          --package stacks-node
+        build_cache_archive stackslib monitoring_prom \
+          --package stackslib
   
     # Record content identities so restore jobs can invalidate changed sources
     # without throwing away every reusable workspace artifact.
