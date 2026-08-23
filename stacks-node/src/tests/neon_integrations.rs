@@ -50,7 +50,7 @@ use stacks::chainstate::stacks::db::{
     DiskChainStateBackend, Epoch2StagingBlocksDb, StacksChainState,
 };
 use stacks::chainstate::stacks::miner::{
-    TransactionErrorEvent, TransactionEvent, TransactionSuccessEvent,
+    AssembledAnchorBlock, TransactionErrorEvent, TransactionEvent, TransactionSuccessEvent,
 };
 use stacks::chainstate::stacks::{
     StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
@@ -102,6 +102,7 @@ use stacks_inspect;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 
+use super::bitcoin::BitcoinTestDaemon;
 use super::{ADDR_4, SK_1, SK_2, SK_3};
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::bitcoin_regtest_controller::{self, UTXO};
@@ -9523,6 +9524,19 @@ fn bitcoin_reorg_flap_with_follower() {
     follower_thread.join().unwrap();
 }
 
+/// Wait for the mock miner to finish persisting a particular Stacks block.
+fn wait_for_mock_mined_block(output_dir: &Path, stacks_block_height: u64) {
+    let output_path = output_dir.join(format!("{stacks_block_height}.json"));
+    wait_for(30, || {
+        Ok(AssembledAnchorBlock::deserialize_from_file(&output_path).is_ok())
+    })
+    .unwrap_or_else(|_| {
+        panic!(
+            "Timed out waiting for mock mined Stacks block {stacks_block_height} at {output_path:?}"
+        )
+    });
+}
+
 /// Tests the following:
 ///  - Mock miner output to file
 ///  - Test replay of mock mined blocks using `stacks-inspect  replay-mock-mining``
@@ -9534,18 +9548,12 @@ fn mock_miner_replay() {
     }
 
     let timeout = Some(Duration::from_secs(120));
-    // Had to add this so that mock miner makes an attempt on EVERY block
-    let block_gap = Duration::from_secs(1);
-
     let test_dir = PathBuf::from("/tmp/stacks-integration-test-mock_miner_replay");
     _ = fs::remove_dir_all(&test_dir);
 
-    let (conf, _miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
+    let _btcd_controller = BitcoinTestDaemon::start(&mut conf);
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
     let mut btc_regtest_controller =
@@ -9563,6 +9571,7 @@ fn mock_miner_replay() {
     follower_conf.events_observers.clear();
     follower_conf.node.mock_mining = true;
     follower_conf.node.mock_mining_output_dir = Some(test_dir.join("mock-miner-output"));
+    let mock_mining_output_dir = follower_conf.node.mock_mining_output_dir.clone().unwrap();
     follower_conf.node.working_dir = format!("{}-follower", &conf.node.working_dir);
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
@@ -9608,8 +9617,6 @@ fn mock_miner_replay() {
         timeout,
     );
 
-    thread::sleep(block_gap);
-
     // second block will hold our VRF registration
     next_block_and_wait_all(
         &mut btc_regtest_controller,
@@ -9618,7 +9625,7 @@ fn mock_miner_replay() {
         timeout,
     );
 
-    thread::sleep(block_gap);
+    wait_for_mock_mined_block(&mock_mining_output_dir, 1);
 
     // Third block will be the first mined Stacks block.
     next_block_and_wait_all(
@@ -9628,7 +9635,7 @@ fn mock_miner_replay() {
         timeout,
     );
 
-    thread::sleep(block_gap);
+    wait_for_mock_mined_block(&mock_mining_output_dir, 2);
 
     // ---------- Setup finished, start test ----------
 
@@ -9636,14 +9643,14 @@ fn mock_miner_replay() {
     // Run mock miner configured to output to files
 
     // Mine some blocks for mock miner output
-    for _ in 0..10 {
+    for expected_stacks_block_height in 3..=12 {
         next_block_and_wait_all(
             &mut btc_regtest_controller,
             &miner_blocks_processed,
             &[&follower_blocks_processed],
             timeout,
         );
-        thread::sleep(block_gap);
+        wait_for_mock_mined_block(&mock_mining_output_dir, expected_stacks_block_height);
     }
 
     info!("Mock minining finished");
@@ -9651,31 +9658,17 @@ fn mock_miner_replay() {
     let miner_blocks_processed_end = miner_channel.get_stacks_blocks_processed();
     let follower_blocks_processed_end = follower_channel.get_stacks_blocks_processed();
 
-    let blocks_dir = follower_conf.node.mock_mining_output_dir.clone().unwrap();
-    let mock_mining_output_dir = follower_conf.node.mock_mining_output_dir.unwrap();
+    let blocks_dir = mock_mining_output_dir;
 
     // Check that expected output files exist
     assert!(test_dir.is_dir());
     assert!(blocks_dir.is_dir());
 
-    // Wait for all mock mining output files to be flushed to disk.
     let expected_file_count = 12;
-    let start = std::time::Instant::now();
-    let file_count = loop {
-        let count = mock_mining_output_dir
-            .read_dir()
-            .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
-            .count();
-        if count >= expected_file_count {
-            break count;
-        }
-        if start.elapsed() > Duration::from_secs(30) {
-            panic!(
-                "Timed out waiting for mock mining output files: expected {expected_file_count}, got {count}"
-            );
-        }
-        thread::sleep(Duration::from_millis(500));
-    };
+    let file_count = blocks_dir
+        .read_dir()
+        .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
+        .count();
     assert_eq!(file_count, expected_file_count);
     assert_eq!(miner_blocks_processed_end, follower_blocks_processed_end);
 
