@@ -82,8 +82,6 @@ runs:
       if: |
         inputs.action == 'create'
       uses: ./.github/actions/setup-rust-toolchain
-      with:
-        components: llvm-tools-preview
 
     # Populate the shared compiler cache while creating the default-branch
     # Cargo cache so pull-request builds can reuse unchanged workspace crates.
@@ -100,14 +98,14 @@ runs:
       with:
         tools: nextest
     
-    # Install mold linker and clang (faster than default)      
-    - name: Install mold Linker (and clang)
+    # Clang is preinstalled on GitHub's Ubuntu runners. Downloading mold
+    # directly avoids refreshing apt metadata in the cache-generation job.
+    - name: Install mold Linker
       if: |
         inputs.action == 'create'
-      shell: bash
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y mold clang
+      uses: rui314/setup-mold@7e4f20ad28a2e8ca6fd0892ccf72e2abb706b9c3 # v1, mold 2.42.0
+      with:
+        make-default: false
   
     # Build the cargo crates
     - name: Build Cargo Crates
