@@ -40,6 +40,12 @@ threads-required = "num-test-threads"
 filter = 'test(=tests::signer::v0::signer_multinode_rollover)'
 threads-required = "num-test-threads"
 
+# This boundary test runs two miners, two nodes, and a five-signer set. Keep
+# its commit-window convergence work off a competing integration test.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::epoch_4_0_multi_miner_distribution::epoch_4_0_burn_distribution_chains_across_boundary::t::slow::bitcoind::t)'
+threads-required = "num-test-threads"
+
 # These tests build and insert roughly 169,000 signed transactions. Running a
 # second node integration beside them lengthens the batch critical path.
 [[profile.ci-sequential.overrides]]
