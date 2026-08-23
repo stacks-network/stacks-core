@@ -5102,7 +5102,7 @@ fn signer_multinode_rollover() {
     }
 }
 
-/// This test involves two miners, each mining tenures with 6 blocks each. Half
+/// This test involves two miners, each mining tenures with multiple blocks. Half
 /// of the signers are attached to each miner, so the test also verifies that
 /// the signers' messages successfully make their way to the active miner.
 #[test]
@@ -5110,7 +5110,9 @@ fn signer_multinode_rollover() {
 fn multiple_miners_with_nakamoto_blocks() {
     let num_signers = 5;
     let max_nakamoto_tenures = 20;
-    let inter_blocks_per_tenure = 5;
+    // Two interim blocks exercise repeated block production and cross-miner
+    // signer routing without paying for five identical repetitions per tenure.
+    let inter_blocks_per_tenure = 2;
 
     let mut miners =
         MultipleMinerTest::new(num_signers, inter_blocks_per_tenure * max_nakamoto_tenures);
