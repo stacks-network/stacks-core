@@ -34,7 +34,8 @@ use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use stacks::chainstate::stacks::boot::POX_5_NAME;
 use stacks::chainstate::stacks::sbtc::sbtc_pox5_deposit_taproot_output_key;
-use stacks::core::POX_5_SBTC_DEPOSIT_MAX_FEE_SATS;
+use stacks::config::Config;
+use stacks::core::{StacksEpochId, POX_5_SBTC_DEPOSIT_MAX_FEE_SATS};
 use stacks::types::chainstate::StacksPrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util_lib::boot::boot_code_id;
@@ -42,10 +43,56 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as 
 use stacks_signer::v0::SpawnedSigner;
 
 use super::SignerTest;
-use crate::tests::nakamoto_integrations::{enable_epoch_4_0, wait_for};
+use crate::tests::nakamoto_integrations::{naka_neon_integration_conf, wait_for};
 use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait_with_timeout};
 use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
+
+/// Configure a compact Epoch 3.x runway and ten-block PoX cycles.
+/// Epoch 3.0 still has time to publish the sBTC stubs before the prepare phase,
+/// while the shorter cycle reaches the first PoX-5 waterfall boundary without
+/// mining ten unrelated tenures.
+pub(super) fn enable_compact_epoch_4_0(node_config: &mut Config) {
+    const EPOCH_30_START: u64 = 232;
+    const EPOCH_31_START: u64 = 235;
+    const EPOCH_32_START: u64 = 236;
+    const EPOCH_33_START: u64 = 237;
+    const EPOCH_34_START: u64 = 238;
+    const EPOCH_40_START: u64 = 242;
+
+    node_config.burnchain.pox_reward_length = Some(10);
+    let epochs = node_config
+        .burnchain
+        .epochs
+        .as_mut()
+        .expect("test requires configured epochs");
+    epochs[StacksEpochId::Epoch25].end_height = EPOCH_30_START;
+    epochs[StacksEpochId::Epoch30].start_height = EPOCH_30_START;
+    epochs[StacksEpochId::Epoch30].end_height = EPOCH_31_START;
+    epochs[StacksEpochId::Epoch31].start_height = EPOCH_31_START;
+    epochs[StacksEpochId::Epoch31].end_height = EPOCH_32_START;
+    epochs[StacksEpochId::Epoch32].start_height = EPOCH_32_START;
+    epochs[StacksEpochId::Epoch32].end_height = EPOCH_33_START;
+    epochs[StacksEpochId::Epoch33].start_height = EPOCH_33_START;
+    epochs[StacksEpochId::Epoch33].end_height = EPOCH_34_START;
+    epochs[StacksEpochId::Epoch34].start_height = EPOCH_34_START;
+    epochs[StacksEpochId::Epoch34].end_height = EPOCH_40_START;
+    epochs[StacksEpochId::Epoch40].start_height = EPOCH_40_START;
+}
+
+#[test]
+fn compact_epoch_4_0_schedule_is_valid() {
+    let (mut config, _) = naka_neon_integration_conf(None);
+    enable_compact_epoch_4_0(&mut config);
+
+    let burnchain = config.get_burnchain();
+    assert_eq!(
+        burnchain
+            .pox_constants
+            .first_pox_waterfall_block(burnchain.first_block_height),
+        Some(250),
+    );
+}
 
 /// Compute the expected sBTC PoxAddress recipient
 pub fn make_sbtc_recipient_fixture(pubkey: &[u8; 33], is_mainnet: bool) -> PoxAddress {
@@ -261,7 +308,7 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
                 node_config.node.pox_5_sbtc_contract = Some(token_contract_id.clone());
                 node_config.node.pox_5_sbtc_registry_contract = Some(registry_contract_id.clone());
-                enable_epoch_4_0(node_config);
+                enable_compact_epoch_4_0(node_config);
             },
             None,
             None,
