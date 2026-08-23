@@ -4439,7 +4439,11 @@ fn signer_set_rollover() {
     signer_test.check_signer_states_normal();
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
     let block_sighash = mined_block.signer_signature_hash;
-    let signer_signatures = mined_block.signer_signature;
+    let signer_signatures = signer_test.wait_for_confirmed_block_v0(&block_sighash, short_timeout);
+    assert!(
+        !signer_signatures.is_empty(),
+        "old signer set produced a block without signatures"
+    );
 
     // verify the mined_block signatures against the OLD signer set
     for signature in signer_signatures.iter() {
@@ -4585,7 +4589,12 @@ fn signer_set_rollover() {
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
 
     info!("---- Verifying that the new signers signed the block -----");
-    let signer_signatures = mined_block.signer_signature;
+    let block_sighash = mined_block.signer_signature_hash;
+    let signer_signatures = signer_test.wait_for_confirmed_block_v0(&block_sighash, short_timeout);
+    assert!(
+        !signer_signatures.is_empty(),
+        "new signer set produced a block without signatures"
+    );
 
     // verify the mined_block signatures against the NEW signer set
     for signature in signer_signatures.iter() {
@@ -4820,6 +4829,7 @@ fn duplicate_signers() {
 #[ignore]
 fn signer_multinode_rollover() {
     const TEST_TIMEOUT_SECS: u64 = 120;
+    const TENURE_ATTEMPT_TIMEOUT_SECS: u64 = 90;
 
     let num_signers = 5;
     let new_num_signers = 4;
@@ -4937,7 +4947,13 @@ fn signer_multinode_rollover() {
 
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
     let block_sighash = mined_block.signer_signature_hash;
-    let signer_signatures = mined_block.signer_signature;
+    let signer_signatures = miners
+        .signer_test
+        .wait_for_confirmed_block_v0(&block_sighash, Duration::from_secs(TEST_TIMEOUT_SECS));
+    assert!(
+        !signer_signatures.is_empty(),
+        "old signer set produced a block without signatures"
+    );
 
     // verify the mined_block signatures against the OLD signer set
     for signature in signer_signatures.iter() {
@@ -5060,19 +5076,47 @@ fn signer_multinode_rollover() {
     let new_reward_cycle = miners.signer_test.get_current_reward_cycle();
     assert_eq!(new_reward_cycle, reward_cycle.saturating_add(1));
 
-    miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
-        .unwrap();
+    let mine_confirmed_tenure = |miners: &mut MultipleMinerTest, label: &str| {
+        let mut last_error = String::new();
+        for attempt in 1..=2 {
+            match miners.mine_bitcoin_block_and_wait_for_both_nodes(TENURE_ATTEMPT_TIMEOUT_SECS) {
+                Ok(_) => return,
+                Err(error) => {
+                    warn!(
+                        "{label} did not converge on attempt {attempt}; mining another burn block: {error}"
+                    );
+                    last_error = error;
+                }
+            }
+        }
+        panic!("failed to converge on {label} after two burn blocks: {last_error}");
+    };
 
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.wait_for_chains(120);
+    miners.ensure_commit_miner_1(&sortdb);
+    mine_confirmed_tenure(&mut miners, "the first new-signer tenure");
+
+    // Exercise multiple blocks in the tenure while proving that the follower
+    // has downloaded each block before the next proposal is submitted.
+    for block_ix in 0..2 {
+        miners
+            .send_and_mine_transfer_tx(TEST_TIMEOUT_SECS)
+            .unwrap_or_else(|error| {
+                panic!("failed to mine first-tenure interim block {block_ix}: {error}")
+            });
+        miners.wait_for_chains(TEST_TIMEOUT_SECS);
+    }
 
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
 
     info!("---- Verifying that the new signers signed the block -----");
-    let signer_signatures = mined_block.signer_signature;
+    let block_sighash = mined_block.signer_signature_hash;
+    let signer_signatures = miners
+        .signer_test
+        .wait_for_confirmed_block_v0(&block_sighash, Duration::from_secs(TEST_TIMEOUT_SECS));
+    assert!(
+        !signer_signatures.is_empty(),
+        "new signer set produced a block without signatures"
+    );
 
     // verify the mined_block signatures against the NEW signer set
     for signature in signer_signatures.iter() {
@@ -5085,16 +5129,15 @@ fn signer_multinode_rollover() {
         assert!(new_signer_pks.contains(&pk.to_bytes_compressed()));
     }
 
-    miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
-        .unwrap();
-    miners.wait_for_chains(120);
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.wait_for_chains(120);
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.wait_for_chains(120);
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.wait_for_chains(120);
+    mine_confirmed_tenure(&mut miners, "the second new-signer tenure");
+    for block_ix in 0..2 {
+        miners
+            .send_and_mine_transfer_tx(TEST_TIMEOUT_SECS)
+            .unwrap_or_else(|error| {
+                panic!("failed to mine second-tenure interim block {block_ix}: {error}")
+            });
+        miners.wait_for_chains(TEST_TIMEOUT_SECS);
+    }
 
     miners.shutdown();
     for signer in old_spawned_signers {
