@@ -1,0 +1,23 @@
+{
+  "source_run": "32614339114",
+  "default_seconds": 2.0,
+  "tests": {
+    "net::server::test::test_http_10_threads_getblock": 2.0,
+    "net::server::test::test_http_10_threads_getinfo": 2.0,
+    "net::server::test::test_http_slow_client": 30.0,
+    "net::server::test::test_http_too_many_clients": 2.0,
+    "net::tests::convergence::test_walk_inbound_line_15": 265.093,
+    "net::tests::convergence::test_walk_line_15_org_biased": 131.079,
+    "net::tests::convergence::test_walk_line_15_pingback": 97.0,
+    "net::tests::convergence::test_walk_line_15_plain": 130.0,
+    "net::tests::convergence::test_walk_line_allowed_15": 114.0,
+    "net::tests::convergence::test_walk_ring_15_org_biased": 114.065,
+    "net::tests::convergence::test_walk_ring_15_pingback": 65.0,
+    "net::tests::convergence::test_walk_ring_15_plain": 103.0,
+    "net::tests::convergence::test_walk_ring_allow_15": 80.0,
+    "net::tests::convergence::test_walk_star_15_org_biased": 311.089,
+    "net::tests::convergence::test_walk_star_15_pingback": 127.0,
+    "net::tests::convergence::test_walk_star_15_plain": 78.0,
+    "net::tests::convergence::test_walk_star_allowed_15": 59.0
+  }
+}

@@ -99,11 +99,25 @@ jobs:
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
   # These tests contend heavily with other CPU- and memory-intensive unit tests.
-  # Running them serially in a dedicated job keeps the balanced partitions moving.
+  # Give each one an otherwise-idle runner: serializing them behind one another
+  # made their combined runtime the unit workflow's critical path.
   unit-parser-stress-test:
-    name: Unit Parser Stress Test
+    name: Unit Parser Stress Test (${{ matrix.label }})
     if: always() && !cancelled()
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Parse Cost Balance
+            artifact-name: parse-cost-balance
+            test-name: chainstate::tests::parse_tests::test_cost_balance_exceeded
+          - label: Runtime Cost Balance
+            artifact-name: runtime-cost-balance
+            test-name: chainstate::tests::runtime_analysis_tests::runtime_check_error_cost_balance_exceeded_ccall
+          - label: Two Miners
+            artifact-name: two-miners
+            test-name: tests::signer::v0::test_vtxindex_zero_two_miners
     steps:
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -116,14 +130,11 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
-          test-names: >-
-            chainstate::tests::parse_tests::test_cost_balance_exceeded,
-            chainstate::tests::runtime_analysis_tests::runtime_check_error_cost_balance_exceeded_ccall,
-            tests::signer::v0::test_vtxindex_zero_two_miners
+          test-names: ${{ matrix.test-name }}
           test-threads: "1"
           archive-file: ${{ inputs.archive-file }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
-          codecov-test-name: unit-parser-stress-test
+          codecov-test-name: unit-parser-stress-${{ matrix.artifact-name }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
