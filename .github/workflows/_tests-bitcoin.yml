@@ -48,11 +48,11 @@ env:
   TEST_TAG_CI_SKIP: ci_skip
   BITCOIN_TEST_THREADS: 2
   SIGNER_TEST_THREADS_REQUIRED: 1
-  # Recent green runs contain individual 10–12 minute tests. Seventy-two
-  # four-test batches keep the workflow near that unavoidable single-test
-  # floor instead of serially packing multiple long tests onto one runner.
-  BITCOIN_BATCH_COUNT: 72
-  BATCH_SIZE: 4
+  # The resource-aware scheduler leaves the longest exclusive tests nearly
+  # alone. Sixty five-test batches retain the single-test floor while staying
+  # below the repository's concurrent-job ceiling.
+  BITCOIN_BATCH_COUNT: 60
+  BATCH_SIZE: 5
 
 # Configure concurrency
 concurrency:

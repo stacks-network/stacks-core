@@ -53,7 +53,7 @@ if [[ "${BASH_VERSINFO[0]}" -lt 5 ]]; then
 fi
 
 ## ── Check for required binaries ─────────────────────────────────────────────
-required_commands=(comm grep jq sort wc)
+required_commands=(comm grep jq python3 sort wc)
 if [[ -z "${nextest_list_file}" ]]; then
     required_commands+=(cargo-nextest)
 fi
@@ -222,13 +222,12 @@ info "Balancing $(hl "${total}") tests across $(hl "${batch_count}") batches of 
 if (( total == 0 )); then
     batches_json='[]'
 else
-    balancer="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/runtime_balance_tests.sh"
     scheduling_timings_file=$(mktemp)
     trap 'rm -f "${scheduling_timings_file}"' EXIT
 
-    # Balance effective slot-seconds rather than raw test-seconds. Without this,
-    # several exclusive stress tests can land in one batch and serialize even
-    # though its raw duration sum appears balanced.
+    # Record both runtime and slot requirements. The resource-aware scheduler
+    # models exclusive tests as a serial segment and ordinary tests on the two
+    # concurrent execution lanes.
     jq -Rn \
         --slurpfile timings "${timings_file}" \
         --argjson test_threads "${test_threads}" \
@@ -237,6 +236,7 @@ else
         | reduce inputs as $name (
             {
               default_seconds: $timings.default_seconds,
+              test_threads: $test_threads,
               tests: {}
             };
             ($timings.tests[$name] // $timings.default_seconds) as $seconds
@@ -254,22 +254,23 @@ else
                 else 1
                 end
               ) as $slots
-            | .tests[$name] = ($seconds * $slots)
+            | .tests[$name] = {seconds: $seconds, slots: $slots}
           )
     ' < filtered.txt > "${scheduling_timings_file}"
 
+    resource_balancer="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/balance_resource_tests.py"
     balanced_batches=$(
-        TEST_LIST_FILE=filtered.txt \
-        TEST_TIMINGS_FILE="${scheduling_timings_file}" \
-        BATCH_COUNT="${batch_count}" \
-        MAX_BATCH_SIZE="${batch_size}" \
-            bash "${balancer}"
+        python3 "${resource_balancer}" \
+            --test-list filtered.txt \
+            --weights "${scheduling_timings_file}" \
+            --batch-count "${batch_count}" \
+            --max-batch-size "${batch_size}"
     )
 
     # The workflow action accepts each batch as a comma-separated list.
-    batches_json=$(jq --argjson test_threads "${test_threads}" '[.[] | {
+    batches_json=$(jq '[.[] | {
         index,
-        estimated_seconds: (.estimated_seconds / $test_threads),
+        estimated_seconds,
         csv: (.tests | join(","))
     }]' <<< "${balanced_batches}")
 fi

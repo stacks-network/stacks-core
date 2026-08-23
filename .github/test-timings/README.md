@@ -7,12 +7,12 @@ in each test's runtime so flaky tests do not silently underweight a partition.
 Concurrent named batches also use these weights to start their longest tests
 first, reducing idle time near the end of each job.
 
-The Bitcoin matrix balances effective execution-slot time: ordinary signer
-tests use `SIGNER_TEST_THREADS_REQUIRED`, while exclusive stress tests use all
-`BITCOIN_TEST_THREADS`. Keep those workflow values aligned with the
-`threads-required` overrides in `ci-nextest.toml`. `BITCOIN_BATCH_COUNT`
-controls the runner count independently from the `BATCH_SIZE` per-runner cap,
-allowing heavyweight batches to contain fewer tests.
+The Bitcoin matrix models its concurrent execution lanes directly: ordinary
+signer tests use `SIGNER_TEST_THREADS_REQUIRED`, while exclusive stress tests
+form a serial segment using all `BITCOIN_TEST_THREADS`. Keep those workflow
+values aligned with the `threads-required` overrides in `ci-nextest.toml`.
+`BITCOIN_BATCH_COUNT` controls the runner count independently from the
+`BATCH_SIZE` per-runner cap.
 
 The Bitcoin file records every integration test. The unit file records only
 tests taking at least five seconds, which keeps the file small while
