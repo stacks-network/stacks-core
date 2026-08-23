@@ -132,8 +132,9 @@ jobs:
   ############################################################################
   check-rustfmt:
     name: "Check: Rust Formatting"
+    # Preflight checks are independent and can run while the archive compiles.
     needs:
-      - check-changelog
+      - setup-env
     runs-on: *shared_config
     steps:
       - name: Checkout the latest code
@@ -201,8 +202,6 @@ jobs:
   check-test-caches:
     name: "Check: Test Caches"
     needs:
-      - check-changelog
-      - check-rustfmt
       - setup-env
     uses: ./.github/workflows/_check-test-caches.yml
 
@@ -236,11 +235,10 @@ jobs:
   create-nextest-archive:
     name: "Create: Nextest Archive Artifact"
     runs-on: *shared_config
+    # Start the critical-path build immediately. Test workflows still require
+    # the changelog, formatting, and cache checks before they can execute.
     needs:
-      - check-changelog
-      - check-rustfmt
       - setup-env
-      - check-test-caches
     steps:
       # Checkout the code
       #   - only .github is required for this job
