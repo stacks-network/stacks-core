@@ -60,6 +60,15 @@ runs:
         restore-keys: ${{ steps.generate-keys.outputs.cargo-restore-key }}
         fail-on-cache-miss: true
 
+    # Cache extraction makes target files newer than the checkout. Refresh only
+    # sources whose Git blob changed so Cargo can safely reuse unchanged local
+    # crates and test harnesses from the default-branch cache.
+    - name: Restore Workspace Source Freshness
+      if: |
+        inputs.action == 'restore'
+      shell: bash
+      run: bash ./.github/scripts/restore_cargo_freshness.sh
+
     # Checkout the code
     - name: Checkout the latest code
       if: |
@@ -117,24 +126,14 @@ runs:
           --features monitoring_prom \
           --archive-file "not_used.tar.zst"
   
-    # Dynamic cleanup of local workspace crates right after building. We never want them to exist in the produced cache.
-    # These are things like stacks-signer, stacks-inspect, etc. built locally from our codebase.
-    # We must always compile them on-the-fly from current code, as they aren't bumped in version when they are changed.
-    - name: Clean Local Workspace Crates
+    # Record content identities so restore jobs can invalidate changed sources
+    # without throwing away every reusable workspace artifact.
+    - name: Record Workspace Source Index
       if: |
         inputs.action == 'create'
       shell: bash
       run: |
-        if [ -f Cargo.toml ]; then
-          echo "Identifying local workspace crates to exclude from restored cache..."
-          cargo metadata --format-version 1 --no-deps | jq -r '.packages[].name' | while read -r crate; do
-            echo "Wiping build artifacts for local crate: $crate"
-            cargo clean -p "$crate"
-          done
-        else
-          echo "ERROR: No Cargo.toml found in the current working directory."
-          exit 1
-        fi
+        git ls-files -s -z > target/.ci-workspace-source-index
   
     # Save cache data
     - name: Save Cache
