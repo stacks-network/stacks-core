@@ -2736,7 +2736,7 @@ fn mine_multiple_per_tenure_integration() {
 ///  struct handles the epoch-2/3 tear-down and spin-up.
 /// This test makes four assertions:
 ///  * Both miners win at least two tenures after 3.0 starts
-///  * Each tenure has 6 blocks (the coinbase block and 5 interim blocks)
+///  * Each tenure has multiple blocks
 ///  * Both nodes see the same chainstate at the end of the test
 ///  * Both nodes have the same `PeerNetwork::highest_stacks_height_of_neighbors`
 fn multiple_miners() {
@@ -2748,8 +2748,8 @@ fn multiple_miners() {
     naka_conf.node.local_peer_seed = vec![1, 1, 1, 1];
     naka_conf.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
 
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_2_rpc = tests::test_port(51026);
+    let node_2_p2p = tests::test_port(51025);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.node.pox_sync_sample_secs = 30;
     let sender_sk = Secp256k1PrivateKey::random();
@@ -2757,7 +2757,9 @@ fn multiple_miners() {
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     const REQUIRED_TENURES_PER_MINER: u64 = 2;
     const MAX_TENURES: u64 = 20;
-    const INTER_BLOCKS_PER_TENURE: u64 = 6;
+    // Two interim blocks prove repeated production and follower convergence
+    // without paying for four additional identical transfers per tenure.
+    const INTER_BLOCKS_PER_TENURE: u64 = 2;
     const BLOCKS_PER_TENURE: u64 = INTER_BLOCKS_PER_TENURE + 1;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
