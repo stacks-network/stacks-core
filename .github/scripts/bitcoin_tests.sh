@@ -246,6 +246,7 @@ else
                     or $name == "tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner"
                     or $name == "tests::signer::v0::signers_wait_for_validation::signer_waits_for_validation_before_signing"
                     or $name == "tests::signer::v0::tx_replay::tx_replay_forking_test"
+                    or $name == "tests::signer::v0::tx_replay::tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted"
                     or $name == "tests::signer::v0::epoch_4_0_multi_miner_distribution::epoch_4_0_burn_distribution_chains_across_boundary::t::slow::bitcoind::t")
                     or ($name | test("^tests::(?:signer::v0::large_mempool|marf::.*::large_mempool)"))
                 then $test_threads

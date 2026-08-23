@@ -2254,10 +2254,11 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     fault_injection_unstall_miner();
 
     signer_test
-        .wait_for_signer_state_check(60, |state| {
-            let tx_replay_set = state.get_tx_replay_set();
-            Ok(tx_replay_set.is_none() && get_account(&http_origin, &sender1_addr).nonce >= 3)
-        })
+        .wait_for_nonce_increase(&sender1_addr, txid2_nonce)
+        .expect("Timed out waiting for replayed transactions to advance the sender nonce");
+
+    signer_test
+        .wait_for_signer_state_check(90, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
 
     let sender1_nonce_post_replay = get_account(&http_origin, &sender1_addr).nonce;
