@@ -8081,6 +8081,10 @@ fn test_problematic_blocks_are_not_mined() {
 
     let (mut conf, _) = neon_integration_test_conf();
 
+    // This test drives anchored-block mining explicitly. A background microblock
+    // miner can consume tx_high before the test observes its mempool admission.
+    conf.node.mine_microblocks = false;
+
     conf.initial_balances.push(InitialBalance {
         address: spender_addr_1,
         amount: 1_000_000_000_000,
