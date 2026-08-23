@@ -33,8 +33,9 @@ python3 .github/scripts/generate_test_timings.py \
 ```
 
 For a more stable estimate, download several representative runs into separate
-directories and repeat `--input-dir` for each one. The generator retains each
-test's maximum observed runtime; set `--source-run` to the newest included run.
+directories and repeat `--input-dir` for each one. The generator uses each
+test's 80th-percentile runtime across those runs; use `--test-percentile` to
+override it and set `--source-run` to the newest included run.
 
 For Bitcoin integrations, use the artifact pattern
 `nextest-batched-integration-tests-*`, omit `--minimum-seconds`, and output to
