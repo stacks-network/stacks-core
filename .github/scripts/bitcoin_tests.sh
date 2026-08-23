@@ -244,6 +244,7 @@ else
                 if ($name == "tests::signer::v0::block_validation_check_rejection_timeout_heuristic"
                     or $name == "tests::signer::v0::signer_multinode_rollover"
                     or $name == "tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner"
+                    or $name == "tests::signer::v0::reorg::no_reorg_due_to_successive_block_validation_ok"
                     or $name == "tests::signer::v0::signers_wait_for_validation::signer_waits_for_validation_before_signing"
                     or $name == "tests::signer::v0::tx_replay::tx_replay_forking_test"
                     or $name == "tests::signer::v0::tx_replay::tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted"

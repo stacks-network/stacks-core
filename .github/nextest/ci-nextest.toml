@@ -50,7 +50,7 @@ threads-required = "num-test-threads"
 # These convergence-sensitive signer tests time out while sharing a two-core
 # runner, but complete reliably when their node and signer sets run alone.
 [[profile.ci-sequential.overrides]]
-filter = 'test(=tests::signer::v0::signers_wait_for_validation::signer_waits_for_validation_before_signing) | test(=tests::signer::v0::tx_replay::tx_replay_forking_test) | test(=tests::signer::v0::tx_replay::tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted)'
+filter = 'test(=tests::signer::v0::reorg::no_reorg_due_to_successive_block_validation_ok) | test(=tests::signer::v0::signers_wait_for_validation::signer_waits_for_validation_before_signing) | test(=tests::signer::v0::tx_replay::tx_replay_forking_test) | test(=tests::signer::v0::tx_replay::tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted)'
 threads-required = "num-test-threads"
 
 # This boundary test runs two miners, two nodes, and a five-signer set. Keep
