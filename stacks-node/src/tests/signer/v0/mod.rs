@@ -1385,7 +1385,7 @@ impl MultipleMinerTest {
         .expect("contract publishes did not reach both miners before the next tenure");
 
         // 2. Mine one bitcoin block to include them.
-        self.mine_bitcoin_block_with_reward_cycle_convergence(60)
+        self.mine_tenure_with_reward_cycle_convergence(60)
             .expect("mine one bitcoin block to include contract publishes");
 
         // 3. Wait for /v2/contracts/source on BOTH nodes. Only proceed once
@@ -1433,7 +1433,7 @@ impl MultipleMinerTest {
                 .expect("mine bitcoin block toward Epoch 4.0 boundary");
         }
         // One more block so chain is producing under Epoch 4.0 on both nodes.
-        self.mine_bitcoin_block_with_reward_cycle_convergence(60)
+        self.mine_tenure_with_reward_cycle_convergence(60)
             .expect("mine one bitcoin block past Epoch 4.0 boundary");
         info!(
             "Multi-miner: reached Epoch 4.0; current burn_height={}",
@@ -1726,11 +1726,12 @@ impl MultipleMinerTest {
     }
 
     /// Mine one Bitcoin block, synchronizing all signer views before mining
-    /// resumes when the block crosses a reward-cycle boundary.
+    /// resumes when the block crosses a reward-cycle boundary. Returns whether
+    /// the burn block selected a winning tenure.
     pub fn mine_bitcoin_block_with_reward_cycle_convergence(
         &mut self,
         timeout_secs: u64,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let started_at = Instant::now();
         let current_burn_height = self.btc_regtest_controller().get_bitcoin_chain_height();
         let burnchain = self.btc_regtest_controller().get_burnchain();
@@ -1744,12 +1745,12 @@ impl MultipleMinerTest {
 
         if current_reward_cycle == next_reward_cycle {
             let target_burn_height =
-                self.mine_bitcoin_block_and_wait_for_both_nodes(timeout_secs)?;
-            let remaining_secs = timeout_secs
-                .saturating_sub(started_at.elapsed().as_secs())
-                .max(1);
-            return self
-                .wait_for_both_miners_committed_to_burn_height(target_burn_height, remaining_secs);
+                self.mine_bitcoin_block_and_wait_for_both_burn_views(timeout_secs)?;
+            return self.finish_burn_block_convergence(
+                &started_at,
+                target_burn_height,
+                timeout_secs,
+            );
         }
 
         fault_injection_stall_miner();
@@ -1778,15 +1779,58 @@ impl MultipleMinerTest {
         fault_injection_unstall_miner();
         let target_burn_height = target_result?;
 
-        let remaining_secs = timeout_secs
-            .saturating_sub(started_at.elapsed().as_secs())
-            .max(1);
-        self.wait_for_both_nodes_tenure(target_burn_height, remaining_secs)?;
+        self.finish_burn_block_convergence(&started_at, target_burn_height, timeout_secs)
+    }
+
+    /// Mine until a burn block selects a tenure, tolerating short gaps with no
+    /// winning sortition as long as both miners continue committing.
+    fn mine_tenure_with_reward_cycle_convergence(
+        &mut self,
+        timeout_secs: u64,
+    ) -> Result<(), String> {
+        const MAX_NO_SORTITION_BLOCKS: usize = 3;
+
+        for _ in 0..MAX_NO_SORTITION_BLOCKS {
+            if self.mine_bitcoin_block_with_reward_cycle_convergence(timeout_secs)? {
+                return Ok(());
+            }
+        }
+        Err(format!(
+            "no winning sortition in {MAX_NO_SORTITION_BLOCKS} consecutive converged burn blocks"
+        ))
+    }
+
+    /// Finish convergence after both nodes have processed a burn block.
+    fn finish_burn_block_convergence(
+        &self,
+        started_at: &Instant,
+        target_burn_height: u64,
+        timeout_secs: u64,
+    ) -> Result<bool, String> {
+        let sortition = get_sortition_info(&self.signer_test.running_nodes.conf);
+        if sortition.burn_block_height != target_burn_height {
+            return Err(format!(
+                "latest sortition height {} does not match mined burn height {target_burn_height}",
+                sortition.burn_block_height,
+            ));
+        }
+
+        if sortition.was_sortition {
+            let remaining_secs = timeout_secs
+                .saturating_sub(started_at.elapsed().as_secs())
+                .max(1);
+            self.wait_for_both_nodes_tenure(target_burn_height, remaining_secs)?;
+        } else {
+            info!(
+                "Burn height {target_burn_height} had no winning sortition; waiting for fresh commits"
+            );
+        }
 
         let remaining_secs = timeout_secs
             .saturating_sub(started_at.elapsed().as_secs())
             .max(1);
-        self.wait_for_both_miners_committed_to_burn_height(target_burn_height, remaining_secs)
+        self.wait_for_both_miners_committed_to_burn_height(target_burn_height, remaining_secs)?;
+        Ok(sortition.was_sortition)
     }
 
     /// Mine one Bitcoin block and wait for both nodes to process its tenure.

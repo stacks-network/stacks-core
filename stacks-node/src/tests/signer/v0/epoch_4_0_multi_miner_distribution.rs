@@ -277,7 +277,8 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
     };
     let final_burn_height = first_waterfall_block + POST_WATERFALL_TENURES;
     let mut i = 0;
-    while miners.get_peer_info().burn_block_height < final_burn_height {
+    while miners.get_peer_info().burn_block_height < final_burn_height || i < POST_WATERFALL_TENURES
+    {
         let burn_height = miners.get_peer_info().burn_block_height;
 
         // The miners can observe parent(first_waterfall_block) before the
@@ -321,9 +322,12 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
             .unwrap_or_else(|e| panic!("post-boundary tenure {i} has invalid commits: {e}"));
         }
 
-        miners
+        let tenure_started = miners
             .mine_bitcoin_block_with_reward_cycle_convergence(TENURE_SETTLE_TIMEOUT_SECS)
             .unwrap_or_else(|e| panic!("post-boundary tenure {i} failed: {e}"));
+        if !tenure_started {
+            continue;
+        }
 
         let dist = LATEST_BURN_DISTRIBUTION
             .get_opt()
