@@ -41,7 +41,9 @@ override it and set `--source-run` to the newest included run.
 
 For Bitcoin integrations, use the artifact pattern
 `nextest-batched-integration-tests-*`, omit `--minimum-seconds`, and output to
-`bitcoin-integration.json`.
+`bitcoin-integration.json`. Use `--test-percentile 90` so a small sample uses
+each test's recent worst case; serially packing two variable long tests is more
+expensive than a slightly conservative batch estimate.
 
 For P2P integrations, use `nextest-p2p-*`, omit `--minimum-seconds`, and output
 to `p2p.json`. Include multiple runs because topology convergence timings vary

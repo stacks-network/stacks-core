@@ -40,11 +40,11 @@ env:
   TEST_TAG_CI_SKIP: ci_skip
   BITCOIN_TEST_THREADS: 2
   SIGNER_TEST_THREADS_REQUIRED: 1
-  # Forty batches leave heavyweight runners fewer companions while retaining
-  # 32 fewer jobs than the original 72-job matrix. Eight remains a safety cap,
-  # not a requirement that every batch contain the same number of tests.
-  BITCOIN_BATCH_COUNT: 40
-  BATCH_SIZE: 8
+  # Recent green runs contain individual 10–12 minute tests. Seventy-two
+  # four-test batches keep the workflow near that unavoidable single-test
+  # floor instead of serially packing multiple long tests onto one runner.
+  BITCOIN_BATCH_COUNT: 72
+  BATCH_SIZE: 4
 
 # Configure concurrency
 concurrency:

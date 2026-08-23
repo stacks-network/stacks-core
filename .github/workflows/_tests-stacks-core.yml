@@ -29,9 +29,9 @@ permissions:
 # Set default env vars
 #   - transferred to composite action steps
 env:
-  # Seven general partitions plus the dedicated stress-test job keep the unit
-  # suite below the Bitcoin critical path without co-scheduling memory hogs.
-  NUM_UNIT_TEST_PARTITIONS: 7
+  # Smaller partitions contain the impact of occasional slow hosted runners;
+  # dedicated stress-test jobs still avoid co-scheduling the memory hogs.
+  NUM_UNIT_TEST_PARTITIONS: 10
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
