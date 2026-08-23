@@ -34,6 +34,7 @@ use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use serde::{Deserialize, Serialize};
 use stacks::burnchains::Txid;
+use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::NakamotoBlock;
@@ -1114,6 +1115,36 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 .iter()
                 .all(|state| f(state).map_or(false, |ok| ok));
             Ok(all_pass)
+        })
+    }
+
+    /// Wait until every signer has a globally agreed state for the current
+    /// reward cycle and burn view.
+    pub fn wait_for_global_signer_state(
+        &self,
+        timeout: u64,
+        burn_block: &ConsensusHash,
+        burn_block_height: u64,
+    ) -> Result<(), String> {
+        let current_reward_cycle = self.get_current_reward_cycle();
+        wait_for(timeout, || {
+            let states = self.get_all_states();
+            Ok(states.iter().all(|state| {
+                state
+                    .signer_global_state_machines
+                    .iter()
+                    .find_map(|(reward_cycle, global_state)| {
+                        if current_reward_cycle % 2 == *reward_cycle {
+                            global_state.as_ref()
+                        } else {
+                            None
+                        }
+                    })
+                    .is_some_and(|global_state| {
+                        global_state.burn_block == *burn_block
+                            && global_state.burn_block_height >= burn_block_height
+                    })
+            }))
         })
     }
 

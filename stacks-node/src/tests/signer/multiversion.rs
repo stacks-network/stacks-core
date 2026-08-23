@@ -265,6 +265,7 @@ impl SpawnedSignerTrait for MultiverSpawnedSigner {
                             )
                         })
                         .collect(),
+                    signer_global_state_machines: vec![],
                     pending_proposals_count,
                     signer_canonical_tips: signer_canonical_tips
                         .into_iter()
@@ -300,6 +301,7 @@ fn old_version_parses_new_messages() {
             tenure_extend_timestamp: 2049,
             reject_reason: RejectReason::NotRejected,
             tenure_extend_read_count_timestamp: 5058,
+            failed_txid: None,
             unknown_bytes: vec![],
         },
     };

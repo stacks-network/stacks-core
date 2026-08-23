@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use clarity::codec::StacksMessageCodec;
 use hashbrown::HashMap;
+use libsigner::v0::signer_state::SignerStateMachine;
 use libsigner::{SignerEntries, SignerEvent, SignerRunLoop};
 use stacks_common::{debug, error, info, warn};
 
@@ -58,6 +59,8 @@ pub struct StateInfo {
     /// The local state machines for the running signers
     ///  as a pair of (reward-cycle, state-machine)
     pub signer_state_machines: Vec<(u64, Option<LocalStateMachine>)>,
+    /// The globally agreed state machines for the running signers.
+    pub signer_global_state_machines: Vec<(u64, Option<SignerStateMachine>)>,
     /// The number of pending block proposals for this signer
     pub pending_proposals_count: u64,
     /// The canonical tip block info according to the running signers
@@ -542,6 +545,16 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                             *reward_cycle,
                             Some(signer.get_local_state_machine().clone()),
                         )
+                    })
+                    .collect(),
+                signer_global_state_machines: self
+                    .stacks_signers
+                    .iter()
+                    .map(|(reward_cycle, signer)| {
+                        let ConfiguredSigner::RegisteredSigner(ref signer) = signer else {
+                            return (*reward_cycle, None);
+                        };
+                        (*reward_cycle, signer.get_global_state_machine())
                     })
                     .collect(),
                 pending_proposals_count: self

@@ -10846,8 +10846,32 @@ fn test_shadow_recovery() {
     // sign the first post-recovery tenure.
     signer_test.get_burn_updated_states();
 
-    // make another tenure
-    next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    // The first commit after repair can still reference the pre-repair PoX
+    // anchor while the miner refreshes its burn view. Require recovery, but
+    // allow a bounded number of fresh burn views instead of rerunning the
+    // entire test from genesis.
+    let mut recovered = false;
+    let mut last_recovery_error = String::new();
+    for attempt in 1..=3 {
+        match next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters) {
+            Ok(()) => {
+                recovered = true;
+                break;
+            }
+            Err(error) => {
+                last_recovery_error = error;
+                warn!(
+                    "Post-shadow tenure attempt {attempt} failed; refreshing signer state before retry";
+                    "error" => %last_recovery_error,
+                );
+                signer_test.get_burn_updated_states();
+            }
+        }
+    }
+    assert!(
+        recovered,
+        "Failed to mine a post-shadow recovery tenure after 3 attempts: {last_recovery_error}"
+    );
 
     // all shadow blocks are present and processed
     let mut shadow_ids = HashSet::new();

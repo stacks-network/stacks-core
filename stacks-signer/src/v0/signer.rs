@@ -38,7 +38,7 @@ use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
     RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
-use libsigner::v0::signer_state::GlobalStateEvaluator;
+use libsigner::v0::signer_state::{GlobalStateEvaluator, SignerStateMachine};
 use libsigner::{BlockProposal, SignerEvent, SignerSession};
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
@@ -423,6 +423,10 @@ impl SignerTrait<SignerMessage> for Signer {
 
     fn get_local_state_machine(&self) -> &LocalStateMachine {
         &self.local_state_machine
+    }
+
+    fn get_global_state_machine(&self) -> Option<SignerStateMachine> {
+        self.global_state_evaluator.determine_global_state()
     }
 
     #[cfg(not(any(test, feature = "testing")))]

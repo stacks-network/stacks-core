@@ -50,6 +50,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 
 use chainstate::v1::SortitionsView;
 use config::GlobalConfig;
+use libsigner::v0::signer_state::SignerStateMachine;
 use libsigner::{SignerEvent, SignerEventReceiver, SignerEventTrait, VERSION_STRING};
 use runloop::SignerResult;
 use signerdb::BlockInfo;
@@ -79,6 +80,8 @@ pub trait Signer<T: SignerEventTrait>: Debug + Display {
     fn has_unprocessed_blocks(&self) -> bool;
     /// Get a reference to the local state machine of the signer
     fn get_local_state_machine(&self) -> &LocalStateMachine;
+    /// Get the signer-set-agreed state machine, if consensus is available.
+    fn get_global_state_machine(&self) -> Option<SignerStateMachine>;
     /// Get the number of pending block proposals
     fn get_pending_proposals_count(&self) -> u64;
     /// Get canonical block according to this signer's db

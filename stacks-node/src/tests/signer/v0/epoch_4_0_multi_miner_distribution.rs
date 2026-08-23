@@ -322,7 +322,7 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
         }
 
         miners
-            .mine_bitcoin_block_and_wait_for_both_miners(TENURE_SETTLE_TIMEOUT_SECS)
+            .mine_bitcoin_block_with_reward_cycle_convergence(TENURE_SETTLE_TIMEOUT_SECS)
             .unwrap_or_else(|e| panic!("post-boundary tenure {i} failed: {e}"));
 
         let dist = LATEST_BURN_DISTRIBUTION
