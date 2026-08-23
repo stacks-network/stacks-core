@@ -285,6 +285,7 @@ jobs:
           artifact-name: bitcoin-nextest-archive
           test-list-artifact-name: bitcoin-nextest-test-list
           package: stacks-node
+          features: monitoring_prom,stacks-signer/monitoring_prom
 
   # P2P integrations only exercise the stackslib test binary. Release them
   # from the full workspace archive build as well.

@@ -25,6 +25,10 @@ inputs:
     description: "Space-separated workspace packages to exclude from the archive"
     required: false
     default: ""
+  features:
+    description: "Comma-separated Cargo features enabled while building the archive"
+    required: false
+    default: "monitoring_prom"
 runs:
   using: "composite"
   steps:
@@ -119,6 +123,7 @@ runs:
       shell: bash
       env:
         ARCHIVE_EXCLUDE_PACKAGES: ${{ inputs.exclude-packages }}
+        ARCHIVE_FEATURES: ${{ inputs.features }}
         ARCHIVE_PACKAGE: ${{ inputs.package }}
         RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         CARGO_INCREMENTAL: 0
@@ -146,7 +151,7 @@ runs:
           "${PACKAGE_ARGS[@]}" \
           --tests \
           --locked \
-          --features monitoring_prom \
+          --features "$ARCHIVE_FEATURES" \
           --archive-file "$ARCHIVE_FILE"
 
         cargo nextest list \
