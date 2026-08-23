@@ -31,7 +31,7 @@ test-threads = 1
 # This test starts 20 signer instances and can time out during registration
 # when another signer-heavy integration test runs beside it.
 [[profile.ci-sequential.overrides]]
-filter = 'test(=tests::signer::v0::block_validation_check_rejection_timeout_heuristic)'
+filter = 'test(=tests::signer::v0::block_validation_check_rejection_timeout_heuristic) | test(=tests::signer::v0::signers_do_not_commit_unless_threshold_precommitted)'
 threads-required = "num-test-threads"
 
 # This multinode rollover test has several independently-threaded miners and
