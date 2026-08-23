@@ -86,6 +86,17 @@ runs:
       run: |
         sudo ln -s ~/bitcoin/bin/bitcoind /bin/
 
+    # Avoid concurrent signer testcontainers clients racing to pull the same
+    # image on a fresh runner. Other batches retain lazy-pull behavior.
+    - name: Prepare Bitcoin Test Container
+      if: >-
+        env.BITCOIN_TESTCONTAINERS == '1' &&
+        contains(inputs.test-names, 'tests::signer::')
+      shell: bash
+      run: |
+        timeout --kill-after=30s 5m \
+          docker pull "bitcoin/bitcoin:${BITCOIN_IMAGE_TAG}"
+
     # Increase open file descriptors limit
     - name: Increase Open File Descriptors
       shell: bash
@@ -294,6 +305,7 @@ runs:
           -b ${{ inputs.debug-binary-path }} \
           -s . \
           -t lcov \
+          --llvm \
           --branch \
           --ignore-not-existing \
           --ignore "../*" \
