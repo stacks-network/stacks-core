@@ -6,7 +6,9 @@
 # historical JUnit timings.
 #
 # Optional env vars:
-#   BATCH_SIZE       - Number of tests grouped into a single runner batch (default: 50)
+#   BATCH_SIZE       - Maximum tests grouped into a single runner batch (default: 50)
+#   BITCOIN_BATCH_COUNT - Number of runner batches. Defaults to the minimum
+#                         required by BATCH_SIZE.
 #   NEXTEST_ARCHIVE  - Nextest archive to use (default: ./test_archive.tar.zst)
 #   NEXTEST_LIST_FILE - Pre-generated nextest JSON test manifest. When set,
 #                       the archive and cargo-nextest are not needed.
@@ -26,6 +28,9 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 ## --- Configuration ----------------------------------------------------------
 # Set batch size for test grouping. default is 50
 batch_size="${BATCH_SIZE:-50}"
+# Optional runner-count override. This permits runtime-balanced batches to
+# contain different test counts without weakening the per-runner safety cap.
+batch_count_override="${BITCOIN_BATCH_COUNT:-}"
 # Historical durations used by the longest-processing-time scheduler.
 timings_file="${TEST_TIMINGS_FILE:-.github/test-timings/bitcoin-integration.json}"
 # Set the nextest archive to use
@@ -64,6 +69,12 @@ done
 
 if ! [[ "${batch_size}" =~ ^[1-9][0-9]*$ ]]; then
     error "BATCH_SIZE must be a positive integer (found $(hl "${batch_size}"))"
+    exit 1
+fi
+
+if [[ -n "${batch_count_override}" ]] &&
+    ! [[ "${batch_count_override}" =~ ^[1-9][0-9]*$ ]]; then
+    error "BITCOIN_BATCH_COUNT must be a positive integer (found $(hl "${batch_count_override}"))"
     exit 1
 fi
 
@@ -196,7 +207,16 @@ total=$(wc -l < filtered.txt)
 info "Final test count: $(hl "${total}")"
 
 ## ── Runtime-balance tests into batches ─────────────────────────────────────
-batch_count=$(( (total + batch_size - 1) / batch_size ))
+minimum_batch_count=$(( (total + batch_size - 1) / batch_size ))
+batch_count="${batch_count_override:-$minimum_batch_count}"
+if (( batch_count < minimum_batch_count )); then
+    error "BITCOIN_BATCH_COUNT must be at least ${minimum_batch_count} for ${total} tests with BATCH_SIZE=${batch_size}"
+    exit 1
+fi
+if (( total > 0 && batch_count > total )); then
+    error "BITCOIN_BATCH_COUNT cannot exceed the test count (${total})"
+    exit 1
+fi
 info "Balancing $(hl "${total}") tests across $(hl "${batch_count}") batches of at most $(hl "${batch_size}") tests..."
 
 if (( total == 0 )); then

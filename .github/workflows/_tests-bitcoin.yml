@@ -40,9 +40,10 @@ env:
   TEST_TAG_CI_SKIP: ci_skip
   BITCOIN_TEST_THREADS: 2
   SIGNER_TEST_THREADS_REQUIRED: 1
-  # Configure batch size and archive file for bitcoin_tests.sh invocation
-  # Resource-weighted batches keep exclusive stress tests distributed while
-  # two execution slots avoid overloading four-vCPU runners.
+  # Forty batches leave heavyweight runners fewer companions while retaining
+  # 32 fewer jobs than the original 72-job matrix. Eight remains a safety cap,
+  # not a requirement that every batch contain the same number of tests.
+  BITCOIN_BATCH_COUNT: 40
   BATCH_SIZE: 8
 
 # Configure concurrency
