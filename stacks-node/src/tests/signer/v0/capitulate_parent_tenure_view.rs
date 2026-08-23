@@ -260,6 +260,9 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
     );
     std::thread::sleep(time_to_wait);
     wait_for(60, || {
+        // A status check drives one signer runloop pass. Without an event,
+        // this assertion can otherwise depend on the five-second idle poll.
+        signer_test.get_all_states();
         let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
         for (chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
@@ -538,6 +541,9 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     );
     std::thread::sleep(time_to_wait);
     wait_for(30, || {
+        // Drive the capitulation check explicitly instead of depending on an
+        // idle signer runloop poll reaching every signer before this timeout.
+        signer_test.get_all_states();
         let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
         for (chunk, message) in get_stackerdb_signer_messages() {
             let SignerMessage::StateMachineUpdate(update) = message else {
