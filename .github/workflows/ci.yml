@@ -34,6 +34,7 @@ concurrency:
 # Env vars
 env:
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
+  BITCOIN_TEST_ARCHIVE_FILE: "./bitcoin_test_archive.tar.zst"
   DEBUG_BINARY_PATH: "./target/debug/"
   # Whether or not to create the slow and failed tests summary
   CREATE_SLOW_FAILED_TESTS_SUMMARY: ${{ (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event_name != 'merge_group' }}
@@ -76,6 +77,7 @@ jobs:
     runs-on: &shared_config ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
+      bitcoin-test-archive-file: ${{ steps.set-env.outputs.bitcoin_test_archive_file }}
       debug-binary-path: ${{ steps.set-env.outputs.debug_binary_path }}
       create-slow-failed-tests-summary: ${{ steps.set-env.outputs.create_slow_failed_tests_summary }}
       create-code-coverage-report: ${{ steps.set-env.outputs.create_code_coverage_report }}
@@ -86,8 +88,11 @@ jobs:
           # Capture the archive file input, then expand the leading ~ to $HOME
           INPUT_FILE="${{ env.TEST_ARCHIVE_FILE }}"
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
+          BITCOIN_INPUT_FILE="${{ env.BITCOIN_TEST_ARCHIVE_FILE }}"
+          BITCOIN_ARCHIVE_FILE="${BITCOIN_INPUT_FILE/#\~/$HOME}"
 
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
+          echo "bitcoin_test_archive_file=$BITCOIN_ARCHIVE_FILE" >> $GITHUB_OUTPUT
           echo "debug_binary_path=${{ env.DEBUG_BINARY_PATH }}" >> $GITHUB_OUTPUT
           echo "create_slow_failed_tests_summary=$CREATE_SLOW_FAILED_TESTS_SUMMARY" >> $GITHUB_OUTPUT
           echo "create_code_coverage_report=$CREATE_CODE_COVERAGE_REPORT" >> $GITHUB_OUTPUT
@@ -250,6 +255,31 @@ jobs:
           action: create
           archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
 
+  # Bitcoin integrations only exercise the stacks-node test binary. Build its
+  # much smaller archive in parallel so those critical-path tests can start
+  # without waiting for every workspace test harness to link.
+  create-bitcoin-nextest-archive:
+    name: "Create: Bitcoin Nextest Archive Artifact"
+    runs-on: *shared_config
+    needs:
+      - setup-env
+    steps:
+      - name: Checkout the latest code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      - name: Create Bitcoin Nextest Archive Artifact
+        uses: ./.github/actions/artifacts/nextest-archive
+        with:
+          action: create
+          archive-file: ${{ needs.setup-env.outputs.bitcoin-test-archive-file }}
+          artifact-name: bitcoin-nextest-archive
+          test-list-artifact-name: bitcoin-nextest-test-list
+          package: stacks-node
+
   ############################################################################
   ### Run Stacks Core Tests
   ############################################################################
@@ -277,11 +307,13 @@ jobs:
       - check-changelog
       - check-rustfmt
       - check-test-caches
-      - create-nextest-archive
+      - create-bitcoin-nextest-archive
       - setup-env
     uses: ./.github/workflows/_tests-bitcoin.yml
     with:
-      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      archive-file: ${{ needs.setup-env.outputs.bitcoin-test-archive-file }}
+      archive-artifact-name: bitcoin-nextest-archive
+      test-list-artifact-name: bitcoin-nextest-test-list
       debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
       upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
       upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}

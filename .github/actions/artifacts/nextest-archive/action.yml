@@ -9,6 +9,18 @@ inputs:
   archive-file:
     description: "The nextest archive file"
     required: true
+  artifact-name:
+    description: "Artifact containing the nextest archive and bundled tools"
+    required: false
+    default: "nextest-archive"
+  test-list-artifact-name:
+    description: "Artifact containing the nextest test manifest"
+    required: false
+    default: "nextest-test-list"
+  package:
+    description: "Optional workspace package to archive instead of the full workspace"
+    required: false
+    default: ""
 runs:
   using: "composite"
   steps:
@@ -17,7 +29,7 @@ runs:
         inputs.action == 'restore'
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
       with:
-        name: "nextest-archive"
+        name: ${{ inputs.artifact-name }}
 
     # Install the tool binaries bundled in the artifact (see the staging step
     # in the create path below).
@@ -47,8 +59,8 @@ runs:
       with:
         components: llvm-tools-preview
 
-    # Cache workspace-crate compilations by content. The Cargo cache excludes
-    # them because restored target mtimes can otherwise mask source changes.
+    # Cache compiler outputs by content in addition to restoring Cargo's target
+    # tree; this still helps when changed sources invalidate a local crate.
     - name: Setup sccache
       if: |
         inputs.action == 'create'
@@ -102,6 +114,7 @@ runs:
         inputs.action == 'create'
       shell: bash
       env:
+        ARCHIVE_PACKAGE: ${{ inputs.package }}
         RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         CARGO_INCREMENTAL: 0
       # This command should be kept in sync with the same command in cache/cargo action
@@ -110,8 +123,13 @@ runs:
         INPUT_FILE="${{ inputs.archive-file }}"
         ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
 
+        PACKAGE_ARGS=(--workspace)
+        if [[ -n "$ARCHIVE_PACKAGE" ]]; then
+          PACKAGE_ARGS=(--package "$ARCHIVE_PACKAGE")
+        fi
+
         cargo nextest archive \
-          --workspace \
+          "${PACKAGE_ARGS[@]}" \
           --tests \
           --locked \
           --features monitoring_prom \
@@ -129,7 +147,7 @@ runs:
         inputs.action == 'create'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
-        name: "nextest-test-list"
+        name: ${{ inputs.test-list-artifact-name }}
         path: nextest-test-list.json
         if-no-files-found: error
         retention-days: 1
@@ -141,7 +159,7 @@ runs:
         inputs.action == 'create'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
-        name: "nextest-archive"
+        name: ${{ inputs.artifact-name }}
         path: |
           ${{ inputs.archive-file }}
           ci-tools.tar.zst

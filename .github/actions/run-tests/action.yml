@@ -35,6 +35,10 @@ inputs:
   archive-file:
     description: "Archive file to use for tests"
     required: true
+  archive-artifact-name:
+    description: "Artifact containing the archive file and bundled tools"
+    required: false
+    default: "nextest-archive"
   debug-binary-path:
     description: "Debug binary path"
     required: true
@@ -94,6 +98,7 @@ runs:
       with:
         action: restore
         archive-file: ${{ inputs.archive-file }}
+        artifact-name: ${{ inputs.archive-artifact-name }}
 
     ############################################################################
     ### Run the tests
