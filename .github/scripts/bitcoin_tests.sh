@@ -222,7 +222,6 @@ else
             ($timings.tests[$name] // $timings.default_seconds) as $seconds
             | (
                 if ($name == "tests::signer::v0::block_validation_check_rejection_timeout_heuristic"
-                    or $name == "tests::signer::v0::epoch_4_0_multi_miner_distribution::epoch_4_0_burn_distribution_chains_across_boundary::t::slow::bitcoind::t"
                     or $name == "tests::signer::v0::signer_multinode_rollover")
                     or ($name | test("^tests::(?:signer::v0::large_mempool|marf::.*::large_mempool)"))
                 then $test_threads

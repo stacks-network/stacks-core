@@ -34,12 +34,6 @@ test-threads = 1
 filter = 'test(=tests::signer::v0::block_validation_check_rejection_timeout_heuristic)'
 threads-required = "num-test-threads"
 
-# This epoch-boundary test becomes substantially slower when another node
-# integration shares its runner.
-[[profile.ci-sequential.overrides]]
-filter = 'test(=tests::signer::v0::epoch_4_0_multi_miner_distribution::epoch_4_0_burn_distribution_chains_across_boundary::t::slow::bitcoind::t)'
-threads-required = "num-test-threads"
-
 # This multinode rollover test has several independently-threaded miners and
 # signer sets; co-scheduling causes progress timeouts throughout the harness.
 [[profile.ci-sequential.overrides]]
