@@ -311,6 +311,54 @@ jobs:
           test-list-artifact-name: stackslib-nextest-test-list
           package: stackslib
 
+  # Prepare lcov while tests are running so package installation does not add
+  # a serial tail after the final coverage-producing test completes.
+  prepare-coverage-tools:
+    name: "Prepare: Coverage Tools"
+    needs:
+      - setup-env
+    if: needs.setup-env.outputs.create-code-coverage-report == 'true'
+    runs-on: *shared_config
+    steps:
+      - name: Install lcov
+        run: sudo apt-get install -y --no-install-recommends lcov
+
+      - name: Bundle lcov and its Perl runtime
+        run: |
+          {
+            dpkg-query -L lcov
+            find \
+              /usr/share/perl5 \
+              /usr/share/perl \
+              /usr/lib/*-linux-gnu/perl5 \
+              /usr/lib/*-linux-gnu/perl \
+              \( -type f -o -type l \)
+          } |
+            while IFS= read -r path; do
+              [[ "$path" == /* ]] || continue
+              if [[ -f "$path" || -L "$path" ]]; then
+                printf '%s\n' "${path#/}"
+              fi
+            done |
+            sort -u > "$RUNNER_TEMP/lcov-files"
+
+          tar \
+            --directory / \
+            --create \
+            --gzip \
+            --file lcov-tools.tar.gz \
+            --files-from "$RUNNER_TEMP/lcov-files"
+
+      - name: Upload coverage tools
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+        with:
+          name: lcov-tools
+          path: lcov-tools.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: true
+
   ############################################################################
   ### Run Stacks Core Tests
   ############################################################################
@@ -605,6 +653,7 @@ jobs:
       - check-rustfmt
       - check-release
       - check-test-caches
+      - prepare-coverage-tools
       - setup-env
       - tests-bitcoin
       - tests-epoch
@@ -650,11 +699,22 @@ jobs:
             exit 1
           fi
 
-      # Install lcov for merging the reports
-      - name: Install lcov
-        shell: bash
+      # lcov was packaged in parallel with the test jobs. Extracting the
+      # bundle is much faster than installing its Perl dependency tree here.
+      - name: Download coverage tools
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        with:
+          name: lcov-tools
+          path: ${{ runner.temp }}/lcov-tools
+
+      - name: Install coverage tools
         run: |
-          sudo apt-get install -y --no-install-recommends lcov
+          sudo tar \
+            --directory / \
+            --extract \
+            --gzip \
+            --file "${{ runner.temp }}/lcov-tools/lcov-tools.tar.gz"
+          lcov --version
 
       # Merge n coverage report files into 1 file using lcov
       - name: Merge code coverage files
