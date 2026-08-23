@@ -62,7 +62,7 @@ use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::types::MINING_COMMITMENT_WINDOW;
 
 use super::{epoch_4_0_waterfall, MultipleMinerTest};
-use crate::tests::nakamoto_integrations::wait_for;
+use crate::tests::nakamoto_integrations::{naka_neon_integration_conf, wait_for};
 use crate::tests::neon_integrations::test_observer;
 use crate::tests::to_addr;
 
@@ -79,22 +79,26 @@ const POST_WATERFALL_TENURES: u64 = MINING_COMMITMENT_WINDOW as u64;
 /// entire multi-minute test.
 const TENURE_SETTLE_TIMEOUT_SECS: u64 = 120;
 
-/// Configure a compact Epoch 3.x runway ending at the next PoX boundary.
+/// Configure a compact Epoch 3.x runway and ten-block PoX cycles.
 /// Epoch 3.0 still has time to publish the sBTC stubs before the prepare phase,
-/// while the test avoids mining twenty unrelated tenures before Epoch 4.0.
+/// while the shorter cycle reaches the first PoX-5 waterfall boundary without
+/// mining ten unrelated tenures.
 fn enable_compact_epoch_4_0(node_config: &mut Config) {
+    const EPOCH_30_START: u64 = 232;
     const EPOCH_31_START: u64 = 235;
     const EPOCH_32_START: u64 = 236;
     const EPOCH_33_START: u64 = 237;
     const EPOCH_34_START: u64 = 238;
     const EPOCH_40_START: u64 = 242;
 
-    node_config.burnchain.pox_reward_length = Some(20);
+    node_config.burnchain.pox_reward_length = Some(10);
     let epochs = node_config
         .burnchain
         .epochs
         .as_mut()
         .expect("test requires configured epochs");
+    epochs[StacksEpochId::Epoch25].end_height = EPOCH_30_START;
+    epochs[StacksEpochId::Epoch30].start_height = EPOCH_30_START;
     epochs[StacksEpochId::Epoch30].end_height = EPOCH_31_START;
     epochs[StacksEpochId::Epoch31].start_height = EPOCH_31_START;
     epochs[StacksEpochId::Epoch31].end_height = EPOCH_32_START;
@@ -105,6 +109,20 @@ fn enable_compact_epoch_4_0(node_config: &mut Config) {
     epochs[StacksEpochId::Epoch34].start_height = EPOCH_34_START;
     epochs[StacksEpochId::Epoch34].end_height = EPOCH_40_START;
     epochs[StacksEpochId::Epoch40].start_height = EPOCH_40_START;
+}
+
+#[test]
+fn compact_epoch_4_0_schedule_is_valid() {
+    let (mut config, _) = naka_neon_integration_conf(None);
+    enable_compact_epoch_4_0(&mut config);
+
+    let burnchain = config.get_burnchain();
+    assert_eq!(
+        burnchain
+            .pox_constants
+            .first_pox_waterfall_block(burnchain.first_block_height),
+        Some(250),
+    );
 }
 
 /// Filter burn-block events to those at or after the Epoch 4.0 start height.
