@@ -39,6 +39,10 @@ directories and repeat `--input-dir` for each one. The generator uses each
 test's 80th-percentile runtime across those runs; use `--test-percentile` to
 override it and set `--source-run` to the newest included run.
 
+Seed a new timing model after changing the archive, package, or feature
+topology. Older samples can reflect a different compilation or contention
+profile; accumulate multiple runs again once the new topology is established.
+
 For Bitcoin integrations, use the artifact pattern
 `nextest-batched-integration-tests-*`, omit `--minimum-seconds`, and output to
 `bitcoin-integration.json`. Use `--test-percentile 90` so a small sample uses
