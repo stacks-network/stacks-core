@@ -4526,7 +4526,7 @@ fn test_clarity2_inner_type_check_type_aborts_when_deadline_elapsed() {
     let mut db = marf.as_analysis_db();
     let mut cost_tracker = LimitedCostTracker::new_free();
     // A zero-duration deadline is already elapsed at the first check.
-    let resource_limiter = ResourceBudget::new()
+    let resource_limiter = ResourceBudget::unlimited()
         .with_max_duration(Some(Duration::ZERO))
         .start_tracking();
 

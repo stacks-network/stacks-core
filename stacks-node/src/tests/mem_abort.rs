@@ -62,8 +62,8 @@ fn run_with_memory_limits(
     analysis_mem_limit: Option<u64>,
     eval_mem_limit: Option<u64>,
 ) -> Result<Option<clarity::vm::Value>, ClarityError> {
-    let analysis_budget = ResourceBudget::new().with_max_memory_use(analysis_mem_limit);
-    let eval_budget = ResourceBudget::new().with_max_memory_use(eval_mem_limit);
+    let analysis_budget = ResourceBudget::unlimited().with_max_memory_use(analysis_mem_limit);
+    let eval_budget = ResourceBudget::unlimited().with_max_memory_use(eval_mem_limit);
 
     let contract_id = QualifiedContractIdentifier::transient();
     let mut marf = MemoryBackingStore::new();
