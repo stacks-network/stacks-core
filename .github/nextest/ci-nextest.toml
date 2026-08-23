@@ -40,6 +40,19 @@ threads-required = "num-test-threads"
 filter = 'test(=tests::signer::v0::signer_multinode_rollover)'
 threads-required = "num-test-threads"
 
+# This idle-timeout test assumes its setup finishes before the 30-second idle
+# window. A competing signer integration can consume that window before the
+# test deliberately starts the next tenure.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner)'
+threads-required = "num-test-threads"
+
+# These convergence-sensitive signer tests time out while sharing a two-core
+# runner, but complete reliably when their node and signer sets run alone.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::signers_wait_for_validation::signer_waits_for_validation_before_signing) | test(=tests::signer::v0::tx_replay::tx_replay_forking_test)'
+threads-required = "num-test-threads"
+
 # This boundary test runs two miners, two nodes, and a five-signer set. Keep
 # its commit-window convergence work off a competing integration test.
 [[profile.ci-sequential.overrides]]
