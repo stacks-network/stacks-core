@@ -1766,7 +1766,7 @@ impl MultipleMinerTest {
                 let remaining_secs = timeout_secs
                     .saturating_sub(started_at.elapsed().as_secs())
                     .max(1);
-                self.signer_test.wait_for_global_signer_state(
+                self.signer_test.wait_for_signer_burn_view(
                     remaining_secs,
                     &peer_info.pox_consensus,
                     target_burn_height,

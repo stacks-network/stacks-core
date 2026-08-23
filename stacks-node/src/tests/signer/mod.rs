@@ -1118,9 +1118,9 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         })
     }
 
-    /// Wait until every signer has a globally agreed state for the current
-    /// reward cycle and burn view.
-    pub fn wait_for_global_signer_state(
+    /// Wait until every signer has installed the current reward cycle's burn
+    /// view, without requiring its optional global-state snapshot to exist.
+    pub fn wait_for_signer_burn_view(
         &self,
         timeout: u64,
         burn_block: &ConsensusHash,
@@ -1130,20 +1130,34 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         wait_for(timeout, || {
             let states = self.get_all_states();
             Ok(states.iter().all(|state| {
-                state
+                let local_matches = state
+                    .signer_state_machines
+                    .iter()
+                    .find(|(reward_cycle, _)| current_reward_cycle % 2 == *reward_cycle)
+                    .is_some_and(|(_, local_state)| {
+                        matches!(
+                            local_state,
+                            Some(LocalStateMachine::Initialized(local_state))
+                                if local_state.burn_block == *burn_block
+                                    && local_state.burn_block_height >= burn_block_height
+                        )
+                    });
+
+                // A signer can legitimately have no global snapshot until it
+                // receives enough peers' updates. If one exists, however, do
+                // not release mining while it still describes an older view.
+                let global_matches = state
                     .signer_global_state_machines
                     .iter()
-                    .find_map(|(reward_cycle, global_state)| {
-                        if current_reward_cycle % 2 == *reward_cycle {
-                            global_state.as_ref()
-                        } else {
-                            None
-                        }
-                    })
-                    .is_some_and(|global_state| {
-                        global_state.burn_block == *burn_block
-                            && global_state.burn_block_height >= burn_block_height
-                    })
+                    .find(|(reward_cycle, _)| current_reward_cycle % 2 == *reward_cycle)
+                    .is_none_or(|(_, global_state)| {
+                        global_state.as_ref().is_none_or(|global_state| {
+                            global_state.burn_block == *burn_block
+                                && global_state.burn_block_height >= burn_block_height
+                        })
+                    });
+
+                local_matches && global_matches
             }))
         })
     }
