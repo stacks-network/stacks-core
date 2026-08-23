@@ -48,24 +48,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Runtime-balanced from run 32614339114. Two tests per runner avoid
-          # overcommitting the threaded peer simulations on four-vCPU runners.
+          # Runtime-balanced across runs 32614339114 and 32637811801. Two tests
+          # per runner avoid overcommitting the threaded peer simulations.
           - shard: 1
             test-names: >-
               net::tests::convergence::test_walk_inbound_line_15,
               net::tests::convergence::test_walk_ring_15_pingback,
               net::tests::convergence::test_walk_line_15_org_biased,
-              net::tests::convergence::test_walk_line_15_pingback,
+              net::tests::convergence::test_walk_star_allowed_15,
               net::tests::convergence::test_walk_ring_15_plain,
-              net::tests::convergence::test_walk_star_15_plain,
-              net::tests::convergence::test_walk_ring_15_org_biased
+              net::tests::convergence::test_walk_ring_15_org_biased,
+              net::tests::convergence::test_walk_line_allowed_15
           - shard: 2
             test-names: >-
-              net::tests::convergence::test_walk_star_allowed_15,
+              net::tests::convergence::test_walk_line_15_pingback,
               net::tests::convergence::test_walk_star_15_pingback,
+              net::tests::convergence::test_walk_star_15_plain,
               net::tests::convergence::test_walk_star_15_org_biased,
               net::tests::convergence::test_walk_ring_allow_15,
-              net::tests::convergence::test_walk_line_allowed_15,
               net::tests::convergence::test_walk_line_15_plain,
               net::server::test::test_http_10_threads_getinfo,
               net::server::test::test_http_10_threads_getblock,
