@@ -9556,6 +9556,26 @@ fn burn_block_payload_includes_pox_transactions() {
     assert_eq!(total_per_recipient, total_per_recipient_from_transactions);
 }
 
+/// Collapse unused intermediate Epoch 3.x ranges so vtxindex tests enter
+/// Epoch 3.4 as soon as Nakamoto activates.
+fn configure_direct_epoch_3_4_boot(node_config: &mut NeonConfig) {
+    let epochs = node_config
+        .burnchain
+        .epochs
+        .as_mut()
+        .expect("test requires configured epochs");
+    let epoch_30_height = epochs[StacksEpochId::Epoch30].start_height;
+
+    epochs[StacksEpochId::Epoch30].end_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch31].start_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch31].end_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch32].start_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch32].end_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch33].start_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch33].end_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch34].start_height = epoch_30_height;
+}
+
 #[test]
 fn test_vtxindex_zero_acceptance() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -9569,7 +9589,14 @@ fn test_vtxindex_zero_acceptance() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |_| {},
+        configure_direct_epoch_3_4_boot,
+        None,
+        None,
+    );
     let timeout = Duration::from_secs(200);
     signer_test.boot_to_epoch_3();
     let epoch_34_height = signer_test
@@ -9643,6 +9670,7 @@ fn test_vtxindex_zero_two_miners() {
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
             config.miner.block_commit_delay = Duration::from_secs(0);
+            configure_direct_epoch_3_4_boot(config);
         },
         |config| {
             config.miner.block_commit_delay = Duration::from_secs(0);
