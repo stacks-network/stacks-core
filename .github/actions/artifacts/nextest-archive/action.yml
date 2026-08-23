@@ -21,6 +21,10 @@ inputs:
     description: "Optional workspace package to archive instead of the full workspace"
     required: false
     default: ""
+  exclude-packages:
+    description: "Space-separated workspace packages to exclude from the archive"
+    required: false
+    default: ""
 runs:
   using: "composite"
   steps:
@@ -114,6 +118,7 @@ runs:
         inputs.action == 'create'
       shell: bash
       env:
+        ARCHIVE_EXCLUDE_PACKAGES: ${{ inputs.exclude-packages }}
         ARCHIVE_PACKAGE: ${{ inputs.package }}
         RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         CARGO_INCREMENTAL: 0
@@ -125,7 +130,16 @@ runs:
 
         PACKAGE_ARGS=(--workspace)
         if [[ -n "$ARCHIVE_PACKAGE" ]]; then
+          if [[ -n "$ARCHIVE_EXCLUDE_PACKAGES" ]]; then
+            echo "package and exclude-packages cannot be used together" >&2
+            exit 1
+          fi
           PACKAGE_ARGS=(--package "$ARCHIVE_PACKAGE")
+        elif [[ -n "$ARCHIVE_EXCLUDE_PACKAGES" ]]; then
+          read -r -a EXCLUDED_PACKAGES <<< "$ARCHIVE_EXCLUDE_PACKAGES"
+          for excluded_package in "${EXCLUDED_PACKAGES[@]}"; do
+            PACKAGE_ARGS+=(--exclude "$excluded_package")
+          done
         fi
 
         cargo nextest archive \

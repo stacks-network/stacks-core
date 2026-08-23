@@ -6,7 +6,27 @@ on:
   workflow_call:
     inputs:
       archive-file:
-        description: "The test archive file"
+        description: "Archive containing the remaining workspace test binaries"
+        required: true
+        type: string
+      archive-artifact-name:
+        description: "Artifact containing the remaining workspace archive"
+        required: true
+        type: string
+      stacks-node-archive-file:
+        description: "Archive containing the stacks-node test binary"
+        required: true
+        type: string
+      stacks-node-archive-artifact-name:
+        description: "Artifact containing the stacks-node archive"
+        required: true
+        type: string
+      stackslib-archive-file:
+        description: "Archive containing the stackslib test binary"
+        required: true
+        type: string
+      stackslib-archive-artifact-name:
+        description: "Artifact containing the stackslib archive"
         required: true
         type: string
       debug-binary-path:
@@ -29,9 +49,6 @@ permissions:
 # Set default env vars
 #   - transferred to composite action steps
 env:
-  # Smaller partitions contain the impact of occasional slow hosted runners;
-  # dedicated stress-test jobs still avoid co-scheduling the memory hogs.
-  NUM_UNIT_TEST_PARTITIONS: 10
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
@@ -42,24 +59,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Set up the unit test matrix
-  setup-unit-test-matrix:
-    name: Setup Unit Test Matrix
-    runs-on: ubuntu-latest
-    outputs:
-      matrix-array: ${{ steps.setup-matrix.outputs.result }}
-    steps:
-      - id: setup-matrix
-        run: |
-          # Generate a JSON array from 1 through NUM_UNIT_TEST_PARTITIONS.
-          ARRAY=$(seq 1 ${{ env.NUM_UNIT_TEST_PARTITIONS }} | jq -s -c .)
-          echo "result=$ARRAY" >> "$GITHUB_OUTPUT"
-
   # Unit tests with code coverage
   unit-tests:
-    name: Unit Tests
-    needs:
-      - setup-unit-test-matrix
+    name: Unit Tests (${{ matrix.suite }} ${{ matrix.partition }}/${{ matrix.total-partitions }})
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     # Continue the workflow in case a step fails (ex a single test fails)
@@ -68,8 +70,19 @@ jobs:
       # Continue the workflow in case a step fails (ex a single test fails)
       fail-fast: false
       matrix:
-        # Partition unit tests into env.NUM_UNIT_TEST_PARTITIONS concurrent jobs
-        partition: ${{ fromJSON(needs.setup-unit-test-matrix.outputs.matrix-array) }}
+        include:
+          # Stackslib contains nearly all historically slow general-unit work.
+          - { suite: stackslib, partition: 1, total-partitions: 8 }
+          - { suite: stackslib, partition: 2, total-partitions: 8 }
+          - { suite: stackslib, partition: 3, total-partitions: 8 }
+          - { suite: stackslib, partition: 4, total-partitions: 8 }
+          - { suite: stackslib, partition: 5, total-partitions: 8 }
+          - { suite: stackslib, partition: 6, total-partitions: 8 }
+          - { suite: stackslib, partition: 7, total-partitions: 8 }
+          - { suite: stackslib, partition: 8, total-partitions: 8 }
+          - { suite: remaining, partition: 1, total-partitions: 2 }
+          - { suite: remaining, partition: 2, total-partitions: 2 }
+          - { suite: stacks-node, partition: 1, total-partitions: 1 }
     steps:
     # Checkout the code
     #   - only .github is required for this job
@@ -86,15 +99,13 @@ jobs:
         uses: ./.github/actions/run-tests
         with:
           partition: ${{ matrix.partition }}
-          total-partitions: ${{ strategy.job-total }}
+          total-partitions: ${{ matrix.total-partitions }}
           test-timings-file: .github/test-timings/unit.json
-          excluded-test-names: >-
-            chainstate::tests::parse_tests::test_cost_balance_exceeded,
-            chainstate::tests::runtime_analysis_tests::runtime_check_error_cost_balance_exceeded_ccall,
-            tests::signer::v0::test_vtxindex_zero_two_miners
-          archive-file: ${{ inputs.archive-file }}
+          excluded-test-names: ${{ matrix.suite == 'stackslib' && 'chainstate::tests::parse_tests::test_cost_balance_exceeded,chainstate::tests::runtime_analysis_tests::runtime_check_error_cost_balance_exceeded_ccall' || matrix.suite == 'stacks-node' && 'tests::signer::v0::test_vtxindex_zero_two_miners' || '' }}
+          archive-file: ${{ matrix.suite == 'stackslib' && inputs.stackslib-archive-file || matrix.suite == 'stacks-node' && inputs.stacks-node-archive-file || inputs.archive-file }}
+          archive-artifact-name: ${{ matrix.suite == 'stackslib' && inputs.stackslib-archive-artifact-name || matrix.suite == 'stacks-node' && inputs.stacks-node-archive-artifact-name || inputs.archive-artifact-name }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
-          codecov-test-name: ${{ github.job }}-${{ matrix.partition }}
+          codecov-test-name: unit-tests-${{ matrix.suite }}-${{ matrix.partition }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
@@ -110,12 +121,15 @@ jobs:
       matrix:
         include:
           - label: Parse Cost Balance
+            suite: stackslib
             artifact-name: parse-cost-balance
             test-name: chainstate::tests::parse_tests::test_cost_balance_exceeded
           - label: Runtime Cost Balance
+            suite: stackslib
             artifact-name: runtime-cost-balance
             test-name: chainstate::tests::runtime_analysis_tests::runtime_check_error_cost_balance_exceeded_ccall
           - label: Two Miners
+            suite: stacks-node
             artifact-name: two-miners
             test-name: tests::signer::v0::test_vtxindex_zero_two_miners
     steps:
@@ -132,7 +146,8 @@ jobs:
         with:
           test-names: ${{ matrix.test-name }}
           test-threads: "1"
-          archive-file: ${{ inputs.archive-file }}
+          archive-file: ${{ matrix.suite == 'stackslib' && inputs.stackslib-archive-file || inputs.stacks-node-archive-file }}
+          archive-artifact-name: ${{ matrix.suite == 'stackslib' && inputs.stackslib-archive-artifact-name || inputs.stacks-node-archive-artifact-name }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: unit-parser-stress-${{ matrix.artifact-name }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
