@@ -55,13 +55,14 @@ use stacks::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::chainstate::stacks::events::BurnBlockEvent;
+use stacks::config::Config;
 use stacks::core::{StacksEpochId, STACKS_EPOCH_MAX};
 use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::types::MINING_COMMITMENT_WINDOW;
 
 use super::{epoch_4_0_waterfall, MultipleMinerTest};
-use crate::tests::nakamoto_integrations::{enable_epoch_4_0, wait_for};
+use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::test_observer;
 use crate::tests::to_addr;
 
@@ -77,6 +78,34 @@ const POST_WATERFALL_TENURES: u64 = MINING_COMMITMENT_WINDOW as u64;
 /// Allow a temporarily split signer view to converge without restarting the
 /// entire multi-minute test.
 const TENURE_SETTLE_TIMEOUT_SECS: u64 = 120;
+
+/// Configure a compact Epoch 3.x runway ending at the next PoX boundary.
+/// Epoch 3.0 still has time to publish the sBTC stubs before the prepare phase,
+/// while the test avoids mining twenty unrelated tenures before Epoch 4.0.
+fn enable_compact_epoch_4_0(node_config: &mut Config) {
+    const EPOCH_31_START: u64 = 235;
+    const EPOCH_32_START: u64 = 236;
+    const EPOCH_33_START: u64 = 237;
+    const EPOCH_34_START: u64 = 238;
+    const EPOCH_40_START: u64 = 242;
+
+    node_config.burnchain.pox_reward_length = Some(20);
+    let epochs = node_config
+        .burnchain
+        .epochs
+        .as_mut()
+        .expect("test requires configured epochs");
+    epochs[StacksEpochId::Epoch30].end_height = EPOCH_31_START;
+    epochs[StacksEpochId::Epoch31].start_height = EPOCH_31_START;
+    epochs[StacksEpochId::Epoch31].end_height = EPOCH_32_START;
+    epochs[StacksEpochId::Epoch32].start_height = EPOCH_32_START;
+    epochs[StacksEpochId::Epoch32].end_height = EPOCH_33_START;
+    epochs[StacksEpochId::Epoch33].start_height = EPOCH_33_START;
+    epochs[StacksEpochId::Epoch33].end_height = EPOCH_34_START;
+    epochs[StacksEpochId::Epoch34].start_height = EPOCH_34_START;
+    epochs[StacksEpochId::Epoch34].end_height = EPOCH_40_START;
+    epochs[StacksEpochId::Epoch40].start_height = EPOCH_40_START;
+}
 
 /// Filter burn-block events to those at or after the Epoch 4.0 start height.
 fn post_boundary_burn_blocks(epoch_40_start: u64) -> Vec<BurnBlockEvent> {
@@ -216,12 +245,12 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
             node_config.node.pox_5_sbtc_registry_contract =
                 Some(registry_contract_id_modifier.clone());
             node_config.add_initial_balance(publisher_addr_str.clone(), 1_000_000);
-            enable_epoch_4_0(node_config);
+            enable_compact_epoch_4_0(node_config);
         },
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.burnchain.burn_fee_cap = MINER_2_FEE;
-            enable_epoch_4_0(node_config);
+            enable_compact_epoch_4_0(node_config);
         },
     );
 
