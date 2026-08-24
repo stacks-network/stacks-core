@@ -54,16 +54,16 @@ use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
 
 /// Configure a compact Epoch 3.x runway and ten-block PoX cycles.
-/// Epoch 3.0 still has time to publish the sBTC stubs before the prepare phase,
-/// while the shorter cycle reaches the first PoX-5 waterfall boundary without
-/// mining ten unrelated tenures.
+/// The Epoch 3.0 reward-set calculation still has four burn blocks after the
+/// initial stacking transactions, while Epoch 4.0 leaves a full cycle for the
+/// sBTC stubs and PoX-5 registrations before the waterfall boundary.
 pub(super) fn enable_compact_epoch_4_0(node_config: &mut Config) {
-    const EPOCH_30_START: u64 = 232;
-    const EPOCH_31_START: u64 = 235;
-    const EPOCH_32_START: u64 = 236;
-    const EPOCH_33_START: u64 = 237;
-    const EPOCH_34_START: u64 = 238;
-    const EPOCH_40_START: u64 = 242;
+    const EPOCH_30_START: u64 = 212;
+    const EPOCH_31_START: u64 = 215;
+    const EPOCH_32_START: u64 = 216;
+    const EPOCH_33_START: u64 = 217;
+    const EPOCH_34_START: u64 = 218;
+    const EPOCH_40_START: u64 = 222;
 
     node_config.burnchain.pox_reward_length = Some(10);
     let epochs = node_config
@@ -95,7 +95,7 @@ fn compact_epoch_4_0_schedule_is_valid() {
         burnchain
             .pox_constants
             .first_pox_waterfall_block(burnchain.first_block_height),
-        Some(250),
+        Some(230),
     );
 }
 
