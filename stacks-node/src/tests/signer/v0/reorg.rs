@@ -3551,13 +3551,18 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
         .expect("Failed to get sortition tip");
 
-    let tenure_b_block = chainstate
-        .nakamoto_blocks_db()
-        .get_nakamoto_tenure_start_blocks(&tip_sn.consensus_hash)
-        .unwrap()
-        .first()
-        .cloned()
-        .unwrap();
+    let mut tenure_b_block = None;
+    wait_for(30, || {
+        tenure_b_block = chainstate
+            .nakamoto_blocks_db()
+            .get_nakamoto_tenure_start_blocks(&tip_sn.consensus_hash)
+            .map_err(|error| format!("Failed to load Tenure B from staging: {error}"))?
+            .first()
+            .cloned();
+        Ok(tenure_b_block.is_some())
+    })
+    .expect("Timed out waiting for Tenure B to enter staging");
+    let tenure_b_block = tenure_b_block.expect("Tenure B disappeared after it entered staging");
 
     // synthesize a StacksHeaderInfo from this unprocessed block
     let tip_b = StacksHeaderInfo {
