@@ -124,7 +124,10 @@ pub fn get_unconfirmed_waterfall_commit_for_burn_parent(
         .filter(|utxo| utxo.confirmations == 0)
         .find_map(|utxo| {
             let txid = Txid::from_bitcoin_tx_hash(&utxo.txid);
-            let tx = btc_controller.get_raw_transaction(&txid);
+            // A listed mempool UTXO can disappear before getrawtransaction if
+            // the miner RBF-replaces its commit. Continue polling the current
+            // mempool rather than turning that expected race into a retry.
+            let tx = btc_controller.try_get_raw_transaction(&txid).ok()?;
             let op_return = tx.output.first()?.script_pubkey.as_bytes();
             let payload_start = op_return.len().checked_sub(77)?;
             let payload = LeaderBlockCommitOp::parse_data(op_return.get(payload_start..)?)?;

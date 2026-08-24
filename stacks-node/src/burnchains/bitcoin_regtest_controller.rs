@@ -2157,9 +2157,14 @@ impl BitcoinRegtestController {
     /// Retrieves a raw [`Transaction`] by its [`Txid`]
     #[cfg(test)]
     pub fn get_raw_transaction(&self, txid: &Txid) -> Transaction {
-        self.get_rpc_client()
-            .get_raw_transaction(txid)
+        self.try_get_raw_transaction(txid)
             .unwrap_or_log_panic("retrieve raw tx")
+    }
+
+    /// Attempts to retrieve a raw [`Transaction`] by its [`Txid`].
+    #[cfg(test)]
+    pub fn try_get_raw_transaction(&self, txid: &Txid) -> BitcoinRpcClientResult<Transaction> {
+        self.get_rpc_client().get_raw_transaction(txid)
     }
 
     /// Build, sign, and broadcast a regular Bitcoin payment from the
