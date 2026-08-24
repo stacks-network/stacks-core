@@ -298,6 +298,9 @@ runs:
     # Store JUnit file in GitHub CI artifacts (with SHA and "nextest" prefix)
     - name: Store JUnit Report as Artifact
       if: always() && inputs.upload-junit-xml == 'true'
+      # JUnit is diagnostic data. A transient artifact-service outage must not
+      # suppress coverage or turn passing tests into a failed required check.
+      continue-on-error: true
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
         name: nextest-${{ steps.generate-sanitized-file-name.outputs.file-name }}
