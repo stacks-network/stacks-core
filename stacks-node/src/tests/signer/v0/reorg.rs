@@ -219,6 +219,18 @@ fn reorg_attempts_count_towards_miner_validity() {
     )
     .expect("Failed to see majority rejections of block N'");
 
+    // No signer should have put a signature over block N': it is a sibling of
+    // the already-signed block N, so accepting it would be a double-sign.
+    for (_chunk, message) in get_stackerdb_signer_messages() {
+        if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
+            assert_ne!(
+                accepted.signer_signature_hash,
+                block_proposal_n_prime.header.signer_signature_hash(),
+                "A signer accepted block N', which conflicts with the already-signed block N"
+            );
+        }
+    }
+
     let wait_for = block_proposal_timeout
         .saturating_sub(start.elapsed())
         .add(Duration::from_secs(1));

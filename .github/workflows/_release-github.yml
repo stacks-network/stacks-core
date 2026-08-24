@@ -194,9 +194,8 @@ jobs:
       - build-binaries
       - docker-images
       - consolidate-digests
-    if: >-
-      github.event.repository.visibility == 'public' &&
-      inputs.tag != ''
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository AND tag is not empty
+    if: (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && inputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
