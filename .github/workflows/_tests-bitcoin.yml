@@ -53,14 +53,14 @@ jobs:
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     outputs:
-      batches_1: ${{ steps.set-matrix.outputs.batches_1 }}
-      batches_2: ${{ steps.set-matrix.outputs.batches_2 }}
-      batches_3: ${{ steps.set-matrix.outputs.batches_3 }}
-      batches_4: ${{ steps.set-matrix.outputs.batches_4 }}
+      batch-1: ${{ steps.set-matrix.outputs.batches_1 }}
+      batch-2: ${{ steps.set-matrix.outputs.batches_2 }}
+      batch-3: ${{ steps.set-matrix.outputs.batches_3 }}
+      batch-4: ${{ steps.set-matrix.outputs.batches_4 }}
     steps:
       # Checkout the code
       - name: Checkout the latest code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -82,11 +82,11 @@ jobs:
     name: Integration Tests (Partition 1)
     needs: generate-tests
     runs-on: ubuntu-latest
-    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batches_1 != '[]'
+    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batch-1 != '[]'
     strategy:
       fail-fast: false
       matrix:
-        batch: ${{ fromJSON(needs.generate-tests.outputs.batches_1) }}
+        batch: ${{ fromJSON(needs.generate-tests.outputs.batch-1) }}
     steps:
       - name: Checkout the latest code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -110,11 +110,11 @@ jobs:
     name: Integration Tests (Partition 2)
     needs: generate-tests
     runs-on: ubuntu-latest
-    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batches_2 != '[]'
+    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batch-2 != '[]'
     strategy:
       fail-fast: false
       matrix:
-        batch: ${{ fromJSON(needs.generate-tests.outputs.batches_2) }}
+        batch: ${{ fromJSON(needs.generate-tests.outputs.batch-2) }}
     steps:
       - name: Checkout the latest code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -138,11 +138,11 @@ jobs:
     name: Integration Tests (Partition 3)
     needs: generate-tests
     runs-on: ubuntu-latest
-    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batches_3 != '[]'
+    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batch-3 != '[]'
     strategy:
       fail-fast: false
       matrix:
-        batch: ${{ fromJSON(needs.generate-tests.outputs.batches_3) }}
+        batch: ${{ fromJSON(needs.generate-tests.outputs.batch-3) }}
     steps:
       - name: Checkout the latest code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -166,11 +166,11 @@ jobs:
     name: Integration Tests (Partition 4)
     needs: generate-tests
     runs-on: ubuntu-latest
-    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batches_4 != '[]'
+    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batch-4 != '[]'
     strategy:
       fail-fast: false
       matrix:
-        batch: ${{ fromJSON(needs.generate-tests.outputs.batches_4) }}
+        batch: ${{ fromJSON(needs.generate-tests.outputs.batch-4) }}
     steps:
       - name: Checkout the latest code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
