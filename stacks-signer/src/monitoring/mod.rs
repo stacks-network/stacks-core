@@ -116,9 +116,9 @@ pub mod actions {
         SIGNER_GLOBAL_STATE_CANONICAL_THRESHOLD_WEIGHT.set(0);
     }
 
-    /// Record a canonical burn height learned successfully from the companion.
-    pub fn update_companion_burn_block_height(burn_block_height: u64) {
-        SIGNER_COMPANION_BURN_BLOCK_HEIGHT
+    /// Record a canonical burn height learned successfully from the configured node.
+    pub fn update_node_burn_block_height(burn_block_height: u64) {
+        SIGNER_NODE_BURN_BLOCK_HEIGHT
             .set(i64::try_from(burn_block_height).unwrap_or(i64::MAX));
     }
 
@@ -283,8 +283,8 @@ pub mod actions {
     /// No-op current-cycle metric reset when Prometheus is disabled.
     pub fn clear_current_signer_metrics() {}
 
-    /// No-op companion burn height metric when Prometheus is disabled.
-    pub fn update_companion_burn_block_height(_burn_block_height: u64) {}
+    /// No-op configured-node burn height metric when Prometheus is disabled.
+    pub fn update_node_burn_block_height(_burn_block_height: u64) {}
 
     /// Increment the block validation responses counter
     pub fn increment_block_validation_responses(_accepted: bool) {}
@@ -383,7 +383,7 @@ fn lifecycle_metrics_export_bounded_gauges() {
     actions::update_runloop_ready(true);
     actions::update_reward_cycle_registration(true, false);
     actions::update_signer_state(Some(123), Some(456), 7);
-    actions::update_companion_burn_block_height(125);
+    actions::update_node_burn_block_height(125);
     actions::update_global_state_agreement(
         libsigner::v0::signer_state::GlobalStateAgreementSnapshot {
             total_weight: 20,
@@ -404,7 +404,7 @@ fn lifecycle_metrics_export_bounded_gauges() {
         456
     );
     assert_eq!(prometheus::SIGNER_PENDING_BLOCK_VALIDATIONS.get(), 7);
-    assert_eq!(prometheus::SIGNER_COMPANION_BURN_BLOCK_HEIGHT.get(), 125);
+    assert_eq!(prometheus::SIGNER_NODE_BURN_BLOCK_HEIGHT.get(), 125);
     assert_eq!(prometheus::SIGNER_GLOBAL_STATE_AVAILABLE.get(), 1);
     assert_eq!(prometheus::SIGNER_GLOBAL_STATE_TOTAL_WEIGHT.get(), 20);
     assert_eq!(prometheus::SIGNER_GLOBAL_STATE_KNOWN_WEIGHT.get(), 18);
@@ -448,7 +448,7 @@ fn lifecycle_metrics_export_bounded_gauges() {
         "stacks_signer_registered_for_next_reward_cycle",
         "stacks_signer_state_burn_block_height",
         "stacks_signer_state_last_changed_timestamp_seconds",
-        "stacks_signer_companion_burn_block_height",
+        "stacks_signer_node_burn_block_height",
         "stacks_signer_pending_block_validations",
     ] {
         assert!(exposition.contains(metric), "missing metric {metric}");

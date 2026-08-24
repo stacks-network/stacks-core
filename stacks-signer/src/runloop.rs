@@ -381,7 +381,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         } else {
             self.state = State::RegisteredSigners;
         }
-        crate::monitoring::actions::update_companion_burn_block_height(
+        crate::monitoring::actions::update_node_burn_block_height(
             self.current_reward_cycle_info
                 .as_ref()
                 .expect("reward-cycle info was just initialized")
@@ -392,10 +392,9 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     }
 
     fn refresh_runloop(&mut self, ev_burn_block_height: u64) -> Result<(), ClientError> {
-        let companion_burn_block_height = self.stacks_client.get_peer_info()?.burn_block_height;
-        crate::monitoring::actions::update_companion_burn_block_height(companion_burn_block_height);
-        let current_burn_block_height =
-            std::cmp::max(companion_burn_block_height, ev_burn_block_height);
+        let node_burn_block_height = self.stacks_client.get_peer_info()?.burn_block_height;
+        crate::monitoring::actions::update_node_burn_block_height(node_burn_block_height);
+        let current_burn_block_height = std::cmp::max(node_burn_block_height, ev_burn_block_height);
         let reward_cycle_info = self
             .current_reward_cycle_info
             .as_mut()

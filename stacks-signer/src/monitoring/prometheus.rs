@@ -77,9 +77,9 @@ lazy_static! {
         "stacks_signer_state_last_changed_timestamp_seconds",
         "Process wall-clock timestamp at which the current signer's local agreement state was initialized or last changed"
     )).unwrap();
-    pub static ref SIGNER_COMPANION_BURN_BLOCK_HEIGHT: IntGauge = register_int_gauge!(opts!(
-        "stacks_signer_companion_burn_block_height",
-        "Latest canonical burn block height learned successfully from the signer's companion node"
+    pub static ref SIGNER_NODE_BURN_BLOCK_HEIGHT: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_node_burn_block_height",
+        "Latest canonical burn block height learned successfully from the signer's configured node"
     )).unwrap();
     pub static ref SIGNER_PENDING_BLOCK_VALIDATIONS: IntGauge = register_int_gauge!(opts!(
         "stacks_signer_pending_block_validations",

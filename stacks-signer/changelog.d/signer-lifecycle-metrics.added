@@ -1,1 +1,1 @@
-Added signer lifecycle, reward-cycle registration, state freshness, pending-validation backlog, companion burn-height, and global-state support metrics.
+Added signer lifecycle, reward-cycle registration, state freshness, pending-validation backlog, node burn-height, and global-state support metrics.
