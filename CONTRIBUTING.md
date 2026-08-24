@@ -27,6 +27,17 @@ This project and everyone participating in it is governed by this [Code of Condu
 
 See the branching document in [branching.md](./docs/branching.md).
 
+### Enabling CI on Forks
+
+The CI will always run on `stacks-network/stacks-core` with other forks and cloned repos able to opt-in.
+
+To **enable** CI workflows within your fork or cloned repository, add a GitHub Actions Variable:
+
+- Name: `ENABLE_CI_WORKFLOWS`
+- Value: `true`
+
+This will enable CI functionality within your repo or fork.
+
 ### Merging PRs from Forks
 
 PRs from forks or opened by contributors without commit access require
@@ -127,7 +138,7 @@ Reviewers should aim to **perform a review in one sitting** whenever possible. T
 Code reviews should be timely. Reviewers should start no more than
 **2 business days** after reviewers are assigned. This applies to each
 reviewer: i.e., we expect all reviewers to respond within two days.
-The `develop` and `next` branches in particular often change quickly,
+The `main` branch in particular often changes quickly,
 so letting a PR languish only creates more merge work for the
 submitter. If a review cannot be started within this timeframe, then
 the reviewers should **tell the submitter when they can begin**. This
@@ -348,9 +359,9 @@ For an example, see [PR #3075](https://github.com/stacks-network/stacks-core/pul
 
 A **consensus-critical change** is a change that affects how the Stacks blockchain processes blocks, microblocks, or transactions, such that a node with the patch _could_ produce a different state root hash than a node without the patch. If this is even _possible_, then the PR is automatically treated as a consensus-critical change and must ship as part of a hard fork. It must also be described in a SIP.
 
-- **All changes to consensus-critical code must be opened against `next`**. It is _never acceptable_ to open them against `develop` or `master`.
-
 - **All consensus-critical changes must be gated on the Stacks epoch**. They may only take effect once the system enters a specific epoch (and this must be documented).
+
+- **Consensus-critical changes are opened against `main`**, like any other change. The epoch gate, not a separate long-lived branch, is what keeps them inert until activation.
 
 A non-exhaustive list of examples of consensus-critical changes include:
 

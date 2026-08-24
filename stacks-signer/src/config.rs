@@ -417,7 +417,9 @@ struct RawConfigFile {
     ///   - Increase if signer and miner clocks are poorly synchronized.
     pub tenure_idle_timeout_buffer_secs: Option<u64>,
     /// The maximum age of a block proposal that will be processed by the signer.
-    /// Proposals older than this are ignored.
+    /// Proposals older than this are rejected (without validation) with a
+    /// `ProposalTooOld` response, unless the signer has already decided on the
+    /// block, in which case it resends its prior decision.
     /// ---
     /// @default: `600`
     /// @units: seconds

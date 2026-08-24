@@ -1133,7 +1133,7 @@ fn check_miner_inactivity_timeout() {
     // This local state machine should not change as an uninitialized local state cannot be modified
     let mut local_state_machine = LocalStateMachine::Uninitialized;
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(local_state_machine, LocalStateMachine::Uninitialized);
 
@@ -1147,7 +1147,7 @@ fn check_miner_inactivity_timeout() {
     };
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -1164,7 +1164,7 @@ fn check_miner_inactivity_timeout() {
         update: update.clone(),
     };
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -1178,7 +1178,7 @@ fn check_miner_inactivity_timeout() {
     signer_state.current_miner = active_miner;
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -1235,7 +1235,7 @@ fn check_miner_inactivity_timeout() {
     } = MockServerClient::new();
     let h = std::thread::spawn(move || {
         local_state_machine
-            .check_miner_inactivity(&signer_db, &client, &proposal_config, &eval)
+            .check_miner_inactivity(&mut signer_db, &client, &proposal_config, &eval)
             .unwrap();
         // The new miner will have the reassigned miner
         signer_state.current_miner = reassigned_miner;

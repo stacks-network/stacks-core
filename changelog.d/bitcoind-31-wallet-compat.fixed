@@ -1,2 +1,0 @@
-Miner configurations must now set `burnchain.wallet_name` to an existing wallet (ASCII letters, digits and `. _ - /`), regardless of the Bitcoin Core version; this also fixes compatibility with Bitcoin Core >= 31, which removed unnamed wallets.
-Loading is session-only: set `wallet=<name>` in `bitcoin.conf` to reload it after a bitcoind restart. After `migratewallet`, point `wallet_name` at the wallet holding the miner's addresses.

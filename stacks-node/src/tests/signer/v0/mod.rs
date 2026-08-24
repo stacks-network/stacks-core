@@ -126,6 +126,7 @@ pub mod failed_txs;
 pub mod late_block_proposal;
 pub mod missing_burn_block_proposal;
 pub mod problematic_txs;
+pub mod proposal_replication_void;
 pub mod reorg;
 pub mod signers_consider_consensus_blocks;
 pub mod signers_consider_late_proposals;
@@ -2529,6 +2530,7 @@ pub fn wait_for_block_rejections_from_signers(
     })?;
     Ok(result)
 }
+
 /// Waits for at least 70% of the provided signers to send an update for a block with the specificed burn block height and parent tenure stacks block height and message version
 pub fn wait_for_state_machine_update(
     timeout_secs: u64,
@@ -5977,8 +5979,10 @@ fn block_validation_pending_table() {
 
 #[test]
 #[ignore]
-/// Test the block_proposal_max_age_secs signer configuration option. It should reject blocks that are
-/// invalid but within the max age window, otherwise it should simply drop the block without further processing.
+/// Test the block_proposal_max_age_secs signer configuration option. Blocks that are
+/// invalid but within the max age window are rejected after validation; blocks past the
+/// max age window are rejected immediately (without validation) with ProposalTooOld so
+/// the miner learns to re-mine instead of re-sending the same stale block forever.
 ///
 /// Test Setup:
 /// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
@@ -5988,11 +5992,12 @@ fn block_validation_pending_table() {
 /// An invalid block proposal with a recent timestamp is forcibly written to the miner's slot to simulate the miner proposing a block.
 /// The signers process the invalid block and broadcast a block response rejection to the respective .signers-XXX-YYY contract.
 /// A second block proposal with an outdated timestamp is then submitted to the miner's slot to simulate the miner proposing a very old block.
-/// The test confirms no further block rejection response is submitted to the .signers-XXX-YYY contract.
+/// The test confirms the stale proposal is also rejected (with ProposalTooOld), and never accepted.
 ///
 /// Test Assertion:
 /// - Each signer successfully rejects the recent invalid block proposal.
-/// - No signer submits a block proposal response for the outdated block proposal.
+/// - Each signer rejects the outdated block proposal with the ProposalTooOld reason.
+/// - No signer accepts either block.
 /// - The stacks tip does not advance
 fn block_proposal_max_age_rejections() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -6045,15 +6050,24 @@ fn block_proposal_max_age_rejections() {
     signer_test.propose_block(block, short_timeout);
 
     info!("------------------------- Test Block Proposal Rejected -------------------------");
-    // Verify the signers rejected only the SECOND block proposal. The first was not even processed.
+    // Verify the signers reject both proposals: the first (stale) with reason
+    // `ProposalTooOld` and without validation, the second after validation.
     wait_for(120, || {
         let mut status_map = HashMap::new();
         for (_chunk, message) in get_stackerdb_signer_messages() {
             match message {
                 SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                     signer_signature_hash,
+                    response_data,
                     ..
                 })) => {
+                    if signer_signature_hash == block_signer_signature_hash_1 {
+                        assert_eq!(
+                            response_data.reject_reason,
+                            RejectReason::ProposalTooOld,
+                            "Stale proposal must be rejected as ProposalTooOld"
+                        );
+                    }
                     let entry = status_map.entry(signer_signature_hash).or_insert((0, 0));
                     entry.0 += 1;
                 }
@@ -6071,7 +6085,10 @@ fn block_proposal_max_age_rejections() {
             .get(&block_signer_signature_hash_1)
             .cloned()
             .unwrap_or((0, 0));
-        assert_eq!(block_1_status, (0, 0));
+        assert_eq!(
+            block_1_status.1, 0,
+            "Block 1 (stale) must never be accepted"
+        );
 
         let block_2_status = status_map
             .get(&block_signer_signature_hash_2)
@@ -6082,7 +6099,7 @@ fn block_proposal_max_age_rejections() {
         info!("Block 2 status";
             "accepted" => %block_2_status.1, "rejected" => %block_2_status.0
         );
-        Ok(block_2_status.0 > num_signers * 7 / 10)
+        Ok(block_2_status.0 > num_signers * 7 / 10 && block_1_status.0 > num_signers * 7 / 10)
     })
     .expect("Timed out waiting for block rejections");
 

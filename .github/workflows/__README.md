@@ -1,3 +1,16 @@
+## Enabling CI
+
+The CI will always run on `stacks-network/stacks-core` with other forks and cloned repos able to opt-in.
+
+To **enable** CI workflows within your fork or cloned repository, add a GitHub Actions Variable:
+
+- Name: `ENABLE_CI_WORKFLOWS`
+- Value: `true`
+
+This will enable CI functionality within your repo or fork.
+
+## Folder Structure
+
 ALL runnable workflows must be in the root of the .github/workflows folder. Subfolders are not allowed.
 
 When adding or changing files, follow this file naming guidance:
