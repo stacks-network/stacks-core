@@ -1770,6 +1770,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
     );
     let burn_header_hash_to_fork = btc_controller.get_block_hash(tip_at_tx1.burn_block_height);
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
+    fault_injection_stall_miner();
     btc_controller.build_next_block(4);
     wait_for(10, || {
         let tip = get_chain_info(&conf);
@@ -1779,7 +1780,6 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
     .expect("Timed out waiting for burn block height to be 244");
 
     info!("Wait for block off of shallow fork");
-    fault_injection_stall_miner();
 
     //Signers should update the Tx Replay Set
     signer_test.wait_for_replay_set_eq(30, vec![sender1_tx1.clone(), sender1_tx2.clone()]);
