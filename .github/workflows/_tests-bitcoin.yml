@@ -54,11 +54,11 @@ env:
     tests::signer::v0::signer_multinode_rollover,
     tests::signer::v0::tx_replay::tx_replay_forking_test,
     tests::signer::v0::epoch_4_0_waterfall::epoch_4_0_block_commit_uses_single_sbtc_output::t::slow::bitcoind::t,
-    tests::signer::v0::reorg::partial_tenure_fork
-  # The resource-aware scheduler leaves the longest exclusive tests nearly
-  # alone. Sixty five-test batches retain the single-test floor while staying
-  # below the repository's concurrent-job ceiling.
-  BITCOIN_BATCH_COUNT: 60
+    tests::signer::v0::reorg::partial_tenure_fork,
+    tests::signer::v0::block_validation_check_rejection_timeout_heuristic
+  # Dedicated full-runner tests leave 283 tests, whose minimum is 57
+  # five-test batches. This stays below the observed concurrent-job ceiling.
+  BITCOIN_BATCH_COUNT: 57
   BATCH_SIZE: 5
 
 # Configure concurrency
@@ -115,6 +115,8 @@ jobs:
             test-name: tests::signer::v0::epoch_4_0_waterfall::epoch_4_0_block_commit_uses_single_sbtc_output::t::slow::bitcoind::t
           - label: partial-tenure-fork
             test-name: tests::signer::v0::reorg::partial_tenure_fork
+          - label: block-validation-timeout
+            test-name: tests::signer::v0::block_validation_check_rejection_timeout_heuristic
     steps:
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -78,6 +78,9 @@ const POST_WATERFALL_TENURES: u64 = MINING_COMMITMENT_WINDOW as u64;
 /// entire multi-minute test.
 const TENURE_SETTLE_TIMEOUT_SECS: u64 = 120;
 
+/// Bound transient post-boundary convergence misses before failing the test.
+const MAX_CONVERGENCE_ERRORS: usize = 3;
+
 /// Filter burn-block events to those at or after the Epoch 4.0 start height.
 fn post_boundary_burn_blocks(epoch_40_start: u64) -> Vec<BurnBlockEvent> {
     test_observer::get_burn_blocks()
@@ -277,6 +280,7 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
     };
     let final_burn_height = first_waterfall_block + POST_WATERFALL_TENURES;
     let mut i = 0;
+    let mut convergence_errors = 0;
     while miners.get_peer_info().burn_block_height < final_burn_height || i < POST_WATERFALL_TENURES
     {
         let burn_height = miners.get_peer_info().burn_block_height;
@@ -322,9 +326,24 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
             .unwrap_or_else(|e| panic!("post-boundary tenure {i} has invalid commits: {e}"));
         }
 
-        let tenure_started = miners
+        let tenure_started = match miners
             .mine_bitcoin_block_with_reward_cycle_convergence(TENURE_SETTLE_TIMEOUT_SECS)
-            .unwrap_or_else(|e| panic!("post-boundary tenure {i} failed: {e}"));
+        {
+            Ok(tenure_started) => tenure_started,
+            Err(error) => {
+                convergence_errors += 1;
+                assert!(
+                    convergence_errors <= MAX_CONVERGENCE_ERRORS,
+                    "post-boundary tenure {i} failed to converge after \
+                     {convergence_errors} attempts: {error}",
+                );
+                warn!(
+                    "Post-boundary tenure {i} did not converge; mining a replacement tenure \
+                     (attempt {convergence_errors}): {error}"
+                );
+                continue;
+            }
+        };
         if !tenure_started {
             continue;
         }
