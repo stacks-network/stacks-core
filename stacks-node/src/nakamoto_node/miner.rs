@@ -91,6 +91,9 @@ static TEST_MINE_STALL: LazyLock<TestFlag<TestMineStall>> = LazyLock::new(TestFl
 pub static TEST_BROADCAST_PROPOSAL_STALL: LazyLock<TestFlag<Vec<Secp256k1PublicKey>>> =
     LazyLock::new(TestFlag::default);
 #[cfg(test)]
+/// Indicates that a block proposal reached the broadcast stall.
+pub static TEST_BLOCK_PROPOSAL_STALLED: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
 /// Test flag to make miner skip mining a block
 pub static TEST_MINE_SKIP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 #[cfg(test)]
@@ -376,6 +379,7 @@ impl BlockMinerThread {
             )
             .unwrap_or_default()
         }) {
+            TEST_BLOCK_PROPOSAL_STALLED.store(true, Ordering::SeqCst);
             warn!("Fault injection: Block proposal broadcast is stalled due to testing directive.";
                         "stacks_block_id" => %new_block.block_id(),
                         "stacks_block_hash" => %new_block.header.block_hash(),
@@ -391,6 +395,7 @@ impl BlockMinerThread {
             }) {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
+            TEST_BLOCK_PROPOSAL_STALLED.store(false, Ordering::SeqCst);
             info!("Fault injection: Block proposal broadcast is no longer stalled due to testing directive.";
                     "block_id" => %new_block.block_id(),
                     "height" => new_block.header.chain_length,

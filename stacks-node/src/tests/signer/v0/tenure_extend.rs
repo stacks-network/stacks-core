@@ -15,7 +15,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Add;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::vm::types::PrincipalData;
@@ -53,7 +53,8 @@ use tracing_subscriber::{fmt, EnvFilter};
 use super::{SignerTest, *};
 use crate::clarity::vm::clarity::ClarityConnection;
 use crate::nakamoto_node::miner::{
-    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BROADCAST_PROPOSAL_STALL,
+    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_PROPOSAL_STALLED,
+    TEST_BROADCAST_PROPOSAL_STALL,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_COMMIT_TIP;
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
@@ -198,12 +199,13 @@ fn tenure_extend_with_other_transactions() {
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let idle_timeout = Duration::from_secs(30);
+    let idle_timeout_buffer = Duration::from_secs(1);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
         vec![(sender_addr, (send_amt + send_fee) * 2)],
         |config| {
             config.tenure_idle_timeout = idle_timeout;
-            config.tenure_idle_timeout_buffer = Duration::from_secs(1);
+            config.tenure_idle_timeout_buffer = idle_timeout_buffer;
         },
         |config| {
             config.miner.tenure_extend_cost_threshold = 0;
@@ -245,11 +247,20 @@ fn tenure_extend_with_other_transactions() {
     let _ = submit_tx(&http_origin, &transfer_tx);
     sender_nonce += 1;
 
+    TEST_BLOCK_PROPOSAL_STALLED.store(false, Ordering::SeqCst);
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pk]);
+    let idle_wait_started = Instant::now();
     fault_injection_unstall_miner();
 
+    wait_for(
+        60,
+        || Ok(TEST_BLOCK_PROPOSAL_STALLED.load(Ordering::SeqCst)),
+    )
+    .expect("Miner did not reach the block proposal broadcast stall");
+
     info!("---- Wait for tenure extend timeout ----");
-    sleep_ms(idle_timeout.as_millis() as u64 + 5);
+    let full_idle_timeout = idle_timeout + idle_timeout_buffer + Duration::from_secs(1);
+    thread::sleep(full_idle_timeout.saturating_sub(idle_wait_started.elapsed()));
 
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     fault_injection_stall_miner();
