@@ -1856,8 +1856,19 @@ fn forked_tenure_testing(
         signer_test.check_signer_states_reorg(&[], &signer_pks);
     };
 
-    // allow blocks B and C to be processed
-    sleep_ms(1000);
+    // The proposal counter above advances before the coordinator necessarily
+    // installs tenure C. Wait for C to become canonical instead of racing the
+    // coordinator with a fixed delay.
+    wait_for(60, || {
+        let canonical_tip =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+                .map_err(|error| error.to_string())?;
+        Ok(canonical_tip.is_some_and(|tip| {
+            tip.index_block_hash() != tip_a.index_block_hash()
+                && tip.index_block_hash() != tip_b.index_block_hash()
+        }))
+    })
+    .expect("Tenure C failed to become the canonical chain tip");
 
     info!("Tenure C produced (or proposed) a block!");
     let tip_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
