@@ -1,0 +1,1 @@
+Fixed the miner thread exiting (and stalling for the remainder of the tenure) on transient errors. The miner now retries when it hits DB contention, a parent block that has not been processed yet, a new parent block discovered mid-mining, or a mempool cache reset failure, instead of giving up on the tenure.
