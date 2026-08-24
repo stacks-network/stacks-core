@@ -139,6 +139,11 @@ pub use crate::net::download::nakamoto::tenure_downloader_unconfirmed::{
 };
 
 impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> PeerNetwork<CSP> {
+    /// Discard transient Nakamoto downloader state so it can be rebuilt from chainstate.
+    pub fn reset_nakamoto_block_downloader(&mut self) {
+        self.block_downloader_nakamoto = None;
+    }
+
     /// Set up the Nakamoto block downloader
     pub fn init_nakamoto_block_downloader(&mut self) {
         if self.block_downloader_nakamoto.is_some() {

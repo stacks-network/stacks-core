@@ -4469,10 +4469,7 @@ fn follower_bootup_across_multiple_cycles() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
+    let _btcd_controller = BitcoinTestDaemon::start(&mut naka_conf);
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
     btc_regtest_controller.bootstrap_chain(201);
 
