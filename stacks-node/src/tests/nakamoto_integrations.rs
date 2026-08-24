@@ -10845,13 +10845,13 @@ fn test_shadow_recovery() {
     TEST_COORDINATOR_STALL.lock().unwrap().replace(false);
     info!("Beginning post-shadow tenures");
 
-    // revive ATC-C by waiting for commits
-    next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
-
     // The shadow repair crosses a reward-cycle boundary. Wait until the signer
     // has rebuilt its local state for the repaired burn tip before asking it to
-    // sign the first post-recovery tenure.
+    // submit or sign post-recovery work.
     signer_test.get_burn_updated_states();
+
+    // revive ATC-C by waiting for commits
+    next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
     // The next burn block may extend the recovered tenure instead of electing
     // a new miner. The recovery assertion below needs a normal post-shadow
