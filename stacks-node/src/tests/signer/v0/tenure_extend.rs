@@ -1449,6 +1449,7 @@ fn tenure_extend_after_stale_commit_same_miner() {
     );
 
     let Counters {
+        naka_submitted_commits: commits_submitted,
         skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
@@ -1480,13 +1481,14 @@ fn tenure_extend_after_stale_commit_same_miner() {
         .wait_for_nonce_increase(&sender_addr, transfer_nonce)
         .unwrap();
 
+    let commits_before = commits_submitted.get();
     skip_commit_op.set(false);
 
     info!("---- Waiting for block commit to N-1 ----");
 
     wait_for(30, || {
         let last_height = last_commit_burn_height.get();
-        Ok(last_height == prev_tip.burn_block_height)
+        Ok(last_height == prev_tip.burn_block_height && commits_submitted.get() > commits_before)
     })
     .expect("Timed out waiting for block commit to N-1");
 
