@@ -94,8 +94,24 @@ runs:
         contains(inputs.test-names, 'tests::signer::')
       shell: bash
       run: |
-        timeout --kill-after=30s 5m \
-          docker pull "bitcoin/bitcoin:${BITCOIN_IMAGE_TAG}"
+        for attempt in 1 2 3; do
+          if timeout --kill-after=30s 5m \
+            docker pull "bitcoin/bitcoin:${BITCOIN_IMAGE_TAG}"
+          then
+            exit 0
+          fi
+
+          if (( attempt == 3 )); then
+            echo "::error::Failed to pull Bitcoin test image after ${attempt} attempts"
+            exit 1
+          fi
+
+          # Concurrent matrix jobs can briefly overwhelm Docker Hub's
+          # anonymous registry endpoint. Stagger retries to avoid a herd.
+          retry_delay=$((attempt * 10 + RANDOM % 10))
+          echo "Bitcoin image pull failed; retrying in ${retry_delay}s"
+          sleep "$retry_delay"
+        done
 
     # Increase open file descriptors limit
     - name: Increase Open File Descriptors
