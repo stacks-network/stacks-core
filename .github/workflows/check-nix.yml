@@ -64,14 +64,5 @@ jobs:
       # Install Nix
       - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
 
-      # Cache locally built Nix store paths, but leave paths available from the
-      # upstream Nix cache there instead of consuming the repository cache.
-      - name: Cache Nix store paths
-        uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
-        with:
-          diagnostic-endpoint: ""
-          use-flakehub: false
-          use-gha-cache: true
-
       # Run the check
       - run: nix flake check ./contrib/nix
