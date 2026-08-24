@@ -4442,6 +4442,13 @@ fn follower_bootup_across_multiple_cycles() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    // The scenario requires the follower to span multiple reward cycles, not
+    // the default cycle's absolute block count. Two shorter cycles preserve
+    // that boundary coverage while avoiding 16 redundant burn blocks. A
+    // 12-block cycle also keeps the Epoch 3.0 activation away from offsets 0
+    // and 1, which are invalid activation points.
+    naka_conf.burnchain.pox_reward_length = Some(12);
+    naka_conf.burnchain.pox_prepare_length = Some(3);
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
