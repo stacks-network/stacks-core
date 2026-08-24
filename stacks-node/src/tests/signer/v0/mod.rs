@@ -4911,6 +4911,8 @@ fn duplicate_signers() {
 fn signer_multinode_rollover() {
     const TEST_TIMEOUT_SECS: u64 = 120;
     const TENURE_ATTEMPT_TIMEOUT_SECS: u64 = 60;
+    const INTERIM_BLOCK_TIMEOUT_SECS: u64 = 30;
+    const MAX_INTERIM_BLOCK_RECOVERIES: u64 = 2;
 
     let num_signers = 5;
     let new_num_signers = 4;
@@ -5055,6 +5057,52 @@ fn signer_multinode_rollover() {
                     "{label} advanced to burn height {burn_height_after} without a confirmed \
                          tenure; continuing from the missed tenure: {error}"
                 );
+            }
+        }
+    };
+
+    let mine_interim_blocks = |miners: &mut MultipleMinerTest, tenure_label: &str| {
+        let mut block_ix = 0;
+        let mut recoveries = 0;
+        while block_ix < 2 {
+            let (txid, nonce) = miners.send_transfer_tx();
+            match miners.wait_for_transfer_tx_nonce(nonce, INTERIM_BLOCK_TIMEOUT_SECS) {
+                Ok(()) => {
+                    miners.wait_for_chains(TEST_TIMEOUT_SECS);
+                    block_ix += 1;
+                }
+                Err(error) => {
+                    assert!(
+                        recoveries < MAX_INTERIM_BLOCK_RECOVERIES,
+                        "failed to mine interim block {block_ix} in {tenure_label} after \
+                         {recoveries} recovery tenures: txid={txid}, nonce={nonce}: {error}"
+                    );
+                    recoveries += 1;
+                    warn!(
+                        "Interim block {block_ix} in {tenure_label} stalled; starting recovery \
+                         tenure {recoveries}: txid={txid}, nonce={nonce}: {error}"
+                    );
+
+                    miners.ensure_commit_miner_1(&sortdb);
+                    mine_confirmed_tenure(
+                        miners,
+                        &format!("{tenure_label} recovery tenure {recoveries}"),
+                    );
+                    miners
+                        .wait_for_transfer_tx_nonce(nonce, TEST_TIMEOUT_SECS)
+                        .unwrap_or_else(|recovery_error| {
+                            panic!(
+                                "failed to mine pending interim transaction after recovering \
+                                 {tenure_label}: txid={txid}, nonce={nonce}: {recovery_error}"
+                            )
+                        });
+                    miners.wait_for_chains(TEST_TIMEOUT_SECS);
+
+                    // The pending transaction may have been mined immediately after the
+                    // recovery tenure-change block. Start the count over so the final
+                    // tenure still proves that two subsequent blocks can be produced.
+                    block_ix = 0;
+                }
             }
         }
     };
@@ -5205,14 +5253,7 @@ fn signer_multinode_rollover() {
 
     // Exercise multiple blocks in the tenure while proving that the follower
     // has downloaded each block before the next proposal is submitted.
-    for block_ix in 0..2 {
-        miners
-            .send_and_mine_transfer_tx(TEST_TIMEOUT_SECS)
-            .unwrap_or_else(|error| {
-                panic!("failed to mine first-tenure interim block {block_ix}: {error}")
-            });
-        miners.wait_for_chains(TEST_TIMEOUT_SECS);
-    }
+    mine_interim_blocks(&mut miners, "the first new-signer tenure");
 
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
 
@@ -5238,14 +5279,7 @@ fn signer_multinode_rollover() {
     }
 
     mine_confirmed_tenure(&mut miners, "the second new-signer tenure");
-    for block_ix in 0..2 {
-        miners
-            .send_and_mine_transfer_tx(TEST_TIMEOUT_SECS)
-            .unwrap_or_else(|error| {
-                panic!("failed to mine second-tenure interim block {block_ix}: {error}")
-            });
-        miners.wait_for_chains(TEST_TIMEOUT_SECS);
-    }
+    mine_interim_blocks(&mut miners, "the second new-signer tenure");
 
     miners.shutdown();
     for signer in old_spawned_signers {
