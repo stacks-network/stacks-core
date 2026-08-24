@@ -29,14 +29,19 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ContractName;
 use pinny::tag;
 use stacks::burnchains::Txid;
-use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::operations::leader_block_commit::{
+    RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
+};
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
+use stacks::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use stacks::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use stacks::chainstate::stacks::boot::POX_5_NAME;
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::chainstate::stacks::sbtc::sbtc_pox5_deposit_taproot_output_key;
 use stacks::config::Config;
 use stacks::core::{StacksEpochId, POX_5_SBTC_DEPOSIT_MAX_FEE_SATS};
-use stacks::types::chainstate::StacksPrivateKey;
+use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BitcoinTransaction;
@@ -130,6 +135,56 @@ pub fn get_unconfirmed_waterfall_commit_for_burn_parent(
         })
 }
 
+/// Wait until every node view resolves the expected PoX-5 waterfall recipient.
+pub(super) fn wait_for_waterfall_commit_recipients(
+    configs: &[&Config],
+    expected_sbtc_address: &PoxAddress,
+    timeout_secs: u64,
+) -> Result<(), String> {
+    let mut views = Vec::with_capacity(configs.len());
+    for conf in configs {
+        let burnchain = conf.get_burnchain();
+        let sortdb = burnchain
+            .open_sortition_db(true)
+            .map_err(|error| format!("open sortition DB: {error}"))?;
+        let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
+            conf.is_mainnet(),
+            conf.burnchain.chain_id,
+            &conf.get_chainstate_path_str(),
+            None,
+        )
+        .map_err(|error| format!("open chainstate: {error}"))?;
+        views.push((burnchain, sortdb, chainstate));
+    }
+
+    wait_for(timeout_secs, || {
+        for (burnchain, sortdb, chainstate) in &mut views {
+            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+                .map_err(|error| format!("load canonical burn tip: {error}"))?;
+            let (consensus_hash, block_hash) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
+                    .map_err(|error| format!("load canonical stacks tip: {error}"))?;
+            let stacks_tip = StacksBlockId::new(&consensus_hash, &block_hash);
+            let Ok(Some(RewardSetInfo::Waterfall(waterfall))) = get_nakamoto_next_recipients(
+                &sortition_tip,
+                sortdb,
+                chainstate,
+                &stacks_tip,
+                burnchain,
+            ) else {
+                return Ok(false);
+            };
+            if &waterfall.sbtc_address != expected_sbtc_address {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    })
+    .map_err(|error| {
+        format!("node views did not resolve the expected waterfall recipient: {error}")
+    })
+}
+
 /// Wait for a waterfall commit targeting a child of `burn_parent_height`.
 fn wait_for_unconfirmed_waterfall_commit_for_burn_parent<Z: super::SpawnedSignerTrait>(
     signer_test: &SignerTest<Z>,
@@ -211,6 +266,64 @@ fn advance_to_commit_for_block<Z: super::SpawnedSignerTrait>(
         signer_test,
         miner_pk,
         target_parent,
+        sbtc_script_pubkey,
+        timeout_secs,
+    )
+}
+
+/// Cross the first waterfall transition only after the miner can resolve its
+/// PoX-5 recipient, then return the refreshed commit for the boundary block.
+fn advance_to_first_waterfall_commit<Z: super::SpawnedSignerTrait>(
+    signer_test: &SignerTest<Z>,
+    miner_pk: &Secp256k1PublicKey,
+    target_block: u64,
+    expected_sbtc_address: &PoxAddress,
+    sbtc_script_pubkey: &[u8],
+    timeout_secs: u64,
+) -> BitcoinTransaction {
+    let transition_parent = target_block
+        .checked_sub(2)
+        .expect("waterfall boundary has a preceding burn block");
+    while get_chain_info(&signer_test.running_nodes.conf).burn_block_height < transition_parent {
+        assert!(
+            next_block_and_wait_with_timeout(
+                &signer_test.running_nodes.btc_regtest_controller,
+                &signer_test.running_nodes.counters.blocks_processed,
+                timeout_secs,
+            ),
+            "timed out advancing toward the first waterfall block {target_block}"
+        );
+    }
+
+    let conf = &signer_test.running_nodes.conf;
+    assert_eq!(
+        get_chain_info(conf).burn_block_height,
+        transition_parent,
+        "advanced past the first waterfall transition"
+    );
+
+    let skip_commit_op = &signer_test.running_nodes.counters.skip_commit_op;
+    skip_commit_op.set(true);
+    let transition_result = if next_block_and_wait_with_timeout(
+        &signer_test.running_nodes.btc_regtest_controller,
+        &signer_test.running_nodes.counters.blocks_processed,
+        timeout_secs,
+    ) {
+        wait_for_waterfall_commit_recipients(&[conf], expected_sbtc_address, timeout_secs)
+    } else {
+        Err(format!(
+            "timed out mining the parent of waterfall block {target_block}"
+        ))
+    };
+    skip_commit_op.set(false);
+    transition_result.unwrap_or_else(|error| {
+        panic!("failed to settle the first waterfall reward-set transition: {error}")
+    });
+
+    wait_for_unconfirmed_waterfall_commit_for_burn_parent(
+        signer_test,
+        miner_pk,
+        target_block - 1,
         sbtc_script_pubkey,
         timeout_secs,
     )
@@ -360,10 +473,11 @@ fn epoch_4_0_block_commit_uses_single_sbtc_output() {
 
     // Commits target the next burn block. Check both sides of each meaningful
     // transition while fast-forwarding the intervening reward-phase blocks.
-    let tx = advance_to_commit_for_block(
+    let tx = advance_to_first_waterfall_commit(
         &signer_test,
         &miner_pk,
         first_waterfall_block,
+        &sbtc_recipient,
         sbtc_script_pubkey.as_bytes(),
         TENURE_TIMEOUT.as_secs(),
     );

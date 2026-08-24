@@ -48,15 +48,11 @@ use std::time::Duration;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use pinny::tag;
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::distribution::LATEST_BURN_DISTRIBUTION;
-use stacks::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
-use stacks::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::chainstate::stacks::events::BurnBlockEvent;
 use stacks::core::{StacksEpochId, STACKS_EPOCH_MAX};
-use stacks::types::chainstate::{StacksBlockId, StacksPrivateKey};
+use stacks::types::chainstate::StacksPrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::types::MINING_COMMITMENT_WINDOW;
 
@@ -123,48 +119,11 @@ fn wait_for_waterfall_commit_recipients(
     timeout_secs: u64,
 ) -> Result<(), String> {
     let (conf_1, conf_2) = miners.get_node_configs();
-    let mut views = Vec::with_capacity(2);
-    for conf in [&conf_1, &conf_2] {
-        let burnchain = conf.get_burnchain();
-        let sortdb = burnchain
-            .open_sortition_db(true)
-            .map_err(|error| format!("open sortition DB: {error}"))?;
-        let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
-            conf.is_mainnet(),
-            conf.burnchain.chain_id,
-            &conf.get_chainstate_path_str(),
-            None,
-        )
-        .map_err(|error| format!("open chainstate: {error}"))?;
-        views.push((burnchain, sortdb, chainstate));
-    }
-
-    wait_for(timeout_secs, || {
-        for (burnchain, sortdb, chainstate) in &mut views {
-            let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-                .map_err(|error| format!("load canonical burn tip: {error}"))?;
-            let (consensus_hash, block_hash) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
-                    .map_err(|error| format!("load canonical stacks tip: {error}"))?;
-            let stacks_tip = StacksBlockId::new(&consensus_hash, &block_hash);
-            let Ok(Some(RewardSetInfo::Waterfall(waterfall))) = get_nakamoto_next_recipients(
-                &sortition_tip,
-                sortdb,
-                chainstate,
-                &stacks_tip,
-                burnchain,
-            ) else {
-                return Ok(false);
-            };
-            if &waterfall.sbtc_address != expected_sbtc_address {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    })
-    .map_err(|error| {
-        format!("both miner views did not resolve the expected waterfall recipient: {error}")
-    })
+    epoch_4_0_waterfall::wait_for_waterfall_commit_recipients(
+        &[&conf_1, &conf_2],
+        expected_sbtc_address,
+        timeout_secs,
+    )
 }
 
 /// Two miners with asymmetric burn fees mine across the Epoch 4.0 boundary.
