@@ -57,9 +57,9 @@ env:
     tests::signer::v0::reorg::partial_tenure_fork,
     tests::signer::v0::block_validation_check_rejection_timeout_heuristic,
     tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner
-  # Four-test batches limit the impact of runtime variance on the workflow
-  # critical path. Additions and removals still adjust runner usage automatically.
-  BATCH_SIZE: 4
+  # Five-test batches avoid consuming runner slots for setup overhead while the
+  # resource-aware scheduler keeps their predicted makespans balanced.
+  BATCH_SIZE: 5
 
 # Configure concurrency
 concurrency:
