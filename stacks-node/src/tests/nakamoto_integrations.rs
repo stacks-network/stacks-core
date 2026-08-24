@@ -14078,7 +14078,9 @@ fn test_sip_031_last_phase() {
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    let tenure_count = 10;
+    // Eight tenures reach the final zero-emission interval at +8 after
+    // exercising each two-tenure non-zero interval at +2, +4, and +6.
+    let tenure_count = 8;
     // A coinbase block and one interim block are sufficient to prove that
     // SIP-031 emission occurs only on the first block of each tenure.
     let blocks_per_tenure = 2;
