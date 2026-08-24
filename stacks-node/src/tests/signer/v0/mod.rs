@@ -3285,7 +3285,7 @@ fn mine_2_nakamoto_reward_cycles() {
         |_| {},
         |config| {
             config.burnchain.pox_prepare_length = Some(3);
-            config.burnchain.pox_reward_length = Some(12);
+            config.burnchain.pox_reward_length = Some(9);
         },
         None,
         None,
