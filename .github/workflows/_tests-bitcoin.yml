@@ -57,9 +57,8 @@ env:
     tests::signer::v0::reorg::partial_tenure_fork,
     tests::signer::v0::block_validation_check_rejection_timeout_heuristic,
     tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner
-  # Dedicated full-runner tests leave 281 tests, whose minimum is 57
-  # five-test batches. This stays below the observed concurrent-job ceiling.
-  BITCOIN_BATCH_COUNT: 57
+  # The matrix generator uses the minimum number of five-test batches after
+  # exclusions, so additions/removals adjust runner usage automatically.
   BATCH_SIZE: 5
 
 # Configure concurrency
