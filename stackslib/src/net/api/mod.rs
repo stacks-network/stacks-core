@@ -69,6 +69,7 @@ pub mod postmempoolquery;
 pub mod postmicroblock;
 pub mod poststackerdbchunk;
 pub mod posttransaction;
+pub mod txsimulate;
 
 #[cfg(test)]
 mod tests;
@@ -81,6 +82,9 @@ impl StacksHttp {
             self.auth_token.clone(),
         ));
         self.register_rpc_endpoint(blocksimulate::RPCNakamotoBlockSimulateRequestHandler::new(
+            self.auth_token.clone(),
+        ));
+        self.register_rpc_endpoint(txsimulate::RPCTransactionSimulateRequestHandler::new(
             self.auth_token.clone(),
         ));
         self.register_rpc_endpoint(callreadonly::RPCCallReadOnlyRequestHandler::new(

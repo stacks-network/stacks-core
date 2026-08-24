@@ -27,6 +27,17 @@ This project and everyone participating in it is governed by this [Code of Condu
 
 See the branching document in [branching.md](./docs/branching.md).
 
+### Enabling CI on Forks
+
+The CI will always run on `stacks-network/stacks-core` with other forks and cloned repos able to opt-in.
+
+To **enable** CI workflows within your fork or cloned repository, add a GitHub Actions Variable:
+
+- Name: `ENABLE_CI_WORKFLOWS`
+- Value: `true`
+
+This will enable CI functionality within your repo or fork.
+
 ### Merging PRs from Forks
 
 PRs from forks or opened by contributors without commit access require
