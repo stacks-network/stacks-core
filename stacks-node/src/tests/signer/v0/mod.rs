@@ -6050,7 +6050,8 @@ fn block_proposal_max_age_rejections() {
     signer_test.propose_block(block, short_timeout);
 
     info!("------------------------- Test Block Proposal Rejected -------------------------");
-    // Verify the signers rejected only the SECOND block proposal. The first was not even processed.
+    // Verify the signers reject both proposals: the first (stale) with reason
+    // `ProposalTooOld` and without validation, the second after validation.
     wait_for(120, || {
         let mut status_map = HashMap::new();
         for (_chunk, message) in get_stackerdb_signer_messages() {
