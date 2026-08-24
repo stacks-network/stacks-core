@@ -1118,8 +1118,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         })
     }
 
-    /// Wait until every signer has installed the current reward cycle's burn
-    /// view, without requiring its optional global-state snapshot to exist.
+    /// Wait until every signer has installed matching local and global burn
+    /// views for the current reward cycle.
     pub fn wait_for_signer_burn_view(
         &self,
         timeout: u64,
@@ -1143,15 +1143,15 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                         )
                     });
 
-                // A signer can legitimately have no global snapshot until it
-                // receives enough peers' updates. If one exists, however, do
-                // not release mining while it still describes an older view.
+                // A signer cannot validate a proposal until it has received
+                // enough peer updates to form a global snapshot. Do not
+                // release mining while that snapshot is absent or stale.
                 let global_matches = state
                     .signer_global_state_machines
                     .iter()
                     .find(|(reward_cycle, _)| current_reward_cycle % 2 == *reward_cycle)
-                    .is_none_or(|(_, global_state)| {
-                        global_state.as_ref().is_none_or(|global_state| {
+                    .is_some_and(|(_, global_state)| {
+                        global_state.as_ref().is_some_and(|global_state| {
                             global_state.burn_block == *burn_block
                                 && global_state.burn_block_height >= burn_block_height
                         })
