@@ -76,7 +76,7 @@ use crate::nakamoto_node::miner::TEST_MINE_SKIP;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    naka_neon_integration_conf, next_block_and_wait_for_commits, POX_DEFAULT_STACKER_BALANCE,
+    naka_neon_integration_conf, POX_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
     get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
@@ -1305,30 +1305,15 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         Ok(())
     }
 
-    fn mine_block_wait_on_processing(
-        &self,
-        node_confs: &[&NeonConfig],
-        node_counters: &[&Counters],
-        timeout: Duration,
-    ) {
+    fn mine_block_wait_on_processing(&self, timeout: Duration) {
         let blocks_len = test_observer::get_blocks().len();
         let mined_block_time = Instant::now();
-        next_block_and_wait_for_commits(
+        next_block_and(
             &self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
-            node_confs,
-            node_counters,
-            true,
+            || Ok(test_observer::get_blocks().len() > blocks_len),
         )
-        .unwrap();
-        let t_start = Instant::now();
-        while test_observer::get_blocks().len() <= blocks_len {
-            assert!(
-                t_start.elapsed() < timeout,
-                "Timed out while waiting for nakamoto block to be processed"
-            );
-            thread::sleep(Duration::from_secs(1));
-        }
+        .expect("Timed out while waiting for Nakamoto block to be processed");
         let mined_block_elapsed_time = mined_block_time.elapsed();
         info!("Nakamoto block mine time elapsed: {mined_block_elapsed_time:?}");
     }

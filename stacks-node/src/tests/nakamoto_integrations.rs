@@ -4570,6 +4570,7 @@ fn follower_bootup_across_multiple_cycles() {
     follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
     follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
     follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
+    follower_conf.node.pox_sync_sample_secs = 30;
 
     let node_info = get_chain_info(&naka_conf);
     follower_conf.node.add_bootstrap_node(

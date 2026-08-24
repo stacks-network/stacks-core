@@ -3459,8 +3459,6 @@ fn multiple_miners() {
     //  have been produced such that each miner has produced 3 tenures, we stop and check the
     //  results at the end
     info!("------------------------- Mining At Most {max_nakamoto_tenures} Tenures -------------------------");
-    let rl1_counters = miners.signer_test.running_nodes.counters.clone();
-    let rl2_counters = miners.rl2_counters.clone();
     let (miner_1_pk, miner_2_pk) = miners.get_miner_public_keys();
     let mut btc_blocks_mined = 1;
     let mut miner_1_tenures = 0;
@@ -3476,11 +3474,9 @@ fn multiple_miners() {
 
         info!("Issue next block-build request\ninfo 1: {info_1:?}\ninfo 2: {info_2:?}\n");
 
-        miners.signer_test.mine_block_wait_on_processing(
-            &[&conf_1, &conf_2],
-            &[&rl1_counters, &rl2_counters],
-            Duration::from_secs(30),
-        );
+        miners
+            .signer_test
+            .mine_block_wait_on_processing(Duration::from_secs(30));
 
         miners.signer_test.check_signer_states_normal();
 
@@ -5292,11 +5288,9 @@ fn multiple_miners_with_nakamoto_blocks() {
         }
         let blocks_processed_before =
             blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
-        miners.signer_test.mine_block_wait_on_processing(
-            &[&conf_1, &conf_2],
-            &[&rl1_counters, &rl2_counters],
-            Duration::from_secs(30),
-        );
+        miners
+            .signer_test
+            .mine_block_wait_on_processing(Duration::from_secs(30));
         miners.signer_test.check_signer_states_normal();
         btc_blocks_mined += 1;
 
@@ -5745,7 +5739,6 @@ fn multiple_miners_with_custom_chain_id() {
     //  is that we keep track of how many tenures each miner produced, and once enough sortitions
     //  have been produced such that each miner has produced 3 tenures, we stop and check the
     //  results at the end
-    let rl1_counters = miners.signer_test.running_nodes.counters.clone();
     let blocks_mined1 = miners
         .signer_test
         .running_nodes
@@ -5767,11 +5760,9 @@ fn multiple_miners_with_custom_chain_id() {
         }
         let blocks_processed_before =
             blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
-        miners.signer_test.mine_block_wait_on_processing(
-            &[&conf_1, &conf_2],
-            &[&rl1_counters, &rl2_counters],
-            Duration::from_secs(30),
-        );
+        miners
+            .signer_test
+            .mine_block_wait_on_processing(Duration::from_secs(30));
         btc_blocks_mined += 1;
 
         // wait for the new block to be processed

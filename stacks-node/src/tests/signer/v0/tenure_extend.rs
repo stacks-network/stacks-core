@@ -19,7 +19,9 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::vm::types::PrincipalData;
-use libsigner::v0::messages::{BlockResponse, RejectCode, RejectReason, SignerMessage};
+use libsigner::v0::messages::{
+    BlockAccepted, BlockResponse, RejectCode, RejectReason, SignerMessage,
+};
 use pinny::tag;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
@@ -65,6 +67,37 @@ use crate::tests::neon_integrations::{
     wait_for_tenure_change_tx,
 };
 use crate::tests::{self, test_port};
+
+/// Wait for a signer slot to accept the block with the expected signature hash.
+fn wait_for_block_acceptance(
+    slot_id: u32,
+    expected_block_hash: &Sha512Trunc256Sum,
+    timeout: Duration,
+) -> BlockAccepted {
+    let mut found_acceptance = None;
+    wait_for(timeout.as_secs(), || {
+        for (chunk, message) in get_stackerdb_signer_messages() {
+            if chunk.slot_id != slot_id {
+                continue;
+            }
+            let SignerMessage::BlockResponse(BlockResponse::Accepted(acceptance)) = message else {
+                continue;
+            };
+            if &acceptance.signer_signature_hash == expected_block_hash {
+                found_acceptance = Some(acceptance);
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+    .unwrap_or_else(|error| {
+        panic!(
+            "Timed out waiting for signer slot {slot_id} to accept block \
+             {expected_block_hash}: {error}"
+        )
+    });
+    found_acceptance.expect("wait_for returned before capturing the matching acceptance")
+}
 
 #[test]
 #[ignore]
@@ -597,34 +630,8 @@ fn stx_transfers_dont_effect_idle_timeout() {
     let last_block_hash = get_last_block_hash();
 
     let slot_id = 0_u32;
-    let wait_for_block_acceptance = |expected_block_hash: &Sha512Trunc256Sum| {
-        let mut found_acceptance = None;
-        wait_for(30, || {
-            for (chunk, message) in get_stackerdb_signer_messages() {
-                if chunk.slot_id != slot_id {
-                    continue;
-                }
-                let SignerMessage::BlockResponse(BlockResponse::Accepted(acceptance)) = message
-                else {
-                    continue;
-                };
-                if &acceptance.signer_signature_hash == expected_block_hash {
-                    found_acceptance = Some(acceptance);
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        })
-        .unwrap_or_else(|error| {
-            panic!(
-                "Timed out waiting for signer slot {slot_id} to accept block \
-                 {expected_block_hash}: {error}"
-            )
-        });
-        found_acceptance.expect("wait_for returned before capturing the matching acceptance")
-    };
-
-    let initial_acceptance = wait_for_block_acceptance(&last_block_hash);
+    let initial_acceptance =
+        wait_for_block_acceptance(slot_id, &last_block_hash, Duration::from_secs(30));
 
     info!(
         "---- Last idle timeout: {} ----",
@@ -654,7 +661,8 @@ fn stx_transfers_dont_effect_idle_timeout() {
         });
 
         let last_block_hash = get_last_block_hash();
-        let latest_acceptance = wait_for_block_acceptance(&last_block_hash);
+        let latest_acceptance =
+            wait_for_block_acceptance(slot_id, &last_block_hash, Duration::from_secs(30));
 
         if first_global_acceptance.is_none() {
             assert!(latest_acceptance.response_data.tenure_extend_timestamp < initial_acceptance.response_data.tenure_extend_timestamp, "First global acceptance should be less than initial guesstimated acceptance as its based on block proposal time rather than epoch time at time of response.");
@@ -758,11 +766,11 @@ fn idle_tenure_extend_active_mining() {
         info!("----- Idle diff: {diff} seconds -----");
     };
 
-    let initial_response = signer_test.get_latest_block_response(slot_id);
-    assert_eq!(
-        initial_response.get_signer_signature_hash(),
-        &get_last_block_hash()
-    );
+    let initial_response = BlockResponse::Accepted(wait_for_block_acceptance(
+        slot_id,
+        &get_last_block_hash(),
+        Duration::from_secs(30),
+    ));
 
     info!(
         "---- Last idle timeout: {} ----",
@@ -859,13 +867,12 @@ fn idle_tenure_extend_active_mining() {
                 fault_injection_unstall_miner();
             });
 
-            // We must actually have a new block response to ensure its tenure extend timestamp advances
-            wait_for(30, || {
-                Ok(signer_test.get_latest_block_response(slot_id) != last_response)
-            })
-            .expect("Failed to find a new block response");
-
-            let latest_response = signer_test.get_latest_block_response(slot_id);
+            let latest_block_hash = get_last_block_hash();
+            let latest_response = BlockResponse::Accepted(wait_for_block_acceptance(
+                slot_id,
+                &latest_block_hash,
+                Duration::from_secs(30),
+            ));
             let naka_blocks = test_observer::get_mined_nakamoto_blocks();
             info!(
                 "----- Latest tenure extend timestamp: {} -----",
@@ -875,11 +882,6 @@ fn idle_tenure_extend_active_mining() {
             info!(
                 "----- Latest block transaction events: {} -----",
                 naka_blocks.last().unwrap().tx_events.len()
-            );
-            assert_eq!(
-                latest_response.get_signer_signature_hash(),
-                &get_last_block_hash(),
-                "Expected the latest block response to be for the latest block"
             );
             // Tenure-change blocks (BlockFound/Extended) roll the timestamp over to
             // `now + idle_timeout`, while regular blocks derive it from tenure start plus
@@ -923,7 +925,11 @@ fn idle_tenure_extend_active_mining() {
         })
         .expect("Expected a tenure extend after idle timeout");
 
-        last_response = signer_test.get_latest_block_response(slot_id);
+        last_response = BlockResponse::Accepted(wait_for_block_acceptance(
+            slot_id,
+            &get_last_block_hash(),
+            Duration::from_secs(30),
+        ));
 
         info!("----- Tenure {t} extended -----");
         log_idle_diff(last_response.get_tenure_extend_timestamp());
@@ -4756,18 +4762,11 @@ fn single_miner_empty_sortition() {
         .counters
         .naka_submitted_commits
         .clone();
-    let rl1_counters = signer_test.running_nodes.counters.clone();
-    let rl1_conf = signer_test.running_nodes.conf.clone();
-
     for _i in 0..3 {
         // Mine 1 nakamoto tenures
         info!("Mining tenure...");
 
-        signer_test.mine_block_wait_on_processing(
-            &[&rl1_conf],
-            &[&rl1_counters],
-            Duration::from_secs(30),
-        );
+        signer_test.mine_block_wait_on_processing(Duration::from_secs(30));
 
         // mine the interim blocks
         for _ in 0..2 {
