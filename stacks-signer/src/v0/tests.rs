@@ -588,6 +588,41 @@ mod async_sibling_validation {
         }))
     }
 
+    #[test]
+    fn direct_pending_validation_removal_preserves_count() {
+        let mut node = MockNode::new(vec![], Duration::from_secs(30));
+        let pending_hash = Sha512Trunc256Sum([0x42; 32]);
+
+        // Model a duplicate proposal queued while validation for the same hash
+        // is already in flight. Its response deletes the queued duplicate.
+        node.signer
+            .test_enqueue_pending_block_validation(&pending_hash, 1_000);
+        assert_eq!(node.signer.test_pending_block_validation_count(), 1);
+        assert_eq!(
+            node.signer
+                .signer_db
+                .get_pending_block_validation_count()
+                .unwrap(),
+            1
+        );
+
+        let SignerEvent::BlockValidationResponse(response) = validate_ok(&pending_hash) else {
+            unreachable!("validation helper must produce a response event");
+        };
+        node.signer
+            .test_handle_block_validate_response(&node.client, &response);
+        assert_eq!(node.signer.test_pending_block_validation_count(), 0);
+        assert_eq!(
+            node.signer
+                .signer_db
+                .get_pending_block_validation_count()
+                .unwrap(),
+            0
+        );
+
+        node.shutdown();
+    }
+
     /// Drive the sibling race: two conflicting tenure-start blocks A and B are both tracked
     /// (as they would be after screening two proposals within the async-validation window),
     /// A's validation returns first and is signed, then B's validation returns. Returns the

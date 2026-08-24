@@ -842,5 +842,9 @@ fn agreement_snapshot_exposes_discrete_threshold_gap_and_state_support() {
     assert_eq!(snapshot.evaluator_threshold_weight, 13);
     assert_eq!(snapshot.canonical_threshold_weight, 14);
     assert!(snapshot.global_state_available);
+    assert_eq!(
+        snapshot.global_state_available,
+        state_test.global_eval.determine_global_state().is_some()
+    );
     assert!(snapshot.maximum_state_view_weight < snapshot.canonical_threshold_weight);
 }

@@ -75,7 +75,7 @@ lazy_static! {
     )).unwrap();
     pub static ref SIGNER_STATE_LAST_CHANGED_TIMESTAMP_SECONDS: IntGauge = register_int_gauge!(opts!(
         "stacks_signer_state_last_changed_timestamp_seconds",
-        "Unix timestamp at which the current signer's local agreement state last changed"
+        "Process wall-clock timestamp at which the current signer's local agreement state was initialized or last changed"
     )).unwrap();
     pub static ref SIGNER_COMPANION_BURN_BLOCK_HEIGHT: IntGauge = register_int_gauge!(opts!(
         "stacks_signer_companion_burn_block_height",

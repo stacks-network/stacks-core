@@ -105,6 +105,17 @@ pub mod actions {
             .set(i64::try_from(pending_block_validations).unwrap_or(i64::MAX));
     }
 
+    /// Clear unlabelled current-cycle gauges when no current signer is hosted.
+    pub fn clear_current_signer_metrics() {
+        update_signer_state(None, None, 0);
+        SIGNER_GLOBAL_STATE_AVAILABLE.set(0);
+        SIGNER_GLOBAL_STATE_TOTAL_WEIGHT.set(0);
+        SIGNER_GLOBAL_STATE_KNOWN_WEIGHT.set(0);
+        SIGNER_GLOBAL_STATE_MAXIMUM_VIEW_WEIGHT.set(0);
+        SIGNER_GLOBAL_STATE_EVALUATOR_THRESHOLD_WEIGHT.set(0);
+        SIGNER_GLOBAL_STATE_CANONICAL_THRESHOLD_WEIGHT.set(0);
+    }
+
     /// Record a canonical burn height learned successfully from the companion.
     pub fn update_companion_burn_block_height(burn_block_height: u64) {
         SIGNER_COMPANION_BURN_BLOCK_HEIGHT
@@ -269,6 +280,9 @@ pub mod actions {
     ) {
     }
 
+    /// No-op current-cycle metric reset when Prometheus is disabled.
+    pub fn clear_current_signer_metrics() {}
+
     /// No-op companion burn height metric when Prometheus is disabled.
     pub fn update_companion_burn_block_height(_burn_block_height: u64) {}
 
@@ -370,6 +384,16 @@ fn lifecycle_metrics_export_bounded_gauges() {
     actions::update_reward_cycle_registration(true, false);
     actions::update_signer_state(Some(123), Some(456), 7);
     actions::update_companion_burn_block_height(125);
+    actions::update_global_state_agreement(
+        libsigner::v0::signer_state::GlobalStateAgreementSnapshot {
+            total_weight: 20,
+            known_weight: 18,
+            maximum_state_view_weight: 14,
+            evaluator_threshold_weight: 14,
+            canonical_threshold_weight: 14,
+            global_state_available: true,
+        },
+    );
 
     assert_eq!(prometheus::SIGNER_RUNLOOP_READY.get(), 1);
     assert_eq!(prometheus::SIGNER_REGISTERED_CURRENT_REWARD_CYCLE.get(), 1);
@@ -381,6 +405,41 @@ fn lifecycle_metrics_export_bounded_gauges() {
     );
     assert_eq!(prometheus::SIGNER_PENDING_BLOCK_VALIDATIONS.get(), 7);
     assert_eq!(prometheus::SIGNER_COMPANION_BURN_BLOCK_HEIGHT.get(), 125);
+    assert_eq!(prometheus::SIGNER_GLOBAL_STATE_AVAILABLE.get(), 1);
+    assert_eq!(prometheus::SIGNER_GLOBAL_STATE_TOTAL_WEIGHT.get(), 20);
+    assert_eq!(prometheus::SIGNER_GLOBAL_STATE_KNOWN_WEIGHT.get(), 18);
+    assert_eq!(
+        prometheus::SIGNER_GLOBAL_STATE_MAXIMUM_VIEW_WEIGHT.get(),
+        14
+    );
+    assert_eq!(
+        prometheus::SIGNER_GLOBAL_STATE_EVALUATOR_THRESHOLD_WEIGHT.get(),
+        14
+    );
+    assert_eq!(
+        prometheus::SIGNER_GLOBAL_STATE_CANONICAL_THRESHOLD_WEIGHT.get(),
+        14
+    );
+
+    actions::clear_current_signer_metrics();
+    assert_eq!(prometheus::SIGNER_STATE_BURN_BLOCK_HEIGHT.get(), 0);
+    assert_eq!(
+        prometheus::SIGNER_STATE_LAST_CHANGED_TIMESTAMP_SECONDS.get(),
+        0
+    );
+    assert_eq!(prometheus::SIGNER_PENDING_BLOCK_VALIDATIONS.get(), 0);
+    assert_eq!(prometheus::SIGNER_GLOBAL_STATE_AVAILABLE.get(), 0);
+    assert_eq!(prometheus::SIGNER_GLOBAL_STATE_TOTAL_WEIGHT.get(), 0);
+    assert_eq!(prometheus::SIGNER_GLOBAL_STATE_KNOWN_WEIGHT.get(), 0);
+    assert_eq!(prometheus::SIGNER_GLOBAL_STATE_MAXIMUM_VIEW_WEIGHT.get(), 0);
+    assert_eq!(
+        prometheus::SIGNER_GLOBAL_STATE_EVALUATOR_THRESHOLD_WEIGHT.get(),
+        0
+    );
+    assert_eq!(
+        prometheus::SIGNER_GLOBAL_STATE_CANONICAL_THRESHOLD_WEIGHT.get(),
+        0
+    );
 
     let exposition = prometheus::gather_metrics_string();
     for metric in [

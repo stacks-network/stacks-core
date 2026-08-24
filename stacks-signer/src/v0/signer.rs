@@ -128,7 +128,7 @@ pub struct Signer {
     pub local_state_machine: LocalStateMachine,
     /// Process-local count of validations queued successfully in signer DB.
     pending_block_validations: u64,
-    /// Last process wall-clock timestamp at which the local state changed.
+    /// Last process wall-clock timestamp at which the local state was initialized or changed.
     local_state_last_changed_timestamp_seconds: Option<u64>,
     /// Cache of stacks block IDs for blocks recently processed by our stacks-node
     recently_processed: RecentlyProcessedBlocks<100>,
@@ -515,6 +515,45 @@ impl Signer {
             self.pending_block_validations = self.pending_block_validations.saturating_sub(1);
         }
         Ok(pending)
+    }
+
+    fn remove_pending_block_validation(
+        &mut self,
+        signer_signature_hash: &Sha512Trunc256Sum,
+    ) -> Result<bool, DBError> {
+        let removed = self
+            .signer_db
+            .remove_pending_block_validation(signer_signature_hash)?;
+        if removed {
+            self.pending_block_validations = self.pending_block_validations.saturating_sub(1);
+        }
+        Ok(removed)
+    }
+
+    #[cfg(test)]
+    /// Enqueue a pending validation through the production accounting path.
+    pub fn test_enqueue_pending_block_validation(
+        &mut self,
+        signer_signature_hash: &Sha512Trunc256Sum,
+        added_epoch_time: u64,
+    ) {
+        self.enqueue_pending_block_validation(signer_signature_hash, added_epoch_time);
+    }
+
+    #[cfg(test)]
+    /// Return the process-local pending-validation count for regression tests.
+    pub fn test_pending_block_validation_count(&self) -> u64 {
+        self.pending_block_validations
+    }
+
+    #[cfg(test)]
+    /// Process a validation response through the production response path.
+    pub fn test_handle_block_validate_response(
+        &mut self,
+        stacks_client: &StacksClient,
+        block_validate_response: &BlockValidateResponse,
+    ) {
+        self.handle_block_validate_response(stacks_client, block_validate_response, &mut None);
     }
 
     /// Determine this signers response to a proposed block
@@ -2126,9 +2165,9 @@ impl Signer {
         };
         // Remove this block validation from the pending table
         let signer_sig_hash = block_validate_response.signer_signature_hash();
-        self.signer_db
-            .remove_pending_block_validation(signer_sig_hash)
-            .unwrap_or_else(|e| warn!("{self}: Failed to remove pending block validation: {e:?}"));
+        if let Err(error) = self.remove_pending_block_validation(signer_sig_hash) {
+            warn!("{self}: Failed to remove pending block validation: {error:?}");
+        }
 
         // Check if there is a pending block validation that we need to submit to the node
         self.check_pending_block_validations(stacks_client);

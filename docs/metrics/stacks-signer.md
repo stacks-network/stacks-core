@@ -7,17 +7,18 @@ These metrics are exported by `stacks-signer` when it is built with the
 process readiness and observed state; they do not alter signer policy,
 thresholds, retries, persistence, or protocol messages.
 
-All counters and gauges have process-lifetime reset semantics. A missing time
-series means the process is not being scraped; it must not be interpreted as a
-zero value.
+These gauges have process-lifetime reset semantics. A missing series can mean
+the process is not being scraped or the runloop has not initialized that metric
+family; it must not be interpreted as a zero value. Use the scrape `up` metric
+and `stacks_signer_runloop_ready` to distinguish those cases.
 
 | Metric | Type | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `stacks_signer_runloop_ready` | gauge | `1` after successful outer-runloop initialization, otherwise `0`. |
 | `stacks_signer_registered_for_current_reward_cycle` | gauge | Whether this process hosts a registered signer for the current cycle. |
 | `stacks_signer_registered_for_next_reward_cycle` | gauge | Whether this process hosts a registered signer for the next cycle. |
 | `stacks_signer_state_burn_block_height` | gauge | Burn height represented by the current signer's committed local state. A pending update continues to report its prior committed height. |
-| `stacks_signer_state_last_changed_timestamp_seconds` | gauge | Unix timestamp of the last actual local-state transition. Re-observing an unchanged state does not refresh it. |
+| `stacks_signer_state_last_changed_timestamp_seconds` | gauge | Process wall-clock timestamp when the current local state was initialized or last changed. A process restart resets this freshness origin; re-observing an unchanged state does not refresh it. |
 | `stacks_signer_companion_burn_block_height` | gauge | Latest canonical burn height learned successfully from the companion node. |
 | `stacks_signer_pending_block_validations` | gauge | Current pending-validation backlog. It is initialized once from signer DB and maintained at successful queue transitions; scrapes do not query SQLite. |
 | `stacks_signer_global_state_available` | gauge | Whether the current-cycle evaluator can derive a supported exact global state. |
@@ -38,5 +39,6 @@ signer keys, block hashes, or peer identities; deployment systems can attach a
 bounded actor identity at scrape time.
 
 `stacks_signer_state_last_changed_timestamp_seconds` is sampled from the signer
-process wall clock. Clock-fault experiments must compare it with an independent
+process wall clock and is initialized from the state loaded when the signer
+instance starts. Clock-fault experiments must compare it with an independent
 collector clock before interpreting apparent staleness.

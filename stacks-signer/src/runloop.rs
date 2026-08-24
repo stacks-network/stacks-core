@@ -456,15 +456,22 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
     }
 
     fn update_registration_metrics(&self) {
-        let Some(reward_cycle_info) = self.current_reward_cycle_info else {
-            crate::monitoring::actions::update_reward_cycle_registration(false, false);
-            return;
+        let (current, next) = if let Some(reward_cycle_info) = self.current_reward_cycle_info {
+            let current_reward_cycle = reward_cycle_info.reward_cycle;
+            (
+                Self::is_registered_for_cycle(&self.stacks_signers, current_reward_cycle),
+                Self::is_registered_for_cycle(
+                    &self.stacks_signers,
+                    current_reward_cycle.saturating_add(1),
+                ),
+            )
+        } else {
+            (false, false)
         };
-        let current = reward_cycle_info.reward_cycle;
-        crate::monitoring::actions::update_reward_cycle_registration(
-            Self::is_registered_for_cycle(&self.stacks_signers, current),
-            Self::is_registered_for_cycle(&self.stacks_signers, current.saturating_add(1)),
-        );
+        crate::monitoring::actions::update_reward_cycle_registration(current, next);
+        if !current {
+            crate::monitoring::actions::clear_current_signer_metrics();
+        }
     }
 
     fn is_configured_for_cycle(

@@ -58,6 +58,14 @@ pub struct GlobalStateAgreementSnapshot {
     pub global_state_available: bool,
 }
 
+/// Aggregated support for exact signer state views at one protocol version.
+struct StateViewSupport {
+    /// An exact state view that reached the evaluator threshold.
+    agreed_state: Option<SignerStateMachine>,
+    /// Greatest observed weight supporting one exact state view.
+    maximum_weight: u32,
+}
+
 impl GlobalStateEvaluator {
     /// Create a new state evaluator
     pub fn new(
@@ -123,33 +131,16 @@ impl GlobalStateEvaluator {
     pub fn determine_global_state(&self) -> Option<SignerStateMachine> {
         let active_signer_protocol_version =
             self.determine_latest_supported_signer_protocol_version()?;
-        let mut state_views = HashMap::new();
+        let StateViewSupport {
+            mut agreed_state, ..
+        } = self.state_view_support(active_signer_protocol_version);
         let mut tx_replay_sets = HashMap::new();
-        let mut found_state_view = None;
         let mut found_replay_set = None;
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
                 continue;
             };
-            let (burn_block, burn_block_height) = update.content.burn_block_view();
-            let current_miner = update.content.current_miner();
             let tx_replay_set = update.content.tx_replay_set();
-
-            let state_machine = SignerStateMachine {
-                burn_block: burn_block.clone(),
-                burn_block_height,
-                current_miner: current_miner.clone().into(),
-                active_signer_protocol_version,
-                // We need to calculate the threshold for the tx_replay_set separately
-                tx_replay_set: ReplayTransactionSet::none(),
-            };
-            let key = SignerStateMachineKey(state_machine.clone());
-            let entry = state_views.entry(key).or_insert_with(|| 0);
-            *entry += weight;
-
-            if self.reached_agreement(*entry) {
-                found_state_view = Some(state_machine);
-            }
 
             let replay_entry = tx_replay_sets
                 .entry(tx_replay_set.clone())
@@ -158,8 +149,6 @@ impl GlobalStateEvaluator {
 
             if self.reached_agreement(*replay_entry) {
                 found_replay_set = Some(tx_replay_set);
-            }
-            if found_replay_set.is_some() && found_state_view.is_some() {
                 break;
             }
         }
@@ -172,10 +161,10 @@ impl GlobalStateEvaluator {
                 .unwrap_or_else(ReplayTransactionSet::none)
         };
 
-        if let Some(state_view) = found_state_view.as_mut() {
+        if let Some(state_view) = agreed_state.as_mut() {
             state_view.tx_replay_set = final_replay_set;
         }
-        found_state_view
+        agreed_state
     }
 
     /// Will insert the update for the given address and weight only if the GlobalStateMachineEvaluator already is aware of this address
@@ -199,34 +188,18 @@ impl GlobalStateEvaluator {
         });
         let evaluator_numerator =
             u64::from(self.total_weight).strict_mul(NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD);
-        let evaluator_threshold_weight = u32::try_from(evaluator_numerator / 10)
-            .expect("global signer-state threshold cannot exceed u32");
+        let evaluator_threshold_weight = self.evaluator_threshold_weight();
         let canonical_threshold_weight = u32::try_from(evaluator_numerator.div_ceil(10))
             .expect("canonical signer threshold cannot exceed u32");
 
         let active_signer_protocol_version =
             self.determine_latest_supported_signer_protocol_version();
-        let mut state_views = HashMap::new();
-        if let Some(active_signer_protocol_version) = active_signer_protocol_version {
-            for (address, update) in &self.address_updates {
-                let Some(weight) = self.address_weights.get(address) else {
-                    continue;
-                };
-                let (burn_block, burn_block_height) = update.content.burn_block_view();
-                let state_machine = SignerStateMachine {
-                    burn_block: burn_block.clone(),
-                    burn_block_height,
-                    current_miner: update.content.current_miner().clone().into(),
-                    active_signer_protocol_version,
-                    tx_replay_set: ReplayTransactionSet::none(),
-                };
-                let entry = state_views
-                    .entry(SignerStateMachineKey(state_machine))
-                    .or_insert(0u32);
-                *entry = entry.saturating_add(*weight);
-            }
-        }
-        let maximum_state_view_weight = state_views.values().copied().max().unwrap_or(0);
+        let state_view_support =
+            active_signer_protocol_version.map(|version| self.state_view_support(version));
+        let maximum_state_view_weight = state_view_support
+            .as_ref()
+            .map(|support| support.maximum_weight)
+            .unwrap_or(0);
 
         GlobalStateAgreementSnapshot {
             total_weight: self.total_weight,
@@ -234,17 +207,56 @@ impl GlobalStateEvaluator {
             maximum_state_view_weight,
             evaluator_threshold_weight,
             canonical_threshold_weight,
-            global_state_available: active_signer_protocol_version.is_some()
-                && maximum_state_view_weight >= evaluator_threshold_weight,
+            global_state_available: state_view_support
+                .is_some_and(|support| support.agreed_state.is_some()),
         }
+    }
+
+    /// Aggregate support for exact state views using the evaluator's decision path.
+    fn state_view_support(&self, active_signer_protocol_version: u64) -> StateViewSupport {
+        let mut state_views = HashMap::new();
+        let mut agreed_state = None;
+        let mut maximum_weight = 0;
+
+        for (address, update) in &self.address_updates {
+            let Some(weight) = self.address_weights.get(address) else {
+                continue;
+            };
+            let (burn_block, burn_block_height) = update.content.burn_block_view();
+            let state_machine = SignerStateMachine {
+                burn_block: burn_block.clone(),
+                burn_block_height,
+                current_miner: update.content.current_miner().clone().into(),
+                active_signer_protocol_version,
+                tx_replay_set: ReplayTransactionSet::none(),
+            };
+            let entry = state_views
+                .entry(SignerStateMachineKey(state_machine.clone()))
+                .or_insert(0u32);
+            *entry = entry.saturating_add(*weight);
+            maximum_weight = maximum_weight.max(*entry);
+            if self.reached_agreement(*entry) {
+                agreed_state = Some(state_machine);
+            }
+        }
+
+        StateViewSupport {
+            agreed_state,
+            maximum_weight,
+        }
+    }
+
+    /// Return the rounded-down threshold used by the global-state evaluator.
+    fn evaluator_threshold_weight(&self) -> u32 {
+        let numerator =
+            u64::from(self.total_weight).strict_mul(NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD);
+        u32::try_from(numerator / 10).expect("global signer-state threshold cannot exceed u32")
     }
 
     /// Check if the supplied vote weight crosses the global agreement threshold.
     /// Returns true if it has, false otherwise.
     pub fn reached_agreement(&self, vote_weight: u32) -> bool {
-        u64::from(vote_weight)
-            >= u64::from(self.total_weight).strict_mul(NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD)
-                / 10
+        vote_weight >= self.evaluator_threshold_weight()
     }
 
     /// Check if the supplied vote weight crosses the blocking minority threshold.
