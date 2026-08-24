@@ -264,6 +264,7 @@ else
                     or $name == "tests::signer::v0::multiple_miners_with_custom_chain_id"
                     or $name == "tests::signer::v0::multiple_miners_with_nakamoto_blocks"
                     or $name == "tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner"
+                    or $name == "tests::signer::v0::reorg::bitcoin_reorg_extended_tenure"
                     or $name == "tests::signer::v0::reorg::no_reorg_due_to_successive_block_validation_ok"
                     or $name == "tests::signer::v0::signers_wait_for_validation::signer_waits_for_validation_before_signing"
                     or $name == "tests::signer::v0::tx_replay::tx_replay_forking_test"
