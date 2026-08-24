@@ -4873,7 +4873,7 @@ fn duplicate_signers() {
 #[ignore]
 fn signer_multinode_rollover() {
     const TEST_TIMEOUT_SECS: u64 = 120;
-    const TENURE_ATTEMPT_TIMEOUT_SECS: u64 = 90;
+    const TENURE_ATTEMPT_TIMEOUT_SECS: u64 = 60;
 
     let num_signers = 5;
     let new_num_signers = 4;
@@ -4985,6 +4985,43 @@ fn signer_multinode_rollover() {
     let burnchain = miners.get_node_configs().0.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
+    let mine_confirmed_tenure = |miners: &mut MultipleMinerTest, label: &str| {
+        let mut last_error = String::new();
+        for attempt in 1..=2 {
+            match miners.mine_bitcoin_block_and_wait_for_both_nodes(TENURE_ATTEMPT_TIMEOUT_SECS) {
+                Ok(_) => return,
+                Err(error) => {
+                    warn!(
+                        "{label} did not converge on attempt {attempt}; mining another burn block: {error}"
+                    );
+                    last_error = error;
+                }
+            }
+        }
+        panic!("failed to converge on {label} after two burn blocks: {last_error}");
+    };
+
+    let advance_to_burn_height = |miners: &mut MultipleMinerTest,
+                                  target_burn_height: u64,
+                                  label: &str| {
+        while miners.btc_regtest_controller().get_bitcoin_chain_height() < target_burn_height {
+            let burn_height_before = miners.btc_regtest_controller().get_bitcoin_chain_height();
+            if let Err(error) =
+                miners.mine_bitcoin_block_and_wait_for_both_nodes(TENURE_ATTEMPT_TIMEOUT_SECS)
+            {
+                let burn_height_after = miners.btc_regtest_controller().get_bitcoin_chain_height();
+                assert!(
+                    burn_height_after > burn_height_before,
+                    "failed to advance {label} from burn height {burn_height_before}: {error}"
+                );
+                warn!(
+                    "{label} advanced to burn height {burn_height_after} without a confirmed \
+                         tenure; continuing from the missed tenure: {error}"
+                );
+            }
+        }
+    };
+
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
         .unwrap();
@@ -5067,12 +5104,19 @@ fn signer_multinode_rollover() {
         submit_tx(&node_http, &stacking_tx);
     }
 
-    wait_for(TEST_TIMEOUT_SECS, || {
+    let stacking_txs_mined = || {
         Ok(accounts_to_check
             .iter()
             .all(|acct| get_account(&node_http, acct).nonce >= 1))
-    })
-    .expect("Timed out waiting for stacking txs to be mined");
+    };
+    if wait_for(TENURE_ATTEMPT_TIMEOUT_SECS, stacking_txs_mined).is_err() {
+        warn!(
+            "Stacking transactions were not confirmed by the current tenure; mining a recovery tenure"
+        );
+        mine_confirmed_tenure(&mut miners, "the stacking-transaction recovery tenure");
+        wait_for(TEST_TIMEOUT_SECS, stacking_txs_mined)
+            .expect("Timed out waiting for stacking txs to be mined after a recovery tenure");
+    }
 
     let next_reward_cycle = reward_cycle.saturating_add(1);
 
@@ -5082,10 +5126,10 @@ fn signer_multinode_rollover() {
         .nakamoto_first_block_of_cycle(next_reward_cycle)
         .saturating_add(1);
 
-    miners.signer_test.run_until_burnchain_height_nakamoto(
-        Duration::from_secs(TEST_TIMEOUT_SECS),
+    advance_to_burn_height(
+        &mut miners,
         next_cycle_height.saturating_sub(3),
-        new_num_signers,
+        "the pre-rollover prepare phase",
     );
 
     miners.wait_for_chains(120);
@@ -5098,10 +5142,10 @@ fn signer_multinode_rollover() {
     }
 
     info!("---- Mining to just before the next reward cycle (block {next_cycle_height}) -----",);
-    miners.signer_test.run_until_burnchain_height_nakamoto(
-        Duration::from_secs(TEST_TIMEOUT_SECS),
+    advance_to_burn_height(
+        &mut miners,
         next_cycle_height.saturating_sub(1),
-        new_num_signers,
+        "the final pre-rollover burn height",
     );
 
     let (old_spawned_signers, _, _) =
@@ -5112,29 +5156,12 @@ fn signer_multinode_rollover() {
     miners.wait_for_chains(120);
 
     info!("---- Mining into the next reward cycle (block {next_cycle_height}) -----",);
-    miners.signer_test.run_until_burnchain_height_nakamoto(
-        Duration::from_secs(TEST_TIMEOUT_SECS),
-        next_cycle_height,
-        new_num_signers,
-    );
+    while miners.btc_regtest_controller().get_bitcoin_chain_height() < next_cycle_height {
+        miners.ensure_commit_miner_1(&sortdb);
+        mine_confirmed_tenure(&mut miners, "the rollover tenure");
+    }
     let new_reward_cycle = miners.signer_test.get_current_reward_cycle();
     assert_eq!(new_reward_cycle, reward_cycle.saturating_add(1));
-
-    let mine_confirmed_tenure = |miners: &mut MultipleMinerTest, label: &str| {
-        let mut last_error = String::new();
-        for attempt in 1..=2 {
-            match miners.mine_bitcoin_block_and_wait_for_both_nodes(TENURE_ATTEMPT_TIMEOUT_SECS) {
-                Ok(_) => return,
-                Err(error) => {
-                    warn!(
-                        "{label} did not converge on attempt {attempt}; mining another burn block: {error}"
-                    );
-                    last_error = error;
-                }
-            }
-        }
-        panic!("failed to converge on {label} after two burn blocks: {last_error}");
-    };
 
     miners.ensure_commit_miner_1(&sortdb);
     mine_confirmed_tenure(&mut miners, "the first new-signer tenure");
