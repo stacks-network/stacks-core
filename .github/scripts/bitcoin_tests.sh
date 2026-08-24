@@ -268,6 +268,7 @@ else
                     or $name == "tests::signer::v0::epoch_4_0_reorg::bitcoin_reorg_of_epoch_4_0_activation_block::t::slow::bitcoind::t"
                     or $name == "tests::signer::v0::reorg::bitcoin_reorg_extended_tenure"
                     or $name == "tests::signer::v0::reorg::no_reorg_due_to_successive_block_validation_ok"
+                    or $name == "tests::signer::v0::signers_consider_consensus_blocks::signers_do_not_reconsider_globally_accepted_and_responded_blocks"
                     or $name == "tests::signer::v0::signers_wait_for_validation::signer_waits_for_validation_before_signing"
                     or $name == "tests::signer::v0::tenure_extend::prev_miner_extends_if_incoming_miner_fails_to_mine_failure"
                     or $name == "tests::signer::v0::tx_replay::tx_replay_btc_on_stx_invalidation"

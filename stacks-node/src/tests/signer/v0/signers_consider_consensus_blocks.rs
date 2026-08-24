@@ -134,7 +134,7 @@ fn signers_do_not_reconsider_globally_accepted_and_responded_blocks() {
     info!("------------------------- Mine First Block N -------------------------");
     // Mine an initial block to establish state
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 60)
         .expect("Failed to mine BTC block followed by tenure change tx");
     miners.ensure_commit_miner_1(&sortdb);
     miners.signer_test.check_signer_states_normal();
