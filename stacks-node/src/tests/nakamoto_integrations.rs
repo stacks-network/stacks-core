@@ -10827,6 +10827,11 @@ fn test_shadow_recovery() {
     // fix node
     let shadow_blocks = shadow_chainstate_repair(&mut chainstate, &mut sortdb).unwrap();
     assert!(!shadow_blocks.is_empty());
+    let repaired_tip_height = shadow_blocks
+        .iter()
+        .map(|block| block.header.chain_length)
+        .max()
+        .expect("shadow repair produced no blocks");
 
     wait_for(30, || {
         let Some(info) = get_chain_info_opt(&naka_conf) else {
@@ -10848,14 +10853,16 @@ fn test_shadow_recovery() {
     // sign the first post-recovery tenure.
     signer_test.get_burn_updated_states();
 
-    // The first commit after repair can still reference the pre-repair PoX
-    // anchor while the miner refreshes its burn view. Require recovery, but
-    // allow a bounded number of fresh burn views instead of rerunning the
-    // entire test from genesis.
+    // The next burn block may extend the recovered tenure instead of electing
+    // a new miner. The recovery assertion below needs a normal post-shadow
+    // block, not another block commit, so wait for chain progress directly.
     let mut recovered = false;
     let mut last_recovery_error = String::new();
     for attempt in 1..=3 {
-        match next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters) {
+        match next_block_and(btc_regtest_controller, 60, || {
+            Ok(get_chain_info_opt(&naka_conf)
+                .is_some_and(|info| info.stacks_tip_height > repaired_tip_height))
+        }) {
             Ok(()) => {
                 recovered = true;
                 break;
@@ -10872,7 +10879,7 @@ fn test_shadow_recovery() {
     }
     assert!(
         recovered,
-        "Failed to mine a post-shadow recovery tenure after 3 attempts: {last_recovery_error}"
+        "Failed to mine a post-shadow recovery block after 3 attempts: {last_recovery_error}"
     );
 
     // all shadow blocks are present and processed

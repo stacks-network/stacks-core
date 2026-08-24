@@ -259,6 +259,7 @@ else
                 if ($name == "tests::signer::v0::block_validation_check_rejection_timeout_heuristic"
                     or $name == "tests::signer::v0::signers_do_not_commit_unless_threshold_precommitted"
                     or $name == "tests::signer::v0::signer_multinode_rollover"
+                    or $name == "tests::signer::v0::multiple_miners_with_nakamoto_blocks"
                     or $name == "tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner"
                     or $name == "tests::signer::v0::reorg::no_reorg_due_to_successive_block_validation_ok"
                     or $name == "tests::signer::v0::signers_wait_for_validation::signer_waits_for_validation_before_signing"

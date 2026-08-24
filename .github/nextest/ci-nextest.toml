@@ -40,6 +40,13 @@ threads-required = "num-test-threads"
 filter = 'test(=tests::signer::v0::signer_multinode_rollover)'
 threads-required = "num-test-threads"
 
+# This test runs two miners, two nodes, and five signers while requiring both
+# miners to keep submitting commits. A competing integration can starve one
+# node long enough to trip the per-tenure progress timeout.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::multiple_miners_with_nakamoto_blocks)'
+threads-required = "num-test-threads"
+
 # This idle-timeout test assumes its setup finishes before the 30-second idle
 # window. A competing signer integration can consume that window before the
 # test deliberately starts the next tenure.
