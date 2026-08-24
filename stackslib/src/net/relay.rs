@@ -34,7 +34,9 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, Sortitio
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::{Error as CoordinatorError, OnChainRewardSetProvider};
-use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::nakamoto::coordinator::{
+    load_nakamoto_reward_set, load_nakamoto_reward_set_for_tenure,
+};
 use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
@@ -1009,45 +1011,25 @@ impl Relayer {
             &block.header.block_hash()
         );
 
-        let tip = block_sn.sortition_id;
+        let tip = &block_sn.sortition_id;
 
-        let reward_info = match load_nakamoto_reward_set(
-            burnchain
-                .block_height_to_reward_cycle(block_sn.block_height)
-                .expect("FATAL: block snapshot has no reward cycle"),
-            &tip,
+        let reward_set = match load_nakamoto_reward_set_for_tenure(
+            &block_sn,
             burnchain,
             chainstate,
             stacks_tip,
             sortdb,
             &OnChainRewardSetProvider::new(),
         ) {
-            Ok(Some((reward_info, ..))) => reward_info,
+            Ok(Some(reward_set)) => reward_set,
             Ok(None) => {
                 error!("No RewardCycleInfo found for tip {}", tip);
                 return Err(chainstate_error::PoxNoRewardCycle);
             }
-            Err(CoordinatorError::DBError(db_error::NotFoundError)) => {
-                error!("No RewardCycleInfo found for tip {}", tip);
-                return Err(chainstate_error::PoxNoRewardCycle);
-            }
-            Err(CoordinatorError::ChainstateError(e)) => {
+            Err(e) => {
                 error!("No RewardCycleInfo loaded for tip {}: {:?}", tip, &e);
                 return Err(e);
             }
-            Err(CoordinatorError::DBError(e)) => {
-                error!("No RewardCycleInfo loaded for tip {}: {:?}", tip, &e);
-                return Err(chainstate_error::DBError(e));
-            }
-            Err(e) => {
-                error!("Failed to load RewardCycleInfo for tip {}: {:?}", tip, &e);
-                return Err(chainstate_error::PoxNoRewardCycle);
-            }
-        };
-        let reward_cycle = reward_info.reward_cycle;
-
-        let Some(reward_set) = reward_info.known_selected_anchor_block_owned() else {
-            return Err(chainstate_error::NoRegisteredSigners(reward_cycle));
         };
 
         let accepted = NakamotoChainState::accept_block(

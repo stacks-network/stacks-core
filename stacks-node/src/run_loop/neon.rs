@@ -330,13 +330,7 @@ impl RunLoop {
             config.burnchain.burn_fee_cap,
         )));
 
-        let mut event_dispatcher = EventDispatcher::new_with_custom_queue_size(
-            config.get_working_dir(),
-            config.node.effective_event_dispatcher_queue_size(),
-        );
-        for observer in config.events_observers.iter() {
-            event_dispatcher.register_observer(observer);
-        }
+        let event_dispatcher = EventDispatcher::from_config(&config);
 
         Self {
             config,
