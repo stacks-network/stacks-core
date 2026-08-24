@@ -31,13 +31,14 @@ python3 .github/scripts/generate_test_timings.py \
   --input-dir "$timing_dir" \
   --source-run RUN_ID \
   --minimum-seconds 1 \
+  --test-percentile 90 \
   --output .github/test-timings/unit.json
 ```
 
 For a more stable estimate, download several representative runs into separate
-directories and repeat `--input-dir` for each one. The generator uses each
-test's 80th-percentile runtime across those runs; use `--test-percentile` to
-override it and set `--source-run` to the newest included run.
+directories and repeat `--input-dir` for each one. Unit shards use each test's
+90th-percentile runtime because CPU- and memory-heavy tests vary substantially
+when sharing a four-slot runner. Set `--source-run` to the newest included run.
 
 Seed a new timing model after changing the archive, package, or feature
 topology. Older samples can reflect a different compilation or contention
