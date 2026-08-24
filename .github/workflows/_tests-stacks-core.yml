@@ -75,20 +75,23 @@ jobs:
       matrix:
         include:
           # Stackslib contains nearly all historically slow general-unit work.
-          # Twelve shards limit runner-wide variance from its memory-heavy
+          # Fifteen shards bound runner-wide contention from memory-heavy
           # Clarity cases while keeping each job above its setup overhead.
-          - { suite: stackslib, partition: 1, total-partitions: 12 }
-          - { suite: stackslib, partition: 2, total-partitions: 12 }
-          - { suite: stackslib, partition: 3, total-partitions: 12 }
-          - { suite: stackslib, partition: 4, total-partitions: 12 }
-          - { suite: stackslib, partition: 5, total-partitions: 12 }
-          - { suite: stackslib, partition: 6, total-partitions: 12 }
-          - { suite: stackslib, partition: 7, total-partitions: 12 }
-          - { suite: stackslib, partition: 8, total-partitions: 12 }
-          - { suite: stackslib, partition: 9, total-partitions: 12 }
-          - { suite: stackslib, partition: 10, total-partitions: 12 }
-          - { suite: stackslib, partition: 11, total-partitions: 12 }
-          - { suite: stackslib, partition: 12, total-partitions: 12 }
+          - { suite: stackslib, partition: 1, total-partitions: 15 }
+          - { suite: stackslib, partition: 2, total-partitions: 15 }
+          - { suite: stackslib, partition: 3, total-partitions: 15 }
+          - { suite: stackslib, partition: 4, total-partitions: 15 }
+          - { suite: stackslib, partition: 5, total-partitions: 15 }
+          - { suite: stackslib, partition: 6, total-partitions: 15 }
+          - { suite: stackslib, partition: 7, total-partitions: 15 }
+          - { suite: stackslib, partition: 8, total-partitions: 15 }
+          - { suite: stackslib, partition: 9, total-partitions: 15 }
+          - { suite: stackslib, partition: 10, total-partitions: 15 }
+          - { suite: stackslib, partition: 11, total-partitions: 15 }
+          - { suite: stackslib, partition: 12, total-partitions: 15 }
+          - { suite: stackslib, partition: 13, total-partitions: 15 }
+          - { suite: stackslib, partition: 14, total-partitions: 15 }
+          - { suite: stackslib, partition: 15, total-partitions: 15 }
           - { suite: remaining, partition: 1, total-partitions: 2 }
           - { suite: remaining, partition: 2, total-partitions: 2 }
           - { suite: stacks-node, partition: 1, total-partitions: 1 }
