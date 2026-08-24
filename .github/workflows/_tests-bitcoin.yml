@@ -133,8 +133,8 @@ jobs:
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
-          
-   integration-tests-3:
+
+  integration-tests-3:
     name: Integration Tests (Partition 3)
     needs: generate-tests
     runs-on: ubuntu-latest
