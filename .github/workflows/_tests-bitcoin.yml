@@ -106,108 +106,90 @@ jobs:
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
-integration-tests-2:
-  name: Integration Tests (Partition 2)
-  needs: generate-tests
-  runs-on: ubuntu-latest
-  if: always() && !cancelled() && needs.generate-tests.result != 'failure'
-  strategy:
-    fail-fast: false
-    matrix:
-      batch: ${{ needs.generate-tests.outputs.batches_2 == '[]' && fromJSON('[{"is_empty": true}]') || fromJSON(needs.generate-tests.outputs.batches_2) }}
-  steps:
-    - name: Log Empty Batch
-      if: ${{ matrix.batch.is_empty }}
-      run: echo "::notice::Partition 2 received an empty batch array. Skipping test run successfully."
-
-    - name: Checkout the latest code
-      if: ${{ !matrix.batch.is_empty }}
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        ref: ${{ github.event.pull_request.head.sha || github.ref }}
-        sparse-checkout: .github
-        
-    # Setup, run tests, generate and upload code coverage artifact
-    - name: Setup + Run Tests + Codecov
-      if: ${{ !matrix.batch.is_empty }}
-      uses: ./.github/actions/run-tests
-      timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-      with:
-        test-names: ${{ matrix.batch.csv }}
-        archive-file: ${{ inputs.archive-file }}
-        debug-binary-path: ${{ inputs.debug-binary-path }}
-        codecov-test-name: isolated-test-${{ matrix.batch.index }}
-        upload-junit-xml: ${{ inputs.upload-junit-xml }}
-        upload-code-coverage: ${{ inputs.upload-code-coverage }}
+  integration-tests-2:
+    name: Integration Tests (Partition 2)
+    needs: generate-tests
+    runs-on: ubuntu-latest
+    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batches_2 != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        batch: ${{ fromJSON(needs.generate-tests.outputs.batches_2) }}
+    steps:
+      - name: Checkout the latest code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: .github
           
- integration-tests-3:
-  name: Integration Tests (Partition 3)
-  needs: generate-tests
-  runs-on: ubuntu-latest
-  if: always() && !cancelled() && needs.generate-tests.result != 'failure'
-  strategy:
-    fail-fast: false
-    matrix:
-      batch: ${{ needs.generate-tests.outputs.batches_3 == '[]' && fromJSON('[{"is_empty": true}]') || fromJSON(needs.generate-tests.outputs.batches_3) }}
-  steps:
-    - name: Log Empty Batch
-      if: ${{ matrix.batch.is_empty }}
-      run: echo "::notice::Partition 3 received an empty batch array. Skipping test run successfully."
-
-    - name: Checkout the latest code
-      if: ${{ !matrix.batch.is_empty }}
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        ref: ${{ github.event.pull_request.head.sha || github.ref }}
-        sparse-checkout: .github
-        
-    # Setup, run tests, generate and upload code coverage artifact
-    - name: Setup + Run Tests + Codecov
-      if: ${{ !matrix.batch.is_empty }}
-      uses: ./.github/actions/run-tests
-      timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-      with:
-        test-names: ${{ matrix.batch.csv }}
-        archive-file: ${{ inputs.archive-file }}
-        debug-binary-path: ${{ inputs.debug-binary-path }}
-        codecov-test-name: isolated-test-${{ matrix.batch.index }}
-        upload-junit-xml: ${{ inputs.upload-junit-xml }}
-        upload-code-coverage: ${{ inputs.upload-code-coverage }}
+      # Setup, run tests, generate and upload code coverage artifact
+      - name: Setup + Run Tests + Codecov
+        uses: ./.github/actions/run-tests
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        with:
+          test-names: ${{ matrix.batch.csv }}
+          archive-file: ${{ inputs.archive-file }}
+          debug-binary-path: ${{ inputs.debug-binary-path }}
+          codecov-test-name: isolated-test-${{ matrix.batch.index }}
+          upload-junit-xml: ${{ inputs.upload-junit-xml }}
+          upload-code-coverage: ${{ inputs.upload-code-coverage }}
           
- integration-tests-4:
-  name: Integration Tests (Partition 4)
-  needs: generate-tests
-  runs-on: ubuntu-latest
-  if: always() && !cancelled() && needs.generate-tests.result != 'failure'
-  strategy:
-    fail-fast: false
-    matrix:
-      batch: ${{ needs.generate-tests.outputs.batches_4 == '[]' && fromJSON('[{"is_empty": true}]') || fromJSON(needs.generate-tests.outputs.batches_4) }}
-  steps:
-    - name: Log Empty Batch
-      if: ${{ matrix.batch.is_empty }}
-      run: echo "::notice::Partition 4 received an empty batch array. Skipping test run successfully."
-
-    - name: Checkout the latest code
-      if: ${{ !matrix.batch.is_empty }}
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        ref: ${{ github.event.pull_request.head.sha || github.ref }}
-        sparse-checkout: .github
-        
-    # Setup, run tests, generate and upload code coverage artifact
-    - name: Setup + Run Tests + Codecov
-      if: ${{ !matrix.batch.is_empty }}
-      uses: ./.github/actions/run-tests
-      timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-      with:
-        test-names: ${{ matrix.batch.csv }}
-        archive-file: ${{ inputs.archive-file }}
-        debug-binary-path: ${{ inputs.debug-binary-path }}
-        codecov-test-name: isolated-test-${{ matrix.batch.index }}
-        upload-junit-xml: ${{ inputs.upload-junit-xml }}
-        upload-code-coverage: ${{ inputs.upload-code-coverage }}
-
+   integration-tests-3:
+    name: Integration Tests (Partition 3)
+    needs: generate-tests
+    runs-on: ubuntu-latest
+    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batches_3 != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        batch: ${{ fromJSON(needs.generate-tests.outputs.batches_3) }}
+    steps:
+      - name: Checkout the latest code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: .github
+          
+      # Setup, run tests, generate and upload code coverage artifact
+      - name: Setup + Run Tests + Codecov
+        uses: ./.github/actions/run-tests
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        with:
+          test-names: ${{ matrix.batch.csv }}
+          archive-file: ${{ inputs.archive-file }}
+          debug-binary-path: ${{ inputs.debug-binary-path }}
+          codecov-test-name: isolated-test-${{ matrix.batch.index }}
+          upload-junit-xml: ${{ inputs.upload-junit-xml }}
+          upload-code-coverage: ${{ inputs.upload-code-coverage }}
+          
+  integration-tests-4:
+    name: Integration Tests (Partition 4)
+    needs: generate-tests
+    runs-on: ubuntu-latest
+    if: always() && !cancelled() && needs.generate-tests.result != 'failure' && needs.generate-tests.outputs.batches_4 != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        batch: ${{ fromJSON(needs.generate-tests.outputs.batches_4) }}
+    steps:
+      - name: Checkout the latest code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: .github
+          
+      # Setup, run tests, generate and upload code coverage artifact
+      - name: Setup + Run Tests + Codecov
+        uses: ./.github/actions/run-tests
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        with:
+          test-names: ${{ matrix.batch.csv }}
+          archive-file: ${{ inputs.archive-file }}
+          debug-binary-path: ${{ inputs.debug-binary-path }}
+          codecov-test-name: isolated-test-${{ matrix.batch.index }}
+          upload-junit-xml: ${{ inputs.upload-junit-xml }}
+          upload-code-coverage: ${{ inputs.upload-code-coverage }}
+ 
   # Check that all jobs in this workflow have succeeded.
   check-tests:
     name: Check Tests
@@ -220,6 +202,14 @@ integration-tests-2:
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
+      - name: Verify All Test Partitions
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more matrix test partitions failed or were cancelled."
+            exit 1
+          fi
+          echo "All test partitions passed or were skipped."
+    
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
