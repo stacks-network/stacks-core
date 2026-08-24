@@ -14,9 +14,9 @@ values aligned with the `threads-required` overrides in `ci-nextest.toml`.
 `BITCOIN_BATCH_COUNT` controls the runner count independently from the
 `BATCH_SIZE` per-runner cap.
 
-The Bitcoin file records every integration test. The unit file records only
-tests taking at least five seconds, which keeps the file small while
-distributing the fast remainder evenly. Unknown tests use the observed 75th
+The Bitcoin file records every integration test. The unit file records tests
+taking at least one second; retaining that middle tier prevents their aggregate
+cost from drifting into one partition. Unknown tests use the observed 75th
 percentile as a conservative default.
 
 ## Refreshing timings
@@ -30,7 +30,7 @@ gh run download RUN_ID --pattern 'nextest-unit-tests-*' --dir "$timing_dir"
 python3 .github/scripts/generate_test_timings.py \
   --input-dir "$timing_dir" \
   --source-run RUN_ID \
-  --minimum-seconds 5 \
+  --minimum-seconds 1 \
   --output .github/test-timings/unit.json
 ```
 

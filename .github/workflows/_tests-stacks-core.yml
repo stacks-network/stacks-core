@@ -52,6 +52,9 @@ env:
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
+  # Standard GitHub-hosted Linux runners expose four nextest execution slots.
+  # Keep this aligned with the ci-parallel profile and unit balancer model.
+  UNIT_TEST_THREADS: 4
 
 # Configure concurrency
 concurrency:

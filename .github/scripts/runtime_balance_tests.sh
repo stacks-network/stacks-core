@@ -8,6 +8,9 @@
 #
 # Optional env vars:
 #   MAX_BATCH_SIZE     - Maximum tests per batch; 0 means unlimited (default: 0)
+#   TEST_THREADS       - Concurrent nextest slots per batch (default: 1)
+#   SERIAL_GROUP_REGEX - Tests matching this regex share a concurrency limit
+#   SERIAL_GROUP_MAX_THREADS - Concurrent tests allowed from that group (default: 1)
 #
 # Outputs a JSON array of batches to stdout. Each batch contains its 1-based
 # index, estimated_seconds, and tests array.
@@ -17,6 +20,9 @@ test_list_file="${TEST_LIST_FILE:?TEST_LIST_FILE is required}"
 timings_file="${TEST_TIMINGS_FILE:?TEST_TIMINGS_FILE is required}"
 batch_count="${BATCH_COUNT:?BATCH_COUNT is required}"
 max_batch_size="${MAX_BATCH_SIZE:-0}"
+test_threads="${TEST_THREADS:-1}"
+serial_group_regex="${SERIAL_GROUP_REGEX:-}"
+serial_group_max_threads="${SERIAL_GROUP_MAX_THREADS:-1}"
 
 if [[ "${BASH_VERSINFO[0]}" -lt 5 ]]; then
     echo "Bash 5 or higher is required: ${BASH_VERSION}" >&2
@@ -48,6 +54,26 @@ if ! [[ "${max_batch_size}" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
+if ! [[ "${test_threads}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "TEST_THREADS must be a positive integer: ${test_threads}" >&2
+    exit 1
+fi
+
+if ! [[ "${serial_group_max_threads}" =~ ^[1-9][0-9]*$ ]] ||
+    (( serial_group_max_threads > test_threads )); then
+    echo \
+        "SERIAL_GROUP_MAX_THREADS must be between 1 and TEST_THREADS: ${serial_group_max_threads}" \
+        >&2
+    exit 1
+fi
+
+if [[ -n "${serial_group_regex}" ]] &&
+    ! jq -n --arg regex "${serial_group_regex}" \
+        'try ("" | test($regex)) catch halt_error(1)' > /dev/null; then
+    echo "Invalid SERIAL_GROUP_REGEX: ${serial_group_regex}" >&2
+    exit 1
+fi
+
 jq -e '
     (.default_seconds | type == "number" and . > 0) and
     (.tests | type == "object") and
@@ -58,21 +84,40 @@ jq -e '
 }
 
 # Longest-processing-time scheduling greedily puts each remaining test in the
-# eligible batch with the lowest estimated runtime.
+# eligible batch with the lowest estimated makespan. The estimate accounts for
+# both the runner-wide slot count and one optional nextest test-group limit.
 mapfile -t weighted_tests < <(
-    jq -Rnr --slurpfile timings "${timings_file}" '
+    jq -Rnr \
+        --slurpfile timings "${timings_file}" \
+        --arg group_regex "${serial_group_regex}" \
+        --argjson test_threads "${test_threads}" \
+        --argjson group_threads "${serial_group_max_threads}" '
         ($timings[0]) as $timings
         | [
             inputs
             | select(length > 0)
+            | . as $name
+            | ($timings.tests[$name] // $timings.default_seconds) as $weight
+            | ($group_regex != "" and ($name | test($group_regex))) as $is_group
             | {
-                name: .,
-                weight: ($timings.tests[.] // $timings.default_seconds)
+                name: $name,
+                weight: $weight,
+                is_group: $is_group,
+                priority: (
+                  if $is_group
+                  then $weight * $test_threads / $group_threads
+                  else $weight
+                  end
+                )
               }
           ]
-        | sort_by([(-.weight), .name])
+        | sort_by([(-.priority), (-.weight), .name])
         | .[]
-        | [((.weight * 1000) | round | tostring), .name]
+        | [
+            ((.weight * 1000) | round | tostring),
+            (if .is_group then "1" else "0" end),
+            .name
+          ]
         | @tsv
     ' < "${test_list_file}"
 )
@@ -93,30 +138,67 @@ if (( max_batch_size > 0 && batch_count * max_batch_size < test_count )); then
     exit 1
 fi
 
-declare -a batch_weights_ms=()
+declare -a batch_work_ms=()
+declare -a batch_group_ms=()
+declare -a batch_max_test_ms=()
+declare -a batch_estimated_ms=()
 declare -a batch_test_counts=()
 declare -a batch_tests=()
 
 for (( i = 0; i < batch_count; i++ )); do
-    batch_weights_ms[i]=0
+    batch_work_ms[i]=0
+    batch_group_ms[i]=0
+    batch_max_test_ms[i]=0
+    batch_estimated_ms[i]=0
     batch_test_counts[i]=0
     batch_tests[i]=""
 done
 
 for weighted_test in "${weighted_tests[@]}"; do
-    IFS=$'\t' read -r weight_ms test_name <<< "${weighted_test}"
+    IFS=$'\t' read -r weight_ms is_group test_name <<< "${weighted_test}"
     best_batch=-1
+    best_estimated_ms=-1
 
     for (( i = 0; i < batch_count; i++ )); do
         if (( max_batch_size > 0 && batch_test_counts[i] >= max_batch_size )); then
             continue
         fi
 
+        candidate_work_ms=$(( batch_work_ms[i] + weight_ms ))
+        candidate_group_ms=${batch_group_ms[i]}
+        if (( is_group == 1 )); then
+            candidate_group_ms=$(( candidate_group_ms + weight_ms ))
+        fi
+        candidate_max_test_ms=${batch_max_test_ms[i]}
+        if (( weight_ms > candidate_max_test_ms )); then
+            candidate_max_test_ms=${weight_ms}
+        fi
+
+        candidate_estimated_ms=$((
+            (candidate_work_ms + test_threads - 1) / test_threads
+        ))
+        if [[ -n "${serial_group_regex}" ]]; then
+            candidate_group_estimated_ms=$((
+                (candidate_group_ms + serial_group_max_threads - 1) /
+                    serial_group_max_threads
+            ))
+            if (( candidate_group_estimated_ms > candidate_estimated_ms )); then
+                candidate_estimated_ms=${candidate_group_estimated_ms}
+            fi
+        fi
+        if (( candidate_max_test_ms > candidate_estimated_ms )); then
+            candidate_estimated_ms=${candidate_max_test_ms}
+        fi
+
         if (( best_batch == -1 )) ||
-            (( batch_weights_ms[i] < batch_weights_ms[best_batch] )) ||
-            { (( batch_weights_ms[i] == batch_weights_ms[best_batch] )) &&
+            (( candidate_estimated_ms < best_estimated_ms )) ||
+            { (( candidate_estimated_ms == best_estimated_ms )) &&
+              (( batch_work_ms[i] < batch_work_ms[best_batch] )); } ||
+            { (( candidate_estimated_ms == best_estimated_ms )) &&
+              (( batch_work_ms[i] == batch_work_ms[best_batch] )) &&
               (( batch_test_counts[i] < batch_test_counts[best_batch] )); }; then
             best_batch=${i}
+            best_estimated_ms=${candidate_estimated_ms}
         fi
     done
 
@@ -125,7 +207,14 @@ for weighted_test in "${weighted_tests[@]}"; do
         exit 1
     fi
 
-    batch_weights_ms[best_batch]=$(( batch_weights_ms[best_batch] + weight_ms ))
+    batch_work_ms[best_batch]=$(( batch_work_ms[best_batch] + weight_ms ))
+    if (( is_group == 1 )); then
+        batch_group_ms[best_batch]=$(( batch_group_ms[best_batch] + weight_ms ))
+    fi
+    if (( weight_ms > batch_max_test_ms[best_batch] )); then
+        batch_max_test_ms[best_batch]=${weight_ms}
+    fi
+    batch_estimated_ms[best_batch]=${best_estimated_ms}
     batch_test_counts[best_batch]=$(( batch_test_counts[best_batch] + 1 ))
     batch_tests[best_batch]+="${test_name}"$'\n'
 done
@@ -134,7 +223,7 @@ result=$(
     for (( i = 0; i < batch_count; i++ )); do
         while IFS= read -r test_name; do
             [[ -n "${test_name}" ]] || continue
-            printf '%d\t%d\t%s\n' "$((i + 1))" "${batch_weights_ms[i]}" "${test_name}"
+            printf '%d\t%d\t%s\n' "$((i + 1))" "${batch_estimated_ms[i]}" "${test_name}"
         done <<< "${batch_tests[i]}"
     done | jq -Rs '
         [

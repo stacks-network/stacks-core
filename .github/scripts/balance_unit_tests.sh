@@ -10,6 +10,7 @@
 #
 # Optional env vars:
 #   EXCLUDED_TEST_NAMES_CSV - Tests run separately from these partitions
+#   UNIT_TEST_THREADS       - Nextest slots on each unit runner (default: 4)
 set -euo pipefail
 
 nextest_archive="${NEXTEST_ARCHIVE:?NEXTEST_ARCHIVE is required}"
@@ -18,6 +19,7 @@ partition="${PARTITION:?PARTITION is required}"
 total_partitions="${TOTAL_PARTITIONS:?TOTAL_PARTITIONS is required}"
 test_list_output="${TEST_LIST_OUTPUT:?TEST_LIST_OUTPUT is required}"
 excluded_test_names_csv="${EXCLUDED_TEST_NAMES_CSV:-}"
+unit_test_threads="${UNIT_TEST_THREADS:-4}"
 
 if ! [[ "${partition}" =~ ^[1-9][0-9]*$ ]] ||
     ! [[ "${total_partitions}" =~ ^[1-9][0-9]*$ ]] ||
@@ -70,9 +72,17 @@ fi
 
 comm -23 "${discovered_tests}" "${excluded_tests}" > "${all_tests}"
 
+test_count=$(wc -l < "${all_tests}")
+test_count=${test_count//[[:space:]]/}
+max_batch_size=$(( (test_count + total_partitions - 1) / total_partitions ))
+
 TEST_LIST_FILE="${all_tests}" \
 TEST_TIMINGS_FILE="${timings_file}" \
 BATCH_COUNT="${total_partitions}" \
+MAX_BATCH_SIZE="${max_batch_size}" \
+TEST_THREADS="${unit_test_threads}" \
+SERIAL_GROUP_REGEX='^clarity_vm::tests::large_contract::ccall_memory_test::' \
+SERIAL_GROUP_MAX_THREADS=1 \
     bash "${script_dir}/runtime_balance_tests.sh" > "${balanced_batches}"
 
 jq -r --argjson partition "${partition}" '
