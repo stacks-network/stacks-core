@@ -55,8 +55,9 @@ env:
     tests::signer::v0::tx_replay::tx_replay_forking_test,
     tests::signer::v0::epoch_4_0_waterfall::epoch_4_0_block_commit_uses_single_sbtc_output::t::slow::bitcoind::t,
     tests::signer::v0::reorg::partial_tenure_fork,
-    tests::signer::v0::block_validation_check_rejection_timeout_heuristic
-  # Dedicated full-runner tests leave 283 tests, whose minimum is 57
+    tests::signer::v0::block_validation_check_rejection_timeout_heuristic,
+    tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner
+  # Dedicated full-runner tests leave 281 tests, whose minimum is 57
   # five-test batches. This stays below the observed concurrent-job ceiling.
   BITCOIN_BATCH_COUNT: 57
   BATCH_SIZE: 5
@@ -108,15 +109,19 @@ jobs:
       matrix:
         include:
           - label: signer-multinode-rollover
-            test-name: tests::signer::v0::signer_multinode_rollover
+            test-names: tests::signer::v0::signer_multinode_rollover
           - label: tx-replay-forking
-            test-name: tests::signer::v0::tx_replay::tx_replay_forking_test
+            test-names: tests::signer::v0::tx_replay::tx_replay_forking_test
           - label: epoch-4-waterfall
-            test-name: tests::signer::v0::epoch_4_0_waterfall::epoch_4_0_block_commit_uses_single_sbtc_output::t::slow::bitcoind::t
+            test-names: tests::signer::v0::epoch_4_0_waterfall::epoch_4_0_block_commit_uses_single_sbtc_output::t::slow::bitcoind::t
           - label: partial-tenure-fork
-            test-name: tests::signer::v0::reorg::partial_tenure_fork
-          - label: block-validation-timeout
-            test-name: tests::signer::v0::block_validation_check_rejection_timeout_heuristic
+            test-names: tests::signer::v0::reorg::partial_tenure_fork
+          # Pair two short exclusive tests in one sequential job. This keeps
+          # them off shared batches without consuming another runner slot.
+          - label: block-validation-and-idle-miner
+            test-names: >-
+              tests::signer::v0::block_validation_check_rejection_timeout_heuristic,
+              tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner
     steps:
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -129,7 +134,7 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
-          test-names: ${{ matrix.test-name }}
+          test-names: ${{ matrix.test-names }}
           test-threads: "1"
           test-timings-file: .github/test-timings/bitcoin-integration.json
           archive-file: ${{ inputs.archive-file }}
