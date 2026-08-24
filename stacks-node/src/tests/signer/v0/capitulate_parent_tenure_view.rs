@@ -312,7 +312,7 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
 /// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
 ///
 /// Test Execution:
-/// 1. All signers are configured with a tenure_last_block_proposal_timeout = 30 seconds, capitulate_miner_view_timeout = 10 seconds.
+/// 1. All signers are configured with a tenure_last_block_proposal_timeout and capitulate_miner_view_timeout of 60 seconds.
 /// 2. The node mines 1 stacks block N (all signers sign it).
 /// 3. 20% of the signers are configured to to auto reject any block proposals and ignore incoming block responses, broadcast of new blocks are skipped.
 /// 4. A new tenure starts and miner proposes block N+1.
@@ -343,7 +343,7 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     let send_fee = 180;
     let nmb_txs = 4;
 
-    let capitulate_miner_view_timeout = Duration::from_secs(15);
+    let capitulate_miner_view_timeout = Duration::from_secs(CAPITULATION_SETTLE_TIMEOUT_SECS);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
