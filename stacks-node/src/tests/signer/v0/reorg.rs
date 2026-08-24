@@ -2474,6 +2474,8 @@ fn partial_tenure_fork() {
     })
     .unwrap();
 
+    let mined_before = rl1_counters.naka_mined_blocks.get();
+    let stacks_height_before = signer_test.get_peer_info().stacks_tip_height;
     rl1_skip_commit_op.set(true);
     info!("------- Miner 1 wins the third tenure post-fork ------");
     signer_test.mine_bitcoin_block();
@@ -2482,6 +2484,12 @@ fn partial_tenure_fork() {
     signer_test.check_signer_states_reorg(&signer_test.signer_test_pks(), &[]);
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1.clone()));
+
+    wait_for(60, || {
+        Ok(rl1_counters.naka_mined_blocks.get() > mined_before
+            && signer_test.get_peer_info().stacks_tip_height > stacks_height_before)
+    })
+    .expect("Miner 1 did not produce its third post-fork tenure block");
 
     for interim_block_ix in 0..inter_blocks_per_tenure {
         info!(

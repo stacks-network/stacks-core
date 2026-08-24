@@ -4212,6 +4212,16 @@ fn empty_sortition_before_proposal() {
     })
     .expect("Failed to advance chain tip with STX transfer");
 
+    let tenure_extend_info = get_chain_info(&signer_test.running_nodes.conf);
+    let counters = &signer_test.running_nodes.counters;
+    wait_for(60, || {
+        Ok(counters.naka_submitted_commit_last_burn_height.get()
+            >= tenure_extend_info.burn_block_height
+            && counters.naka_submitted_commit_last_parent_tenure_id.get()
+                == tenure_extend_info.stacks_tip_consensus_hash)
+    })
+    .expect("Miner did not submit a block commit for the extended tenure");
+
     info!("------------------------- Test Miner Tenure C  -------------------------");
 
     next_block_and_process_new_stacks_block(

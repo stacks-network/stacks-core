@@ -840,8 +840,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     ///  waiting until all of the signers have updated their state machines to
     ///  reflect the most recent burn block.
     pub fn get_burn_updated_states(&self) -> (Vec<LocalStateMachine>, PeerInfo) {
-        let info_cur = self.get_peer_info();
-        let current_rc = self.get_current_reward_cycle();
+        let burnchain = self.running_nodes.btc_regtest_controller.get_burnchain();
+        let mut info_cur = self.get_peer_info();
+        let mut current_rc = burnchain
+            .block_height_to_reward_cycle(info_cur.burn_block_height)
+            .expect("Peer burn height must map to a reward cycle");
         let mut states = Vec::with_capacity(0);
         // fetch all the state machines *twice*
         //  we do this because the state machines return before the signer runloop
@@ -851,6 +854,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         for _i in 0..2 {
             wait_for(120, || {
                 states = self.get_all_states();
+                info_cur = self.get_peer_info();
+                current_rc = burnchain
+                    .block_height_to_reward_cycle(info_cur.burn_block_height)
+                    .expect("Peer burn height must map to a reward cycle");
                 Ok(states.iter().enumerate().all(|(ix, signer_state)| {
                     let Some(Some(state_machine)) = signer_state
                         .signer_state_machines
@@ -878,7 +885,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                         warn!("Local state machine for signer #{ix} not initialized");
                         return false;
                     };
-                    state_machine.burn_block_height >= info_cur.burn_block_height
+                    state_machine.burn_block == info_cur.pox_consensus
+                        && state_machine.burn_block_height == info_cur.burn_block_height
                 }))
             })
                 .expect("Timed out while waiting to fetch local state machines from the signer set");
