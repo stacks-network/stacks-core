@@ -117,11 +117,11 @@ integration-tests-2:
       batch: ${{ needs.generate-tests.outputs.batches_2 == '[]' && fromJSON('[{"is_empty": true}]') || fromJSON(needs.generate-tests.outputs.batches_2) }}
   steps:
     - name: Log Empty Batch
-      if: matrix.batch.is_empty
+      if: ${{ matrix.batch.is_empty }}
       run: echo "::notice::Partition 2 received an empty batch array. Skipping test run successfully."
 
     - name: Checkout the latest code
-      if: !matrix.batch.is_empty
+      if: ${{ !matrix.batch.is_empty }}
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ github.event.pull_request.head.sha || github.ref }}
@@ -129,7 +129,7 @@ integration-tests-2:
         
     # Setup, run tests, generate and upload code coverage artifact
     - name: Setup + Run Tests + Codecov
-      if: !matrix.batch.is_empty
+      if: ${{ !matrix.batch.is_empty }}
       uses: ./.github/actions/run-tests
       timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
       with:
@@ -151,11 +151,11 @@ integration-tests-2:
       batch: ${{ needs.generate-tests.outputs.batches_3 == '[]' && fromJSON('[{"is_empty": true}]') || fromJSON(needs.generate-tests.outputs.batches_3) }}
   steps:
     - name: Log Empty Batch
-      if: matrix.batch.is_empty
+      if: ${{ matrix.batch.is_empty }}
       run: echo "::notice::Partition 3 received an empty batch array. Skipping test run successfully."
 
     - name: Checkout the latest code
-      if: !matrix.batch.is_empty
+      if: ${{ !matrix.batch.is_empty }}
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ github.event.pull_request.head.sha || github.ref }}
@@ -163,7 +163,7 @@ integration-tests-2:
         
     # Setup, run tests, generate and upload code coverage artifact
     - name: Setup + Run Tests + Codecov
-      if: !matrix.batch.is_empty
+      if: ${{ !matrix.batch.is_empty }}
       uses: ./.github/actions/run-tests
       timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
       with:
@@ -185,11 +185,11 @@ integration-tests-2:
       batch: ${{ needs.generate-tests.outputs.batches_4 == '[]' && fromJSON('[{"is_empty": true}]') || fromJSON(needs.generate-tests.outputs.batches_4) }}
   steps:
     - name: Log Empty Batch
-      if: matrix.batch.is_empty
+      if: ${{ matrix.batch.is_empty }}
       run: echo "::notice::Partition 4 received an empty batch array. Skipping test run successfully."
 
     - name: Checkout the latest code
-      if: !matrix.batch.is_empty
+      if: ${{ !matrix.batch.is_empty }}
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ github.event.pull_request.head.sha || github.ref }}
@@ -197,7 +197,7 @@ integration-tests-2:
         
     # Setup, run tests, generate and upload code coverage artifact
     - name: Setup + Run Tests + Codecov
-      if: !matrix.batch.is_empty
+      if: ${{ !matrix.batch.is_empty }}
       uses: ./.github/actions/run-tests
       timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
       with:
