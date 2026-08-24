@@ -3266,7 +3266,7 @@ fn bitcoin_reorg_extended_tenure() {
 
     miners.pause_commits_miner_1();
     miners
-        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .mine_bitcoin_block_and_wait_for_both_nodes(60)
         .unwrap();
 
     for _ in 0..2 {
@@ -3326,6 +3326,7 @@ fn bitcoin_reorg_extended_tenure() {
         .get_block_hash(burn_block_height);
     let before_fork = get_chain_info(&conf_1).pox_consensus;
 
+    TEST_MINE_SKIP.set(true);
     miners
         .signer_test
         .running_nodes
@@ -3359,14 +3360,16 @@ fn bitcoin_reorg_extended_tenure() {
 
     info!("Chain info after fork: {:?}", get_chain_info(&conf_1));
 
+    miners.wait_for_matching_chain_tips(60);
+    miners.signer_test.wait_for_signer_state_update();
+    TEST_MINE_SKIP.set(false);
+
     // get blocks produced with the "reorged" txs before we stall broadcasts
     //  to check signer approvals
     miners
         .signer_test
         .wait_for_nonce_increase(&to_addr(&miners.sender_sk), last_nonce - 1)
         .unwrap();
-
-    miners.wait_for_chains(60);
 
     // stall p2p broadcast and signer block announcements
     //  so that we can ensure all the signers approve the proposal

@@ -3481,7 +3481,7 @@ fn multiple_miners() {
 
         miners
             .signer_test
-            .mine_block_wait_on_processing(Duration::from_secs(30));
+            .mine_nakamoto_block_without_commit(Duration::from_secs(30), false);
 
         miners.signer_test.check_signer_states_normal();
 
