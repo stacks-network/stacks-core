@@ -19,10 +19,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Native targets are independent. Run them in parallel so the combined
-  # feature sweep does not serialize a required CI gate.
+  # Native targets and cargo-hack partitions are independent. Two partitions
+  # preserve the complete feature sweep while keeping its cold-build tail off
+  # the workflow critical path.
   native-targets:
-    name: All Crates (${{ matrix.label }})
+    name: All Crates Partition (${{ matrix.label }} ${{ matrix.partition }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -31,9 +32,19 @@ jobs:
           - label: Linux
             target: x86_64-unknown-linux-gnu
             install-windows-tools: false
+            partition: "1/2"
+          - label: Linux
+            target: x86_64-unknown-linux-gnu
+            install-windows-tools: false
+            partition: "2/2"
           - label: Windows
             target: x86_64-pc-windows-gnu
             install-windows-tools: true
+            partition: "1/2"
+          - label: Windows
+            target: x86_64-pc-windows-gnu
+            install-windows-tools: true
+            partition: "2/2"
     steps:
       # Checkout the code
       - name: Checkout
@@ -72,7 +83,29 @@ jobs:
             --each-feature \
             --no-dev-deps \
             --exclude-features=wasm-deterministic,wasm-web \
+            --partition ${{ matrix.partition }} \
             --target ${{ matrix.target }}
+
+  # Preserve the existing required-check names while gating them on every
+  # native target partition.
+  native-targets-check:
+    name: All Crates (${{ matrix.label }})
+    needs: native-targets
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        label: [Linux, Windows]
+    steps:
+      - name: Check native target partitions
+        env:
+          RESULT: ${{ needs.native-targets.result }}
+        run: |
+          if [[ "$RESULT" != "success" ]]; then
+            echo "One or more native cargo-hack partitions failed: $RESULT" >&2
+            exit 1
+          fi
 
   # WASM targets - No caching needed as it runs in parallel with longer jobs
   wasm-targets:
