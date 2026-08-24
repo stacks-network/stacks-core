@@ -221,17 +221,24 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
     /// Mine the first Nakamoto tenure after reaching the epoch 3 boundary.
     fn mine_first_epoch_3_tenure(&self) {
+        self.try_mine_first_epoch_3_tenure()
+            .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    /// Fallible form of [`Self::mine_first_epoch_3_tenure`].
+    fn try_mine_first_epoch_3_tenure(&self) -> Result<(), String> {
         if self.snapshot_path.is_some() {
             info!("Booted to epoch 3.0, ready for snapshot.");
-            return;
+            return Ok(());
         }
 
         // Wait until we see the first block of epoch 3.0.
         // Note, we don't use `nakamoto_blocks_mined` counter, because there
         // could be other miners mining blocks.
         info!("Waiting for first Epoch 3.0 tenure to start");
-        self.mine_nakamoto_block(Duration::from_secs(60), false);
+        self.try_mine_nakamoto_block(Duration::from_secs(60), false)?;
         info!("Ready to mine Nakamoto blocks!");
+        Ok(())
     }
 
     /// Boot the test through its first epoch 3 Nakamoto tenure.
@@ -1252,9 +1259,25 @@ impl MultipleMinerTest {
         // Nakamoto proposal; otherwise signers attached to the lagging node can
         // miss the proposal and leave it below the acceptance threshold.
         self.wait_for_matching_chain_tips(600);
-        self.signer_test.mine_first_epoch_3_tenure();
+        let first_tenure_result = (|| {
+            let mut last_error = String::new();
+            for attempt in 1..=2 {
+                match self.signer_test.try_mine_first_epoch_3_tenure() {
+                    Ok(()) => return Ok(()),
+                    Err(error) => {
+                        warn!(
+                            "First Epoch 3.0 tenure failed on attempt {attempt}; retrying from the advanced burn tip: {error}"
+                        );
+                        last_error = error;
+                    }
+                }
+            }
+            Err(last_error)
+        })();
 
         self.rl2_counters.skip_commit_op.set(prev_skip);
+        first_tenure_result
+            .unwrap_or_else(|error| panic!("Failed to mine the first Epoch 3.0 tenure: {error}"));
 
         // Use a longer timeout for the miners to advance to epoch 3.0 and so that CI runners don't timeout.
         self.wait_for_matching_chain_tips(600);

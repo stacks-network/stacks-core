@@ -1215,37 +1215,48 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         timeout: Duration,
         use_nakamoto_blocks_mined: bool,
     ) {
+        self.try_mine_nakamoto_block_without_commit(timeout, use_nakamoto_blocks_mined)
+            .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    /// Fallible form of [`Self::mine_nakamoto_block_without_commit`].
+    fn try_mine_nakamoto_block_without_commit(
+        &self,
+        timeout: Duration,
+        use_nakamoto_blocks_mined: bool,
+    ) -> Result<(), String> {
         let info_before = get_chain_info(&self.running_nodes.conf);
         let counters = &self.running_nodes.counters;
         wait_for(timeout.as_secs(), || {
             Ok(counters.naka_submitted_commit_last_burn_height.get()
                 >= info_before.burn_block_height)
         })
-        .unwrap_or_else(|error| {
-            panic!(
+        .map_err(|error| {
+            format!(
                 "Failed to observe a block commit for burn height {}; latest commit used burn \
                  height {} and Stacks height {}: {error}",
                 info_before.burn_block_height,
                 counters.naka_submitted_commit_last_burn_height.get(),
                 counters.naka_submitted_commit_last_stacks_tip.get(),
             )
-        });
+        })?;
 
         info!("Pausing stacks block mining");
         TEST_MINE_SKIP.set(true);
         let mined_blocks = counters.naka_mined_blocks.clone();
         let mined_before = mined_blocks.get();
         self.mine_bitcoin_block();
-        wait_for_state_machine_update_by_miner_tenure_id(
+        let signer_update_result = wait_for_state_machine_update_by_miner_tenure_id(
             timeout.as_secs(),
             &get_chain_info(&self.running_nodes.conf).pox_consensus,
             &self.signer_addresses_versions_majority(),
-        )
-        .expect("Failed to update signer state machine");
+        );
 
         info!("Unpausing stacks block mining");
         let mined_block_time = Instant::now();
         TEST_MINE_SKIP.set(false);
+        signer_update_result
+            .map_err(|error| format!("Failed to update signer state machine: {error}"))?;
         // Do these wait for's in two steps not only for increased timeout but for easier debugging.
         // Ensure that the tenure change transaction is mined
         wait_for(timeout.as_secs(), || {
@@ -1253,16 +1264,27 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 > info_before.stacks_tip_height
                 && (!use_nakamoto_blocks_mined || mined_blocks.get() > mined_before))
         })
-        .expect("Failed to mine Tenure Change block");
+        .map_err(|error| format!("Failed to mine Tenure Change block: {error}"))?;
         info!(
             "Nakamoto block mine time elapsed: {:?}",
             mined_block_time.elapsed()
         );
+        Ok(())
     }
 
     /// Mine a BTC block and wait for a new Stacks block to be mined and commit to be submitted
     /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
     fn mine_nakamoto_block(&self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
+        self.try_mine_nakamoto_block(timeout, use_nakamoto_blocks_mined)
+            .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    /// Fallible form of [`Self::mine_nakamoto_block`].
+    fn try_mine_nakamoto_block(
+        &self,
+        timeout: Duration,
+        use_nakamoto_blocks_mined: bool,
+    ) -> Result<(), String> {
         let Counters {
             naka_submitted_commits: commits_submitted,
             naka_submitted_commit_last_burn_height: commits_last_burn_height,
@@ -1271,7 +1293,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         } = self.running_nodes.counters.clone();
         let commits_before = commits_submitted.get();
         let commit_burn_height_before = commits_last_burn_height.get();
-        self.mine_nakamoto_block_without_commit(timeout, use_nakamoto_blocks_mined);
+        self.try_mine_nakamoto_block_without_commit(timeout, use_nakamoto_blocks_mined)?;
         // Ensure the subsequent block commit confirms the previous Tenure Change block
         let stacks_tip_height = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
         wait_for(timeout.as_secs(), || {
@@ -1279,7 +1301,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 && commits_last_burn_height.get() > commit_burn_height_before
                 && commits_last_stacks_tip.get() >= stacks_tip_height)
         })
-        .expect("Failed to update Block Commit");
+        .map_err(|error| format!("Failed to update Block Commit: {error}"))?;
+        Ok(())
     }
 
     fn mine_block_wait_on_processing(
