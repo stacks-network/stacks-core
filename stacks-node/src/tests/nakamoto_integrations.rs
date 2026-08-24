@@ -4604,30 +4604,10 @@ fn follower_bootup_across_multiple_cycles() {
 
     debug!("Booted follower-thread");
 
-    // Wait some time for the follower to at least get some nakamoto blocks
-    wait_for(120, || {
-        thread::sleep(Duration::from_secs(5));
-        let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
-            return Ok(false);
-        };
-
-        let block_id = StacksBlockId::new(
-            &follower_node_info.stacks_tip_consensus_hash,
-            &follower_node_info.stacks_tip,
-        );
-        let tip = NakamotoChainState::get_block_header(chainstate.db(), &block_id)
-            .unwrap()
-            .unwrap();
-        info!(
-            "Latest follower tip";
-            "height" => tip.stacks_block_height,
-            "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
-        );
-
-        Ok(tip.anchored_header.as_stacks_nakamoto().is_some())
-    })
-    .unwrap();
-
+    // Reaching the exact canonical tip below also proves that the follower has
+    // entered Nakamoto. Avoid a weaker intermediate deadline: a follower that
+    // is still downloading across the reward-cycle boundary can legitimately
+    // need more than two minutes before its first Nakamoto tip.
     wait_for(480, || {
         sleep_ms(1000);
         let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
