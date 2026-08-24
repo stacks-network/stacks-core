@@ -16,6 +16,7 @@
 #   TEST_TIMINGS_FILE - Historical timing data used to balance batches
 #   BITCOIN_TEST_THREADS - Nextest execution slots available to each batch (default: 2)
 #   SIGNER_TEST_THREADS_REQUIRED - Slots reserved by an ordinary signer test (default: 1)
+#   BITCOIN_ISOLATED_TESTS - Comma-separated tests assigned dedicated workflow jobs
 #
 # Outputs:
 #   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner)
@@ -45,6 +46,7 @@ ci_skip_tag="${TEST_TAG_CI_SKIP:-ci_skip}"
 # reserve every slot; ordinary signer tests reserve the configured subset.
 test_threads="${BITCOIN_TEST_THREADS:-2}"
 signer_test_threads_required="${SIGNER_TEST_THREADS_REQUIRED:-1}"
+isolated_tests_csv="${BITCOIN_ISOLATED_TESTS:-}"
 
 ## ── Require bash 5+ (mapfile with -t flag behaviour) ────────────────────────
 if [[ "${BASH_VERSINFO[0]}" -lt 5 ]]; then
@@ -130,7 +132,7 @@ info "Ignored tests count: $(hl "${ignored_count}")"
 ## ── Build list of excluded tests --------------------------------------------
 info "Building exclude list..."
 cat << 'EOF' > raw_exclude.txt
-# The following tests are excluded from CI runs. Some of these may be worth investigating adding back into the CI
+# Exclude these tests from the generated matrix. Some may warrant future re-entry.
 tests::nakamoto_integrations::consensus_hash_event_dispatcher
 tests::neon_integrations::atlas_integration_test
 tests::neon_integrations::atlas_stress_integration_test
@@ -180,6 +182,19 @@ tests::signer::v0::larger_mempool
 # This test takes too long run in CI
 tests::pox_5_integrations::check_pox_5_register_for_second_bond_no_downtime
 EOF
+
+if [[ -n "${isolated_tests_csv}" ]]; then
+    IFS=',' read -r -a isolated_tests <<< "${isolated_tests_csv}"
+    for test_name in "${isolated_tests[@]}"; do
+        test_name="${test_name//[[:space:]]/}"
+        if ! jq -e --arg name "${test_name}" 'index($name) != null' \
+            ignored_tests.json > /dev/null; then
+            error "Isolated test is not present in the ignored-test manifest: $(hl "${test_name}")"
+            exit 1
+        fi
+        printf '%s\n' "${test_name}" >> raw_exclude.txt
+    done
+fi
 
 ## ── Append tests tagged with ci_skip to the exclude list ────────────────────
 ci_skip_regex=":t::(?:.*::)?${ci_skip_tag}::"

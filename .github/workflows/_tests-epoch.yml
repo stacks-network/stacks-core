@@ -22,7 +22,7 @@ on:
         required: true
         type: string
       upload-code-coverage:
-        description: "Whether or not to upload the code coverage artifact"
+        description: "Whether to upload each job's code coverage to Coveralls"
         required: true
         type: string
 

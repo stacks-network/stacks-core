@@ -49,7 +49,7 @@ inputs:
     description: "Whether or not to upload the nextest JUnit XML artifact"
     required: true
   upload-code-coverage:
-    description: "Whether or not to upload the code coverage artifact"
+    description: "Whether to upload this job's code coverage to Coveralls"
     required: true
 
 runs:
@@ -292,7 +292,7 @@ runs:
         overwrite: true
           
     ############################################################################
-    ### Generate and upload code coverage artifact
+    ### Generate and upload code coverage
     ############################################################################
 
     # Generate code coverage using grcov
@@ -335,14 +335,27 @@ runs:
           exit 1
         fi
 
-    # Store coverage file in GitHub CI artifacts (with SHA and "lcov" prefix)
-    - name: Store Code Coverage as Artifact
+    # Attribute merge-queue coverage to the destination branch so it becomes
+    # the comparison base after the queued commit lands.
+    - name: Prepare Coveralls Context
+      id: prepare-coveralls-context
       if: inputs.upload-code-coverage == 'true'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+      shell: bash
+      env:
+        MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
+      run: |
+        echo "git-branch=${MERGE_GROUP_BASE_REF#refs/heads/}" >> "$GITHUB_OUTPUT"
+
+    # Coveralls' parallel-build protocol unions reports server-side. Uploading
+    # from the producing job avoids a serialized artifact fan-in and lcov merge.
+    - name: Upload Code Coverage to Coveralls
+      if: inputs.upload-code-coverage == 'true'
+      uses: ./.github/actions/coveralls-upload
       with:
-        name: codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
-        path: lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info
-        if-no-files-found: error
-        retention-days: 1
-        compression-level: 9 # 0 (none) - 9 (most)
-        overwrite: true
+        files: lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info
+        # Keep the build open across "rerun failed jobs" so successful reports
+        # from the first attempt remain available to the finalizer.
+        build-number: ${{ github.run_id }}
+        flag-name: ${{ steps.generate-sanitized-file-name.outputs.file-name }}
+        parallel: 'true'
+        git-branch: ${{ steps.prepare-coveralls-context.outputs.git-branch }}
