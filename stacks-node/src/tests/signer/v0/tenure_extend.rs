@@ -3802,34 +3802,66 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
 
     info!("------------------------- Mine Block N+2 with Transfer Tx -------------------------");
     let stacks_height_before = miners.get_peer_stacks_tip_height();
-    miners
-        .send_and_mine_transfer_tx(30)
-        .expect("Failed to mine transfer tx");
-
     // The continuing miner (miner 1 for FavourIncoming, miner 2 for FavourPrev) mines N+2
     let continuing_miner_pk = if minority_favours_incoming {
         &miner_pk_1
     } else {
         &miner_pk_2
     };
+
+    // Observe the V1 minority response while the N+2 proposal is still the
+    // signer's latest response. Once the majority pushes N+2, another miner
+    // can immediately propose and overwrite this transient rejection slot.
+    test_observer::clear();
+    let (_, sent_nonce) = miners.send_transfer_tx();
     let block_n_2 =
-        wait_for_block_pushed_and_tip(30, stacks_height_before + 1, continuing_miner_pk, || {
-            miners.get_peer_info().stacks_tip
-        })
-        .expect("Timed out waiting for block N+2");
+        wait_for_block_proposal_block(30, stacks_height_before + 1, continuing_miner_pk)
+            .expect("Timed out waiting for block N+2 proposal");
 
     // V1 variant additionally verifies minority rejection for N+2
     if matches!(variant, NonBlockingMinorityVariant::FavourPrevMinerV1) {
         info!(
             "------------------------- Verify Minority Rejected Block N+2 -------------------------"
         );
-        wait_for_block_rejections(
-            30,
-            &block_n_2.header.signer_signature_hash(),
-            non_block_minority,
-        )
+        let reward_cycle = miners.signer_test.get_current_reward_cycle();
+        let minority_slot_ids: Vec<_> = short_timeout_signers
+            .iter()
+            .map(|(address, _)| {
+                miners
+                    .signer_test
+                    .get_signer_slot_id(reward_cycle, address)
+                    .expect("Failed to load signer slots")
+                    .expect("Short-timeout signer is missing from the signer set")
+            })
+            .collect();
+        assert_eq!(minority_slot_ids.len(), non_block_minority);
+
+        wait_for(30, || {
+            Ok(minority_slot_ids.iter().all(|slot_id| {
+                matches!(
+                    miners.signer_test.get_latest_block_response(slot_id.0),
+                    BlockResponse::Rejected(rejection)
+                        if rejection.signer_signature_hash
+                            == block_n_2.header.signer_signature_hash()
+                )
+            }))
+        })
         .expect("Failed to get expected rejections for block N+2.");
     }
+
+    let pushed_block_n_2 =
+        wait_for_block_pushed_and_tip(30, stacks_height_before + 1, continuing_miner_pk, || {
+            miners.get_peer_info().stacks_tip
+        })
+        .expect("Timed out waiting for block N+2");
+    assert_eq!(
+        pushed_block_n_2.header.signer_signature_hash(),
+        block_n_2.header.signer_signature_hash(),
+        "Miner pushed a different block than the N+2 proposal checked above"
+    );
+    miners
+        .wait_for_transfer_tx_nonce(sent_nonce, 30)
+        .expect("Failed to mine transfer tx");
 
     info!("------------------------- Mine Tenure C -------------------------");
     if minority_favours_incoming {

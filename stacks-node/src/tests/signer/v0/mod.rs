@@ -2066,6 +2066,15 @@ impl MultipleMinerTest {
             .unwrap()
     }
 
+    /// Wait for the sender account to consume a submitted transaction nonce.
+    fn wait_for_transfer_tx_nonce(&self, sent_nonce: u64, timeout_secs: u64) -> Result<(), String> {
+        let http_origin = self.node_http();
+        let sender_addr = tests::to_addr(&self.sender_sk);
+        wait_for(timeout_secs, || {
+            Ok(get_account(&http_origin, &sender_addr).nonce > sent_nonce)
+        })
+    }
+
     fn node_http(&self) -> String {
         format!(
             "http://{}",
@@ -2081,11 +2090,7 @@ impl MultipleMinerTest {
     /// Returns the txid of the transfer tx.
     pub fn send_and_mine_transfer_tx(&mut self, timeout_secs: u64) -> Result<String, String> {
         let (txid, nonce) = self.send_transfer_tx();
-        let http_origin = self.node_http();
-        let sender_addr = tests::to_addr(&self.sender_sk);
-        wait_for(timeout_secs, || {
-            Ok(get_account(&http_origin, &sender_addr).nonce > nonce)
-        })?;
+        self.wait_for_transfer_tx_nonce(nonce, timeout_secs)?;
         Ok(txid)
     }
 
@@ -8798,6 +8803,7 @@ fn miner_stackerdb_version_rollover() {
 
     let num_signers = 6;
     let num_txs = 20;
+    const TENURE_TIMEOUT_SECS: u64 = 60;
 
     // Record where node 1 and 2 want to bind, so that the proxy can bind
     //  there instead.
@@ -8873,7 +8879,11 @@ fn miner_stackerdb_version_rollover() {
 
     info!("------------------------- Miner 1 Wins Normal Tenure A -------------------------");
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(
+            &sortdb,
+            TenureChangeCause::BlockFound,
+            TENURE_TIMEOUT_SECS,
+        )
         .expect("Failed to mine BTC block followed by tenure change tx");
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
@@ -8911,7 +8921,11 @@ fn miner_stackerdb_version_rollover() {
     miners.ensure_commit_miner_2(&sortdb);
 
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(
+            &sortdb,
+            TenureChangeCause::BlockFound,
+            TENURE_TIMEOUT_SECS,
+        )
         .expect("Failed to mine BTC block");
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
@@ -8919,7 +8933,11 @@ fn miner_stackerdb_version_rollover() {
     miners.ensure_commit_miner_2(&sortdb);
 
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(
+            &sortdb,
+            TenureChangeCause::BlockFound,
+            TENURE_TIMEOUT_SECS,
+        )
         .expect("Failed to mine BTC block");
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
@@ -8927,7 +8945,11 @@ fn miner_stackerdb_version_rollover() {
     miners.ensure_commit_miner_2(&sortdb);
 
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(
+            &sortdb,
+            TenureChangeCause::BlockFound,
+            TENURE_TIMEOUT_SECS,
+        )
         .expect("Failed to mine BTC block");
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
@@ -8936,7 +8958,11 @@ fn miner_stackerdb_version_rollover() {
 
     info!("------------------------- Miner 1 Wins Tenure E -------------------------");
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(
+            &sortdb,
+            TenureChangeCause::BlockFound,
+            TENURE_TIMEOUT_SECS,
+        )
         .expect("Failed to mine BTC block followed by tenure change tx");
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
