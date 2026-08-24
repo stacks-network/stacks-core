@@ -270,6 +270,7 @@ else
                     or $name == "tests::signer::v0::reorg::no_reorg_due_to_successive_block_validation_ok"
                     or $name == "tests::signer::v0::signers_wait_for_validation::signer_waits_for_validation_before_signing"
                     or $name == "tests::signer::v0::tenure_extend::prev_miner_extends_if_incoming_miner_fails_to_mine_failure"
+                    or $name == "tests::signer::v0::tx_replay::tx_replay_btc_on_stx_invalidation"
                     or $name == "tests::signer::v0::tx_replay::tx_replay_forking_test"
                     or $name == "tests::signer::v0::tx_replay::tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted"
                     or $name == "tests::signer::v0::epoch_4_0_multi_miner_distribution::epoch_4_0_burn_distribution_chains_across_boundary::t::slow::bitcoind::t")
