@@ -68,7 +68,7 @@ use crate::tests::neon_integrations::{
 };
 use crate::tests::{self, test_port};
 
-/// Wait for a signer slot to accept the block with the expected signature hash.
+/// Wait for a signer's latest observed slot response to accept the expected block.
 fn wait_for_block_acceptance(
     slot_id: u32,
     expected_block_hash: &Sha512Trunc256Sum,
@@ -76,13 +76,19 @@ fn wait_for_block_acceptance(
 ) -> BlockAccepted {
     let mut found_acceptance = None;
     wait_for(timeout.as_secs(), || {
-        for (chunk, message) in get_stackerdb_signer_messages() {
-            if chunk.slot_id != slot_id {
-                continue;
-            }
-            let SignerMessage::BlockResponse(BlockResponse::Accepted(acceptance)) = message else {
-                continue;
-            };
+        let latest_response = get_stackerdb_signer_messages()
+            .into_iter()
+            .filter(|(chunk, _)| chunk.slot_id == slot_id)
+            .filter_map(|(chunk, message)| {
+                let SignerMessage::BlockResponse(response) = message else {
+                    return None;
+                };
+                Some((chunk.slot_version, response))
+            })
+            .max_by_key(|(slot_version, _)| *slot_version)
+            .map(|(_, response)| response);
+
+        if let Some(BlockResponse::Accepted(acceptance)) = latest_response {
             if &acceptance.signer_signature_hash == expected_block_hash {
                 found_acceptance = Some(acceptance);
                 return Ok(true);
