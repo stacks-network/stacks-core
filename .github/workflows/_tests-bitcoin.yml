@@ -57,9 +57,10 @@ env:
     tests::signer::v0::reorg::partial_tenure_fork,
     tests::signer::v0::block_validation_check_rejection_timeout_heuristic,
     tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner
-  # Five-test batches avoid consuming runner slots for setup overhead while the
-  # resource-aware scheduler keeps their predicted makespans balanced.
-  BATCH_SIZE: 5
+  # With two execution lanes, four-test batches finish in at most two waves.
+  # A fifth test adds a third wave without reducing setup or queueing in
+  # practice, since every matrix job starts from the same shared archive.
+  BATCH_SIZE: 4
 
 # Configure concurrency
 concurrency:
