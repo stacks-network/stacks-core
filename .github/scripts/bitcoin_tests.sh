@@ -5,6 +5,7 @@
 # multiple matrix outputs (batches_1, batches_2, etc.) to bypass the GitHub Actions 256 matrix limit.
 #
 # Optional env vars:
+#   MAX_CHUNKS       - Max chunks to process
 #   MAX_PER_CHUNK    - Max tests per matrix output chunk (default: 256)
 #   NEXTEST_ARCHIVE  - Nextest archive to use (default: ./test_archive.tar.zst)
 #   TEST_TAG_CI_SKIP - Tag name used to exclude tests from CI (default: ci_skip)
@@ -14,7 +15,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 
 ## --- Configuration ----------------------------------------------------------
-max_chunks="${MAX_CHUNKS:-2}"
+max_chunks="${MAX_CHUNKS:-4}"
 max_per_chunk="${MAX_PER_CHUNK:-256}"
 nextest_archive="${NEXTEST_ARCHIVE:-./test_archive.tar.zst}"
 nextest_archive="${nextest_archive/#\~/$HOME}"
@@ -117,6 +118,14 @@ comm -23 ignored_sorted.txt exclude_sorted.txt > filtered.txt
 mapfile -t tests < filtered.txt
 total=${#tests[@]}
 info "Total tests to run individually: $(hl ${total})"
+
+## ── Validate Matrix Capacity Limits ─────────────────────────────────────────
+max_capacity=$(( max_chunks * max_per_chunk ))
+if (( total > max_capacity )); then
+    error "Total tests ($(hl "${total}")) exceeds maximum total capacity of $(hl "${max_capacity}") (${max_chunks} chunks × ${max_per_chunk} limit per matrix)."
+    error "Increase MAX_CHUNKS or reduce the test count to prevent matrix truncation."
+    exit 1
+fi
 
 ## ── Create Single-Test Batches ──────────────────────────────────────────────
 all_batches="[]"
