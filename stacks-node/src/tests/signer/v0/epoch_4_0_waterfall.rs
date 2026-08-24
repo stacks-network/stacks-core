@@ -28,7 +28,6 @@ use std::time::Duration;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::ContractName;
 use pinny::tag;
-use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::{
     RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
@@ -119,22 +118,26 @@ pub fn get_unconfirmed_waterfall_commit_for_burn_parent(
         .expect("burn-parent modulus fits in a byte");
 
     btc_controller
-        .get_all_utxos(miner_pk)
+        .try_get_raw_mempool()
+        .ok()?
         .into_iter()
-        .filter(|utxo| utxo.confirmations == 0)
-        .find_map(|utxo| {
-            let txid = Txid::from_bitcoin_tx_hash(&utxo.txid);
-            // A listed mempool UTXO can disappear before getrawtransaction if
-            // the miner RBF-replaces its commit. Continue polling the current
-            // mempool rather than turning that expected race into a retry.
+        .find_map(|txid| {
+            // A mempool transaction can disappear before getrawtransaction if
+            // the miner RBF-replaces its commit. Continue scanning the current
+            // snapshot rather than turning that expected race into a retry.
             let tx = btc_controller.try_get_raw_transaction(&txid).ok()?;
             let op_return = tx.output.first()?.script_pubkey.as_bytes();
             let payload_start = op_return.len().checked_sub(77)?;
             let payload = LeaderBlockCommitOp::parse_data(op_return.get(payload_start..)?)?;
             (payload.burn_parent_modulus == expected_modulus
                 && tx.output.len() == 3
-                && tx.output[1].script_pubkey.as_bytes() == sbtc_script_pubkey)
-                .then_some(tx)
+                && tx.output[1].script_pubkey.as_bytes() == sbtc_script_pubkey
+                && btc_controller.output_pays_miner(
+                    &tx.output[2],
+                    StacksEpochId::Epoch40,
+                    miner_pk,
+                ))
+            .then_some(tx)
         })
 }
 

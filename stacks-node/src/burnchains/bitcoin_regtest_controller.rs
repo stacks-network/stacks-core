@@ -2167,6 +2167,25 @@ impl BitcoinRegtestController {
         self.get_rpc_client().get_raw_transaction(txid)
     }
 
+    /// Attempts to retrieve the transaction IDs currently in the Bitcoin mempool.
+    #[cfg(test)]
+    pub fn try_get_raw_mempool(&self) -> BitcoinRpcClientResult<Vec<Txid>> {
+        self.get_rpc_client().get_raw_mempool()
+    }
+
+    /// Returns whether a transaction output pays the miner identified by `public_key`.
+    #[cfg(test)]
+    pub fn output_pays_miner(
+        &self,
+        output: &TxOut,
+        epoch_id: StacksEpochId,
+        public_key: &Secp256k1PublicKey,
+    ) -> bool {
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
+        BitcoinAddress::from_scriptpubkey(network_id, output.script_pubkey.as_bytes())
+            .is_some_and(|address| address == self.get_miner_address(epoch_id, public_key))
+    }
+
     /// Build, sign, and broadcast a regular Bitcoin payment from the
     /// miner address to `recipient`.
     ///

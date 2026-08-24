@@ -192,6 +192,17 @@ impl BitcoinRpcClient {
         Ok(deserialize_hex(&raw_hex)?)
     }
 
+    /// Retrieves the transaction IDs currently present in the mempool.
+    pub fn get_raw_mempool(&self) -> BitcoinRpcClientResult<Vec<Txid>> {
+        let response = self.endpoint.send::<Vec<TxidWrapperResponse>>(
+            &self.client_id,
+            None,
+            "getrawmempool",
+            vec![],
+        )?;
+        Ok(response.into_iter().map(|txid| txid.0).collect())
+    }
+
     /// Unloads a currently loaded wallet.
     ///
     /// # Arguments
