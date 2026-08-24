@@ -22,6 +22,11 @@ status-level = "pass"
 # Create JUnit output that we can parse
 path = "../../../junit.xml"
 
+[test-groups.large-contract-memory]
+# These tests saturate memory bandwidth on four-vCPU GitHub runners. Run one
+# at a time while leaving the other three test slots available.
+max-threads = 1
+
 [profile.ci-sequential]
 inherits = "ci"
 # The number of tests to run simultaneously
@@ -103,3 +108,7 @@ test-threads = "num-cpus"
 [[profile.ci-parallel.overrides]]
 filter = 'test(=chainstate::tests::parse_tests::test_cost_balance_exceeded)'
 threads-required = "num-test-threads"
+
+[[profile.ci-parallel.overrides]]
+filter = 'test(/^clarity_vm::tests::large_contract::ccall_memory_test::/)'
+test-group = "large-contract-memory"
