@@ -301,6 +301,11 @@ impl MinerStopHandle {
         self.join_handle
     }
 
+    /// Signal the miner thread that it should abort
+    pub fn set_aborted(&self) {
+        self.abort_flag.store(true, Ordering::SeqCst);
+    }
+
     /// Stop the inner miner thread.
     /// Blocks the miner, and sets the abort flag so that a blocked miner will error out.
     pub fn stop(self, globals: &Globals) -> Result<(), NakamotoNodeError> {
@@ -311,7 +316,7 @@ impl MinerStopHandle {
             &my_id, &prior_thread_id
         );
 
-        self.abort_flag.store(true, Ordering::SeqCst);
+        self.set_aborted();
         globals.block_miner();
 
         let prior_miner = self.into_inner();

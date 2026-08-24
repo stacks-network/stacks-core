@@ -1790,6 +1790,35 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .expect("Failed to send accept signature");
     }
 
+    /// Broadcast a block pre-commit on behalf of the given signer, as a faulty or malicious
+    /// signer that pre-commits to a block without following through with a signature would.
+    /// This lets a test push the other signers over the pre-commit threshold so that they
+    /// sign the block, while the impersonated signer never does.
+    pub fn inject_pre_commit(
+        &self,
+        block: &NakamotoBlock,
+        private_key: &StacksPrivateKey,
+        reward_cycle: u64,
+    ) {
+        let mut stackerdb = StackerDB::new_normal(
+            &self.running_nodes.conf.node.rpc_bind,
+            private_key.clone(),
+            false,
+            reward_cycle,
+            self.get_signer_slot_id(reward_cycle, &to_addr(private_key))
+                .expect("Failed to get signer slot id")
+                .expect("Signer does not have a slot id"),
+            SignerDb::new(":memory:").unwrap(),
+            Duration::from_secs(30),
+        );
+
+        stackerdb
+            .send_message_with_retry::<SignerMessage>(SignerMessage::BlockPreCommit(
+                block.header.signer_signature_hash(),
+            ))
+            .expect("Failed to send block pre-commit");
+    }
+
     /// Get the txid of the parent block commit transaction for the given miner
     pub fn get_parent_block_commit_txid(&self, miner_pk: &StacksPublicKey) -> Option<Txid> {
         let Some(confirmed_utxo) = self

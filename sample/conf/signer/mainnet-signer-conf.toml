@@ -88,7 +88,9 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # block_proposal_validation_timeout_ms = 120000
 
 # Maximum age of a block proposal that will be processed.
-# Proposals older than this are silently dropped.
+# Proposals older than this are rejected (without validation) with a
+# `ProposalTooOld` response, unless the signer has already decided on
+# the block, in which case it resends its prior decision.
 # Default: 600
 # Units: seconds
 # block_proposal_max_age_secs = 600

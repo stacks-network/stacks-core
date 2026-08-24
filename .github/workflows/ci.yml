@@ -431,10 +431,12 @@ jobs:
       needs.check-release.outputs.is_release == 'true' &&
       github.event_name != 'merge_group'
     permissions:
-      contents: write      # required for github release
-      id-token: write      # required for attestation
-      attestations: write  # required for attestation
-      packages: write      # required for image push to ghcr
+      contents: write        # required for github release
+      id-token: write        # required for attestation
+      attestations: write    # required for attestation
+      packages: write        # required for image push to ghcr
+      issues: read           # required for release blocker check
+      pull-requests: read    # required for release blocker check
     uses: ./.github/workflows/_release-github.yml
     with:
       tag: ${{ needs.check-release.outputs.tag }} # 3-part version shared by the node and signer, like 4.0.0

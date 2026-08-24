@@ -139,7 +139,7 @@ impl LocalStateMachine {
     /// Initialize a local state machine by querying the local stacks-node
     ///  and signerdb for the current sortition information
     pub fn new(
-        db: &SignerDb,
+        db: &mut SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
@@ -256,7 +256,7 @@ impl LocalStateMachine {
     /// If this local state machine has pending updates, process them
     pub fn handle_pending_update(
         &mut self,
-        db: &SignerDb,
+        db: &mut SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         tx_replay_scope: &mut ReplayScopeOpt,
@@ -283,7 +283,7 @@ impl LocalStateMachine {
     /// validity and the validity of the prior sortition
     pub fn check_miner_inactivity(
         &mut self,
-        db: &SignerDb,
+        db: &mut SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
@@ -547,7 +547,7 @@ impl LocalStateMachine {
     #[allow(clippy::too_many_arguments)]
     pub fn bitcoin_block_arrival(
         &mut self,
-        db: &SignerDb,
+        db: &mut SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         mut expected_burn_block: Option<NewBurnBlock>,

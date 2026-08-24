@@ -66,11 +66,62 @@ jobs:
 
           echo "No 'DO NOT RELEASE' markers found in codebase. Proceeding with release."
 
+  # If there are any open issues or PRs labeled "X.Y.Z-blocker", abort the release (and let us know)
+  check-release-blockers:
+    name: 'Check for Open "<version>-blocker" Issues/PRs'
+    if: >-
+      inputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: 'Check for open "<version>-blocker" issues and pull requests'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          # The blocker label is the 3-part version (X.Y.Z) of the release tag, i.e. "4.0.0-blocker".
+          # Anything after the 3-part version (i.e. "-rc1", or extra version parts) is ignored.
+
+          if [[ ! "${TAG}" =~ ^([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            echo "::error::Could not determine an X.Y.Z version from the tag '${TAG}'. Aborting release."
+            exit 1
+          fi
+          LABEL="${BASH_REMATCH[1]}-blocker"
+          echo "Checking for open issues and pull requests labeled '${LABEL}'"
+
+          # The REST "list repository issues" endpoint returns both issues and pull requests,
+          # and returns an empty list (rather than an error) when the label does not exist.
+          BLOCKERS=$(gh api --paginate -X GET "repos/${GITHUB_REPOSITORY}/issues" \
+            -f state=open \
+            -f labels="${LABEL}" \
+            -f per_page=100 \
+            --jq '.[] | "- [\(if .pull_request then "PR" else "Issue" end) #\(.number)](\(.html_url)): \(.title)"')
+
+          if [ -n "$BLOCKERS" ]; then
+            {
+              echo "### ❌ Release Blocked"
+              echo "Found open issue(s)/pull request(s) labeled \`${LABEL}\`:"
+              echo "$BLOCKERS"
+              echo ""
+              echo 'These must be resolved (or the label removed) before a release can be completed.'
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            echo "::error::Found open issues/PRs labeled '${LABEL}'. Aborting release."
+            exit 1
+          fi
+
+          echo "No open issues or pull requests labeled '${LABEL}'. Proceeding with release."
+
   # Wait for someone to pull the andon cord (as configured in the "Builds Release" GitHub Actions environment)
   andon-cord:
     name: Andon Cord
     needs:
       - check-do-not-release
+      - check-release-blockers
     if: >-
       inputs.tag != ''
     runs-on: ubuntu-latest
