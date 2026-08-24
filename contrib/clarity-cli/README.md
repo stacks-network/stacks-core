@@ -38,7 +38,7 @@ clarity-cli initialize [OPTIONS] <DB_PATH> [ALLOCATIONS_FILE]
 
 **Options:**
 - `--testnet` - Use testnet boot code and block limits (default: mainnet)
-- `--epoch <EPOCH>` - Stacks epoch to use (default: 3.3)
+- `--epoch <EPOCH>` - Stacks epoch to use (default: 3.4)
 
 **Example:**
 ```bash
@@ -91,7 +91,7 @@ clarity-cli check [OPTIONS] <CONTRACT_FILE> [DB_PATH]
 - `--output-analysis` - Include contract interface analysis in output
 - `--costs` - Include execution costs in output
 - `--testnet` - Use testnet configuration
-- `--clarity-version <VERSION>` - Clarity version (e.g., `clarity1`, `clarity2`, `clarity3`, `clarity4`)
+- `--clarity-version <VERSION>` - Clarity version (e.g., `clarity1`, `clarity2`, `clarity3`, `clarity4`, `clarity5`)
 - `--epoch <EPOCH>` - Stacks epoch (e.g., `2.1`, `2.5`, `3.0`)
 
 **Example:**
@@ -323,11 +323,11 @@ echo "(contract-call? .my-contract get-value)" | \
 
 ## Epoch and Clarity Version
 
-The CLI defaults to Epoch 3.3 with Clarity 4. You can specify earlier epochs/versions for compatibility testing.
+The CLI defaults to Epoch 3.4 with Clarity 5. You can specify earlier epochs/versions for compatibility testing.
 
-**Valid epoch values:** `1.0`, `2.0`, `2.05`, `2.1`, `2.2`, `2.3`, `2.4`, `2.5`, `3.0`, `3.1`, `3.2`, `3.3`
+**Valid epoch values:** `1.0`, `2.0`, `2.05`, `2.1`, `2.2`, `2.3`, `2.4`, `2.5`, `3.0`, `3.1`, `3.2`, `3.3`, `3.4`
 
-**Valid clarity version values:** `clarity1`, `clarity2`, `clarity3`, `clarity4`
+**Valid clarity version values:** `clarity1`, `clarity2`, `clarity3`, `clarity4`, `clarity5`
 
 | Epoch | Default Clarity Version |
 |-------|------------------------|
@@ -342,6 +342,7 @@ The CLI defaults to Epoch 3.3 with Clarity 4. You can specify earlier epochs/ver
 | 3.1   | Clarity 3              |
 | 3.2   | Clarity 3              |
 | 3.3   | Clarity 4              |
+| 3.4   | Clarity 5              |
 
 See `clarity/src/vm/version.rs` for Clarity version definitions and `stacks-common/src/types/mod.rs` for epoch definitions.
 

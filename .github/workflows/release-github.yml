@@ -1,6 +1,6 @@
-## Github workflow to create a github release and upload binary artifacts
+# Github workflow to create a github release and upload binary artifacts
 
-name: Github Release
+name: "Release: Github"
 
 on:
   workflow_call:
@@ -18,89 +18,186 @@ on:
         required: true
         type: string
 
+# Set default permissions
+permissions:
+  contents: read
+
+# Configure concurrency
 concurrency:
   group: release-github-${{ github.head_ref || github.ref }}
-  ## Always cancel duplicate jobs
+  # Always cancel duplicate jobs
   cancel-in-progress: true
 
 run-name: ${{ inputs.node_tag || inputs.signer_tag }}
 
 jobs:
-  ## Build arch dependent binaries from source
-  ##
-  ## Runs when the following is true:
-  ##  - either node or signer tag is provided
+
+  # Build arch dependent binaries from source
+  #
+  # Runs when the following is true:
+  #  - either node or signer tag is provided
+  #  - workflow approval is provided
   andon-cord:
-    if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
     name: Andon Cord
+    if: >-
+      (inputs.node_tag != '' || inputs.signer_tag != '')
     runs-on: ubuntu-latest
     environment: "Build Release"
     steps:
       - name: Check Approval
-        id: check
         run: |
           exit 0
 
+  # Build binaries as artifacts
   build-binaries:
-    if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
     name: Build Binaries
     needs:
       - andon-cord
+    if: |
+      inputs.node_tag != '' ||
+      inputs.signer_tag != ''
+    permissions:
+      contents: read       # required for checkout inside release-build.yml
+      id-token: write      # required for attestation inside release-build.yml
+      attestations: write  # required for attestation inside release-build.yml
     uses: ./.github/workflows/release-build.yml
     with:
       node_tag: ${{ inputs.node_tag }} # used to conditionally run step in release-build.yml
       signer_tag: ${{ inputs.signer_tag }} # used to conditionally run step in release-build.yml
 
+  # Build docker images using the binary artifacts
   docker-images:
-    if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
     name: Build Docker Images
     needs:
       - andon-cord
       - build-binaries
+    if: |
+      inputs.node_tag != '' ||
+      inputs.signer_tag != ''
+    permissions:
+      contents: read       # required for checkout inside release-docker.yml
+      id-token: write      # required for attestation inside release-docker.yml
+      attestations: write  # required for attestation inside release-docker.yml
+      packages: write      # required for image push inside release-docker.yml
     strategy:
       fail-fast: false
-      ## Build a maximum of 2 images concurrently based on matrix.dist
+      # Build a maximum of 2 images concurrently based on matrix.dist
       max-parallel: 2
       matrix:
         type:
           - stacks-core
           - stacks-signer
         exclude:
-          - type: ${{ inputs.is_node_release == 'false' && 'stacks-core' }} # exclude stacks-core if node release is false
-    ## Creates the node docker image
+          # When is_node_release is false, only build stacks-signer.
+          - type: ${{ inputs.is_node_release == 'false' && 'stacks-core' }}
+    # Build the docker images
     uses: ./.github/workflows/release-docker.yml
     with:
       node_tag: ${{ inputs.node_tag }} # node_tag will contains the 5 char node version, i.e. 3.3.0.0.0
       signer_tag: ${{ inputs.signer_tag }} # signer_tag contains 6 char signer version, i.e. 3.3.0.0.0.1
       release_type: ${{ matrix.type }} # one of stacks-signer or stacks-core
 
-  ##
-  ## Runs when the following is true:
-  ##  - either node or signer tag is provided
-  create-release:
-    if: |
-      inputs.node_tag != '' ||
-      inputs.signer_tag != ''
-    name: Create Release
+  # Consolidate all digest artifacts from docker-images matrix into a single manifest
+  consolidate-digests:
+    name: Consolidate Digest Artifacts
+    needs: docker-images
+    if: always()
     runs-on: ubuntu-latest
+    steps:
+      # Download all individual digest artifacts from all matrix jobs
+      - name: Download All Digest Artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digest-*
+          path: /tmp/digest-artifacts
+          merge-multiple: true
+
+      # Consolidate individual digests into single manifest
+      - name: Create Consolidated Digest Manifest
+        run: |
+          echo "Consolidating digests from all matrix jobs"
+          echo "Files downloaded:"
+          find /tmp/digest-artifacts -type f -name "*.json" | sort
+
+          # Initialize the manifest JSON
+          manifest='{}'
+
+          # Process each digest file and merge into manifest
+          for digest_file in /tmp/digest-artifacts/*.json; do
+            if [[ ! -f "${digest_file}" ]]; then
+              continue
+            fi
+
+            echo "Processing: $(basename ${digest_file})"
+            # Extract release_type and libc_variant from the file
+            release_type=$(jq -r '.release_type // empty' "${digest_file}" 2>/dev/null)
+            libc_variant=$(jq -r '.libc_variant // empty' "${digest_file}" 2>/dev/null)
+            digest=$(jq -r '.digest // empty' "${digest_file}" 2>/dev/null)
+            package_id=$(jq -r '.package_id // empty' "${digest_file}" 2>/dev/null)
+
+            # Only process if all required fields are present
+            if [[ -n "${release_type}" && -n "${libc_variant}" && -n "${digest}" && -n "${package_id}" ]]; then
+              echo "  Adding: ${release_type}/${libc_variant} = ${digest:0:20}... (package_id: ${package_id})"
+              # Add to manifest using jq with safe variable substitution
+              manifest=$(printf '%s' "${manifest}" | jq \
+                --arg rt "${release_type}" \
+                --arg lc "${libc_variant}" \
+                --arg d "${digest}" \
+                --arg pid "${package_id}" \
+                '.[$rt] |= . // {} | .[$rt][$lc] = {digest: $d, package_id: $pid}' 2>/dev/null)
+            fi
+          done
+
+          # Write the consolidated manifest
+          echo "${manifest}" | jq . > /tmp/digest-manifest.json
+          echo "Consolidated manifest created:"
+          jq . /tmp/digest-manifest.json
+
+      # Upload the consolidated manifest as an artifact
+      - name: Upload Consolidated Manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-manifest
+          path: /tmp/digest-manifest.json
+          retention-days: 1
+
+  # Create the github release
+  create-release:
+    name: Create Release
     needs:
       - andon-cord
       - build-binaries
       - docker-images
+      - consolidate-digests
+    if: >-
+      github.event.repository.visibility == 'public' &&
+      (inputs.node_tag != '' ||
+      inputs.signer_tag != '')
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      ## Creates releases
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Download consolidated digest manifest from consolidate-digests job
+      - name: Download Docker Image Digest Manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: digest-manifest
+          path: /tmp
+
+      # Creates github release(s)
       - name: Create Release
-        id: check
-        uses: stacks-network/actions/stacks-core/release/create-releases@main
+        uses: ./.github/actions/release
         with:
           node_tag: ${{ inputs.node_tag }} # name used for release (use the version by itself
+          # node_epoch: ${{ inputs.node_epoch }}
           signer_tag: signer-${{ inputs.signer_tag }} # name used for release (prefix with 'signer-')
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          digest_manifest: /tmp/digest-manifest.json

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@ use std::hash::Hash;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 
+use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
@@ -43,7 +44,7 @@ use clarity::types::PrivateKey;
 use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
-use clarity::vm::Value;
+use clarity::vm::{ClarityName, Value};
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
@@ -145,6 +146,23 @@ impl Display for MessageSlotID {
     }
 }
 
+impl SignerMessageTypePrefix {
+    /// The signer-message lane (`MessageSlotID`) this payload type is broadcast on, if any.
+    ///
+    /// Miner-only payloads (`BlockProposal`, `BlockPushed`, `MockProposal`, `MockBlock`) do
+    /// not broadcast over a `.signers-X-Y` contract and return `None`.
+    pub fn msg_id(self) -> Option<MessageSlotID> {
+        match self {
+            // Mock signature uses the same slot as block response since it's exclusively for
+            // epoch 2.5 testing.
+            Self::BlockResponse | Self::MockSignature => Some(MessageSlotID::BlockResponse),
+            Self::StateMachineUpdate => Some(MessageSlotID::StateMachineUpdate),
+            Self::BlockPreCommit => Some(MessageSlotID::BlockPreCommit),
+            Self::BlockProposal | Self::BlockPushed | Self::MockProposal | Self::MockBlock => None,
+        }
+    }
+}
+
 impl TryFrom<u8> for SignerMessageTypePrefix {
     type Error = CodecError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -197,15 +215,7 @@ impl SignerMessage {
     ///   broadcast over `.signers-0-X` contracts.
     #[cfg_attr(test, mutants::skip)]
     pub fn msg_id(&self) -> Option<MessageSlotID> {
-        match self {
-            Self::BlockProposal(_)
-            | Self::BlockPushed(_)
-            | Self::MockProposal(_)
-            | Self::MockBlock(_) => None,
-            Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), // Mock signature uses the same slot as block response since its exclusively for epoch 2.5 testing
-            Self::StateMachineUpdate(_) => Some(MessageSlotID::StateMachineUpdate),
-            Self::BlockPreCommit(_) => Some(MessageSlotID::BlockPreCommit),
-        }
+        SignerMessageTypePrefix::from(self).msg_id()
     }
 }
 
@@ -371,25 +381,25 @@ impl MockProposal {
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "stacks-tip-consensus-hash".into(),
+                    ClarityName::from_literal("stacks-tip-consensus-hash"),
                     Value::buff_from(self.peer_info.stacks_tip_consensus_hash.as_bytes().into())
                         .unwrap(),
                 ),
                 (
-                    "stacks-tip".into(),
+                    ClarityName::from_literal("stacks-tip"),
                     Value::buff_from(self.peer_info.stacks_tip.as_bytes().into()).unwrap(),
                 ),
                 (
-                    "stacks-tip-height".into(),
+                    ClarityName::from_literal("stacks-tip-height"),
                     Value::UInt(self.peer_info.stacks_tip_height.into()),
                 ),
                 (
-                    "server-version".into(),
+                    ClarityName::from_literal("server-version"),
                     Value::string_ascii_from_bytes(self.peer_info.server_version.clone().into())
                         .unwrap(),
                 ),
                 (
-                    "pox-consensus".into(),
+                    ClarityName::from_literal("pox-consensus"),
                     Value::buff_from(self.peer_info.pox_consensus.as_bytes().into()).unwrap(),
                 ),
             ])
@@ -399,17 +409,17 @@ impl MockProposal {
     }
 
     /// The signature hash including the miner's signature. Used by signers.
-    fn signer_signature_hash(&self) -> Sha256Sum {
+    pub fn signer_signature_hash(&self) -> Sha256Sum {
         let domain_tuple =
             make_structured_data_domain("mock-signer", "1.0.0", self.peer_info.network_id);
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    "miner-signature-hash".into(),
+                    ClarityName::from_literal("miner-signature-hash"),
                     Value::buff_from(self.miner_signature_hash().as_bytes().into()).unwrap(),
                 ),
                 (
-                    "miner-signature".into(),
+                    ClarityName::from_literal("miner-signature"),
                     Value::buff_from(self.signature.as_bytes().into()).unwrap(),
                 ),
             ])
@@ -458,7 +468,7 @@ impl StacksMessageCodec for MockProposal {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MockSignature {
     /// The signer's signature across the mock proposal
-    signature: MessageSignature,
+    pub signature: MessageSignature,
     /// The mock block proposal that was signed across
     pub mock_proposal: MockProposal,
     /// The signature metadata
@@ -1355,6 +1365,7 @@ impl BlockResponse {
                 full_extend_ts,
                 RejectReason::NotRejected,
                 read_count_extend_ts,
+                None,
             ),
         })
     }
@@ -1502,10 +1513,12 @@ impl SignerMessageMetadata {
 }
 
 /// The latest version of the block response data
-pub const BLOCK_RESPONSE_DATA_VERSION: u8 = 4;
+pub const BLOCK_RESPONSE_DATA_VERSION: u8 = 5;
 /// The first version of the block response data that added the tenure read count extend
 ///  timestamp.
 pub const FIRST_RESPONSE_DATA_VERSION_WITH_READ_COUNT: u8 = 4;
+/// The first version of the block response data that added the `failed_txid` field.
+pub const FIRST_RESPONSE_DATA_VERSION_WITH_FAILED_TXID: u8 = 5;
 
 /// Versioned, backwards-compatible struct for block response data
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1518,6 +1531,8 @@ pub struct BlockResponseData {
     pub reject_reason: RejectReason,
     /// Timestamp for when this signer would accept a read-count only TenureExtend
     pub tenure_extend_read_count_timestamp: u64,
+    /// The txid of the transaction that caused block validation to fail, if any
+    pub failed_txid: Option<Txid>,
     /// When deserializing future versions,
     /// there may be extra bytes that we don't know about
     pub unknown_bytes: Vec<u8>,
@@ -1529,19 +1544,21 @@ impl BlockResponseData {
         tenure_extend_timestamp: u64,
         reject_reason: RejectReason,
         tenure_extend_read_count_timestamp: u64,
+        failed_txid: Option<Txid>,
     ) -> Self {
         Self {
             version: BLOCK_RESPONSE_DATA_VERSION,
             tenure_extend_timestamp,
             reject_reason,
             tenure_extend_read_count_timestamp,
+            failed_txid,
             unknown_bytes: vec![],
         }
     }
 
     /// Create an empty BlockResponseData
     pub fn empty() -> Self {
-        Self::new(u64::MAX, RejectReason::NotRejected, u64::MAX)
+        Self::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None)
     }
 
     /// Serialize the "inner" block response data. Used to determine the bytes length of the serialized block response data
@@ -1549,6 +1566,15 @@ impl BlockResponseData {
         write_next(fd, &self.tenure_extend_timestamp)?;
         write_next(fd, &self.reject_reason)?;
         write_next(fd, &self.tenure_extend_read_count_timestamp)?;
+        match &self.failed_txid {
+            Some(txid) => {
+                write_next(fd, &1u8)?;
+                write_next(fd, txid)?;
+            }
+            None => {
+                write_next(fd, &0u8)?;
+            }
+        }
         fd.write_all(&self.unknown_bytes)
             .map_err(CodecError::WriteError)?;
         Ok(())
@@ -1587,11 +1613,22 @@ impl StacksMessageCodec for BlockResponseData {
             } else {
                 read_next(&mut inner_reader)?
             };
+        let failed_txid = if version < FIRST_RESPONSE_DATA_VERSION_WITH_FAILED_TXID {
+            None
+        } else {
+            let has_txid: u8 = read_next(&mut inner_reader)?;
+            if has_txid != 0 {
+                Some(read_next::<Txid, _>(&mut inner_reader)?)
+            } else {
+                None
+            }
+        };
         Ok(Self {
             version,
             tenure_extend_timestamp,
             reject_reason,
             tenure_extend_read_count_timestamp,
+            failed_txid,
             unknown_bytes: inner_reader.to_vec(),
         })
     }
@@ -1649,6 +1686,7 @@ impl BlockAccepted {
                 full_extend_ts,
                 RejectReason::NotRejected,
                 read_count_extend_ts,
+                None,
             ),
         }
     }
@@ -1699,6 +1737,7 @@ impl BlockRejection {
                 full_extend_ts,
                 reject_reason,
                 read_count_extend_ts,
+                None,
             ),
         };
         rejection
@@ -1721,18 +1760,20 @@ impl BlockRejection {
             CHAIN_ID_TESTNET
         };
         let reject_code = RejectCode::ValidationFailed(reject.reason_code);
+        let response_data = BlockResponseData::new(
+            full_extend_ts,
+            (&reject_code).into(),
+            read_count_extend_ts,
+            reject.failed_txid,
+        );
         let mut rejection = Self {
             reason: reject.reason,
-            reason_code: reject_code.clone(),
+            reason_code: reject_code,
             signer_signature_hash: reject.signer_signature_hash,
             chain_id,
             signature: MessageSignature::empty(),
             metadata: SignerMessageMetadata::default(),
-            response_data: BlockResponseData::new(
-                full_extend_ts,
-                (&reject_code).into(),
-                read_count_extend_ts,
-            ),
+            response_data,
         };
         rejection
             .sign(private_key)
@@ -1771,7 +1812,10 @@ impl BlockRejection {
             return Err("No signature to recover public key from");
         }
         let signature_hash = self.hash();
-        StacksPublicKey::recover_to_pubkey(signature_hash.as_bytes(), &self.signature)
+        StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+            signature_hash.as_bytes(),
+            &self.signature,
+        )
     }
 }
 
@@ -2134,6 +2178,7 @@ mod test {
                 thread_rng().next_u64(),
                 RejectReason::NotRejected,
                 thread_rng().next_u64(),
+                None,
             ),
         };
         let response = BlockResponse::Accepted(accepted);
@@ -2166,6 +2211,7 @@ mod test {
                 thread_rng().next_u64(),
                 RejectReason::NotRejected,
                 thread_rng().next_u64(),
+                None,
             ),
         };
         let signer_message = SignerMessage::BlockResponse(BlockResponse::Accepted(accepted));
@@ -2333,7 +2379,7 @@ mod test {
                 chain_id: CHAIN_ID_TESTNET,
                 signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
                 metadata: SignerMessageMetadata::empty(),
-                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX),
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
             }))
         );
 
@@ -2346,7 +2392,7 @@ mod test {
                 .unwrap(),
                 metadata: SignerMessageMetadata::empty(),
                 signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
-                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX),
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
             }))
         );
     }
@@ -2373,7 +2419,7 @@ mod test {
                 metadata: SignerMessageMetadata {
                     server_version: "Hello world".to_string(),
                 },
-                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX),
+                response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
             }))
         );
 
@@ -2404,23 +2450,25 @@ mod test {
 
     #[test]
     fn block_response_data_serialization() {
-        let mut response_data = BlockResponseData::new(2, RejectReason::ReorgNotAllowed, 3);
+        let mut response_data = BlockResponseData::new(2, RejectReason::ReorgNotAllowed, 3, None);
         response_data.unknown_bytes = vec![1, 2, 3, 4];
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
         // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp
-        //   + 1 byte reject code + 8 bytes read_count_timestamp + 4 bytes unknown_bytes
-        assert_eq!(bytes.len(), 26);
+        //   + 1 byte reject code + 8 bytes read_count_timestamp + 1 byte failed_txid flag
+        //   + 4 bytes unknown_bytes
+        assert_eq!(bytes.len(), 27);
         let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
             .expect("Failed to deserialize BlockResponseData");
         assert_eq!(response_data, deserialized_data);
 
-        let response_data = BlockResponseData::new(2, RejectReason::NotRejected, 3);
+        let response_data = BlockResponseData::new(2, RejectReason::NotRejected, 3, None);
         let mut bytes = vec![];
         response_data.consensus_serialize(&mut bytes).unwrap();
         // 1 byte version + 4 bytes (bytes_len) + 8 bytes tenure_extend_timestamp
-        //   + 8 bytes read_count_timestamp + 0 bytes unknown_bytes
-        assert_eq!(bytes.len(), 22);
+        //   + 1 byte reject code + 8 bytes read_count_timestamp + 1 byte failed_txid flag
+        //   + 0 bytes unknown_bytes
+        assert_eq!(bytes.len(), 23);
         let deserialized_data = read_next::<BlockResponseData, _>(&mut &bytes[..])
             .expect("Failed to deserialize BlockResponseData");
         assert_eq!(response_data, deserialized_data);
@@ -2432,6 +2480,7 @@ mod test {
         pub tenure_extend_timestamp: u64,
         pub reject_reason: RejectReason,
         pub read_count_timestamp: u64,
+        pub failed_txid: Option<Txid>,
         pub some_other_field: u64,
         pub yet_another_field: u64,
     }
@@ -2441,6 +2490,15 @@ mod test {
             write_next(fd, &self.tenure_extend_timestamp)?;
             write_next(fd, &self.reject_reason)?;
             write_next(fd, &self.read_count_timestamp)?;
+            match &self.failed_txid {
+                Some(txid) => {
+                    write_next(fd, &1u8)?;
+                    write_next(fd, txid)?;
+                }
+                None => {
+                    write_next(fd, &0u8)?;
+                }
+            }
             write_next(fd, &self.some_other_field)?;
             write_next(fd, &self.yet_another_field)?;
             Ok(())
@@ -2463,9 +2521,10 @@ mod test {
             version: 11,
             tenure_extend_timestamp: 2,
             reject_reason: RejectReason::ReorgNotAllowed,
+            read_count_timestamp: 3,
+            failed_txid: None,
             some_other_field: 3,
             yet_another_field: 4,
-            read_count_timestamp: 3,
         };
 
         let mut bytes = vec![];
@@ -2530,7 +2589,7 @@ mod test {
             signer_signature_hash: Sha512Trunc256Sum::from_hex("11717149677c2ac97d15ae5954f7a716f10100b9cb81a2bf27551b2f2e54ef19").unwrap(),
             metadata: SignerMessageMetadata::default(),
             signature: MessageSignature::from_hex("001c694f8134c5c90f2f2bcd330e9f423204884f001b5df0050f36a2c4ff79dd93522bb2ae395ea87de4964886447507c18374b7a46ee2e371e9bf332f0706a3e8").unwrap(),
-            response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX),
+            response_data: BlockResponseData::new(u64::MAX, RejectReason::NotRejected, u64::MAX, None),
         };
 
         let mut bytes = vec![];
@@ -2899,6 +2958,7 @@ mod test {
                         tenure_extend_timestamp: 11,
                         reject_reason: RejectReason::InvalidParentBlock,
                         tenure_extend_read_count_timestamp: u64::MAX,
+                        failed_txid: None,
                         unknown_bytes: vec![],
                     },
                 })),
@@ -2919,6 +2979,7 @@ mod test {
                         tenure_extend_timestamp: 21,
                         reject_reason: RejectReason::NotRejected,
                         tenure_extend_read_count_timestamp: u64::MAX,
+                        failed_txid: None,
                         unknown_bytes: vec![],
                     },
                 })),

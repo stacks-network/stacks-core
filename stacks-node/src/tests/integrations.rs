@@ -1,3 +1,18 @@
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -11,7 +26,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{
     QualifiedContractIdentifier, ResponseData, StacksAddressExtensions, TupleData,
 };
-use clarity::vm::{ClarityVersion, Value};
+use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use lazy_static::lazy_static;
 use pinny::tag;
 use reqwest;
@@ -503,7 +518,7 @@ fn integration_test_get_info() {
                 let client = reqwest::blocking::Client::new();
                 let path = format!("{http_origin}/v2/map_entry/{contract_addr}/get-info/block-data");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
+                let key: Value = TupleData::from_data(vec![(ClarityName::from_literal("height"), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {path}");
@@ -518,7 +533,7 @@ fn integration_test_get_info() {
 
                 assert_eq!(result_data, expected_data);
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(100))])
+                let key: Value = TupleData::from_data(vec![(ClarityName::from_literal("height"), Value::UInt(100))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {path}");
@@ -534,7 +549,7 @@ fn integration_test_get_info() {
                 // now, let's use a query string to get data without a proof
                 let path = format!("{http_origin}/v2/map_entry/{contract_addr}/get-info/block-data?proof=0");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
+                let key: Value = TupleData::from_data(vec![(ClarityName::from_literal("height"), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {path}");
@@ -554,7 +569,7 @@ fn integration_test_get_info() {
                 // now, let's use a query string to get data _with_ a proof
                 let path = format!("{http_origin}/v2/map_entry/{contract_addr}/get-info/block-data?proof=1");
 
-                let key: Value = TupleData::from_data(vec![("height".into(), Value::UInt(3))])
+                let key: Value = TupleData::from_data(vec![(ClarityName::from_literal("height"), Value::UInt(3))])
                     .unwrap().into();
 
                 eprintln!("Test: POST {path}");
@@ -969,8 +984,8 @@ fn integration_test_get_info() {
 
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
                     address: contract_addr.clone(),
-                    contract_name: "get-info".into(),
-                    function_name: "update-info".into(),
+                    contract_name: ContractName::from_literal("get-info"),
+                    function_name: ClarityName::from_literal("update-info"),
                     function_args: vec![],
                 });
 
@@ -1019,8 +1034,8 @@ fn integration_test_get_info() {
 
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
                     address: contract_addr,
-                    contract_name: "get-info".into(),
-                    function_name: "update-info".into(),
+                    contract_name: ContractName::from_literal("get-info"),
+                    function_name: ClarityName::from_literal("update-info"),
                     function_args: vec![],
                 });
 

@@ -1,4 +1,4 @@
-description: Describes representation of a Type-0 Stacks 2.0 transaction. https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md#type-0-transferring-an-asset
+description: Arguments for a simulated read-only Clarity function call, including the sender/sponsor principals and hex-encoded Clarity values.
 type: object
 additionalProperties: false
 required:
@@ -6,9 +6,9 @@ required:
   - arguments
 properties:
   sender:
-    description: The simulated tx-sender.
+    description: The simulated tx-sender (standard address or contract principal).
     allOf:
-      - $ref: './standard-principal.schema.yaml'
+      - $ref: './principal.schema.yaml'
   sponsor:
     description: The simulated sponsor address.
     allOf:

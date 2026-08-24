@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::token::Token;
+use std::time::Duration;
+
 use clarity_types::types::SequenceSubtype;
 #[cfg(test)]
 use rstest::rstest;
@@ -28,7 +29,11 @@ use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrorKind;
+use crate::vm::ast::parser::v2::lexer::token::Token;
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
+use crate::vm::time_tracker::TimeTracker;
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
@@ -927,12 +932,51 @@ fn test_at_block() {
     for (good_test, expected) in good.iter() {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(good_test).unwrap())
+            &format!(
+                "{}",
+                type_check_helper_version(
+                    good_test,
+                    ClarityVersion::Clarity4,
+                    StacksEpochId::Epoch33
+                )
+                .unwrap()
+            )
         );
     }
 
     for (bad_test, expected) in bad.iter() {
-        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(
+            *expected,
+            *type_check_helper_version(bad_test, ClarityVersion::Clarity4, StacksEpochId::Epoch33)
+                .unwrap_err()
+                .err
+        );
+    }
+
+    assert_eq!(
+        StaticCheckErrorKind::AtBlockUnavailable,
+        *type_check_helper_version(
+            "(at-block (sha256 u0) u1)",
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch34
+        )
+        .unwrap_err()
+        .err
+    );
+
+    let mut versions_gt_clarity4 = ClarityVersion::ALL.to_vec();
+    versions_gt_clarity4.retain(|version| *version > ClarityVersion::Clarity4);
+    for version in versions_gt_clarity4 {
+        assert_eq!(
+            StaticCheckErrorKind::UnknownFunction("at-block".to_string()),
+            *type_check_helper_version(
+                "(at-block (sha256 u0) u1)",
+                version,
+                StacksEpochId::latest()
+            )
+            .unwrap_err()
+            .err
+        );
     }
 }
 
@@ -3697,11 +3741,11 @@ fn test_trait_args() {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let bad_expected = [StaticCheckErrorKind::IncompatibleTrait(
         Box::new(TraitIdentifier {
-            name: ClarityName::from("trait-foo"),
+            name: ClarityName::from_literal("trait-foo"),
             contract_identifier: contract_identifier.clone(),
         }),
         Box::new(TraitIdentifier {
-            name: ClarityName::from("trait-bar"),
+            name: ClarityName::from_literal("trait-bar"),
             contract_identifier,
         }),
     )];
@@ -4266,4 +4310,28 @@ fn test_contract_call_with_non_callable_constant_target(
             );
         }
     }
+}
+
+#[test]
+fn test_clarity2_inner_type_check_type_aborts_when_deadline_elapsed() {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let mut cost_tracker = LimitedCostTracker::new_free();
+    // A zero-duration deadline is already elapsed at the first check.
+    let time_tracker = TimeTracker::from_max_duration(Duration::ZERO);
+
+    let result = super::clarity2_inner_type_check_type(
+        &mut db,
+        None,
+        &BoolType,
+        &BoolType,
+        1,
+        &mut cost_tracker,
+        &time_tracker,
+    );
+
+    assert!(
+        matches!(result, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::AnalysisTimeExpired)),
+        "expected AnalysisTimeExpired, got {result:?}"
+    );
 }

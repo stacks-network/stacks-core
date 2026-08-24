@@ -95,6 +95,8 @@ components:
       $ref: ./components/schemas/pox-info.schema.yaml
     Sortitions:
       $ref: ./components/schemas/sortitions.schema.yaml
+    Sortition:
+      $ref: ./components/schemas/sortition.schema.yaml
     GetHealth:
       $ref: ./components/schemas/get-health.schema.yaml
     AccountData:
@@ -128,7 +130,39 @@ components:
     IsTraitImplemented:
       $ref: ./components/schemas/is-trait-implemented.schema.yaml
 
+    # Block Replay Schemas
+    BlockReplay:
+      $ref: ./components/schemas/block-replay.schema.yaml
+    BlockReplayTransaction:
+      $ref: ./components/schemas/block-replay-transaction.schema.yaml
+    BlockReplayTransactionEvent:
+      $ref: ./components/schemas/block-replay-transaction-event.schema.yaml
+    BlockReplayTransactionStxTransferEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-transfer-event.schema.yaml
+    BlockReplayTransactionStxBurnEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-burn-event.schema.yaml
+    BlockReplayTransactionStxLockEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-lock-event.schema.yaml
+    BlockReplayTransactionStxMintEvent:
+      $ref: ./components/schemas/block-replay-transaction-stx-mint-event.schema.yaml
+    BlockReplayTransactionFtMintEvent:
+      $ref: ./components/schemas/block-replay-transaction-ft-mint-event.schema.yaml
+    BlockReplayTransactionFtTransferEvent:
+      $ref: ./components/schemas/block-replay-transaction-ft-transfer-event.schema.yaml
+    BlockReplayTransactionFtBurnEvent:
+      $ref: ./components/schemas/block-replay-transaction-ft-burn-event.schema.yaml
+    BlockReplayTransactionNftMintEvent:
+      $ref: ./components/schemas/block-replay-transaction-nft-mint-event.schema.yaml
+    BlockReplayTransactionNftTransferEvent:
+      $ref: ./components/schemas/block-replay-transaction-nft-transfer-event.schema.yaml
+    BlockReplayTransactionNftBurnEvent:
+      $ref: ./components/schemas/block-replay-transaction-nft-burn-event.schema.yaml
+    BlockReplayTransactionContractEvent:
+      $ref: ./components/schemas/block-replay-transaction-contract-event.schema.yaml
+
     # Other Schemas
+    ClarityType:
+      $ref: ./components/schemas/clarity-type.schema.yaml
     SignerBlocksSigned:
       $ref: ./components/schemas/signer-blocks-signed.schema.yaml
     UnconfirmedTransaction:
@@ -155,6 +189,8 @@ components:
       $ref: ./components/schemas/block-proposal.schema.yaml
     NetworkPeers:
       $ref: ./components/schemas/network-peers.schema.yaml
+    RPCNeighbor:
+      $ref: ./components/schemas/rpc-neighbor.schema.yaml
     TransactionInfo:
       $ref: ./components/schemas/get-transaction.schema.yaml
     TenureForkInfo:
@@ -169,8 +205,8 @@ components:
       $ref: ./components/schemas/get-stacker-set.schema.yaml
     TenureBlocks:
       $ref: ./components/schemas/tenure-blocks.schema.yaml
-    BlockReplay:
-      $ref: ./components/schemas/block-replay.schema.yaml
+    ExecutionCost:
+      $ref: ./components/schemas/execution-cost.schema.yaml
 
 paths:
   /v2/transactions:
@@ -374,7 +410,7 @@ paths:
 
         The arguments to the function are supplied via the POST body.
         This should be a JSON object with two main properties:
-        - `sender` which should be a standard Stacks address
+        - `sender` which should be a Stacks address or contract principal
         - `arguments` which should be an array of hex-encoded Clarity values.
       tags:
         - Smart Contracts
@@ -425,7 +461,7 @@ paths:
 
         The arguments to the function are supplied via the POST body.
         This should be a JSON object with two main properties:
-        - `sender` which should be a standard Stacks address
+        - `sender` which should be a Stacks address or contract principal
         - `arguments` which should be an array of hex-encoded Clarity values.
 
         **This API endpoint requires a basic Authorization header.**
@@ -1444,7 +1480,6 @@ paths:
           schema:
             type: integer
             minimum: 0
-        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Number of blocks signed
@@ -1636,7 +1671,6 @@ paths:
           schema:
             type: string
             pattern: "^[0-9a-f]{64}$"
-        - $ref: ./components/parameters/tip.yaml
       responses:
         "200":
           description: Stream of confirmed microblocks

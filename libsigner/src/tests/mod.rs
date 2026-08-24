@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2025 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+mod block_proposal_data;
 mod http;
+mod libsigner;
 mod signer_state;
 
 use std::io::{Read, Write};
@@ -24,20 +26,16 @@ use std::time::{Duration, SystemTime};
 use std::{mem, thread};
 
 use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
-use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
-use clarity::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use clarity::util::hash::Sha512Trunc256Sum;
-use clarity::util::secp256k1::MessageSignature;
 use libstackerdb::StackerDBChunkData;
-use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
 
-use crate::events::{BlockProposalData, SignerEvent, SignerEventTrait};
+use crate::events::{SignerEvent, SignerEventTrait};
 use crate::v0::messages::SignerMessage;
-use crate::{BlockProposal, Signer, SignerEventReceiver, SignerRunLoop};
+use crate::{Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
 /// last call to `run_one_pass` as its final state.
@@ -94,37 +92,18 @@ impl<T: SignerEventTrait> SignerRunLoop<Vec<SignerEvent<T>>, T> for SimpleRunLoo
 /// and the signer runloop.
 #[test]
 fn test_simple_signer() {
-    let contract_id = NakamotoSigners::make_signers_db_contract_id(0, 0, false);
+    // Use a `BlockPreCommit` payload on its matching contract (signers-0-3).
+    let contract_id = NakamotoSigners::make_signers_db_contract_id(0, 3, false);
     let ev = SignerEventReceiver::new(false);
     let (res_send, _res_recv) = channel();
     let max_events = 5;
     let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, res_send);
     let endpoint: SocketAddr = "127.0.0.1:30000".parse().unwrap();
     let mut chunks = vec![];
-    let block_proposal = BlockProposal {
-        block: NakamotoBlock {
-            header: NakamotoBlockHeader {
-                version: 1,
-                chain_length: 10,
-                burn_spent: 10,
-                consensus_hash: ConsensusHash([0; 20]),
-                parent_block_id: StacksBlockId([0; 32]),
-                tx_merkle_root: Sha512Trunc256Sum([0; 32]),
-                state_index_root: TrieHash([0; 32]),
-                timestamp: 11,
-                miner_signature: MessageSignature::empty(),
-                signer_signature: vec![],
-                pox_treatment: BitVec::ones(1).unwrap(),
-            },
-            txs: vec![],
-        },
-        burn_height: 2,
-        reward_cycle: 1,
-        block_proposal_data: BlockProposalData::empty(),
-    };
     for i in 0..max_events {
         let privk = Secp256k1PrivateKey::random();
-        let message = SignerMessage::BlockProposal(block_proposal.clone());
+        let message =
+            SignerMessage::BlockPreCommit(Sha512Trunc256Sum([(i as u8).wrapping_add(1); 32]));
         let message_bytes = message.serialize_to_vec();
         let mut chunk = StackerDBChunkData::new(i as u32, 1, message_bytes);
         chunk.sign(&privk).unwrap();
@@ -225,16 +204,12 @@ fn test_status_endpoint() {
     let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, res_send);
     let endpoint: SocketAddr = "127.0.0.1:31000".parse().unwrap();
 
+    // Spawn the signer first so the HTTP server is listening before the mock client connects
+    let running_signer = signer.spawn(endpoint).unwrap();
+
     // simulate a node that's trying to push data
     let mock_stacks_node = thread::spawn(move || {
-        let mut sock = match TcpStream::connect(endpoint) {
-            Ok(sock) => sock,
-            Err(e) => {
-                eprint!("Error connecting to {endpoint}: {e}");
-                sleep_ms(100);
-                return;
-            }
-        };
+        let mut sock = TcpStream::connect(endpoint).unwrap();
         let req = format!("GET /status HTTP/1.1\r\nHost: {endpoint}\r\nConnection: close\r\n\r\n");
 
         sock.write_all(req.as_bytes()).unwrap();
@@ -245,8 +220,6 @@ fn test_status_endpoint() {
         assert_eq!(expected_status_res, &res_str[..expected_status_res.len()]);
         sock.flush().unwrap();
     });
-
-    let running_signer = signer.spawn(endpoint).unwrap();
     sleep_ms(3000);
     let accepted_events = running_signer.stop().unwrap();
 

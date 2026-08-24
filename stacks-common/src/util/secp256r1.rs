@@ -18,7 +18,6 @@ use p256::ecdsa::signature::{Signer, Verifier};
 use p256::ecdsa::{
     Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
 };
-use p256::elliptic_curve::generic_array::GenericArray;
 use p256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 use p256::{EncodedPoint, PublicKey as P256PublicKey, SecretKey as P256SecretKey};
 use thiserror::Error;
@@ -93,6 +92,19 @@ impl MessageSignature {
     /// Converts to a p256::ecdsa::Signature
     pub fn to_p256_signature(&self) -> Result<P256Signature, Secp256r1Error> {
         P256Signature::from_slice(&self.0).map_err(|_| Secp256r1Error::InvalidSignature)
+    }
+
+    /// Returns a high-S version of this signature by negating S (s' = -s mod n).
+    /// If the signature is already high-S, it is returned unchanged.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn to_high_s(&self) -> Result<MessageSignature, Secp256r1Error> {
+        let p256_sig = self.to_p256_signature()?;
+        // Normalize to low-S first, then negate to get high-S
+        let low_sig = p256_sig.normalize_s().unwrap_or(p256_sig);
+        let (r, s) = (low_sig.r(), low_sig.s());
+        let high_sig =
+            P256Signature::from_scalars(*r, -(*s)).map_err(|_| Secp256r1Error::InvalidSignature)?;
+        Ok(MessageSignature::from_p256_signature(&high_sig))
     }
 }
 
@@ -268,7 +280,7 @@ impl Secp256r1PrivateKey {
         let mut key_bytes = [0u8; 32];
         key_bytes.copy_from_slice(&data[0..32]);
 
-        let secret_key = P256SecretKey::from_bytes(&GenericArray::from(key_bytes))
+        let secret_key = P256SecretKey::from_slice(&key_bytes)
             .map_err(|_| "Invalid private key: failed to load")?;
         let signing_key = P256SigningKey::from(secret_key);
 

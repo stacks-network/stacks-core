@@ -1,0 +1,24 @@
+type: object
+additionalProperties: false
+required:
+  - read_count
+  - write_count
+  - read_length
+  - write_length
+  - runtime
+properties:
+  read_count:
+    type: integer
+    minimum: 0
+  read_length:
+    type: integer
+    minimum: 0
+  runtime:
+    type: integer
+    minimum: 0
+  write_count:
+    type: integer
+    minimum: 0
+  write_length:
+    type: integer
+    minimum: 0

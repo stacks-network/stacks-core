@@ -1,0 +1,39 @@
+name: Setup Rust Toolchain
+description: |
+  Resolves the Rust toolchain version and installs it via actions-rust-lang/setup-rust-toolchain.
+  If `toolchain` is not provided, the version is read from `./rust-toolchain.toml`
+
+inputs:
+  toolchain:
+    description: Toolchain version (i.e. "nightly". default to stable).
+    required: false
+    default: ""
+  components:
+    description: Comma-separated list of components to install alongside the toolchain
+    required: false
+    default: ""
+  target:
+    description: Comma-separated list of additional compilation targets to install
+    required: false
+    default: ""
+  cache:
+    description: "Enable the built-in Rust caching provided by the action."
+    required: false
+    default: "false"
+
+outputs:
+  rust-toolchain:
+    description: "The resolved Rust toolchain version that was installed."
+    value: ${{ steps.resolve-toolchain.outputs.rust-toolchain }}
+
+runs:
+  using: "composite"
+  steps:
+    # Setup the rust toolchain with any requested components and targets.
+    - name: Install Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+        target: ${{ inputs.target }}
+        cache: ${{ inputs.cache }}

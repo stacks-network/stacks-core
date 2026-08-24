@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,7 +21,7 @@ use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendE
 use std::thread::JoinHandle;
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use mio::net as mio_net;
+use mio::{self, net as mio_net};
 use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
@@ -31,7 +31,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
-use {mio, url};
+use url;
 
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{Burnchain, BurnchainView};
@@ -4530,9 +4530,13 @@ impl PeerNetwork {
             &parent_tenure_start_header.consensus_hash,
             &parent_stacks_tip_block_hash,
         );
-        let parent_coinbase_height = NakamotoChainState::get_coinbase_height(
+        // Anchor the read at the canonical stacks tip rather than the parent tenure-start block:
+        // the parent may be below a squashed node's snapshot height and thus pruned, while the
+        // immutable coinbase-height mapping reads identically from any descendant of it.
+        let parent_coinbase_height = NakamotoChainState::get_coinbase_height_at_tip(
             &mut chainstate.index_conn(),
             &parent_stacks_tip_block_id,
+            stacks_tip_block_id,
         )?;
 
         let coinbase_height = match parent_coinbase_height {
@@ -4757,7 +4761,7 @@ impl PeerNetwork {
             self.stacks_tip.is_nakamoto
         };
 
-        let stacks_tip_cbh = NakamotoChainState::get_coinbase_height(
+        let stacks_tip_cbh = NakamotoChainState::get_coinbase_height_at(
             &mut chainstate.index_conn(),
             &new_stacks_tip_block_id,
         )?;
@@ -4924,7 +4928,6 @@ impl PeerNetwork {
                 sortdb,
                 chainstate,
                 buffered_messages,
-                ibd,
                 false,
             );
             ret.extend(unhandled);
@@ -5035,7 +5038,6 @@ impl PeerNetwork {
             sortdb,
             chainstate,
             unhandled_messages,
-            ibd,
             true,
         );
         let unhandled_messages =
@@ -5568,8 +5570,7 @@ mod test {
     use std::{thread, time};
 
     use clarity::util::sleep_ms;
-    use rand;
-    use rand::RngCore;
+    use rand::{self, RngCore};
     use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     use super::*;
@@ -5616,7 +5617,7 @@ mod test {
     }
 
     fn make_test_p2p_network(initial_neighbors: &[Neighbor]) -> PeerNetwork {
-        let mut conn_opts = ConnectionOptions::default();
+        let mut conn_opts = ConnectionOptions::default().with_private_neighbors();
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;
 
@@ -5655,7 +5656,7 @@ mod test {
             0x9abcdef0,
             0,
             23456,
-            "http://test-p2p.com".into(),
+            UrlString::from_literal("http://test-p2p.com"),
             &[],
             initial_neighbors,
         )

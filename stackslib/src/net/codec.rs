@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,8 +21,7 @@ use std::io::Read;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
-use rand;
-use rand::Rng;
+use rand::{self, Rng};
 use sha2::{Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -617,8 +616,7 @@ impl HandshakeData {
             local_peer.data_url.clone()
         } else if let Some(data_port) = local_peer.data_url.get_port() {
             // deduce from public IP
-            UrlString::try_from(format!("http://{}", addrbytes.to_socketaddr(data_port)).as_str())
-                .unwrap()
+            UrlString::try_from(format!("http://{}", addrbytes.to_socketaddr(data_port))).unwrap()
         } else {
             // unroutable, so don't bother
             UrlString::try_from("").unwrap()
@@ -1659,53 +1657,8 @@ pub mod test {
         check_deserialize(T::consensus_deserialize(&mut &bytes[..]))
     }
 
-    pub fn check_codec_and_corruption<T: StacksMessageCodec + fmt::Debug + Clone + PartialEq>(
-        obj: &T,
-        bytes: &[u8],
-    ) {
-        // obj should serialize to bytes
-        let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
-        obj.consensus_serialize(&mut write_buf).unwrap();
-        assert_eq!(write_buf, *bytes);
-
-        // bytes should deserialize to obj
-        let read_buf: Vec<u8> = write_buf.clone();
-        let res = T::consensus_deserialize(&mut &read_buf[..]);
-        match res {
-            Ok(out) => {
-                assert_eq!(out, *obj);
-            }
-            Err(e) => {
-                panic!("Failed to parse to {obj:?}: {bytes:?}\nerror: {e:?}");
-            }
-        }
-
-        // short message shouldn't parse, but should EOF
-        if !write_buf.is_empty() {
-            let mut short_buf = write_buf.clone();
-            let short_len = short_buf.len() - 1;
-            short_buf.truncate(short_len);
-
-            let underflow_res = T::consensus_deserialize(&mut &short_buf[..]);
-            match underflow_res {
-                Ok(oops) => {
-                    test_debug!(
-                        "\nMissing Underflow: Parsed {oops:?}\nFrom {:?}\n",
-                        &write_buf[0..short_len].to_vec()
-                    );
-                }
-                Err(codec_error::ReadError(io_error)) => match io_error.kind() {
-                    io::ErrorKind::UnexpectedEof => {}
-                    _ => {
-                        panic!("Got unexpected I/O error: {io_error:?}");
-                    }
-                },
-                Err(e) => {
-                    panic!("Got unexpected Net error: {e:?}");
-                }
-            };
-        }
-    }
+    // Canonical implementation lives in `stacks_common::codec::testing`.
+    pub use stacks_common::codec::testing::check_codec_and_corruption;
 
     #[test]
     fn codec_primitive_types() {

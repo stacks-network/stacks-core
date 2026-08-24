@@ -186,8 +186,17 @@ fn check_capitulate_miner_view() {
 
     let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine.clone());
 
-    // Let's update 40 percent of other signers to some new miner key
-    for address in addresses.into_iter().take(4) {
+    // Let's update 40 percent of other signers to some new miner key.
+    // Exclude the client's signer address so that `capitulate_miner_view`'s
+    // re-insertion of `local_update` (old_update) for the local address is
+    // always a no-op, keeping the split at exactly 4 new / 6 old regardless
+    // of HashMap iteration order.
+    let client_address = client.get_signer_address().clone();
+    for address in addresses
+        .into_iter()
+        .filter(|a| *a != client_address)
+        .take(4)
+    {
         global_eval.insert_update(address, new_update.clone());
     }
     // Miner view should be None as we can't find consensus on a single miner

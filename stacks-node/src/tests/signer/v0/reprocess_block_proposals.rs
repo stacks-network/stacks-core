@@ -21,7 +21,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use crate::tests::signer::v0::{
-    MultipleMinerTest, wait_for_block_pre_commits_from_signers, wait_for_block_proposal, wait_for_block_pushed, wait_for_block_rejections_from_signers
+    MultipleMinerTest, wait_for_block_pre_commits_from_signers, wait_for_block_proposal, wait_for_block_pushed_by_miner_key, wait_for_block_rejections_from_signers
 };
 
 #[test]
@@ -96,20 +96,20 @@ fn signers_reprocess_bitcoin_block_not_found_proposals() {
     miners.boot_to_epoch_3();
 
     // Make sure we know which miner will win in the stalled block
-    miners.pause_commits_miner_1();
-    info!("------------------------- Mine First Block N -------------------------");
-
     let sortdb = SortitionDB::open(
-        &conf_1.get_burn_db_file_path(),
-        false,
-        conf_1.get_burnchain().pox_constants,
+    &conf_1.get_burn_db_file_path(),
+    false,
+    conf_1.get_burnchain().pox_constants,
     )
     .unwrap();
+    miners.ensure_commit_miner_1(&sortdb);
+    miners.pause_commits_miner_1();
+    info!("------------------------- Mine First Block N -------------------------");
     // Mine an initial block to establish state
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
         .expect("Failed to mine BTC block followed by tenure change tx");
-    miners.submit_commit_miner_1(&sortdb);
+    miners.ensure_commit_miner_1(&sortdb);
     miners.signer_test.check_signer_states_normal();
 
     let info_before = miners.get_peer_info();
@@ -122,6 +122,7 @@ fn signers_reprocess_bitcoin_block_not_found_proposals() {
     info!("------------------------- Mine Block N+1 with Stalled Block Broadcasting -------------------------");
     // Mine a new tenure which will issue a block proposal to all signers for its tenure change.
     miners.signer_test.mine_bitcoin_block();
+    miners.signer_test.wait_for_signer_state_update();
 
     // The 3 signers on miner 1 should have validated and sent pre-commits
     // The 2 signers on miner 2 should have issued a block rejection due to the stalled sortition commit preventing them from validating the block proposal
@@ -142,7 +143,7 @@ fn signers_reprocess_bitcoin_block_not_found_proposals() {
     // Now that validation is resumed, the stalled signer should issue an approval
     wait_for_block_pre_commits_from_signers(30, &signer_signature_hash, &stalled_signers)
         .expect("Stalled signers failed to issue commits");
-    wait_for_block_pushed(30, &signer_signature_hash).expect("Failed to mine block N+1");
+    wait_for_block_pushed_by_miner_key(30, info_before.stacks_tip_height + 1, &miner_pk_1).expect("Failed to mine block N+1");
     info!("------------------------- Shutting down -------------------------");
     miners.shutdown();
 }

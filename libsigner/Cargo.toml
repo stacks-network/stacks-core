@@ -8,7 +8,6 @@ repository = "https://github.com/blockstack/stacks-blockchain"
 description = "Library for Stacks signer daemons"
 keywords = [ "stacks", "stx", "bitcoin", "crypto", "blockstack", "decentralized", "dapps", "blockchain" ]
 readme = "README.md"
-resolver = "2"
 edition = "2021"
 
 [lib]
@@ -18,7 +17,6 @@ path = "./src/libsigner.rs"
 [dependencies]
 clarity = { path = "../clarity" }
 hashbrown = { workspace = true }
-lazy_static = "1.4.0"
 libc = "0.2"
 libstackerdb = { path = "../libstackerdb" }
 serde = "1"

@@ -1,0 +1,238 @@
+---
+source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
+expression: result.get_expected_results()
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "ff352c387013df7c3a93b17ae8fce07f6a000f3d99f7f2e6a33d21232ae8a0c2",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: at-block-unavail-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 170,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 14335,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 170,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 14335,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ed5189a7abcf8435508aae35f9a8c1b21b8706e8d831e7aa4f865f3b9b8e66ec",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: at-block-unavail-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 170,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 14334,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 170,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 14334,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1a733d14863d6d9e3a61dbcab6b274a41e5ac37cb5bc6f11fe8905d7cb3eec74",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: at-block-unavail-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 170,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 14334,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 170,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 14334,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a6db72c30df41faaed56ad83d5347e452eab2734a15896da788c02536f855ab6",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: at-block-unavail-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 170,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 14334,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 170,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 14334,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "75bb759e0316d9cde4c104066ad69dae0a273e2b06acd849347695940c1e10b1",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: at-block-unavail-Epoch3_3-Clarity1, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(AtBlockUnavailable) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 159,
+          read_count: 3,
+          runtime: 275,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 159,
+      read_count: 3,
+      runtime: 275,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ba26d9b139f0fd9de1a85e76e586f9d9695045534a4439470767837110e038e5",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: at-block-unavail-Epoch3_3-Clarity2, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(AtBlockUnavailable) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 159,
+          read_count: 3,
+          runtime: 275,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 159,
+      read_count: 3,
+      runtime: 275,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "98c1dc59c792608ccfcc993ecab31c894b9a68c9ce8e9a58d1112b1773562bc8",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: at-block-unavail-Epoch3_3-Clarity3, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(AtBlockUnavailable) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 159,
+          read_count: 3,
+          runtime: 275,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 159,
+      read_count: 3,
+      runtime: 275,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b0dbe428908a49dd3674cf78154ba4342e96b106c3816119f04359972396df95",
+    evaluated_epoch: Epoch34,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: at-block-unavail-Epoch3_3-Clarity4, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(AtBlockUnavailable) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 159,
+          read_count: 3,
+          runtime: 275,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 159,
+      read_count: 3,
+      runtime: 275,
+    ),
+  )),
+]

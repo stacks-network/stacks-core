@@ -1,0 +1,34 @@
+type: object
+required:
+  - committed
+  - event_index
+  - nft_transfer_event
+  - txid
+  - type
+properties:
+  committed:
+    type: boolean
+  event_index:
+    type: integer
+  nft_transfer_event:
+    type: object
+    required:
+      - asset_identifier
+      - raw_value
+      - recipient
+      - sender
+    properties:
+      asset_identifier:
+        type: string
+      raw_value:
+        type: string
+      recipient:
+        type: string
+      sender:
+        type: string
+  txid:
+    type: string
+  type:
+    type: string
+    enum:
+      - nft_transfer_event

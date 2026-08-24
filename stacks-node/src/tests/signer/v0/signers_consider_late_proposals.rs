@@ -26,10 +26,9 @@ use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
 use crate::nakamoto_node::stackerdb_listener::TEST_IGNORE_SIGNERS;
-use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::signer::v0::{
     wait_for_block_acceptance_from_signers, wait_for_block_pre_commits_from_signers,
-    wait_for_block_proposal, wait_for_block_pushed,
+    wait_for_block_proposal, wait_for_block_pushed_and_tip,
 };
 
 #[test]
@@ -87,6 +86,7 @@ fn signers_reprocess_late_block_proposals_pre_commits() {
     info!("------------------------- Mine Tenure A and Propose Block N -------------------------");
     let expected_height = signer_test.get_peer_info().stacks_tip_height + 1;
     signer_test.mine_bitcoin_block();
+    signer_test.wait_for_signer_state_update();
     info!("------------------------- Wait for block proposal -------------------------");
     let block_proposal = wait_for_block_proposal(30, expected_height, &miner_pk)
         .expect("Miner failed to propose tenure start block");
@@ -109,12 +109,10 @@ fn signers_reprocess_late_block_proposals_pre_commits() {
     wait_for_block_acceptance_from_signers(30, &sighash, &all_signers)
         .expect("All signers should have accepted the block proposal after it was reproposed");
     info!("------------------------- Wait for block pushed -------------------------");
-    wait_for_block_pushed(30, &sighash)
-        .expect("Block should have been pushed to the node after being accepted by all signers");
-    wait_for(30, || {
-        Ok(signer_test.get_peer_info().stacks_tip_height == expected_height)
+    wait_for_block_pushed_and_tip(30, expected_height, &miner_pk, || {
+        signer_test.get_peer_info().stacks_tip
     })
-    .expect("Node should have advanced to expected height after block acceptance");
+    .expect("Block should have been pushed to the node after being accepted by all signers");
 }
 
 #[test]
@@ -173,6 +171,7 @@ fn signers_reprocess_late_block_proposals_signatures() {
     info!("------------------------- Mine Tenure A and Propose Block N -------------------------");
     let expected_height = signer_test.get_peer_info().stacks_tip_height + 1;
     signer_test.mine_bitcoin_block();
+    signer_test.wait_for_signer_state_update();
     info!("------------------------- Wait for block proposal -------------------------");
     let block_proposal = wait_for_block_proposal(30, expected_height, &miner_pk)
         .expect("Miner failed to propose tenure start block");
@@ -207,10 +206,8 @@ fn signers_reprocess_late_block_proposals_signatures() {
     wait_for_block_acceptance_from_signers(30, &sighash, &ignoring_signers)
         .expect("Ignoring signer should have accepted the block proposal after it was reproposed");
     info!("------------------------- Wait for block pushed -------------------------");
-    wait_for_block_pushed(30, &sighash)
-        .expect("Block should have been pushed to the node after the threshold was exceeded by the late signer");
-    wait_for(30, || {
-        Ok(signer_test.get_peer_info().stacks_tip_height == expected_height)
+    wait_for_block_pushed_and_tip(30, expected_height, &miner_pk, || {
+        signer_test.get_peer_info().stacks_tip
     })
-    .expect("Node should have advanced to expected height after block acceptance");
+    .expect("Block should have been pushed to the node after the threshold was exceeded by the late signer");
 }

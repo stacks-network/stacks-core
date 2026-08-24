@@ -1,26 +1,26 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
-expression: result
+expression: result.get_expected_results()
 ---
 [
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch33,
-    error: "Invalid Stacks block 0d9a22b0addac68110e11145d19a57186b7e6b7ea42f2ed8027edc9ef93f5a86: ClarityError(StaticCheck(StaticCheckError { err: SupertypeTooLarge, expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"append\")), id: 41 }, SymbolicExpression { expr: Atom(ClarityName(\"initial\")), id: 42 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"tuple\")), id: 44 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"a\")), id: 46 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 48 }, SymbolicExpression { expr: Atom(ClarityName(\"small\")), id: 49 }]), id: 47 }]), id: 45 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"b\")), id: 51 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 53 }, SymbolicExpression { expr: Atom(ClarityName(\"big\")), id: 54 }]), id: 52 }]), id: 50 }]), id: 43 }]), id: 40 }]), diagnostic: Diagnostic { level: Error, message: \"supertype of two types is too large\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
+    error: "Invalid Stacks block 0402d5dfd8c9fe3cb5c9904cebafb5a0c22d2834ea986a9a19203ac40e8d5c74: ClarityError(StaticCheck(StaticCheckError { err: SupertypeTooLarge, expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"append\")), id: 41 }, SymbolicExpression { expr: Atom(ClarityName(\"initial\")), id: 42 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"tuple\")), id: 44 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"a\")), id: 46 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 48 }, SymbolicExpression { expr: Atom(ClarityName(\"small\")), id: 49 }]), id: 47 }]), id: 45 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"b\")), id: 51 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 53 }, SymbolicExpression { expr: Atom(ClarityName(\"big\")), id: 54 }]), id: 52 }]), id: 50 }]), id: 43 }]), id: 40 }]), diagnostic: Diagnostic { level: Error, message: \"supertype of two types is too large\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch33,
-    error: "Invalid Stacks block df41e1ebe0ce7009fb04a926c36f91d2fed2f08df5ce309f42ac948d97051d18: ClarityError(StaticCheck(StaticCheckError { err: SupertypeTooLarge, expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"append\")), id: 41 }, SymbolicExpression { expr: Atom(ClarityName(\"initial\")), id: 42 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"tuple\")), id: 44 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"a\")), id: 46 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 48 }, SymbolicExpression { expr: Atom(ClarityName(\"small\")), id: 49 }]), id: 47 }]), id: 45 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"b\")), id: 51 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 53 }, SymbolicExpression { expr: Atom(ClarityName(\"big\")), id: 54 }]), id: 52 }]), id: 50 }]), id: 43 }]), id: 40 }]), diagnostic: Diagnostic { level: Error, message: \"supertype of two types is too large\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
+    error: "Invalid Stacks block 4e63b0fb792a40f94237da7d7faa91e7c0b6f101bb23fc1b80002328265d9f56: ClarityError(StaticCheck(StaticCheckError { err: SupertypeTooLarge, expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"append\")), id: 41 }, SymbolicExpression { expr: Atom(ClarityName(\"initial\")), id: 42 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"tuple\")), id: 44 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"a\")), id: 46 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 48 }, SymbolicExpression { expr: Atom(ClarityName(\"small\")), id: 49 }]), id: 47 }]), id: 45 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"b\")), id: 51 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 53 }, SymbolicExpression { expr: Atom(ClarityName(\"big\")), id: 54 }]), id: 52 }]), id: 50 }]), id: 43 }]), id: 40 }]), diagnostic: Diagnostic { level: Error, message: \"supertype of two types is too large\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch33,
-    error: "Invalid Stacks block cd532364f7eab92dad8d01e3f9f414b41deb8d0c6166b164f2ce12f0bbd76436: ClarityError(StaticCheck(StaticCheckError { err: SupertypeTooLarge, expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"append\")), id: 41 }, SymbolicExpression { expr: Atom(ClarityName(\"initial\")), id: 42 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"tuple\")), id: 44 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"a\")), id: 46 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 48 }, SymbolicExpression { expr: Atom(ClarityName(\"small\")), id: 49 }]), id: 47 }]), id: 45 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"b\")), id: 51 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 53 }, SymbolicExpression { expr: Atom(ClarityName(\"big\")), id: 54 }]), id: 52 }]), id: 50 }]), id: 43 }]), id: 40 }]), diagnostic: Diagnostic { level: Error, message: \"supertype of two types is too large\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
+    error: "Invalid Stacks block b6b067bce5dbb9ad304469e30cc0653f91119b01584a33322f8fdff7952d3a00: ClarityError(StaticCheck(StaticCheckError { err: SupertypeTooLarge, expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"append\")), id: 41 }, SymbolicExpression { expr: Atom(ClarityName(\"initial\")), id: 42 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"tuple\")), id: 44 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"a\")), id: 46 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 48 }, SymbolicExpression { expr: Atom(ClarityName(\"small\")), id: 49 }]), id: 47 }]), id: 45 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"b\")), id: 51 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 53 }, SymbolicExpression { expr: Atom(ClarityName(\"big\")), id: 54 }]), id: 52 }]), id: 50 }]), id: 43 }]), id: 40 }]), diagnostic: Diagnostic { level: Error, message: \"supertype of two types is too large\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
   )),
   Failure(ExpectedFailureOutput(
     evaluated_epoch: Epoch33,
-    error: "Invalid Stacks block fedb5abccb1d54e207251e441644ae6a460eb8f159e90204d76a71758179b20e: ClarityError(StaticCheck(StaticCheckError { err: SupertypeTooLarge, expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"append\")), id: 41 }, SymbolicExpression { expr: Atom(ClarityName(\"initial\")), id: 42 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"tuple\")), id: 44 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"a\")), id: 46 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 48 }, SymbolicExpression { expr: Atom(ClarityName(\"small\")), id: 49 }]), id: 47 }]), id: 45 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"b\")), id: 51 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 53 }, SymbolicExpression { expr: Atom(ClarityName(\"big\")), id: 54 }]), id: 52 }]), id: 50 }]), id: 43 }]), id: 40 }]), diagnostic: Diagnostic { level: Error, message: \"supertype of two types is too large\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
+    error: "Invalid Stacks block 1fb4d9db524b9b4b812fea58d97495d77a6828afebb592e9a5af28f91a3c4671: ClarityError(StaticCheck(StaticCheckError { err: SupertypeTooLarge, expressions: Some([SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"append\")), id: 41 }, SymbolicExpression { expr: Atom(ClarityName(\"initial\")), id: 42 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"tuple\")), id: 44 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"a\")), id: 46 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 48 }, SymbolicExpression { expr: Atom(ClarityName(\"small\")), id: 49 }]), id: 47 }]), id: 45 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"b\")), id: 51 }, SymbolicExpression { expr: List([SymbolicExpression { expr: Atom(ClarityName(\"var-get\")), id: 53 }, SymbolicExpression { expr: Atom(ClarityName(\"big\")), id: 54 }]), id: 52 }]), id: 50 }]), id: 43 }]), id: 40 }]), diagnostic: Diagnostic { level: Error, message: \"supertype of two types is too large\", spans: [Span { start_line: 0, start_column: 0, end_line: 0, end_column: 0 }], suggestion: None } }))",
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c582e1cbb1882084b01f9eceea0aab040725e8ebd7e2cd58e79b2bad286d2aea",
+    marf_hash: "416eb596fc24611f4e90a23533e639f2258d4fc5e26dd698581449a372d49982",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -50,7 +50,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d1df7b4b78e7141b89e0429e0163e81001028ebfebaa591e2323d46ba9edf7e0",
+    marf_hash: "c548dd4879129047745b2c4fe4bfdccf22a16df88c5353a308191a91988a821a",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -80,7 +80,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "56bc4715589f88ef052be8537e7847cbe393d77002791a99540ae550f2621235",
+    marf_hash: "53c6ab4fdf40c50612727c672fd161a34c8c05c997004a12a266428a9061b094",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -110,7 +110,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5c98f6cb270ad01809eca6b606655cfcf63b838162ab8666fa43d9fbb920dd81",
+    marf_hash: "db391573c8f3eefaacc3c9198450a5ae468a3413a5fb68f4f3004a3be09d4c58",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -140,7 +140,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e9de0aee347f41bd71a4a15a4e29c978746cc01b11eb5a502c2548c6ae254343",
+    marf_hash: "27dd9c3e5acd2ad840c6545d43b0f235811a0404992a91875ca7a9a61982beb9",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

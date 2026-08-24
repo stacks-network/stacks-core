@@ -1,3 +1,18 @@
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::sync::Mutex;
 
 use clarity::vm::costs::ExecutionCost;
@@ -302,6 +317,30 @@ fn mempool_setup_chainstate() {
                 );
                 let tx =
                     StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+
+                // First, submit this transaction with a high-S signature. Even though that is technically
+                // a valid signature, the mempool should reject it.
+                let high_s_tx = tx.with_negated_s_in_signature();
+                let mut high_s_tx_bytes = vec![];
+                high_s_tx.consensus_serialize(&mut high_s_tx_bytes).unwrap();
+                let e = chain_state
+                    .will_admit_mempool_tx(
+                        &NULL_BURN_STATE_DB,
+                        consensus_hash,
+                        block_hash,
+                        &high_s_tx,
+                        high_s_tx_bytes.len() as u64,
+                    )
+                    .unwrap_err();
+                eprintln!("Err: {e:?}");
+                match e {
+                    MemPoolRejection::FailedToValidate(ChainstateError::NetError(
+                        NetError::VerifyingError(msg)
+                    )) => assert_eq!(msg, "Invalid signature: high-S"),
+                    _ => panic!("unexpected error {e:?} from mempool admittance check of high-s signature transaction")
+                }
+
+                // Now, submit it with the original, low-S signature. This should be successful.
                 chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -911,7 +950,7 @@ fn mempool_setup_chainstate() {
 
                 let contract_id = QualifiedContractIdentifier::new(
                     StandardPrincipalData::from(contract_addr.clone()),
-                    ContractName::from("implement-trait-contract"),
+                    ContractName::from_literal("implement-trait-contract"),
                 );
                 let contract_principal = PrincipalData::Contract(contract_id);
 
@@ -939,7 +978,7 @@ fn mempool_setup_chainstate() {
 
                 let contract_id = QualifiedContractIdentifier::new(
                     StandardPrincipalData::from(contract_addr.clone()),
-                    ContractName::from("bad-trait-contract"),
+                    ContractName::from_literal("bad-trait-contract"),
                 );
                 let contract_principal = PrincipalData::Contract(contract_id);
 

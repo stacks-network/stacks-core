@@ -17,18 +17,14 @@
 use std::borrow::Borrow;
 use std::fmt;
 use std::io::{Read, Write};
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 use clarity::vm::errors::ClarityTypeError;
-use clarity::vm::representations::{
-    ClarityName, ContractName, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
-};
+use clarity::vm::representations::MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH;
 use lazy_static::lazy_static;
 use regex::Regex;
-use stacks_common::codec::{
-    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
-};
-use stacks_common::util::retry::BoundReader;
+pub use stacks_codec::strings::StacksString;
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use url;
 
 lazy_static! {
@@ -44,11 +40,6 @@ guarded_string!(
     ClarityTypeError::InvalidUrlString
 );
 
-/// printable-ASCII-only string, but encodable.
-/// Note that it cannot be longer than ARRAY_MAX_LEN (4.1 billion bytes)
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub struct StacksString(Vec<u8>);
-
 pub struct VecDisplay<'a, T: fmt::Display>(pub &'a [T]);
 
 impl<T: fmt::Display> fmt::Display for VecDisplay<'_, T> {
@@ -62,62 +53,6 @@ impl<T: fmt::Display> fmt::Display for VecDisplay<'_, T> {
             }
         }
         write!(f, "]")
-    }
-}
-
-impl fmt::Display for StacksString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(String::from_utf8_lossy(self).into_owned().as_str())
-    }
-}
-
-impl fmt::Debug for StacksString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(String::from_utf8_lossy(self).into_owned().as_str())
-    }
-}
-
-impl Deref for StacksString {
-    type Target = Vec<u8>;
-    fn deref(&self) -> &Vec<u8> {
-        &self.0
-    }
-}
-
-impl DerefMut for StacksString {
-    fn deref_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.0
-    }
-}
-
-impl StacksMessageCodec for StacksString {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.0)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksString, codec_error> {
-        let bytes: Vec<u8> = {
-            let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
-            read_next(&mut bound_read)
-        }?;
-
-        // must encode a valid string
-        let s = String::from_utf8(bytes.clone()).map_err(|_e| {
-            warn!("Invalid StacksString -- could not build from utf8");
-            codec_error::DeserializeError(
-                "Invalid Stacks string: could not build from utf8".to_string(),
-            )
-        })?;
-
-        if !StacksString::is_valid_string(&s) {
-            // non-printable ASCII or not ASCII
-            warn!("Invalid StacksString -- non-printable ASCII or non-ASCII");
-            return Err(codec_error::DeserializeError(
-                "Invalid Stacks string: non-printable or non-ASCII string".to_string(),
-            ));
-        }
-
-        Ok(StacksString(bytes))
     }
 }
 
@@ -169,65 +104,6 @@ impl StacksMessageCodec for UrlString {
             let _ = url.parse_to_block_url()?;
         }
         Ok(url)
-    }
-}
-
-impl From<ClarityName> for StacksString {
-    fn from(clarity_name: ClarityName) -> StacksString {
-        // .unwrap() is safe since StacksString is less strict
-        StacksString::from_str(&clarity_name).unwrap()
-    }
-}
-
-impl From<ContractName> for StacksString {
-    fn from(contract_name: ContractName) -> StacksString {
-        // .unwrap() is safe since StacksString is less strict
-        StacksString::from_str(&contract_name).unwrap()
-    }
-}
-
-impl StacksString {
-    /// Is the given string a valid Clarity string?
-    pub fn is_valid_string(s: &String) -> bool {
-        s.is_ascii() && StacksString::is_printable(s)
-    }
-
-    pub fn is_printable(s: &String) -> bool {
-        if !s.is_ascii() {
-            return false;
-        }
-        // all characters must be ASCII "printable" characters, excluding "delete".
-        // This is 0x20 through 0x7e, inclusive, as well as '\t' and '\n'
-        // TODO: DRY up with vm::representations
-        for c in s.as_bytes().iter() {
-            if (*c < 0x20 && *c != b'\t' && *c != b'\n') || *c > 0x7e {
-                return false;
-            }
-        }
-        true
-    }
-
-    pub fn is_clarity_variable(&self) -> bool {
-        ClarityName::try_from(self.to_string()).is_ok()
-    }
-
-    pub fn from_string(s: &String) -> Option<StacksString> {
-        if !StacksString::is_valid_string(s) {
-            return None;
-        }
-        Some(StacksString(s.as_bytes().to_vec()))
-    }
-
-    pub fn from_str(s: &str) -> Option<StacksString> {
-        if !StacksString::is_valid_string(&String::from(s)) {
-            return None;
-        }
-        Some(StacksString(s.as_bytes().to_vec()))
-    }
-
-    pub fn to_string(&self) -> String {
-        // guaranteed to always succeed because the string is ASCII
-        String::from_utf8(self.0.clone()).unwrap()
     }
 }
 
@@ -313,48 +189,9 @@ impl UrlString {
 
 #[cfg(test)]
 mod test {
-    use clarity::vm::representations::CONTRACT_MAX_NAME_LENGTH;
+    use clarity::vm::representations::{ContractName, CONTRACT_MAX_NAME_LENGTH};
 
     use super::*;
-    use crate::net::codec::test::check_codec_and_corruption;
-
-    #[test]
-    fn tx_stacks_strings_codec() {
-        let s = "hello-world";
-        let stacks_str = StacksString::from_str(s).unwrap();
-        let clarity_str = ClarityName::try_from(s).unwrap();
-        let contract_str = ContractName::try_from(s).unwrap();
-
-        assert_eq!(stacks_str[..], s.as_bytes().to_vec()[..]);
-        let s2 = stacks_str.to_string();
-        assert_eq!(s2, s.to_string());
-
-        // stacks strings have a 4-byte length prefix
-        let mut b = vec![];
-        stacks_str.consensus_serialize(&mut b).unwrap();
-        let mut bytes = vec![0x00, 0x00, 0x00, s.len() as u8];
-        bytes.extend_from_slice(s.as_bytes());
-
-        check_codec_and_corruption::<StacksString>(&stacks_str, &bytes);
-
-        // clarity names and contract names have a 1-byte length prefix
-        let mut clarity_bytes = vec![s.len() as u8];
-        clarity_bytes.extend_from_slice(clarity_str.as_bytes());
-        check_codec_and_corruption::<ClarityName>(&clarity_str, &clarity_bytes);
-
-        let mut contract_bytes = vec![s.len() as u8];
-        contract_bytes.extend_from_slice(contract_str.as_bytes());
-        check_codec_and_corruption::<ContractName>(&contract_str, &contract_bytes);
-    }
-
-    #[test]
-    fn tx_stacks_string_invalid() {
-        let s = "hello\rworld";
-        assert!(StacksString::from_str(s).is_none());
-
-        let s = "hello\x01world";
-        assert!(StacksString::from_str(s).is_none());
-    }
 
     #[test]
     fn test_contract_name_invalid() {

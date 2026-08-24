@@ -1026,7 +1026,7 @@ impl LocalStateMachine {
 
             let entry = miners.entry(miner_state).or_insert(0);
             *entry += weight;
-            if *entry <= eval.total_weight * 3 / 10 {
+            if !eval.reached_disagreement(*entry) {
                 // We don't even see a blocking minority threshold. Ignore.
                 continue;
             }

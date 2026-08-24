@@ -13,13 +13,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity_types::ClarityName;
-use clarity_types::errors::analysis::StaticCheckErrorKind;
 use clarity_types::types::{
     BufferLength, ListTypeData, MAX_TO_ASCII_BUFFER_LEN, SequenceSubtype, StringSubtype,
     TypeSignature,
 };
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::analysis::errors::StaticCheckErrorKind;
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::{ClarityVersion, execute_with_parameters};
@@ -148,8 +148,8 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
                 to_ascii_expected_types.clone(),
                 Box::new(TypeSignature::TupleType(
                     vec![
-                        (ClarityName::from("a"), TypeSignature::IntType),
-                        (ClarityName::from("b"), TypeSignature::UIntType),
+                        (ClarityName::from_literal("a"), TypeSignature::IntType),
+                        (ClarityName::from_literal("b"), TypeSignature::UIntType),
                     ]
                     .try_into()
                     .unwrap(),

@@ -52,13 +52,7 @@ pub mod indexer;
 #[cfg(test)]
 pub mod tests;
 
-pub struct Txid(pub [u8; 32]);
-impl_array_newtype!(Txid, u8, 32);
-impl_array_hexstring_fmt!(Txid);
-impl_byte_array_newtype!(Txid, u8, 32);
-impl_byte_array_message_codec!(Txid, 32);
-impl_byte_array_serde!(Txid);
-pub const TXID_ENCODED_SIZE: u32 = 32;
+pub use stacks_common::types::chainstate::{Txid, TXID_ENCODED_SIZE};
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 

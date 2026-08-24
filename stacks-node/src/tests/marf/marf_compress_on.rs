@@ -32,7 +32,7 @@ pub mod utils {
         blind_signer, boot_to_epoch_3, naka_neon_integration_conf, setup_stacker,
         wait_for_first_naka_block_commit,
     };
-    use crate::tests::neon_integrations::{get_chain_tip_height, test_observer, wait_for_runloop};
+    use crate::tests::neon_integrations::{test_observer, wait_for_runloop};
     use crate::tests::{self};
     use crate::{BitcoinRegtestController, BurnchainController};
 
@@ -46,7 +46,6 @@ pub mod utils {
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
         naka_conf.node.marf_compress = compress;
 
-        let http_origin = naka_conf.node.data_url.clone();
         let sender_signer_sk = Secp256k1PrivateKey::random();
         let sender_signer_addr = tests::to_addr(&sender_signer_sk);
         naka_conf.add_initial_balance(
@@ -91,9 +90,6 @@ pub mod utils {
         blind_signer(&naka_conf, &signers, &counters);
 
         wait_for_first_naka_block_commit(60, &commits_submitted);
-
-        let stacks_height = get_chain_tip_height(&http_origin);
-        assert_eq!(27, stacks_height);
 
         coord_channel
             .lock()

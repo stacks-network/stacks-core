@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::pipe::*;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
+use crate::config::{DEFAULT_PROPOSAL_MEMORY_BYTES, DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES};
 use crate::monitoring::{update_inbound_bandwidth, update_outbound_bandwidth};
 use crate::net::download::BLOCK_DOWNLOAD_INTERVAL;
 use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
@@ -45,6 +46,14 @@ pub const DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS: u64 = 600;
 
 /// The default maximum time to spend validating a block proposal in seconds
 pub const DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS: u64 = 60;
+
+/// The default maximum time, in seconds, to spend executing a single
+/// transaction during block proposal validation.
+pub const DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS: u64 = 30;
+
+/// The default maximum time, in seconds, to spend on the contract-analysis
+/// phase of a single transaction during block proposal validation.
+pub const DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS: u64 = 30;
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
@@ -384,10 +393,15 @@ pub struct ConnectionOptions {
     pub max_attachment_retry_count: u64,
     pub read_only_call_limit: ExecutionCost,
     pub maximum_call_argument_size: u32,
+    /// maximum bytes/sec a single peer may push as Stacks 2.x Blocks before being NACKed
     pub max_block_push_bandwidth: u64,
+    /// maximum bytes/sec a single peer may push as Stacks 2.x Microblocks before being NACKed
     pub max_microblocks_push_bandwidth: u64,
+    /// maximum bytes/sec a single peer may push as Transaction messages before being NACKed
     pub max_transaction_push_bandwidth: u64,
+    /// maximum bytes/sec a single peer may push as StackerDB chunks before being NACKed
     pub max_stackerdb_push_bandwidth: u64,
+    /// maximum bytes/sec a single peer may push as Nakamoto Block messages before being NACKed
     pub max_nakamoto_block_push_bandwidth: u64,
     pub max_sockets: usize,
     pub public_ip_address: Option<(PeerAddress, u16)>,
@@ -398,14 +412,6 @@ pub struct ConnectionOptions {
     pub max_microblock_push: u64,
     pub antientropy_retry: u64,
     pub antientropy_public: bool,
-    /// maximum number of Stacks 2.x BlocksAvailable messages that can be buffered before processing
-    pub max_buffered_blocks_available: u64,
-    /// maximum number of Stacks 2.x MicroblocksAvailable that can be buffered before processing
-    pub max_buffered_microblocks_available: u64,
-    /// maximum number of Stacks 2.x pushed Block messages we can buffer before processing
-    pub max_buffered_blocks: u64,
-    /// maximum number of Stacks 2.x pushed Microblock messages we can buffer before processing
-    pub max_buffered_microblocks: u64,
     /// maximum number of pushed Nakamoto Block messages we can buffer before processing
     pub max_buffered_nakamoto_blocks: u64,
     /// maximum number of pushed StackerDB chunk messages we can buffer before processing
@@ -489,8 +495,32 @@ pub struct ConnectionOptions {
     /// max execution time of readonly calls when cost tracking is disabled
     pub read_only_max_execution_time_secs: u64,
 
+    /// Maximum bytes a single read-only RPC call may allocate on the heap before
+    /// it is aborted. Tracked via per-thread allocation counters in
+    /// `TrackingAllocator`. A value of `0` disables the limit.
+    pub read_only_call_max_mem_bytes: u64,
+
     /// Maximum time to spend validating a block proposal in seconds
     pub block_proposal_validation_timeout_secs: u64,
+
+    /// Maximum time, in seconds, to spend executing a single transaction
+    /// during block proposal validation. A transaction that exceeds this
+    /// limit on its own is classified as problematic; a transaction
+    /// interrupted because the overall block proposal validation budget was
+    /// exceeded is not.
+    pub block_proposal_max_tx_execution_time_secs: u64,
+
+    /// Maximum time, in seconds, to spend on the contract-analysis
+    /// phase of a single transaction during block proposal validation.
+    /// A transaction whose analysis exceeds this on its own is
+    /// classified as problematic.
+    pub block_proposal_max_tx_analysis_time_secs: u64,
+
+    /// Maximum bytes a single transaction may allocate on the heap during
+    /// block-proposal validation before it is rejected. Tracked via
+    /// per-thread allocation counters in `TrackingAllocator`.
+    /// A value of `0` disables the limit.
+    pub block_proposal_max_tx_mem_bytes: u64,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -499,7 +529,7 @@ impl std::default::Default for ConnectionOptions {
             inbox_maxlen: 1024,
             outbox_maxlen: 1024,
             connect_timeout: 10, // how long a socket can be in a connecting state
-            handshake_timeout: 30, // how long before a peer must send a handshake, after connecting
+            handshake_timeout: 5, // how long before a peer must send a handshake, after connecting
             timeout: 30,         // how long to wait for a reply to a request
             idle_timeout: 15, // how long a non-request HTTP connection can be idle before it's closed
             heartbeat: 3600,  // send a heartbeat once an hour by default
@@ -547,7 +577,7 @@ impl std::default::Default for ConnectionOptions {
             max_block_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_microblocks_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_transaction_push_bandwidth: 0, // infinite upload bandwidth allowed
-            max_stackerdb_push_bandwidth: 0, // infinite upload bandwidth allowed
+            max_stackerdb_push_bandwidth: MB!(4), // 4 MB/sec upload bandwidth allowed
             max_nakamoto_block_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_sockets: 800,            // maximum number of client sockets we'll ever register
             public_ip_address: None,     // resolve it at runtime by default
@@ -558,10 +588,6 @@ impl std::default::Default for ConnectionOptions {
             max_microblock_push: 10, // maximum number of microblocks messages to push out via our anti-entropy protocol
             antientropy_retry: 3600, // retry pushing data once every hour
             antientropy_public: true, // run antientropy even if we're NOT NAT'ed
-            max_buffered_blocks_available: 5,
-            max_buffered_microblocks_available: 5,
-            max_buffered_blocks: 5,
-            max_buffered_microblocks: 1024,
             max_buffered_nakamoto_blocks: 1024,
             max_buffered_stackerdb_chunks: 4096,
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
@@ -569,7 +595,7 @@ impl std::default::Default for ConnectionOptions {
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
             socket_recv_buffer_size: 131072, // Linux default
             socket_send_buffer_size: 16384, // Linux default
-            private_neighbors: true,
+            private_neighbors: false,
             max_nakamoto_block_relay_age: 6,
             nakamoto_push_interval_ms: 30_000, // re-send a block no more than once every 30 seconds
             nakamoto_inv_sync_burst_interval_ms: 1_000, // wait 1 second after a sortition before running inventory sync
@@ -603,8 +629,22 @@ impl std::default::Default for ConnectionOptions {
             test_disable_unsolicited_message_authentication: false,
 
             read_only_max_execution_time_secs: 30,
+            read_only_call_max_mem_bytes: DEFAULT_READ_ONLY_CALL_MAX_MEM_BYTES,
             block_proposal_validation_timeout_secs: DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
+            block_proposal_max_tx_execution_time_secs:
+                DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
+            block_proposal_max_tx_analysis_time_secs:
+                DEFAULT_BLOCK_PROPOSAL_MAX_TX_ANALYSIS_TIME_SECS,
+            block_proposal_max_tx_mem_bytes: DEFAULT_PROPOSAL_MEMORY_BYTES,
         }
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl ConnectionOptions {
+    pub fn with_private_neighbors(mut self) -> Self {
+        self.private_neighbors = true;
+        self
     }
 }
 
@@ -1550,8 +1590,7 @@ mod test {
     use std::sync::{Arc, Mutex};
     use std::{io, thread};
 
-    use rand;
-    use rand::RngCore;
+    use rand::{self, RngCore};
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::*;
 

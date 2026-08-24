@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2025-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,4 +17,6 @@
 //!
 //! Entry point for all bitcoin related test modules
 
+mod core_container;
 mod core_controller_integrations;
+mod rpc_integrations;

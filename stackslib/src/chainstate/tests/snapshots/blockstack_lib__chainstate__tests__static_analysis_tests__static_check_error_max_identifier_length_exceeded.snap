@@ -1,10 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
-expression: result
+expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "9dd6b272e6b172c3dc38c13567f38974e96caef45e70e4c1b362acaad56c838f",
+    marf_hash: "ce2d5a874ba9d1eee15eda2eb7b39e33d1db117048af19dfc76ec4fa375a7384",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9bb759d832543054a5328512a63089335d58bc53a1d4152408c4a8831aa8459a",
+    marf_hash: "bc8c7b19265be9b1fef7547d1a5fdd9d95a11ce2164291fdc304f154f7fee890",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b84c6b1f8593de721cd914d35d0ddc1388d784bf45b6f335d8a6d1cde204e30f",
+    marf_hash: "85923ecdd715671348afae1541181905da2d0eaffc3fdaa223724d774a85f972",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(

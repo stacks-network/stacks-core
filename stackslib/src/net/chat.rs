@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,8 +20,7 @@ use std::net::SocketAddr;
 use std::{cmp, mem};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use rand;
-use rand::{thread_rng, Rng};
+use rand::{self, thread_rng, Rng};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::to_hex;
@@ -273,7 +272,8 @@ impl NeighborStats {
             }
         }
 
-        if elapsed_time_start == elapsed_time_end {
+        // "greater than" is possible if the system clock was adjusted between recordings
+        if elapsed_time_start >= elapsed_time_end {
             total_bytes as f64
         } else {
             (total_bytes as f64) / ((elapsed_time_end - elapsed_time_start) as f64)
@@ -3046,8 +3046,8 @@ mod test {
     use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
     use stacks_common::util::pipe::*;
     use stacks_common::util::secp256k1::*;
-    use stacks_common::util::sleep_ms;
     use stacks_common::util::uint::*;
+    use stacks_common::util::*;
 
     use super::*;
     use crate::burnchains::db::BurnchainDB;
@@ -3366,7 +3366,7 @@ mod test {
                     &burnchain_1,
                     0x9abcdef0,
                     12350,
-                    "http://peer1.com".into(),
+                    UrlString::from_literal("http://peer1.com"),
                     &[],
                     &[],
                     peer_1_services,
@@ -3377,7 +3377,7 @@ mod test {
                     &burnchain_2,
                     0x9abcdef0,
                     12351,
-                    "http://peer2.com".into(),
+                    UrlString::from_literal("http://peer2.com"),
                     &[],
                     &[],
                     peer_2_services,
@@ -3535,7 +3535,10 @@ mod test {
                     data.handshake.expire_block_height,
                     local_peer_2.private_key_expire
                 );
-                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(
+                    data.handshake.data_url,
+                    UrlString::from_literal("http://peer2.com")
+                );
                 assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
 
                 if peer_1_rc_consensus_hash == peer_2_rc_consensus_hash {
@@ -3592,7 +3595,10 @@ mod test {
                     data.handshake.expire_block_height,
                     local_peer_2.private_key_expire
                 );
-                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(
+                    data.handshake.data_url,
+                    UrlString::from_literal("http://peer2.com")
+                );
                 assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
             }
 
@@ -3602,7 +3608,10 @@ mod test {
                 convo_2.connection.get_public_key().unwrap(),
                 Secp256k1PublicKey::from_private(&local_peer_1.private_key)
             );
-            assert_eq!(convo_2.data_url, "http://peer1.com".into());
+            assert_eq!(
+                convo_2.data_url,
+                UrlString::from_literal("http://peer1.com")
+            );
 
             // convo_1 got updated with convo_2's peer info, as well as heartbeat
             assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
@@ -3610,7 +3619,10 @@ mod test {
                 convo_1.connection.get_public_key().unwrap(),
                 Secp256k1PublicKey::from_private(&local_peer_2.private_key)
             );
-            assert_eq!(convo_1.data_url, "http://peer2.com".into());
+            assert_eq!(
+                convo_1.data_url,
+                UrlString::from_literal("http://peer2.com")
+            );
 
             assert_eq!(convo_1.peer_services, peer_2_services);
             assert_eq!(convo_2.peer_services, peer_1_services);
@@ -3680,7 +3692,7 @@ mod test {
                     &burnchain_1,
                     0x9abcdef0,
                     12350,
-                    "http://peer1.com".into(),
+                    UrlString::from_literal("http://peer1.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -3691,7 +3703,7 @@ mod test {
                     &burnchain_2,
                     0x9abcdef0,
                     12351,
-                    "http://peer2.com".into(),
+                    UrlString::from_literal("http://peer2.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -3797,7 +3809,10 @@ mod test {
                     data.handshake.expire_block_height,
                     local_peer_2.private_key_expire
                 );
-                assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                assert_eq!(
+                    data.handshake.data_url,
+                    UrlString::from_literal("http://peer2.com")
+                );
                 assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
             } else {
                 panic!("Unexpected payload message type");
@@ -3809,7 +3824,10 @@ mod test {
                 convo_2.connection.get_public_key().unwrap(),
                 Secp256k1PublicKey::from_private(&local_peer_1.private_key)
             );
-            assert_eq!(convo_2.data_url, "http://peer1.com".into());
+            assert_eq!(
+                convo_2.data_url,
+                UrlString::from_literal("http://peer1.com")
+            );
 
             // convo_1 got updated with convo_2's peer info, as well as heartbeat
             assert_eq!(convo_1.peer_heartbeat, conn_opts.heartbeat);
@@ -3817,7 +3835,10 @@ mod test {
                 convo_1.connection.get_public_key().unwrap(),
                 Secp256k1PublicKey::from_private(&local_peer_2.private_key)
             );
-            assert_eq!(convo_1.data_url, "http://peer2.com".into());
+            assert_eq!(
+                convo_1.data_url,
+                UrlString::from_literal("http://peer2.com")
+            );
         })
     }
 
@@ -3854,7 +3875,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -3865,7 +3886,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -3997,7 +4018,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4008,7 +4029,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4140,7 +4161,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4151,7 +4172,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4295,7 +4316,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4306,7 +4327,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4492,7 +4513,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4503,7 +4524,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4634,7 +4655,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4645,7 +4666,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4804,7 +4825,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -4815,7 +4836,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5025,7 +5046,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5036,7 +5057,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5172,7 +5193,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12350,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5183,7 +5204,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12351,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5343,7 +5364,7 @@ mod test {
                     &burnchain_1,
                     0x9abcdef0,
                     12350,
-                    "http://peer1.com".into(),
+                    UrlString::from_literal("http://peer1.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -5354,7 +5375,7 @@ mod test {
                     &burnchain_2,
                     0x9abcdef0,
                     12351,
-                    "http://peer2.com".into(),
+                    UrlString::from_literal("http://peer2.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -5462,7 +5483,10 @@ mod test {
                         data.handshake.expire_block_height,
                         local_peer_2.private_key_expire
                     );
-                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                    assert_eq!(
+                        data.handshake.data_url,
+                        UrlString::from_literal("http://peer2.com")
+                    );
                     assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
                 }
                 _ => {
@@ -5615,7 +5639,7 @@ mod test {
                     &burnchain_1,
                     0x9abcdef0,
                     12350,
-                    "http://peer1.com".into(),
+                    UrlString::from_literal("http://peer1.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -5626,7 +5650,7 @@ mod test {
                     &burnchain_2,
                     0x9abcdef0,
                     12351,
-                    "http://peer2.com".into(),
+                    UrlString::from_literal("http://peer2.com"),
                     &[],
                     &[],
                     DEFAULT_SERVICES,
@@ -5734,7 +5758,10 @@ mod test {
                         data.handshake.expire_block_height,
                         local_peer_2.private_key_expire
                     );
-                    assert_eq!(data.handshake.data_url, "http://peer2.com".into());
+                    assert_eq!(
+                        data.handshake.data_url,
+                        UrlString::from_literal("http://peer2.com")
+                    );
                     assert_eq!(data.heartbeat_interval, conn_opts.heartbeat);
                 }
                 _ => {
@@ -5885,7 +5912,7 @@ mod test {
                 &burnchain_1,
                 0x9abcdef0,
                 12352,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -5896,7 +5923,7 @@ mod test {
                 &burnchain_2,
                 0x9abcdef0,
                 12353,
-                "http://peer2.com".into(),
+                UrlString::from_literal("http://peer2.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -6017,7 +6044,7 @@ mod test {
                 &burnchain,
                 0x9abcdef0,
                 12352,
-                "http://peer1.com".into(),
+                UrlString::from_literal("http://peer1.com"),
                 &[],
                 &[],
                 DEFAULT_SERVICES,
@@ -6737,7 +6764,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,
@@ -6851,7 +6878,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,
@@ -6918,7 +6945,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,
@@ -7045,7 +7072,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,
@@ -7172,7 +7199,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,
@@ -7299,7 +7326,7 @@ mod test {
             &burnchain,
             0x9abcdef0,
             12352,
-            "http://peer1.com".into(),
+            UrlString::from_literal("http://peer1.com"),
             &[],
             &[],
             DEFAULT_SERVICES,
@@ -7394,5 +7421,38 @@ mod test {
             .unwrap()
             .is_some());
         assert_eq!(convo_1.stats.msgs_err, err_before);
+    }
+
+    #[test]
+    fn test_get_bandwidth() {
+        let recently = get_epoch_time_secs() - 1;
+        let longer_ago = recently - 6;
+
+        let mut counts = VecDeque::<(u64, u64)>::new();
+        counts.push_back((recently, 54));
+        counts.push_back((longer_ago, 18));
+        assert_eq!(
+            NeighborStats::get_bandwidth(&counts, 1000),
+            72f64,
+            "non-monotonous timestamps should be treated like 1 second apart"
+        );
+
+        let mut counts = VecDeque::<(u64, u64)>::new();
+        counts.push_back((recently, 54));
+        counts.push_back((recently, 18));
+        assert_eq!(
+            NeighborStats::get_bandwidth(&counts, 1000),
+            72f64,
+            "identical timestamps should be treated like 1 second apart"
+        );
+
+        let mut counts = VecDeque::<(u64, u64)>::new();
+        counts.push_back((longer_ago, 54));
+        counts.push_back((recently, 18));
+        assert_eq!(
+            NeighborStats::get_bandwidth(&counts, 1000),
+            12f64, // 72 divided by 6
+            "properly ordered timestamps should be handled correctly"
+        );
     }
 }

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -55,9 +55,14 @@ fn setup_tracked_cost_test(
                           (define-map map-foo { a: int } { b: int })
                           (define-public (foo-exec (a int)) (ok 1))";
 
-    let other_contract_id =
-        QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
-    let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
+    let other_contract_id = QualifiedContractIdentifier::new(
+        p1_principal.clone(),
+        ContractName::from_literal("contract-other"),
+    );
+    let trait_contract_id = QualifiedContractIdentifier::new(
+        p1_principal,
+        ContractName::from_literal("contract-trait"),
+    );
 
     let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
     clarity_instance
@@ -102,7 +107,7 @@ fn setup_tracked_cost_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&trait_contract_id, version, contract_trait)
+                .analyze_smart_contract(&trait_contract_id, version, contract_trait, None)
                 .unwrap();
             conn.initialize_smart_contract(
                 &trait_contract_id,
@@ -131,7 +136,7 @@ fn setup_tracked_cost_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&other_contract_id, version, contract_other)
+                .analyze_smart_contract(&other_contract_id, version, contract_other, None)
                 .unwrap();
             conn.initialize_smart_contract(
                 &other_contract_id,
@@ -199,7 +204,7 @@ fn test_tracked_costs(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(&self_contract_id, version, &contract_self)
+                .analyze_smart_contract(&self_contract_id, version, &contract_self, None)
                 .unwrap();
             conn.initialize_smart_contract(
                 &self_contract_id,
@@ -316,6 +321,7 @@ fn undefined_top_variable_error(#[case] use_mainnet: bool, #[case] epoch: Stacks
                 &self_contract_id,
                 ClarityVersion::Clarity1,
                 &contract_self,
+                None,
             );
             let Err(ClarityError::StaticCheck(static_check_error)) = analysis_result else {
                 panic!("Bad analysis result: {analysis_result:?}");

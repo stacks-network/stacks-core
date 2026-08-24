@@ -467,28 +467,39 @@ impl GraphWalker {
     fn get_sorted_dependencies(&mut self, graph: &Graph) -> Vec<usize> {
         let mut sorted_indexes = Vec::<usize>::new();
         for expr_index in 0..graph.nodes_count() {
-            self.sort_dependencies_recursion(expr_index, graph, &mut sorted_indexes);
+            if !self.seen.contains(&expr_index) {
+                self.sort_dependencies(expr_index, graph, &mut sorted_indexes);
+            }
         }
         sorted_indexes
     }
 
-    fn sort_dependencies_recursion(
-        &mut self,
-        tle_index: usize,
-        graph: &Graph,
-        branch: &mut Vec<usize>,
-    ) {
-        if self.seen.contains(&tle_index) {
-            return;
-        }
+    fn sort_dependencies(&mut self, expr_index: usize, graph: &Graph, branch: &mut Vec<usize>) {
+        let mut stack = vec![(expr_index, false)];
 
-        self.seen.insert(tle_index);
-        if let Some(list) = graph.adjacency_list.get(tle_index) {
-            for neighbor in list.iter() {
-                self.sort_dependencies_recursion(*neighbor, graph, branch);
+        while let Some((tle_index, processed)) = stack.pop() {
+            if processed {
+                branch.push(tle_index);
+                continue;
+            }
+
+            if self.seen.contains(&tle_index) {
+                continue;
+            }
+
+            self.seen.insert(tle_index);
+
+            stack.push((tle_index, true));
+
+            if let Some(list) = graph.adjacency_list.get(tle_index) {
+                // reverse iteration to keep a recursive-like result
+                for node_index in list.iter().rev() {
+                    if !self.seen.contains(node_index) {
+                        stack.push((*node_index, false));
+                    }
+                }
             }
         }
-        branch.push(tle_index);
     }
 
     fn get_cycling_dependencies(

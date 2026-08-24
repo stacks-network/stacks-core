@@ -1,9 +1,24 @@
+// Copyright (C) 2022-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet};
 use std::{env, thread};
 
 use ::core::str;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{execute_with_parameters as execute, ClarityVersion, Value};
+use clarity::vm::{execute_with_parameters as execute, ClarityVersion, ContractName, Value};
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
 };
@@ -1925,10 +1940,10 @@ fn transition_empty_blocks() {
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
             if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
-                if tsc.name == "pox-2".into() {
+                if tsc.name == ContractName::from_literal("pox-2") {
                     have_pox2 = true;
                 }
-                if tsc.name == "costs-3".into() {
+                if tsc.name == ContractName::from_literal("costs-3") {
                     have_costs3 = true;
                 }
             }

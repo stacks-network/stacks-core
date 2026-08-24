@@ -12,6 +12,9 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use clarity_types::ClarityName;
+#[cfg(test)]
+use clarity_types::ContractName;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
@@ -39,8 +42,11 @@ fn test_simple_is_standard_check_inputs() {
             true
         )
         .unwrap_err(),
-        RuntimeCheckErrorKind::TypeValueError(Box::new(PrincipalType), Box::new(Value::UInt(10)),)
-            .into()
+        RuntimeCheckErrorKind::TypeValueError(
+            Box::new(PrincipalType),
+            Value::UInt(10).to_error_string()
+        )
+        .into()
     );
 }
 
@@ -303,19 +309,19 @@ fn create_principal_destruct_tuple_from_strings(
     Value::Tuple(
         TupleData::from_data(vec![
             (
-                "version".into(),
+                ClarityName::from_literal("version"),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: hex_bytes(version).unwrap(),
                 })),
             ),
             (
-                "hash-bytes".into(),
+                ClarityName::from_literal("hash-bytes"),
                 Value::Sequence(SequenceData::Buffer(BuffData {
                     data: hex_bytes(hash_bytes).unwrap(),
                 })),
             ),
             (
-                "name".into(),
+                ClarityName::from_literal("name"),
                 Value::Optional(OptionalData {
                     data: name.map(|name_str| {
                         Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
@@ -690,7 +696,7 @@ fn test_principal_construct_good() {
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
                     StandardPrincipalData::new(22, transfer_buffer).unwrap(),
-                    "hello-world".into()
+                    ContractName::from_literal("hello-world")
                 )
             )))
         }),
@@ -713,7 +719,7 @@ fn test_principal_construct_good() {
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
                     StandardPrincipalData::new(20, transfer_buffer).unwrap(),
-                    "hello-world".into()
+                    ContractName::from_literal("hello-world")
                 )
             )))
         }),
@@ -774,7 +780,7 @@ fn test_principal_construct_good() {
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
                     StandardPrincipalData::new(26, transfer_buffer).unwrap(),
-                    "hello-world".into()
+                    ContractName::from_literal("hello-world")
                 )
             )))
         }),
@@ -797,7 +803,7 @@ fn test_principal_construct_good() {
             data: Box::new(Value::Principal(PrincipalData::Contract(
                 QualifiedContractIdentifier::new(
                     StandardPrincipalData::new(21, transfer_buffer).unwrap(),
-                    "hello-world".into()
+                    ContractName::from_literal("hello-world")
                 )
             )))
         }),
@@ -827,7 +833,7 @@ fn create_principal_from_strings(
         // contract principal requested
         Value::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
             StandardPrincipalData::new(version_array[0], principal_array).unwrap(),
-            name.into(),
+            name.to_string().try_into().unwrap(),
         )))
     } else {
         // standard principal requested
@@ -850,11 +856,11 @@ fn test_principal_construct_version_byte_future() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        ClarityName::from_literal("error_code"),
                         Value::UInt(PrincipalConstructErrorCode::VERSION_BYTE as u128)
                     ),
                     (
-                        "value".into(),
+                        ClarityName::from_literal("value"),
                         Value::some(create_principal_from_strings(
                             "1f",
                             "0102030405060708091011121314151617181920",
@@ -885,11 +891,11 @@ fn test_principal_construct_version_byte_future() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        ClarityName::from_literal("error_code"),
                         Value::UInt(PrincipalConstructErrorCode::VERSION_BYTE as u128)
                     ),
                     (
-                        "value".into(),
+                        ClarityName::from_literal("value"),
                         Value::some(create_principal_from_strings(
                             "1f",
                             "0102030405060708091011121314151617181920",
@@ -922,9 +928,10 @@ fn test_principal_construct_runtime_check_errors() {
     assert_eq!(
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_1),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("590493").unwrap()
-            }))),
+            }))
+            .to_error_string(),
         )
         .into()),
         execute_with_parameters(
@@ -941,7 +948,7 @@ fn test_principal_construct_runtime_check_errors() {
     assert_eq!(
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_1),
-            Box::new(Value::UInt(22)),
+            Value::UInt(22).to_error_string(),
         )
         .into()),
         execute_with_parameters(
@@ -965,9 +972,10 @@ fn test_principal_construct_runtime_check_errors() {
         .unwrap_err(),
         RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BUFFER_20),
-            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+            Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
-            }))),
+            }))
+            .to_error_string(),
         )
         .into()
     );
@@ -977,13 +985,12 @@ fn test_principal_construct_runtime_check_errors() {
     assert_eq!(
         Err(RuntimeCheckErrorKind::TypeValueError(
             Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
-            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
-                ASCIIData {
-                    data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                        .as_bytes()
-                        .to_vec()
-                }
-            ))))
+            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+                data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                    .as_bytes()
+                    .to_vec()
+            })))
+            .to_error_string()
         )
         .into()),
         execute_with_parameters(
@@ -1015,10 +1022,10 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        ClarityName::from_literal("error_code"),
                         Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
                     ),
-                    ("value".into(), Value::none()),
+                    (ClarityName::from_literal("value"), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
             )),
@@ -1042,10 +1049,10 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        ClarityName::from_literal("error_code"),
                         Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
                     ),
-                    ("value".into(), Value::none()),
+                    (ClarityName::from_literal("value"), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
             )),
@@ -1060,10 +1067,10 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        ClarityName::from_literal("error_code"),
                         Value::UInt(PrincipalConstructErrorCode::BUFFER_LENGTH as u128)
                     ),
-                    ("value".into(), Value::none()),
+                    (ClarityName::from_literal("value"), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
             )),
@@ -1086,10 +1093,10 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        ClarityName::from_literal("error_code"),
                         Value::UInt(PrincipalConstructErrorCode::CONTRACT_NAME as u128)
                     ),
-                    ("value".into(), Value::none()),
+                    (ClarityName::from_literal("value"), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
             )),
@@ -1112,10 +1119,10 @@ fn test_principal_construct_response_errors() {
             data: Box::new(Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "error_code".into(),
+                        ClarityName::from_literal("error_code"),
                         Value::UInt(PrincipalConstructErrorCode::CONTRACT_NAME as u128)
                     ),
-                    ("value".into(), Value::none()),
+                    (ClarityName::from_literal("value"), Value::none()),
                 ])
                 .expect("FAIL: Failed to initialize tuple."),
             )),

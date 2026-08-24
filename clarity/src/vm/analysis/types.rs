@@ -25,6 +25,7 @@ use crate::vm::analysis::contract_interface_builder::ContractInterface;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::LimitedCostTracker;
+use crate::vm::time_tracker::TimeTracker;
 use crate::vm::types::FunctionType;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::{ClarityVersion, SymbolicExpression};
@@ -39,6 +40,10 @@ pub trait AnalysisPass {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
+        // Wall-clock deadline for this pass. `MaxTime` only on the non-consensus voting
+        // paths; `NoTracking` on deterministic replay/commit (so consensus stays
+        // deterministic — see `check_analysis_timeout`).
+        time_tracker: TimeTracker,
     ) -> Result<(), StaticCheckError>;
 }
 
@@ -272,6 +277,8 @@ impl ContractAnalysis {
 
 #[cfg(test)]
 mod test {
+    use clarity_types::ContractName;
+
     use super::*;
     use crate::vm::analysis::ContractAnalysis;
     use crate::vm::costs::LimitedCostTracker;
@@ -291,12 +298,12 @@ mod test {
         );
         let trait_id = TraitIdentifier::new(
             StandardPrincipalData::transient(),
-            "my-contract".into(),
-            "my-trait".into(),
+            ContractName::from_literal("my-contract"),
+            ClarityName::from_literal("my-trait"),
         );
         let mut trait_functions = BTreeMap::new();
         trait_functions.insert(
-            "alpha".into(),
+            ClarityName::from_literal("alpha"),
             FunctionSignature {
                 args: vec![TypeSignature::TraitReferenceType(trait_id.clone())],
                 returns: TypeSignature::ResponseType(Box::new((
@@ -305,14 +312,14 @@ mod test {
                 ))),
             },
         );
-        contract_analysis.add_defined_trait("foo".into(), trait_functions);
+        contract_analysis.add_defined_trait(ClarityName::from_literal("foo"), trait_functions);
 
         contract_analysis.add_public_function(
-            "bar".into(),
+            ClarityName::from_literal("bar"),
             FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg {
                     signature: TypeSignature::TraitReferenceType(trait_id.clone()),
-                    name: "t".into(),
+                    name: ClarityName::from_literal("t"),
                 }],
                 returns: TypeSignature::new_response(
                     TypeSignature::BoolType,
@@ -323,16 +330,16 @@ mod test {
         );
 
         contract_analysis.add_read_only_function(
-            "baz".into(),
+            ClarityName::from_literal("baz"),
             FunctionType::Fixed(FixedFunction {
                 args: vec![
                     FunctionArg {
                         signature: TypeSignature::UIntType,
-                        name: "u".into(),
+                        name: ClarityName::from_literal("u"),
                     },
                     FunctionArg {
                         signature: TypeSignature::TraitReferenceType(trait_id.clone()),
-                        name: "t".into(),
+                        name: ClarityName::from_literal("t"),
                     },
                 ],
                 returns: TypeSignature::BoolType,

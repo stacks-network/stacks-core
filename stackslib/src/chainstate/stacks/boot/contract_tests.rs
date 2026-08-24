@@ -1,3 +1,17 @@
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::ops::Deref;
 
 use clarity::util::get_epoch_time_secs;
@@ -526,6 +540,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         _bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
         None
@@ -600,6 +615,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
         Some(MINER_ADDR.clone())
@@ -608,6 +624,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -617,6 +634,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -626,6 +644,7 @@ impl HeadersDB for TestSimHeadersDB {
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -891,20 +910,26 @@ fn pox_2_lock_extend_units() {
             None,
         )
         .unwrap();
-        env.execute_in_env(boot_code_addr(false).into(), None, None, |env| {
-            env.execute_contract(
-                POX_2_CONTRACT_TESTNET.deref(),
-                "set-burnchain-parameters",
-                &symbols_from_values(vec![
-                    Value::UInt(0),
-                    Value::UInt(1),
-                    Value::UInt(reward_cycle_len),
-                    Value::UInt(25),
-                    Value::UInt(0),
-                ]),
-                false,
-            )
-        })
+        env.execute_in_env(
+            boot_code_addr(false).into(),
+            None,
+            None,
+            |exec_state, invoke_ctx| {
+                exec_state.execute_contract(
+                    invoke_ctx,
+                    POX_2_CONTRACT_TESTNET.deref(),
+                    "set-burnchain-parameters",
+                    &symbols_from_values(vec![
+                        Value::UInt(0),
+                        Value::UInt(1),
+                        Value::UInt(reward_cycle_len),
+                        Value::UInt(25),
+                        Value::UInt(0),
+                    ]),
+                    false,
+                )
+            },
+        )
         .unwrap();
     });
 
@@ -1664,11 +1689,13 @@ fn simple_epoch21_test() {
     sim.epoch_bounds = vec![0, 1, 3];
     let delegator = StacksPrivateKey::random();
 
-    let clarity_2_0_id =
-        QualifiedContractIdentifier::new(StandardPrincipalData::transient(), "contract-2-0".into());
+    let clarity_2_0_id = QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        ContractName::from_literal("contract-2-0"),
+    );
     let clarity_2_0_bad_id = QualifiedContractIdentifier::new(
         StandardPrincipalData::transient(),
-        "contract-2-0-bad".into(),
+        ContractName::from_literal("contract-2-0-bad"),
     );
     let clarity_2_0_content = "
 (define-private (stx-account (a principal)) 1)
@@ -1676,11 +1703,13 @@ fn simple_epoch21_test() {
   (ok (stx-account 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF)))
 ";
 
-    let clarity_2_1_id =
-        QualifiedContractIdentifier::new(StandardPrincipalData::transient(), "contract-2-1".into());
+    let clarity_2_1_id = QualifiedContractIdentifier::new(
+        StandardPrincipalData::transient(),
+        ContractName::from_literal("contract-2-1"),
+    );
     let clarity_2_1_bad_id = QualifiedContractIdentifier::new(
         StandardPrincipalData::transient(),
-        "contract-2-1-bad".into(),
+        ContractName::from_literal("contract-2-1-bad"),
     );
     let clarity_2_1_content = "
 (define-public (call-through)
@@ -1762,7 +1791,7 @@ fn test_deploy_smart_contract(
     version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
-        let (ast, analysis) = tx.analyze_smart_contract(contract_id, version, content)?;
+        let (ast, analysis) = tx.analyze_smart_contract(contract_id, version, content, None)?;
         tx.initialize_smart_contract(contract_id, version, &ast, content, None, |_, _| None, None)?;
         tx.save_analysis(contract_id, &analysis)?;
         return Ok(());
@@ -1779,10 +1808,10 @@ fn max_stackerdb_list() {
             Value::Tuple(
                 TupleData::from_data(vec![
                     (
-                        "signer".into(),
+                        ClarityName::from_literal("signer"),
                         Value::Principal(PrincipalData::from(signer_address)),
                     ),
-                    ("num-slots".into(), Value::UInt(1)),
+                    (ClarityName::from_literal("num-slots"), Value::UInt(1)),
                 ])
                 .expect("BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple"),
             )

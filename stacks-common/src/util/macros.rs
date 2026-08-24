@@ -19,6 +19,21 @@ pub fn is_big_endian() -> bool {
     u32::from_be(0x1Au32) == 0x1Au32
 }
 
+/// One mebibyte (1024 * 1024), for expressing sizes like `MB!(1)`.
+///
+/// Binary byte-size unit. Expands to a plain integer arithmetic expression, so
+/// the result type is inferred from the usage site. Usable for `u32`, `u64`,
+/// `usize`, etc. without casts.
+///
+/// Overflow behavior is identical to writing N * 1024 * 1024 directly and
+/// depends on the inferred integer type.
+#[macro_export]
+macro_rules! MB {
+    ($n:expr) => {
+        ($n * 1024 * 1024)
+    };
+}
+
 /// Define an iterable enum: an enum where each variant is an atomic
 /// type (i.e., has no paramters), and the variants can be iterated over
 /// with an Enum::ALL const
@@ -233,6 +248,20 @@ macro_rules! guarded_string {
             pub fn is_empty(&self) -> bool {
                 self.len() == 0
             }
+
+            /// The caller must guarantee that the conversion will succeed, because the method
+            /// will panic otherwise. This is made for converting `&str` into things
+            /// like `ClarityName`s, where the source value is hardcoded and thus it's visible
+            /// at a glance that the conversion will succeed.
+            ///
+            /// # Panics
+            ///
+            /// If the value is not a legal instance of this guarded string, this method will
+            /// panic. Only pass hardcoded known-good values. For anything else, use `try_from`
+            /// and deal with errors.
+            pub fn from_literal(value: &'static str) -> Self {
+                Self::try_from(value).expect("Expected from_literal to never fail")
+            }
         }
 
         impl Deref for $Name {
@@ -254,9 +283,10 @@ macro_rules! guarded_string {
             }
         }
 
-        impl From<&'_ str> for $Name {
-            fn from(value: &str) -> Self {
-                Self::try_from(value.to_string()).unwrap()
+        impl TryFrom<&str> for $Name {
+            type Error = $ErrorType;
+            fn try_from(value: &str) -> Result<Self, Self::Error> {
+                Self::try_from(value.to_string())
             }
         }
 
@@ -515,6 +545,9 @@ macro_rules! impl_array_hexstring_fmt {
 macro_rules! impl_byte_array_newtype {
     ($thing:ident, $ty:ty, $len:expr) => {
         impl $thing {
+            /// An instance of all zeroes.
+            pub const ZERO: Self = Self([0; $len]);
+
             /// Instantiates from a hex string
             #[allow(dead_code)]
             pub fn from_hex(hex_str: &str) -> Result<$thing, $crate::util::HexError> {
@@ -792,6 +825,7 @@ mod tests {
         assert_eq!(Some(MyEnum::Variant2), MyEnum::lookup_by_name("variant2"));
         assert_eq!(None, MyEnum::lookup_by_name("inexistent"));
     }
+
     #[test]
     fn test_macro_define_named_enum_with_docs() {
         define_named_enum!(
@@ -812,5 +846,26 @@ mod tests {
         assert_eq!(Some(MyEnum::Variant1), MyEnum::lookup_by_name("variant1"));
         assert_eq!(Some(MyEnum::Variant2), MyEnum::lookup_by_name("variant2"));
         assert_eq!(None, MyEnum::lookup_by_name("inexistent"));
+    }
+
+    #[test]
+    fn test_macro_mb() {
+        // Expands to the right value, and the result type is inferred from the
+        // usage site without any casts.
+        let as_u32: u32 = MB!(4);
+        let as_u64: u64 = MB!(4);
+        let as_usize: usize = MB!(4);
+        assert_eq!(4_194_304, as_u32);
+        assert_eq!(4_194_304, as_u64);
+        assert_eq!(4_194_304, as_usize);
+
+        // Zero and the unit value.
+        assert_eq!(0u64, MB!(0));
+        assert_eq!(1_048_576u64, MB!(1));
+
+        // The argument is grouped, so a compound expression is multiplied as a
+        // whole, and the macro composes inside a larger expression.
+        assert_eq!(4_194_304u64, MB!(1 + 3));
+        assert_eq!(1_048_577u32, 1 + MB!(1));
     }
 }

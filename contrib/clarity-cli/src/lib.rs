@@ -29,6 +29,7 @@ use clarity::vm::database::{
 };
 use clarity::vm::errors::{ClarityEvalError, StaticCheckError, VmExecutionError};
 use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::time_tracker::TimeTracker;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{
     ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
@@ -102,14 +103,14 @@ macro_rules! panic_test {
     };
 }
 
-fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A {
+pub fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A {
     input.unwrap_or_else(|e| {
         eprintln!("{msg}\nCaused by: {e}");
         panic_test!();
     })
 }
 
-fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
+pub fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     input.unwrap_or_else(|| {
         eprintln!("{msg}");
         panic_test!();
@@ -245,6 +246,8 @@ fn run_analysis_free<C: ClarityStorage>(
         clarity_version,
         // no type map data is used in the clarity_cli
         false,
+        // CLI tool: no analysis deadline
+        TimeTracker::unlimited(),
     )
 }
 
@@ -280,6 +283,8 @@ fn run_analysis<C: ClarityStorage>(
         clarity_version,
         // no type map data is used in the clarity_cli
         false,
+        // CLI tool: no analysis deadline
+        TimeTracker::unlimited(),
     )
 }
 
@@ -666,6 +671,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
         let conn = self.conn();
@@ -718,6 +724,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
         None
@@ -726,6 +733,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -735,6 +743,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -744,6 +753,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -780,7 +790,7 @@ fn install_boot_code<C: ClarityStorage>(
                 QualifiedContractIdentifier::transient().issuer.into(),
                 None,
                 None,
-                |env| {
+                |env, _invoke_ctx| {
                     let res: Result<_, VmExecutionError> =
                         Ok(env.global_context.database.set_clarity_epoch_version(epoch));
                     res
@@ -1072,7 +1082,8 @@ pub fn execute_repl(
     );
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
-    let mut exec_env = vm_env.get_exec_environment(None, None, &placeholder_context);
+    let (mut exec_state, invoke_ctx) =
+        vm_env.get_exec_environment(None, None, &placeholder_context);
     let mut analysis_marf = MemoryBackingStore::new();
 
     let contract_id = QualifiedContractIdentifier::transient();
@@ -1125,7 +1136,7 @@ pub fn execute_repl(
         }
 
         // Evaluate the expression
-        let eval_result = match exec_env.eval_raw(&content) {
+        let eval_result = match exec_state.eval_raw(&invoke_ctx, &content) {
             Ok(val) => val,
             Err(error) => {
                 println!("Execution error:\n{error}");
@@ -1174,9 +1185,9 @@ pub fn execute_eval_raw(
     ) {
         Ok(_) => {
             // Analysis passed, now evaluate
-            let result = vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_raw(content);
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            let result = exec_state.eval_raw(&invoke_ctx, content);
             match result {
                 Ok(x) => (
                     0,
@@ -1231,9 +1242,9 @@ pub fn execute_eval(
     // Evaluate in a new block
     let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
         let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
-            vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_read_only(contract_identifier, content)
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            exec_state.eval_read_only(&invoke_ctx, contract_identifier, content)
         });
         (header_db, marf, result_and_cost)
     });
@@ -1290,9 +1301,9 @@ pub fn execute_eval_at_chaintip(
     // Evaluate at chaintip (no block advance)
     let result_and_cost = at_chaintip(vm_filename, marf_kv, |mut marf| {
         let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
-            vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_read_only(contract_identifier, content)
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            exec_state.eval_read_only(&invoke_ctx, contract_identifier, content)
         });
         let (result, cost) = result_and_cost;
 
@@ -1351,9 +1362,9 @@ pub fn execute_eval_at_block(
     // Evaluate at specific block
     let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
         let result_and_cost = with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
-            vm_env
-                .get_exec_environment(None, None, &placeholder_context)
-                .eval_read_only(contract_identifier, content)
+            let (mut exec_state, invoke_ctx) =
+                vm_env.get_exec_environment(None, None, &placeholder_context);
+            exec_state.eval_read_only(&invoke_ctx, contract_identifier, content)
         });
         (marf, result_and_cost)
     });

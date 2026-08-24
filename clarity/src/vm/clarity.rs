@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
+use std::time::Duration;
 
 use stacks_common::types::StacksEpochId;
 
@@ -22,11 +23,12 @@ use crate::vm::analysis::{
 };
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
-use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
+use crate::vm::contexts::{AssetMap, ExecutionState, InvocationContext, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
+use crate::vm::time_tracker::TimeTracker;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
 
@@ -61,6 +63,11 @@ pub enum ClarityError {
         /// A human-readable explanation for aborting the transaction
         reason: String,
     },
+    /// Transaction exceeded the maximum execution time allowed.
+    ExecutionTimeExpired,
+    /// Contract analysis exceeded the maximum analysis time allowed.
+    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable end-to-end.
+    AnalysisTimeExpired,
 }
 
 impl fmt::Display for ClarityError {
@@ -76,6 +83,8 @@ impl fmt::Display for ClarityError {
             }
             ClarityError::Interpreter(e) => fmt::Display::fmt(e, f),
             ClarityError::BadTransaction(s) => fmt::Display::fmt(s, f),
+            ClarityError::ExecutionTimeExpired => write!(f, "Execution time expired"),
+            ClarityError::AnalysisTimeExpired => write!(f, "Analysis time expired"),
         }
     }
 }
@@ -89,6 +98,8 @@ impl std::error::Error for ClarityError {
             ClarityError::Parse(ref e) => Some(e),
             ClarityError::Interpreter(ref e) => Some(e),
             ClarityError::BadTransaction(ref _s) => None,
+            ClarityError::ExecutionTimeExpired => None,
+            ClarityError::AnalysisTimeExpired => None,
         }
     }
 }
@@ -103,9 +114,8 @@ impl From<StaticCheckError> for ClarityError {
             StaticCheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            StaticCheckErrorKind::ExecutionTimeExpired => {
-                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
+            StaticCheckErrorKind::ExecutionTimeExpired => ClarityError::ExecutionTimeExpired,
+            StaticCheckErrorKind::AnalysisTimeExpired => ClarityError::AnalysisTimeExpired,
             _ => ClarityError::StaticCheck(e),
         }
     }
@@ -152,7 +162,7 @@ impl From<VmExecutionError> for ClarityError {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExecutionTimeExpired) => {
-                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+                ClarityError::ExecutionTimeExpired
             }
             _ => ClarityError::Interpreter(e),
         }
@@ -169,9 +179,7 @@ impl From<ParseError> for ClarityError {
             ParseErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            ParseErrorKind::ExecutionTimeExpired => {
-                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
-            }
+            ParseErrorKind::ExecutionTimeExpired => ClarityError::ExecutionTimeExpired,
             _ => ClarityError::Parse(e),
         }
     }
@@ -206,7 +214,7 @@ pub trait ClarityConnection {
         to_do: F,
     ) -> Result<R, ClarityEvalError>
     where
-        F: FnOnce(&mut Environment) -> Result<R, ClarityEvalError>,
+        F: FnOnce(&mut ExecutionState, &InvocationContext) -> Result<R, ClarityEvalError>,
     {
         let epoch_id = self.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
@@ -264,16 +272,31 @@ pub trait TransactionConnection: ClarityConnection {
     where
         F: FnOnce(&mut AnalysisDatabase, LimitedCostTracker) -> (LimitedCostTracker, R);
 
-    /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
+    /// Analyze a provided smart contract with an optional wall-clock deadline covering
+    /// AST building and static analysis, but do not write the analysis to the
+    /// AnalysisDatabase.
+    ///
+    /// `max_time` must be `Some` only on the non-consensus voting paths
+    /// (block assembly / block-proposal validation) and `None` on deterministic
+    /// replay/commit, so consensus stays deterministic. When the deadline elapses
+    /// the analysis aborts with [`ClarityError::AnalysisTimeExpired`].
+    ///
+    /// The clock starts before AST building so that time counts against the budget;
+    /// the deadline itself is only enforced at the cooperative checkpoints inside the
+    /// analysis passes.
     fn analyze_smart_contract(
         &mut self,
         identifier: &QualifiedContractIdentifier,
         clarity_version: ClarityVersion,
         contract_content: &str,
+        max_time: Option<Duration>,
     ) -> Result<(ContractAST, ContractAnalysis), ClarityError> {
         let epoch_id = self.get_epoch();
 
         self.with_analysis_db(|db, mut cost_track| {
+            // Start the analysis clock here and take into account AST building.
+            let time_tracker = TimeTracker::from_opt_max_duration(max_time);
+
             let ast_result = ast::build_ast(
                 identifier,
                 contract_content,
@@ -296,6 +319,7 @@ pub trait TransactionConnection: ClarityConnection {
                 epoch_id,
                 clarity_version,
                 false,
+                time_tracker,
             );
 
             match result {

@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -20,8 +20,8 @@ use clarity::types::chainstate::{SortitionId, StacksBlockId};
 use clarity::util::secp256k1::Secp256k1PrivateKey;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::Value;
-use libstackerdb::StackerDBChunkData;
+use clarity::vm::{ClarityName, ContractName, Value};
+use libstackerdb::{StackerDBChunkData, STACKERDB_MAX_CHUNK_SIZE};
 use rand::distributions::Standard;
 use rand::{thread_rng, Rng, RngCore};
 use rusqlite::params;
@@ -57,7 +57,7 @@ use crate::chainstate::nakamoto::staging_blocks::{
 use crate::chainstate::nakamoto::tenure::NakamotoTenureEvent;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
-    query_row, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
+    query_row, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NAKAMOTO_BLOCK_VERSION,
 };
 use crate::chainstate::stacks::boot::{
     NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
@@ -195,7 +195,7 @@ fn codec_nakamoto_header() {
 pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     let private_key = StacksPrivateKey::random();
     let header = NakamotoBlockHeader {
-        version: 1,
+        version: NAKAMOTO_BLOCK_VERSION,
         chain_length: 2,
         burn_spent: 3,
         consensus_hash: ConsensusHash([0x04; 20]),
@@ -483,6 +483,41 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), Some(&proof));
     assert!(block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30));
+
+    // The header version is the *last* static check, so the block above is
+    // otherwise-valid and isolates the version gate. The expected version is
+    // fixed per epoch (`NAKAMOTO_BLOCK_VERSION`), and the shadow-block high bit
+    // (0x80) is ignored when checking it.
+    let valid_txs = vec![tenure_change_tx.clone(), coinbase_tx.clone()];
+
+    // The correct version still validates with the shadow-block bit set.
+    let mut shadow_header = header.clone();
+    shadow_header.version = NAKAMOTO_BLOCK_VERSION | 0x80;
+    let block = NakamotoBlock {
+        header: shadow_header,
+        txs: valid_txs.clone(),
+    };
+    assert!(block.validate_header_static(StacksEpochId::Epoch30));
+
+    // Any other version is rejected, with or without the shadow-block bit. This
+    // includes version 1, which was the value used before the version field was
+    // enforced.
+    for bad_version in [
+        NAKAMOTO_BLOCK_VERSION.wrapping_add(1),
+        NAKAMOTO_BLOCK_VERSION.wrapping_add(2),
+        NAKAMOTO_BLOCK_VERSION.wrapping_add(2) | 0x80,
+    ] {
+        let mut bad_header = header.clone();
+        bad_header.version = bad_version;
+        let block = NakamotoBlock {
+            header: bad_header,
+            txs: valid_txs.clone(),
+        };
+        assert!(
+            !block.validate_header_static(StacksEpochId::Epoch30),
+            "header version {bad_version:#x} should be rejected"
+        );
+    }
 
     // syntactically valid non-tenure-start block only if we have a syntactically valid tenure change which is not sortition-induced,
     // or we don't have one at all.
@@ -2236,6 +2271,41 @@ fn test_make_miners_stackerdb_config() {
         let stackerdb_config = NakamotoChainState::make_miners_stackerdb_config(sort_db, &tip)
             .unwrap()
             .0;
+        assert_eq!(
+            stackerdb_config.chunk_size,
+            u64::from(STACKERDB_MAX_CHUNK_SIZE),
+            "chunk_size config matches the stackerdb wire cap"
+        );
+        assert_eq!(
+            stackerdb_config.write_freq, 0,
+            "write_freq config has no minimum write interval"
+        );
+        assert_eq!(
+            stackerdb_config.max_writes,
+            u32::MAX,
+            "max_writes config has no write-count limit"
+        );
+        assert_eq!(
+            stackerdb_config.max_neighbors, 200,
+            "max_neighbors config should be 200"
+        );
+        assert!(
+            stackerdb_config.hint_replicas.is_empty(),
+            "hint_replicas config must not provide hint"
+        );
+        assert_eq!(
+            2,
+            stackerdb_config.signers.len(),
+            "signers config must always have exactly two signers (latest and previous sortition winner)"
+        );
+        for (idx, (_addr, slot_count)) in stackerdb_config.signers.iter().enumerate() {
+            // note: addresses checked later in the test
+            assert_eq!(
+                *slot_count, MINER_SLOT_COUNT,
+                "signer at index {idx} must have exactly MINER_SLOT_COUNT slots"
+            );
+        }
+
         eprintln!(
             "stackerdb_config at i = {} (sorition? {}): {:?}",
             &i, sortition, &stackerdb_config
@@ -2457,7 +2527,7 @@ fn parse_vote_for_aggregate_public_key_valid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args,
         }),
     };
@@ -2510,7 +2580,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
                 &StacksPublicKey::from_private(&signer_private_key),
             ),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2525,8 +2595,8 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
-            contract_name: "bad-signers-contract-name".into(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            contract_name: ContractName::from_literal("bad-signers-contract-name"),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2542,7 +2612,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: "some-other-function".into(),
+            function_name: ClarityName::from_literal("some-other-function"),
             function_args: valid_function_args,
         }),
     };
@@ -2558,7 +2628,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 aggregate_key_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2579,7 +2649,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 signer_index_arg.clone(),
@@ -2600,7 +2670,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2621,7 +2691,7 @@ fn parse_vote_for_aggregate_public_key_invalid() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg,
                 aggregate_key_arg.clone(),
@@ -2691,7 +2761,7 @@ fn valid_vote_transaction() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args,
         }),
     };
@@ -2744,7 +2814,7 @@ fn valid_vote_transaction_malformed_transactions() {
         post_conditions: vec![],
         payload: TransactionPayload::SmartContract(
             TransactionSmartContract {
-                name: "test-contract".into(),
+                name: ContractName::from_literal("test-contract"),
                 code_body: StacksString::from_str("(/ 1 0)").unwrap(),
             },
             None,
@@ -2765,7 +2835,7 @@ fn valid_vote_transaction_malformed_transactions() {
                 &StacksPublicKey::from_private(&signer_private_key),
             ),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2780,8 +2850,8 @@ fn valid_vote_transaction_malformed_transactions() {
         post_conditions: vec![],
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
-            contract_name: "bad-signers-contract-name".into(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            contract_name: ContractName::from_literal("bad-signers-contract-name"),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2797,7 +2867,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2813,7 +2883,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: "some-other-function".into(),
+            function_name: ClarityName::from_literal("some-other-function"),
             function_args: valid_function_args.clone(),
         }),
     };
@@ -2829,7 +2899,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 aggregate_key_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2850,7 +2920,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 signer_index_arg.clone(),
@@ -2871,7 +2941,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg.clone(),
                 aggregate_key_arg.clone(),
@@ -2892,7 +2962,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: vec![
                 signer_index_arg,
                 aggregate_key_arg.clone(),
@@ -2913,7 +2983,7 @@ fn valid_vote_transaction_malformed_transactions() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: valid_function_args,
         }),
     };
@@ -2982,7 +3052,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -2998,7 +3068,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3014,7 +3084,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3030,7 +3100,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3046,7 +3116,7 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args,
         }),
     };
@@ -3113,7 +3183,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3129,7 +3199,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr.clone(),
             contract_name: contract_name.clone(),
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args: function_args.clone(),
         }),
     };
@@ -3145,7 +3215,7 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
         payload: TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_addr,
             contract_name,
-            function_name: SIGNERS_VOTING_FUNCTION_NAME.into(),
+            function_name: ClarityName::from_literal(SIGNERS_VOTING_FUNCTION_NAME),
             function_args,
         }),
     };
@@ -3521,6 +3591,25 @@ pub mod nakamoto_block_signatures {
             }
             _ => panic!("Expected InvalidStacksBlock error"),
         }
+    }
+
+    #[test]
+    /// Test a secp256k1 signature with high S. Whether intentional or not,
+    /// this has always been allowed. We no longer allow it for transaction
+    /// signatures, but it's okay for signer signatures.
+    fn test_high_s_single_signature() {
+        let signers = [(Secp256k1PrivateKey::random(), 100)];
+        let reward_set = make_reward_set(&signers);
+
+        let mut header = NakamotoBlockHeader::empty();
+
+        let message = header.signer_signature_hash().0;
+
+        header.signer_signature = vec![signers[0].0.sign(&message).unwrap().with_negated_s()];
+
+        header
+            .verify_signer_signatures(&reward_set)
+            .expect("Failed to verify signature");
     }
 
     #[test]

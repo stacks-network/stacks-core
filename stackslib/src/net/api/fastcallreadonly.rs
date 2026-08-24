@@ -28,6 +28,7 @@ use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerHost;
 
+use crate::chainstate::nakamoto::miner::make_mem_abort_callback;
 use crate::net::api::callreadonly::{
     CallReadOnlyRequestBody, CallReadOnlyResponse, RPCCallReadOnlyRequestHandler,
 };
@@ -46,6 +47,7 @@ use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 pub struct RPCFastCallReadOnlyRequestHandler {
     pub call_read_only_handler: RPCCallReadOnlyRequestHandler,
     read_only_max_execution_time: Duration,
+    read_only_call_max_mem_bytes: u64,
     pub auth: Option<String>,
 }
 
@@ -53,6 +55,7 @@ impl RPCFastCallReadOnlyRequestHandler {
     pub fn new(
         maximum_call_argument_size: u32,
         read_only_max_execution_time: Duration,
+        read_only_call_max_mem_bytes: u64,
         auth: Option<String>,
     ) -> Self {
         Self {
@@ -65,8 +68,11 @@ impl RPCFastCallReadOnlyRequestHandler {
                     read_count: 0,
                     runtime: 0,
                 },
+                read_only_max_execution_time,
+                read_only_call_max_mem_bytes,
             ),
             read_only_max_execution_time,
+            read_only_call_max_mem_bytes,
             auth,
         }
     }
@@ -228,11 +234,15 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                             sender,
                             sponsor,
                             LimitedCostTracker::new_free(),
-                            |env| {
+                            |exec_state, invoke_ctx| {
                                 // cost tracking in read only calls is meamingful mainly from a security point of view
                                 // for this reason we enforce max_execution_time when cost tracking is disabled/free
 
-                                env.global_context
+                                exec_state.global_context.set_abort_callback(
+                                    make_mem_abort_callback(self.read_only_call_max_mem_bytes),
+                                );
+                                exec_state
+                                    .global_context
                                     .set_max_execution_time(self.read_only_max_execution_time);
 
                                 // we want to execute any function as long as no actual writes are made as
@@ -241,13 +251,15 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                                 // can be called, and also circumvents limitations on `define-read-only`
                                 // functions that can not use `contrac-call?`, even when calling other
                                 // read-only functions
-                                env.execute_contract(
-                                    &contract_identifier,
-                                    function.as_str(),
-                                    &args,
-                                    false,
-                                )
-                                .map_err(ClarityEvalError::from)
+                                exec_state
+                                    .execute_contract(
+                                        invoke_ctx,
+                                        &contract_identifier,
+                                        function.as_str(),
+                                        &args,
+                                        false,
+                                    )
+                                    .map_err(ClarityEvalError::from)
                             },
                         )
                     },

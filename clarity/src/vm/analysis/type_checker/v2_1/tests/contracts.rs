@@ -30,6 +30,7 @@ use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
+use crate::vm::time_tracker::TimeTracker;
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     BufferLength, ListTypeData, QualifiedContractIdentifier, SequenceSubtype, StringSubtype,
@@ -83,6 +84,7 @@ pub fn type_check_version(
         epoch,
         version,
         false,
+        TimeTracker::unlimited(),
     )
     .map_err(|e| e.0)
 }
@@ -2641,6 +2643,38 @@ fn clarity_trait_experiments_downcast_literal_3(
     assert!(err.starts_with("TraitReferenceUnknown(\"p\")"));
 }
 
+/// A constant defined as `(if cond .contract-a .contract-b)` — both branches
+/// are literal contract principals, so the set of possible targets is
+/// statically known. The type checker currently rejects this because the `if`
+/// expression types to `PrincipalType` rather than `CallableType`.
+/// Future work: accept this case, since all branches are known at analysis time.
+#[apply(test_clarity_versions)]
+fn clarity_trait_experiments_downcast_literal_4(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+
+    let err = db
+        .execute(|db| {
+            load_versioned(db, "math-trait", version, epoch)?;
+            load_versioned(db, "impl-math-trait", version, epoch)?;
+            load_versioned(db, "downcast-literal-4", version, epoch)
+        })
+        .unwrap_err();
+    match version {
+        ClarityVersion::Clarity1 => {
+            assert!(err.starts_with("TraitReferenceUnknown(\"target\")"));
+        }
+        _ => {
+            // TODO: future type checker enhancement should accept this case,
+            // since both if-branches are statically-known contract principals.
+            assert!(err.starts_with("ExpectedCallableType(PrincipalType)"));
+        }
+    }
+}
+
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_downcast_trait_2(
     #[case] version: ClarityVersion,
@@ -3535,8 +3569,8 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(TypeSignature::TupleType(
                     vec![
-                        (ClarityName::from("a"), TypeSignature::IntType),
-                        (ClarityName::from("b"), TypeSignature::UIntType),
+                        (ClarityName::from_literal("a"), TypeSignature::IntType),
+                        (ClarityName::from_literal("b"), TypeSignature::UIntType),
                     ]
                     .try_into()
                     .unwrap(),

@@ -3,7 +3,6 @@ name = "stx-genesis"
 version = "0.1.0"
 authors = ["Matthew Little <matthew@blockstack.com>"]
 edition = "2018"
-resolver = "2"
 
 [dependencies]
 libflate = "1.0.3"

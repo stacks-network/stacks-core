@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2022 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -1019,7 +1019,7 @@ fn test_get_block_info_v210() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw(&format!("(list
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, &format!("(list
                             (get-block-info? block-reward u{})
                             (get-block-info? miner-spend-winner u{})
                             (get-block-info? miner-spend-total u{})
@@ -1324,7 +1324,7 @@ fn test_get_block_info_v210_no_microblocks() {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw(&format!("(list
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, &format!("(list
                             (get-block-info? block-reward u{})
                             (get-block-info? miner-spend-winner u{})
                             (get-block-info? miner-spend-total u{})
@@ -1793,7 +1793,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| env.eval_raw(&format!("(list
+                        |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, &format!("(list
                             (get-block-info? block-reward u{})
                             (get-block-info? miner-spend-winner u{})
                             (get-block-info? miner-spend-total u{})
@@ -1823,7 +1823,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                             PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                             None,
                             LimitedCostTracker::new_free(),
-                            |env| env.eval_raw(&format!("(get-block-info? miner-address u{})", i))
+                            |exec_state, invoke_ctx| exec_state.eval_raw(invoke_ctx, &format!("(get-block-info? miner-address u{})", i))
                         )
                         .unwrap();
                         let miner_address = miner_val.expect_optional().unwrap().unwrap().expect_principal().unwrap();
@@ -1901,14 +1901,20 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
-                        |env| {
+                        |exec_state, invoke_ctx| {
                             if pay_to_contract {
-                                env.eval_raw(&format!(
-                                    "(stx-get-balance '{}.{})",
-                                    &addr_anchored, contract_name
-                                ))
+                                exec_state.eval_raw(
+                                    invoke_ctx,
+                                    &format!(
+                                        "(stx-get-balance '{}.{})",
+                                        &addr_anchored, contract_name
+                                    ),
+                                )
                             } else {
-                                env.eval_raw(&format!("(stx-get-balance '{})", &addr_recipient))
+                                exec_state.eval_raw(
+                                    invoke_ctx,
+                                    &format!("(stx-get-balance '{})", &addr_recipient),
+                                )
                             }
                         },
                     )
