@@ -46,9 +46,10 @@ profile; accumulate multiple runs again once the new topology is established.
 
 For Bitcoin integrations, use the artifact pattern
 `nextest-batched-integration-tests-*`, omit `--minimum-seconds`, and output to
-`bitcoin-integration.json`. Use `--test-percentile 90` so a small sample uses
-each test's recent worst case; serially packing two variable long tests is more
-expensive than a slightly conservative batch estimate.
+`bitcoin-integration.json`. Use `--test-percentile 100`: with dozens of
+concurrent batches, one underweighted test determines the workflow tail. Recent
+per-test maxima avoid packing variable long poles together, including the cost
+of retries, while the four-test cap bounds the conservative estimate's impact.
 
 For P2P integrations, use `nextest-p2p-*`, omit `--minimum-seconds`, and output
 to `p2p.json`. Include multiple runs because topology convergence timings vary
