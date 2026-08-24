@@ -68,7 +68,7 @@ use crate::tests::neon_integrations::{
 };
 use crate::tests::{self, test_port};
 
-/// Wait for a signer's latest observed slot response to accept the expected block.
+/// Wait for a signer's latest observed response to accept the expected block.
 fn wait_for_block_acceptance(
     slot_id: u32,
     expected_block_hash: &Sha512Trunc256Sum,
@@ -85,6 +85,7 @@ fn wait_for_block_acceptance(
                 };
                 Some((chunk.slot_version, response))
             })
+            .filter(|(_, response)| response.get_signer_signature_hash() == expected_block_hash)
             .max_by_key(|(slot_version, _)| *slot_version)
             .map(|(_, response)| response);
 
@@ -1482,15 +1483,18 @@ fn tenure_extend_after_stale_commit_same_miner() {
         .unwrap();
 
     let commits_before = commits_submitted.get();
+    let commit_burn_height = get_chain_info(conf).burn_block_height;
     skip_commit_op.set(false);
 
-    info!("---- Waiting for block commit to N-1 ----");
+    info!("---- Waiting for new block commit with the stale N-1 tip ----";
+        "commit_burn_height" => commit_burn_height,
+    );
 
     wait_for(30, || {
         let last_height = last_commit_burn_height.get();
-        Ok(last_height == prev_tip.burn_block_height && commits_submitted.get() > commits_before)
+        Ok(last_height == commit_burn_height && commits_submitted.get() > commits_before)
     })
-    .expect("Timed out waiting for block commit to N-1");
+    .expect("Timed out waiting for a new block commit with the stale N-1 tip");
 
     // Start a new tenure (N+1)
 
@@ -1585,6 +1589,7 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
     );
 
     let Counters {
+        naka_submitted_commits: commits_submitted,
         skip_commit_op,
         naka_submitted_commit_last_burn_height: last_commit_burn_height,
         ..
@@ -1616,15 +1621,19 @@ fn tenure_extend_after_stale_commit_same_miner_then_no_winner() {
         .wait_for_nonce_increase(&sender_addr, transfer_nonce)
         .unwrap();
 
+    let commits_before = commits_submitted.get();
+    let commit_burn_height = get_chain_info(conf).burn_block_height;
     skip_commit_op.set(false);
 
-    info!("---- Waiting for block commit to N-1 ----");
+    info!("---- Waiting for new block commit with the stale N-1 tip ----";
+        "commit_burn_height" => commit_burn_height,
+    );
 
     wait_for(30, || {
         let last_height = last_commit_burn_height.get();
-        Ok(last_height == prev_tip.burn_block_height)
+        Ok(last_height == commit_burn_height && commits_submitted.get() > commits_before)
     })
-    .expect("Timed out waiting for block commit to N-1");
+    .expect("Timed out waiting for a new block commit with the stale N-1 tip");
 
     // Start a new tenure (N+1)
 
