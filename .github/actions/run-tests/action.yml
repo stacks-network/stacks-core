@@ -273,12 +273,23 @@ runs:
           mapfile -t TEST_NAMES < "$TEST_LIST_FILE"
           PARTITION_ARGS=()
           TEST_ARGS=(-- "${TEST_NAMES[@]}" --exact)
+
+          NEXTEST_CONFIG_FILE="./.github/nextest/ci-nextest-prioritized.toml"
+          TEST_NAMES_FILE="$TEST_LIST_FILE" \
+          TEST_TIMINGS_FILE="${{ inputs.test-timings-file }}" \
+          BASE_CONFIG_FILE="./.github/nextest/ci-nextest.toml" \
+          OUTPUT_CONFIG_FILE="$NEXTEST_CONFIG_FILE" \
+          NEXTEST_PROFILE="ci-parallel" \
+          RECORDED_TESTS_ONLY="true" \
+            bash ./.github/scripts/generate_nextest_priority_config.sh
         fi
+
+        NEXTEST_CONFIG_FILE="${NEXTEST_CONFIG_FILE:-./.github/nextest/ci-nextest.toml}"
 
         # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
         test_exit=0
         cargo-nextest nextest run \
-          --config-file ./.github/nextest/ci-nextest.toml \
+          --config-file "$NEXTEST_CONFIG_FILE" \
           --profile ci-parallel \
           "${PARTITION_ARGS[@]}" \
           --archive-file "${{ inputs.archive-file }}" \

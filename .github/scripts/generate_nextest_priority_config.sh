@@ -2,20 +2,40 @@
 # Add longest-first test priorities to a nextest profile.
 #
 # Required env vars:
-#   TEST_NAMES_CSV    - Comma-separated literal test names
 #   TEST_TIMINGS_FILE - JSON containing default_seconds and a tests map
 #   BASE_CONFIG_FILE  - Existing nextest configuration
 #   OUTPUT_CONFIG_FILE - Generated nextest configuration
 #
+# Exactly one test-name input is required:
+#   TEST_NAMES_CSV    - Comma-separated literal test names
+#   TEST_NAMES_FILE   - Newline-delimited literal test names
+#
 # Optional env vars:
 #   NEXTEST_PROFILE   - Profile receiving the overrides (default: ci-sequential)
+#   RECORDED_TESTS_ONLY - Prioritize only tests present in the timings (default: false)
 set -euo pipefail
 
-test_names_csv="${TEST_NAMES_CSV:?TEST_NAMES_CSV is required}"
+test_names_csv="${TEST_NAMES_CSV:-}"
+test_names_file="${TEST_NAMES_FILE:-}"
 timings_file="${TEST_TIMINGS_FILE:?TEST_TIMINGS_FILE is required}"
 base_config_file="${BASE_CONFIG_FILE:?BASE_CONFIG_FILE is required}"
 output_config_file="${OUTPUT_CONFIG_FILE:?OUTPUT_CONFIG_FILE is required}"
 nextest_profile="${NEXTEST_PROFILE:-ci-sequential}"
+recorded_tests_only="${RECORDED_TESTS_ONLY:-false}"
+
+if { [[ -z "${test_names_csv}" ]] && [[ -z "${test_names_file}" ]]; } ||
+    { [[ -n "${test_names_csv}" ]] && [[ -n "${test_names_file}" ]]; }; then
+    echo "Provide exactly one of TEST_NAMES_CSV or TEST_NAMES_FILE" >&2
+    exit 1
+fi
+if [[ -n "${test_names_file}" && ! -f "${test_names_file}" ]]; then
+    echo "Test names file not found: ${test_names_file}" >&2
+    exit 1
+fi
+if [[ "${recorded_tests_only}" != "true" && "${recorded_tests_only}" != "false" ]]; then
+    echo "RECORDED_TESTS_ONLY must be true or false: ${recorded_tests_only}" >&2
+    exit 1
+fi
 
 if [[ "${BASH_VERSINFO[0]}" -lt 5 ]]; then
     echo "Bash 5 or higher is required: ${BASH_VERSION}" >&2
@@ -45,28 +65,44 @@ jq -e '
     exit 1
 }
 
+normalized_names_file="${test_names_file}"
+if [[ -n "${test_names_csv}" ]]; then
+    normalized_names_file=$(mktemp)
+    trap 'rm -f "${normalized_names_file}"' EXIT
+    jq -Rnr --arg test_names "${test_names_csv}" '
+        $test_names
+        | split(",")[]
+        | gsub("^[[:space:]]+|[[:space:]]+$"; "")
+        | select(length > 0)
+    ' > "${normalized_names_file}"
+fi
+
 mapfile -t ordered_tests < <(
     jq -Rnr \
-        --arg test_names "${test_names_csv}" \
-        --slurpfile timings "${timings_file}" '
+        --slurpfile timings "${timings_file}" \
+        --arg recorded_tests_only "${recorded_tests_only}" '
         ($timings[0]) as $timings
-        | $test_names
-        | split(",")
-        | map(gsub("^[[:space:]]+|[[:space:]]+$"; ""))
-        | map(select(length > 0))
+        | [inputs | select(length > 0)]
         | unique
         | map({
             name: .,
             weight: ($timings.tests[.] // $timings.default_seconds)
           })
+        | map(. as $test | select(
+            $recorded_tests_only == "false" or ($timings.tests | has($test.name))
+          ))
         | sort_by([(-.weight), .name])
         | .[].name
-    '
+    ' < "${normalized_names_file}"
 )
 
 test_count=${#ordered_tests[@]}
 if (( test_count == 0 )); then
-    echo "TEST_NAMES_CSV contains no test names" >&2
+    if [[ "${recorded_tests_only}" == "true" ]]; then
+        cp "${base_config_file}" "${output_config_file}"
+        exit 0
+    fi
+    echo "The test-name input contains no test names" >&2
     exit 1
 fi
 if (( test_count > 201 )); then
