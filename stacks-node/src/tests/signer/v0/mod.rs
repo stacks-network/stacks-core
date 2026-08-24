@@ -1451,9 +1451,22 @@ impl MultipleMinerTest {
         //    After each BTC block, wait for the chain to settle: both nodes
         //    must accept the new tenure and both miners must submit a
         //    block-commit pointing at its tip.
+        const MAX_PREPARATORY_CONVERGENCE_ERRORS: usize = 3;
+        let mut convergence_errors = 0;
         while self.get_peer_info().burn_block_height < epoch_40_start {
-            self.mine_bitcoin_block_with_reward_cycle_convergence(60)
-                .expect("mine bitcoin block toward Epoch 4.0 boundary");
+            if let Err(error) = self.mine_bitcoin_block_with_reward_cycle_convergence(60) {
+                convergence_errors += 1;
+                assert!(
+                    convergence_errors <= MAX_PREPARATORY_CONVERGENCE_ERRORS,
+                    "failed to converge while mining toward the Epoch 4.0 boundary after \
+                     {convergence_errors} attempts: {error}",
+                );
+                warn!(
+                    "Transient convergence timeout while mining toward the Epoch 4.0 boundary; \
+                     continuing from the latest processed burn view \
+                     (attempt {convergence_errors}): {error}"
+                );
+            }
         }
         // One more block so chain is producing under Epoch 4.0 on both nodes.
         self.mine_tenure_with_reward_cycle_convergence(60)

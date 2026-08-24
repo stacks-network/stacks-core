@@ -52,7 +52,9 @@ env:
   # one variable also guarantees the generated batches exclude the same tests.
   BITCOIN_ISOLATED_TESTS: >-
     tests::signer::v0::signer_multinode_rollover,
-    tests::signer::v0::tx_replay::tx_replay_forking_test
+    tests::signer::v0::tx_replay::tx_replay_forking_test,
+    tests::signer::v0::epoch_4_0_waterfall::epoch_4_0_block_commit_uses_single_sbtc_output::t::slow::bitcoind::t,
+    tests::signer::v0::reorg::partial_tenure_fork
   # The resource-aware scheduler leaves the longest exclusive tests nearly
   # alone. Sixty five-test batches retain the single-test floor while staying
   # below the repository's concurrent-job ceiling.
@@ -109,6 +111,10 @@ jobs:
             test-name: tests::signer::v0::signer_multinode_rollover
           - label: tx-replay-forking
             test-name: tests::signer::v0::tx_replay::tx_replay_forking_test
+          - label: epoch-4-waterfall
+            test-name: tests::signer::v0::epoch_4_0_waterfall::epoch_4_0_block_commit_uses_single_sbtc_output::t::slow::bitcoind::t
+          - label: partial-tenure-fork
+            test-name: tests::signer::v0::reorg::partial_tenure_fork
     steps:
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
