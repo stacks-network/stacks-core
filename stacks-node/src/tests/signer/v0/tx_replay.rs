@@ -2242,6 +2242,17 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     info!("Wait for block off of shallow fork");
     fault_injection_stall_miner();
 
+    wait_for(30, || {
+        let replacement_tip = get_chain_info(&conf);
+        Ok(replacement_tip.burn_block_height > tip.burn_block_height
+            && replacement_tip.pox_consensus != tip.pox_consensus)
+    })
+    .expect("Timed out waiting for the replacement burn tip");
+
+    let (_, signer_tip) = signer_test.get_burn_updated_states();
+    assert!(signer_tip.burn_block_height > tip.burn_block_height);
+    assert_ne!(signer_tip.pox_consensus, tip.pox_consensus);
+
     signer_test.wait_for_replay_set_eq(30, vec![txid1.clone(), txid2.clone()]);
 
     let sender1_nonce_post_fork = get_account(&http_origin, &sender1_addr).nonce;
