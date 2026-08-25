@@ -2059,6 +2059,15 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// Return bitcoind's current fully validated chain height.
+    #[cfg(test)]
+    pub fn get_bitcoin_chain_height(&self) -> u64 {
+        self.get_rpc_client()
+            .get_blockchain_info()
+            .expect("failed to query bitcoind chain height")
+            .blocks
+    }
+
     /// Instruct a regtest Bitcoin node to build an empty block.
     #[cfg(test)]
     pub fn build_empty_block(&self) {
@@ -2148,9 +2157,33 @@ impl BitcoinRegtestController {
     /// Retrieves a raw [`Transaction`] by its [`Txid`]
     #[cfg(test)]
     pub fn get_raw_transaction(&self, txid: &Txid) -> Transaction {
-        self.get_rpc_client()
-            .get_raw_transaction(txid)
+        self.try_get_raw_transaction(txid)
             .unwrap_or_log_panic("retrieve raw tx")
+    }
+
+    /// Attempts to retrieve a raw [`Transaction`] by its [`Txid`].
+    #[cfg(test)]
+    pub fn try_get_raw_transaction(&self, txid: &Txid) -> BitcoinRpcClientResult<Transaction> {
+        self.get_rpc_client().get_raw_transaction(txid)
+    }
+
+    /// Attempts to retrieve the transaction IDs currently in the Bitcoin mempool.
+    #[cfg(test)]
+    pub fn try_get_raw_mempool(&self) -> BitcoinRpcClientResult<Vec<Txid>> {
+        self.get_rpc_client().get_raw_mempool()
+    }
+
+    /// Returns whether a transaction output pays the miner identified by `public_key`.
+    #[cfg(test)]
+    pub fn output_pays_miner(
+        &self,
+        output: &TxOut,
+        epoch_id: StacksEpochId,
+        public_key: &Secp256k1PublicKey,
+    ) -> bool {
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
+        BitcoinAddress::from_scriptpubkey(network_id, output.script_pubkey.as_bytes())
+            .is_some_and(|address| address == self.get_miner_address(epoch_id, public_key))
     }
 
     /// Build, sign, and broadcast a regular Bitcoin payment from the

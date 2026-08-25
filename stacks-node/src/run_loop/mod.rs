@@ -6,7 +6,7 @@ pub mod neon;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use stacks::burnchains::{PoxConstants, Txid};
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState, StacksHeadersDb};
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::{
     StacksBlock, TransactionAuth, TransactionPayload, TransactionSpendingCondition,
@@ -41,8 +41,15 @@ macro_rules! info_green {
 pub struct RunLoopCallbacks {
     on_burn_chain_initialized: Option<fn(&mut Box<dyn BurnchainController>)>,
     on_new_burn_chain_state: Option<fn(u64, &BurnchainTip, &ChainTip)>,
-    on_new_stacks_chain_state:
-        Option<fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState, &dyn BurnStateDB)>,
+    on_new_stacks_chain_state: Option<
+        fn(
+            u64,
+            &BurnchainTip,
+            &ChainTip,
+            &mut StacksChainState<DiskChainStateBackend>,
+            &dyn BurnStateDB,
+        ),
+    >,
     on_new_tenure: Option<fn(u64, &BurnchainTip, &ChainTip, &mut Tenure)>,
 }
 
@@ -72,7 +79,13 @@ impl RunLoopCallbacks {
 
     pub fn on_new_stacks_chain_state(
         &mut self,
-        callback: fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState, &dyn BurnStateDB),
+        callback: fn(
+            u64,
+            &BurnchainTip,
+            &ChainTip,
+            &mut StacksChainState<DiskChainStateBackend>,
+            &dyn BurnStateDB,
+        ),
     ) {
         self.on_new_stacks_chain_state = Some(callback);
     }
@@ -110,7 +123,7 @@ impl RunLoopCallbacks {
         round: u64,
         burnchain_tip: &BurnchainTip,
         chain_tip: &ChainTip,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         burn_dbconn: &dyn BurnStateDB,
     ) {
         info_green!(
@@ -172,11 +185,11 @@ pub struct RegisteredKey {
 
 pub fn announce_boot_receipts(
     event_dispatcher: &EventDispatcher,
-    chainstate: &StacksChainState,
+    chainstate: &StacksChainState<DiskChainStateBackend>,
     pox_constants: &PoxConstants,
     boot_receipts: &[StacksTransactionReceipt],
 ) {
-    let block_header_0 = StacksChainState::get_genesis_header_info(chainstate.db())
+    let block_header_0 = StacksHeadersDb::get_genesis_header_info(chainstate.db())
         .expect("FATAL: genesis block header not stored");
     let block_0 = StacksBlock {
         header: block_header_0

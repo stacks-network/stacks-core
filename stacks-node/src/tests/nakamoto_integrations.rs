@@ -57,7 +57,7 @@ use stacks::chainstate::stacks::boot::{
     COSTS_4_NAME, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
     SIP_031_TESTNET_ADDR,
 };
-use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResourceBudgets,
     TransactionResult, TransactionSuccessEvent, TEST_TX_STALL,
@@ -120,6 +120,7 @@ use stacks_signer::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use stacks_signer::v0::SpawnedSigner;
 
+use super::bitcoin::BitcoinTestDaemon;
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_try_stall_miner, fault_injection_unstall_miner,
@@ -138,7 +139,7 @@ use crate::tests::neon_integrations::{
 };
 use crate::tests::signer::v0::{sbtc_registry_stub_source, sbtc_token_stub_source};
 use crate::tests::signer::SignerTest;
-use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
+use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, test_port, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 pub static POX_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
@@ -417,7 +418,7 @@ pub fn get_stackerdb_slot_version(
 
 pub fn get_last_block_in_current_tenure(
     sortdb: &SortitionDB,
-    chainstate: &StacksChainState,
+    chainstate: &StacksChainState<DiskChainStateBackend>,
 ) -> Option<StacksHeaderInfo> {
     let ch = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
         .unwrap()
@@ -637,7 +638,7 @@ pub fn read_and_sign_block_proposal(
     let conf = configs.first().unwrap();
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -1857,7 +1858,7 @@ fn simple_neon_integration() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     // set the block commit delay very high, so that we can safely assert that
     //  only one commit is submitted per tenure without generating test flake.
@@ -1912,7 +1913,7 @@ fn simple_neon_integration() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -2088,7 +2089,7 @@ fn restarting_miner() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.activated_vrf_key_path =
         Some(format!("{}/vrf_key", naka_conf.node.working_dir));
@@ -2153,7 +2154,7 @@ fn restarting_miner() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -2314,7 +2315,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind);
     let sender_sk = Secp256k1PrivateKey::random();
     // setup sender + recipient for a test stx transfer
@@ -2406,7 +2407,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -2624,7 +2625,7 @@ fn mine_multiple_per_tenure_integration() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -2734,8 +2735,8 @@ fn mine_multiple_per_tenure_integration() {
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
 ///  struct handles the epoch-2/3 tear-down and spin-up.
 /// This test makes four assertions:
-///  * 15 tenures are mined after 3.0 starts
-///  * Each tenure has 6 blocks (the coinbase block and 5 interim blocks)
+///  * Both miners win at least two tenures after 3.0 starts
+///  * Each tenure has multiple blocks
 ///  * Both nodes see the same chainstate at the end of the test
 ///  * Both nodes have the same `PeerNetwork::highest_stacks_height_of_neighbors`
 fn multiple_miners() {
@@ -2747,15 +2748,19 @@ fn multiple_miners() {
     naka_conf.node.local_peer_seed = vec![1, 1, 1, 1];
     naka_conf.miner.mining_key = Some(Secp256k1PrivateKey::from_seed(&[1]));
 
-    let node_2_rpc = 51026;
-    let node_2_p2p = 51025;
+    let node_2_rpc = tests::test_port(51026);
+    let node_2_p2p = tests::test_port(51025);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.node.pox_sync_sample_secs = 30;
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let tenure_count = 15;
-    let inter_blocks_per_tenure = 6;
+    const REQUIRED_TENURES_PER_MINER: u64 = 2;
+    const MAX_TENURES: u64 = 20;
+    // Two interim blocks prove repeated production and follower convergence
+    // without paying for four additional identical transfers per tenure.
+    const INTER_BLOCKS_PER_TENURE: u64 = 2;
+    const BLOCKS_PER_TENURE: u64 = INTER_BLOCKS_PER_TENURE + 1;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
@@ -2763,7 +2768,7 @@ fn multiple_miners() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        (send_amt + send_fee) * MAX_TENURES * INTER_BLOCKS_PER_TENURE,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -2872,7 +2877,7 @@ fn multiple_miners() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -2899,8 +2904,17 @@ fn multiple_miners() {
     // Wait one block to confirm the VRF register, wait until a block commit is submitted
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
-    // Mine `tenure_count` nakamoto tenures
-    for tenure_ix in 0..tenure_count {
+    let miner_1_blocks_before = rl1_counters.naka_mined_blocks.get();
+    let miner_2_blocks_before = rl2_counters.naka_mined_blocks.get();
+    let mut tenure_count = 0;
+
+    while tenure_count < MAX_TENURES
+        && (rl1_counters.naka_mined_blocks.get() - miner_1_blocks_before
+            < REQUIRED_TENURES_PER_MINER * BLOCKS_PER_TENURE
+            || rl2_counters.naka_mined_blocks.get() - miner_2_blocks_before
+                < REQUIRED_TENURES_PER_MINER * BLOCKS_PER_TENURE)
+    {
+        let tenure_ix = tenure_count;
         info!("Mining tenure {tenure_ix}");
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
@@ -2910,13 +2924,13 @@ fn multiple_miners() {
         let mut last_tip_height = 0;
 
         // mine the interim blocks
-        for interim_block_ix in 0..inter_blocks_per_tenure {
+        for interim_block_ix in 0..INTER_BLOCKS_PER_TENURE {
             let blocks_processed_before = coord_channel
                 .lock()
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
             // submit a tx so that the miner will mine an extra block
-            let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
+            let sender_nonce = tenure_ix * INTER_BLOCKS_PER_TENURE + interim_block_ix;
             let transfer_tx = make_stacks_transfer_serialized(
                 &sender_sk,
                 sender_nonce,
@@ -2948,7 +2962,18 @@ fn multiple_miners() {
             Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
         })
         .unwrap();
+        tenure_count += 1;
     }
+
+    let miner_1_tenures =
+        (rl1_counters.naka_mined_blocks.get() - miner_1_blocks_before) / BLOCKS_PER_TENURE;
+    let miner_2_tenures =
+        (rl2_counters.naka_mined_blocks.get() - miner_2_blocks_before) / BLOCKS_PER_TENURE;
+    assert!(
+        miner_1_tenures >= REQUIRED_TENURES_PER_MINER
+            && miner_2_tenures >= REQUIRED_TENURES_PER_MINER,
+        "Both miners must win at least {REQUIRED_TENURES_PER_MINER} tenures; miner 1 won {miner_1_tenures}, miner 2 won {miner_2_tenures}"
+    );
 
     // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -2981,7 +3006,7 @@ fn multiple_miners() {
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert_eq!(
         tip.stacks_block_height,
-        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
+        block_height_pre_3_0 + (BLOCKS_PER_TENURE * tenure_count),
         "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
     );
 
@@ -3403,7 +3428,7 @@ fn block_proposal_api_endpoint() {
 
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -3930,7 +3955,7 @@ fn vote_for_aggregate_key_burn_op() {
 
     let burnchain = naka_conf.get_burnchain();
     let _sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (_chainstate, _) = StacksChainState::open(
+    let (_chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -4158,7 +4183,7 @@ fn follower_bootup_simple() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -4417,6 +4442,13 @@ fn follower_bootup_across_multiple_cycles() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    // The scenario requires the follower to span multiple reward cycles, not
+    // the default cycle's absolute block count. Two shorter cycles preserve
+    // that boundary coverage while avoiding 16 redundant burn blocks. A
+    // 12-block cycle also keeps the Epoch 3.0 activation away from offsets 0
+    // and 1, which are invalid activation points.
+    naka_conf.burnchain.pox_reward_length = Some(12);
+    naka_conf.burnchain.pox_prepare_length = Some(3);
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
@@ -4444,10 +4476,7 @@ fn follower_bootup_across_multiple_cycles() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
+    let _btcd_controller = BitcoinTestDaemon::start(&mut naka_conf);
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -4479,7 +4508,7 @@ fn follower_bootup_across_multiple_cycles() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -4545,6 +4574,7 @@ fn follower_bootup_across_multiple_cycles() {
     follower_conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
     follower_conf.node.data_url = format!("http://{localhost}:{rpc_port}");
     follower_conf.node.p2p_address = format!("{localhost}:{p2p_port}");
+    follower_conf.node.pox_sync_sample_secs = 30;
 
     let node_info = get_chain_info(&naka_conf);
     follower_conf.node.add_bootstrap_node(
@@ -4578,30 +4608,10 @@ fn follower_bootup_across_multiple_cycles() {
 
     debug!("Booted follower-thread");
 
-    // Wait some time for the follower to at least get some nakamoto blocks
-    wait_for(120, || {
-        thread::sleep(Duration::from_secs(5));
-        let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
-            return Ok(false);
-        };
-
-        let block_id = StacksBlockId::new(
-            &follower_node_info.stacks_tip_consensus_hash,
-            &follower_node_info.stacks_tip,
-        );
-        let tip = NakamotoChainState::get_block_header(chainstate.db(), &block_id)
-            .unwrap()
-            .unwrap();
-        info!(
-            "Latest follower tip";
-            "height" => tip.stacks_block_height,
-            "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
-        );
-
-        Ok(tip.anchored_header.as_stacks_nakamoto().is_some())
-    })
-    .unwrap();
-
+    // Reaching the exact canonical tip below also proves that the follower has
+    // entered Nakamoto. Avoid a weaker intermediate deadline: a follower that
+    // is still downloading across the reward-cycle boundary can legitimately
+    // need more than two minutes before its first Nakamoto tip.
     wait_for(480, || {
         sleep_ms(1000);
         let Ok(follower_node_info) = get_chain_info_result(&follower_conf) else {
@@ -4706,7 +4716,7 @@ fn follower_bootup_custom_chain_id() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -5641,7 +5651,7 @@ fn bad_commit_does_not_trigger_fork() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -6020,7 +6030,7 @@ fn check_block_heights() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -6456,7 +6466,7 @@ fn nakamoto_attempt_time() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -6990,7 +7000,7 @@ fn signer_chainstate() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     let sender_sk = Secp256k1PrivateKey::random();
@@ -7052,7 +7062,7 @@ fn signer_chainstate() {
     // query for prometheus metrics
     #[cfg(feature = "monitoring_prom")]
     {
-        let (chainstate, _) = StacksChainState::open(
+        let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
             naka_conf.is_mainnet(),
             naka_conf.burnchain.chain_id,
             &naka_conf.get_chainstate_path_str(),
@@ -7584,7 +7594,7 @@ fn continue_tenure_extend() {
 
     let mut signers = TestSigners::default();
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.connection_options.block_proposal_max_age_secs = u64::MAX;
     naka_conf.miner.block_commit_delay = Duration::from_secs(600);
@@ -7644,7 +7654,7 @@ fn continue_tenure_extend() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -8534,7 +8544,7 @@ fn check_block_info() {
         result.expect_tuple().unwrap().data_map
     };
 
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -9318,7 +9328,7 @@ fn check_block_info_rewards() {
 
     let info = get_chain_info_result(&naka_conf).unwrap();
     info!("Chain info: {info:?}");
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -9965,7 +9975,7 @@ fn utxo_check_on_startup_panic() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     println!("Nakamoto node started with config: {naka_conf:?}");
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.min_time_between_blocks_ms = 1_000_000;
 
@@ -10041,7 +10051,7 @@ fn utxo_check_on_startup_recover() {
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     println!("Nakamoto node started with config: {naka_conf:?}");
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.min_time_between_blocks_ms = 1_000_000;
 
@@ -10327,7 +10337,7 @@ fn v3_blockbyheight_api_endpoint() {
 
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -10437,7 +10447,7 @@ fn nakamoto_lockup_events() {
     blind_signer(&conf, &signers, &counters);
     let burnchain = conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -10551,7 +10561,7 @@ fn skip_mining_long_tx() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.nakamoto_attempt_time_ms = 5_000;
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
@@ -10618,7 +10628,7 @@ fn skip_mining_long_tx() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -10775,7 +10785,7 @@ fn test_shadow_recovery() {
 
     let burnchain = naka_conf.get_burnchain();
     let mut sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         false,
         CHAIN_ID_TESTNET,
         &naka_conf.get_chainstate_path_str(),
@@ -10802,6 +10812,11 @@ fn test_shadow_recovery() {
     // fix node
     let shadow_blocks = shadow_chainstate_repair(&mut chainstate, &mut sortdb).unwrap();
     assert!(!shadow_blocks.is_empty());
+    let repaired_tip_height = shadow_blocks
+        .iter()
+        .map(|block| block.header.chain_length)
+        .max()
+        .expect("shadow repair produced no blocks");
 
     wait_for(30, || {
         let Some(info) = get_chain_info_opt(&naka_conf) else {
@@ -10815,11 +10830,42 @@ fn test_shadow_recovery() {
     TEST_COORDINATOR_STALL.lock().unwrap().replace(false);
     info!("Beginning post-shadow tenures");
 
+    // The shadow repair crosses a reward-cycle boundary. Wait until the signer
+    // has rebuilt its local state for the repaired burn tip before asking it to
+    // submit or sign post-recovery work.
+    signer_test.get_burn_updated_states();
+
     // revive ATC-C by waiting for commits
     next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
-    // make another tenure
-    next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    // The next burn block may extend the recovered tenure instead of electing
+    // a new miner. The recovery assertion below needs a normal post-shadow
+    // block, not another block commit, so wait for chain progress directly.
+    let mut recovered = false;
+    let mut last_recovery_error = String::new();
+    for attempt in 1..=3 {
+        match next_block_and(btc_regtest_controller, 60, || {
+            Ok(get_chain_info_opt(&naka_conf)
+                .is_some_and(|info| info.stacks_tip_height > repaired_tip_height))
+        }) {
+            Ok(()) => {
+                recovered = true;
+                break;
+            }
+            Err(error) => {
+                last_recovery_error = error;
+                warn!(
+                    "Post-shadow tenure attempt {attempt} failed; refreshing signer state before retry";
+                    "error" => %last_recovery_error,
+                );
+                signer_test.get_burn_updated_states();
+            }
+        }
+    }
+    assert!(
+        recovered,
+        "Failed to mine a post-shadow recovery block after 3 attempts: {last_recovery_error}"
+    );
 
     // all shadow blocks are present and processed
     let mut shadow_ids = HashSet::new();
@@ -10982,7 +11028,7 @@ fn sip029_coinbase_change() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -13076,7 +13122,7 @@ fn v3_transaction_api_endpoint() {
 
     let burnchain = conf.get_burnchain();
     let _sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (_chainstate, _) = StacksChainState::open(
+    let (_chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
@@ -13169,7 +13215,7 @@ fn handle_considered_txs_foreign_key_failure() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let prom_bind = "127.0.0.1:6000".to_string();
+    let prom_bind = format!("127.0.0.1:{}", test_port(6000));
     naka_conf.node.prometheus_bind = Some(prom_bind);
     naka_conf.miner.nakamoto_attempt_time_ms = 5_000;
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
@@ -13785,7 +13831,7 @@ fn test_sip_031_activation() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -14036,9 +14082,12 @@ fn test_sip_031_last_phase() {
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-    // let's assume funds for 200 tenures
-    let tenure_count = 200;
-    let inter_blocks_per_tenure = 9;
+    // Eight tenures reach the final zero-emission interval at +8 after
+    // exercising each two-tenure non-zero interval at +2, +4, and +6.
+    let tenure_count = 8;
+    // A coinbase block and one interim block are sufficient to prove that
+    // SIP-031 emission occurs only on the first block of each tenure.
+    let blocks_per_tenure = 2;
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
@@ -14046,7 +14095,7 @@ fn test_sip_031_last_phase() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        (send_amt + send_fee) * tenure_count * blocks_per_tenure,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -14060,29 +14109,26 @@ fn test_sip_031_last_phase() {
     set_test_sip_031_emission_schedule(Some(vec![
         SIP031EmissionInterval {
             amount: 0,
-            start_height: epoch32_start_height + 40,
+            start_height: epoch32_start_height + 8,
         },
         SIP031EmissionInterval {
             amount: 300_000,
-            start_height: epoch32_start_height + 30,
+            start_height: epoch32_start_height + 6,
         },
         SIP031EmissionInterval {
             amount: 200_000,
-            start_height: epoch32_start_height + 20,
+            start_height: epoch32_start_height + 4,
         },
         SIP031EmissionInterval {
             amount: 100_000,
-            start_height: epoch32_start_height + 10,
+            start_height: epoch32_start_height + 2,
         },
     ]));
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
+    let _btcd_controller = BitcoinTestDaemon::start(&mut naka_conf);
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -14115,7 +14161,7 @@ fn test_sip_031_last_phase() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -14197,13 +14243,14 @@ fn test_sip_031_last_phase() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     let mut sender_nonce = 0;
-    // 50 more tenures (each one with 3 stacks blocks)
+    // Mine through every test emission interval, with a second block in each
+    // tenure proving that the emission is not repeated.
     let principal = PrincipalData::from(sender_signer_addr);
-    for _ in 0..50 {
+    for _ in 0..tenure_count {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_blocks(
             &mut btc_regtest_controller,
-            3,
+            blocks_per_tenure,
             60,
             &coord_channel,
             || {
@@ -14275,8 +14322,8 @@ fn test_sip_031_last_phase() {
         }
     }
 
-    // (100_000 + 200_000 + 300_000) * 10
-    assert_eq!(total_minted_and_transferred, 6_000_000);
+    // (100_000 + 200_000 + 300_000) * 2
+    assert_eq!(total_minted_and_transferred, 1_200_000);
 
     let latest_stacks_block_id = StacksBlockId::from_hex(
         &test_observer::get_blocks()
@@ -14439,7 +14486,7 @@ fn test_sip_031_last_phase_out_of_epoch() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -14638,7 +14685,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -15010,7 +15057,7 @@ fn test_epoch_3_3_activation() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),

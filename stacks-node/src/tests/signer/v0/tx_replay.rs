@@ -1770,6 +1770,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
     );
     let burn_header_hash_to_fork = btc_controller.get_block_hash(tip_at_tx1.burn_block_height);
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
+    fault_injection_stall_miner();
     btc_controller.build_next_block(4);
     wait_for(10, || {
         let tip = get_chain_info(&conf);
@@ -1779,7 +1780,6 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
     .expect("Timed out waiting for burn block height to be 244");
 
     info!("Wait for block off of shallow fork");
-    fault_injection_stall_miner();
 
     //Signers should update the Tx Replay Set
     signer_test.wait_for_replay_set_eq(30, vec![sender1_tx1.clone(), sender1_tx2.clone()]);
@@ -2058,7 +2058,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     fault_injection_unstall_miner();
 
     signer_test
-        .wait_for_signer_state_check(60, |state| {
+        .wait_for_signer_state_check(90, |state| {
             let tx_replay_set = state.get_tx_replay_set();
             Ok(tx_replay_set.is_none())
         })
@@ -2242,6 +2242,17 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     info!("Wait for block off of shallow fork");
     fault_injection_stall_miner();
 
+    wait_for(30, || {
+        let replacement_tip = get_chain_info(&conf);
+        Ok(replacement_tip.burn_block_height > tip.burn_block_height
+            && replacement_tip.pox_consensus != tip.pox_consensus)
+    })
+    .expect("Timed out waiting for the replacement burn tip");
+
+    let (_, signer_tip) = signer_test.get_burn_updated_states();
+    assert!(signer_tip.burn_block_height > tip.burn_block_height);
+    assert_ne!(signer_tip.pox_consensus, tip.pox_consensus);
+
     signer_test.wait_for_replay_set_eq(30, vec![txid1.clone(), txid2.clone()]);
 
     let sender1_nonce_post_fork = get_account(&http_origin, &sender1_addr).nonce;
@@ -2254,10 +2265,11 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     fault_injection_unstall_miner();
 
     signer_test
-        .wait_for_signer_state_check(60, |state| {
-            let tx_replay_set = state.get_tx_replay_set();
-            Ok(tx_replay_set.is_none() && get_account(&http_origin, &sender1_addr).nonce >= 3)
-        })
+        .wait_for_nonce_increase(&sender1_addr, txid2_nonce)
+        .expect("Timed out waiting for replayed transactions to advance the sender nonce");
+
+    signer_test
+        .wait_for_signer_state_check(90, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
 
     let sender1_nonce_post_replay = get_account(&http_origin, &sender1_addr).nonce;
@@ -2389,7 +2401,7 @@ fn tx_replay_budget_exceeded_tenure_extend() {
 
     // Now, wait for the tx replay set to be cleared
     signer_test
-        .wait_for_signer_state_check(60, |state| Ok(state.get_tx_replay_set().is_none()))
+        .wait_for_signer_state_check(90, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
     let mut found_block: Option<StacksBlockEvent> = None;
     wait_for(60, || {

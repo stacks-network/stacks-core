@@ -1206,28 +1206,31 @@ mod test {
         }
     }
 
-    fn check_add(num_1: u64, den_1: u64, num_2: u64, den_2: u64) {
+    /// Asserts that fixed-point arithmetic agrees with its floating-point equivalent.
+    fn assert_rational_approx_eq(actual: f64, expected: f64) {
+        let delta = (actual - expected).abs();
         assert!(
-            (AtcRational::frac(num_1, den_1)
-                .add(&AtcRational::frac(num_2, den_2))
-                .unwrap())
-            .to_f64()
-            .abs()
-                - (num_1 as f64 / den_1 as f64 + num_2 as f64 / den_2 as f64).abs()
-                < (1.0 / (1024.0 * 1024.0))
+            delta < (1.0 / (1024.0 * 1024.0)),
+            "actual {actual}, expected {expected}, delta {delta}"
         );
     }
 
+    fn check_add(num_1: u64, den_1: u64, num_2: u64, den_2: u64) {
+        let actual = AtcRational::frac(num_1, den_1)
+            .add(&AtcRational::frac(num_2, den_2))
+            .unwrap()
+            .to_f64();
+        let expected = num_1 as f64 / den_1 as f64 + num_2 as f64 / den_2 as f64;
+        assert_rational_approx_eq(actual, expected);
+    }
+
     fn check_mul(num_1: u64, den_1: u64, num_2: u64, den_2: u64) {
-        assert!(
-            (AtcRational::frac(num_1, den_1)
-                .mul(&AtcRational::frac(num_2, den_2))
-                .unwrap())
-            .to_f64()
-            .abs()
-                - ((num_1 as f64 / den_1 as f64) * (num_2 as f64 / den_2 as f64)).abs()
-                < (1.0 / (1024.0 * 1024.0))
-        );
+        let actual = AtcRational::frac(num_1, den_1)
+            .mul(&AtcRational::frac(num_2, den_2))
+            .unwrap()
+            .to_f64();
+        let expected = (num_1 as f64 / den_1 as f64) * (num_2 as f64 / den_2 as f64);
+        assert_rational_approx_eq(actual, expected);
     }
 
     #[test]
@@ -1385,22 +1388,27 @@ mod test {
             AtcRational::frac(15, 32)
         );
 
-        // we only do stuff with an AtcRational in the range [0..1), since if the ATC-C is greater
-        // than 1.0, then the null miner never wins (and thus there's no need to compute the null
-        // miner probability).
+        // ATC values are in [0, 1): if ATC-C is at least 1, the null miner never wins and its
+        // probability does not need to be calculated. Values are only scaled above 1 to index
+        // the 1024-entry lookup table.
         //
-        // The only time an AtcRational is greater than 1.0 is when we scale it up to the lookup
-        // table index, which has 1024 items.  We check that here as well.
+        // Cover every denominator used by that table against representative boundary values. A
+        // full denominator cross-product repeats equivalent zero fractions millions of times
+        // without exercising additional code paths.
+        const REPRESENTATIVE_DENOMINATORS: [u64; 24] = [
+            1, 2, 3, 5, 7, 8, 10, 15, 16, 31, 32, 63, 64, 100, 127, 128, 255, 256, 333, 511, 512,
+            777, 1023, 1024,
+        ];
+
         for num_1 in 0..=1 {
             for den_1 in 1..=1024 {
-                test_debug!("{}/{}", num_1, den_1);
-                for num_2 in 0..=1 {
-                    for den_2 in 1..=1024 {
-                        check_add(num_1, den_1, num_2, den_2);
-                        check_mul(num_1, den_1, num_2, den_2);
-                        check_mul(num_1, den_1, 1024, 1);
-                        check_mul(num_2, den_2, 1024, 1);
-                    }
+                check_add(num_1, den_1, 0, 1);
+                check_mul(num_1, den_1, 0, 1);
+                check_mul(num_1, den_1, 1024, 1);
+
+                for den_2 in REPRESENTATIVE_DENOMINATORS {
+                    check_add(num_1, den_1, 1, den_2);
+                    check_mul(num_1, den_1, 1, den_2);
                 }
             }
         }

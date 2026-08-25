@@ -80,7 +80,9 @@ impl HttpRequest for RPCGetStackerDBMetadataRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCGetStackerDBMetadataRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCGetStackerDBMetadataRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.contract_identifier = None;
@@ -91,7 +93,7 @@ impl RPCRequestHandler for RPCGetStackerDBMetadataRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let contract_identifier = self
             .contract_identifier

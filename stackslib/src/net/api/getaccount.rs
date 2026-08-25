@@ -104,7 +104,9 @@ impl HttpRequest for RPCGetAccountRequestHandler {
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCGetAccountRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCGetAccountRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.account = None;
@@ -115,7 +117,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,

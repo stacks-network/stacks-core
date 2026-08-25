@@ -49,13 +49,15 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use pinny::tag;
 use stacks::chainstate::burn::distribution::LATEST_BURN_DISTRIBUTION;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::events::BurnBlockEvent;
 use stacks::core::{StacksEpochId, STACKS_EPOCH_MAX};
 use stacks::types::chainstate::StacksPrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::types::MINING_COMMITMENT_WINDOW;
 
-use super::MultipleMinerTest;
-use crate::tests::nakamoto_integrations::enable_epoch_4_0;
+use super::{epoch_4_0_waterfall, MultipleMinerTest};
+use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::test_observer;
 use crate::tests::to_addr;
 
@@ -64,8 +66,16 @@ use crate::tests::to_addr;
 const MINER_1_FEE: u64 = 5_000;
 const MINER_2_FEE: u64 = 10_000;
 
-/// Number of post-Epoch-4.0 tenures to mine.
-const POST_BOUNDARY_TENURES: u64 = 15;
+/// Mine a complete commit window after the transition so every classic-PoX
+/// commit has aged out of the burn-distribution calculation.
+const POST_WATERFALL_TENURES: u64 = MINING_COMMITMENT_WINDOW as u64;
+
+/// Allow a temporarily split signer view to converge without restarting the
+/// entire multi-minute test.
+const TENURE_SETTLE_TIMEOUT_SECS: u64 = 120;
+
+/// Bound transient post-boundary convergence misses before failing the test.
+const MAX_CONVERGENCE_ERRORS: usize = 3;
 
 /// Filter burn-block events to those at or after the Epoch 4.0 start height.
 fn post_boundary_burn_blocks(epoch_40_start: u64) -> Vec<BurnBlockEvent> {
@@ -73,6 +83,47 @@ fn post_boundary_burn_blocks(epoch_40_start: u64) -> Vec<BurnBlockEvent> {
         .into_iter()
         .filter(|ev| ev.burn_block_height >= epoch_40_start)
         .collect()
+}
+
+/// Wait until both miners have valid waterfall commits for the next burn block.
+fn wait_for_valid_waterfall_commits(
+    miners: &MultipleMinerTest,
+    miner_pks: [&Secp256k1PublicKey; 2],
+    sbtc_script_pubkey: &[u8],
+    timeout_secs: u64,
+) -> Result<(), String> {
+    let burn_parent_height = miners.get_peer_info().burn_block_height;
+    wait_for(timeout_secs, || {
+        Ok(miner_pks.iter().all(|miner_pk| {
+            epoch_4_0_waterfall::get_unconfirmed_waterfall_commit_for_burn_parent(
+                miners.btc_regtest_controller(),
+                miner_pk,
+                burn_parent_height,
+                sbtc_script_pubkey,
+            )
+            .is_some()
+        }))
+    })
+    .map_err(|error| {
+        format!(
+            "valid waterfall commits for burn parent {burn_parent_height} were not observed: {error}"
+        )
+    })
+}
+
+/// Wait until both miners' chainstate/sortition views resolve the expected
+/// recipient through the same path used to build a block commit.
+fn wait_for_waterfall_commit_recipients(
+    miners: &MultipleMinerTest,
+    expected_sbtc_address: &PoxAddress,
+    timeout_secs: u64,
+) -> Result<(), String> {
+    let (conf_1, conf_2) = miners.get_node_configs();
+    epoch_4_0_waterfall::wait_for_waterfall_commit_recipients(
+        &[&conf_1, &conf_2],
+        expected_sbtc_address,
+        timeout_secs,
+    )
 }
 
 /// Two miners with asymmetric burn fees mine across the Epoch 4.0 boundary.
@@ -127,16 +178,33 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
             node_config.node.pox_5_sbtc_registry_contract =
                 Some(registry_contract_id_modifier.clone());
             node_config.add_initial_balance(publisher_addr_str.clone(), 1_000_000);
-            enable_epoch_4_0(node_config);
+            epoch_4_0_waterfall::enable_compact_epoch_4_0(node_config);
         },
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
             node_config.burnchain.burn_fee_cap = MINER_2_FEE;
-            enable_epoch_4_0(node_config);
+            epoch_4_0_waterfall::enable_compact_epoch_4_0(node_config);
         },
     );
 
-    let conf_1 = miners.get_node_configs().0;
+    let (conf_1, conf_2) = miners.get_node_configs();
+    let bitcoin_miner_pks = [&conf_1, &conf_2].map(|conf| {
+        conf.burnchain
+            .local_mining_public_key
+            .as_deref()
+            .map(Secp256k1PublicKey::from_hex)
+            .transpose()
+            .expect("configured Bitcoin mining public key must decode")
+            .expect("Bitcoin mining public key must be configured")
+    });
+    let sbtc_recipient =
+        epoch_4_0_waterfall::make_sbtc_recipient_fixture(&agg_pubkey, conf_1.is_mainnet());
+    let sbtc_script_pubkey = sbtc_recipient.clone().to_bitcoin_tx_out(0).script_pubkey;
+    let burnchain = conf_1.get_burnchain();
+    let first_waterfall_block = burnchain
+        .pox_constants
+        .first_pox_waterfall_block(burnchain.first_block_height)
+        .expect("PoX-5 waterfall boundary is configured");
 
     let epoch_40_start = conf_1
         .burnchain
@@ -160,28 +228,84 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
 
     // Mine N tenures past the boundary.
     //
-    // Before each BTC block, wait for both miners to have committed
-    // pointing at the current tip.
-    //
-    // After each sortition is processed, read the captured
+    // After each BTC block, wait for both nodes and miners to settle on the
+    // resulting tenure. Then read the captured
     // `LATEST_BURN_DISTRIBUTION` and assert per-tenure invariants on the
     // computed `Vec<BurnSamplePoint>`.
-    let sortdb = conf_1
-        .get_burnchain()
-        .open_sortition_db(true)
-        .expect("open sortition db");
     let expected_burns = {
         let mut v = vec![MINER_1_FEE as u128, MINER_2_FEE as u128];
         v.sort();
         v
     };
-    for i in 0..POST_BOUNDARY_TENURES {
-        miners
-            .wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
-            .unwrap_or_else(|e| panic!("settle before post-boundary tenure {i} failed: {e}"));
-        miners
-            .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
-            .unwrap_or_else(|e| panic!("post-boundary tenure {i} failed: {e}"));
+    let final_burn_height = first_waterfall_block + POST_WATERFALL_TENURES;
+    let mut i = 0;
+    let mut convergence_errors = 0;
+    while miners.get_peer_info().burn_block_height < final_burn_height || i < POST_WATERFALL_TENURES
+    {
+        let burn_height = miners.get_peer_info().burn_block_height;
+
+        // The miners can observe parent(first_waterfall_block) before the
+        // coordinator has made its PoX-5 reward set readable. If they submit
+        // in that interval, the burn-address transaction remains their last
+        // commit and no state change forces an RBF. Pause before processing
+        // the boundary's parent, wait for both reward-set views, then resume;
+        // the new burn view makes each miner issue a fresh waterfall commit.
+        if burn_height == first_waterfall_block.saturating_sub(2) {
+            miners.pause_commits_miner_1();
+            miners.pause_commits_miner_2();
+            let transition_result = miners
+                .mine_bitcoin_block_and_wait_for_both_nodes(TENURE_SETTLE_TIMEOUT_SECS)
+                .map(|_| ())
+                .and_then(|_| {
+                    wait_for_waterfall_commit_recipients(
+                        &miners,
+                        &sbtc_recipient,
+                        TENURE_SETTLE_TIMEOUT_SECS,
+                    )
+                });
+            miners.unpause_commits_miner_1();
+            miners.unpause_commits_miner_2();
+            transition_result.unwrap_or_else(|e| {
+                panic!("failed to settle the waterfall reward-set transition: {e}")
+            });
+            miners
+                .wait_for_both_miners_committed_to_current_tenure(TENURE_SETTLE_TIMEOUT_SECS)
+                .unwrap_or_else(|e| panic!("failed to refresh waterfall commits: {e}"));
+            continue;
+        }
+
+        let next_burn_height = burn_height.saturating_add(1);
+        if next_burn_height >= first_waterfall_block {
+            wait_for_valid_waterfall_commits(
+                &miners,
+                [&bitcoin_miner_pks[0], &bitcoin_miner_pks[1]],
+                sbtc_script_pubkey.as_bytes(),
+                TENURE_SETTLE_TIMEOUT_SECS,
+            )
+            .unwrap_or_else(|e| panic!("post-boundary tenure {i} has invalid commits: {e}"));
+        }
+
+        let tenure_started = match miners
+            .mine_bitcoin_block_with_reward_cycle_convergence(TENURE_SETTLE_TIMEOUT_SECS)
+        {
+            Ok(tenure_started) => tenure_started,
+            Err(error) => {
+                convergence_errors += 1;
+                assert!(
+                    convergence_errors <= MAX_CONVERGENCE_ERRORS,
+                    "post-boundary tenure {i} failed to converge after \
+                     {convergence_errors} attempts: {error}",
+                );
+                warn!(
+                    "Post-boundary tenure {i} did not converge; mining a replacement tenure \
+                     (attempt {convergence_errors}): {error}"
+                );
+                continue;
+            }
+        };
+        if !tenure_started {
+            continue;
+        }
 
         let dist = LATEST_BURN_DISTRIBUTION
             .get_opt()
@@ -204,6 +328,7 @@ fn epoch_4_0_burn_distribution_chains_across_boundary() {
             "tenure {i}: burns mismatch (got {:?}, expected {:?})",
             burns, expected_burns,
         );
+        i += 1;
     }
 
     // Per-block commit count + fee-sum invariant on burn events.

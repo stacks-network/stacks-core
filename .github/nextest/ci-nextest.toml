@@ -22,14 +22,93 @@ status-level = "pass"
 # Create JUnit output that we can parse
 path = "../../../junit.xml"
 
+[test-groups.large-contract-memory]
+# These tests saturate memory bandwidth on four-vCPU GitHub runners. Run one
+# at a time while leaving the other three test slots available.
+max-threads = 1
+
 [profile.ci-sequential]
 inherits = "ci"
 # The number of tests to run simultaneously
 # Options: A positive integer (e.g., 4), "num-cpus", or a negative integer (e.g., -1)
 test-threads = 1
 
+# This test starts 20 signer instances and can time out during registration
+# when another signer-heavy integration test runs beside it.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::block_validation_check_rejection_timeout_heuristic) | test(=tests::signer::v0::signers_do_not_commit_unless_threshold_precommitted)'
+threads-required = "num-test-threads"
+
+# This multinode rollover test has several independently-threaded miners and
+# signer sets; co-scheduling causes progress timeouts throughout the harness.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::signer_multinode_rollover)'
+threads-required = "num-test-threads"
+
+# These tests run multiple miners, nodes, and signer sets. A competing
+# integration can starve one node long enough to trip progress timeouts during
+# reward-set calculation or tenure production.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::multiple_miners) | test(=tests::signer::v0::multiple_miners_mock_sign_epoch_25) | test(=tests::signer::v0::multiple_miners_with_custom_chain_id) | test(=tests::signer::v0::multiple_miners_with_nakamoto_blocks)'
+threads-required = "num-test-threads"
+
+# This idle-timeout test assumes its setup finishes before the 30-second idle
+# window. A competing signer integration can consume that window before the
+# test deliberately starts the next tenure.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner)'
+threads-required = "num-test-threads"
+
+# These convergence-sensitive signer tests time out while sharing a two-core
+# runner, but complete reliably when their node and signer sets run alone.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::epoch_4_0_reorg::bitcoin_reorg_of_epoch_4_0_activation_block::t::slow::bitcoind::t) | test(=tests::signer::v0::reorg::bitcoin_reorg_extended_tenure) | test(=tests::signer::v0::reorg::no_reorg_due_to_successive_block_validation_ok) | test(=tests::signer::v0::signers_consider_consensus_blocks::signers_do_not_reconsider_globally_accepted_and_responded_blocks) | test(=tests::signer::v0::signers_wait_for_validation::signer_waits_for_validation_before_signing) | test(=tests::signer::v0::tenure_extend::prev_miner_extends_if_incoming_miner_fails_to_mine_failure) | test(=tests::signer::v0::tx_replay::tx_replay_btc_on_stx_invalidation) | test(=tests::signer::v0::tx_replay::tx_replay_forking_test) | test(=tests::signer::v0::tx_replay::tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted)'
+threads-required = "num-test-threads"
+
+# This non-signer-module integration still launches bitcoind, a node, and a
+# blind signer; concurrent signer integrations can consume its block timeout.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::nakamoto_integrations::handle_considered_txs_foreign_key_failure)'
+threads-required = "num-test-threads"
+
+# This boundary test runs two miners, two nodes, and a five-signer set. Keep
+# its commit-window convergence work off a competing integration test.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::epoch_4_0_multi_miner_distribution::epoch_4_0_burn_distribution_chains_across_boundary::t::slow::bitcoind::t)'
+threads-required = "num-test-threads"
+
+# Keep nextest's actual reservations aligned with the resource scheduler for
+# multi-miner tests that run multiple nodes and a signer set.
+[[profile.ci-sequential.overrides]]
+filter = 'test(=tests::signer::v0::signers_do_not_commit_unless_threshold_precommitted) | test(=tests::signer::v0::multiple_miners) | test(=tests::signer::v0::multiple_miners_mock_sign_epoch_25) | test(=tests::signer::v0::multiple_miners_with_custom_chain_id) | test(=tests::signer::v0::multiple_miners_with_nakamoto_blocks)'
+threads-required = "num-test-threads"
+
+# These tests build and insert roughly 169,000 signed transactions. Running a
+# second node integration beside them lengthens the batch critical path.
+[[profile.ci-sequential.overrides]]
+filter = 'test(/^tests::(?:signer::v0::large_mempool|marf::.*::large_mempool)/)'
+threads-required = "num-test-threads"
+
+# Keep ordinary signer resource weights aligned with
+# SIGNER_TEST_THREADS_REQUIRED in _tests-bitcoin.yml. Specific heavyweight
+# signer tests above remain exclusive.
+[[profile.ci-sequential.overrides]]
+filter = 'test(/^tests::signer::/)'
+threads-required = 1
+
 [profile.ci-parallel]
 inherits = "ci"
 # The number of tests to run simultaneously
 # Options: A positive integer (e.g., 4), "num-cpus", or a negative integer (e.g., -1)
 test-threads = "num-cpus"
+
+# This parser stress test and the large-contract tests contend heavily for
+# memory bandwidth. Reserving the runner for it prevents both workloads from
+# becoming several times slower while leaving the rest of the suite parallel.
+[[profile.ci-parallel.overrides]]
+filter = 'test(=chainstate::tests::parse_tests::test_cost_balance_exceeded)'
+threads-required = "num-test-threads"
+
+[[profile.ci-parallel.overrides]]
+filter = 'test(/^clarity_vm::tests::large_contract::ccall_memory_test::/)'
+test-group = "large-contract-memory"

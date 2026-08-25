@@ -6,7 +6,8 @@ description: |
 inputs:
   files:
     description: Space-separated list of coverage report files to upload (supports globs)
-    required: true
+    required: false
+    default: ''
   build-number:
     description: Overrides the build number Coveralls autodetects from CI
     required: true
@@ -21,6 +22,18 @@ inputs:
   git-commit:
     description: When provided, attributes the coverage to a specific commit
     required: false
+  flag-name:
+    description: Unique report name for a parallel Coveralls build
+    required: false
+    default: ''
+  parallel:
+    description: Whether this report belongs to a parallel Coveralls build
+    required: false
+    default: 'false'
+  parallel-finished:
+    description: Whether to finalize a parallel Coveralls build
+    required: false
+    default: 'false'
   coverage-reporter-version:
     description: Coveralls reporter binary version (the action SHA is pinned but downloads the reporter at 'latest' unless pinned)
     required: false
@@ -42,6 +55,9 @@ runs:
         compare-ref: ${{ inputs.compare-ref }}
         git-branch: ${{ inputs.git-branch }}
         git-commit: ${{ inputs.git-commit }}
+        flag-name: ${{ inputs.flag-name }}
+        parallel: ${{ inputs.parallel }}
+        parallel-finished: ${{ inputs.parallel-finished }}
         fail-on-error: true
         coverage-reporter-version: ${{ inputs.coverage-reporter-version }}
 
@@ -61,6 +77,9 @@ runs:
         compare-ref: ${{ inputs.compare-ref }}
         git-branch: ${{ inputs.git-branch }}
         git-commit: ${{ inputs.git-commit }}
+        flag-name: ${{ inputs.flag-name }}
+        parallel: ${{ inputs.parallel }}
+        parallel-finished: ${{ inputs.parallel-finished }}
         fail-on-error: true
         coverage-reporter-version: ${{ inputs.coverage-reporter-version }}
 
@@ -80,6 +99,9 @@ runs:
         compare-ref: ${{ inputs.compare-ref }}
         git-branch: ${{ inputs.git-branch }}
         git-commit: ${{ inputs.git-commit }}
+        flag-name: ${{ inputs.flag-name }}
+        parallel: ${{ inputs.parallel }}
+        parallel-finished: ${{ inputs.parallel-finished }}
         fail-on-error: true
         coverage-reporter-version: ${{ inputs.coverage-reporter-version }}
 

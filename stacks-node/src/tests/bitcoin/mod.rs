@@ -20,3 +20,5 @@
 mod core_container;
 mod core_controller_integrations;
 mod rpc_integrations;
+
+pub use core_container::BitcoinTestDaemon;

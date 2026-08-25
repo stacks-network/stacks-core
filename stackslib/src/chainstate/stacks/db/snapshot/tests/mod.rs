@@ -15,8 +15,6 @@
 
 use std::collections::HashSet;
 
-// `::clarity` disambiguates the crate from a sibling `clarity` test module.
-use ::clarity::vm::costs::ExecutionCost;
 use rstest::rstest;
 use rusqlite::{params, Connection};
 use stacks_common::types::chainstate::{
@@ -25,9 +23,11 @@ use stacks_common::types::chainstate::{
 use tempfile::tempdir;
 
 use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
-use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::db::{ChainStateSchema, StacksHeaderInfo};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
 use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MARFValue};
+// `crate::clarity` disambiguates the re-exported crate from a sibling test module.
+use crate::clarity::vm::costs::ExecutionCost;
 
 mod blocks;
 mod burnchain;
@@ -38,7 +38,7 @@ mod spv;
 
 /// Create a source `index.sqlite`
 fn create_source_db(path: &std::path::Path) -> Connection {
-    let _ = StacksChainState::instantiate_db(false, 1, path.to_str().unwrap(), true, None)
+    let _ = ChainStateSchema::instantiate_db(false, 1, path.to_str().unwrap(), true, None)
         .expect("chainstate DB init failed");
     Connection::open(path).unwrap()
 }

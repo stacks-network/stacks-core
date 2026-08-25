@@ -23,7 +23,9 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::db::DBConn;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::{NakamotoChainState, StacksDBIndexed};
-use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+};
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::http::{
     parse_json, Error, HttpChunkGenerator, HttpNotFound, HttpRequest, HttpRequestContents,
@@ -109,7 +111,7 @@ fn get_handle_from_ch<'a>(
 /// Performs a MARF lookup to find the last snapshot with a sortition prior to the given burn block height.
 /// Will return an empty consensus hash if no prior sorititon exists (i.e., if querying the Genesis tenure)
 pub fn get_prior_last_sortition_consensus_hash(
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     sortdb: &SortitionDB,
     block_snapshot: &BlockSnapshot,
     preamble: &HttpRequestPreamble,
@@ -205,7 +207,7 @@ impl TenureReply {
     ///   return a fully materialized JSON tenure with an empty `stacks_blocks` array.
     /// - If the header lookup fails, return a server error.
     pub fn try_from_header_or_snapshot<F>(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         snapshot: &BlockSnapshot,
         last_sortition_ch: ConsensusHash,
         preamble: &HttpRequestPreamble,
@@ -335,7 +337,7 @@ impl RPCTenureStream {
     /// The HttpChunkGenerator trait implementation will take care of completing
     /// the json stream (by closing both the array and the object).
     pub fn new(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         block_id: StacksBlockId,
         tenure: RPCTenure,
         preamble: &HttpRequestPreamble,
@@ -485,7 +487,9 @@ impl HttpRequest for RPCNakamotoTenureBlocksRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCNakamotoTenureBlocksRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.consensus_hash = None;
@@ -496,7 +500,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let consensus_hash = self
             .consensus_hash

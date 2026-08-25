@@ -83,7 +83,9 @@ impl HttpRequest for RPCGetTransactionRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCGetTransactionRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCGetTransactionRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.txid = None;
@@ -94,7 +96,7 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         if !node.txindex {
             return StacksHttpResponse::new_error(

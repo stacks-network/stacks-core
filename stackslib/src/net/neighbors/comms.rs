@@ -33,20 +33,32 @@ pub trait NeighborComms {
     /// Add a neighbor and its event ID as connecting
     fn add_connecting<NK: ToNeighborKey>(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         nk: &NK,
         event_id: usize,
     );
     /// Get a connecting neighbor's event ID
-    fn get_connecting<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> Option<usize>;
+    fn get_connecting<NK: ToNeighborKey>(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        nk: &NK,
+    ) -> Option<usize>;
     /// Remove a neighbor from connecting state
-    fn remove_connecting<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK);
+    fn remove_connecting<NK: ToNeighborKey>(
+        &mut self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        nk: &NK,
+    );
     /// Remove a neighbor from connecting state due to an error
-    fn remove_connecting_error<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK);
+    fn remove_connecting_error<NK: ToNeighborKey>(
+        &mut self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        nk: &NK,
+    );
     /// Mark a neighbor as dead (inactive, unreachable, etc.)
     fn add_dead<NK: ToNeighborKey>(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         nk: &NK,
         reason: DropReason,
         source: DropSource,
@@ -54,7 +66,7 @@ pub trait NeighborComms {
     /// Mark a neighbor as broken (in protocol violation)
     fn add_broken<NK: ToNeighborKey>(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         nk: &NK,
         reason: DropReason,
         source: DropSource,
@@ -79,7 +91,7 @@ pub trait NeighborComms {
     /// Poll for any received messages.
     fn collect_replies(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Vec<(NeighborAddress, StacksMessage)>;
     /// Take all dead neighbors
     fn take_dead_neighbors(&mut self) -> HashSet<DropNeighbor>;
@@ -93,7 +105,7 @@ pub trait NeighborComms {
     /// Fails if not connected.
     fn neighbor_handshake<NK: ToNeighborKey>(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         neighbor_addr: &NK,
     ) -> Result<ReplyHandleP2P, net_error> {
         let nk = neighbor_addr.to_neighbor_key(network);
@@ -149,7 +161,7 @@ pub trait NeighborComms {
     /// Returns Err(..) if connection or sending failed for some reason.
     fn neighbor_connect_and_handshake<NK: ToNeighborKey>(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         neighbor_addr: &NK,
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
         let nk = neighbor_addr.to_neighbor_key(network);
@@ -238,7 +250,7 @@ pub trait NeighborComms {
     /// Return Err(..) if we fail
     fn neighbor_session_begin_only<NK: ToNeighborKey>(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         neighbor_addr: &NK,
         neighbor_pubkh: &Hash160,
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
@@ -299,7 +311,7 @@ pub trait NeighborComms {
     /// Return Ok(false) if we're in the process of connecting, and should try again.
     fn neighbor_session_begin(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         neighbor_addr: &NeighborAddress,
     ) -> Result<bool, net_error> {
         let handle_opt = self.neighbor_session_begin_only(
@@ -323,7 +335,7 @@ pub trait NeighborComms {
     /// is not carried out here because the caller may instead want to do a blocking wait
     /// with the given reply handle (or do its own batching).
     fn neighbor_send_only<NK: ToNeighborKey>(
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         neighbor_addr: &NK,
         msg_payload: StacksMessageType,
     ) -> Result<ReplyHandleP2P, net_error> {
@@ -338,7 +350,7 @@ pub trait NeighborComms {
     /// Fails if the neighbor is not connected.
     fn neighbor_send(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         neighbor_addr: &NeighborAddress,
         msg_payload: StacksMessageType,
     ) -> Result<(), net_error> {
@@ -353,7 +365,7 @@ pub trait NeighborComms {
     /// encounter an irrecoverable failure.
     fn neighbor_try_recv(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         mut req: ReplyHandleP2P,
     ) -> Result<StacksMessage, Result<ReplyHandleP2P, net_error>> {
         if let Err(e) = network.saturate_p2p_socket(req.get_event_id(), &mut req) {
@@ -388,7 +400,7 @@ pub trait NeighborComms {
     /// returned. The given NeighborKey is marked as dead.
     fn poll_next_reply<NK: ToNeighborKey>(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         req_nk: &NK,
         req: &mut Option<ReplyHandleP2P>,
     ) -> Result<Option<StacksMessage>, net_error> {
@@ -417,7 +429,11 @@ pub trait NeighborComms {
     }
 
     /// Are we connected and handshake'd already to a neighbor?
-    fn has_neighbor_session<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> bool {
+    fn has_neighbor_session<NK: ToNeighborKey>(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        nk: &NK,
+    ) -> bool {
         let Some(convo) = network.get_neighbor_convo(&nk.to_neighbor_key(network)) else {
             return false;
         };
@@ -425,7 +441,11 @@ pub trait NeighborComms {
     }
 
     /// Are we in the process of connecting to a neighbor?
-    fn is_neighbor_connecting<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> bool {
+    fn is_neighbor_connecting<NK: ToNeighborKey>(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        nk: &NK,
+    ) -> bool {
         if network.is_connecting_neighbor(&nk.to_neighbor_key(network)) {
             return true;
         }
@@ -473,7 +493,7 @@ impl PeerNetworkComms {
     /// Drive socket I/O on all outstanding messages and gather up any received messages.
     /// Remove handled messages from `state`, and perform the polling (and bookkeeping of dead/broken neighbors) via `neighbor_set`
     fn drive_socket_io<NS: NeighborComms>(
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         state: &mut HashMap<NeighborAddress, ReplyHandleP2P>,
         neighbor_set: &mut NS,
     ) -> Vec<(NeighborAddress, StacksMessage)> {
@@ -524,7 +544,7 @@ impl PeerNetworkComms {
 impl NeighborComms for PeerNetworkComms {
     fn add_connecting<NK: ToNeighborKey>(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         nk: &NK,
         event_id: usize,
     ) {
@@ -533,17 +553,29 @@ impl NeighborComms for PeerNetworkComms {
         self.pin_connection(event_id);
     }
 
-    fn get_connecting<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> Option<usize> {
+    fn get_connecting<NK: ToNeighborKey>(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        nk: &NK,
+    ) -> Option<usize> {
         self.connecting.get(&nk.to_neighbor_key(network)).copied()
     }
 
     /// Remove a connecting neighbor because it connected
-    fn remove_connecting<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK) {
+    fn remove_connecting<NK: ToNeighborKey>(
+        &mut self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        nk: &NK,
+    ) {
         self.connecting.remove(&nk.to_neighbor_key(network));
     }
 
     /// Remove a connecting neighbor due to an error.  The connection will be unpinned.
-    fn remove_connecting_error<NK: ToNeighborKey>(&mut self, network: &PeerNetwork, nk: &NK) {
+    fn remove_connecting_error<NK: ToNeighborKey>(
+        &mut self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        nk: &NK,
+    ) {
         let event_id_opt = self.connecting.remove(&nk.to_neighbor_key(network));
         if let Some(event_id) = event_id_opt {
             self.unpin_connection(event_id);
@@ -552,7 +584,7 @@ impl NeighborComms for PeerNetworkComms {
 
     fn add_dead<NK: ToNeighborKey>(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         nk: &NK,
         reason: DropReason,
         source: DropSource,
@@ -566,7 +598,7 @@ impl NeighborComms for PeerNetworkComms {
 
     fn add_broken<NK: ToNeighborKey>(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         nk: &NK,
         reason: DropReason,
         source: DropSource,
@@ -626,7 +658,7 @@ impl NeighborComms for PeerNetworkComms {
 
     fn collect_replies(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Vec<(NeighborAddress, StacksMessage)> {
         let mut ret = vec![];
         let mut clear = false;
@@ -661,17 +693,26 @@ impl NeighborComms for PeerNetworkComms {
 /// This is a helper trait to ensure that a given struct can be turned into a NeighborKey for the
 /// purposes of maintaining the active peer set
 pub trait ToNeighborKey {
-    fn to_neighbor_key(&self, network: &PeerNetwork) -> NeighborKey;
+    fn to_neighbor_key(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> NeighborKey;
 }
 
 impl ToNeighborKey for NeighborKey {
-    fn to_neighbor_key(&self, _network: &PeerNetwork) -> NeighborKey {
+    fn to_neighbor_key(
+        &self,
+        _network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> NeighborKey {
         self.clone()
     }
 }
 
 impl ToNeighborKey for NeighborAddress {
-    fn to_neighbor_key(&self, network: &PeerNetwork) -> NeighborKey {
+    fn to_neighbor_key(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> NeighborKey {
         // NOTE: PartialEq and Hash for NeighborKey ignore the low bits of peer version
         // and ignore network ID, and the ConversationP2P ensures that we never even connect
         // to a node with the wrong network ID or wrong peer version bits anyway, so

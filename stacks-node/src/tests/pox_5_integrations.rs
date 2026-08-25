@@ -663,10 +663,10 @@ fn check_pox_5_register_for_bond_lifecycle() {
     );
     let register_txid = submit_tx(&http_origin, &register_tx);
     info!("Submitted pox-5 register-for-bond txid: {register_txid}");
-    wait_for(
-        60,
-        || Ok(get_account(&http_origin, &staker_addr).nonce == 2),
-    )
+    wait_for(60, || {
+        Ok(get_account(&http_origin, &staker_addr).nonce == 2
+            && get_tx_result_by_id(&register_txid).is_some())
+    })
     .expect("Timed out waiting for register-for-bond");
 
     // Pull `unlock-burn-height` out of the register-for-bond response so

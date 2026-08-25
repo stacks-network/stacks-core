@@ -31,8 +31,6 @@ use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::burnchains::PrivateKey;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
-#[cfg(any(test, feature = "testing"))]
-use crate::core::NETWORK_P2P_PORT;
 use crate::net::asn::ASEntry4;
 use crate::net::{Neighbor, NeighborAddress, NeighborKey, ServiceFlags};
 use crate::util_lib::db::{
@@ -757,9 +755,33 @@ impl PeerDB {
         network_id: u32,
         parent_network_id: u32,
         key_expires: u64,
+        port: u16,
         data_url: UrlString,
         asn4_entries: &[ASEntry4],
         initial_neighbors: &[Neighbor],
+    ) -> Result<PeerDB, db_error> {
+        Self::connect_memory_with_stacker_dbs(
+            network_id,
+            parent_network_id,
+            key_expires,
+            port,
+            data_url,
+            asn4_entries,
+            initial_neighbors,
+            &[],
+        )
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn connect_memory_with_stacker_dbs(
+        network_id: u32,
+        parent_network_id: u32,
+        key_expires: u64,
+        port: u16,
+        data_url: UrlString,
+        asn4_entries: &[ASEntry4],
+        initial_neighbors: &[Neighbor],
+        stacker_dbs: &[QualifiedContractIdentifier],
     ) -> Result<PeerDB, db_error> {
         let conn = Connection::open_in_memory().map_err(db_error::SqliteError)?;
 
@@ -775,10 +797,10 @@ impl PeerDB {
             key_expires,
             data_url,
             PeerAddress::from_ipv4(127, 0, 0, 1),
-            NETWORK_P2P_PORT,
+            port,
             asn4_entries,
             initial_neighbors,
-            &[],
+            stacker_dbs,
         )?;
 
         let tx = db.tx_begin()?;
@@ -1897,8 +1919,8 @@ mod test {
     use super::*;
     #[allow(unused)]
     use crate::core::{
-        NETWORK_ID_MAINNET, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1,
-        PEER_VERSION_TESTNET_MAJOR,
+        NETWORK_ID_MAINNET, NETWORK_P2P_PORT, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_3_0,
+        PEER_VERSION_EPOCH_3_1, PEER_VERSION_TESTNET_MAJOR,
     };
 
     impl PeerDB {
@@ -1923,6 +1945,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &[],
             &[],
@@ -2011,6 +2034,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &[],
             &[],
@@ -2071,6 +2095,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &[],
             &[],
@@ -2239,6 +2264,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &[],
             &[],
@@ -2896,6 +2922,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &[],
             &initial_neighbors,
@@ -3003,6 +3030,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &[],
             &initial_neighbors,
@@ -3125,6 +3153,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &asn4_table,
             &[],
@@ -3186,6 +3215,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &[],
             &[],
@@ -3219,6 +3249,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &[],
             &[],
@@ -3246,6 +3277,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &[],
             &[],
@@ -3381,6 +3413,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &[],
             &[neighbor_1.clone(), neighbor_2.clone()],
@@ -3530,6 +3563,7 @@ mod test {
             0x9abcdef0,
             12345,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://foo.com"),
             &[],
             &[neighbor_1.clone(), neighbor_2.clone()],
@@ -3925,6 +3959,7 @@ mod test {
             network_id,
             0,
             0,
+            NETWORK_P2P_PORT,
             UrlString::from_literal("http://test.com"),
             &[],
             &[],

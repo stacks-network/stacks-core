@@ -28,7 +28,9 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
-use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
+use stacks::chainstate::stacks::db::{
+    DiskChainStateBackend, StacksBlockHeaderTypes, StacksChainState,
+};
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
 use stacks::libstackerdb::StackerDBChunkData;
@@ -277,7 +279,7 @@ impl SignerCoordinator {
         block: &NakamotoBlock,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         stackerdbs: &StackerDBs,
         counters: &Counters,
         election_sortition: &BlockSnapshot,
@@ -363,7 +365,7 @@ impl SignerCoordinator {
         block_signer_sighash: &Sha512Trunc256Sum,
         block_id: &StacksBlockId,
         parent_block_id: &StacksBlockId,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         sortdb: &SortitionDB,
         counters: &Counters,
     ) -> Result<Vec<MessageSignature>, NakamotoNodeError> {

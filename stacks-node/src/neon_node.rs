@@ -176,7 +176,10 @@ use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::blocks::StagingBlock;
-use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY};
+use stacks::chainstate::stacks::db::{
+    DiskChainStateBackend, Epoch2BlockProcessor, Epoch2StagingBlocksDb, StacksAccountReader,
+    StacksChainState, StacksHeaderInfo, StacksHeadersDb, MINER_REWARD_MATURITY,
+};
 use stacks::chainstate::stacks::miner::{
     signal_mining_blocked, signal_mining_ready, AssembledAnchorBlock, BlockBuilderSettings,
     StacksMicroblockBuilder,
@@ -293,7 +296,7 @@ pub struct StacksNode {
     /// True if we're a miner
     is_miner: bool,
     /// handle to the p2p thread
-    pub p2p_thread_handle: JoinHandle<Option<PeerNetwork>>,
+    pub p2p_thread_handle: JoinHandle<Option<PeerNetwork<DiskChainStateBackend>>>,
     /// handle to the relayer thread
     pub relayer_thread_handle: JoinHandle<()>,
 }
@@ -350,9 +353,9 @@ pub(crate) fn fault_injection_skip_mining(_rpc_bind: &str, _target_burn_height: 
 /// Open the chainstate, and inject faults from the config file
 pub(crate) fn open_chainstate_with_faults(
     config: &Config,
-) -> Result<StacksChainState, ChainstateError> {
+) -> Result<StacksChainState<DiskChainStateBackend>, ChainstateError> {
     let stacks_chainstate_path = config.get_chainstate_path_str();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         config.is_mainnet(),
         config.burnchain.chain_id,
         &stacks_chainstate_path,
@@ -427,7 +430,7 @@ pub struct RelayerThread {
     /// Handle to the sortition DB (optional so we can take/replace it)
     sortdb: Option<SortitionDB>,
     /// Handle to the chainstate DB (optional so we can take/replace it)
-    chainstate: Option<StacksChainState>,
+    chainstate: Option<StacksChainState<DiskChainStateBackend>>,
     /// Handle to the mempool DB (optional so we can take/replace it)
     mempool: Option<MemPoolDB>,
     /// Handle to global state and inter-thread communication channels
@@ -520,7 +523,7 @@ struct MicroblockMinerThread {
     /// handle to global state
     globals: Globals,
     /// handle to chainstate DB (optional so we can take/replace it)
-    chainstate: Option<StacksChainState>,
+    chainstate: Option<StacksChainState<DiskChainStateBackend>>,
     /// handle to sortition DB (optional so we can take/replace it)
     sortdb: Option<SortitionDB>,
     /// handle to mempool DB (optional so we can take/replace it)
@@ -615,12 +618,12 @@ impl MicroblockMinerThread {
         debug!("Relayer: Instantiate microblock mining state off of {ch}/{bhh}");
 
         // we won a block! proceed to build a microblock tail if we've stored it
-        match StacksChainState::get_anchored_block_header_info(chainstate.db(), &ch, &bhh) {
+        match StacksHeadersDb::get_anchored_block_header_info(chainstate.db(), &ch, &bhh) {
             Ok(Some(_)) => {
                 let parent_index_hash = StacksBlockHeader::make_index_block_hash(&ch, &bhh);
                 let cost_so_far = if relayer_thread.microblock_stream_cost == ExecutionCost::ZERO {
                     // unknown cost, or this is idempotent.
-                    StacksChainState::get_stacks_block_anchored_cost(
+                    StacksHeadersDb::get_stacks_block_anchored_cost(
                         chainstate.db(),
                         &parent_index_hash,
                     )
@@ -675,7 +678,12 @@ impl MicroblockMinerThread {
     /// NOT COMPOSIBLE - WILL PANIC IF CALLED FROM WITHIN ITSELF.
     fn with_chainstate<F, R>(&mut self, func: F) -> R
     where
-        F: FnOnce(&mut Self, &mut SortitionDB, &mut StacksChainState, &mut MemPoolDB) -> R,
+        F: FnOnce(
+            &mut Self,
+            &mut SortitionDB,
+            &mut StacksChainState<DiskChainStateBackend>,
+            &mut MemPoolDB,
+        ) -> R,
     {
         let mut sortdb = self.sortdb.take().expect("FATAL: already took sortdb");
         let mut chainstate = self
@@ -699,7 +707,7 @@ impl MicroblockMinerThread {
     fn inner_mine_one_microblock(
         &mut self,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<DiskChainStateBackend>,
         mempool: &mut MemPoolDB,
     ) -> Result<StacksMicroblock, ChainstateError> {
         debug!(
@@ -869,7 +877,7 @@ impl MicroblockMinerThread {
         &mut self,
         miner_tip: MinerTip,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<DiskChainStateBackend>,
         mem_pool: &mut MemPoolDB,
     ) -> Result<Option<(StacksMicroblock, ExecutionCost)>, NetError> {
         if !self.can_mine_on_tip(&self.parent_consensus_hash, &self.parent_block_hash) {
@@ -890,7 +898,7 @@ impl MicroblockMinerThread {
 
         // opportunistically try and mine, but only if there are no attachable blocks in
         // recent history (i.e. in the last 10 minutes)
-        let num_attachable = StacksChainState::count_attachable_staging_blocks(
+        let num_attachable = Epoch2BlockProcessor::count_attachable_staging_blocks(
             chainstate.db(),
             1,
             get_epoch_time_secs() - 600,
@@ -1168,7 +1176,7 @@ impl BlockMinerThread {
     /// The blocks will be sorted first by stacks height, and then by burnchain height
     pub(crate) fn load_candidate_tips(
         burn_db: &mut SortitionDB,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         max_depth: u64,
         at_stacks_height: Option<u64>,
     ) -> Vec<TipCandidate> {
@@ -1306,7 +1314,7 @@ impl BlockMinerThread {
         globals: &Globals,
         config: &Config,
         burn_db: &mut SortitionDB,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         at_stacks_height: Option<u64>,
     ) -> Option<TipCandidate> {
         debug!("Picking best Stacks tip");
@@ -1526,7 +1534,7 @@ impl BlockMinerThread {
     fn load_block_parent_info(
         &self,
         burn_db: &mut SortitionDB,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
     ) -> (Option<ParentStacksBlockInfo>, bool) {
         if let Some(stacks_tip) = chain_state
             .get_stacks_chain_tip(burn_db)
@@ -1593,7 +1601,7 @@ impl BlockMinerThread {
     /// Returns None if we should not mine.
     fn get_mine_attempt(
         &self,
-        chain_state: &StacksChainState,
+        chain_state: &StacksChainState<DiskChainStateBackend>,
         parent_block_info: &ParentStacksBlockInfo,
         force: bool,
     ) -> Option<(u64, u64)> {
@@ -1646,7 +1654,7 @@ impl BlockMinerThread {
                     // the anchored chain tip hasn't changed since we attempted to build a block.
                     // But, have discovered any new microblocks worthy of being mined?
                     if let Ok(Some(stream)) =
-                        StacksChainState::load_descendant_staging_microblock_stream(
+                        Epoch2StagingBlocksDb::load_descendant_staging_microblock_stream(
                             chain_state.db(),
                             &StacksBlockHeader::make_index_block_hash(
                                 &prev_block.parent_consensus_hash,
@@ -1791,7 +1799,7 @@ impl BlockMinerThread {
     /// Return the microblocks we'll confirm, if there are any.
     fn load_and_vet_parent_microblocks(
         &mut self,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         sortdb: &SortitionDB,
         mem_pool: &mut MemPoolDB,
         parent_block_info: &mut ParentStacksBlockInfo,
@@ -1800,7 +1808,7 @@ impl BlockMinerThread {
         let stacks_parent_header = &mut parent_block_info.stacks_parent_header;
 
         let microblock_info_opt =
-            match StacksChainState::load_descendant_staging_microblock_stream_with_poison(
+            match Epoch2StagingBlocksDb::load_descendant_staging_microblock_stream_with_poison(
                 chain_state.db(),
                 &StacksBlockHeader::make_index_block_hash(
                     parent_consensus_hash,
@@ -2081,7 +2089,7 @@ impl BlockMinerThread {
     pub fn make_block_commit(
         &self,
         burn_db: &mut SortitionDB,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         block_hash: BlockHeaderHash,
         parent_block_burn_height: u64,
         parent_winning_vtxindex: u16,
@@ -2163,7 +2171,7 @@ impl BlockMinerThread {
     fn unprocessed_blocks_prevent_mining(
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<DiskChainStateBackend>,
         unprocessed_block_deadline: u64,
     ) -> bool {
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
@@ -2176,14 +2184,14 @@ impl BlockMinerThread {
             // if a block hasn't been processed within some deadline seconds of receipt, don't block
             //  mining
             let process_deadline = get_epoch_time_secs() - unprocessed_block_deadline;
-            let has_unprocessed = StacksChainState::has_higher_unprocessed_blocks(
+            let has_unprocessed = Epoch2StagingBlocksDb::has_higher_unprocessed_blocks(
                 chainstate.db(),
                 stacks_tip.anchored_header.height(),
                 process_deadline,
             )
             .expect("FATAL: failed to query staging blocks");
             if has_unprocessed {
-                let highest_unprocessed_opt = StacksChainState::get_highest_unprocessed_block(
+                let highest_unprocessed_opt = Epoch2StagingBlocksDb::get_highest_unprocessed_block(
                     chainstate.db(),
                     process_deadline,
                 )
@@ -2899,7 +2907,7 @@ impl RelayerThread {
     }
 
     /// Get an immutible ref to the chainstate
-    pub fn chainstate_ref(&self) -> &StacksChainState {
+    pub fn chainstate_ref(&self) -> &StacksChainState<DiskChainStateBackend> {
         self.chainstate
             .as_ref()
             .expect("FATAL: tried to access chainstate while it was taken")
@@ -2910,7 +2918,12 @@ impl RelayerThread {
     /// `func`.  You will get a runtime panic.
     pub fn with_chainstate<F, R>(&mut self, func: F) -> R
     where
-        F: FnOnce(&mut RelayerThread, &mut SortitionDB, &mut StacksChainState, &mut MemPoolDB) -> R,
+        F: FnOnce(
+            &mut RelayerThread,
+            &mut SortitionDB,
+            &mut StacksChainState<DiskChainStateBackend>,
+            &mut MemPoolDB,
+        ) -> R,
     {
         let mut sortdb = self
             .sortdb
@@ -3055,7 +3068,7 @@ impl RelayerThread {
         consensus_hash: &ConsensusHash,
         parent_consensus_hash: &ConsensusHash,
     ) -> Result<bool, ChainstateError> {
-        if StacksChainState::has_stored_block(
+        if Epoch2StagingBlocksDb::has_stored_block(
             self.chainstate_ref().db(),
             &self.chainstate_ref().blocks_path,
             consensus_hash,
@@ -4213,14 +4226,14 @@ impl ParentStacksBlockInfo {
     /// conception of the sortition history tip may have become stale by the time they call this
     /// method, in which case, mining should *not* happen (since the block will be invalid).
     pub fn lookup(
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         burn_db: &mut SortitionDB,
         check_burn_block: &BlockSnapshot,
         miner_address: StacksAddress,
         mine_tip_ch: &ConsensusHash,
         mine_tip_bh: &BlockHeaderHash,
     ) -> Result<ParentStacksBlockInfo, Error> {
-        let stacks_tip_header = StacksChainState::get_anchored_block_header_info(
+        let stacks_tip_header = StacksHeadersDb::get_anchored_block_header_info(
             chain_state.db(),
             mine_tip_ch,
             mine_tip_bh,
@@ -4301,7 +4314,7 @@ impl ParentStacksBlockInfo {
                 .with_read_only_clarity_tx(
                     &burn_db.index_handle(&burn_chain_tip.sortition_id),
                     &StacksBlockHeader::make_index_block_hash(mine_tip_ch, mine_tip_bh),
-                    |conn| StacksChainState::get_account(conn, &principal),
+                    |conn| conn.get_account( &principal),
                 )
                 .unwrap_or_else(|| {
                     panic!(
@@ -4327,7 +4340,7 @@ pub struct PeerThread {
     /// Node config
     config: Config,
     /// instance of the peer network. Made optional in order to trick the borrow checker.
-    net: Option<PeerNetwork>,
+    net: Option<PeerNetwork<DiskChainStateBackend>>,
     /// handle to global inter-thread comms
     globals: Globals,
     /// how long to wait for network messages on each poll, in millis
@@ -4335,7 +4348,7 @@ pub struct PeerThread {
     /// handle to the sortition DB (optional so we can take/replace it)
     sortdb: Option<SortitionDB>,
     /// handle to the chainstate DB (optional so we can take/replace it)
-    chainstate: Option<StacksChainState>,
+    chainstate: Option<StacksChainState<DiskChainStateBackend>>,
     /// handle to the mempool DB (optional so we can take/replace it)
     mempool: Option<MemPoolDB>,
     /// buffer of relayer commands with block data that couldn't be sent to the relayer just yet
@@ -4381,7 +4394,7 @@ impl PeerThread {
     /// Binds the addresses in the config (which may panic if the port is blocked).
     /// This is so the node will crash "early" before any new threads start if there's going to be
     /// a bind error anyway.
-    pub fn new(runloop: &RunLoop, net: PeerNetwork) -> PeerThread {
+    pub fn new(runloop: &RunLoop, net: PeerNetwork<DiskChainStateBackend>) -> PeerThread {
         Self::new_all(
             runloop.get_globals(),
             runloop.config(),
@@ -4394,7 +4407,7 @@ impl PeerThread {
         globals: Globals,
         config: &Config,
         pox_constants: PoxConstants,
-        mut net: PeerNetwork,
+        mut net: PeerNetwork<DiskChainStateBackend>,
     ) -> Self {
         let config = config.clone();
         let mempool = Self::connect_mempool_db(&config);
@@ -4448,7 +4461,12 @@ impl PeerThread {
     /// NOT COMPOSIBLE
     fn with_chainstate<F, R>(&mut self, func: F) -> R
     where
-        F: FnOnce(&mut PeerThread, &mut SortitionDB, &mut StacksChainState, &mut MemPoolDB) -> R,
+        F: FnOnce(
+            &mut PeerThread,
+            &mut SortitionDB,
+            &mut StacksChainState<DiskChainStateBackend>,
+            &mut MemPoolDB,
+        ) -> R,
     {
         let mut sortdb = self.sortdb.take().expect("BUG: sortdb already taken");
         let mut chainstate = self
@@ -4468,7 +4486,7 @@ impl PeerThread {
 
     /// Get an immutable ref to the inner network.
     /// DO NOT USE WITHIN with_network()
-    fn get_network(&self) -> &PeerNetwork {
+    fn get_network(&self) -> &PeerNetwork<DiskChainStateBackend> {
         self.net.as_ref().expect("BUG: did not replace net")
     }
 
@@ -4477,7 +4495,7 @@ impl PeerThread {
     /// NOT COMPOSIBLE. DO NOT CALL THIS OR get_network() IN func
     fn with_network<F, R>(&mut self, func: F) -> R
     where
-        F: FnOnce(&mut PeerThread, &mut PeerNetwork) -> R,
+        F: FnOnce(&mut PeerThread, &mut PeerNetwork<DiskChainStateBackend>) -> R,
     {
         let mut net = self.net.take().expect("BUG: net already taken");
 
@@ -4786,7 +4804,7 @@ impl StacksNode {
         config: &Config,
         atlas_config: &AtlasConfig,
         burnchain: Burnchain,
-    ) -> PeerNetwork {
+    ) -> PeerNetwork<DiskChainStateBackend> {
         let sortdb = SortitionDB::open(
             &config.get_burn_db_file_path(),
             true,
@@ -4850,7 +4868,7 @@ impl StacksNode {
             _ => panic!("Unable to retrieve local peer"),
         };
 
-        PeerNetwork::new(
+        PeerNetwork::<DiskChainStateBackend>::new(
             peerdb,
             atlasdb,
             stackerdbs,
@@ -4894,7 +4912,7 @@ impl StacksNode {
     pub fn p2p_main(
         mut p2p_thread: PeerThread,
         event_dispatcher: EventDispatcher,
-    ) -> Option<PeerNetwork> {
+    ) -> Option<PeerNetwork<DiskChainStateBackend>> {
         let should_keep_running = p2p_thread.globals.should_keep_running.clone();
         let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
 
@@ -5252,7 +5270,7 @@ impl StacksNode {
     }
 
     /// Join all inner threads
-    pub fn join(self) -> Option<PeerNetwork> {
+    pub fn join(self) -> Option<PeerNetwork<DiskChainStateBackend>> {
         self.relayer_thread_handle.join().unwrap();
         self.p2p_thread_handle.join().unwrap()
     }

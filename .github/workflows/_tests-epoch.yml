@@ -9,6 +9,10 @@ on:
         description: "The test archive file"
         required: true
         type: string
+      archive-artifact-name:
+        description: "Artifact containing the test archive"
+        required: true
+        type: string
       debug-binary-path:
         description: "Debug binary path"
         required: true
@@ -18,7 +22,7 @@ on:
         required: true
         type: string
       upload-code-coverage:
-        description: "Whether or not to upload the code coverage artifact"
+        description: "Whether to upload each job's code coverage to Coveralls"
         required: true
         type: string
 
@@ -85,6 +89,7 @@ jobs:
         with:
           test-names: ${{ matrix.test-name }}
           archive-file: ${{ inputs.archive-file }}
+          archive-artifact-name: ${{ inputs.archive-artifact-name }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: ${{ matrix.test-name }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}

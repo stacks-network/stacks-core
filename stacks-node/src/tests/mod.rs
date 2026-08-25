@@ -20,7 +20,6 @@ use std::sync::{Arc, Mutex};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::STXEventType;
 use lazy_static::lazy_static;
-use neon_integrations::test_observer::EVENT_OBSERVER_PORT;
 use rand::Rng;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::events::StacksTransactionEvent;
@@ -97,22 +96,58 @@ lazy_static! {
 lazy_static! {
     static ref USED_PORTS: Mutex<HashSet<u16>> = Mutex::new({
         let mut set = HashSet::new();
-        set.insert(EVENT_OBSERVER_PORT);
+        set.insert(test_port(50303));
         set
     });
+}
+
+/// Namespace a conventional test port by nextest's concurrent-process slot.
+///
+/// Nextest keeps a global slot assigned to a test for its entire lifetime, so
+/// the same logical ports remain stable within a test while concurrent test
+/// processes bind disjoint host ports. Other test runners retain the original
+/// ports.
+pub fn test_port(default_port: u16) -> u16 {
+    let slot = nextest_test_slot().unwrap_or(0);
+    let offset = slot
+        // Keep signer-port modulo groupings stable for the signer-set sizes
+        // used by the integration tests (3, 4, 5, 6, 10, and 20).
+        .checked_mul(120)
+        .expect("nextest test-slot port offset overflowed");
+    default_port
+        .checked_add(offset)
+        .expect("nextest test-slot port overflowed")
+}
+
+/// Return the zero-based nextest process slot, when available.
+fn nextest_test_slot() -> Option<u16> {
+    std::env::var("NEXTEST_TEST_GLOBAL_SLOT")
+        .ok()
+        .and_then(|slot| slot.parse::<u16>().ok())
 }
 
 /// Generate a random port number between 1024 and 65534 (inclusive) and insert it into the USED_PORTS set.
 /// Returns the generated port number.
 pub fn gen_random_port() -> u16 {
     let mut rng = rand::thread_rng();
-    let range_len = (1024..u16::MAX).len();
+    // The functional-test workflow uses two nextest slots. Give each slot a
+    // disjoint port band so independently-randomized node ports cannot
+    // collide across test processes. Preserve the broad legacy range for
+    // other runners and unusually large slot counts.
+    let port_range = nextest_test_slot()
+        .filter(|slot| *slot <= 10)
+        .map(|slot| {
+            let start = 12_000 + slot * 500;
+            start..start + 500
+        })
+        .unwrap_or(1024..u16::MAX);
+    let range_len = port_range.len();
     loop {
         assert!(
             USED_PORTS.lock().unwrap().len() < range_len,
             "No more available ports"
         );
-        let port = rng.gen_range(1024..u16::MAX); // use a non-privileged port between 1024 and 65534
+        let port = rng.gen_range(port_range.clone());
         if insert_new_port(port) {
             return port;
         }
@@ -155,6 +190,8 @@ pub fn new_test_conf() -> Config {
     conf.node.p2p_bind = format!("{localhost}:{p2p_port}");
     conf.node.data_url = format!("http://{localhost}:{rpc_port}");
     conf.node.p2p_address = format!("{localhost}:{p2p_port}");
+    conf.burnchain.rpc_port = test_port(18443);
+    conf.burnchain.peer_port = test_port(18444);
     conf
 }
 

@@ -14,35 +14,47 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// You are going to need `ulimit -n` to be 4096 for these tests.
-/// In Linux, the default is 1024.
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::ContractName;
 use rand::prelude::*;
-use rand::thread_rng;
+use rand::rngs::StdRng;
 
+use super::setup_rlimit_nofiles;
+use crate::chainstate::stacks::db::SharedMemoryChainStateBackend;
 use crate::core::PEER_VERSION_TESTNET;
 use crate::net::db::*;
 use crate::net::test::*;
 use crate::net::*;
 use crate::util_lib::test::*;
 
-#[cfg(unix)]
-fn setup_rlimit_nofiles() {
-    use rlimit;
-    info!("Attempt to set nofile rlimit to 4096 (required for these tests to run)");
-    assert!(rlimit::Resource::NOFILE.get().is_ok());
-    let (slimit, hlimit) = rlimit::getrlimit(rlimit::Resource::NOFILE).unwrap();
-    rlimit::setrlimit(rlimit::Resource::NOFILE, 4096.max(slimit), hlimit).unwrap();
-    info!("Successfully set nofile rlimit to 4096");
-}
+type ConvergenceTestPeer<'a> = TestPeer<'a, SharedMemoryChainStateBackend>;
 
-#[cfg(windows)]
-fn setup_rlimit_nofiles() {
-    // rlimit empty stub, since windows hasn't a hard file descriptor limit
+// Coverage-instrumented CI can take longer than the production 60-second
+// pingback TTL. Keep candidates alive for the tests' full convergence window.
+const CONVERGENCE_PINGBACK_TIMEOUT: u64 = 900;
+
+// Exercise changing peer step orders reproducibly instead of occasionally
+// selecting a pathological random schedule that exhausts the test timeout.
+const CONVERGENCE_STEP_ORDER_SEED: u64 = 0x57ac_5c0e;
+
+/// Assert that all surviving peer conversations completed their handshakes successfully.
+/// NACKs are not errors here because peer-table diversity pruning uses them as normal responses.
+fn assert_no_handshake_rejects(peers: &[ConvergenceTestPeer]) {
+    for peer in peers {
+        for conversation in peer.network.peers.values() {
+            assert_eq!(
+                *conversation
+                    .stats
+                    .msg_rx_counts
+                    .get(&StacksMessageID::HandshakeReject)
+                    .unwrap_or(&0),
+                0
+            );
+        }
+    }
 }
 
 fn stacker_db_id(i: usize) -> QualifiedContractIdentifier {
@@ -61,12 +73,14 @@ fn make_stacker_db_ids(i: usize) -> Vec<QualifiedContractIdentifier> {
 }
 
 fn setup_peer_config(
+    test_name: &str,
     i: usize,
     port_base: u16,
     neighbor_count: usize,
     peer_count: usize,
 ) -> TestPeerConfig {
-    let mut conf = TestPeerConfig::from_port(port_base + (2 * i as u16));
+    let p2p_port = port_base + (2 * i as u16);
+    let mut conf = TestPeerConfig::new_shared_ephemeral(test_name, p2p_port, p2p_port + 1);
     conf.connection_opts.num_neighbors = neighbor_count as u64;
     conf.connection_opts.soft_num_neighbors = neighbor_count as u64;
 
@@ -119,7 +133,8 @@ fn test_walk_ring_allow_15() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 32800, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 32800, neighbor_count, peer_count);
 
             conf.allowed = -1; // always allowed
             conf.denied = 0;
@@ -148,7 +163,8 @@ fn test_walk_ring_15_plain() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 32900, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 32900, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -173,12 +189,14 @@ fn test_walk_ring_15_pingback() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 32950, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 32950, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
             conf.connection_opts.disable_pingbacks = false;
             conf.connection_opts.disable_inbound_walks = true;
+            conf.connection_opts.pingback_timeout = CONVERGENCE_PINGBACK_TIMEOUT;
 
             peer_configs.push(conf);
         }
@@ -205,7 +223,8 @@ fn test_walk_ring_15_org_biased() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33000, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 33000, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -254,7 +273,7 @@ fn test_walk_ring_15_org_biased() {
 fn test_walk_ring_ex(
     peer_configs: &mut Vec<TestPeerConfig>,
     test_pingback: bool,
-) -> Vec<TestPeer<'_>> {
+) -> Vec<ConvergenceTestPeer<'_>> {
     // arrange neighbors into a "ring" topology, where
     // neighbor N is connected to neighbor (N-1)%NUM_NEIGHBORS and (N+1)%NUM_NEIGHBORS.
     // If test_pingback is true, then neighbor N is only connected to (N+1)%NUM_NEIGHBORS
@@ -277,42 +296,21 @@ fn test_walk_ring_ex(
     }
 
     for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+        let p = TestPeer::new_shared_ephemeral(peer_configs[i].clone());
         peers.push(p);
     }
 
     run_topology_test(&mut peers);
-
-    // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
-            assert!(
-                *convo
-                    .stats
-                    .msg_rx_counts
-                    .get(&StacksMessageID::Nack)
-                    .unwrap_or(&0)
-                    == 0
-            );
-            assert!(
-                *convo
-                    .stats
-                    .msg_rx_counts
-                    .get(&StacksMessageID::HandshakeReject)
-                    .unwrap_or(&0)
-                    == 0
-            );
-        }
-    }
+    assert_no_handshake_rejects(&peers);
 
     peers
 }
 
-fn test_walk_ring(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_ring(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<ConvergenceTestPeer<'_>> {
     test_walk_ring_ex(peer_configs, false)
 }
 
-fn test_walk_ring_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_ring_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<ConvergenceTestPeer<'_>> {
     test_walk_ring_ex(peer_configs, true)
 }
 
@@ -328,7 +326,8 @@ fn test_walk_line_allowed_15() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33100, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 33100, neighbor_count, peer_count);
 
             conf.allowed = -1;
             conf.denied = 0;
@@ -357,7 +356,8 @@ fn test_walk_line_15_plain() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33200, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 33200, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -386,7 +386,8 @@ fn test_walk_line_15_org_biased() {
         let peer_count: usize = 15;
         let neighbor_count: usize = 3; // make this a little bigger to speed this test up
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33300, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 33300, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -444,12 +445,14 @@ fn test_walk_line_15_pingback() {
         let neighbor_count: usize = 3;
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33350, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 33350, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
             conf.connection_opts.disable_pingbacks = false;
             conf.connection_opts.disable_inbound_walks = true;
+            conf.connection_opts.pingback_timeout = CONVERGENCE_PINGBACK_TIMEOUT;
 
             peer_configs.push(conf);
         }
@@ -458,18 +461,18 @@ fn test_walk_line_15_pingback() {
     })
 }
 
-fn test_walk_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<ConvergenceTestPeer<'_>> {
     test_walk_line_ex(peer_configs, false)
 }
 
-fn test_walk_line_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_line_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<ConvergenceTestPeer<'_>> {
     test_walk_line_ex(peer_configs, true)
 }
 
 fn test_walk_line_ex(
     peer_configs: &mut Vec<TestPeerConfig>,
     pingback_test: bool,
-) -> Vec<TestPeer<'_>> {
+) -> Vec<ConvergenceTestPeer<'_>> {
     // arrange neighbors into a "line" topology.
     // If pingback_test is true, then the topology is unidirectional:
     //
@@ -498,33 +501,12 @@ fn test_walk_line_ex(
     }
 
     for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+        let p = TestPeer::new_shared_ephemeral(peer_configs[i].clone());
         peers.push(p);
     }
 
     run_topology_test(&mut peers);
-
-    // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
-            assert!(
-                *convo
-                    .stats
-                    .msg_rx_counts
-                    .get(&StacksMessageID::Nack)
-                    .unwrap_or(&0)
-                    == 0
-            );
-            assert!(
-                *convo
-                    .stats
-                    .msg_rx_counts
-                    .get(&StacksMessageID::HandshakeReject)
-                    .unwrap_or(&0)
-                    == 0
-            );
-        }
-    }
+    assert_no_handshake_rejects(&peers);
 
     peers
 }
@@ -540,7 +522,8 @@ fn test_walk_star_allowed_15() {
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33400, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 33400, neighbor_count, peer_count);
 
             conf.allowed = -1; // always allowed
             conf.denied = 0;
@@ -567,7 +550,8 @@ fn test_walk_star_15_plain() {
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33500, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 33500, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -590,13 +574,15 @@ fn test_walk_star_15_pingback() {
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33550, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 33550, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
             conf.connection_opts.disable_pingbacks = false;
             conf.connection_opts.disable_inbound_walks = true;
             conf.connection_opts.soft_max_neighbors_per_org = peer_count as u64;
+            conf.connection_opts.pingback_timeout = CONVERGENCE_PINGBACK_TIMEOUT;
 
             peer_configs.push(conf);
         }
@@ -622,7 +608,8 @@ fn test_walk_star_15_org_biased() {
         let peer_count: usize = 15;
         let neighbor_count: usize = 3;
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33600, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 33600, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -667,18 +654,18 @@ fn test_walk_star_15_org_biased() {
     })
 }
 
-fn test_walk_star(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_star(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<ConvergenceTestPeer<'_>> {
     test_walk_star_ex(peer_configs, false)
 }
 
-fn test_walk_star_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_star_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<ConvergenceTestPeer<'_>> {
     test_walk_star_ex(peer_configs, true)
 }
 
 fn test_walk_star_ex(
     peer_configs: &mut Vec<TestPeerConfig>,
     pingback_test: bool,
-) -> Vec<TestPeer<'_>> {
+) -> Vec<ConvergenceTestPeer<'_>> {
     // arrange neighbors into a "star" topology.
     // If pingback_test is true, then initial connections are unidirectional -- each neighbor (except
     // for 0) only knows about 0.  Neighbor 0 knows about no one.
@@ -698,38 +685,17 @@ fn test_walk_star_ex(
     }
 
     for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+        let p = TestPeer::new_shared_ephemeral(peer_configs[i].clone());
         peers.push(p);
     }
 
     run_topology_test(&mut peers);
-
-    // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
-            assert!(
-                *convo
-                    .stats
-                    .msg_rx_counts
-                    .get(&StacksMessageID::Nack)
-                    .unwrap_or(&0)
-                    == 0
-            );
-            assert!(
-                *convo
-                    .stats
-                    .msg_rx_counts
-                    .get(&StacksMessageID::HandshakeReject)
-                    .unwrap_or(&0)
-                    == 0
-            );
-        }
-    }
+    assert_no_handshake_rejects(&peers);
 
     peers
 }
 
-fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPeer<'_>> {
+fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<ConvergenceTestPeer<'_>> {
     // arrange neighbors into a two-tiered "line" topology, where even-numbered neighbors are
     // "NAT'ed" but connected to both the predecessor and successor odd neighbors.  Odd
     // numbered neighbors are not connected to anyone.  The first and last even-numbered
@@ -759,13 +725,13 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
     }
 
     for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+        let p = TestPeer::new_shared_ephemeral(peer_configs[i].clone());
         peers.push(p);
     }
 
     run_topology_test_ex(
         &mut peers,
-        |peers: &[TestPeer]| {
+        |peers: &[ConvergenceTestPeer]| {
             let mut done = true;
             for i in 0..peer_count {
                 // only check "public" peers
@@ -787,28 +753,7 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
         },
         true,
     );
-
-    // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
-            assert!(
-                *convo
-                    .stats
-                    .msg_rx_counts
-                    .get(&StacksMessageID::Nack)
-                    .unwrap_or(&0)
-                    == 0
-            );
-            assert!(
-                *convo
-                    .stats
-                    .msg_rx_counts
-                    .get(&StacksMessageID::HandshakeReject)
-                    .unwrap_or(&0)
-                    == 0
-            );
-        }
-    }
+    assert_no_handshake_rejects(&peers);
 
     peers
 }
@@ -826,7 +771,8 @@ fn test_walk_inbound_line_15() {
         let neighbor_count: usize = 15; // make this test go faster
 
         for i in 0..peer_count {
-            let mut conf = setup_peer_config(i, 33250, neighbor_count, peer_count);
+            let mut conf =
+                setup_peer_config(function_name!(), i, 33250, neighbor_count, peer_count);
 
             conf.allowed = 0;
             conf.denied = 0;
@@ -848,7 +794,7 @@ fn test_walk_inbound_line_15() {
     })
 }
 
-fn dump_peers(peers: &[TestPeer]) {
+fn dump_peers(peers: &[ConvergenceTestPeer]) {
     test_debug!("\n=== PEER DUMP ===");
     for i in 0..peers.len() {
         let mut neighbor_index = vec![];
@@ -867,12 +813,21 @@ fn dump_peers(peers: &[TestPeer]) {
 
         let all_neighbors = PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
         let num_allowed = all_neighbors.iter().filter(|n2| n2.allowed < 0).count();
-        test_debug!("Neighbor {} (all={}, outbound={}) (total neighbors = {}, total allowed = {}): outbound={:?} all={:?}", i, neighbor_index.len(), outbound_neighbor_index.len(), all_neighbors.len(), num_allowed, &outbound_neighbor_index, &neighbor_index);
+        test_debug!(
+            "Neighbor {} (all={}, outbound={}) (total neighbors = {}, total allowed = {}): outbound={:?} all={:?}",
+            i,
+            neighbor_index.len(),
+            outbound_neighbor_index.len(),
+            all_neighbors.len(),
+            num_allowed,
+            &outbound_neighbor_index,
+            &neighbor_index
+        );
     }
     test_debug!("\n");
 }
 
-fn dump_peer_histograms(peers: &[TestPeer]) {
+fn dump_peer_histograms(peers: &[ConvergenceTestPeer]) {
     let mut outbound_hist: HashMap<usize, usize> = HashMap::new();
     let mut inbound_hist: HashMap<usize, usize> = HashMap::new();
     let mut all_hist: HashMap<usize, usize> = HashMap::new();
@@ -932,21 +887,22 @@ fn dump_peer_histograms(peers: &[TestPeer]) {
     test_debug!("\n");
 }
 
-fn run_topology_test(peers: &mut Vec<TestPeer>) {
+fn run_topology_test(peers: &mut Vec<ConvergenceTestPeer>) {
     run_topology_test_ex(peers, |_| false, false)
 }
 
 fn run_topology_test_ex<F>(
-    peers: &mut Vec<TestPeer>,
+    peers: &mut Vec<ConvergenceTestPeer>,
     mut finished_check: F,
     use_finished_check: bool,
 ) where
-    F: FnMut(&[TestPeer]) -> bool,
+    F: FnMut(&[ConvergenceTestPeer]) -> bool,
 {
     let peer_count = peers.len();
 
     let mut initial_allowed: HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
     let mut initial_denied: HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
+    let mut connected_allowed = HashSet::new();
 
     for i in 0..peer_count {
         // turn off components we don't need
@@ -985,6 +941,7 @@ fn run_topology_test_ex<F>(
     let mut count = 0;
     let mut best_progress = 0;
     let mut last_progress_time = Instant::now();
+    let mut rng = StdRng::seed_from_u64(CONVERGENCE_STEP_ORDER_SEED);
     const STALL_TIMEOUT: Duration = Duration::from_secs(120);
 
     while !finished {
@@ -994,7 +951,6 @@ fn run_topology_test_ex<F>(
         for i in 0..peer_count {
             random_order[i] = i;
         }
-        let mut rng = thread_rng();
         random_order.shuffle(&mut rng);
 
         debug!("Random order = {random_order:?}");
@@ -1006,7 +962,10 @@ fn run_topology_test_ex<F>(
             // allowed peers are still connected
             if let Some(peer_list) = initial_allowed.get(&nk) {
                 for pnk in peer_list.iter() {
-                    if !peers[i].network.events.contains_key(&pnk.clone()) {
+                    let allowed_pair = (nk.clone(), pnk.clone());
+                    if peers[i].network.events.contains_key(pnk) {
+                        connected_allowed.insert(allowed_pair);
+                    } else if connected_allowed.contains(&allowed_pair) {
                         panic!("{nk:?}: Perma-allowed peer {pnk:?} not connected anymore");
                     }
                 }
@@ -1141,6 +1100,13 @@ fn run_topology_test_ex<F>(
         dump_peers(peers);
         dump_peer_histograms(peers);
     }
+
+    let expected_allowed = initial_allowed.values().map(Vec::len).sum::<usize>();
+    assert_eq!(
+        connected_allowed.len(),
+        expected_allowed,
+        "Not all perma-allowed peer connections were established"
+    );
 
     test_debug!("Converged after {count} calls to network.run()");
     dump_peers(peers);

@@ -158,7 +158,9 @@ impl HttpRequest for RPCPostTransactionRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCPostTransactionRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCPostTransactionRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.tx = None;
@@ -170,7 +172,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tx = self
             .tx
@@ -188,8 +190,8 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
             }
 
             let event_observer = rpc_args.event_observer.as_deref();
-            let burn_tip = self.get_canonical_burn_chain_tip(&preamble, sortdb)?;
-            let stacks_epoch = self.get_stacks_epoch(&preamble, sortdb, burn_tip.block_height)?;
+            let burn_tip = <RPCPostTransactionRequestHandler as RPCRequestHandler<CSP>>::get_canonical_burn_chain_tip(self, &preamble, sortdb)?;
+            let stacks_epoch = <RPCPostTransactionRequestHandler as RPCRequestHandler<CSP>>::get_stacks_epoch(self, &preamble, sortdb, burn_tip.block_height)?;
 
             // check for defects which can be determined statically
             if Relayer::do_static_problematic_checks()

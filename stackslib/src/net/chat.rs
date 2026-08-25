@@ -30,7 +30,7 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::StacksPublicKey;
 use crate::core::{
     EpochList, StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_3_2,
@@ -1212,7 +1212,7 @@ impl ConversationP2P {
     /// Panics if this message is not a handshake (caller should check)
     fn handle_handshake(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         message: &mut StacksMessage,
         authenticated: bool,
         ibd: bool,
@@ -1414,7 +1414,7 @@ impl ConversationP2P {
     /// Handle an inbound GetNeighbors request.
     fn handle_getneighbors(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
     ) -> Result<ReplyHandleP2P, net_error> {
         monitoring::increment_msg_counter("p2p_get_neighbors".to_string());
@@ -1532,9 +1532,9 @@ impl ConversationP2P {
     /// Returns a reply handle to the generated message (possibly a nack)
     /// Only returns up to $reward_cycle_length bits
     pub fn make_getblocksinv_response(
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         get_blocks_inv: &GetBlocksInv,
     ) -> Result<StacksMessageType, net_error> {
         let _local_peer = network.get_local_peer();
@@ -1652,9 +1652,9 @@ impl ConversationP2P {
     /// Returns a reply handle to the generated message (possibly a nack)
     fn handle_getblocksinv(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         preamble: &Preamble,
         get_blocks_inv: &GetBlocksInv,
     ) -> Result<ReplyHandleP2P, net_error> {
@@ -1702,9 +1702,9 @@ impl ConversationP2P {
     /// Returns a reply handle to the generated message (possibly a nack)
     /// Only returns up to $reward_cycle_length bits
     pub fn make_getnakamotoinv_response(
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         get_nakamoto_inv: &GetNakamotoInvData,
     ) -> Result<StacksMessageType, net_error> {
         let _local_peer = network.get_local_peer();
@@ -1751,9 +1751,9 @@ impl ConversationP2P {
     /// Returns a reply handle to the generated message (possibly a nack)
     fn handle_getnakamotoinv(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         preamble: &Preamble,
         get_nakamoto_inv: &GetNakamotoInvData,
     ) -> Result<ReplyHandleP2P, net_error> {
@@ -1795,7 +1795,7 @@ impl ConversationP2P {
     /// Create a response an inbound GetPoxInv request, but unsigned.
     /// Returns a reply handle to the generated message (possibly a nack)
     pub fn make_getpoxinv_response(
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
         getpoxinv: &GetPoxInv,
     ) -> Result<StacksMessageType, net_error> {
@@ -1889,7 +1889,7 @@ impl ConversationP2P {
     /// Returns a reply handle to the generated message (possibly a nack)
     fn handle_getpoxinv(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
         preamble: &Preamble,
         getpoxinv: &GetPoxInv,
@@ -1907,9 +1907,9 @@ impl ConversationP2P {
     /// Generates a StackerDBChunkInv response from the target database table, if we have it.
     /// Generates a Nack if we don't have this DB, or if the request's consensus hash is invalid.
     fn make_stacker_db_getchunkinv_response(
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         naddr: NeighborAddress,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> StacksMessageType {
         network.make_StackerDBChunksInv_or_Nack(
@@ -1924,8 +1924,8 @@ impl ConversationP2P {
     /// Retrns a reply handle to the generated message (possibly a nack)
     fn handle_stacker_db_getchunkinv(
         &mut self,
-        network: &PeerNetwork,
-        chainstate: &mut StacksChainState,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         preamble: &Preamble,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<ReplyHandleP2P, net_error> {
@@ -1948,7 +1948,7 @@ impl ConversationP2P {
     /// Generates a NACK if we don't have this DB, or if the request's consensus hash or version
     /// are stale or invalid.
     fn make_stacker_db_getchunk_response(
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         getchunk: &StackerDBGetChunkData,
     ) -> StacksMessageType {
         let local_peer = network.get_local_peer();
@@ -2011,7 +2011,7 @@ impl ConversationP2P {
     /// Returns a reply handle to the generated message (possibly a nack)
     fn handle_stacker_db_getchunk(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         getchunk: &StackerDBGetChunkData,
     ) -> Result<ReplyHandleP2P, net_error> {
@@ -2086,7 +2086,7 @@ impl ConversationP2P {
     /// Make sure the peer doesn't send us too much at once, though.
     fn validate_blocks_push(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         relayers: Vec<RelayData>,
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
@@ -2126,7 +2126,7 @@ impl ConversationP2P {
     /// peer that sends us too many at once.
     fn validate_microblocks_push(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         relayers: Vec<RelayData>,
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
@@ -2163,7 +2163,7 @@ impl ConversationP2P {
     /// Update bandwidth accounting, but forward the transaction along.
     fn validate_transaction_push(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         relayers: Vec<RelayData>,
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
@@ -2201,7 +2201,7 @@ impl ConversationP2P {
     /// Possibly return a reply handle for a NACK if we throttle the remote sender
     fn validate_stackerdb_push(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         relayers: Vec<RelayData>,
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
@@ -2240,7 +2240,7 @@ impl ConversationP2P {
     /// Possibly return a reply handle for a NACK if we throttle the remote sender
     fn validate_nakamoto_block_push(
         &mut self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         relayers: Vec<RelayData>,
     ) -> Result<Option<ReplyHandleP2P>, net_error> {
@@ -2278,9 +2278,9 @@ impl ConversationP2P {
     /// Return the message if not handled
     fn handle_data_message(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         msg: StacksMessage,
     ) -> Result<Option<StacksMessage>, net_error> {
         let res = match msg.payload {
@@ -2527,7 +2527,7 @@ impl ConversationP2P {
     /// Return true if we should consume it (i.e. it's not something to forward along), as well as the message we'll send as a reply (if any)
     fn handle_authenticated_control_message(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         msg: &mut StacksMessage,
         ibd: bool,
     ) -> Result<(Option<StacksMessage>, bool), net_error> {
@@ -2602,7 +2602,7 @@ impl ConversationP2P {
     /// deal with it (if we do deal with it)
     fn handle_unauthenticated_control_message(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         msg: &mut StacksMessage,
         ibd: bool,
     ) -> Result<(Option<StacksMessage>, bool), net_error> {
@@ -2918,9 +2918,9 @@ impl ConversationP2P {
     /// any other thread in this program (i.e. "unsolicited messages").
     pub fn chat(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         dns_client_opt: &mut Option<&mut DNSClient>,
         ibd: bool,
     ) -> Result<Vec<StacksMessage>, net_error> {
@@ -3078,7 +3078,13 @@ mod test {
         asn4_entries: &[ASEntry4],
         initial_neighbors: &[Neighbor],
         services: u16,
-    ) -> (PeerDB, SortitionDB, StackerDBs, PoxId, StacksChainState) {
+    ) -> (
+        PeerDB,
+        SortitionDB,
+        StackerDBs,
+        PoxId,
+        StacksChainState<crate::chainstate::stacks::db::DiskChainStateBackend>,
+    ) {
         let test_path = format!("/tmp/stacks-test-databases-{}", testname);
         if fs::metadata(&test_path).is_ok() {
             fs::remove_dir_all(&test_path).unwrap();
@@ -3200,7 +3206,7 @@ mod test {
         sortdb: &mut SortitionDB,
         socketaddr: &SocketAddr,
         chain_view: &BurnchainView,
-    ) -> PeerNetwork {
+    ) -> PeerNetwork<crate::chainstate::stacks::db::DiskChainStateBackend> {
         let test_path = format!("/tmp/stacks-test-databases-{}", test_name);
         {
             let tx = peerdb.tx_begin().unwrap();
@@ -3284,7 +3290,7 @@ mod test {
         let burnchain_db = burnchain.open_burnchain_db(false).unwrap();
 
         let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
-        let network = PeerNetwork::new(
+        let network = PeerNetwork::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
             peerdb,
             atlasdb,
             stackerdbs,

@@ -34,8 +34,8 @@ use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error, PeerMessage};
 use crate::util_lib::db::{
-    query_row, sqlite_open, tx_begin_immediate, u64_to_sql, DBConn, DBTx, Error as db_error,
-    FromColumn, FromRow,
+    is_sqlite_memory_path, query_row, sqlite_open, table_exists, tx_begin_immediate, u64_to_sql,
+    DBConn, DBTx, Error as db_error, FromColumn, FromRow,
 };
 
 const BLOCK_HEADER_SIZE: u64 = 81;
@@ -162,7 +162,8 @@ impl SpvClient {
         readwrite: bool,
         reverse_order: bool,
     ) -> Result<SpvClient, btc_error> {
-        let exists = fs::metadata(headers_path).is_ok();
+        let sqlite_memory = is_sqlite_memory_path(headers_path);
+        let exists = !sqlite_memory && fs::metadata(headers_path).is_ok();
         let conn = SpvClient::db_open(headers_path, readwrite, true)?;
         let mut client = SpvClient {
             headers_path: headers_path.to_owned(),
@@ -177,7 +178,7 @@ impl SpvClient {
         };
 
         let empty = client.is_empty()?;
-        if readwrite && (!exists || empty) {
+        if readwrite && ((!sqlite_memory && !exists) || empty) {
             client.init_block_headers(true)?;
         }
 
@@ -321,8 +322,12 @@ impl SpvClient {
     }
 
     fn db_open(headers_path: &str, readwrite: bool, migrate: bool) -> Result<DBConn, btc_error> {
+        let sqlite_memory = is_sqlite_memory_path(headers_path);
         let mut create_flag = false;
-        let open_flags = if fs::metadata(headers_path).is_err() {
+        let open_flags = if sqlite_memory {
+            create_flag = readwrite;
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
+        } else if fs::metadata(headers_path).is_err() {
             // need to create
             if readwrite {
                 create_flag = true;
@@ -340,7 +345,10 @@ impl SpvClient {
         let mut conn = sqlite_open(headers_path, open_flags, false)
             .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?;
 
-        if create_flag {
+        if create_flag
+            && !table_exists(&conn, "headers")
+                .map_err(|e| btc_error::DBError(db_error::SqliteError(e)))?
+        {
             SpvClient::db_instantiate(&mut conn)?;
         }
         if readwrite && migrate {
@@ -352,6 +360,10 @@ impl SpvClient {
 
     // are headers ready and available?
     pub fn is_initialized(&self) -> Result<(), btc_error> {
+        if is_sqlite_memory_path(&self.headers_path) {
+            return Ok(());
+        }
+
         fs::metadata(&self.headers_path)
             .map_err(btc_error::FilesystemError)
             .map(|_m| ())
@@ -665,7 +677,10 @@ impl SpvClient {
 
     /// Is the DB devoid of headers?  Used during migrations
     pub fn is_empty(&self) -> Result<bool, btc_error> {
-        Ok(self.get_highest_header_height()? == 0)
+        let count =
+            query_row::<u64, _>(&self.headers_db, "SELECT COUNT(*) FROM headers", NO_PARAMS)?
+                .unwrap_or(0);
+        Ok(count == 0)
     }
 
     /// Read the block header at a particular height

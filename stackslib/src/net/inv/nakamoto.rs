@@ -25,10 +25,10 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::net::db::PeerDB;
 use crate::net::neighbors::comms::PeerNetworkComms;
-use crate::net::p2p::{DropSource, PeerNetwork};
+use crate::net::p2p::{is_reorg, DropSource, PeerNetwork};
 use crate::net::{
     DropNeighbor, DropReason, Error as NetError, GetNakamotoInvData, NackErrorCodes,
     NeighborAddress, NeighborComms, StacksMessage, StacksMessageType,
@@ -76,7 +76,7 @@ impl InvTenureInfo {
     /// This only returns Ok(Some(..)) if there was a tenure-change tx for this consensus hash
     /// (i.e. it was a BlockFound tenure, not an Extension tenure)
     pub fn load(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         tip_block_id: &StacksBlockId,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<InvTenureInfo>, NetError> {
@@ -172,7 +172,7 @@ impl InvGenerator {
     /// If not, then return None.
     pub(crate) fn find_ancestor_processed_tenures(
         &self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         tip_block_id: &StacksBlockId,
     ) -> Result<Option<(StacksBlockId, Vec<ConsensusHash>)>, NetError> {
         let mut cursor = tip_block_id.clone();
@@ -235,7 +235,7 @@ impl InvGenerator {
     /// Returns Err(..) on DB error
     pub(crate) fn get_processed_tenure(
         &mut self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         tip_block_ch: &ConsensusHash,
         tip_block_bh: &BlockHeaderHash,
         tenure_id_consensus_hash: &ConsensusHash,
@@ -340,7 +340,7 @@ impl InvGenerator {
         &mut self,
         tip: &BlockSnapshot,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         nakamoto_tip_ch: &ConsensusHash,
         nakamoto_tip_bh: &BlockHeaderHash,
         reward_cycle: u64,
@@ -608,7 +608,7 @@ impl NakamotoTenureInv {
     /// Returns false if not
     pub fn getnakamotoinv_begin(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         max_reward_cycle: u64,
     ) -> bool {
         debug!(
@@ -654,7 +654,7 @@ impl NakamotoTenureInv {
     /// Return Err(..) on I/O errors
     pub fn getnakamotoinv_try_finish(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         reply: StacksMessage,
     ) -> Result<bool, NetError> {
         match reply.payload {
@@ -780,7 +780,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         sortdb: &SortitionDB,
     ) -> Result<u64, NetError> {
         // check for reorg
-        let reorg = PeerNetwork::is_reorg(self.last_sort_tip.as_ref(), tip, sortdb);
+        let reorg = is_reorg(self.last_sort_tip.as_ref(), tip, sortdb);
         if reorg {
             // drop the last two reward cycles
             debug!("Detected reorg! Refreshing inventory consensus hashes");
@@ -838,7 +838,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     /// Returns Err(..) on I/O errors
     pub fn process_getnakamotoinv_begins(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         sortdb: &SortitionDB,
         ibd: bool,
     ) -> Result<(), NetError> {
@@ -967,7 +967,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     /// Returns Err(..) on I/O errors
     pub fn process_getnakamotoinv_finishes(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
     ) -> Result<(usize, bool), NetError> {
         let mut learned = false;
         let replies = self.comms.collect_replies(network);
@@ -1022,7 +1022,12 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     }
 
     /// Top-level state machine execution
-    pub fn run(&mut self, network: &mut PeerNetwork, sortdb: &SortitionDB, ibd: bool) -> bool {
+    pub fn run(
+        &mut self,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        sortdb: &SortitionDB,
+        ibd: bool,
+    ) -> bool {
         // if the burnchain tip has changed, then force all communications to reset for the current
         // reward cycle in order to hasten block download
         if let Some(last_sort_tip) = self.last_sort_tip.as_ref() {
@@ -1073,7 +1078,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
     }
 }
 
-impl PeerNetwork {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> PeerNetwork<CSP> {
     /// Initialize inv state for nakamoto
     pub fn init_inv_sync_nakamoto(&mut self) {
         // find out who we'll be synchronizing with for the duration of this inv sync

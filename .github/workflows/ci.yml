@@ -34,6 +34,8 @@ concurrency:
 # Env vars
 env:
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
+  BITCOIN_TEST_ARCHIVE_FILE: "./bitcoin_test_archive.tar.zst"
+  STACKSLIB_TEST_ARCHIVE_FILE: "./stackslib_test_archive.tar.zst"
   DEBUG_BINARY_PATH: "./target/debug/"
   # Whether or not to create the slow and failed tests summary
   CREATE_SLOW_FAILED_TESTS_SUMMARY: ${{ (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event_name != 'merge_group' }}
@@ -76,6 +78,8 @@ jobs:
     runs-on: &shared_config ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
+      bitcoin-test-archive-file: ${{ steps.set-env.outputs.bitcoin_test_archive_file }}
+      stackslib-test-archive-file: ${{ steps.set-env.outputs.stackslib_test_archive_file }}
       debug-binary-path: ${{ steps.set-env.outputs.debug_binary_path }}
       create-slow-failed-tests-summary: ${{ steps.set-env.outputs.create_slow_failed_tests_summary }}
       create-code-coverage-report: ${{ steps.set-env.outputs.create_code_coverage_report }}
@@ -86,8 +90,14 @@ jobs:
           # Capture the archive file input, then expand the leading ~ to $HOME
           INPUT_FILE="${{ env.TEST_ARCHIVE_FILE }}"
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
+          BITCOIN_INPUT_FILE="${{ env.BITCOIN_TEST_ARCHIVE_FILE }}"
+          BITCOIN_ARCHIVE_FILE="${BITCOIN_INPUT_FILE/#\~/$HOME}"
+          STACKSLIB_INPUT_FILE="${{ env.STACKSLIB_TEST_ARCHIVE_FILE }}"
+          STACKSLIB_ARCHIVE_FILE="${STACKSLIB_INPUT_FILE/#\~/$HOME}"
 
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
+          echo "bitcoin_test_archive_file=$BITCOIN_ARCHIVE_FILE" >> $GITHUB_OUTPUT
+          echo "stackslib_test_archive_file=$STACKSLIB_ARCHIVE_FILE" >> $GITHUB_OUTPUT
           echo "debug_binary_path=${{ env.DEBUG_BINARY_PATH }}" >> $GITHUB_OUTPUT
           echo "create_slow_failed_tests_summary=$CREATE_SLOW_FAILED_TESTS_SUMMARY" >> $GITHUB_OUTPUT
           echo "create_code_coverage_report=$CREATE_CODE_COVERAGE_REPORT" >> $GITHUB_OUTPUT
@@ -132,8 +142,9 @@ jobs:
   ############################################################################
   check-rustfmt:
     name: "Check: Rust Formatting"
+    # Preflight checks are independent and can run while the archive compiles.
     needs:
-      - check-changelog
+      - setup-env
     runs-on: *shared_config
     steps:
       - name: Checkout the latest code
@@ -201,8 +212,6 @@ jobs:
   check-test-caches:
     name: "Check: Test Caches"
     needs:
-      - check-changelog
-      - check-rustfmt
       - setup-env
     uses: ./.github/workflows/_check-test-caches.yml
 
@@ -212,10 +221,7 @@ jobs:
   check-cargo-hack:
     name: "Check: Cargo Hack"
     needs:
-      - check-changelog
-      - check-rustfmt
       - setup-env
-      - check-test-caches
     uses: ./.github/workflows/_check-cargo-hack.yml
   
   ############################################################################
@@ -224,23 +230,19 @@ jobs:
   check-constants:
     name: "Check: Constants"
     needs:
-      - check-changelog
-      - check-rustfmt
       - setup-env
-      - check-test-caches
     uses: ./.github/workflows/_check-constants.yml
 
   ############################################################################
-  ### Create Nextest Archive Artifact for Tests
+  ### Create Nextest Archive Artifacts for Tests
   ############################################################################
   create-nextest-archive:
     name: "Create: Nextest Archive Artifact"
     runs-on: *shared_config
+    # Start the critical-path build immediately. Test workflows still require
+    # the changelog, formatting, and cache checks before they can execute.
     needs:
-      - check-changelog
-      - check-rustfmt
       - setup-env
-      - check-test-caches
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -257,7 +259,57 @@ jobs:
         with:
           action: create
           archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-          debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+          exclude-packages: stacks-node stackslib
+
+  # Bitcoin integrations only exercise the stacks-node test binary. Build its
+  # much smaller archive in parallel so those critical-path tests can start
+  # without waiting for every workspace test harness to link.
+  create-bitcoin-nextest-archive:
+    name: "Create: Bitcoin Nextest Archive Artifact"
+    runs-on: *shared_config
+    needs:
+      - setup-env
+    steps:
+      - name: Checkout the latest code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      - name: Create Bitcoin Nextest Archive Artifact
+        uses: ./.github/actions/artifacts/nextest-archive
+        with:
+          action: create
+          archive-file: ${{ needs.setup-env.outputs.bitcoin-test-archive-file }}
+          artifact-name: bitcoin-nextest-archive
+          test-list-artifact-name: bitcoin-nextest-test-list
+          package: stacks-node
+          features: monitoring_prom,stacks-signer/monitoring_prom
+
+  # P2P integrations only exercise the stackslib test binary. Release them
+  # from the full workspace archive build as well.
+  create-stackslib-nextest-archive:
+    name: "Create: Stackslib Nextest Archive Artifact"
+    runs-on: *shared_config
+    needs:
+      - setup-env
+    steps:
+      - name: Checkout the latest code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      - name: Create Stackslib Nextest Archive Artifact
+        uses: ./.github/actions/artifacts/nextest-archive
+        with:
+          action: create
+          archive-file: ${{ needs.setup-env.outputs.stackslib-test-archive-file }}
+          artifact-name: stackslib-nextest-archive
+          test-list-artifact-name: stackslib-nextest-test-list
+          package: stackslib
 
   ############################################################################
   ### Run Stacks Core Tests
@@ -268,11 +320,18 @@ jobs:
       - check-changelog
       - check-rustfmt
       - check-test-caches
+      - create-bitcoin-nextest-archive
       - create-nextest-archive
+      - create-stackslib-nextest-archive
       - setup-env
     uses: ./.github/workflows/_tests-stacks-core.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      archive-artifact-name: nextest-archive
+      stacks-node-archive-file: ${{ needs.setup-env.outputs.bitcoin-test-archive-file }}
+      stacks-node-archive-artifact-name: bitcoin-nextest-archive
+      stackslib-archive-file: ${{ needs.setup-env.outputs.stackslib-test-archive-file }}
+      stackslib-archive-artifact-name: stackslib-nextest-archive
       debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
       upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
       upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
@@ -286,11 +345,13 @@ jobs:
       - check-changelog
       - check-rustfmt
       - check-test-caches
-      - create-nextest-archive
+      - create-bitcoin-nextest-archive
       - setup-env
     uses: ./.github/workflows/_tests-bitcoin.yml
     with:
-      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      archive-file: ${{ needs.setup-env.outputs.bitcoin-test-archive-file }}
+      archive-artifact-name: bitcoin-nextest-archive
+      test-list-artifact-name: bitcoin-nextest-test-list
       debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
       upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
       upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
@@ -304,12 +365,12 @@ jobs:
       - check-changelog
       - check-rustfmt
       - check-test-caches
-      - create-nextest-archive
+      - create-bitcoin-nextest-archive
       - setup-env
     uses: ./.github/workflows/_tests-bitcoin-rpc.yml
     with:
-      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+      archive-file: ${{ needs.setup-env.outputs.bitcoin-test-archive-file }}
+      archive-artifact-name: bitcoin-nextest-archive
 
   ############################################################################
   ### Run P2P Tests
@@ -320,11 +381,12 @@ jobs:
       - check-changelog
       - check-rustfmt
       - check-test-caches
-      - create-nextest-archive
+      - create-stackslib-nextest-archive
       - setup-env
     uses: ./.github/workflows/_tests-p2p.yml
     with:
-      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      archive-file: ${{ needs.setup-env.outputs.stackslib-test-archive-file }}
+      archive-artifact-name: stackslib-nextest-archive
       debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
       upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
       upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
@@ -339,14 +401,15 @@ jobs:
       - check-rustfmt
       - check-release
       - check-test-caches
-      - create-nextest-archive
+      - create-bitcoin-nextest-archive
       - setup-env
     if: >-
       needs.check-release.outputs.is_release == 'true' &&
       github.event_name != 'merge_group'
     uses: ./.github/workflows/_tests-epoch.yml
     with:
-      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
+      archive-file: ${{ needs.setup-env.outputs.bitcoin-test-archive-file }}
+      archive-artifact-name: bitcoin-nextest-archive
       debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
       upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
       upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
@@ -549,10 +612,6 @@ jobs:
       - tests-epoch
       - tests-p2p
       - tests-stacks-core
-    env:
-      REPORT_FILES_DIR: "code_coverage_files"
-      REPORT_FILES_EXT: "info"
-      REPORT_MERGE_NUM_THREADS: 4
     steps:
       # Fail this job explicitly if any upstream job fails
       - name: Check for upstream failures
@@ -562,128 +621,20 @@ jobs:
           echo "ERROR: One or more required CI jobs failed or were cancelled. Failing coverage report."
           exit 1
 
-      # Checkout the code (Coveralls requires source code to be available when action is called)
-      - name: Checkout the latest code
+      # The finalizer uses the repository's retrying Coveralls wrapper but no
+      # source files, test artifacts, or coverage tools.
+      - name: Checkout Coveralls action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github/actions/coveralls-upload
 
-      # Download the code coverage .info files generated by tests from artifacts
-      - name: Download code coverage artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
-        with:
-          pattern: codecov-*
-          path: ${{ env.REPORT_FILES_DIR }}
-          merge-multiple: true
-
-      # Check for at least 1 code coverage files
-      - name: Check for at least 1 code coverage file
-        shell: bash
-        run: |
-          EXT="${{ env.REPORT_FILES_EXT }}"
-          DIR="${{ env.REPORT_FILES_DIR }}"
-
-          file_count=$(find "$DIR" -type f -name "*.$EXT" | wc -l)
-          if [ "$file_count" -eq 0 ]; then
-            echo "ERROR: no code coverage files of type .$EXT found to merge. Verify that they were correctly generated and uploaded in prior CI steps"
-            exit 1
-          fi
-
-      # Install lcov for merging the reports
-      - name: Install lcov
-        shell: bash
-        run: |
-          sudo apt-get install -y --no-install-recommends lcov
-
-      # Merge n coverage report files into 1 file using lcov
-      - name: Merge code coverage files
-        shell: bash
-        run: |
-          EXT="${{ env.REPORT_FILES_EXT }}"
-          DIR="${{ env.REPORT_FILES_DIR }}"
-          INTERMEDIATE_FILES=()
-          PIDS=() # Array to track background process IDs
-
-          cd "$DIR" || exit 1
-
-          # 1. Collect all files into an array
-          mapfile -d '' ALL_FILES < <(find . -type f -name "*.$EXT" -print0)
-
-          # 2. Process in chunks (Dynamically calculated for 4 threads)
-          TOTAL_FILES=${#ALL_FILES[@]}
-          CHUNK_SIZE=$(( (TOTAL_FILES + 3) / $REPORT_MERGE_NUM_THREADS ))
-
-          # Guardrail: Ensure CHUNK_SIZE is at least 1 to prevent infinite loops
-          if [ "$CHUNK_SIZE" -le 0 ]; then
-              CHUNK_SIZE=1
-          fi
-
-          echo "Total files to process: $TOTAL_FILES. Calculated chunk size for $REPORT_MERGE_NUM_THREADS threads: $CHUNK_SIZE"
-
-          for (( i=0; i<TOTAL_FILES; i+=CHUNK_SIZE )); do
-              # Slice the array for the current chunk
-              CHUNK=("${ALL_FILES[@]:i:CHUNK_SIZE}")
-
-              # Build the lcov arguments for this specific chunk
-              CHUNK_ARGS=()
-              for file in "${CHUNK[@]}"; do
-                  CHUNK_ARGS+=(-a "$file")
-              done
-
-              # Define a unique name for the intermediate report
-              PART_FILE="code_coverage_part_$((i / CHUNK_SIZE)).$EXT"
-              INTERMEDIATE_FILES+=("$PART_FILE")
-
-              # Run lcov in the background
-              echo "Processing chunk $((i / CHUNK_SIZE + 1))..."
-              lcov "${CHUNK_ARGS[@]}" -o "$PART_FILE" &
-              PIDS+=("$!") # Capture the PID of the process just put in the background
-          done
-
-          # 3. Wait for all background processes to finish and catch errors
-          echo "Waiting for ${#PIDS[@]} background jobs to complete..."
-          FAILED=0
-          for pid in "${PIDS[@]}"; do
-              if ! wait "$pid"; then
-                  echo "ERROR: Background process with PID $pid failed."
-                  FAILED=1
-              fi
-          done
-
-          if [ "$FAILED" -ne 0 ]; then
-              echo "ERROR: One or more lcov chunk operations failed. Aborting final merge."
-              exit 1
-          fi
-
-          # 4. Final Merge: Combine the intermediate files into the final report
-          FINAL_ARGS=()
-          for part in "${INTERMEDIATE_FILES[@]}"; do
-              FINAL_ARGS+=(-a "$part")
-          done
-
-          echo "Performing final merge of ${#INTERMEDIATE_FILES[@]} intermediate files..."
-          lcov "${FINAL_ARGS[@]}" -o "code-coverage-report.$EXT"
-
-          cd ..
-
-      # Extract and clean the base branch name if running in a merge queue
-      - name: Extract base branch (merge_group only)
-        if: >-
-          github.event_name == 'merge_group'
-        run: |
-          RAW_REF="${{ github.event.merge_group.base_ref }}"
-          # Strips 'refs/heads/' or 'refs/head/' prefix
-          CLEAN_REF=$(echo "$RAW_REF" | sed -E 's|^refs/head(s)?/||')
-          echo "MERGE_GROUP_BASE_BRANCH=$CLEAN_REF" >> $GITHUB_ENV
-
-      # Upload the merged code coverage file to Coveralls, retrying transient failures
-      - name: Upload code coverage to Coveralls
+      # Each producing job uploaded one uniquely flagged partial report. Close
+      # the build so Coveralls unions the reports and publishes the result.
+      - name: Finalize parallel Coveralls build
         timeout-minutes: 15
-        continue-on-error: true
         uses: ./.github/actions/coveralls-upload
         with:
-          files: ${{ env.REPORT_FILES_DIR }}/code-coverage-report.${{ env.REPORT_FILES_EXT }}
-          build-number: ${{ github.run_id }}-${{ github.run_attempt }} # include run attempt in build so that repeated CI job runs don't cause a "job already closed" error on upload
-          # When running in the merge queue, override the branch to be the base branch of the merge.
-          # This creates correct base coverage for future code coverage comparisons / diffs working off of this base branch's latest commit.
-          git-branch: ${{ env.MERGE_GROUP_BASE_BRANCH || null }} # attribute coverage to base branch when in merge queue
+          build-number: ${{ github.run_id }}
+          parallel-finished: 'true'

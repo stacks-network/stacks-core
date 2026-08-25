@@ -246,6 +246,9 @@
         };
 
         checks = {
+          # Expose the dependency artifact so CI can retain it independently
+          # from source-specific workspace check outputs.
+          cargoArtifacts = cargoArtifacts;
           workspaceCheck = craneLib.buildPackage (
             commonArgs
             // rec {

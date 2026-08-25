@@ -53,7 +53,7 @@ use stacks_common::util::hash::Hash160;
 use super::{STACKERDB_PAGE_LIST_MAX, STACKERDB_SLOTS_FUNCTION};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::net::stackerdb::{
     StackerDBConfig, STACKERDB_CONFIG_FUNCTION, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
 };
@@ -203,7 +203,7 @@ impl StackerDBConfig {
     }
 
     fn eval_signer_slots(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         burn_dbconn: &dyn BurnStateDB,
         contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
@@ -373,7 +373,7 @@ impl StackerDBConfig {
 
     /// Evaluate the contract to get its config
     fn eval_config(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         burn_dbconn: &dyn BurnStateDB,
         contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
@@ -506,7 +506,7 @@ impl StackerDBConfig {
     /// Load up the DB config from the controlling smart contract as of the current Stacks chain
     /// tip
     pub fn from_smart_contract(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortition_db: &SortitionDB,
         contract_id: &QualifiedContractIdentifier,
         max_neighbors: u64,

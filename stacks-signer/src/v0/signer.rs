@@ -38,7 +38,7 @@ use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MockProposal, MockSignature,
     RejectReason, RejectReasonPrefix, SignerMessage, StateMachineUpdate,
 };
-use libsigner::v0::signer_state::GlobalStateEvaluator;
+use libsigner::v0::signer_state::{GlobalStateEvaluator, SignerStateMachine};
 use libsigner::{BlockProposal, SignerEvent, SignerSession};
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::get_epoch_time_secs;
@@ -56,6 +56,8 @@ use crate::signerdb::{BlockInfo, BlockState, PendingBlockResponses, SignedConfli
 #[cfg(not(any(test, feature = "testing")))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use crate::v0::signer_state::{NewBurnBlock, ReplayScopeOpt};
+#[cfg(any(test, feature = "testing"))]
+use crate::v0::tests::TEST_ACCEPTED_BLOCK_RESPONSES;
 use crate::Signer as SignerTrait;
 
 /// How far below the burnchain tip the signer keeps a record that it sanctioned the reorg of
@@ -427,6 +429,10 @@ impl SignerTrait<SignerMessage> for Signer {
 
     fn get_local_state_machine(&self) -> &LocalStateMachine {
         &self.local_state_machine
+    }
+
+    fn get_global_state_machine(&self) -> Option<SignerStateMachine> {
+        self.global_state_evaluator.determine_global_state()
     }
 
     #[cfg(not(any(test, feature = "testing")))]
@@ -1005,6 +1011,11 @@ impl Signer {
             "{self}: Broadcasting block response to stacks node: {block_response:?}";
         );
         let accepted = matches!(block_response, BlockResponse::Accepted(..));
+        #[cfg(any(test, feature = "testing"))]
+        let accepted_hash = match &block_response {
+            BlockResponse::Accepted(accepted) => Some(accepted.signer_signature_hash.clone()),
+            BlockResponse::Rejected(_) => None,
+        };
         match self
             .stackerdb
             .send_message_with_retry::<SignerMessage>(block_response.into())
@@ -1015,6 +1026,15 @@ impl Signer {
                         "{self}: Block response not accepted by stacker-db: {:?}",
                         ack.reason
                     );
+                }
+                #[cfg(any(test, feature = "testing"))]
+                if ack.accepted {
+                    if let Some(signer_signature_hash) = accepted_hash {
+                        TEST_ACCEPTED_BLOCK_RESPONSES.lock().unwrap().insert((
+                            signer_signature_hash,
+                            StacksPublicKey::from_private(&self.private_key),
+                        ));
+                    }
                 }
                 crate::monitoring::actions::increment_block_responses_sent(accepted);
                 crate::monitoring::actions::record_block_response_latency(block);

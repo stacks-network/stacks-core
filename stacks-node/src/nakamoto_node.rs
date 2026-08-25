@@ -200,9 +200,18 @@ impl StacksNode {
 
         let data_from_neon = data_from_neon.unwrap_or_default();
 
-        let mut p2p_net = data_from_neon
-            .peer_network
-            .unwrap_or_else(|| NeonNode::setup_peer_network(&config, &atlas_config, burnchain));
+        let mut p2p_net = match data_from_neon.peer_network {
+            Some(mut peer_network) => {
+                // A final Neon P2P pass can finish a Nakamoto tenure download just as the
+                // epoch-transition shutdown begins. Its NetworkResult can be dropped before the
+                // Neon relayer stores it, while the transferred downloader still records the
+                // tenure as complete. Rebuild the transient downloader state from chainstate so
+                // the Nakamoto run loop fetches any such missing tenure again.
+                peer_network.reset_nakamoto_block_downloader();
+                peer_network
+            }
+            None => NeonNode::setup_peer_network(&config, &atlas_config, burnchain),
+        };
 
         let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");

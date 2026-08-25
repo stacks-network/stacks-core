@@ -22,7 +22,11 @@ use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
 
-use crate::chainstate::stacks::db::StacksChainState;
+#[cfg(any(test, feature = "testing"))]
+use crate::chainstate::stacks::db::blocks::EphemeralBlockStore;
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, Epoch2StagingBlocksDb, StacksBlockStore, StacksChainState,
+};
 use crate::chainstate::stacks::{Error as ChainError, StacksBlock};
 use crate::net::http::{
     parse_bytes, Error, HttpChunkGenerator, HttpContentType, HttpNotFound, HttpRequest,
@@ -57,8 +61,11 @@ pub struct StacksBlockStream {
 }
 
 impl StacksBlockStream {
-    pub fn new(chainstate: &StacksChainState, block: &StacksBlockId) -> Result<Self, ChainError> {
-        let _ = StacksChainState::load_staging_block_info(chainstate.db(), block)?
+    pub fn new(
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
+        block: &StacksBlockId,
+    ) -> Result<Self, ChainError> {
+        let _ = Epoch2StagingBlocksDb::load_staging_block_info(chainstate.db(), block)?
             .ok_or(ChainError::NoSuchBlockError)?;
 
         let blocks_path = chainstate.blocks_path.clone();
@@ -116,7 +123,9 @@ impl HttpRequest for RPCBlocksRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCBlocksRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCBlocksRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
@@ -127,7 +136,7 @@ impl RPCRequestHandler for RPCBlocksRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_id = self
             .block_id
@@ -204,7 +213,7 @@ impl HttpChunkGenerator for StacksBlockStream {
     #[cfg_attr(test, mutants::skip)]
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String> {
         let block_path =
-            StacksChainState::get_index_block_path(&self.blocks_path, &self.index_block_hash)
+            StacksBlockStore::get_index_block_path(&self.blocks_path, &self.index_block_hash)
                 .map_err(|e| {
                     let msg = format!(
                         "Failed to load block path for {}: {:?}",
@@ -213,6 +222,20 @@ impl HttpChunkGenerator for StacksBlockStream {
                     warn!("{}", &msg);
                     msg
                 })?;
+
+        #[cfg(any(test, feature = "testing"))]
+        if let Some(buf) =
+            EphemeralBlockStore::read_chunk(&block_path, self.offset, self.hint_chunk_size())
+                .map_err(|e| {
+                    let msg = format!("Failed to read block {}: {:?}", &self.index_block_hash, &e);
+                    warn!("{}", &msg);
+                    msg
+                })?
+        {
+            self.offset += buf.len() as u64;
+            self.total_bytes += buf.len() as u64;
+            return Ok(buf);
+        }
 
         // The reason we open a file on each call to stream data is because we don't want to
         // exhaust the supply of file descriptors.  Maybe a future version of this code will do

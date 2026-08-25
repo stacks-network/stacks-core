@@ -46,9 +46,11 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::POX_4_NAME;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{
+    DiskChainStateBackend, Epoch2StagingBlocksDb, StacksChainState,
+};
 use stacks::chainstate::stacks::miner::{
-    TransactionErrorEvent, TransactionEvent, TransactionSuccessEvent,
+    AssembledAnchorBlock, TransactionErrorEvent, TransactionEvent, TransactionSuccessEvent,
 };
 use stacks::chainstate::stacks::{
     StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
@@ -100,6 +102,7 @@ use stacks_inspect;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 
+use super::bitcoin::BitcoinTestDaemon;
 use super::{ADDR_4, SK_1, SK_2, SK_3};
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::bitcoin_regtest_controller::{self, UTXO};
@@ -307,9 +310,13 @@ pub mod test_observer {
     use warp::{self, Filter};
 
     use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
+    use crate::tests::test_port;
     use crate::Config;
 
-    pub const EVENT_OBSERVER_PORT: u16 = 50303;
+    /// Return the event-observer port assigned to this test process.
+    pub fn event_observer_port() -> u16 {
+        test_port(50303)
+    }
 
     pub static NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     pub static MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
@@ -656,7 +663,7 @@ pub mod test_observer {
         clear();
         thread::spawn(|| {
             let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
-            rt.block_on(serve(EVENT_OBSERVER_PORT));
+            rt.block_on(serve(event_observer_port()));
         });
     }
 
@@ -756,7 +763,7 @@ pub mod test_observer {
 
     pub fn register(config: &mut Config, event_keys: &[EventKeyType]) {
         config.events_observers.insert(EventObserverConfig {
-            endpoint: format!("localhost:{EVENT_OBSERVER_PORT}"),
+            endpoint: format!("localhost:{}", event_observer_port()),
             events_keys: event_keys.to_vec(),
             timeout_ms: 1000,
             disable_retries: false,
@@ -3255,7 +3262,7 @@ fn bitcoind_resubmission_test() {
     //  this behavior is not guaranteed to continue to work like this, so at some point this
     //  test will need to be updated to handle that.
     {
-        let (mut chainstate, _) = StacksChainState::open(
+        let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
             false,
             conf.burnchain.chain_id,
             &conf.get_chainstate_path_str(),
@@ -3287,7 +3294,7 @@ fn bitcoind_resubmission_test() {
         garbage_block.sign(&ublock_privk).unwrap();
 
         eprintln!("Minting microblock at {}/{}", &chain_tip.0, &chain_tip.1);
-        StacksChainState::store_staging_microblock(
+        Epoch2StagingBlocksDb::store_staging_microblock(
             &mut tx,
             &consensus_hash,
             &stacks_block.header.block_hash(),
@@ -5790,7 +5797,7 @@ fn atlas_integration_test() {
     conf_follower_node
         .events_observers
         .insert(EventObserverConfig {
-            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            endpoint: format!("localhost:{}", test_observer::event_observer_port()),
             events_keys: vec![EventKeyType::AnyEvent],
             timeout_ms: 1000,
             disable_retries: false,
@@ -6322,7 +6329,7 @@ fn antientropy_integration_test() {
     conf_follower_node
         .events_observers
         .insert(EventObserverConfig {
-            endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+            endpoint: format!("localhost:{}", test_observer::event_observer_port()),
             events_keys: vec![EventKeyType::AnyEvent],
             timeout_ms: 1000,
             disable_retries: false,
@@ -7515,7 +7522,7 @@ fn use_latest_tip_integration_test() {
     let (consensus_hash, stacks_block) = get_tip_anchored_block(&conf);
     let tip_hash =
         StacksBlockHeader::make_index_block_hash(&consensus_hash, &stacks_block.block_hash());
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         false,
         CHAIN_ID_TESTNET,
         &conf.get_chainstate_path_str(),
@@ -8073,6 +8080,10 @@ fn test_problematic_blocks_are_not_mined() {
     let spender_addr_3: PrincipalData = spender_stacks_addr_3.into();
 
     let (mut conf, _) = neon_integration_test_conf();
+
+    // This test drives anchored-block mining explicitly. A background microblock
+    // miner can consume tx_high before the test observes its mempool admission.
+    conf.node.mine_microblocks = false;
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr_1,
@@ -9517,6 +9528,19 @@ fn bitcoin_reorg_flap_with_follower() {
     follower_thread.join().unwrap();
 }
 
+/// Wait for the mock miner to finish persisting a particular Stacks block.
+fn wait_for_mock_mined_block(output_dir: &Path, stacks_block_height: u64) {
+    let output_path = output_dir.join(format!("{stacks_block_height}.json"));
+    wait_for(30, || {
+        Ok(AssembledAnchorBlock::deserialize_from_file(&output_path).is_ok())
+    })
+    .unwrap_or_else(|_| {
+        panic!(
+            "Timed out waiting for mock mined Stacks block {stacks_block_height} at {output_path:?}"
+        )
+    });
+}
+
 /// Tests the following:
 ///  - Mock miner output to file
 ///  - Test replay of mock mined blocks using `stacks-inspect  replay-mock-mining``
@@ -9528,18 +9552,12 @@ fn mock_miner_replay() {
     }
 
     let timeout = Some(Duration::from_secs(120));
-    // Had to add this so that mock miner makes an attempt on EVERY block
-    let block_gap = Duration::from_secs(1);
-
     let test_dir = PathBuf::from("/tmp/stacks-integration-test-mock_miner_replay");
     _ = fs::remove_dir_all(&test_dir);
 
-    let (conf, _miner_account) = neon_integration_test_conf();
+    let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
+    let _btcd_controller = BitcoinTestDaemon::start(&mut conf);
 
     let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
     let mut btc_regtest_controller =
@@ -9557,6 +9575,7 @@ fn mock_miner_replay() {
     follower_conf.events_observers.clear();
     follower_conf.node.mock_mining = true;
     follower_conf.node.mock_mining_output_dir = Some(test_dir.join("mock-miner-output"));
+    let mock_mining_output_dir = follower_conf.node.mock_mining_output_dir.clone().unwrap();
     follower_conf.node.working_dir = format!("{}-follower", &conf.node.working_dir);
     follower_conf.node.seed = vec![0x01; 32];
     follower_conf.node.local_peer_seed = vec![0x02; 32];
@@ -9602,8 +9621,6 @@ fn mock_miner_replay() {
         timeout,
     );
 
-    thread::sleep(block_gap);
-
     // second block will hold our VRF registration
     next_block_and_wait_all(
         &mut btc_regtest_controller,
@@ -9612,7 +9629,7 @@ fn mock_miner_replay() {
         timeout,
     );
 
-    thread::sleep(block_gap);
+    wait_for_mock_mined_block(&mock_mining_output_dir, 1);
 
     // Third block will be the first mined Stacks block.
     next_block_and_wait_all(
@@ -9622,7 +9639,7 @@ fn mock_miner_replay() {
         timeout,
     );
 
-    thread::sleep(block_gap);
+    wait_for_mock_mined_block(&mock_mining_output_dir, 2);
 
     // ---------- Setup finished, start test ----------
 
@@ -9630,14 +9647,14 @@ fn mock_miner_replay() {
     // Run mock miner configured to output to files
 
     // Mine some blocks for mock miner output
-    for _ in 0..10 {
+    for expected_stacks_block_height in 3..=12 {
         next_block_and_wait_all(
             &mut btc_regtest_controller,
             &miner_blocks_processed,
             &[&follower_blocks_processed],
             timeout,
         );
-        thread::sleep(block_gap);
+        wait_for_mock_mined_block(&mock_mining_output_dir, expected_stacks_block_height);
     }
 
     info!("Mock minining finished");
@@ -9645,31 +9662,17 @@ fn mock_miner_replay() {
     let miner_blocks_processed_end = miner_channel.get_stacks_blocks_processed();
     let follower_blocks_processed_end = follower_channel.get_stacks_blocks_processed();
 
-    let blocks_dir = follower_conf.node.mock_mining_output_dir.clone().unwrap();
-    let mock_mining_output_dir = follower_conf.node.mock_mining_output_dir.unwrap();
+    let blocks_dir = mock_mining_output_dir;
 
     // Check that expected output files exist
     assert!(test_dir.is_dir());
     assert!(blocks_dir.is_dir());
 
-    // Wait for all mock mining output files to be flushed to disk.
     let expected_file_count = 12;
-    let start = std::time::Instant::now();
-    let file_count = loop {
-        let count = mock_mining_output_dir
-            .read_dir()
-            .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
-            .count();
-        if count >= expected_file_count {
-            break count;
-        }
-        if start.elapsed() > Duration::from_secs(30) {
-            panic!(
-                "Timed out waiting for mock mining output files: expected {expected_file_count}, got {count}"
-            );
-        }
-        thread::sleep(Duration::from_millis(500));
-    };
+    let file_count = blocks_dir
+        .read_dir()
+        .unwrap_or_else(|e| panic!("Failed to read directory: {e}"))
+        .count();
     assert_eq!(file_count, expected_file_count);
     assert_eq!(miner_blocks_processed_end, follower_blocks_processed_end);
 

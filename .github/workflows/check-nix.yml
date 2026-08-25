@@ -64,5 +64,22 @@ jobs:
       # Install Nix
       - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
 
+      # Cache Crane's dependency artifact rather than rebuilding it on every
+      # ephemeral runner. Source changes remain protected by Nix derivations.
+      - name: Restore and save Nix store
+        uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+        with:
+          primary-key: nix-v1-${{ runner.os }}-${{ hashFiles('contrib/nix/**/*.nix', 'contrib/nix/flake.lock', '**/Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'versions.toml') }}
+          restore-prefixes-first-match: nix-v1-${{ runner.os }}-
+          gc-max-store-size-linux: 4G
+
       # Run the check
-      - run: nix flake check ./contrib/nix
+      - name: Check Nix flake
+        run: |
+          nix flake check ./contrib/nix
+          # Preserve only the reusable dependency artifact through the cache
+          # action's post-job garbage collection. Retaining the whole build
+          # closure would compete with the repository's Cargo caches.
+          nix build \
+            ./contrib/nix#checks.x86_64-linux.cargoArtifacts \
+            --out-link result-nix-dependencies

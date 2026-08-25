@@ -127,7 +127,7 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::MINERS_NAME;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::net::connection::ConnectionOptions;
 use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::PeerNetwork;
@@ -284,7 +284,7 @@ impl StackerDBs {
     /// Fails only if the underlying DB fails
     pub fn create_or_reconfigure_stackerdbs(
         &mut self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
         connection_opts: &ConnectionOptions,
@@ -479,7 +479,7 @@ pub trait StackerDBEventDispatcher {
     );
 }
 
-impl PeerNetwork {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> PeerNetwork<CSP> {
     /// Run all stacker DB sync state-machines.
     /// Return a list of sync results on success, to be incorporated into the NetworkResult.
     /// Return an error on unrecoverable DB or network error
@@ -519,7 +519,7 @@ impl PeerNetwork {
     pub fn make_StackerDBChunksInv_or_Nack(
         &self,
         naddr: NeighborAddress,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         contract_id: &QualifiedContractIdentifier,
         rc_consensus_hash: &ConsensusHash,
     ) -> StacksMessageType {
@@ -675,7 +675,7 @@ impl PeerNetwork {
     /// *not* be processed.
     pub fn handle_unsolicited_StackerDBPushChunk(
         &mut self,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         event_id: usize,
         preamble: &Preamble,
         chunk_data: &StackerDBPushChunkData,

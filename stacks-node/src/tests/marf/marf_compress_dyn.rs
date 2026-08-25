@@ -35,6 +35,8 @@ pub mod utils {
     use crate::tests::signer::SignerTest;
     use crate::tests::{self};
 
+    const FUNDING_TIMEOUT_SECS: u64 = 180;
+
     // NOTE: copied from `stacks-node::tests::signer::v0::large_mempool_base` and
     // reviewed to support dynamic marf compression switch during execution.
     pub fn large_mempool_base(marf_compress_step1: bool, marf_compress_step2: bool) {
@@ -161,7 +163,7 @@ pub mod utils {
         info!("Sending first round of funding took {:?}", timer.elapsed());
 
         // Wait for the first round of funding to be mined
-        wait_for(120, || {
+        wait_for(FUNDING_TIMEOUT_SECS, || {
             for (sender_sk, nonce) in senders.iter() {
                 let sender_addr = tests::to_addr(sender_sk);
                 let account = get_account(&http_origin, &sender_addr);
@@ -220,7 +222,7 @@ pub mod utils {
         info!("Sending second round of funding took {:?}", timer.elapsed());
 
         // Wait for the second round of funding to be mined
-        wait_for(120, || {
+        wait_for(FUNDING_TIMEOUT_SECS, || {
             for (sender_sk, nonce) in senders.iter() {
                 let sender_addr = tests::to_addr(sender_sk);
                 let account = get_account(&http_origin, &sender_addr);

@@ -1,7 +1,7 @@
 name: Run Tests
 description: |
-  1. Sets up the runner with grcov, nextest tooling, etc.
-  2. Runs tests using cargo nextest, either sequentially by name or in parallel via partitions.
+  1. Restores the archived test tooling and installs LLVM coverage tools.
+  2. Runs tests using nextest, either sequentially by name or in parallel via partitions.
   3. Generates and uploads the code coverage artifact
 
 inputs:
@@ -12,15 +12,33 @@ inputs:
   test-names:
     description: "Comma-separated list of literal test names to run (Required if not partitioning)"
     required: false
+  test-threads:
+    description: "Number of named tests to run concurrently"
+    required: false
+    default: "1"
   partition:
     description: "Partition to run (e.g., 1)"
     required: false
   total-partitions:
     description: "Total number of partitions (e.g., 4)"
     required: false
+  test-timings-file:
+    description: "Historical timings used to balance partitions or prioritize named tests"
+    required: false
+  excluded-test-names:
+    description: "Comma-separated literal test names excluded from runtime-balanced partitions"
+    required: false
+  no-fail-fast:
+    description: "Whether to continue running selected tests after a failure"
+    required: false
+    default: "false"
   archive-file:
     description: "Archive file to use for tests"
     required: true
+  archive-artifact-name:
+    description: "Artifact containing the archive file and bundled tools"
+    required: false
+    default: "nextest-archive"
   debug-binary-path:
     description: "Debug binary path"
     required: true
@@ -31,7 +49,7 @@ inputs:
     description: "Whether or not to upload the nextest JUnit XML artifact"
     required: true
   upload-code-coverage:
-    description: "Whether or not to upload the code coverage artifact"
+    description: "Whether to upload this job's code coverage to Coveralls"
     required: true
 
 runs:
@@ -48,7 +66,8 @@ runs:
       with:
         ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-    # Setup rust toolchain with llvm-tools-preview
+    # Unit tests call Cargo at runtime to locate workspace fixtures, and grcov's
+    # LLVM tools depend on shared libraries from the matching Rust sysroot.
     - name: Setup Rust Toolchain
       uses: ./.github/actions/setup-rust-toolchain
       with:
@@ -67,6 +86,33 @@ runs:
       run: |
         sudo ln -s ~/bitcoin/bin/bitcoind /bin/
 
+    # Avoid concurrent signer testcontainers clients racing to pull the same
+    # image on a fresh runner. Other batches retain lazy-pull behavior.
+    - name: Prepare Bitcoin Test Container
+      if: >-
+        env.BITCOIN_TESTCONTAINERS == '1' &&
+        contains(inputs.test-names, 'tests::signer::')
+      shell: bash
+      run: |
+        for attempt in 1 2 3; do
+          if timeout --kill-after=30s 5m \
+            docker pull "bitcoin/bitcoin:${BITCOIN_IMAGE_TAG}"
+          then
+            exit 0
+          fi
+
+          if (( attempt == 3 )); then
+            echo "::error::Failed to pull Bitcoin test image after ${attempt} attempts"
+            exit 1
+          fi
+
+          # Concurrent matrix jobs can briefly overwhelm Docker Hub's
+          # anonymous registry endpoint. Stagger retries to avoid a herd.
+          retry_delay=$((attempt * 10 + RANDOM % 10))
+          echo "Bitcoin image pull failed; retrying in ${retry_delay}s"
+          sleep "$retry_delay"
+        done
+
     # Increase open file descriptors limit
     - name: Increase Open File Descriptors
       shell: bash
@@ -79,7 +125,7 @@ runs:
       with:
         action: restore
         archive-file: ${{ inputs.archive-file }}
-        debug-binary-path: ${{ inputs.debug-binary-path }}
+        artifact-name: ${{ inputs.archive-artifact-name }}
 
     ############################################################################
     ### Run the tests
@@ -148,28 +194,60 @@ runs:
         SANITIZED_FILE_NAME=$(echo "${{ inputs.codecov-test-name }}" | sed 's/[\\/:\*\?"<>|]/_/g')
         echo "file-name=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
 
+    # Start the longest named tests first so concurrent slots finish together.
+    - name: Generate Named-Test Priority Config
+      id: generate-named-test-priority-config
+      if: inputs.partition == '' && inputs.test-timings-file != ''
+      shell: bash
+      env:
+        TEST_NAMES_CSV: ${{ inputs.test-names }}
+        TEST_TIMINGS_FILE: ${{ inputs.test-timings-file }}
+      run: |
+        OUTPUT_CONFIG_FILE="./.github/nextest/ci-nextest-prioritized.toml"
+        TEST_NAMES_CSV="$TEST_NAMES_CSV" \
+        TEST_TIMINGS_FILE="$TEST_TIMINGS_FILE" \
+        BASE_CONFIG_FILE="./.github/nextest/ci-nextest.toml" \
+        OUTPUT_CONFIG_FILE="$OUTPUT_CONFIG_FILE" \
+        NEXTEST_PROFILE="ci-sequential" \
+          bash ./.github/scripts/generate_nextest_priority_config.sh
+        echo "config-file=$OUTPUT_CONFIG_FILE" >> "$GITHUB_OUTPUT"
+
     # Mode 1: Run specific test names sequentially (If partition is NOT specified)
     - name: Run Tests Sequentially
       if: inputs.partition == '' && inputs.total-partitions == ''
       shell: bash
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
+
+        NEXTEST_FAILURE_ARGS=()
+        if [[ "${{ inputs.no-fail-fast }}" == "true" ]]; then
+          NEXTEST_FAILURE_ARGS+=(--no-fail-fast)
+        fi
         
         # Convert CSV string to Nextest exact-match Filterset format
         # e.g., "a, b" becomes "test(=a)|test(=b)"
         FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
         FILTERSET="test(=${FILTERSET})"
+        NEXTEST_CONFIG_FILE="${{ steps.generate-named-test-priority-config.outputs.config-file }}"
+        NEXTEST_CONFIG_FILE="${NEXTEST_CONFIG_FILE:-./.github/nextest/ci-nextest.toml}"
 
         # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
-        cargo nextest run \
-          --config-file ./.github/nextest/ci-nextest.toml \
+        test_exit=0
+        cargo-nextest nextest run \
+          --config-file "$NEXTEST_CONFIG_FILE" \
           --profile ci-sequential \
+          --test-threads "${{ inputs.test-threads }}" \
           --run-ignored all \
           --archive-file ${{ inputs.archive-file }} \
-          -E "$FILTERSET"
+          --extract-to . \
+          --extract-overwrite \
+          "${NEXTEST_FAILURE_ARGS[@]}" \
+          -E "$FILTERSET" \
+          || test_exit=$?
           
         # rename the resulting junit file from the toml config
         mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
+        exit "$test_exit"
 
     # Mode 2: Run Partitioned Tests (If partition IS specified)
     - name: Run Partitioned Tests
@@ -177,16 +255,53 @@ runs:
       shell: bash
       run: |
         export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
-        
+
+        PARTITION_ARGS=(--partition count:${{ inputs.partition }}/${{ inputs.total-partitions }})
+        TEST_ARGS=()
+
+        if [[ -n "${{ inputs.test-timings-file }}" ]]; then
+          TEST_LIST_FILE=$(mktemp)
+          trap 'rm -f "$TEST_LIST_FILE"' EXIT
+          NEXTEST_ARCHIVE="${{ inputs.archive-file }}" \
+          TEST_TIMINGS_FILE="${{ inputs.test-timings-file }}" \
+          EXCLUDED_TEST_NAMES_CSV="${{ inputs.excluded-test-names }}" \
+          PARTITION="${{ inputs.partition }}" \
+          TOTAL_PARTITIONS="${{ inputs.total-partitions }}" \
+          TEST_LIST_OUTPUT="$TEST_LIST_FILE" \
+            bash ./.github/scripts/balance_unit_tests.sh
+
+          mapfile -t TEST_NAMES < "$TEST_LIST_FILE"
+          PARTITION_ARGS=()
+          TEST_ARGS=(-- "${TEST_NAMES[@]}" --exact)
+
+          NEXTEST_CONFIG_FILE="./.github/nextest/ci-nextest-prioritized.toml"
+          TEST_NAMES_FILE="$TEST_LIST_FILE" \
+          TEST_TIMINGS_FILE="${{ inputs.test-timings-file }}" \
+          BASE_CONFIG_FILE="./.github/nextest/ci-nextest.toml" \
+          OUTPUT_CONFIG_FILE="$NEXTEST_CONFIG_FILE" \
+          NEXTEST_PROFILE="ci-parallel" \
+          RECORDED_TESTS_ONLY="true" \
+          TEST_NAME_REGEX='^clarity_vm::tests::large_contract::ccall_memory_test::' \
+            bash ./.github/scripts/generate_nextest_priority_config.sh
+        fi
+
+        NEXTEST_CONFIG_FILE="${NEXTEST_CONFIG_FILE:-./.github/nextest/ci-nextest.toml}"
+
         # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
-        cargo nextest run \
-          --config-file ./.github/nextest/ci-nextest.toml \
+        test_exit=0
+        cargo-nextest nextest run \
+          --config-file "$NEXTEST_CONFIG_FILE" \
           --profile ci-parallel \
-          --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
-          --archive-file ${{ inputs.archive-file }}
+          "${PARTITION_ARGS[@]}" \
+          --archive-file "${{ inputs.archive-file }}" \
+          --extract-to . \
+          --extract-overwrite \
+          "${TEST_ARGS[@]}" \
+          || test_exit=$?
           
         # rename the resulting junit file from the toml config
         mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
+        exit "$test_exit"
           
     ############################################################################
     ### Upload the nextest JUnit XML
@@ -195,6 +310,9 @@ runs:
     # Store JUnit file in GitHub CI artifacts (with SHA and "nextest" prefix)
     - name: Store JUnit Report as Artifact
       if: always() && inputs.upload-junit-xml == 'true'
+      # JUnit is diagnostic data. A transient artifact-service outage must not
+      # suppress coverage or turn passing tests into a failed required check.
+      continue-on-error: true
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
         name: nextest-${{ steps.generate-sanitized-file-name.outputs.file-name }}
@@ -205,7 +323,7 @@ runs:
         overwrite: true
           
     ############################################################################
-    ### Generate and upload code coverage artifact
+    ### Generate and upload code coverage
     ############################################################################
 
     # Generate code coverage using grcov
@@ -218,6 +336,7 @@ runs:
           -b ${{ inputs.debug-binary-path }} \
           -s . \
           -t lcov \
+          --llvm \
           --branch \
           --ignore-not-existing \
           --ignore "../*" \
@@ -242,14 +361,32 @@ runs:
           -o lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
         || exit 1
 
-    # Store coverage file in GitHub CI artifacts (with SHA and "lcov" prefix)
-    - name: Store Code Coverage as Artifact
+        if ! grep -q '^SF:' lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info; then
+          echo "::error::grcov produced an empty LCOV report"
+          exit 1
+        fi
+
+    # Attribute merge-queue coverage to the destination branch so it becomes
+    # the comparison base after the queued commit lands.
+    - name: Prepare Coveralls Context
+      id: prepare-coveralls-context
       if: inputs.upload-code-coverage == 'true'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+      shell: bash
+      env:
+        MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
+      run: |
+        echo "git-branch=${MERGE_GROUP_BASE_REF#refs/heads/}" >> "$GITHUB_OUTPUT"
+
+    # Coveralls' parallel-build protocol unions reports server-side. Uploading
+    # from the producing job avoids a serialized artifact fan-in and lcov merge.
+    - name: Upload Code Coverage to Coveralls
+      if: inputs.upload-code-coverage == 'true'
+      uses: ./.github/actions/coveralls-upload
       with:
-        name: codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
-        path: lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info
-        if-no-files-found: error
-        retention-days: 1
-        compression-level: 9 # 0 (none) - 9 (most)
-        overwrite: true
+        files: lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info
+        # Keep the build open across "rerun failed jobs" so successful reports
+        # from the first attempt remain available to the finalizer.
+        build-number: ${{ github.run_id }}
+        flag-name: ${{ steps.generate-sanitized-file-name.outputs.file-name }}
+        parallel: 'true'
+        git-branch: ${{ steps.prepare-coveralls-context.outputs.git-branch }}

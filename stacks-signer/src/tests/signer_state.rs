@@ -13,7 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
-use std::fs;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
@@ -36,7 +37,6 @@ use libsigner::v0::signer_state::{
     GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
 };
 use stacks_common::bitvec::BitVec;
-use stacks_common::function_name;
 
 use crate::chainstate::{ProposalEvalConfig, SortitionData};
 use crate::client::tests::{build_get_tenure_tip_response, MockServerClient};
@@ -49,9 +49,9 @@ use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdat
 #[test]
 fn check_capitulate_miner_view() {
     let MockServerClient {
-        mut server,
+        server,
         client,
-        config,
+        config: _,
     } = MockServerClient::new();
 
     let mut address_weights = HashMap::new();
@@ -213,45 +213,6 @@ fn check_capitulate_miner_view() {
         "Evaluator should have told me to capitulate to the old miner"
     );
 
-    let h = std::thread::spawn(move || {
-        // Mark the old miner's block as globally accepted
-        block_info_1.mark_globally_accepted().unwrap();
-        db.insert_block(&block_info_1).unwrap();
-
-        // Miner view should stay as the old miner as it has a globally accepted block and 60% consider it valid.
-        assert_eq!(
-            local_state_machine
-                .capitulate_miner_view(
-                    &client,
-                    &mut global_eval,
-                    &mut db,
-                    &new_update,
-                    Duration::from_secs(u64::MAX)
-                )
-                .unwrap(),
-            old_miner,
-            "Evaluator should have told me to capitulate to the old miner"
-        );
-
-        // Now that we have a globally approved block for the new miner
-        block_info_2.mark_globally_accepted().unwrap();
-        db.insert_block(&block_info_2).unwrap();
-
-        assert_eq!(
-            local_state_machine
-                .capitulate_miner_view(
-                    &client,
-                    &mut global_eval,
-                    &mut db,
-                    &new_update,
-                    Duration::from_secs(u64::MAX)
-                )
-                .unwrap(),
-            new_miner,
-            "Evaluator should have told me to capitulate to the new miner"
-        );
-    });
-
     let anchored_header = StacksBlockHeaderTypes::Nakamoto(NakamotoBlockHeader {
         version: 1,
         chain_length: parent_tenure_last_block_height,
@@ -273,12 +234,51 @@ fn check_capitulate_miner_view() {
     };
 
     let to_send = build_get_tenure_tip_response(&expected_result);
-    for _ in 0..2 {
-        crate::client::tests::write_response(server, to_send.as_bytes());
-        server = crate::client::tests::mock_server_from_config(&config);
-    }
-    crate::client::tests::write_response(server, to_send.as_bytes());
-    h.join().unwrap();
+    let exit = Arc::new(AtomicBool::new(false));
+    let server_exit = Arc::clone(&exit);
+    let serve = std::thread::spawn(move || {
+        crate::client::tests::write_response_nonblockinig(&server, to_send.as_bytes(), server_exit);
+    });
+
+    // Mark the old miner's block as globally accepted.
+    block_info_1.mark_globally_accepted().unwrap();
+    db.insert_block(&block_info_1).unwrap();
+
+    // Miner view should stay as the old miner as it has a globally accepted block and 60% consider it valid.
+    assert_eq!(
+        local_state_machine
+            .capitulate_miner_view(
+                &client,
+                &mut global_eval,
+                &mut db,
+                &new_update,
+                Duration::from_secs(u64::MAX),
+            )
+            .unwrap(),
+        old_miner,
+        "Evaluator should have told me to capitulate to the old miner"
+    );
+
+    // Now that we have a globally approved block for the new miner.
+    block_info_2.mark_globally_accepted().unwrap();
+    db.insert_block(&block_info_2).unwrap();
+
+    assert_eq!(
+        local_state_machine
+            .capitulate_miner_view(
+                &client,
+                &mut global_eval,
+                &mut db,
+                &new_update,
+                Duration::from_secs(u64::MAX),
+            )
+            .unwrap(),
+        new_miner,
+        "Evaluator should have told me to capitulate to the new miner"
+    );
+
+    exit.store(true, Ordering::SeqCst);
+    serve.join().unwrap();
 }
 
 // This test demonstrates the scenario where:
@@ -1021,11 +1021,7 @@ fn check_miner_inactivity_timeout() {
     let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
     let stacks_client = StacksClient::from(&config);
 
-    let fn_name = function_name!();
-    let signer_db_dir = "/tmp/stacks-node-tests/signer-units/";
-    let signer_db_path = format!("{signer_db_dir}/{fn_name}.{}.sqlite", get_epoch_time_secs());
-    fs::create_dir_all(signer_db_dir).unwrap();
-    let mut signer_db = SignerDb::new(signer_db_path).unwrap();
+    let mut signer_db = SignerDb::new(":memory:").unwrap();
 
     let mut proposal_config = ProposalEvalConfig {
         first_proposal_burn_block_timing: Duration::from_secs(30),

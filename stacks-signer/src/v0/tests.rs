@@ -13,8 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-use std::sync::LazyLock;
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
@@ -52,6 +52,15 @@ pub static TEST_SKIP_BLOCK_BROADCAST: LazyLock<TestFlag<bool>> = LazyLock::new(T
 /// A global variable that can be used to pause the block validation submission
 pub static TEST_STALL_BLOCK_VALIDATION_SUBMISSION: LazyLock<TestFlag<bool>> =
     LazyLock::new(TestFlag::default);
+
+/// Signers that have reached the block-validation submission test stall.
+pub static TEST_STALLED_BLOCK_VALIDATION_SUBMISSIONS: LazyLock<Mutex<HashSet<StacksPublicKey>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Block acceptances successfully submitted to StackerDB by each signer.
+pub static TEST_ACCEPTED_BLOCK_RESPONSES: LazyLock<
+    Mutex<HashSet<(Sha512Trunc256Sum, StacksPublicKey)>>,
+> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
 /// A global variable that can be used to prevent signer cleanup
 pub static TEST_SKIP_SIGNER_CLEANUP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
@@ -180,6 +189,10 @@ impl Signer {
     /// Stall the block validation submission if the TEST_STALL_BLOCK_VALIDATION_SUBMISSION flag is set
     pub fn test_stall_block_validation_submission(&self) {
         if TEST_STALL_BLOCK_VALIDATION_SUBMISSION.get() {
+            TEST_STALLED_BLOCK_VALIDATION_SUBMISSIONS
+                .lock()
+                .unwrap()
+                .insert(StacksPublicKey::from_private(&self.private_key));
             // Do an extra check just so we don't log EVERY time.
             warn!("{self}: Block validation submission is stalled due to testing directive");
             while TEST_STALL_BLOCK_VALIDATION_SUBMISSION.get() {

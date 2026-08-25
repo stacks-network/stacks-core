@@ -367,7 +367,7 @@ impl AtlasDB {
     }
 
     // Open an atlas database in memory (used for testing)
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn connect_memory(atlas_config: AtlasConfig) -> Result<AtlasDB, db_error> {
         let conn = Connection::open_in_memory().map_err(db_error::SqliteError)?;
         let mut db = AtlasDB {

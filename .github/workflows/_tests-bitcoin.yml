@@ -9,6 +9,14 @@ on:
         description: "The test archive file"
         required: true
         type: string
+      archive-artifact-name:
+        description: "Artifact containing the test archive"
+        required: true
+        type: string
+      test-list-artifact-name:
+        description: "Artifact containing the nextest test manifest"
+        required: true
+        type: string
       debug-binary-path:
         description: "Debug binary path"
         required: true
@@ -18,7 +26,7 @@ on:
         required: true
         type: string
       upload-code-coverage:
-        description: "Whether or not to upload the code coverage artifact"
+        description: "Whether to upload each job's code coverage to Coveralls"
         required: true
         type: string
 
@@ -32,11 +40,27 @@ env:
   BITCOIND_TEST: 1
   # Docker tag for the Bitcoin Core image used when spinning up container with `testcontainers` crate.
   BITCOIN_IMAGE_TAG: "25"
+  # The shared signer harness runs bitcoind in a per-test container. Other
+  # functional tests use slot-namespaced native bitcoind ports.
+  BITCOIN_TESTCONTAINERS: 1
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
   TEST_TAG_CI_SKIP: ci_skip
-  # Configure batch size and archive file for bitcoin_tests.sh invocation
-  BATCH_SIZE: 2
+  BITCOIN_TEST_THREADS: 2
+  SIGNER_TEST_THREADS_REQUIRED: 1
+  # Full-runner tests run in dedicated matrix jobs below. Keeping the names in
+  # one variable also guarantees the generated batches exclude the same tests.
+  BITCOIN_ISOLATED_TESTS: >-
+    tests::signer::v0::signer_multinode_rollover,
+    tests::signer::v0::tx_replay::tx_replay_forking_test,
+    tests::signer::v0::epoch_4_0_waterfall::epoch_4_0_block_commit_uses_single_sbtc_output::t::slow::bitcoind::t,
+    tests::signer::v0::reorg::partial_tenure_fork,
+    tests::signer::v0::block_validation_check_rejection_timeout_heuristic,
+    tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner
+  # With two execution lanes, four-test batches finish in at most two waves.
+  # A fifth test adds a third wave without reducing setup or queueing in
+  # practice, since every matrix job starts from the same shared archive.
+  BATCH_SIZE: 4
 
 # Configure concurrency
 concurrency:
@@ -58,20 +82,67 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
 
-      # Restore Nextest archive artifact
-      #   - also provides the nextest binary bundled in the artifact
-      - name: Restore Nextest Archive Artifact
-        uses: ./.github/actions/artifacts/nextest-archive
+      # Matrix generation only needs the test manifest produced from the
+      # archive. Avoid downloading the archive and debug binaries here.
+      - name: Restore Nextest Test List Artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
         with:
-          action: restore
-          archive-file: ${{ inputs.archive-file }}
-          debug-binary-path: ${{ inputs.debug-binary-path }}
+          name: ${{ inputs.test-list-artifact-name }}
 
       # Generate the bitcoin test matrices json used for running tests
       - name: Generate Test Matrices
         id: set-matrix
+        env:
+          NEXTEST_LIST_FILE: nextest-test-list.json
         run: bash ./.github/scripts/bitcoin_tests.sh
+
+  # These tests reserve the full nextest runner. Dedicated jobs prevent their
+  # exclusive phases from serializing otherwise-parallel tests in a batch.
+  isolated-integration-tests:
+    name: Isolated Integration Test (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: signer-multinode-rollover
+            test-names: tests::signer::v0::signer_multinode_rollover
+          - label: tx-replay-forking
+            test-names: tests::signer::v0::tx_replay::tx_replay_forking_test
+          - label: epoch-4-waterfall
+            test-names: tests::signer::v0::epoch_4_0_waterfall::epoch_4_0_block_commit_uses_single_sbtc_output::t::slow::bitcoind::t
+          - label: partial-tenure-fork
+            test-names: tests::signer::v0::reorg::partial_tenure_fork
+          # These tests require an otherwise-idle runner. Their combined
+          # runtime was the Bitcoin critical path when run sequentially.
+          - label: block-validation-timeout-heuristic
+            test-names: tests::signer::v0::block_validation_check_rejection_timeout_heuristic
+          - label: tenure-extend-after-idle-miner
+            test-names: tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner
+    steps:
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      - name: Setup + Run Tests + Codecov
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: ./.github/actions/run-tests
+        with:
+          test-names: ${{ matrix.test-names }}
+          test-threads: "1"
+          test-timings-file: .github/test-timings/bitcoin-integration.json
+          archive-file: ${{ inputs.archive-file }}
+          archive-artifact-name: ${{ inputs.archive-artifact-name }}
+          debug-binary-path: ${{ inputs.debug-binary-path }}
+          codecov-test-name: isolated-${{ matrix.label }}
+          upload-junit-xml: ${{ inputs.upload-junit-xml }}
+          upload-code-coverage: ${{ inputs.upload-code-coverage }}
 
   # Dynamically run one runner per batch generated by the script
   integration-tests:
@@ -101,7 +172,10 @@ jobs:
         uses: ./.github/actions/run-tests
         with:
           test-names: ${{ matrix.batch.csv }}
+          test-threads: ${{ env.BITCOIN_TEST_THREADS }}
+          test-timings-file: .github/test-timings/bitcoin-integration.json
           archive-file: ${{ inputs.archive-file }}
+          archive-artifact-name: ${{ inputs.archive-artifact-name }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: batched-integration-tests-${{ matrix.batch.index }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
@@ -113,6 +187,7 @@ jobs:
     needs:
       - generate-tests
       - integration-tests
+      - isolated-integration-tests
     if: |
       always() && 
       !cancelled()

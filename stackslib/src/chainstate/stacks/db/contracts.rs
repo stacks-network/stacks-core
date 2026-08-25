@@ -19,42 +19,42 @@ use clarity::vm::contracts::Contract;
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{QualifiedContractIdentifier, Value};
 
-use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::{Error, *};
 use crate::clarity_vm::clarity::ClarityConnection;
 
-impl StacksChainState {
-    pub fn get_contract<T: ClarityConnection>(
-        clarity_tx: &mut T,
+/// Read contract state from any read-capable Clarity connection.
+pub trait ClarityStateRead: ClarityConnection {
+    fn get_contract(
+        &mut self,
         contract_id: &QualifiedContractIdentifier,
     ) -> Result<Option<Contract>, Error> {
-        clarity_tx
-            .with_clarity_db_readonly(|ref mut db| match db.get_contract(contract_id) {
-                Ok(c) => Ok(Some(c)),
-                Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchContract(_))) => {
-                    Ok(None)
-                }
-                Err(e) => Err(ClarityError::Interpreter(e)),
-            })
-            .map_err(Error::ClarityError)
+        self.with_clarity_db_readonly(|ref mut db| match db.get_contract(contract_id) {
+            Ok(c) => Ok(Some(c)),
+            Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchContract(_))) => {
+                Ok(None)
+            }
+            Err(e) => Err(ClarityError::Interpreter(e)),
+        })
+        .map_err(Error::ClarityError)
     }
 
-    pub fn get_data_var<T: ClarityConnection>(
-        clarity_tx: &mut T,
+    fn get_data_var(
+        &mut self,
         contract_id: &QualifiedContractIdentifier,
         data_var: &str,
     ) -> Result<Option<Value>, Error> {
-        let epoch = clarity_tx.get_epoch();
-        clarity_tx
-            .with_clarity_db_readonly(|ref mut db| {
-                match db.lookup_variable_unknown_descriptor(contract_id, data_var, &epoch) {
-                    Ok(c) => Ok(Some(c)),
-                    Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(_))) => {
-                        Ok(None)
-                    }
-                    Err(e) => Err(ClarityError::Interpreter(e)),
+        let epoch = self.get_epoch();
+        self.with_clarity_db_readonly(|ref mut db| {
+            match db.lookup_variable_unknown_descriptor(contract_id, data_var, &epoch) {
+                Ok(c) => Ok(Some(c)),
+                Err(VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(_))) => {
+                    Ok(None)
                 }
-            })
-            .map_err(Error::ClarityError)
+                Err(e) => Err(ClarityError::Interpreter(e)),
+            }
+        })
+        .map_err(Error::ClarityError)
     }
 }
+
+impl<T: ClarityConnection> ClarityStateRead for T {}

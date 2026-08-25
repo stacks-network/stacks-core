@@ -73,8 +73,8 @@ use crate::chainstate::nakamoto::{
     NakamotoChainState, StacksDBIndexed,
 };
 use crate::chainstate::stacks::db::{
-    ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, StacksChainState,
-    StacksDBTx, StacksHeaderInfo,
+    ChainstateTx, ClarityTx, Epoch2BlockProcessor, MinerPaymentSchedule, MinerPaymentTxFees,
+    MinerRewardsDb, StacksDBTx, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksTransaction, TenureChangeCause, TenureChangePayload,
@@ -357,11 +357,11 @@ impl NakamotoChainState {
             ChainstateError::NoSuchBlockError
         })?;
 
-        let latest_miners = StacksChainState::get_scheduled_block_rewards_at_block(
+        let latest_miners = MinerRewardsDb::get_scheduled_block_rewards_at_block(
             chainstate_tx.deref_mut(),
             &matured_tenure_block_header.index_block_hash(),
         )?;
-        let parent_miner = StacksChainState::get_parent_matured_miner(
+        let parent_miner = Epoch2BlockProcessor::get_parent_matured_miner(
             chainstate_tx.deref_mut(),
             mainnet,
             &latest_miners,
@@ -388,7 +388,7 @@ impl NakamotoChainState {
         parent_stacks_height: u64,
         matured_miner_schedule: MaturedMinerPaymentSchedules,
     ) -> Result<Option<MaturedMinerRewards>, ChainstateError> {
-        let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
+        let matured_miner_rewards_opt = match MinerRewardsDb::find_mature_miner_rewards(
             clarity_tx,
             sortdb_conn,
             parent_stacks_height,
@@ -962,7 +962,7 @@ impl NakamotoChainState {
         .expect("CORRUPTION: failed to load snapshot that elected processed block")
         .accumulated_coinbase_ustx;
 
-        let coinbase_at_block = StacksChainState::get_coinbase_reward(
+        let coinbase_at_block = Epoch2BlockProcessor::get_coinbase_reward(
             evaluated_epoch,
             chainstate_tx.config.mainnet,
             chain_tip_burn_header_height,

@@ -32,7 +32,10 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+    let mut http = StacksHttp::<crate::chainstate::stacks::db::DiskChainStateBackend>::new(
+        addr,
+        &ConnectionOptions::default(),
+    );
 
     let request = StacksHttpRequest::new_getcontractabi(
         addr.into(),
@@ -76,7 +79,9 @@ fn test_try_parse_request() {
 
     assert_eq!(&preamble, request.preamble());
 
-    handler.restart();
+    RPCRequestHandler::<crate::chainstate::stacks::db::DiskChainStateBackend>::restart(
+        &mut handler,
+    );
     assert!(handler.contract_identifier.is_none());
 }
 

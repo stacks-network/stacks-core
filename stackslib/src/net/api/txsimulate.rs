@@ -30,7 +30,7 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionResourceBudgets, TransactionResult,
@@ -126,7 +126,7 @@ impl RPCTransactionSimulateRequestHandler {
         tx: &StacksTransaction,
         tip_block_id: &StacksBlockId,
         sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         max_tx_execution_time: Duration,
         max_tx_analysis_time: Duration,
         max_tx_mem_bytes: u64,
@@ -390,7 +390,7 @@ impl HttpRequest for RPCTransactionSimulateRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
+impl<CSP: ChainStatePersistence> RPCRequestHandler<CSP> for RPCTransactionSimulateRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.transaction = None;
@@ -401,7 +401,7 @@ impl RPCRequestHandler for RPCTransactionSimulateRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tx = self
             .transaction

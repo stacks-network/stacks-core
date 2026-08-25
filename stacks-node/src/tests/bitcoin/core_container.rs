@@ -21,11 +21,16 @@
 //! repository.
 
 use std::cell::OnceCell;
+use std::env;
 use std::time::Duration;
 
-use testcontainers::core::WaitFor;
+use stacks::config::Config;
+use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::SyncRunner;
 use testcontainers::{Container, GenericImage, ImageExt};
+
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
+use crate::tests::test_port;
 
 /// Default bitcoin image tag
 pub const BITCOIN_DEFAULT_IMAGE_TAG: &str = "25";
@@ -35,6 +40,8 @@ pub const BITCOIN_RPC_USERNAME: &str = "stacksdev";
 pub const BITCOIN_RPC_PASSWORD: &str = BITCOIN_RPC_USERNAME;
 /// Internal bitcoind RPC port used for container-to-host port mapping.
 const CONTAINER_INTERNAL_RPC_PORT: u16 = 18443;
+/// Internal bitcoind P2P port used for container-to-host port mapping.
+const CONTAINER_INTERNAL_P2P_PORT: u16 = 18444;
 
 /// Wrapper for a Bitcoin Core test container.
 ///
@@ -62,6 +69,11 @@ impl BitcoinCoreContainer {
 
     /// Create a container with regtest defaults.
     pub fn new_with_defaults(image_tag: &str) -> Self {
+        Self::new_with_credentials(image_tag, BITCOIN_RPC_USERNAME, BITCOIN_RPC_PASSWORD)
+    }
+
+    /// Create a regtest container with the supplied RPC credentials.
+    pub fn new_with_credentials(image_tag: &str, rpc_username: &str, rpc_password: &str) -> Self {
         let mut result = Self::new(image_tag);
         result
             .add_arg("-regtest=1")
@@ -75,8 +87,8 @@ impl BitcoinCoreContainer {
             .add_arg("-rpcbind=0.0.0.0")
             .add_arg("-rpcallowip=0.0.0.0/0")
             .add_arg("-rpcallowip=::/0")
-            .add_arg(&format!("-rpcuser={BITCOIN_RPC_USERNAME}"))
-            .add_arg(&format!("-rpcpassword={BITCOIN_RPC_PASSWORD}"))
+            .add_arg(&format!("-rpcuser={rpc_username}"))
+            .add_arg(&format!("-rpcpassword={rpc_password}"))
             .add_arg("-fallbackfee=0.00001");
         result
     }
@@ -104,6 +116,8 @@ impl BitcoinCoreContainer {
 
         let container = GenericImage::new("bitcoin/bitcoin", &self.image_tag)
             .with_wait_for(WaitFor::message_on_stdout("Done loading"))
+            .with_exposed_port(CONTAINER_INTERNAL_RPC_PORT.tcp())
+            .with_exposed_port(CONTAINER_INTERNAL_P2P_PORT.tcp())
             .with_startup_timeout(Duration::from_secs(60))
             .with_cmd(self.args.clone())
             .start()
@@ -140,11 +154,93 @@ impl BitcoinCoreContainer {
             .get_host_port_ipv4(CONTAINER_INTERNAL_RPC_PORT)
             .expect("Failed to get mapped RPC port")
     }
+
+    /// Get the host-mapped P2P port for the internal Bitcoin Core P2P port.
+    ///
+    /// Panics if the container has not been started yet.
+    pub fn get_host_p2p_port(&self) -> u16 {
+        if !self.is_started() {
+            panic!("the container has not been started yet");
+        }
+
+        self.raw_container
+            .get()
+            .unwrap()
+            .get_host_port_ipv4(CONTAINER_INTERNAL_P2P_PORT)
+            .expect("Failed to get mapped P2P port")
+    }
 }
 
 impl Drop for BitcoinCoreContainer {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// Bitcoin daemon owned by an integration test.
+pub struct BitcoinTestDaemon {
+    backend: BitcoinTestDaemonBackend,
+}
+
+enum BitcoinTestDaemonBackend {
+    Native(BitcoinCoreController),
+    Container(Box<BitcoinCoreContainer>),
+}
+
+impl BitcoinTestDaemon {
+    /// Start a container when requested and the test uses standard burnchain
+    /// ports. Tests using snapshots or custom proxy ports retain native
+    /// `bitcoind` behavior.
+    pub fn start(config: &mut Config) -> Self {
+        let use_container = env::var("BITCOIN_TESTCONTAINERS") == Ok("1".into())
+            && env::var("STACKS_TEST_SNAPSHOT") != Ok("1".into())
+            && config.burnchain.rpc_port == test_port(18443)
+            && config.burnchain.peer_port == test_port(18444);
+
+        let backend = if use_container {
+            let image_tag = env::var("BITCOIN_IMAGE_TAG")
+                .ok()
+                .filter(|tag| !tag.trim().is_empty())
+                .unwrap_or_else(|| BITCOIN_DEFAULT_IMAGE_TAG.into());
+            let username = config
+                .burnchain
+                .username
+                .as_deref()
+                .expect("Bitcoin integration tests require an RPC username");
+            let password = config
+                .burnchain
+                .password
+                .as_deref()
+                .expect("Bitcoin integration tests require an RPC password");
+            let mut container =
+                BitcoinCoreContainer::new_with_credentials(&image_tag, username, password);
+            container.start();
+            config.burnchain.rpc_port = container.get_host_rpc_port();
+            config.burnchain.peer_port = container.get_host_p2p_port();
+            info!(
+                "Started integration-test bitcoind container";
+                "rpc_port" => config.burnchain.rpc_port,
+                "peer_port" => config.burnchain.peer_port,
+            );
+            BitcoinTestDaemonBackend::Container(Box::new(container))
+        } else {
+            let mut controller = BitcoinCoreController::from_stx_config(config);
+            controller
+                .start_bitcoind()
+                .map_err(|_e| ())
+                .expect("Failed starting bitcoind");
+            BitcoinTestDaemonBackend::Native(controller)
+        };
+
+        Self { backend }
+    }
+
+    /// Stop the owned daemon.
+    pub fn stop(&mut self) {
+        match &mut self.backend {
+            BitcoinTestDaemonBackend::Native(controller) => controller.stop_bitcoind().unwrap(),
+            BitcoinTestDaemonBackend::Container(container) => container.stop(),
+        }
     }
 }
 
@@ -164,6 +260,8 @@ mod tests {
         container.start();
         assert!(container.is_started());
         assert_ne!(0, container.get_host_rpc_port());
+        assert_ne!(0, container.get_host_p2p_port());
+        assert_ne!(container.get_host_rpc_port(), container.get_host_p2p_port());
 
         container.stop();
         assert!(!container.is_started());

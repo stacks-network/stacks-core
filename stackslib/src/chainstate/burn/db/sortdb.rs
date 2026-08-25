@@ -51,7 +51,9 @@ use crate::chainstate::coordinator::{
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{PoxStartCycleInfo, RewardSet};
-use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, DiskChainStateBackend, StacksBlockHeaderTypes, StacksChainState,
+};
 use crate::chainstate::stacks::index::file::TrieFile;
 use crate::chainstate::stacks::index::marf::{
     test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
@@ -61,8 +63,9 @@ use crate::chainstate::ChainstateDB;
 use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, StacksEpochId};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::util_lib::db::{
-    db_mkdirs, opt_u64_to_sql, query_row, query_row_panic, query_rows, sql_pragma, table_exists,
-    u64_to_sql, DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    db_mkdirs, is_sqlite_memory_path, opt_u64_to_sql, query_row, query_row_panic, query_rows,
+    sql_pragma, table_exists, u64_to_sql, DBConn, DBTx, Error as db_error, FromColumn, FromRow,
+    IndexDBConn, IndexDBTx,
 };
 
 const BLOCK_HEIGHT_MAX: u64 = (1 << 63) - 1;
@@ -2719,9 +2722,9 @@ impl SortitionDB {
         )
     }
 
-    pub fn index_handle_at_block<'a>(
+    pub fn index_handle_at_block<'a, B: ChainStatePersistence>(
         &'a self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<B>,
         stacks_block_id: &StacksBlockId,
     ) -> Result<SortitionHandleConn<'a>, db_error> {
         let lookup_block_id = if let Some(ref unconfirmed_state) = chainstate.unconfirmed_state {
@@ -2799,7 +2802,8 @@ impl SortitionDB {
     ) -> Result<MARF<SortitionId>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
         let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
-        open_opts.external_blobs = TrieFile::exists(marf_path)?;
+        open_opts.external_blobs =
+            !is_sqlite_memory_path(marf_path) && TrieFile::exists(marf_path)?;
         test_override_marf_compression(&mut open_opts);
         let marf = MARF::from_path(marf_path, open_opts).map_err(|_e| db_error::Corruption)?;
         sql_pragma(marf.sqlite_conn(), "foreign_keys", &true)?;
@@ -2861,24 +2865,28 @@ impl SortitionDB {
         first_burn_header_timestamp: u64,
         epochs: &[StacksEpoch],
         pox_constants: PoxConstants,
-        migrator: Option<SortitionDBMigrator>,
+        migrator: Option<SortitionDBMigrator<DiskChainStateBackend>>,
         readwrite: bool,
         marf_opts: Option<MARFOpenOpts>,
     ) -> Result<SortitionDB, db_error> {
-        let create_flag = match fs::metadata(path) {
-            Err(e) => {
-                if e.kind() == ErrorKind::NotFound {
-                    // need to create
-                    if readwrite {
-                        true
+        let create_flag = if is_sqlite_memory_path(path) {
+            true
+        } else {
+            match fs::metadata(path) {
+                Err(e) => {
+                    if e.kind() == ErrorKind::NotFound {
+                        // need to create
+                        if readwrite {
+                            true
+                        } else {
+                            return Err(db_error::NoDBError);
+                        }
                     } else {
-                        return Err(db_error::NoDBError);
+                        return Err(db_error::IOError(e));
                     }
-                } else {
-                    return Err(db_error::IOError(e));
                 }
+                Ok(_md) => false,
             }
-            Ok(_md) => false,
         };
 
         let index_path = db_mkdirs(path)?;
@@ -2902,7 +2910,7 @@ impl SortitionDB {
             marf_opts,
         };
 
-        if create_flag {
+        if create_flag && !table_exists(db.conn(), "snapshots")? {
             // instantiate!
             db.instantiate(
                 first_block_height,
@@ -3393,10 +3401,10 @@ impl SortitionDB {
     }
 
     /// When applying schema 8, instantiate the `preprocessed_reward_sets` table
-    pub(crate) fn apply_schema_8_preprocessed_reward_sets(
+    pub(crate) fn apply_schema_8_preprocessed_reward_sets<B: ChainStatePersistence>(
         &mut self,
         canonical_tip: &BlockSnapshot,
-        mut migrator: SortitionDBMigrator,
+        mut migrator: SortitionDBMigrator<B>,
     ) -> Result<(), db_error> {
         let pox_constants = self.pox_constants.clone();
         for rc in 0..=(canonical_tip.block_height / u64::from(pox_constants.reward_cycle_length)) {
@@ -3429,7 +3437,7 @@ impl SortitionDB {
     /// the chainstate will also be empty).
     fn apply_schema_8_migration(
         &mut self,
-        mut migrator: Option<SortitionDBMigrator>,
+        mut migrator: Option<SortitionDBMigrator<DiskChainStateBackend>>,
     ) -> Result<(), db_error> {
         let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
 
@@ -3519,7 +3527,7 @@ impl SortitionDB {
     fn check_schema_version_and_update(
         &mut self,
         epochs: &[StacksEpoch],
-        mut migrator: Option<SortitionDBMigrator>,
+        mut migrator: Option<SortitionDBMigrator<DiskChainStateBackend>>,
     ) -> Result<(), db_error> {
         loop {
             match SortitionDB::get_schema_version(self.conn()) {
@@ -3595,7 +3603,7 @@ impl SortitionDB {
     pub fn migrate_if_exists(
         path: &str,
         epochs: &[StacksEpoch],
-        migrator: SortitionDBMigrator,
+        migrator: SortitionDBMigrator<DiskChainStateBackend>,
     ) -> Result<(), db_error> {
         // NOTE: the sortition DB created here will not be used for anything, so it's safe to use
         // the mainnet_default PoX constants

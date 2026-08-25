@@ -34,7 +34,8 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::{
     ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
-    ChainstateBNSNamespace, ClarityTx, StacksChainState, StacksEpochReceipt, StacksHeaderInfo,
+    ChainstateBNSNamespace, ClarityTx, DiskChainStateBackend, Epoch2StagingBlocksDb,
+    StacksBlockStore, StacksChainState, StacksEpochReceipt, StacksHeaderInfo,
 };
 use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
@@ -94,7 +95,7 @@ impl ChainTip {
 
 /// Node is a structure modelising an active node working on the stacks chain.
 pub struct Node {
-    pub chain_state: StacksChainState,
+    pub chain_state: StacksChainState<DiskChainStateBackend>,
     pub config: Config,
     active_registered_key: Option<RegisteredKey>,
     bootstraping_chain: bool,
@@ -171,7 +172,7 @@ pub fn get_names(use_test_chainstate_data: bool) -> Box<dyn Iterator<Item = Chai
 fn spawn_peer(
     is_mainnet: bool,
     chain_id: u32,
-    mut this: PeerNetwork,
+    mut this: PeerNetwork<DiskChainStateBackend>,
     p2p_sock: &SocketAddr,
     rpc_sock: &SocketAddr,
     burn_db_path: String,
@@ -217,7 +218,7 @@ fn spawn_peer(
                     continue;
                 }
             };
-            let (mut chainstate, _) = match StacksChainState::open(
+            let (mut chainstate, _) = match StacksChainState::<DiskChainStateBackend>::open(
                 is_mainnet,
                 chain_id,
                 &stacks_chainstate_path,
@@ -330,7 +331,7 @@ impl Node {
             get_bulk_initial_names: Some(Box::new(move || get_names(use_test_genesis_data))),
         };
 
-        let chain_state_result = StacksChainState::open_and_exec(
+        let chain_state_result = StacksChainState::<DiskChainStateBackend>::open_and_exec(
             config.is_mainnet(),
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
@@ -513,7 +514,7 @@ impl Node {
             .open_burnchain_db(false)
             .expect("Failed to open burnchain DB");
 
-        let p2p_net = PeerNetwork::new(
+        let p2p_net = PeerNetwork::<DiskChainStateBackend>::new(
             peerdb,
             atlasdb,
             stackerdbs,
@@ -809,7 +810,7 @@ impl Node {
         let _parent_consensus_hash = {
             // look up parent consensus hash
             let ic = db.index_conn();
-            let parent_consensus_hash = StacksChainState::get_parent_consensus_hash(
+            let parent_consensus_hash = Epoch2StagingBlocksDb::get_parent_consensus_hash(
                 &ic,
                 &anchored_block.header.parent_block,
                 consensus_hash,
@@ -933,13 +934,13 @@ impl Node {
         let receipts = processed_block.tx_receipts;
         let metadata = processed_block.header;
         let block: StacksBlock = {
-            let block_path = StacksChainState::get_block_path(
+            let block_path = StacksBlockStore::get_block_path(
                 &self.chain_state.blocks_path,
                 &metadata.consensus_hash,
                 &metadata.anchored_header.block_hash(),
             )
             .unwrap();
-            StacksChainState::consensus_load(&block_path).unwrap()
+            StacksBlockStore::consensus_load(&block_path).unwrap()
         };
 
         let chain_tip = ChainTip {

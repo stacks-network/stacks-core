@@ -81,7 +81,7 @@ impl TestChainstateBuilder {
         self
     }
 
-    pub fn build(self) -> StacksChainState {
+    pub fn build(self) -> StacksChainState<DiskChainStateBackend> {
         let path = chainstate_path(&self.test_name);
         if fs::metadata(&path).is_ok() {
             fs::remove_dir_all(&path).unwrap();
@@ -124,7 +124,11 @@ impl TestChainstateBuilder {
     }
 }
 
-pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
+pub fn open_chainstate(
+    mainnet: bool,
+    chain_id: u32,
+    test_name: &str,
+) -> StacksChainState<DiskChainStateBackend> {
     let path = chainstate_path(test_name);
     StacksChainState::open(mainnet, chain_id, &path, None)
         .unwrap()

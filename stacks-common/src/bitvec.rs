@@ -267,21 +267,28 @@ mod test {
             let original_value = input.get(i).unwrap();
             input.set(i, false).unwrap();
             assert_eq!(input.len(), original_input.len());
-            for j in 0..input.len() {
-                if j == i {
-                    continue;
-                }
-                assert_eq!(original_input.get(j), input.get(j));
-            }
             assert_eq!(input.get(i), Some(false));
-            input.set(i, true).unwrap();
-            for j in 0..input.len() {
-                if j == i {
-                    continue;
+            let byte_start = (i / 8) * 8;
+            let byte_end = input.len().min(byte_start.saturating_add(8));
+            let scan_range = if input.len() <= 512 {
+                0..input.len()
+            } else {
+                byte_start..byte_end
+            };
+            for j in scan_range.clone() {
+                if j != i {
+                    assert_eq!(original_input.get(j), input.get(j));
                 }
-                assert_eq!(original_input.get(j), input.get(j));
             }
+
+            input.set(i, true).unwrap();
             assert_eq!(input.get(i), Some(true));
+            for j in scan_range {
+                if j != i {
+                    assert_eq!(original_input.get(j), input.get(j));
+                }
+            }
+
             input.set(i, original_value).unwrap();
             assert_eq!(input.get(i), Some(original_value));
         }

@@ -21,7 +21,7 @@ use std::time::Duration;
 use stacks::burnchains::db::BurnchainHeaderReader;
 use stacks::burnchains::PoxConstants;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::chainstate::stacks::miner::signal_mining_blocked;
 use stacks::core::mempool::MemPoolDB;
 use stacks::cost_estimates::metrics::{CostMetric, UnitMetric};
@@ -42,7 +42,7 @@ pub struct PeerThread {
     /// Node config
     config: Config,
     /// instance of the peer network. Made optional in order to trick the borrow checker.
-    net: PeerNetwork,
+    net: PeerNetwork<DiskChainStateBackend>,
     /// handle to global inter-thread comms
     globals: Globals,
     /// how long to wait for network messages on each poll, in millis
@@ -50,7 +50,7 @@ pub struct PeerThread {
     /// handle to the sortition DB
     sortdb: SortitionDB,
     /// handle to the chainstate DB
-    chainstate: StacksChainState,
+    chainstate: StacksChainState<DiskChainStateBackend>,
     /// handle to the mempool DB
     mempool: MemPoolDB,
     /// Buffered network result relayer command.
@@ -141,7 +141,7 @@ impl PeerThread {
     /// Binds the addresses in the config (which may panic if the port is blocked).
     /// This is so the node will crash "early" before any new threads start if there's going to be
     /// a bind error anyway.
-    pub fn new(runloop: &RunLoop, net: PeerNetwork) -> PeerThread {
+    pub fn new(runloop: &RunLoop, net: PeerNetwork<DiskChainStateBackend>) -> PeerThread {
         Self::new_all(
             runloop.get_globals(),
             runloop.config(),
@@ -154,7 +154,7 @@ impl PeerThread {
         globals: Globals,
         config: &Config,
         pox_constants: PoxConstants,
-        mut net: PeerNetwork,
+        mut net: PeerNetwork<DiskChainStateBackend>,
     ) -> Self {
         let config = config.clone();
         let mempool = config
@@ -189,7 +189,7 @@ impl PeerThread {
             .expect("BUG: PeerNetwork could not bind");
 
         if !did_bind {
-            info!("`PeerNetwork::bind()` skipped, already bound");
+            info!("`PeerNetwork::<DiskChainStateBackend>::bind()` skipped, already bound");
         }
 
         let poll_timeout = config.get_poll_time();

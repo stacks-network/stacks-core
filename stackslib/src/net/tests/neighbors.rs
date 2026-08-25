@@ -19,8 +19,9 @@ use std::sync::Arc;
 use std::thread;
 
 use clarity::vm::costs::ExecutionCost;
-use stacks_common::util::{get_epoch_time_secs, sleep_ms};
+use stacks_common::util::get_epoch_time_secs;
 
+use crate::chainstate::stacks::db::ChainStatePersistence;
 use crate::core::{
     EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     STACKS_EPOCH_MAX,
@@ -34,14 +35,56 @@ use crate::util_lib::test::*;
 
 const TEST_IN_OUT_DEGREES: u64 = 0x1;
 
+/// Force the active neighbor walk past its per-state timeout check.
+fn age_neighbor_walk_state_timeout<CSP: ChainStatePersistence>(peer: &mut TestPeer<'_, CSP>) {
+    if let Some(walk) = peer.network.walk.as_mut() {
+        walk.walk_state_time = get_epoch_time_secs().saturating_sub(walk.walk_state_timeout + 1);
+    }
+}
+
+/// Force the active neighbor walk past its wall-clock reset interval.
+fn age_neighbor_walk_reset_interval<CSP: ChainStatePersistence>(peer: &mut TestPeer<'_, CSP>) {
+    if let Some(walk) = peer.network.walk.as_mut() {
+        walk.walk_instantiation_time =
+            get_epoch_time_secs().saturating_sub(walk.walk_reset_interval + 1);
+    }
+}
+
+/// Force heartbeat ping queuing without waiting for real time to pass.
+fn age_heartbeat_conversations<CSP: ChainStatePersistence>(peer: &mut TestPeer<'_, CSP>) {
+    let now = get_epoch_time_secs();
+    let neighbor_request_timeout = peer.network.connection_opts.neighbor_request_timeout;
+    for convo in peer.network.peers.values_mut() {
+        let stale_by = (convo.heartbeat as u64) + neighbor_request_timeout + 1;
+        convo.stats.last_send_time = now.saturating_sub(stale_by);
+    }
+}
+
+fn has_neighbor_contact_stats<CSP: ChainStatePersistence>(
+    peer: &TestPeer<'_, CSP>,
+    neighbor_addr: &NeighborKey,
+) -> bool {
+    peer.network
+        .get_neighbor_stats(neighbor_addr)
+        .map(|stats| {
+            stats.last_contact_time > 0
+                && stats.last_handshake_time > 0
+                && stats.last_send_time > 0
+                && stats.last_recv_time > 0
+                && stats.bytes_rx > 0
+                && stats.bytes_tx > 0
+        })
+        .unwrap_or(false)
+}
+
 #[test]
 fn test_step_walk_1_neighbor_plain() {
     with_timeout(600, || {
-        let peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
 
@@ -143,14 +186,14 @@ fn test_step_walk_1_neighbor_plain() {
 #[test]
 fn test_step_walk_1_neighbor_plain_no_natpunch() {
     with_timeout(600, || {
-        let peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         // simulate peer 2 not knowing how to handle a natpunch request
         peer_2_config.connection_opts.disable_natpunch = true;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 crawls peer 2
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
@@ -241,16 +284,16 @@ fn test_step_walk_1_neighbor_plain_no_natpunch() {
 #[test]
 fn test_step_walk_1_neighbor_denied() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.connection_opts.walk_retry_count = 10;
         peer_2_config.connection_opts.walk_retry_count = 10;
         peer_1_config.connection_opts.walk_interval = 1;
         peer_2_config.connection_opts.walk_interval = 1;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 crawls peer 2, but peer 1 has denied peer 2
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
@@ -312,8 +355,8 @@ fn test_step_walk_1_neighbor_denied() {
 #[test]
 fn test_step_walk_1_neighbor_bad_epoch() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.connection_opts.walk_retry_count = 10;
         peer_2_config.connection_opts.walk_retry_count = 10;
@@ -340,8 +383,8 @@ fn test_step_walk_1_neighbor_bad_epoch() {
             network_epoch: PEER_VERSION_EPOCH_2_05,
         }]));
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peers know about each other, but peer 2 never talks to peer 1 since it believes that
         // it's in a wholly different epoch
@@ -402,14 +445,14 @@ fn test_step_walk_1_neighbor_bad_epoch() {
 #[test]
 fn test_step_walk_1_neighbor_heartbeat_ping() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.connection_opts.heartbeat = 10;
         peer_2_config.connection_opts.heartbeat = 10;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 crawls peer 2
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
@@ -482,9 +525,8 @@ fn test_step_walk_1_neighbor_heartbeat_ping() {
         assert!(peer_1.network.relay_handles.is_empty());
         assert!(peer_2.network.relay_handles.is_empty());
 
-        info!("Wait 60 seconds for ping timeout");
-        sleep_ms(60000);
-
+        age_heartbeat_conversations(&mut peer_1);
+        age_heartbeat_conversations(&mut peer_2);
         peer_1.network.queue_ping_heartbeats();
         peer_2.network.queue_ping_heartbeats();
 
@@ -497,11 +539,11 @@ fn test_step_walk_1_neighbor_heartbeat_ping() {
 #[test]
 fn test_step_walk_1_neighbor_bootstrapping() {
     with_timeout(600, || {
-        let peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 crawls peer 2, but peer 1 doesn't add peer 2 to its frontier becuase peer 2 is
         // too far behind.
@@ -566,14 +608,14 @@ fn test_step_walk_1_neighbor_bootstrapping() {
 #[test]
 fn test_step_walk_1_neighbor_behind() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.connection_opts.disable_natpunch = true;
         peer_2_config.connection_opts.disable_natpunch = true;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 crawls peer 2, and peer 1 adds peer 2 to its frontier even though peer 2 does
         // not, because peer 2 is too far ahead
@@ -674,12 +716,13 @@ fn test_step_walk_1_neighbor_behind() {
 
 #[test]
 fn test_step_walk_10_neighbors_of_neighbor_plain() {
+    super::setup_rlimit_nofiles();
     with_timeout(600, || {
         // peer 1 has peer 2 as its neighbor.
         // peer 2 has 10 other neighbors.
         // Goal: peer 1 learns about the 10 other neighbors.
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.connection_opts.disable_inv_sync = true;
         peer_1_config.connection_opts.disable_block_download = true;
@@ -687,18 +730,18 @@ fn test_step_walk_10_neighbors_of_neighbor_plain() {
         peer_2_config.connection_opts.disable_inv_sync = true;
         peer_2_config.connection_opts.disable_block_download = true;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         let mut peer_2_neighbors = vec![];
         for i in 0..10 {
-            let mut n = TestPeerConfig::new(function_name!(), 0, 0);
+            let mut n = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
             // turn off features we don't use
             n.connection_opts.disable_inv_sync = true;
             n.connection_opts.disable_block_download = true;
 
-            let p = TestPeer::new(n);
+            let p = TestPeer::new_shared_ephemeral(n);
 
             peer_2.add_neighbor(&mut p.to_neighbor(), None, false);
             peer_2_neighbors.push(p);
@@ -814,12 +857,13 @@ fn test_step_walk_10_neighbors_of_neighbor_plain() {
 
 #[test]
 fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
+    super::setup_rlimit_nofiles();
     with_timeout(600, || {
         // peer 1 has peer 2 as its neighbor.
         // peer 2 has 10 other neighbors, 5 of which are too far behind peer 1.
         // Goal: peer 1 learns about the 5 fresher neighbors.
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.connection_opts.disable_inv_sync = true;
         peer_1_config.connection_opts.disable_block_download = true;
@@ -827,18 +871,18 @@ fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
         peer_2_config.connection_opts.disable_inv_sync = true;
         peer_2_config.connection_opts.disable_block_download = true;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         let mut peer_2_neighbors = vec![];
         for i in 0..10 {
-            let mut n = TestPeerConfig::new(function_name!(), 0, 0);
+            let mut n = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
             // turn off features we don't use
             n.connection_opts.disable_inv_sync = true;
             n.connection_opts.disable_block_download = true;
 
-            let p = TestPeer::new(n);
+            let p = TestPeer::new_shared_ephemeral(n);
             peer_2.add_neighbor(&mut p.to_neighbor(), None, true);
             peer_2_neighbors.push(p);
         }
@@ -979,8 +1023,8 @@ fn test_step_walk_10_neighbors_of_neighbor_bootstrapping() {
 #[test]
 fn test_step_walk_2_neighbors_plain() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -989,8 +1033,8 @@ fn test_step_walk_2_neighbors_plain() {
         peer_1_config.connection_opts.walk_max_duration = 10;
         peer_2_config.connection_opts.walk_max_duration = 10;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 crawls peer 2, and peer 2 crawls peer 1
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
@@ -1097,8 +1141,8 @@ fn test_step_walk_2_neighbors_plain() {
 #[test]
 fn test_step_walk_2_neighbors_state_timeout() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -1110,8 +1154,8 @@ fn test_step_walk_2_neighbors_state_timeout() {
         peer_1_config.connection_opts.walk_state_timeout = 1;
         peer_2_config.connection_opts.walk_state_timeout = 1;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 crawls peer 2, and peer 2 crawls peer 1
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
@@ -1130,7 +1174,8 @@ fn test_step_walk_2_neighbors_state_timeout() {
                 walk_2_count
             );
 
-            sleep_ms(3_000);
+            age_neighbor_walk_state_timeout(&mut peer_1);
+            age_neighbor_walk_state_timeout(&mut peer_2);
         }
 
         // state resets trigger walk resets
@@ -1142,8 +1187,8 @@ fn test_step_walk_2_neighbors_state_timeout() {
 #[test]
 fn test_step_walk_2_neighbors_walk_timeout() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -1158,8 +1203,8 @@ fn test_step_walk_2_neighbors_walk_timeout() {
         peer_1_config.connection_opts.walk_reset_interval = 10;
         peer_2_config.connection_opts.walk_reset_interval = 10;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 crawls peer 2, and peer 2 crawls peer 1
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
@@ -1184,10 +1229,14 @@ fn test_step_walk_2_neighbors_walk_timeout() {
                 walk_2_step_count
             );
 
+            if peer_1.network.walk_resets > 0 && peer_2.network.walk_resets > 0 {
+                break;
+            }
+
             if walk_1_count < peer_1.network.walk_count || walk_2_count < peer_2.network.walk_count
             {
-                // force walk to time out
-                sleep_ms(11_000);
+                age_neighbor_walk_reset_interval(&mut peer_1);
+                age_neighbor_walk_reset_interval(&mut peer_2);
             }
 
             walk_1_count = peer_1
@@ -1196,7 +1245,7 @@ fn test_step_walk_2_neighbors_walk_timeout() {
                 .as_ref()
                 .map(|w| w.walk_step_count)
                 .unwrap_or(0);
-            walk_2_count = peer_1
+            walk_2_count = peer_2
                 .network
                 .walk
                 .as_ref()
@@ -1215,9 +1264,9 @@ fn test_step_walk_2_neighbors_walk_timeout() {
 #[test]
 fn test_step_walk_3_neighbors_inbound() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_3_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_3_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -1239,9 +1288,9 @@ fn test_step_walk_3_neighbors_inbound() {
         peer_2_config.connection_opts.log_neighbors_freq = 1;
         peer_3_config.connection_opts.log_neighbors_freq = 1;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
-        let mut peer_3 = TestPeer::new(peer_3_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
+        let mut peer_3 = TestPeer::new_shared_ephemeral(peer_3_config);
 
         // Peer 2 and peer 3 are public nodes that don't know about each other, but peer 1 lists
         // both of them as outbound neighbors.  Goal is for peer 2 to learn about peer 3, and vice
@@ -1388,8 +1437,8 @@ fn test_step_walk_3_neighbors_inbound() {
 #[test]
 fn test_step_walk_2_neighbors_rekey() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.allowed = -1;
         peer_2_config.allowed = -1;
@@ -1410,8 +1459,8 @@ fn test_step_walk_2_neighbors_rekey() {
         peer_1_config.connection_opts.private_key_lifetime = 5;
         peer_2_config.connection_opts.private_key_lifetime = 5;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         // peer 1 crawls peer 2, and peer 2 crawls peer 1
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
@@ -1419,6 +1468,8 @@ fn test_step_walk_2_neighbors_rekey() {
 
         let initial_public_key_1 = peer_1.get_public_key();
         let initial_public_key_2 = peer_2.get_public_key();
+        let peer_1_addr = peer_1.to_neighbor().addr;
+        let peer_2_addr = peer_2.to_neighbor().addr;
 
         // walk for a bit
         for i in 0..10 {
@@ -1441,11 +1492,20 @@ fn test_step_walk_2_neighbors_rekey() {
             peer_2.add_empty_burnchain_block();
         }
 
+        // Rekeying can drop the original conversation just as the replacement connection is
+        // accepted. Keep stepping until both replacement handshakes have populated stats.
+        for _ in 0..20 {
+            if has_neighbor_contact_stats(&peer_1, &peer_2_addr)
+                && has_neighbor_contact_stats(&peer_2, &peer_1_addr)
+            {
+                break;
+            }
+            let _ = peer_1.step();
+            let _ = peer_2.step();
+        }
+
         // peer 1 contacted peer 2
-        let stats_1 = peer_1
-            .network
-            .get_neighbor_stats(&peer_2.to_neighbor().addr)
-            .unwrap();
+        let stats_1 = peer_1.network.get_neighbor_stats(&peer_2_addr).unwrap();
         assert!(stats_1.last_contact_time > 0);
         assert!(stats_1.last_handshake_time > 0);
         assert!(stats_1.last_send_time > 0);
@@ -1454,10 +1514,7 @@ fn test_step_walk_2_neighbors_rekey() {
         assert!(stats_1.bytes_tx > 0);
 
         // peer 2 contacted peer 1
-        let stats_2 = peer_2
-            .network
-            .get_neighbor_stats(&peer_1.to_neighbor().addr)
-            .unwrap();
+        let stats_2 = peer_2.network.get_neighbor_stats(&peer_1_addr).unwrap();
         assert!(stats_2.last_contact_time > 0);
         assert!(stats_2.last_handshake_time > 0);
         assert!(stats_2.last_send_time > 0);
@@ -1497,13 +1554,13 @@ fn test_step_walk_2_neighbors_rekey() {
 #[test]
 fn test_step_walk_2_neighbors_different_networks() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.chain_config.network_id = peer_2_config.chain_config.network_id + 1;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         let mut peer_1_neighbor = peer_1.to_neighbor();
         peer_1_neighbor.addr.network_id = peer_2.config.chain_config.network_id;
@@ -1561,14 +1618,14 @@ fn test_step_walk_2_neighbors_different_networks() {
 #[test]
 fn test_issue_concurrent_requests_in_different_state_machines() {
     with_timeout(600, || {
-        let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer = TestPeer::new(peer_config);
+        let peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer = TestPeer::new_shared_ephemeral(peer_config);
 
         let peer_addr = NeighborAddress::from_neighbor(&peer.to_neighbor());
         let peer_host = peer.to_peer_host();
 
-        let peer_client_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_client = TestPeer::new(peer_client_config);
+        let peer_client_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_client = TestPeer::new_shared_ephemeral(peer_client_config);
 
         let run = Arc::new(AtomicBool::new(true));
         let run_thread = run.clone();

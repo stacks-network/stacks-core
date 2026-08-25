@@ -22,7 +22,7 @@ use clarity::vm::clarity::ClarityConnection;
 use rand::Rng;
 use rusqlite::params;
 
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::StacksAccountReader;
 use crate::util_lib::db::{query_row, u64_to_sql, DBConn, Error as db_error};
 
 /// Used to cache nonces in memory and in the mempool database.
@@ -108,7 +108,7 @@ impl NonceCache {
         }
 
         // Check the chainstate
-        let nonce = StacksChainState::get_nonce(clarity_tx, &address.clone().into());
+        let nonce = clarity_tx.get_nonce(&address.clone().into());
 
         self.set(address.clone(), nonce, mempool_db);
         nonce

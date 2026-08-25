@@ -29,13 +29,12 @@ use std::{env, thread};
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::Value;
-use libsigner::v0::messages::{
-    BlockAccepted, BlockResponse, MessageSlotID, PeerInfo, SignerMessage,
-};
+use libsigner::v0::messages::{BlockResponse, MessageSlotID, PeerInfo, SignerMessage};
 use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use serde::{Deserialize, Serialize};
 use stacks::burnchains::Txid;
+use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::NakamotoBlock;
@@ -66,18 +65,18 @@ use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::tests::TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use stacks_signer::{Signer, SpawnedSigner};
 
+use super::bitcoin::BitcoinTestDaemon;
 use super::nakamoto_integrations::{
     check_nakamoto_empty_block_heuristics, next_block_and, wait_for,
 };
 use super::neon_integrations::{
     copy_dir_all, get_account, get_sortition_info_ch, submit_tx_fallible, Account,
 };
-use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::nakamoto_node::miner::TEST_MINE_SKIP;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
-    naka_neon_integration_conf, next_block_and_wait_for_commits, POX_DEFAULT_STACKER_BALANCE,
+    naka_neon_integration_conf, POX_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
     get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
@@ -86,14 +85,14 @@ use crate::tests::neon_integrations::{
 use crate::tests::signer::v0::{
     wait_for_state_machine_update, wait_for_state_machine_update_by_miner_tenure_id,
 };
-use crate::tests::to_addr;
+use crate::tests::{test_port, to_addr};
 use crate::BitcoinRegtestController;
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]
 pub struct RunningNodes {
     pub btc_regtest_controller: BitcoinRegtestController,
-    pub btcd_controller: BitcoinCoreController,
+    btcd_controller: BitcoinTestDaemon,
     pub run_loop_thread: thread::JoinHandle<()>,
     pub run_loop_stopper: Arc<AtomicBool>,
     pub counters: Counters,
@@ -270,8 +269,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             &Network::Testnet,
             password,
             run_stamp,
-            3000,
-            Some(9000),
+            usize::from(test_port(3000)),
+            Some(usize::from(test_port(9000))),
             None,
         )
         .into_iter()
@@ -841,8 +840,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     ///  waiting until all of the signers have updated their state machines to
     ///  reflect the most recent burn block.
     pub fn get_burn_updated_states(&self) -> (Vec<LocalStateMachine>, PeerInfo) {
-        let info_cur = self.get_peer_info();
-        let current_rc = self.get_current_reward_cycle();
+        let burnchain = self.running_nodes.btc_regtest_controller.get_burnchain();
+        let mut info_cur = self.get_peer_info();
+        let mut current_rc = burnchain
+            .block_height_to_reward_cycle(info_cur.burn_block_height)
+            .expect("Peer burn height must map to a reward cycle");
         let mut states = Vec::with_capacity(0);
         // fetch all the state machines *twice*
         //  we do this because the state machines return before the signer runloop
@@ -852,6 +854,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         for _i in 0..2 {
             wait_for(120, || {
                 states = self.get_all_states();
+                info_cur = self.get_peer_info();
+                current_rc = burnchain
+                    .block_height_to_reward_cycle(info_cur.burn_block_height)
+                    .expect("Peer burn height must map to a reward cycle");
                 Ok(states.iter().enumerate().all(|(ix, signer_state)| {
                     let Some(Some(state_machine)) = signer_state
                         .signer_state_machines
@@ -879,7 +885,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                         warn!("Local state machine for signer #{ix} not initialized");
                         return false;
                     };
-                    state_machine.burn_block_height >= info_cur.burn_block_height
+                    state_machine.burn_block == info_cur.pox_consensus
+                        && state_machine.burn_block_height == info_cur.burn_block_height
                 }))
             })
                 .expect("Timed out while waiting to fetch local state machines from the signer set");
@@ -1119,6 +1126,50 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         })
     }
 
+    /// Wait until every signer has installed matching local and global burn
+    /// views for the current reward cycle.
+    pub fn wait_for_signer_burn_view(
+        &self,
+        timeout: u64,
+        burn_block: &ConsensusHash,
+        burn_block_height: u64,
+    ) -> Result<(), String> {
+        let current_reward_cycle = self.get_current_reward_cycle();
+        wait_for(timeout, || {
+            let states = self.get_all_states();
+            Ok(states.iter().all(|state| {
+                let local_matches = state
+                    .signer_state_machines
+                    .iter()
+                    .find(|(reward_cycle, _)| current_reward_cycle % 2 == *reward_cycle)
+                    .is_some_and(|(_, local_state)| {
+                        matches!(
+                            local_state,
+                            Some(LocalStateMachine::Initialized(local_state))
+                                if local_state.burn_block == *burn_block
+                                    && local_state.burn_block_height >= burn_block_height
+                        )
+                    });
+
+                // A signer cannot validate a proposal until it has received
+                // enough peer updates to form a global snapshot. Do not
+                // release mining while that snapshot is absent or stale.
+                let global_matches = state
+                    .signer_global_state_machines
+                    .iter()
+                    .find(|(reward_cycle, _)| current_reward_cycle % 2 == *reward_cycle)
+                    .is_some_and(|(_, global_state)| {
+                        global_state.as_ref().is_some_and(|global_state| {
+                            global_state.burn_block == *burn_block
+                                && global_state.burn_block_height >= burn_block_height
+                        })
+                    });
+
+                local_matches && global_matches
+            }))
+        })
+    }
+
     pub fn wait_for_replay_set_eq(&self, timeout: u64, expected_txids: Vec<String>) {
         self.wait_for_signer_state_check(timeout, |state| {
             let Some(replay_set) = state.get_tx_replay_set() else {
@@ -1172,22 +1223,48 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         timeout: Duration,
         use_nakamoto_blocks_mined: bool,
     ) {
+        self.try_mine_nakamoto_block_without_commit(timeout, use_nakamoto_blocks_mined)
+            .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    /// Fallible form of [`Self::mine_nakamoto_block_without_commit`].
+    fn try_mine_nakamoto_block_without_commit(
+        &self,
+        timeout: Duration,
+        use_nakamoto_blocks_mined: bool,
+    ) -> Result<(), String> {
         let info_before = get_chain_info(&self.running_nodes.conf);
+        let counters = &self.running_nodes.counters;
+        wait_for(timeout.as_secs(), || {
+            Ok(counters.naka_submitted_commit_last_burn_height.get()
+                >= info_before.burn_block_height)
+        })
+        .map_err(|error| {
+            format!(
+                "Failed to observe a block commit for burn height {}; latest commit used burn \
+                 height {} and Stacks height {}: {error}",
+                info_before.burn_block_height,
+                counters.naka_submitted_commit_last_burn_height.get(),
+                counters.naka_submitted_commit_last_stacks_tip.get(),
+            )
+        })?;
+
         info!("Pausing stacks block mining");
         TEST_MINE_SKIP.set(true);
-        let mined_blocks = self.running_nodes.counters.naka_mined_blocks.clone();
+        let mined_blocks = counters.naka_mined_blocks.clone();
         let mined_before = mined_blocks.get();
         self.mine_bitcoin_block();
-        wait_for_state_machine_update_by_miner_tenure_id(
+        let signer_update_result = wait_for_state_machine_update_by_miner_tenure_id(
             timeout.as_secs(),
             &get_chain_info(&self.running_nodes.conf).pox_consensus,
             &self.signer_addresses_versions_majority(),
-        )
-        .expect("Failed to update signer state machine");
+        );
 
         info!("Unpausing stacks block mining");
         let mined_block_time = Instant::now();
         TEST_MINE_SKIP.set(false);
+        signer_update_result
+            .map_err(|error| format!("Failed to update signer state machine: {error}"))?;
         // Do these wait for's in two steps not only for increased timeout but for easier debugging.
         // Ensure that the tenure change transaction is mined
         wait_for(timeout.as_secs(), || {
@@ -1195,16 +1272,27 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 > info_before.stacks_tip_height
                 && (!use_nakamoto_blocks_mined || mined_blocks.get() > mined_before))
         })
-        .expect("Failed to mine Tenure Change block");
+        .map_err(|error| format!("Failed to mine Tenure Change block: {error}"))?;
         info!(
             "Nakamoto block mine time elapsed: {:?}",
             mined_block_time.elapsed()
         );
+        Ok(())
     }
 
     /// Mine a BTC block and wait for a new Stacks block to be mined and commit to be submitted
     /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
     fn mine_nakamoto_block(&self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
+        self.try_mine_nakamoto_block(timeout, use_nakamoto_blocks_mined)
+            .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    /// Fallible form of [`Self::mine_nakamoto_block`].
+    fn try_mine_nakamoto_block(
+        &self,
+        timeout: Duration,
+        use_nakamoto_blocks_mined: bool,
+    ) -> Result<(), String> {
         let Counters {
             naka_submitted_commits: commits_submitted,
             naka_submitted_commit_last_burn_height: commits_last_burn_height,
@@ -1213,7 +1301,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         } = self.running_nodes.counters.clone();
         let commits_before = commits_submitted.get();
         let commit_burn_height_before = commits_last_burn_height.get();
-        self.mine_nakamoto_block_without_commit(timeout, use_nakamoto_blocks_mined);
+        self.try_mine_nakamoto_block_without_commit(timeout, use_nakamoto_blocks_mined)?;
         // Ensure the subsequent block commit confirms the previous Tenure Change block
         let stacks_tip_height = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
         wait_for(timeout.as_secs(), || {
@@ -1221,33 +1309,19 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 && commits_last_burn_height.get() > commit_burn_height_before
                 && commits_last_stacks_tip.get() >= stacks_tip_height)
         })
-        .expect("Failed to update Block Commit");
+        .map_err(|error| format!("Failed to update Block Commit: {error}"))?;
+        Ok(())
     }
 
-    fn mine_block_wait_on_processing(
-        &self,
-        node_confs: &[&NeonConfig],
-        node_counters: &[&Counters],
-        timeout: Duration,
-    ) {
+    fn mine_block_wait_on_processing(&self, timeout: Duration) {
         let blocks_len = test_observer::get_blocks().len();
         let mined_block_time = Instant::now();
-        next_block_and_wait_for_commits(
+        next_block_and(
             &self.running_nodes.btc_regtest_controller,
             timeout.as_secs(),
-            node_confs,
-            node_counters,
-            true,
+            || Ok(test_observer::get_blocks().len() > blocks_len),
         )
-        .unwrap();
-        let t_start = Instant::now();
-        while test_observer::get_blocks().len() <= blocks_len {
-            assert!(
-                t_start.elapsed() < timeout,
-                "Timed out while waiting for nakamoto block to be processed"
-            );
-            thread::sleep(Duration::from_secs(1));
-        }
+        .expect("Timed out while waiting for Nakamoto block to be processed");
         let mined_block_elapsed_time = mined_block_time.elapsed();
         info!("Nakamoto block mine time elapsed: {mined_block_elapsed_time:?}");
     }
@@ -1511,7 +1585,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         {
             let client = reqwest::blocking::Client::new();
             client
-                .get("http://localhost:9000/metrics")
+                .get(format!("http://localhost:{}/metrics", test_port(9000)))
                 .send()
                 .unwrap()
                 .text()
@@ -1545,7 +1619,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
         // Stop bitcoind after the run loop is fully shut down,
         // so the relayer doesn't hit ConnectionRefused.
-        self.running_nodes.btcd_controller.stop_bitcoind().unwrap();
+        self.running_nodes.btcd_controller.stop();
 
         if needs_snapshot {
             Self::make_snapshot(
@@ -1611,14 +1685,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             panic!("Latest message from slot #{slot_id} isn't a block acceptance");
         };
         block_response
-    }
-
-    /// Get the latest block acceptance from the given slot
-    pub fn get_latest_block_acceptance(&self, slot_id: u32) -> BlockAccepted {
-        self.get_latest_block_response(slot_id)
-            .as_block_accepted()
-            .expect("Latest block response from slot #{slot_id} isn't a block acceptance")
-            .clone()
     }
 
     /// Get miner stackerDB messages
@@ -1820,7 +1886,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
 
     // Spawn a test observer for verification purposes
     test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    let observer_port = test_observer::event_observer_port();
     naka_conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
         events_keys: vec![
@@ -1860,12 +1926,8 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     }
     node_config_modifier(&mut naka_conf);
 
-    info!("Make new BitcoinCoreController");
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
-    btcd_controller
-        .start_bitcoind()
-        .map_err(|_e| ())
-        .expect("Failed starting bitcoind");
+    info!("Start bitcoind");
+    let btcd_controller = BitcoinTestDaemon::start(&mut naka_conf);
 
     info!("Make new BitcoinRegtestController");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);

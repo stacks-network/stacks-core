@@ -16,10 +16,10 @@
 
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashSet};
+use std::fs;
 use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
-use std::{fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
@@ -60,9 +60,7 @@ use crate::chainstate::stacks::db::accounts::*;
 use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::events::*;
-use crate::chainstate::stacks::index::marf::{
-    test_override_marf_compression, MARFOpenOpts, MarfConnection, MARF,
-};
+use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::{
@@ -81,10 +79,11 @@ use crate::monitoring;
 use crate::net::atlas::BNS_CHARS_REGEX;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::{
-    query_row, DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
 pub mod accounts;
+pub mod backend;
 pub mod blocks;
 pub mod contracts;
 pub mod headers;
@@ -93,6 +92,21 @@ pub mod snapshot;
 pub mod testing;
 pub mod transactions;
 pub mod unconfirmed;
+
+pub use self::accounts::{
+    MinerRewardCalculator, MinerRewardsDb, StacksAccountReader, StacksAccountWriter,
+};
+pub use self::backend::*;
+pub use self::blocks::{
+    Epoch2BlockProcessor, Epoch2BlockValidator, Epoch2StagingBlocksDb, MempoolAdmissionPolicy,
+    StacksBlockStore,
+};
+pub use self::contracts::ClarityStateRead;
+pub use self::headers::StacksHeadersDb;
+pub use self::transactions::{
+    handle_poison_microblock, StacksTransactionBlock, StacksTransactionChecker,
+    StacksTransactionExecution, StacksTransactionPrecheck,
+};
 
 /// Fault injection struct for various kinds of faults we'd like to introduce into the system
 pub struct StacksChainStateFaults {
@@ -107,7 +121,7 @@ impl StacksChainStateFaults {
     }
 }
 
-pub struct StacksChainState {
+pub struct StacksChainState<B: ChainStatePersistence> {
     pub mainnet: bool,
     pub chain_id: u32,
     pub clarity_state: ClarityInstance,
@@ -120,7 +134,14 @@ pub struct StacksChainState {
     pub unconfirmed_state: Option<UnconfirmedState>,
     pub fault_injection: StacksChainStateFaults,
     marf_opts: Option<MARFOpenOpts>,
+    backend: B,
 }
+
+/// Handles PoX reward-cycle start bookkeeping and unlock transitions.
+pub struct PoxCycleStartHandler;
+
+/// Computes PoX reward set thresholds, reward slots, and signer sets.
+pub struct PoxRewardSetCalculator;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksAccount {
@@ -1018,310 +1039,10 @@ impl ChainStateBootData {
     }
 }
 
-impl StacksChainState {
-    fn instantiate_db(
-        mainnet: bool,
-        chain_id: u32,
-        marf_path: &str,
-        migrate: bool,
-        marf_opts: Option<MARFOpenOpts>,
-    ) -> Result<MARF<StacksBlockId>, Error> {
-        let mut marf = StacksChainState::open_index(marf_path, marf_opts)?;
-        let mut dbtx = StacksDBTx::new(&mut marf, ());
+/// Installs genesis boot contracts and imported genesis state.
+pub struct ChainStateBootInstaller;
 
-        {
-            let tx = dbtx.tx();
-
-            for cmd in CHAINSTATE_INITIAL_SCHEMA {
-                tx.execute_batch(cmd)?;
-            }
-            tx.execute(
-                "INSERT INTO db_config (version,mainnet,chain_id) VALUES (?1,?2,?3)",
-                params!["1".to_string(), (if mainnet { 1 } else { 0 }), chain_id,],
-            )?;
-
-            if migrate {
-                StacksChainState::apply_schema_migrations(tx, mainnet, chain_id)?;
-            }
-
-            StacksChainState::add_indexes(tx)?;
-        }
-
-        dbtx.instantiate_index()?;
-        dbtx.commit()?;
-        Ok(marf)
-    }
-
-    /// Load the chainstate DBConfig, given the path to the chainstate root
-    pub fn get_db_config_from_path(chainstate_root_path: &str) -> Result<DBConfig, db_error> {
-        let index_pathbuf =
-            StacksChainState::header_index_root_path(PathBuf::from(chainstate_root_path));
-        let index_path = index_pathbuf
-            .to_str()
-            .ok_or_else(|| db_error::ParseError)?
-            .to_string();
-
-        let marf = StacksChainState::open_index(&index_path, None)?;
-        StacksChainState::load_db_config(marf.sqlite_conn())
-    }
-
-    pub fn load_db_config(conn: &DBConn) -> Result<DBConfig, db_error> {
-        let config = query_row::<DBConfig, _>(conn, "SELECT * FROM db_config LIMIT 1", NO_PARAMS)?;
-        Ok(config.expect("BUG: no db_config installed"))
-    }
-
-    /// Do we need a schema migration?
-    /// Return Ok(true) if so
-    /// Return Ok(false) if not
-    /// Return Err(..) on DB errors, or if this DB is not consistent with `mainnet` or `chain_id`
-    fn need_schema_migrations(
-        conn: &Connection,
-        mainnet: bool,
-        chain_id: u32,
-    ) -> Result<bool, Error> {
-        let db_config =
-            StacksChainState::load_db_config(conn).expect("CORRUPTION: no db_config found");
-
-        if db_config.mainnet != mainnet {
-            error!(
-                "Invalid chain state database: expected mainnet = {}, got {}",
-                mainnet, db_config.mainnet
-            );
-            return Err(Error::InvalidChainstateDB);
-        }
-
-        if db_config.chain_id != chain_id {
-            error!(
-                "Invalid chain ID: expected {}, got {}",
-                chain_id, db_config.chain_id
-            );
-            return Err(Error::InvalidChainstateDB);
-        }
-
-        Ok(db_config.version != CHAINSTATE_VERSION)
-    }
-
-    fn apply_schema_migrations(tx: &DBTx<'_>, mainnet: bool, chain_id: u32) -> Result<(), Error> {
-        if !Self::need_schema_migrations(tx, mainnet, chain_id)? {
-            return Ok(());
-        }
-
-        let mut db_config =
-            StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
-
-        while db_config.version != CHAINSTATE_VERSION {
-            match db_config.version.as_str() {
-                "1" => {
-                    info!("Migrating chainstate schema from version 1 to 2");
-                    for cmd in CHAINSTATE_SCHEMA_2.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "2" => {
-                    info!("Migrating chainstate schema from version 2 to 3");
-                    for cmd in CHAINSTATE_SCHEMA_3.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "3" => {
-                    info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
-                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "4" => {
-                    info!(
-                        "Migrating chainstate schema from version 4 to 5: fix nakamoto tenure typo"
-                    );
-                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "5" => {
-                    info!("Migrating chainstate schema from version 5 to 6: adds height_in_tenure field");
-                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_3.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "6" => {
-                    info!(
-                        "Migrating chainstate schema from version 6 to 7: adds signer_stats table"
-                    );
-                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_4.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "7" => {
-                    info!(
-                        "Migrating chainstate schema from version 7 to 8: add index for nakamoto block headers"
-                    );
-                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_5.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "8" => {
-                    info!(
-                        "Migrating chainstate schema from version 8 to 9: add index for staging_blocks"
-                    );
-                    for cmd in CHAINSTATE_SCHEMA_4.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "9" => {
-                    info!(
-                        "Migrating chainstate schema from version 9 to 10: add index for nakamoto_block_headers"
-                    );
-                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_6.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "10" => {
-                    info!(
-                        "Migrating chainstate schema from version 10 to 11: drop affirmation_weight from block_headers"
-                    );
-                    for cmd in CHAINSTATE_SCHEMA_5.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "11" => {
-                    info!(
-                        "Migrating chainstate schema from version 11 to 12: add index for nakamoto_block_headers"
-                    );
-                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_7.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "12" => {
-                    info!(
-                        "Migrating chainstate schema from version 12 to 13: add total_tenure_size field"
-                    );
-                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_8.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                "13" => {
-                    info!(
-                        "Migrating chainstate schema from version 13 to 14: add problematic_txs column to nakamoto_block_headers"
-                    );
-                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_9.iter() {
-                        tx.execute_batch(cmd)?;
-                    }
-                }
-                _ => {
-                    error!(
-                        "Invalid chain state database: expected version = {}, got {}",
-                        CHAINSTATE_VERSION, db_config.version
-                    );
-                    return Err(Error::InvalidChainstateDB);
-                }
-            }
-            db_config =
-                StacksChainState::load_db_config(tx).expect("CORRUPTION: no db_config found");
-        }
-        Ok(())
-    }
-
-    fn add_indexes(tx: &DBTx<'_>) -> Result<(), Error> {
-        for cmd in CHAINSTATE_INDEXES {
-            tx.execute_batch(cmd)?;
-        }
-        Ok(())
-    }
-
-    fn open_db(
-        mainnet: bool,
-        chain_id: u32,
-        index_path: &str,
-        marf_opts: Option<MARFOpenOpts>,
-    ) -> Result<MARF<StacksBlockId>, Error> {
-        let create_flag = fs::metadata(index_path).is_err();
-
-        if create_flag {
-            // instantiate!
-            StacksChainState::instantiate_db(mainnet, chain_id, index_path, true, marf_opts.clone())
-        } else {
-            let mut marf = StacksChainState::open_index(index_path, marf_opts)?;
-            if !Self::need_schema_migrations(marf.sqlite_conn(), mainnet, chain_id)? {
-                return Ok(marf);
-            }
-
-            // need a migration
-            let tx = marf.storage_tx()?;
-            StacksChainState::apply_schema_migrations(&tx, mainnet, chain_id)?;
-            StacksChainState::add_indexes(&tx)?;
-            tx.commit()?;
-            Ok(marf)
-        }
-    }
-
-    #[cfg(test)]
-    pub fn open_db_without_migrations(
-        mainnet: bool,
-        chain_id: u32,
-        index_path: &str,
-    ) -> Result<MARF<StacksBlockId>, Error> {
-        let create_flag = fs::metadata(index_path).is_err();
-
-        if create_flag {
-            // instantiate!
-            StacksChainState::instantiate_db(mainnet, chain_id, index_path, false, None)
-        } else {
-            let mut marf = StacksChainState::open_index(index_path, None)?;
-
-            // do we need to apply a schema change?
-            let db_config = StacksChainState::load_db_config(marf.sqlite_conn())
-                .expect("CORRUPTION: no db_config found");
-
-            let tx = marf.storage_tx()?;
-            StacksChainState::add_indexes(&tx)?;
-            tx.commit()?;
-            Ok(marf)
-        }
-    }
-
-    /// Open or create the chainstate MARF index database and its associated blobs file.
-    ///
-    /// This function opens the SQLite-based MARF index at `marf_path`. If the index
-    /// database or its corresponding blobs file does not exist, they will be created.
-    ///
-    /// # Arguments
-    /// * `marf_path` - Path to the MARF SQLite index database.
-    /// * `marf_opts` - Configuration options for opening the MARF.
-    ///
-    /// # Behavior
-    /// Given a `marf_path` such as `chainstate/vm/clarity/index.sqlite`,
-    /// the related blobs file will be `chainstate/vm/clarity/index.sqlite.blobs`.
-    pub fn open_index(
-        marf_path: &str,
-        marf_opts: Option<MARFOpenOpts>,
-    ) -> Result<MARF<StacksBlockId>, db_error> {
-        test_debug!("Open MARF index at {}", marf_path);
-        let mut open_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
-        open_opts.external_blobs = true;
-        test_override_marf_compression(&mut open_opts);
-        let marf = MARF::from_path(marf_path, open_opts).map_err(db_error::IndexError)?;
-        Ok(marf)
-    }
-
-    /// Idempotent `mkdir -p`
-    fn mkdirs(path: &PathBuf) -> Result<(), Error> {
-        match fs::metadata(path) {
-            Ok(md) => {
-                if !md.is_dir() {
-                    error!("Not a directory: {:?}", path);
-                    return Err(Error::DBError(db_error::ExistsError));
-                }
-                Ok(())
-            }
-            Err(e) => {
-                if e.kind() != io::ErrorKind::NotFound {
-                    return Err(Error::DBError(db_error::IOError(e)));
-                }
-                fs::create_dir_all(path).map_err(|e| Error::DBError(db_error::IOError(e)))
-            }
-        }
-    }
-
+impl ChainStateBootInstaller {
     fn parse_genesis_address(addr: &str, mainnet: bool) -> PrincipalData {
         // Typical entries are BTC encoded addresses that need converted to STX
         let stacks_address = match LegacyBitcoinAddress::from_b58(addr) {
@@ -1414,8 +1135,7 @@ impl StacksChainState {
                 StacksTransaction::new(tx_version, boot_code_auth.clone(), smart_contract);
 
             let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
-                StacksChainState::process_transaction_payload(
-                    clarity,
+                clarity.process_transaction_payload(
                     &boot_code_smart_contract,
                     &boot_code_account,
                     &TransactionResourceBudgets::unlimited(),
@@ -1435,7 +1155,7 @@ impl StacksChainState {
         }
         for (address, amount) in boot_data.initial_balances.iter() {
             clarity_tx.connection().as_transaction(|clarity| {
-                StacksChainState::account_genesis_credit(clarity, address, (*amount).into())
+                clarity.account_genesis_credit(address, (*amount).into())
             });
             initial_liquid_ustx = initial_liquid_ustx
                 .checked_add(*amount as u128)
@@ -1456,13 +1176,8 @@ impl StacksChainState {
                 let initial_balances = get_balances();
                 for balance in initial_balances {
                     balances_count += 1;
-                    let stx_address =
-                        StacksChainState::parse_genesis_address(&balance.address, mainnet);
-                    StacksChainState::account_genesis_credit(
-                        clarity,
-                        &stx_address,
-                        balance.amount.into(),
-                    );
+                    let stx_address = Self::parse_genesis_address(&balance.address, mainnet);
+                    clarity.account_genesis_credit(&stx_address, balance.amount.into());
                     initial_liquid_ustx = initial_liquid_ustx
                         .checked_add(balance.amount as u128)
                         .expect("FATAL: liquid STX overflow");
@@ -1483,8 +1198,7 @@ impl StacksChainState {
                 let mut lockups_per_block: BTreeMap<u64, Vec<Value>> = BTreeMap::new();
                 let initial_lockups = get_schedules();
                 for schedule in initial_lockups {
-                    let stx_address =
-                        StacksChainState::parse_genesis_address(&schedule.address, mainnet);
+                    let stx_address = Self::parse_genesis_address(&schedule.address, mainnet);
                     let value = Value::Tuple(
                         TupleData::from_data(vec![
                             (
@@ -1547,10 +1261,7 @@ impl StacksChainState {
                             };
 
                             let importer = {
-                                let address = StacksChainState::parse_genesis_address(
-                                    &entry.importer,
-                                    mainnet,
-                                );
+                                let address = Self::parse_genesis_address(&entry.importer, mainnet);
                                 Value::Principal(address)
                             };
 
@@ -1660,8 +1371,7 @@ impl StacksChainState {
                                 .unwrap(),
                             );
 
-                            let owner_address =
-                                StacksChainState::parse_genesis_address(&entry.owner, mainnet);
+                            let owner_address = Self::parse_genesis_address(&entry.owner, mainnet);
 
                             let zonefile_hash = {
                                 if entry.zonefile_hash.is_empty() {
@@ -1778,7 +1488,7 @@ impl StacksChainState {
     }
 
     fn install_boot_code(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         boot_data: &mut ChainStateBootData,
     ) -> Result<Vec<StacksTransactionReceipt>, Error> {
         info!("Building genesis block");
@@ -1791,7 +1501,7 @@ impl StacksChainState {
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &FIRST_STACKS_BLOCK_HASH,
             );
-            let receipts = StacksChainState::instantiate_boot_code(&mut clarity_tx, boot_data)?;
+            let receipts = Self::instantiate_boot_code(&mut clarity_tx, boot_data)?;
             clarity_tx.commit_to_block(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
             receipts
         };
@@ -1849,7 +1559,7 @@ impl StacksChainState {
                 boot_data.first_burnchain_block_timestamp as u64,
             );
 
-            StacksChainState::insert_stacks_block_header(
+            StacksHeadersDb::insert_stacks_block_header(
                 &tx,
                 &parent_hash,
                 &first_tip_info,
@@ -1861,37 +1571,97 @@ impl StacksChainState {
         debug!("Finish install boot code");
         Ok(receipts)
     }
+}
 
+impl StacksChainState<DiskChainStateBackend> {
     pub fn open(
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, marf_opts)
+    ) -> Result<(Self, Vec<StacksTransactionReceipt>), Error> {
+        Self::open_and_exec(mainnet, chain_id, path_str, None, marf_opts)
     }
+}
 
+impl<B: ChainStatePersistence> StacksChainState<B> {
     /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
     /// parameters
-    pub fn reopen(&self) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::open(
+    pub fn reopen(&self) -> Result<(Self, Vec<StacksTransactionReceipt>), Error> {
+        let config = ChainStateOpenConfig {
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            root_path: self.root_path.clone(),
+            marf_opts: self.marf_opts.clone(),
+        };
+        let backend = self.backend.clone();
+        let parts = backend.reopen_shared_parts(&config, self)?;
+        Ok((
+            Self::from_open_parts(self.mainnet, self.chain_id, backend, parts),
+            vec![],
+        ))
+    }
+
+    /// Open an independent handle suitable for constructing a mining candidate against this
+    /// chainstate's current storage.
+    pub fn open_mining_candidate(&self) -> Result<Self, Error> {
+        let config = ChainStateOpenConfig {
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            root_path: self.root_path.clone(),
+            marf_opts: self.marf_opts.clone(),
+        };
+        let backend = self.backend.clone();
+        let parts = backend.open_mining_candidate_parts(&config, self)?;
+        Ok(Self::from_open_parts(
             self.mainnet,
             self.chain_id,
-            &self.root_path,
-            self.marf_opts.clone(),
-        )
+            backend,
+            parts,
+        ))
+    }
+
+    /// Re-open the Nakamoto staging blocks DB through this chainstate's backend.
+    pub fn reopen_nakamoto_staging_blocks(&self) -> Result<NakamotoStagingBlocksConn, Error> {
+        let config = ChainStateOpenConfig {
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            root_path: self.root_path.clone(),
+            marf_opts: self.marf_opts.clone(),
+        };
+        self.backend
+            .reopen_nakamoto_staging_blocks(&config, &self.nakamoto_staging_blocks_conn)
     }
 
     /// Re-open the chainstate DB
     pub fn reopen_db(&self) -> Result<DBConn, Error> {
+        #[cfg(any(test, feature = "testing"))]
+        if DiskChainStateLayout::is_ephemeral_root_path(&self.root_path) {
+            let state_index_path = self.state_index.get_db_path();
+            if state_index_path != ":memory:"
+                && crate::util_lib::db::is_sqlite_memory_path(state_index_path)
+            {
+                return crate::util_lib::db::sqlite_open(
+                    state_index_path,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+                    false,
+                )
+                .map_err(|e| Error::DBError(db_error::SqliteError(e)));
+            }
+
+            return Err(Error::DBError(db_error::Other(
+                "ephemeral chainstate roots cannot be reopened from a filesystem path".into(),
+            )));
+        }
+
         let path = PathBuf::from(self.root_path.clone());
-        let header_index_root_path = StacksChainState::header_index_root_path(path);
+        let header_index_root_path = DiskChainStateLayout::header_index_root_path(path);
         let header_index_root = header_index_root_path
             .to_str()
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
-        let state_index = StacksChainState::open_db(
+        let state_index = DiskIndexDb::open_db(
             self.mainnet,
             self.chain_id,
             &header_index_root,
@@ -1899,123 +1669,161 @@ impl StacksChainState {
         )?;
         Ok(state_index.into_sqlite_conn())
     }
+}
 
-    pub fn blocks_path(mut path: PathBuf) -> PathBuf {
-        path.push("blocks");
-        path
+impl<B: ChainStatePersistence> StacksChainState<B> {
+    fn from_open_parts(
+        mainnet: bool,
+        chain_id: u32,
+        backend: B,
+        parts: ChainStateOpenParts,
+    ) -> Self {
+        StacksChainState {
+            mainnet,
+            chain_id,
+            clarity_state: parts.clarity_state,
+            nakamoto_staging_blocks_conn: parts.nakamoto_staging_blocks_conn,
+            state_index: parts.state_index,
+            blocks_path: parts.blocks_path,
+            clarity_state_index_path: parts.clarity_state_index_path,
+            clarity_state_index_root: parts.clarity_state_index_root,
+            root_path: parts.root_path,
+            unconfirmed_state: None,
+            fault_injection: StacksChainStateFaults::new(),
+            marf_opts: parts.marf_opts,
+            backend,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl StacksChainState<MemoryChainStateBackend> {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_ephemeral(
+        mainnet: bool,
+        chain_id: u32,
+        boot_data: Option<&mut ChainStateBootData>,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<(Self, Vec<StacksTransactionReceipt>), Error> {
+        Self::new_ephemeral_with_backend(mainnet, chain_id, boot_data, marf_opts, |namespace| {
+            MemoryChainStateBackend::for_namespace(namespace)
+        })
+    }
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl StacksChainState<SharedMemoryChainStateBackend> {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_shared_ephemeral(
+        mainnet: bool,
+        chain_id: u32,
+        boot_data: Option<&mut ChainStateBootData>,
+        marf_opts: Option<MARFOpenOpts>,
+    ) -> Result<(Self, Vec<StacksTransactionReceipt>), Error> {
+        Self::new_ephemeral_with_backend(mainnet, chain_id, boot_data, marf_opts, |namespace| {
+            SharedMemoryChainStateBackend::for_namespace(namespace)
+        })
     }
 
-    pub fn vm_state_path(mut path: PathBuf) -> PathBuf {
-        path.push("vm");
-        path
+    /// Snapshot this chainstate into an isolated shared-memory backend.
+    pub fn fork_shared_ephemeral(&self) -> Result<Self, Error> {
+        let root_path = DiskChainStateLayout::ephemeral_root_path()?;
+        let config = ChainStateOpenConfig {
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            root_path: root_path.clone(),
+            marf_opts: self.marf_opts.clone(),
+        };
+        let backend = SharedMemoryChainStateBackend::for_namespace(&root_path);
+        let parts = backend.snapshot_parts(&config, self)?;
+        Ok(Self::from_open_parts(
+            self.mainnet,
+            self.chain_id,
+            backend,
+            parts,
+        ))
     }
+}
 
-    pub fn vm_state_index_root_path(path: PathBuf) -> PathBuf {
-        let mut ret = StacksChainState::vm_state_path(path);
-        ret.push("clarity");
-        ret
+impl<B: ChainStatePersistence> StacksChainState<B> {
+    #[cfg(any(test, feature = "testing"))]
+    fn new_ephemeral_with_backend(
+        mainnet: bool,
+        chain_id: u32,
+        boot_data: Option<&mut ChainStateBootData>,
+        marf_opts: Option<MARFOpenOpts>,
+        backend_for_namespace: impl FnOnce(&str) -> B,
+    ) -> Result<(Self, Vec<StacksTransactionReceipt>), Error> {
+        let marf_opts = marf_opts.map(|mut opts| {
+            opts.external_blobs = false;
+            opts
+        });
+        let root_path = DiskChainStateLayout::ephemeral_root_path()?;
+        let config = ChainStateOpenConfig {
+            mainnet,
+            chain_id,
+            root_path,
+            marf_opts,
+        };
+        let backend = backend_for_namespace(&config.root_path);
+        let parts = backend.open_parts(&config)?;
+        let mut chainstate = Self::from_open_parts(mainnet, chain_id, backend, parts);
+
+        let mut receipts = vec![];
+        match boot_data {
+            Some(boot_data) => {
+                let mut res =
+                    ChainStateBootInstaller::install_boot_code(&mut chainstate, boot_data)?;
+                receipts.append(&mut res);
+            }
+            None => {
+                panic!(
+                    "StacksChainState initialization is required, but boot_data was not passed."
+                );
+            }
+        }
+
+        Ok((chainstate, receipts))
     }
+}
 
-    pub fn vm_state_index_marf_path(path: PathBuf) -> PathBuf {
-        let mut ret = StacksChainState::vm_state_index_root_path(path);
-        ret.push("marf.sqlite");
-        ret
-    }
-
-    pub fn header_index_root_path(path: PathBuf) -> PathBuf {
-        let mut ret = StacksChainState::vm_state_path(path);
-        ret.push("index.sqlite");
-        ret
-    }
-
-    pub fn make_chainstate_dirs(path_str: &str) -> Result<(), Error> {
-        let path = PathBuf::from(path_str);
-        StacksChainState::mkdirs(&path)?;
-
-        let blocks_path = StacksChainState::blocks_path(path.clone());
-        StacksChainState::mkdirs(&blocks_path)?;
-
-        let vm_state_path = StacksChainState::vm_state_path(path);
-        StacksChainState::mkdirs(&vm_state_path)?;
-        Ok(())
-    }
-
+impl StacksChainState<DiskChainStateBackend> {
     pub fn open_and_exec(
         mainnet: bool,
         chain_id: u32,
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
-        StacksChainState::make_chainstate_dirs(path_str)?;
-        let path = PathBuf::from(path_str);
-        let blocks_path = StacksChainState::blocks_path(path.clone());
-        let blocks_path_root = blocks_path
-            .to_str()
-            .ok_or_else(|| Error::DBError(db_error::ParseError))?
-            .to_string();
+    ) -> Result<(Self, Vec<StacksTransactionReceipt>), Error> {
+        #[cfg(any(test, feature = "testing"))]
+        if DiskChainStateLayout::is_ephemeral_root_path(path_str) {
+            return Err(Error::DBError(db_error::Other(
+                "ephemeral chainstate roots cannot be reopened from a filesystem path".into(),
+            )));
+        }
 
-        let clarity_state_index_root_path =
-            StacksChainState::vm_state_index_root_path(path.clone());
-        let clarity_state_index_root = clarity_state_index_root_path
-            .to_str()
-            .ok_or_else(|| Error::DBError(db_error::ParseError))?
-            .to_string();
-
-        let clarity_state_index_marf_path =
-            StacksChainState::vm_state_index_marf_path(path.clone());
-        let clarity_state_index_marf = clarity_state_index_marf_path
-            .to_str()
-            .ok_or_else(|| Error::DBError(db_error::ParseError))?
-            .to_string();
-
-        let header_index_root_path = StacksChainState::header_index_root_path(path.clone());
-        let header_index_root = header_index_root_path
-            .to_str()
-            .ok_or_else(|| Error::DBError(db_error::ParseError))?
-            .to_string();
-
-        let nakamoto_staging_blocks_path =
-            StacksChainState::static_get_nakamoto_staging_blocks_path(path)?;
-        let nakamoto_staging_blocks_conn =
-            StacksChainState::open_nakamoto_staging_blocks(&nakamoto_staging_blocks_path, true)?;
-
-        let init_required = fs::metadata(&clarity_state_index_marf).is_err();
-
-        let state_index =
-            StacksChainState::open_db(mainnet, chain_id, &header_index_root, marf_opts.clone())?;
-
-        let vm_state = MarfedKV::open(
-            &clarity_state_index_root,
-            Some(&StacksBlockHeader::make_index_block_hash(
-                &MINER_BLOCK_CONSENSUS_HASH,
-                &MINER_BLOCK_HEADER_HASH,
-            )),
-            marf_opts.clone(),
-        )
-        .map_err(|e| Error::ClarityError(e.into()))?;
-
-        let clarity_state = ClarityInstance::new(mainnet, chain_id, vm_state);
-
-        let mut chainstate = StacksChainState {
+        DiskChainStateLayout::make_chainstate_dirs(path_str)?;
+        let clarity_state_index_path =
+            DiskChainStateLayout::vm_state_index_marf_path(PathBuf::from(path_str))
+                .to_str()
+                .ok_or_else(|| Error::DBError(db_error::ParseError))?
+                .to_string();
+        let init_required = fs::metadata(&clarity_state_index_path).is_err();
+        let config = ChainStateOpenConfig {
             mainnet,
             chain_id,
-            clarity_state,
-            nakamoto_staging_blocks_conn,
-            state_index,
-            blocks_path: blocks_path_root,
-            clarity_state_index_path: clarity_state_index_marf,
-            clarity_state_index_root,
             root_path: path_str.to_string(),
-            unconfirmed_state: None,
-            fault_injection: StacksChainStateFaults::new(),
             marf_opts,
         };
+        let backend = DiskChainStateBackend::for_root(path_str)?;
+        let parts = backend.open_parts(&config)?;
+        let mut chainstate = Self::from_open_parts(mainnet, chain_id, backend, parts);
 
         let mut receipts = vec![];
         match (init_required, boot_data) {
             (true, Some(boot_data)) => {
-                let mut res = StacksChainState::install_boot_code(&mut chainstate, boot_data)?;
+                let mut res =
+                    ChainStateBootInstaller::install_boot_code(&mut chainstate, boot_data)?;
                 receipts.append(&mut res);
             }
             (true, None) => {
@@ -2028,7 +1836,9 @@ impl StacksChainState {
 
         Ok((chainstate, receipts))
     }
+}
 
+impl<B: ChainStatePersistence> StacksChainState<B> {
     pub fn config(&self) -> DBConfig {
         DBConfig {
             mainnet: self.mainnet,
@@ -2150,7 +1960,12 @@ impl StacksChainState {
     pub fn db(&self) -> &DBConn {
         self.state_index.sqlite_conn()
     }
+}
 
+/// Factory helpers for constructing Clarity block and unconfirmed transactions.
+pub struct ClarityTxFactory;
+
+impl ClarityTxFactory {
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
     pub fn chainstate_block_begin<'a, 'b>(
         chainstate_tx: &'b ChainstateTx<'b>,
@@ -2162,7 +1977,7 @@ impl StacksChainState {
         new_block: &BlockHeaderHash,
     ) -> ClarityTx<'a, 'b> {
         let conf = chainstate_tx.config.clone();
-        StacksChainState::inner_clarity_tx_begin(
+        Self::inner_clarity_tx_begin(
             conf,
             chainstate_tx,
             clarity_instance,
@@ -2186,7 +2001,7 @@ impl StacksChainState {
         new_block: &BlockHeaderHash,
     ) -> ClarityTx<'a, 'b> {
         let conf = chainstate_tx.config.clone();
-        StacksChainState::inner_ephemeral_clarity_tx_begin(
+        Self::inner_ephemeral_clarity_tx_begin(
             conf,
             chainstate_tx,
             clarity_instance,
@@ -2197,7 +2012,9 @@ impl StacksChainState {
             new_block,
         )
     }
+}
 
+impl<B: ChainStatePersistence> StacksChainState<B> {
     /// Begin a transaction against the Clarity VM, _outside of_ the context of a chainstate
     /// transaction.  Used by the miner for producing blocks.
     pub fn block_begin<'a>(
@@ -2209,7 +2026,7 @@ impl StacksChainState {
         new_block: &BlockHeaderHash,
     ) -> ClarityTx<'a, 'a> {
         let conf = self.config();
-        StacksChainState::inner_clarity_tx_begin(
+        ClarityTxFactory::inner_clarity_tx_begin(
             conf,
             &self.state_index,
             &mut self.clarity_state,
@@ -2233,7 +2050,7 @@ impl StacksChainState {
         new_block: &BlockHeaderHash,
     ) -> ClarityTx<'a, 'a> {
         let conf = self.config();
-        StacksChainState::inner_ephemeral_clarity_tx_begin(
+        ClarityTxFactory::inner_ephemeral_clarity_tx_begin(
             conf,
             &self.state_index,
             &mut self.clarity_state,
@@ -2263,7 +2080,7 @@ impl StacksChainState {
         // mix burn header hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the burn header hash _is_).
         let parent_index_block =
-            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+            ClarityTxFactory::get_parent_index_block(parent_consensus_hash, parent_block);
 
         let new_index_block =
             StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
@@ -2402,8 +2219,10 @@ impl StacksChainState {
             Ok(self.with_read_only_clarity_tx(burn_dbconn, parent_tip, to_do))
         }
     }
+}
 
-    fn get_parent_index_block(
+impl ClarityTxFactory {
+    pub(crate) fn get_parent_index_block(
         parent_consensus_hash: &ConsensusHash,
         parent_block: &BlockHeaderHash,
     ) -> StacksBlockId {
@@ -2436,7 +2255,9 @@ impl StacksChainState {
             config: conf,
         }
     }
+}
 
+impl<B: ChainStatePersistence> StacksChainState<B> {
     /// Open a Clarity transaction against this chainstate's unconfirmed state, if it exists.
     pub fn begin_unconfirmed<'a>(
         &'a mut self,
@@ -2449,7 +2270,7 @@ impl StacksChainState {
                 return None;
             }
 
-            Some(StacksChainState::chainstate_begin_unconfirmed(
+            Some(ClarityTxFactory::chainstate_begin_unconfirmed(
                 conf,
                 &self.state_index,
                 &mut unconfirmed.clarity_inst,
@@ -2461,7 +2282,9 @@ impl StacksChainState {
             None
         }
     }
+}
 
+impl ClarityTxFactory {
     /// Create a Clarity VM database transaction
     fn inner_clarity_tx_begin<'a, 'b>(
         conf: DBConfig,
@@ -2476,7 +2299,7 @@ impl StacksChainState {
         // mix consensus hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the pair is)
         let parent_index_block =
-            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+            ClarityTxFactory::get_parent_index_block(parent_consensus_hash, parent_block);
 
         let new_index_block =
             StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
@@ -2529,7 +2352,7 @@ impl StacksChainState {
         // mix consensus hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the pair is)
         let parent_index_block =
-            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+            ClarityTxFactory::get_parent_index_block(parent_consensus_hash, parent_block);
 
         let new_index_block =
             StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
@@ -2565,7 +2388,9 @@ impl StacksChainState {
             config: conf,
         }
     }
+}
 
+impl<B: ChainStatePersistence> StacksChainState<B> {
     /// Create a Clarity VM transaction connection for testing in 2.1
     #[cfg(test)]
     pub fn test_genesis_block_begin_2_1<'a>(
@@ -2583,7 +2408,7 @@ impl StacksChainState {
         // mix burn header hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the burn header hash _is_).
         let parent_index_block =
-            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+            ClarityTxFactory::get_parent_index_block(parent_consensus_hash, parent_block);
 
         let new_index_block =
             StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
@@ -2637,7 +2462,7 @@ impl StacksChainState {
         // mix burn header hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the burn header hash _is_).
         let parent_index_block =
-            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+            ClarityTxFactory::get_parent_index_block(parent_consensus_hash, parent_block);
 
         let new_index_block =
             StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
@@ -2673,7 +2498,62 @@ impl StacksChainState {
             config: conf,
         }
     }
+}
 
+/// Chainstate metadata helpers over the MARF-backed SQL state.
+pub struct ChainStateMetadataDb;
+
+pub trait MicroblockPubkeyHashStore {
+    /// Record the microblock public key hash for a block into the MARF'ed Clarity DB
+    fn insert_microblock_pubkey_hash(
+        &mut self,
+        height: u32,
+        mblock_pubkey_hash: &Hash160,
+    ) -> Result<(), Error>;
+
+    /// Get the block height at which a microblock public key hash was used, if any
+    fn has_microblock_pubkey_hash(
+        &mut self,
+        mblock_pubkey_hash: &Hash160,
+    ) -> Result<Option<u32>, Error>;
+}
+
+impl MicroblockPubkeyHashStore for ClarityTx<'_, '_> {
+    fn insert_microblock_pubkey_hash(
+        &mut self,
+        height: u32,
+        mblock_pubkey_hash: &Hash160,
+    ) -> Result<(), Error> {
+        self.connection()
+            .as_transaction(|tx| {
+                tx.with_clarity_db(|ref mut db| {
+                    db.insert_microblock_pubkey_hash_height(mblock_pubkey_hash, height)
+                        .expect("FATAL: failed to store microblock public key hash to Clarity DB");
+                    Ok(())
+                })
+            })
+            .expect("FATAL: failed to store microblock public key hash");
+        Ok(())
+    }
+
+    fn has_microblock_pubkey_hash(
+        &mut self,
+        mblock_pubkey_hash: &Hash160,
+    ) -> Result<Option<u32>, Error> {
+        let height_opt = self
+            .connection()
+            .with_clarity_db_readonly::<_, Result<_, ()>>(|ref mut db| {
+                let height_opt = db
+                    .get_microblock_pubkey_hash_height(mblock_pubkey_hash)
+                    .expect("FATAL: failed to query microblock public key hash");
+                Ok(height_opt)
+            })
+            .expect("FATAL: failed to query microblock public key hash");
+        Ok(height_opt)
+    }
+}
+
+impl ChainStateMetadataDb {
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a block header
     pub fn get_index_hash(
         consensus_hash: &ConsensusHash,
@@ -2687,42 +2567,6 @@ impl StacksChainState {
         } else {
             StacksBlockId::new(consensus_hash, header_hash)
         }
-    }
-
-    /// Record the microblock public key hash for a block into the MARF'ed Clarity DB
-    pub fn insert_microblock_pubkey_hash(
-        clarity_tx: &mut ClarityTx,
-        height: u32,
-        mblock_pubkey_hash: &Hash160,
-    ) -> Result<(), Error> {
-        clarity_tx
-            .connection()
-            .as_transaction(|tx| {
-                tx.with_clarity_db(|ref mut db| {
-                    db.insert_microblock_pubkey_hash_height(mblock_pubkey_hash, height)
-                        .expect("FATAL: failed to store microblock public key hash to Clarity DB");
-                    Ok(())
-                })
-            })
-            .expect("FATAL: failed to store microblock public key hash");
-        Ok(())
-    }
-
-    /// Get the block height at which a microblock public key hash was used, if any
-    pub fn has_microblock_pubkey_hash(
-        clarity_tx: &mut ClarityTx,
-        mblock_pubkey_hash: &Hash160,
-    ) -> Result<Option<u32>, Error> {
-        let height_opt = clarity_tx
-            .connection()
-            .with_clarity_db_readonly::<_, Result<_, ()>>(|ref mut db| {
-                let height_opt = db
-                    .get_microblock_pubkey_hash_height(mblock_pubkey_hash)
-                    .expect("FATAL: failed to query microblock public key hash");
-                Ok(height_opt)
-            })
-            .expect("FATAL: failed to query microblock public key hash");
-        Ok(height_opt)
     }
 
     /// Get the burnchain txids for a given index block hash
@@ -2755,9 +2599,9 @@ impl StacksChainState {
         count: u64,
     ) -> Result<HashSet<Txid>, Error> {
         let mut ret = HashSet::new();
-        let ancestors = StacksChainState::get_ancestor_index_hashes(conn, index_block_hash, count)?;
+        let ancestors = StacksHeadersDb::get_ancestor_index_hashes(conn, index_block_hash, count)?;
         for ancestor in ancestors.into_iter() {
-            let txids = StacksChainState::get_burnchain_txids_for_block(conn, &ancestor)?;
+            let txids = ChainStateMetadataDb::get_burnchain_txids_for_block(conn, &ancestor)?;
             for txid in txids.into_iter() {
                 ret.insert(txid);
             }
@@ -2857,7 +2701,7 @@ impl StacksChainState {
         );
 
         let parent_hash =
-            StacksChainState::get_index_hash(parent_consensus_hash, &parent_tip.block_hash());
+            ChainStateMetadataDb::get_index_hash(parent_consensus_hash, &parent_tip.block_hash());
 
         // store each indexed field
         test_debug!(
@@ -2892,14 +2736,14 @@ impl StacksChainState {
             total_tenure_size: 0,
         };
 
-        StacksChainState::insert_stacks_block_header(
+        StacksHeadersDb::insert_stacks_block_header(
             headers_tx.deref_mut(),
             &parent_hash,
             &new_tip_info,
             anchor_block_cost,
         )?;
-        StacksChainState::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
-        StacksChainState::store_burnchain_txids(
+        MinerRewardsDb::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
+        ChainStateMetadataDb::store_burnchain_txids(
             headers_tx.deref(),
             &index_block_hash,
             burn_stack_stx_ops,
@@ -2919,21 +2763,21 @@ impl StacksChainState {
                 &reward_info.from_parent_stacks_block_hash,
             );
 
-            StacksChainState::insert_matured_child_miner_reward(
+            MinerRewardsDb::insert_matured_child_miner_reward(
                 headers_tx.deref_mut(),
                 &rewarded_parent_miner_block_id,
                 &rewarded_miner_block_id,
                 &miner_payout,
             )?;
             for user_payout in user_payouts.into_iter() {
-                StacksChainState::insert_matured_child_user_reward(
+                MinerRewardsDb::insert_matured_child_user_reward(
                     headers_tx.deref_mut(),
                     &rewarded_parent_miner_block_id,
                     &rewarded_miner_block_id,
                     &user_payout,
                 )?;
             }
-            StacksChainState::insert_matured_parent_miner_reward(
+            MinerRewardsDb::insert_matured_parent_miner_reward(
                 headers_tx.deref_mut(),
                 &rewarded_parent_miner_block_id,
                 &rewarded_miner_block_id,
@@ -2968,6 +2812,7 @@ pub mod test {
     use super::*;
     use crate::chainstate::stacks::*;
     use crate::util_lib::boot::boot_code_test_addr;
+    use crate::util_lib::db::query_row;
 
     #[test]
     fn test_instantiate_chainstate() {
@@ -2987,8 +2832,7 @@ pub mod test {
                 boot_code_test_addr().into(),
                 ContractName::try_from(boot_contract_name.to_string()).unwrap(),
             );
-            let contract_res =
-                StacksChainState::get_contract(&mut conn, &boot_contract_id).unwrap();
+            let contract_res = conn.get_contract(&boot_contract_id).unwrap();
             assert!(contract_res.is_some());
         }
     }
@@ -3043,7 +2887,8 @@ pub mod test {
         };
 
         let receipts =
-            StacksChainState::instantiate_boot_code(&mut clarity_tx, &mut boot_data).unwrap();
+            ChainStateBootInstaller::instantiate_boot_code(&mut clarity_tx, &mut boot_data)
+                .unwrap();
         assert!(
             !receipts.is_empty(),
             "boot should produce at least the contract-deploy receipts"
@@ -3055,8 +2900,7 @@ pub mod test {
                 boot_code_test_addr().into(),
                 ContractName::try_from(boot_contract_name.to_string()).unwrap(),
             );
-            let contract_res =
-                StacksChainState::get_contract(&mut clarity_tx, &boot_contract_id).unwrap();
+            let contract_res = clarity_tx.get_contract(&boot_contract_id).unwrap();
             assert!(
                 contract_res.is_some(),
                 "missing boot contract {boot_contract_name}"

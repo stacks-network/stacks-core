@@ -53,7 +53,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState};
 use stacks::config::chain_data::MinerStats;
 pub use stacks::config::{Config, ConfigFile};
 use stacks_common::alloc_tracker::{tracking_allocator_installed, TrackingAllocator};
@@ -94,7 +94,7 @@ fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCan
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
     let burnchain = config.get_burnchain();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         config.is_mainnet(),
         config.burnchain.chain_id,
         &stacks_chainstate_path,
@@ -141,7 +141,7 @@ fn cli_get_miner_spend(
     let burn_db_path = config.get_burn_db_file_path();
     let stacks_chainstate_path = config.get_chainstate_path_str();
     let burnchain = config.get_burnchain();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (mut chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         config.is_mainnet(),
         config.burnchain.chain_id,
         &stacks_chainstate_path,

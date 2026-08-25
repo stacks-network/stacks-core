@@ -119,7 +119,9 @@ pub struct RPCNeighborsInfo {
 
 impl RPCNeighborsInfo {
     /// Load neighbor address information from the peer network
-    pub fn from_p2p(network: &PeerNetwork) -> Result<RPCNeighborsInfo, NetError> {
+    pub fn from_p2p(
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> Result<RPCNeighborsInfo, NetError> {
         let network_epoch = network.get_current_epoch().network_epoch;
         let network_id = network.get_local_peer().network_id;
         let max_neighbor_age = network.get_connection_opts().max_neighbor_age;
@@ -242,7 +244,9 @@ impl HttpRequest for RPCNeighborsRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNeighborsRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCNeighborsRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {}
 
@@ -251,7 +255,7 @@ impl RPCRequestHandler for RPCNeighborsRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let neighbor_data =
             node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {

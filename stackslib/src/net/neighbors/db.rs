@@ -88,7 +88,7 @@ pub trait NeighborWalkDB {
     /// Returns DBError if there's a problem reading the DB
     fn get_fresh_random_neighbors(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         num_neighbors: u64,
     ) -> Result<Vec<Neighbor>, net_error>;
 
@@ -96,7 +96,7 @@ pub trait NeighborWalkDB {
     /// If we're in IBD, then we have to use the bootstrap nodes.
     fn get_initial_walk_neighbors(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         ibd: bool,
     ) -> Result<Vec<Neighbor>, net_error>;
 
@@ -106,7 +106,7 @@ pub trait NeighborWalkDB {
     /// the reported NeighborAddress public key hash doesn't match our records.
     fn lookup_stale_neighbors(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         addrs: &[NeighborAddress],
     ) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error>;
 
@@ -118,7 +118,7 @@ pub trait NeighborWalkDB {
     /// Returns (was-new?, neighbor-record)
     fn add_or_schedule_replace_neighbor(
         &self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         handshake: &HandshakeData,
         db_data: Option<&StackerDBHandshakeData>,
@@ -128,7 +128,7 @@ pub trait NeighborWalkDB {
     /// Is a peer denied?
     fn check_neighbor_denied(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         nk: &NeighborKey,
     ) -> Result<(), net_error>;
 
@@ -136,7 +136,7 @@ pub trait NeighborWalkDB {
     /// The network result will be updated with a list of replaced neighbors.
     fn replace_neighbors(
         &self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         replacements: &NeighborReplacements,
         result: &mut NeighborWalkResult,
     ) -> Result<(), net_error>;
@@ -145,7 +145,7 @@ pub trait NeighborWalkDB {
     /// If any data for this neighbor exists in the DB already, then load that in as well.
     fn neighbor_from_handshake(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
     ) -> Result<Neighbor, net_error>;
@@ -154,7 +154,7 @@ pub trait NeighborWalkDB {
     /// Returns the neighbor the handshake data represents.
     fn save_neighbor_from_handshake(
         &self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
         db_data: Option<&StackerDBHandshakeData>,
@@ -164,19 +164,23 @@ pub trait NeighborWalkDB {
     /// Returns the updated neighbor.
     fn update_neighbor(
         &self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         cur_neighbor: Neighbor,
         new_data: Option<&HandshakeAcceptData>,
         new_db_data: Option<&StackerDBHandshakeData>,
     ) -> Result<Neighbor, net_error>;
 
     /// Get the number of peers in a given AS
-    fn get_asn_count(&self, network: &PeerNetwork, asn: u32) -> u64;
+    fn get_asn_count(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        asn: u32,
+    ) -> u64;
 
     /// Pick neighbors with a minimum age for a walk.
     /// If there are none, then fall back to seed nodes.
     fn pick_walk_neighbors(
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         num_neighbors: u64,
         min_age: u64,
     ) -> Result<Vec<Neighbor>, net_error> {
@@ -216,7 +220,10 @@ pub trait NeighborWalkDB {
     /// percentile of neighbors (by last contact time) will be selected at random.
     /// Returns the random neighbor on success
     /// Returns NoSuchNeighbor if there are no candidates
-    fn get_next_walk_neighbor(&self, network: &PeerNetwork) -> Result<Neighbor, net_error> {
+    fn get_next_walk_neighbor(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+    ) -> Result<Neighbor, net_error> {
         // pick a random neighbor as a walking point.
         // favor neighbors with older last-contact times
         let next_neighbors_res = self
@@ -305,7 +312,7 @@ impl PeerDBNeighborWalk {
 impl NeighborWalkDB for PeerDBNeighborWalk {
     fn get_fresh_random_neighbors(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         num_neighbors: u64,
     ) -> Result<Vec<Neighbor>, net_error> {
         let min_age =
@@ -315,7 +322,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
 
     fn lookup_stale_neighbors(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         addrs: &[NeighborAddress],
     ) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error> {
         let network_id = network.bound_neighbor_key().network_id;
@@ -367,7 +374,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
 
     fn add_or_schedule_replace_neighbor(
         &self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         handshake: &HandshakeData,
         db_data: Option<&StackerDBHandshakeData>,
@@ -427,7 +434,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
 
     fn get_initial_walk_neighbors(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         ibd: bool,
     ) -> Result<Vec<Neighbor>, net_error> {
         let allowed_peers = if ibd {
@@ -445,7 +452,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
 
     fn check_neighbor_denied(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         nk: &NeighborKey,
     ) -> Result<(), net_error> {
         // don't proceed if denied
@@ -462,7 +469,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
 
     fn replace_neighbors(
         &self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         replacements: &NeighborReplacements,
         result: &mut NeighborWalkResult,
     ) -> Result<(), net_error> {
@@ -506,7 +513,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
 
     fn neighbor_from_handshake(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
     ) -> Result<Neighbor, net_error> {
@@ -521,7 +528,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
 
     fn save_neighbor_from_handshake(
         &self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
         db_data: Option<&StackerDBHandshakeData>,
@@ -540,7 +547,7 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
 
     fn update_neighbor(
         &self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
         mut cur_neighbor: Neighbor,
         new_data: Option<&HandshakeAcceptData>,
         new_db_data: Option<&StackerDBHandshakeData>,
@@ -561,7 +568,11 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         Ok(cur_neighbor)
     }
 
-    fn get_asn_count(&self, network: &PeerNetwork, asn: u32) -> u64 {
+    fn get_asn_count(
+        &self,
+        network: &PeerNetwork<impl crate::chainstate::stacks::db::ChainStatePersistence>,
+        asn: u32,
+    ) -> u64 {
         PeerDB::asn_count(network.peerdb_conn(), asn).unwrap_or(1)
     }
 }

@@ -16,9 +16,11 @@ use std::env;
 use std::time::Duration;
 
 use clarity::vm::types::PrincipalData;
+use libsigner::v0::signer_state::MinerState;
 use stacks::core::test_util::make_stacks_transfer_serialized;
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
+use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::tests::{
     TEST_REJECT_ALL_BLOCK_PROPOSAL, TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT,
     TEST_SIGNERS_IGNORE_BLOCK_RESPONSES, TEST_SIGNERS_IGNORE_PRE_COMMITS,
@@ -31,6 +33,58 @@ use super::{SignerTest, *};
 use crate::nakamoto_node::miner::TEST_BLOCK_ANNOUNCE_STALL;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
+use crate::tests::signer::SpawnedSignerTrait;
+
+const CAPITULATION_TIMEOUT_SECS: u64 = 60;
+const CAPITULATION_PROGRESS_TIMEOUT_SECS: u64 = 90;
+
+/// Wait until every signer reports the expected parent-tenure tip directly
+/// from its local state machine.
+fn wait_for_parent_tenure_last_block<Z: SpawnedSignerTrait>(
+    signer_test: &SignerTest<Z>,
+    expected_parent_tenure_last_block: &StacksBlockId,
+    timeout_secs: u64,
+) -> Result<(), String> {
+    signer_test.wait_for_signer_state_check(timeout_secs, |state| {
+        let LocalStateMachine::Initialized(state) = state else {
+            return Ok(false);
+        };
+        let MinerState::ActiveMiner {
+            parent_tenure_last_block,
+            ..
+        } = &state.current_miner
+        else {
+            return Ok(false);
+        };
+        Ok(parent_tenure_last_block == expected_parent_tenure_last_block)
+    })
+}
+
+/// Wait until every signer has learned the globally accepted parent-tenure tip.
+fn wait_for_global_parent_tenure_last_block<Z: SpawnedSignerTrait>(
+    signer_test: &SignerTest<Z>,
+    expected_parent_tenure_last_block: &StacksBlockId,
+) -> Result<(), String> {
+    let reward_cycle_slot = signer_test.get_current_reward_cycle() % 2;
+    wait_for(CAPITULATION_PROGRESS_TIMEOUT_SECS, || {
+        Ok(signer_test.get_all_states().iter().all(|state| {
+            state
+                .signer_global_state_machines
+                .iter()
+                .find(|(slot, _)| *slot == reward_cycle_slot)
+                .and_then(|(_, state)| state.as_ref())
+                .is_some_and(|state| {
+                    matches!(
+                        &state.current_miner,
+                        MinerState::ActiveMiner {
+                            parent_tenure_last_block,
+                            ..
+                        } if parent_tenure_last_block == expected_parent_tenure_last_block
+                    )
+                })
+        }))
+    })
+}
 
 #[test]
 #[ignore]
@@ -517,36 +571,11 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
         time_to_wait.as_secs()
     );
     std::thread::sleep(time_to_wait);
-    wait_for(30, || {
-        let mut found_updates_n: HashSet<StacksAddress> = HashSet::new();
-        for (chunk, message) in get_stackerdb_signer_messages() {
-            let SignerMessage::StateMachineUpdate(update) = message else {
-                continue;
-            };
-            let StateMachineUpdateMinerState::ActiveMiner {
-                parent_tenure_last_block,
-                tenure_id,
-                ..
-            } = update.content.current_miner()
-            else {
-                continue;
-            };
-            if tenure_id != &info.pox_consensus {
-                continue;
-            }
-
-            let Some(address) = approving_signer_addrs
-                .iter()
-                .find(|addr| chunk.verify(addr).unwrap_or(false))
-            else {
-                continue;
-            };
-            if parent_tenure_last_block == &block_id_n {
-                found_updates_n.insert(address.clone());
-            }
-        }
-        Ok(found_updates_n.len() == approving_signer_addrs.len())
-    })
+    wait_for_parent_tenure_last_block(
+        &signer_test,
+        &block_id_n,
+        CAPITULATION_TIMEOUT_SECS,
+    )
     .expect("Originally approving signers did not update state machine to capitulated parent tenure last block N");
 
     info!("------------------------- Waiting for block N+1' approval from capitulated signers -------------------------");
@@ -573,7 +602,7 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
 /// The stacks node is then advanced to Epoch 3.0 boundary to allow block signing.
 ///
 /// Test Execution:
-/// 1. All signers are configured with a tenure_last_block_proposal_timeout = 30 seconds, capitulate_miner_view_timeout = 10 seconds.
+/// 1. All signers are configured with a tenure_last_block_proposal_timeout and capitulate_miner_view_timeout of 60 seconds.
 /// 2. The node mines 1 stacks block N (all signers sign it).
 /// 3. 20% of the signers are configured to to auto reject any block proposals and ignore incoming block responses, broadcast of new blocks are skipped.
 /// 4. The miner proposes block N+1.
@@ -606,7 +635,7 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     let send_fee = 180;
     let nmb_txs = 4;
 
-    let capitulate_miner_view_timeout = Duration::from_secs(15);
+    let capitulate_miner_view_timeout = Duration::from_secs(CAPITULATION_TIMEOUT_SECS);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
@@ -721,7 +750,6 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
     test_observer::clear();
     signer_test.mine_bitcoin_block();
-    let now = std::time::Instant::now();
     let info = get_chain_info(&signer_test.running_nodes.conf);
     info!(
         "------------------------- Wait for State to Update with Split View -------------------------";
@@ -799,48 +827,14 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     TEST_SKIP_BLOCK_BROADCAST.set(false);
     TEST_BLOCK_ANNOUNCE_STALL.set(false);
 
-    // capitulate_viewpoint has TWO guards that must both be satisfied:
-    // 1. last_capitulate_miner_view must be older than capitulate_miner_view_timeout
-    // 2. time_since_last_approved (since block N was signed) must be >= capitulate_miner_view_timeout
-    let time_to_wait = (capitulate_miner_view_timeout).saturating_sub(now.elapsed());
-    info!(
-        "------------------------- Waiting {} seconds for capitulation -------------------------",
-        time_to_wait.as_secs()
-    );
-    std::thread::sleep(time_to_wait);
-    wait_for(30, || {
-        let mut found_updates_n_1: HashSet<StacksAddress> = HashSet::new();
-        for (chunk, message) in get_stackerdb_signer_messages() {
-            let SignerMessage::StateMachineUpdate(update) = message else {
-                continue;
-            };
-            let StateMachineUpdateMinerState::ActiveMiner {
-                parent_tenure_last_block,
-                tenure_id,
-                ..
-            } = update.content.current_miner()
-            else {
-                continue;
-            };
-            if tenure_id != &info.pox_consensus {
-                continue;
-            }
-
-            let Some((address, _)) = signer_addresses
-                .iter()
-                .find(|(addr, _)| chunk.verify(addr).unwrap_or(false))
-            else {
-                continue;
-            };
-            if parent_tenure_last_block == &block_id_n_1 {
-                rejecting_signer_addrs.iter().find(|a| *a == address).map(|a| {
-                    found_updates_n_1.insert(a.clone());
-                });
-            }
-        }
-        Ok(found_updates_n_1.len() == rejecting_signer_addrs.len())
-    })
-    .expect("Originally approving signers did not update state machine to capitulated parent tenure last block N+1");
+    wait_for_global_parent_tenure_last_block(&signer_test, &block_id_n_1)
+        .expect("Signers did not learn the globally accepted parent tenure last block N+1");
+    wait_for_parent_tenure_last_block(
+        &signer_test,
+        &block_id_n_1,
+        CAPITULATION_PROGRESS_TIMEOUT_SECS,
+    )
+    .expect("Originally rejecting signers did not capitulate to parent tenure last block N+1");
 
     info!("------------------------- Waiting for block N+2 approval from capitulated signer -------------------------");
     let transfer_tx = make_stacks_transfer_serialized(

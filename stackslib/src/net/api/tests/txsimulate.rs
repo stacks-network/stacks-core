@@ -22,7 +22,9 @@ use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, SharedMemoryChainStateBackend, StacksChainState,
+};
 use crate::core::test_util::{make_contract_call_tx, make_contract_publish_tx, to_addr};
 use crate::net::api::tests::TestRPC;
 use crate::net::api::txsimulate::{self, TxSimulateError};
@@ -35,7 +37,8 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http =
+        StacksHttp::<SharedMemoryChainStateBackend>::new(addr, &ConnectionOptions::default());
 
     let private_key = StacksPrivateKey::from_seed("txsimulate".as_bytes());
     let tx = make_contract_publish_tx(
@@ -89,7 +92,9 @@ fn test_try_parse_request() {
 /// activating Nakamoto, so these blocks are present in the headers DB and can
 /// be named by a client via the `tip` query parameter -- but they cannot be
 /// extended by the simulation endpoint, which builds a Nakamoto block.
-fn last_epoch2_block_id(chainstate: &StacksChainState) -> StacksBlockId {
+fn last_epoch2_block_id(
+    chainstate: &StacksChainState<impl ChainStatePersistence>,
+) -> StacksBlockId {
     chainstate
         .db()
         .query_row(

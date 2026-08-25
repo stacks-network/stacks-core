@@ -31,7 +31,7 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{ChainStatePersistence, StacksChainState};
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
 use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
@@ -289,7 +289,7 @@ fn test_ephemeral_marf_store() {
 
 fn replay_block(
     sortdb: &SortitionDB,
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     original_block: NakamotoBlock,
     observer: &TestEventObserver,
 ) {
@@ -735,7 +735,8 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
         .with_extra_peers(0)
         .with_initial_balances(initial_balances);
 
-    let (mut peer, _other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(&observer));
+    let (mut peer, _other_peers) =
+        plan.boot_into_nakamoto_peers_shared_ephemeral(boot_tenures, Some(&observer));
 
     // read out all Nakamoto blocks
     let sortdb = peer.chain.sortdb.take().unwrap();

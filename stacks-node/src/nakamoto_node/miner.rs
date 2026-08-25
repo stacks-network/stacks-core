@@ -36,7 +36,9 @@ use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureIn
 use stacks::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
-use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{
+    DiskChainStateBackend, StacksAccountReader, StacksChainState, StacksHeaderInfo,
+};
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
     TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
@@ -88,6 +90,9 @@ static TEST_MINE_STALL: LazyLock<TestFlag<TestMineStall>> = LazyLock::new(TestFl
 /// Test flag to stall block proposal broadcasting for the specified miner keys
 pub static TEST_BROADCAST_PROPOSAL_STALL: LazyLock<TestFlag<Vec<Secp256k1PublicKey>>> =
     LazyLock::new(TestFlag::default);
+#[cfg(test)]
+/// Indicates that a block proposal reached the broadcast stall.
+pub static TEST_BLOCK_PROPOSAL_STALLED: AtomicBool = AtomicBool::new(false);
 #[cfg(test)]
 /// Test flag to make miner skip mining a block
 pub static TEST_MINE_SKIP: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
@@ -396,6 +401,7 @@ impl BlockMinerThread {
             )
             .unwrap_or_default()
         }) {
+            TEST_BLOCK_PROPOSAL_STALLED.store(true, Ordering::SeqCst);
             warn!("Fault injection: Block proposal broadcast is stalled due to testing directive.";
                         "stacks_block_id" => %new_block.block_id(),
                         "stacks_block_hash" => %new_block.header.block_hash(),
@@ -411,6 +417,7 @@ impl BlockMinerThread {
             }) {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
+            TEST_BLOCK_PROPOSAL_STALLED.store(false, Ordering::SeqCst);
             info!("Fault injection: Block proposal broadcast is no longer stalled due to testing directive.";
                     "block_id" => %new_block.block_id(),
                     "height" => new_block.header.chain_length,
@@ -720,7 +727,7 @@ impl BlockMinerThread {
     /// Check if the parent block has been processed
     fn is_parent_processed(
         &mut self,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
     ) -> Result<bool, NakamotoNodeError> {
         let burn_db_path = self.config.get_burn_db_file_path();
         let mut burn_db = SortitionDB::open(
@@ -1001,7 +1008,7 @@ impl BlockMinerThread {
     /// - Returns `Err(NakamotoNodeError)` if mining is aborted or the chainstate is inconsistent.
     fn wait_for_last_block_mined_and_processed(
         &mut self,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
     ) -> Result<(), NakamotoNodeError> {
         let Some((last_consensus_hash, last_bhh)) = &self.last_block_mined else {
             return Ok(());
@@ -1198,7 +1205,7 @@ impl BlockMinerThread {
     fn broadcast_p2p(
         &mut self,
         sort_db: &SortitionDB,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         block: &NakamotoBlock,
         reward_set: &RewardSet,
     ) -> Result<(), ChainstateError> {
@@ -1418,7 +1425,7 @@ impl BlockMinerThread {
     fn load_block_parent_header(
         &self,
         burn_db: &mut SortitionDB,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
     ) -> Result<StacksHeaderInfo, NakamotoNodeError> {
         let my_tenure_tip = self
             .find_highest_known_block_in_my_tenure(&burn_db, &chain_state)
@@ -1489,7 +1496,7 @@ impl BlockMinerThread {
     fn load_block_parent_info(
         &self,
         burn_db: &mut SortitionDB,
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
     ) -> Result<ParentStacksBlockInfo, NakamotoNodeError> {
         let stacks_tip_header = self.load_block_parent_header(burn_db, chain_state)?;
 
@@ -1875,7 +1882,7 @@ impl BlockMinerThread {
     fn find_highest_known_block_in_my_tenure(
         &self,
         burn_db: &SortitionDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<DiskChainStateBackend>,
     ) -> Result<Option<StacksHeaderInfo>, NakamotoNodeError> {
         NakamotoChainState::find_highest_known_block_header_in_tenure(
             chainstate,
@@ -1975,7 +1982,7 @@ impl BlockMinerThread {
     /// Create the tenure start info for the block we're going to build
     fn make_tenure_start_info(
         &mut self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<DiskChainStateBackend>,
         parent_block_info: &ParentStacksBlockInfo,
         vrf_proof: VRFProof,
         target_epoch_id: StacksEpochId,
@@ -2140,7 +2147,7 @@ impl ParentStacksBlockInfo {
     /// conception of the sortition history tip may have become stale by the time they call this
     /// method, in which case, mining should *not* happen (since the block will be invalid).
     pub fn lookup(
-        chain_state: &mut StacksChainState,
+        chain_state: &mut StacksChainState<DiskChainStateBackend>,
         burn_db: &mut SortitionDB,
         check_burn_block: &BlockSnapshot,
         miner_address: StacksAddress,
@@ -2253,7 +2260,7 @@ impl ParentStacksBlockInfo {
                         &stacks_tip_header.index_block_hash(),
                     )?,
                     &stacks_tip_header.index_block_hash(),
-                    |conn| StacksChainState::get_account(conn, &principal),
+                    |conn| conn.get_account(&principal),
                 )
                 .unwrap_or_else(|| {
                     panic!(

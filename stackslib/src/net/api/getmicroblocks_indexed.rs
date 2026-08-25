@@ -19,7 +19,9 @@ use stacks_common::codec::{read_next, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
 
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, Epoch2StagingBlocksDb, StacksChainState,
+};
 use crate::chainstate::stacks::{Error as ChainError, StacksBlockHeader, StacksMicroblock};
 use crate::net::http::{
     parse_bytes, Error, HttpChunkGenerator, HttpContentType, HttpNotFound, HttpRequest,
@@ -58,11 +60,11 @@ pub struct StacksIndexedMicroblockStream {
 
 impl StacksIndexedMicroblockStream {
     pub fn new(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         tail_index_microblock_hash: &StacksBlockId,
     ) -> Result<Self, ChainError> {
         // look up parent
-        let mblock_info = StacksChainState::load_staging_microblock_info_indexed(
+        let mblock_info = Epoch2StagingBlocksDb::load_staging_microblock_info_indexed(
             chainstate.db(),
             tail_index_microblock_hash,
         )?
@@ -129,7 +131,9 @@ impl HttpRequest for RPCMicroblocksIndexedRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCMicroblocksIndexedRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCMicroblocksIndexedRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.tail_microblock_id = None;
@@ -140,7 +144,7 @@ impl RPCRequestHandler for RPCMicroblocksIndexedRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tail_microblock_id = self
             .tail_microblock_id
@@ -225,7 +229,7 @@ impl HttpChunkGenerator for StacksIndexedMicroblockStream {
         }
 
         // load next microblock
-        let mblock_info_opt = StacksChainState::load_staging_microblock_indexed(
+        let mblock_info_opt = Epoch2StagingBlocksDb::load_staging_microblock_indexed(
             &self.chainstate_db,
             &self.parent_index_block_hash,
             &self.microblock_hash,

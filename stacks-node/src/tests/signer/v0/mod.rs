@@ -42,7 +42,7 @@ use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
-use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{DiskChainStateBackend, StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{TransactionEvent, TransactionSuccessEvent};
 use stacks::chainstate::stacks::{StacksTransaction, TenureChangeCause, TransactionPayload};
 use stacks::codec::StacksMessageCodec;
@@ -85,10 +85,11 @@ use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer::TEST_REPEAT_PROPOSAL_RESPONSE;
 use stacks_signer::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 use stacks_signer::v0::tests::{
-    TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_PAUSE_BLOCK_BROADCAST,
+    TEST_ACCEPTED_BLOCK_RESPONSES, TEST_IGNORE_ALL_BLOCK_PROPOSALS, TEST_PAUSE_BLOCK_BROADCAST,
     TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION, TEST_REJECT_ALL_BLOCK_PROPOSAL,
     TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST, TEST_SKIP_SIGNER_CLEANUP,
-    TEST_STALL_BLOCK_RESPONSE, TEST_STALL_BLOCK_VALIDATION_SUBMISSION,
+    TEST_STALLED_BLOCK_VALIDATION_SUBMISSIONS, TEST_STALL_BLOCK_RESPONSE,
+    TEST_STALL_BLOCK_VALIDATION_SUBMISSION,
 };
 use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::prelude::*;
@@ -110,12 +111,12 @@ use crate::tests::nakamoto_integrations::{
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch,
-    next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
-    wait_for_tenure_change_tx, TestProxy,
+    get_unconfirmed_tx, next_block_and_wait, run_until_burnchain_height, submit_tx,
+    submit_tx_fallible, test_observer, wait_for_tenure_change_tx, TestProxy,
 };
 use crate::tests::signer::commands::*;
 use crate::tests::signer::SpawnedSignerTrait;
-use crate::tests::{self, gen_random_port};
+use crate::tests::{self, gen_random_port, test_port};
 use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config, Keychain};
 
 pub mod capitulate_parent_tenure_view;
@@ -190,8 +191,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         info!("Signer set calculated");
     }
 
-    /// Run the test until the epoch 3 boundary
-    pub fn boot_to_epoch_3(&self) {
+    /// Run the test until the epoch 3 boundary without mining the first Nakamoto tenure.
+    fn boot_to_epoch_3_boundary(&self) {
         TEST_MINE_SKIP.set(true);
         boot_to_epoch_3_reward_set(
             &self.running_nodes.conf,
@@ -218,18 +219,34 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             Ok(get_chain_info_opt(&self.running_nodes.conf).is_some())
         })
         .expect("Timed out waiting for network to restart after 3.0 boundary reached");
+    }
 
+    /// Mine the first Nakamoto tenure after reaching the epoch 3 boundary.
+    fn mine_first_epoch_3_tenure(&self) {
+        self.try_mine_first_epoch_3_tenure()
+            .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    /// Fallible form of [`Self::mine_first_epoch_3_tenure`].
+    fn try_mine_first_epoch_3_tenure(&self) -> Result<(), String> {
         if self.snapshot_path.is_some() {
             info!("Booted to epoch 3.0, ready for snapshot.");
-            return;
+            return Ok(());
         }
 
         // Wait until we see the first block of epoch 3.0.
         // Note, we don't use `nakamoto_blocks_mined` counter, because there
         // could be other miners mining blocks.
         info!("Waiting for first Epoch 3.0 tenure to start");
-        self.mine_nakamoto_block(Duration::from_secs(60), false);
+        self.try_mine_nakamoto_block(Duration::from_secs(60), false)?;
         info!("Ready to mine Nakamoto blocks!");
+        Ok(())
+    }
+
+    /// Boot the test through its first epoch 3 Nakamoto tenure.
+    pub fn boot_to_epoch_3(&self) {
+        self.boot_to_epoch_3_boundary();
+        self.mine_first_epoch_3_tenure();
     }
 
     /// Boot to Epoch 4.0 with sBTC stub contracts published.
@@ -1140,7 +1157,7 @@ impl MultipleMinerTest {
                         );
                         return true;
                     };
-                    if addr.port() == test_observer::EVENT_OBSERVER_PORT {
+                    if addr.port() == test_observer::event_observer_port() {
                         return true;
                     }
                     match signer_distributor(addr.port()) {
@@ -1237,12 +1254,35 @@ impl MultipleMinerTest {
         let prev_skip = self.rl2_counters.skip_commit_op.get();
         self.rl2_counters.skip_commit_op.set(true);
 
-        self.signer_test.boot_to_epoch_3();
+        self.signer_test.boot_to_epoch_3_boundary();
+
+        // The epoch transition temporarily restarts each node's networking and
+        // StackerDB services. Ensure both nodes have caught up before the first
+        // Nakamoto proposal; otherwise signers attached to the lagging node can
+        // miss the proposal and leave it below the acceptance threshold.
+        self.wait_for_matching_chain_tips(600);
+        let first_tenure_result = (|| {
+            let mut last_error = String::new();
+            for attempt in 1..=2 {
+                match self.signer_test.try_mine_first_epoch_3_tenure() {
+                    Ok(()) => return Ok(()),
+                    Err(error) => {
+                        warn!(
+                            "First Epoch 3.0 tenure failed on attempt {attempt}; retrying from the advanced burn tip: {error}"
+                        );
+                        last_error = error;
+                    }
+                }
+            }
+            Err(last_error)
+        })();
 
         self.rl2_counters.skip_commit_op.set(prev_skip);
+        first_tenure_result
+            .unwrap_or_else(|error| panic!("Failed to mine the first Epoch 3.0 tenure: {error}"));
 
         // Use a longer timeout for the miners to advance to epoch 3.0 and so that CI runners don't timeout.
-        self.wait_for_chains(600);
+        self.wait_for_matching_chain_tips(600);
 
         info!("------------------------- Reached Epoch 3.0 -------------------------");
     }
@@ -1337,6 +1377,9 @@ impl MultipleMinerTest {
             token_contract_name,
             token_source,
         );
+        let token_txid = StacksTransaction::consensus_deserialize(&mut token_tx.as_slice())
+            .expect("token publish transaction must decode")
+            .txid();
         submit_tx(&http_origin_1, &token_tx);
         let registry_source = sbtc_registry_stub_source(pubkey);
         let registry_tx = make_contract_publish(
@@ -1347,14 +1390,27 @@ impl MultipleMinerTest {
             registry_contract_name,
             &registry_source,
         );
+        let registry_txid = StacksTransaction::consensus_deserialize(&mut registry_tx.as_slice())
+            .expect("registry publish transaction must decode")
+            .txid();
         submit_tx(&http_origin_1, &registry_tx);
 
+        // Either miner can win the next sortition. Do not mine it until both
+        // nodes can build a proposal containing both publishes (or have
+        // already processed them in an interim block).
+        wait_for(60, || {
+            Ok([&http_origin_1, &http_origin_2].iter().all(|http_origin| {
+                let token_ready = get_unconfirmed_tx(http_origin, &token_txid).is_some()
+                    || contract_source_exists(http_origin, &sender_addr, token_contract_name);
+                let registry_ready = get_unconfirmed_tx(http_origin, &registry_txid).is_some()
+                    || contract_source_exists(http_origin, &sender_addr, registry_contract_name);
+                token_ready && registry_ready
+            }))
+        })
+        .expect("contract publishes did not reach both miners before the next tenure");
+
         // 2. Mine one bitcoin block to include them.
-        let sortdb = conf_1
-            .get_burnchain()
-            .open_sortition_db(true)
-            .expect("open sortition db");
-        self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        self.mine_tenure_with_reward_cycle_convergence(60)
             .expect("mine one bitcoin block to include contract publishes");
 
         // 3. Wait for /v2/contracts/source on BOTH nodes. Only proceed once
@@ -1394,23 +1450,29 @@ impl MultipleMinerTest {
 
         // 5. Mine forward until both nodes are past Epoch 4.0.
         //
-        //    Before each BTC block, wait for the chain to settle:
-        //    both nodes must have accepted the previous tenure's
-        //    tenure-change block, and both miners must have submitted
-        //    a block-commit pointing at the current tip.
+        //    After each BTC block, wait for the chain to settle: both nodes
+        //    must accept the new tenure and both miners must submit a
+        //    block-commit pointing at its tip.
+        const MAX_PREPARATORY_CONVERGENCE_ERRORS: usize = 3;
+        let mut convergence_errors = 0;
         while self.get_peer_info().burn_block_height < epoch_40_start {
-            self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
-                .expect("settle chain before next bitcoin block");
-            self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
-                .expect("mine bitcoin block toward Epoch 4.0 boundary");
+            if let Err(error) = self.mine_bitcoin_block_with_reward_cycle_convergence(60) {
+                convergence_errors += 1;
+                assert!(
+                    convergence_errors <= MAX_PREPARATORY_CONVERGENCE_ERRORS,
+                    "failed to converge while mining toward the Epoch 4.0 boundary after \
+                     {convergence_errors} attempts: {error}",
+                );
+                warn!(
+                    "Transient convergence timeout while mining toward the Epoch 4.0 boundary; \
+                     continuing from the latest processed burn view \
+                     (attempt {convergence_errors}): {error}"
+                );
+            }
         }
         // One more block so chain is producing under Epoch 4.0 on both nodes.
-        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
-            .expect("settle chain before final bitcoin block of boot_to_epoch_4");
-        self.mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        self.mine_tenure_with_reward_cycle_convergence(60)
             .expect("mine one bitcoin block past Epoch 4.0 boundary");
-        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
-            .expect("settle chain after Epoch 4.0 boundary");
         info!(
             "Multi-miner: reached Epoch 4.0; current burn_height={}",
             self.get_peer_info().burn_block_height,
@@ -1455,10 +1517,6 @@ impl MultipleMinerTest {
         let chain_id = conf_1.burnchain.chain_id;
         let http_origin_1 = format!("http://{}", conf_1.node.rpc_bind);
         let http_origin_2 = format!("http://{}", conf_2.node.rpc_bind);
-        let sortdb = conf_1
-            .get_burnchain()
-            .open_sortition_db(true)
-            .expect("open sortition db");
         let publish_fee: u64 = 3_000;
         let call_fee: u64 = 1_000;
 
@@ -1606,7 +1664,7 @@ impl MultipleMinerTest {
 
         // Settle once more so block-commits land before the test starts
         // exercising post-boundary tenures.
-        self.wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
+        self.wait_for_both_miners_committed_to_current_tenure(60)
             .expect("settle after stake");
 
         info!(
@@ -1668,6 +1726,11 @@ impl MultipleMinerTest {
         &mut self.signer_test.running_nodes.btc_regtest_controller
     }
 
+    /// Return the shared Bitcoin regtest controller.
+    pub fn btc_regtest_controller(&self) -> &BitcoinRegtestController {
+        &self.signer_test.running_nodes.btc_regtest_controller
+    }
+
     /// Mine `nmb_blocks` blocks on the bitcoin regtest chain and wait for the sortition
     /// database to confirm the block.
     pub fn mine_bitcoin_blocks_and_confirm(
@@ -1698,6 +1761,261 @@ impl MultipleMinerTest {
             None,
             &self.signer_test.signer_addresses_versions(),
         )
+    }
+
+    /// Mine one Bitcoin block, synchronizing all signer views before mining
+    /// resumes when the block crosses a reward-cycle boundary. Returns whether
+    /// the burn block selected a winning tenure.
+    pub fn mine_bitcoin_block_with_reward_cycle_convergence(
+        &mut self,
+        timeout_secs: u64,
+    ) -> Result<bool, String> {
+        let started_at = Instant::now();
+        let current_burn_height = self.btc_regtest_controller().get_bitcoin_chain_height();
+        let burnchain = self.btc_regtest_controller().get_burnchain();
+        let current_reward_cycle = burnchain
+            .block_height_to_reward_cycle(current_burn_height)
+            .ok_or_else(|| format!("no reward cycle for burn height {current_burn_height}"))?;
+        let next_burn_height = current_burn_height.saturating_add(1);
+        let next_reward_cycle = burnchain
+            .block_height_to_reward_cycle(next_burn_height)
+            .ok_or_else(|| format!("no reward cycle for burn height {next_burn_height}"))?;
+
+        if current_reward_cycle == next_reward_cycle {
+            let target_burn_height =
+                self.mine_bitcoin_block_and_wait_for_both_burn_views(timeout_secs)?;
+            return self.finish_burn_block_convergence(
+                &started_at,
+                target_burn_height,
+                timeout_secs,
+            );
+        }
+
+        fault_injection_stall_miner();
+
+        let target_result = self
+            .mine_bitcoin_block_and_wait_for_both_burn_views(timeout_secs)
+            .and_then(|target_burn_height| {
+                // A state-update message is emitted before the signer runloop
+                // performs the pass that installs all pending changes. The
+                // two-pass state read avoids releasing a proposal into that
+                // gap at reward-cycle boundaries.
+                self.signer_test.check_signer_states_normal();
+                let peer_info = self.get_peer_info();
+                let remaining_secs = timeout_secs
+                    .saturating_sub(started_at.elapsed().as_secs())
+                    .max(1);
+                self.signer_test.wait_for_signer_burn_view(
+                    remaining_secs,
+                    &peer_info.pox_consensus,
+                    target_burn_height,
+                )?;
+                Ok(target_burn_height)
+            });
+
+        // Always release parked miner threads, including on an error path.
+        fault_injection_unstall_miner();
+        let target_burn_height = target_result?;
+
+        self.finish_burn_block_convergence(&started_at, target_burn_height, timeout_secs)
+    }
+
+    /// Mine until a burn block selects a tenure, tolerating short gaps with no
+    /// winning sortition as long as both miners continue committing.
+    fn mine_tenure_with_reward_cycle_convergence(
+        &mut self,
+        timeout_secs: u64,
+    ) -> Result<(), String> {
+        const MAX_NO_SORTITION_BLOCKS: usize = 3;
+
+        for _ in 0..MAX_NO_SORTITION_BLOCKS {
+            if self.mine_bitcoin_block_with_reward_cycle_convergence(timeout_secs)? {
+                return Ok(());
+            }
+        }
+        Err(format!(
+            "no winning sortition in {MAX_NO_SORTITION_BLOCKS} consecutive converged burn blocks"
+        ))
+    }
+
+    /// Finish convergence after both nodes have processed a burn block.
+    fn finish_burn_block_convergence(
+        &self,
+        started_at: &Instant,
+        target_burn_height: u64,
+        timeout_secs: u64,
+    ) -> Result<bool, String> {
+        let sortition = get_sortition_info(&self.signer_test.running_nodes.conf);
+        if sortition.burn_block_height != target_burn_height {
+            return Err(format!(
+                "latest sortition height {} does not match mined burn height {target_burn_height}",
+                sortition.burn_block_height,
+            ));
+        }
+
+        if sortition.was_sortition {
+            let remaining_secs = timeout_secs
+                .saturating_sub(started_at.elapsed().as_secs())
+                .max(1);
+            self.wait_for_both_nodes_tenure(target_burn_height, remaining_secs)?;
+        } else {
+            info!(
+                "Burn height {target_burn_height} had no winning sortition; waiting for fresh commits"
+            );
+        }
+
+        let remaining_secs = timeout_secs
+            .saturating_sub(started_at.elapsed().as_secs())
+            .max(1);
+        self.wait_for_both_miners_committed_to_burn_height(target_burn_height, remaining_secs)?;
+        Ok(sortition.was_sortition)
+    }
+
+    /// Mine one Bitcoin block and wait for both nodes to process its tenure.
+    pub fn mine_bitcoin_block_and_wait_for_both_nodes(
+        &mut self,
+        timeout_secs: u64,
+    ) -> Result<u64, String> {
+        let started_at = Instant::now();
+        let target_burn_height =
+            self.mine_bitcoin_block_and_wait_for_both_burn_views(timeout_secs)?;
+
+        let remaining_secs = timeout_secs
+            .saturating_sub(started_at.elapsed().as_secs())
+            .max(1);
+        self.wait_for_both_nodes_tenure(target_burn_height, remaining_secs)?;
+
+        Ok(target_burn_height)
+    }
+
+    /// Mine one Bitcoin block and wait for both nodes to agree on its burn
+    /// view, without requiring its Stacks tenure to have started yet.
+    fn mine_bitcoin_block_and_wait_for_both_burn_views(
+        &mut self,
+        timeout_secs: u64,
+    ) -> Result<u64, String> {
+        let started_at = Instant::now();
+        let bitcoind_height_before = self.btc_regtest_controller().get_bitcoin_chain_height();
+
+        // Do not add another burn block while either node is still processing
+        // a block already mined in bitcoind.
+        let remaining_secs = timeout_secs
+            .saturating_sub(started_at.elapsed().as_secs())
+            .max(1);
+        wait_for(remaining_secs, || {
+            let Some(node_1_info) = get_chain_info_opt(&self.signer_test.running_nodes.conf) else {
+                return Ok(false);
+            };
+            let Some(node_2_info) = get_chain_info_opt(&self.conf_node_2) else {
+                return Ok(false);
+            };
+            Ok(node_1_info.burn_block_height >= bitcoind_height_before
+                && node_2_info.burn_block_height >= bitcoind_height_before)
+        })
+        .map_err(|error| {
+            format!(
+                "nodes did not process existing bitcoind height {bitcoind_height_before}: {error}"
+            )
+        })?;
+
+        self.btc_regtest_controller_mut().build_next_block(1);
+        let target_burn_height = self.btc_regtest_controller().get_bitcoin_chain_height();
+        if target_burn_height != bitcoind_height_before.saturating_add(1) {
+            return Err(format!(
+                "bitcoind advanced from {bitcoind_height_before} to {target_burn_height} after mining one block"
+            ));
+        }
+
+        let remaining_secs = timeout_secs
+            .saturating_sub(started_at.elapsed().as_secs())
+            .max(1);
+        wait_for(remaining_secs, || {
+            let Some(node_1_info) = get_chain_info_opt(&self.signer_test.running_nodes.conf) else {
+                return Ok(false);
+            };
+            let Some(node_2_info) = get_chain_info_opt(&self.conf_node_2) else {
+                return Ok(false);
+            };
+            Ok(node_1_info.burn_block_height >= target_burn_height
+                && node_2_info.burn_block_height >= target_burn_height
+                && node_1_info.pox_consensus == node_2_info.pox_consensus
+                && node_1_info.stacks_tip_height == node_2_info.stacks_tip_height
+                && node_1_info.stacks_tip == node_2_info.stacks_tip
+                && node_1_info.stacks_tip_consensus_hash == node_2_info.stacks_tip_consensus_hash)
+        })
+        .map_err(|error| {
+            let node_1 = get_chain_info_opt(&self.signer_test.running_nodes.conf).map(|info| {
+                (
+                    info.burn_block_height,
+                    info.pox_consensus,
+                    info.stacks_tip_height,
+                    info.stacks_tip,
+                    info.stacks_tip_consensus_hash,
+                )
+            });
+            let node_2 = get_chain_info_opt(&self.conf_node_2).map(|info| {
+                (
+                    info.burn_block_height,
+                    info.pox_consensus,
+                    info.stacks_tip_height,
+                    info.stacks_tip,
+                    info.stacks_tip_consensus_hash,
+                )
+            });
+            format!(
+                "nodes did not agree on the burn view at height {target_burn_height}: \
+                 node_1={node_1:?}, node_2={node_2:?}: {error}"
+            )
+        })?;
+
+        Ok(target_burn_height)
+    }
+
+    /// Wait for both nodes to accept the tenure for `target_burn_height`.
+    fn wait_for_both_nodes_tenure(
+        &self,
+        target_burn_height: u64,
+        timeout_secs: u64,
+    ) -> Result<(), String> {
+        wait_for(timeout_secs, || {
+            let Some(node_1_info) = get_chain_info_opt(&self.signer_test.running_nodes.conf) else {
+                return Ok(false);
+            };
+            let Some(node_2_info) = get_chain_info_opt(&self.conf_node_2) else {
+                return Ok(false);
+            };
+            Ok(node_1_info.burn_block_height >= target_burn_height
+                && node_2_info.burn_block_height >= target_burn_height
+                && node_1_info.pox_consensus == node_2_info.pox_consensus
+                && node_1_info.stacks_tip_height == node_2_info.stacks_tip_height
+                && node_1_info.stacks_tip == node_2_info.stacks_tip
+                && node_1_info.stacks_tip_consensus_hash == node_2_info.stacks_tip_consensus_hash
+                && node_1_info.stacks_tip_consensus_hash == node_1_info.pox_consensus)
+        })
+        .map_err(|error| {
+            let node_1 = get_chain_info_opt(&self.signer_test.running_nodes.conf).map(|info| {
+                (
+                    info.burn_block_height,
+                    info.pox_consensus,
+                    info.stacks_tip_height,
+                    info.stacks_tip,
+                    info.stacks_tip_consensus_hash,
+                )
+            });
+            let node_2 = get_chain_info_opt(&self.conf_node_2).map(|info| {
+                (
+                    info.burn_block_height,
+                    info.pox_consensus,
+                    info.stacks_tip_height,
+                    info.stacks_tip,
+                    info.stacks_tip_consensus_hash,
+                )
+            });
+            format!(
+                "nodes did not process the tenure at burn height {target_burn_height}: \
+                 node_1={node_1:?}, node_2={node_2:?}: {error}"
+            )
+        })
     }
 
     /// Mine `nmb_blocks` blocks on the bitcoin regtest chain and wait for the sortition
@@ -1750,6 +2068,15 @@ impl MultipleMinerTest {
             .unwrap()
     }
 
+    /// Wait for the sender account to consume a submitted transaction nonce.
+    fn wait_for_transfer_tx_nonce(&self, sent_nonce: u64, timeout_secs: u64) -> Result<(), String> {
+        let http_origin = self.node_http();
+        let sender_addr = tests::to_addr(&self.sender_sk);
+        wait_for(timeout_secs, || {
+            Ok(get_account(&http_origin, &sender_addr).nonce > sent_nonce)
+        })
+    }
+
     fn node_http(&self) -> String {
         format!(
             "http://{}",
@@ -1765,11 +2092,7 @@ impl MultipleMinerTest {
     /// Returns the txid of the transfer tx.
     pub fn send_and_mine_transfer_tx(&mut self, timeout_secs: u64) -> Result<String, String> {
         let (txid, nonce) = self.send_transfer_tx();
-        let http_origin = self.node_http();
-        let sender_addr = tests::to_addr(&self.sender_sk);
-        wait_for(timeout_secs, || {
-            Ok(get_account(&http_origin, &sender_addr).nonce > nonce)
-        })?;
+        self.wait_for_transfer_tx_nonce(nonce, timeout_secs)?;
         Ok(txid)
     }
 
@@ -2097,15 +2420,21 @@ impl MultipleMinerTest {
     /// pointing at the current stacks tip.
     pub fn wait_for_both_miners_committed_to_current_tenure(
         &self,
-        sortdb: &SortitionDB,
         timeout_secs: u64,
     ) -> Result<(), String> {
-        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-            .map_err(|e| format!("get_canonical_burn_chain_tip: {e}"))?;
-        let target_burn_height = burn_tip.block_height;
-        let target_consensus_hash = burn_tip.consensus_hash.clone();
+        let target_burn_height = self.get_peer_info().burn_block_height;
+        self.wait_for_both_miners_committed_to_burn_height(target_burn_height, timeout_secs)
+    }
 
-        // 1. Both nodes must have a stacks tip in the current tenure
+    /// Wait for both nodes and miners to settle on `target_burn_height`.
+    fn wait_for_both_miners_committed_to_burn_height(
+        &self,
+        target_burn_height: u64,
+        timeout_secs: u64,
+    ) -> Result<(), String> {
+        // Both nodes must have a stacks tip in the current tenure, and both
+        // miners must have submitted a block-commit at the current burn
+        // height and pointing at that tenure.
         wait_for(timeout_secs, || {
             let Some(node_1_info) = get_chain_info_opt(&self.signer_test.running_nodes.conf) else {
                 return Ok(false);
@@ -2113,29 +2442,53 @@ impl MultipleMinerTest {
             let Some(node_2_info) = get_chain_info_opt(&self.conf_node_2) else {
                 return Ok(false);
             };
-            Ok(
-                node_1_info.stacks_tip_height == node_2_info.stacks_tip_height
-                    && node_1_info.stacks_tip_consensus_hash == target_consensus_hash
-                    && node_2_info.stacks_tip_consensus_hash == target_consensus_hash,
-            )
-        })?;
-
-        // 2. Both miners must have submitted a block-commit at the current
-        //    burn height and pointing at the current tenure
-        wait_for(timeout_secs, || {
             let m1 = &self.signer_test.running_nodes.counters;
             let m2 = &self.rl2_counters;
             let m1_committed = m1
                 .naka_submitted_commit_last_burn_height
                 .load(Ordering::SeqCst)
                 >= target_burn_height
-                && m1.naka_submitted_commit_last_parent_tenure_id.get() == target_consensus_hash;
+                && m1.naka_submitted_commit_last_parent_tenure_id.get()
+                    == node_1_info.stacks_tip_consensus_hash;
             let m2_committed = m2
                 .naka_submitted_commit_last_burn_height
                 .load(Ordering::SeqCst)
                 >= target_burn_height
-                && m2.naka_submitted_commit_last_parent_tenure_id.get() == target_consensus_hash;
-            Ok(m1_committed && m2_committed)
+                && m2.naka_submitted_commit_last_parent_tenure_id.get()
+                    == node_1_info.stacks_tip_consensus_hash;
+            Ok(node_1_info.burn_block_height >= target_burn_height
+                && node_2_info.burn_block_height >= target_burn_height
+                && node_1_info.stacks_tip_height == node_2_info.stacks_tip_height
+                && node_1_info.stacks_tip_consensus_hash == node_2_info.stacks_tip_consensus_hash
+                && m1_committed
+                && m2_committed)
+        })
+        .map_err(|error| {
+            let node_1_tip = get_chain_info_opt(&self.signer_test.running_nodes.conf).map(|info| {
+                (
+                    info.burn_block_height,
+                    info.stacks_tip_height,
+                    info.stacks_tip_consensus_hash,
+                )
+            });
+            let node_2_tip = get_chain_info_opt(&self.conf_node_2).map(|info| {
+                (
+                    info.burn_block_height,
+                    info.stacks_tip_height,
+                    info.stacks_tip_consensus_hash,
+                )
+            });
+            let m1 = &self.signer_test.running_nodes.counters;
+            let m2 = &self.rl2_counters;
+            format!(
+                "nodes and miners did not settle on burn height {target_burn_height}: \
+                 node_1_tip={node_1_tip:?}, node_2_tip={node_2_tip:?}, \
+                 miner_1_commit=({}, {:?}), miner_2_commit=({}, {:?}): {error}",
+                m1.naka_submitted_commit_last_burn_height.get(),
+                m1.naka_submitted_commit_last_parent_tenure_id.get(),
+                m2.naka_submitted_commit_last_burn_height.get(),
+                m2.naka_submitted_commit_last_parent_tenure_id.get(),
+            )
         })?;
 
         Ok(())
@@ -2156,6 +2509,27 @@ impl MultipleMinerTest {
             )
         })
         .expect("Timed out waiting for boostrapped node to catch up to the miner");
+    }
+
+    /// Wait for both nodes to report the same burnchain and Stacks tips.
+    fn wait_for_matching_chain_tips(&self, timeout_secs: u64) {
+        wait_for(timeout_secs, || {
+            let Some(node_1_info) = get_chain_info_opt(&self.signer_test.running_nodes.conf) else {
+                return Ok(false);
+            };
+            let Some(node_2_info) = get_chain_info_opt(&self.conf_node_2) else {
+                return Ok(false);
+            };
+            Ok(
+                node_1_info.burn_block_height == node_2_info.burn_block_height
+                    && node_1_info.pox_consensus == node_2_info.pox_consensus
+                    && node_1_info.stacks_tip_height == node_2_info.stacks_tip_height
+                    && node_1_info.stacks_tip == node_2_info.stacks_tip
+                    && node_1_info.stacks_tip_consensus_hash
+                        == node_2_info.stacks_tip_consensus_hash,
+            )
+        })
+        .expect("Timed out waiting for both nodes to reach matching chain tips");
     }
 
     pub fn assert_last_sortition_winner_reorged(&self) {
@@ -2913,7 +3287,17 @@ fn mine_2_nakamoto_reward_cycles() {
     info!("------------------------- Test Setup -------------------------");
     let nmb_reward_cycles = 2;
     let num_signers = 5;
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |_| {},
+        |config| {
+            config.burnchain.pox_prepare_length = Some(3);
+            config.burnchain.pox_reward_length = Some(9);
+        },
+        None,
+        None,
+    );
     let timeout = Duration::from_secs(200);
     signer_test.boot_to_epoch_3();
     let curr_reward_cycle = signer_test.get_current_reward_cycle();
@@ -3083,8 +3467,6 @@ fn multiple_miners() {
     //  have been produced such that each miner has produced 3 tenures, we stop and check the
     //  results at the end
     info!("------------------------- Mining At Most {max_nakamoto_tenures} Tenures -------------------------");
-    let rl1_counters = miners.signer_test.running_nodes.counters.clone();
-    let rl2_counters = miners.rl2_counters.clone();
     let (miner_1_pk, miner_2_pk) = miners.get_miner_public_keys();
     let mut btc_blocks_mined = 1;
     let mut miner_1_tenures = 0;
@@ -3100,11 +3482,9 @@ fn multiple_miners() {
 
         info!("Issue next block-build request\ninfo 1: {info_1:?}\ninfo 2: {info_2:?}\n");
 
-        miners.signer_test.mine_block_wait_on_processing(
-            &[&conf_1, &conf_2],
-            &[&rl1_counters, &rl2_counters],
-            Duration::from_secs(30),
-        );
+        miners
+            .signer_test
+            .mine_nakamoto_block_without_commit(Duration::from_secs(30), false);
 
         miners.signer_test.check_signer_states_normal();
 
@@ -3185,7 +3565,7 @@ pub fn get_nakamoto_headers(config: &Config) -> Vec<StacksHeaderInfo> {
         })
         .collect();
 
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         config.is_mainnet(),
         config.burnchain.chain_id,
         &config.get_chainstate_path_str(),
@@ -3788,6 +4168,75 @@ fn empty_tenure_delayed() {
     signer_test.shutdown();
 }
 
+/// Wait for the miner StackerDB to contain a valid mock block at `burn_block_height`.
+fn wait_for_mock_block(
+    miners_stackerdb_contract: &QualifiedContractIdentifier,
+    burn_block_height: u64,
+    signer_public_keys: &[StacksPublicKey],
+) {
+    let started_at = Instant::now();
+    loop {
+        for chunk in test_observer::get_stackerdb_chunks()
+            .into_iter()
+            .filter_map(|chunk| {
+                if chunk.contract_id != *miners_stackerdb_contract {
+                    return None;
+                }
+                Some(chunk.modified_slots)
+            })
+            .flatten()
+        {
+            if chunk.data.is_empty() {
+                continue;
+            }
+            let SignerMessage::MockBlock(mock_block) =
+                SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
+                    .expect("Failed to deserialize SignerMessage")
+            else {
+                continue;
+            };
+            if mock_block.mock_proposal.peer_info.burn_block_height != burn_block_height {
+                continue;
+            }
+            for mock_signature in &mock_block.mock_signatures {
+                assert!(signer_public_keys.iter().any(|signer| {
+                    mock_signature
+                        .verify(&StacksPublicKey::from_slice(signer.to_bytes().as_slice()).unwrap())
+                        .expect("Failed to verify mock signature")
+                }));
+            }
+            return;
+        }
+        assert!(
+            started_at.elapsed() <= Duration::from_secs(30),
+            "Failed to find mock miner message for burn block {burn_block_height} within timeout"
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Configure a short Epoch 2.5 window with ten mock-signing burn blocks.
+fn configure_mock_signing_epochs(config: &mut NeonConfig) {
+    const EPOCH_25_START: u64 = 131;
+    const MOCK_SIGNING_BURN_BLOCKS: u64 = 10;
+
+    config.miner.pre_nakamoto_mock_signing = true;
+    let reward_cycle_len = config.get_burnchain().pox_constants.reward_cycle_length as u64;
+    let first_full_epoch_25_cycle = EPOCH_25_START
+        .saturating_sub(EPOCH_25_START % reward_cycle_len)
+        .saturating_add(reward_cycle_len);
+    let epoch_30_start = first_full_epoch_25_cycle
+        .saturating_add(MOCK_SIGNING_BURN_BLOCKS)
+        .saturating_add(1);
+    let epochs = config.burnchain.epochs.as_mut().unwrap();
+    epochs.truncate_after(StacksEpochId::Epoch30);
+    epochs[StacksEpochId::Epoch24].end_height = EPOCH_25_START;
+    epochs[StacksEpochId::Epoch25].start_height = EPOCH_25_START;
+    epochs[StacksEpochId::Epoch25].end_height = epoch_30_start;
+    epochs[StacksEpochId::Epoch30].start_height = epoch_30_start;
+    epochs[StacksEpochId::Epoch30].end_height = STACKS_EPOCH_MAX;
+}
+
 #[test]
 #[ignore]
 /// This test checks that Epoch 2.5 signers will issue a mock signature per burn block they receive.
@@ -3812,14 +4261,7 @@ fn mock_sign_epoch_25() {
         num_signers,
         vec![(sender_addr, send_amt + send_fee)],
         |_| {},
-        |node_config| {
-            node_config.miner.pre_nakamoto_mock_signing = true;
-            let epochs = node_config.burnchain.epochs.as_mut().unwrap();
-            epochs.truncate_after(StacksEpochId::Epoch30);
-            epochs[StacksEpochId::Epoch25].end_height = 251;
-            epochs[StacksEpochId::Epoch30].start_height = 251;
-            epochs[StacksEpochId::Epoch30].end_height = STACKS_EPOCH_MAX;
-        },
+        configure_mock_signing_epochs,
         None,
         None,
     );
@@ -3847,7 +4289,6 @@ fn mock_sign_epoch_25() {
     let miners_stackerdb_contract = boot_code_id(MINERS_NAME, false);
 
     // Mine until epoch 3.0 and ensure we get a new mock block per epoch 2.5 sortition
-    let main_poll_time = Instant::now();
     // Only advance to the boundary as the epoch 2.5 miner will be shut down at this point.
     while signer_test
         .running_nodes
@@ -3855,8 +4296,6 @@ fn mock_sign_epoch_25() {
         .get_headers_height()
         < epoch_3_boundary
     {
-        let mut mock_block_mesage = None;
-        let mock_poll_time = Instant::now();
         signer_test
             .running_nodes
             .btc_regtest_controller
@@ -3866,55 +4305,10 @@ fn mock_sign_epoch_25() {
             .btc_regtest_controller
             .get_headers_height();
         debug!("Waiting for mock miner message for burn block height {current_burn_block_height}");
-        while mock_block_mesage.is_none() {
-            std::thread::sleep(Duration::from_millis(100));
-            let chunks = test_observer::get_stackerdb_chunks();
-            for chunk in chunks
-                .into_iter()
-                .filter_map(|chunk| {
-                    if chunk.contract_id != miners_stackerdb_contract {
-                        return None;
-                    }
-                    Some(chunk.modified_slots)
-                })
-                .flatten()
-            {
-                if chunk.data.is_empty() {
-                    continue;
-                }
-                let SignerMessage::MockBlock(mock_block) =
-                    SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                        .expect("Failed to deserialize SignerMessage")
-                else {
-                    continue;
-                };
-                if mock_block.mock_proposal.peer_info.burn_block_height == current_burn_block_height
-                {
-                    mock_block
-                        .mock_signatures
-                        .iter()
-                        .for_each(|mock_signature| {
-                            assert!(signer_public_keys.iter().any(|signer| {
-                                mock_signature
-                                    .verify(
-                                        &StacksPublicKey::from_slice(signer.to_bytes().as_slice())
-                                            .unwrap(),
-                                    )
-                                    .expect("Failed to verify mock signature")
-                            }));
-                        });
-                    mock_block_mesage = Some(mock_block);
-                    break;
-                }
-            }
-            assert!(
-                mock_poll_time.elapsed() <= Duration::from_secs(15),
-                "Failed to find mock miner message within timeout"
-            );
-        }
-        assert!(
-            main_poll_time.elapsed() <= Duration::from_secs(145),
-            "Timed out waiting to advance epoch 3.0 boundary"
+        wait_for_mock_block(
+            &miners_stackerdb_contract,
+            current_burn_block_height,
+            &signer_public_keys,
         );
     }
 }
@@ -3930,14 +4324,7 @@ fn multiple_miners_mock_sign_epoch_25() {
         num_signers,
         0,
         |_| {},
-        |config| {
-            config.miner.pre_nakamoto_mock_signing = true;
-            let epochs = config.burnchain.epochs.as_mut().unwrap();
-            epochs.truncate_after(StacksEpochId::Epoch30);
-            epochs[StacksEpochId::Epoch25].end_height = 251;
-            epochs[StacksEpochId::Epoch30].start_height = 251;
-            epochs[StacksEpochId::Epoch30].end_height = STACKS_EPOCH_MAX;
-        },
+        configure_mock_signing_epochs,
         |_| {},
     );
     let epochs = miners
@@ -3969,57 +4356,14 @@ fn multiple_miners_mock_sign_epoch_25() {
 
     // Only advance to the boundary as the epoch 2.5 miner will be shut down at this point.
     while miners.btc_regtest_controller_mut().get_headers_height() < epoch_3_boundary {
-        let mut mock_block_mesage = None;
-        let mock_poll_time = Instant::now();
         miners.btc_regtest_controller_mut().build_next_block(1);
         let current_burn_block_height = miners.btc_regtest_controller_mut().get_headers_height();
         debug!("Waiting for mock miner message for burn block height {current_burn_block_height}");
-        while mock_block_mesage.is_none() {
-            std::thread::sleep(Duration::from_millis(100));
-            let chunks = test_observer::get_stackerdb_chunks();
-            for chunk in chunks
-                .into_iter()
-                .filter_map(|chunk| {
-                    if chunk.contract_id != miners_stackerdb_contract {
-                        return None;
-                    }
-                    Some(chunk.modified_slots)
-                })
-                .flatten()
-            {
-                if chunk.data.is_empty() {
-                    continue;
-                }
-                let SignerMessage::MockBlock(mock_block) =
-                    SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
-                        .expect("Failed to deserialize SignerMessage")
-                else {
-                    continue;
-                };
-                if mock_block.mock_proposal.peer_info.burn_block_height == current_burn_block_height
-                {
-                    mock_block
-                        .mock_signatures
-                        .iter()
-                        .for_each(|mock_signature| {
-                            assert!(signer_public_keys.iter().any(|signer| {
-                                mock_signature
-                                    .verify(
-                                        &StacksPublicKey::from_slice(signer.to_bytes().as_slice())
-                                            .unwrap(),
-                                    )
-                                    .expect("Failed to verify mock signature")
-                            }));
-                        });
-                    mock_block_mesage = Some(mock_block);
-                    break;
-                }
-            }
-            assert!(
-                mock_poll_time.elapsed() <= Duration::from_secs(15),
-                "Failed to find mock miner message within timeout"
-            );
-        }
+        wait_for_mock_block(
+            &miners_stackerdb_contract,
+            current_burn_block_height,
+            &signer_public_keys,
+        );
     }
 }
 
@@ -4062,7 +4406,7 @@ fn signer_set_rollover() {
 
     let run_stamp = rand::random();
 
-    let rpc_port = 51024;
+    let rpc_port = test_port(51024);
     let rpc_bind = format!("127.0.0.1:{rpc_port}");
 
     // Setup the new signers that will take over
@@ -4073,8 +4417,8 @@ fn signer_set_rollover() {
         &Network::Testnet,
         "12345",
         run_stamp,
-        3000 + num_signers,
-        Some(9000 + num_signers),
+        usize::from(test_port(3000)) + num_signers,
+        Some(usize::from(test_port(9000)) + num_signers),
         None,
     );
 
@@ -4179,7 +4523,11 @@ fn signer_set_rollover() {
     signer_test.check_signer_states_normal();
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
     let block_sighash = mined_block.signer_signature_hash;
-    let signer_signatures = mined_block.signer_signature;
+    let signer_signatures = signer_test.wait_for_confirmed_block_v0(&block_sighash, short_timeout);
+    assert!(
+        !signer_signatures.is_empty(),
+        "old signer set produced a block without signatures"
+    );
 
     // verify the mined_block signatures against the OLD signer set
     for signature in signer_signatures.iter() {
@@ -4325,7 +4673,12 @@ fn signer_set_rollover() {
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
 
     info!("---- Verifying that the new signers signed the block -----");
-    let signer_signatures = mined_block.signer_signature;
+    let block_sighash = mined_block.signer_signature_hash;
+    let signer_signatures = signer_test.wait_for_confirmed_block_v0(&block_sighash, short_timeout);
+    assert!(
+        !signer_signatures.is_empty(),
+        "new signer set produced a block without signatures"
+    );
 
     // verify the mined_block signatures against the NEW signer set
     for signature in signer_signatures.iter() {
@@ -4559,6 +4912,11 @@ fn duplicate_signers() {
 #[test]
 #[ignore]
 fn signer_multinode_rollover() {
+    const TEST_TIMEOUT_SECS: u64 = 120;
+    const TENURE_ATTEMPT_TIMEOUT_SECS: u64 = 60;
+    const INTERIM_BLOCK_TIMEOUT_SECS: u64 = 30;
+    const MAX_INTERIM_BLOCK_RECOVERIES: u64 = 2;
+
     let num_signers = 5;
     let new_num_signers = 4;
 
@@ -4574,12 +4932,12 @@ fn signer_multinode_rollover() {
         .iter()
         .map(|addr| (addr.clone(), POX_DEFAULT_STACKER_BALANCE))
         .collect();
-    let new_signers_port_start = 3000 + num_signers;
+    let new_signers_port_start = usize::from(test_port(3000)) + num_signers;
 
-    let node_1_rpc = 40553;
-    let node_1_p2p = 40554;
-    let node_2_rpc = 50553;
-    let node_2_p2p = 50554;
+    let node_1_rpc = gen_random_port();
+    let node_1_p2p = gen_random_port();
+    let node_2_rpc = gen_random_port();
+    let node_2_p2p = gen_random_port();
     let localhost = "127.0.0.1";
     let node_1_rpc_bind = format!("{localhost}:{node_1_rpc}");
 
@@ -4590,8 +4948,8 @@ fn signer_multinode_rollover() {
         &Network::Testnet,
         "12345",
         rand::random(),
-        3000 + num_signers,
-        Some(9000 + num_signers),
+        usize::from(test_port(3000)) + num_signers,
+        Some(usize::from(test_port(9000)) + num_signers),
         None,
     );
 
@@ -4636,6 +4994,9 @@ fn signer_multinode_rollover() {
             }
         },
         |node_2_conf| {
+            // This node exercises tenure downloads by rejecting pushed blocks.
+            // Start it as a follower so it cannot race the primary miner during boot.
+            node_2_conf.node.miner = false;
             node_2_conf.connection_options.reject_blocks_pushed = true;
         },
         |_| 0,
@@ -4643,7 +5004,6 @@ fn signer_multinode_rollover() {
     );
 
     miners.signer_test.num_stacking_cycles = 1;
-    miners.pause_commits_miner_2();
     miners.boot_to_epoch_3();
 
     // verify that the first reward cycle has the old signers in the reward set
@@ -4667,13 +5027,102 @@ fn signer_multinode_rollover() {
     let burnchain = miners.get_node_configs().0.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
+    let mine_confirmed_tenure = |miners: &mut MultipleMinerTest, label: &str| {
+        let mut last_error = String::new();
+        for attempt in 1..=2 {
+            match miners.mine_bitcoin_block_and_wait_for_both_nodes(TENURE_ATTEMPT_TIMEOUT_SECS) {
+                Ok(_) => return,
+                Err(error) => {
+                    warn!(
+                        "{label} did not converge on attempt {attempt}; mining another burn block: {error}"
+                    );
+                    last_error = error;
+                }
+            }
+        }
+        panic!("failed to converge on {label} after two burn blocks: {last_error}");
+    };
+
+    let advance_to_burn_height = |miners: &mut MultipleMinerTest,
+                                  target_burn_height: u64,
+                                  label: &str| {
+        while miners.btc_regtest_controller().get_bitcoin_chain_height() < target_burn_height {
+            let burn_height_before = miners.btc_regtest_controller().get_bitcoin_chain_height();
+            if let Err(error) =
+                miners.mine_bitcoin_block_and_wait_for_both_nodes(TENURE_ATTEMPT_TIMEOUT_SECS)
+            {
+                let burn_height_after = miners.btc_regtest_controller().get_bitcoin_chain_height();
+                assert!(
+                    burn_height_after > burn_height_before,
+                    "failed to advance {label} from burn height {burn_height_before}: {error}"
+                );
+                warn!(
+                    "{label} advanced to burn height {burn_height_after} without a confirmed \
+                         tenure; continuing from the missed tenure: {error}"
+                );
+            }
+        }
+    };
+
+    let mine_interim_blocks = |miners: &mut MultipleMinerTest, tenure_label: &str| {
+        let mut block_ix = 0;
+        let mut recoveries = 0;
+        while block_ix < 2 {
+            let (txid, nonce) = miners.send_transfer_tx();
+            match miners.wait_for_transfer_tx_nonce(nonce, INTERIM_BLOCK_TIMEOUT_SECS) {
+                Ok(()) => {
+                    miners.wait_for_chains(TEST_TIMEOUT_SECS);
+                    block_ix += 1;
+                }
+                Err(error) => {
+                    assert!(
+                        recoveries < MAX_INTERIM_BLOCK_RECOVERIES,
+                        "failed to mine interim block {block_ix} in {tenure_label} after \
+                         {recoveries} recovery tenures: txid={txid}, nonce={nonce}: {error}"
+                    );
+                    recoveries += 1;
+                    warn!(
+                        "Interim block {block_ix} in {tenure_label} stalled; starting recovery \
+                         tenure {recoveries}: txid={txid}, nonce={nonce}: {error}"
+                    );
+
+                    miners.ensure_commit_miner_1(&sortdb);
+                    mine_confirmed_tenure(
+                        miners,
+                        &format!("{tenure_label} recovery tenure {recoveries}"),
+                    );
+                    miners
+                        .wait_for_transfer_tx_nonce(nonce, TEST_TIMEOUT_SECS)
+                        .unwrap_or_else(|recovery_error| {
+                            panic!(
+                                "failed to mine pending interim transaction after recovering \
+                                 {tenure_label}: txid={txid}, nonce={nonce}: {recovery_error}"
+                            )
+                        });
+                    miners.wait_for_chains(TEST_TIMEOUT_SECS);
+
+                    // The pending transaction may have been mined immediately after the
+                    // recovery tenure-change block. Start the count over so the final
+                    // tenure still proves that two subsequent blocks can be produced.
+                    block_ix = 0;
+                }
+            }
+        }
+    };
+
     miners
         .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
         .unwrap();
 
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
     let block_sighash = mined_block.signer_signature_hash;
-    let signer_signatures = mined_block.signer_signature;
+    let signer_signatures = miners
+        .signer_test
+        .wait_for_confirmed_block_v0(&block_sighash, Duration::from_secs(TEST_TIMEOUT_SECS));
+    assert!(
+        !signer_signatures.is_empty(),
+        "old signer set produced a block without signatures"
+    );
 
     // verify the mined_block signatures against the OLD signer set
     for signature in signer_signatures.iter() {
@@ -4697,6 +5146,7 @@ fn signer_multinode_rollover() {
         .btc_regtest_controller
         .get_headers_height();
     let accounts_to_check = new_signer_addrs;
+    let node_http = miners.node_http();
     for stacker_sk in new_signer_sks.iter() {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
@@ -4739,15 +5189,22 @@ fn signer_multinode_rollover() {
                 clarity::vm::Value::UInt(1),
             ],
         );
-        submit_tx(&miners.node_http(), &stacking_tx);
+        submit_tx(&node_http, &stacking_tx);
     }
 
-    wait_for(60, || {
+    let stacking_txs_mined = || {
         Ok(accounts_to_check
             .iter()
-            .all(|acct| get_account(&miners.node_http(), acct).nonce >= 1))
-    })
-    .expect("Timed out waiting for stacking txs to be mined");
+            .all(|acct| get_account(&node_http, acct).nonce >= 1))
+    };
+    if wait_for(TENURE_ATTEMPT_TIMEOUT_SECS, stacking_txs_mined).is_err() {
+        warn!(
+            "Stacking transactions were not confirmed by the current tenure; mining a recovery tenure"
+        );
+        mine_confirmed_tenure(&mut miners, "the stacking-transaction recovery tenure");
+        wait_for(TEST_TIMEOUT_SECS, stacking_txs_mined)
+            .expect("Timed out waiting for stacking txs to be mined after a recovery tenure");
+    }
 
     let next_reward_cycle = reward_cycle.saturating_add(1);
 
@@ -4757,10 +5214,10 @@ fn signer_multinode_rollover() {
         .nakamoto_first_block_of_cycle(next_reward_cycle)
         .saturating_add(1);
 
-    miners.signer_test.run_until_burnchain_height_nakamoto(
-        Duration::from_secs(60),
+    advance_to_burn_height(
+        &mut miners,
         next_cycle_height.saturating_sub(3),
-        new_num_signers,
+        "the pre-rollover prepare phase",
     );
 
     miners.wait_for_chains(120);
@@ -4773,10 +5230,10 @@ fn signer_multinode_rollover() {
     }
 
     info!("---- Mining to just before the next reward cycle (block {next_cycle_height}) -----",);
-    miners.signer_test.run_until_burnchain_height_nakamoto(
-        Duration::from_secs(60),
+    advance_to_burn_height(
+        &mut miners,
         next_cycle_height.saturating_sub(1),
-        new_num_signers,
+        "the final pre-rollover burn height",
     );
 
     let (old_spawned_signers, _, _) =
@@ -4787,27 +5244,31 @@ fn signer_multinode_rollover() {
     miners.wait_for_chains(120);
 
     info!("---- Mining into the next reward cycle (block {next_cycle_height}) -----",);
-    miners.signer_test.run_until_burnchain_height_nakamoto(
-        Duration::from_secs(60),
-        next_cycle_height,
-        new_num_signers,
-    );
+    while miners.btc_regtest_controller().get_bitcoin_chain_height() < next_cycle_height {
+        miners.ensure_commit_miner_1(&sortdb);
+        mine_confirmed_tenure(&mut miners, "the rollover tenure");
+    }
     let new_reward_cycle = miners.signer_test.get_current_reward_cycle();
     assert_eq!(new_reward_cycle, reward_cycle.saturating_add(1));
 
-    miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
-        .unwrap();
+    miners.ensure_commit_miner_1(&sortdb);
+    mine_confirmed_tenure(&mut miners, "the first new-signer tenure");
 
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.wait_for_chains(120);
+    // Exercise multiple blocks in the tenure while proving that the follower
+    // has downloaded each block before the next proposal is submitted.
+    mine_interim_blocks(&mut miners, "the first new-signer tenure");
 
     let mined_block = test_observer::get_mined_nakamoto_blocks().pop().unwrap();
 
     info!("---- Verifying that the new signers signed the block -----");
-    let signer_signatures = mined_block.signer_signature;
+    let block_sighash = mined_block.signer_signature_hash;
+    let signer_signatures = miners
+        .signer_test
+        .wait_for_confirmed_block_v0(&block_sighash, Duration::from_secs(TEST_TIMEOUT_SECS));
+    assert!(
+        !signer_signatures.is_empty(),
+        "new signer set produced a block without signatures"
+    );
 
     // verify the mined_block signatures against the NEW signer set
     for signature in signer_signatures.iter() {
@@ -4820,16 +5281,8 @@ fn signer_multinode_rollover() {
         assert!(new_signer_pks.contains(&pk.to_bytes_compressed()));
     }
 
-    miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 120)
-        .unwrap();
-    miners.wait_for_chains(120);
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.wait_for_chains(120);
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.wait_for_chains(120);
-    miners.send_and_mine_transfer_tx(60).unwrap();
-    miners.wait_for_chains(120);
+    mine_confirmed_tenure(&mut miners, "the second new-signer tenure");
+    mine_interim_blocks(&mut miners, "the second new-signer tenure");
 
     miners.shutdown();
     for signer in old_spawned_signers {
@@ -4837,7 +5290,7 @@ fn signer_multinode_rollover() {
     }
 }
 
-/// This test involves two miners, each mining tenures with 6 blocks each. Half
+/// This test involves two miners, each mining tenures with multiple blocks. Half
 /// of the signers are attached to each miner, so the test also verifies that
 /// the signers' messages successfully make their way to the active miner.
 #[test]
@@ -4845,7 +5298,9 @@ fn signer_multinode_rollover() {
 fn multiple_miners_with_nakamoto_blocks() {
     let num_signers = 5;
     let max_nakamoto_tenures = 20;
-    let inter_blocks_per_tenure = 5;
+    // Two interim blocks exercise repeated block production and cross-miner
+    // signer routing without paying for five identical repetitions per tenure.
+    let inter_blocks_per_tenure = 2;
 
     let mut miners =
         MultipleMinerTest::new(num_signers, inter_blocks_per_tenure * max_nakamoto_tenures);
@@ -4875,11 +5330,9 @@ fn multiple_miners_with_nakamoto_blocks() {
         }
         let blocks_processed_before =
             blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
-        miners.signer_test.mine_block_wait_on_processing(
-            &[&conf_1, &conf_2],
-            &[&rl1_counters, &rl2_counters],
-            Duration::from_secs(30),
-        );
+        miners
+            .signer_test
+            .mine_block_wait_on_processing(Duration::from_secs(30));
         miners.signer_test.check_signer_states_normal();
         btc_blocks_mined += 1;
 
@@ -5328,7 +5781,6 @@ fn multiple_miners_with_custom_chain_id() {
     //  is that we keep track of how many tenures each miner produced, and once enough sortitions
     //  have been produced such that each miner has produced 3 tenures, we stop and check the
     //  results at the end
-    let rl1_counters = miners.signer_test.running_nodes.counters.clone();
     let blocks_mined1 = miners
         .signer_test
         .running_nodes
@@ -5350,11 +5802,9 @@ fn multiple_miners_with_custom_chain_id() {
         }
         let blocks_processed_before =
             blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
-        miners.signer_test.mine_block_wait_on_processing(
-            &[&conf_1, &conf_2],
-            &[&rl1_counters, &rl2_counters],
-            Duration::from_secs(30),
-        );
+        miners
+            .signer_test
+            .mine_block_wait_on_processing(Duration::from_secs(30));
         btc_blocks_mined += 1;
 
         // wait for the new block to be processed
@@ -6508,7 +6958,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     let run_stamp = rand::random();
 
-    let rpc_port = 51024;
+    let rpc_port = test_port(51024);
     let rpc_bind = format!("127.0.0.1:{rpc_port}");
 
     // Setup the new signers that will take over
@@ -6519,8 +6969,8 @@ fn injected_signatures_are_ignored_across_boundaries() {
         &Network::Testnet,
         "12345",
         run_stamp,
-        3000 + num_signers,
-        Some(9000 + num_signers),
+        usize::from(test_port(3000)) + num_signers,
+        Some(usize::from(test_port(9000)) + num_signers),
         None,
     )
     .first()
@@ -8405,6 +8855,7 @@ fn miner_stackerdb_version_rollover() {
 
     let num_signers = 6;
     let num_txs = 20;
+    const TENURE_TIMEOUT_SECS: u64 = 60;
 
     // Record where node 1 and 2 want to bind, so that the proxy can bind
     //  there instead.
@@ -8413,8 +8864,8 @@ fn miner_stackerdb_version_rollover() {
 
     // These are the proxy upstreams, which are where we will tell the
     //  nodes to bind to.
-    let node_1_p2p_rebind = "127.0.0.1:40402";
-    let node_2_p2p_rebind = "127.0.0.1:40502";
+    let node_1_p2p_rebind = format!("127.0.0.1:{}", test_port(40402));
+    let node_2_p2p_rebind = format!("127.0.0.1:{}", test_port(40502));
 
     let mut miners = MultipleMinerTest::new_with_config_modifications(
         num_signers,
@@ -8426,13 +8877,13 @@ fn miner_stackerdb_version_rollover() {
                 [(0, Duration::from_secs(120))].into_iter().collect();
             node_1_p2p_bind = config.node.p2p_bind.clone();
             // change the bind to the proxy upstream
-            config.node.p2p_bind = node_1_p2p_rebind.to_string();
+            config.node.p2p_bind = node_1_p2p_rebind.clone();
         },
         |config| {
             config.miner.block_commit_delay = Duration::from_secs(0);
             node_2_p2p_bind = config.node.p2p_bind.clone();
             // change the bind to the proxy upstream
-            config.node.p2p_bind = node_2_p2p_rebind.to_string();
+            config.node.p2p_bind = node_2_p2p_rebind.clone();
         },
     );
     let node_1_p2p_bind_port = std::net::SocketAddr::from_str(&node_1_p2p_bind)
@@ -8444,14 +8895,14 @@ fn miner_stackerdb_version_rollover() {
 
     let proxy_1 = TestProxy {
         bind_port: node_1_p2p_bind_port,
-        forward_port: 40402,
+        forward_port: test_port(40402),
         drop_control: Arc::new(Mutex::new(false)),
         keep_running: Arc::new(Mutex::new(true)),
     };
 
     let proxy_2 = TestProxy {
         bind_port: node_2_p2p_bind_port,
-        forward_port: 40502,
+        forward_port: test_port(40502),
         drop_control: Arc::new(Mutex::new(false)),
         keep_running: Arc::new(Mutex::new(true)),
     };
@@ -8480,7 +8931,11 @@ fn miner_stackerdb_version_rollover() {
 
     info!("------------------------- Miner 1 Wins Normal Tenure A -------------------------");
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(
+            &sortdb,
+            TenureChangeCause::BlockFound,
+            TENURE_TIMEOUT_SECS,
+        )
         .expect("Failed to mine BTC block followed by tenure change tx");
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
@@ -8518,7 +8973,11 @@ fn miner_stackerdb_version_rollover() {
     miners.ensure_commit_miner_2(&sortdb);
 
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(
+            &sortdb,
+            TenureChangeCause::BlockFound,
+            TENURE_TIMEOUT_SECS,
+        )
         .expect("Failed to mine BTC block");
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
@@ -8526,7 +8985,11 @@ fn miner_stackerdb_version_rollover() {
     miners.ensure_commit_miner_2(&sortdb);
 
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(
+            &sortdb,
+            TenureChangeCause::BlockFound,
+            TENURE_TIMEOUT_SECS,
+        )
         .expect("Failed to mine BTC block");
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
@@ -8534,7 +8997,11 @@ fn miner_stackerdb_version_rollover() {
     miners.ensure_commit_miner_2(&sortdb);
 
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(
+            &sortdb,
+            TenureChangeCause::BlockFound,
+            TENURE_TIMEOUT_SECS,
+        )
         .expect("Failed to mine BTC block");
     verify_sortition_winner(&sortdb, &miner_pkh_2);
 
@@ -8543,7 +9010,11 @@ fn miner_stackerdb_version_rollover() {
 
     info!("------------------------- Miner 1 Wins Tenure E -------------------------");
     miners
-        .mine_bitcoin_block_and_tenure_change_tx(&sortdb, TenureChangeCause::BlockFound, 30)
+        .mine_bitcoin_block_and_tenure_change_tx(
+            &sortdb,
+            TenureChangeCause::BlockFound,
+            TENURE_TIMEOUT_SECS,
+        )
         .expect("Failed to mine BTC block followed by tenure change tx");
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
@@ -8882,6 +9353,7 @@ fn signer_loads_stackerdb_updates_on_startup() {
         .signer_test
         .restart_signer(stop_idx, stopped_signer_config);
 
+    miners.signer_test.wait_for_registered();
     info!("------------------------- Miner B Mines Block N+1 (Tenure Change) -------------------------");
     TEST_MINE_SKIP.set(false);
     let block_n_1 =
@@ -9260,6 +9732,26 @@ fn burn_block_payload_includes_pox_transactions() {
     assert_eq!(total_per_recipient, total_per_recipient_from_transactions);
 }
 
+/// Collapse unused intermediate Epoch 3.x ranges so vtxindex tests enter
+/// Epoch 3.4 as soon as Nakamoto activates.
+fn configure_direct_epoch_3_4_boot(node_config: &mut NeonConfig) {
+    let epochs = node_config
+        .burnchain
+        .epochs
+        .as_mut()
+        .expect("test requires configured epochs");
+    let epoch_30_height = epochs[StacksEpochId::Epoch30].start_height;
+
+    epochs[StacksEpochId::Epoch30].end_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch31].start_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch31].end_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch32].start_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch32].end_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch33].start_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch33].end_height = epoch_30_height;
+    epochs[StacksEpochId::Epoch34].start_height = epoch_30_height;
+}
+
 #[test]
 fn test_vtxindex_zero_acceptance() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -9273,7 +9765,14 @@ fn test_vtxindex_zero_acceptance() {
 
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 5;
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |_| {},
+        configure_direct_epoch_3_4_boot,
+        None,
+        None,
+    );
     let timeout = Duration::from_secs(200);
     signer_test.boot_to_epoch_3();
     let epoch_34_height = signer_test
@@ -9347,6 +9846,7 @@ fn test_vtxindex_zero_two_miners() {
         |config| {
             config.miner.tenure_extend_wait_timeout = tenure_extend_wait_timeout;
             config.miner.block_commit_delay = Duration::from_secs(0);
+            configure_direct_epoch_3_4_boot(config);
         },
         |config| {
             config.miner.block_commit_delay = Duration::from_secs(0);

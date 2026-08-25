@@ -27,7 +27,7 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     ChainsCoordinator, ChainsCoordinatorConfig, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::chainstate::stacks::db::{ChainStateBootData, DiskChainStateBackend, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
@@ -226,7 +226,10 @@ impl RunLoop {
     /// Boot up the stacks chainstate.
     /// Instantiate the chainstate and push out the boot receipts to observers
     /// This is only public so we can test it.
-    fn boot_chainstate(&mut self, burnchain_config: &Burnchain) -> StacksChainState {
+    fn boot_chainstate(
+        &mut self,
+        burnchain_config: &Burnchain,
+    ) -> StacksChainState<DiskChainStateBackend> {
         let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
 
         // load up genesis balances
@@ -257,7 +260,7 @@ impl RunLoop {
             get_bulk_initial_names: Some(Box::new(move || get_names(use_test_genesis_data))),
         };
 
-        let (chain_state_db, receipts) = StacksChainState::open_and_exec(
+        let (chain_state_db, receipts) = StacksChainState::<DiskChainStateBackend>::open_and_exec(
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.config.get_chainstate_path_str(),

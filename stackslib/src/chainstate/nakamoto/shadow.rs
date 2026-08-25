@@ -56,7 +56,8 @@ use crate::chainstate::nakamoto::{
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{
-    ChainstateTx, ClarityTx, StacksAccount, StacksChainState, StacksHeaderInfo,
+    ChainStatePersistence, ChainstateTx, ClarityTx, StacksAccount, StacksAccountReader,
+    StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic,
@@ -427,9 +428,9 @@ impl NakamotoBlockBuilder {
     /// expire.
     ///
     /// It's used to create shadow blocks.
-    pub(crate) fn shadow_load_tenure_info<'a>(
+    pub(crate) fn shadow_load_tenure_info<'a, B: ChainStatePersistence>(
         &self,
-        chainstate: &'a mut StacksChainState,
+        chainstate: &'a mut StacksChainState<B>,
         burn_dbconn: &'a SortitionHandleConn,
         cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
@@ -476,7 +477,7 @@ impl NakamotoBlockBuilder {
 
     /// Get an address's account
     pub fn get_account(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         addr: &StacksAddress,
         tip: &StacksHeaderInfo,
@@ -489,9 +490,7 @@ impl NakamotoBlockBuilder {
             .with_read_only_clarity_tx(
                 &sortdb.index_handle(&snapshot.sortition_id),
                 &tip.index_block_hash(),
-                |clarity_conn| {
-                    StacksChainState::get_account(clarity_conn, &addr.to_account_principal())
-                },
+                |clarity_conn| clarity_conn.get_account(&addr.to_account_principal()),
             )
             .ok_or_else(|| Error::NoSuchBlockError)?;
 
@@ -501,7 +500,7 @@ impl NakamotoBlockBuilder {
     /// Make a shadow block from transactions
     pub fn make_shadow_block_from_txs(
         mut builder: NakamotoBlockBuilder,
-        chainstate_handle: &StacksChainState,
+        chainstate_handle: &StacksChainState<impl ChainStatePersistence>,
         burn_dbconn: &SortitionHandleConn,
         tenure_id_consensus_hash: &ConsensusHash,
         txs: Vec<StacksTransaction>,
@@ -591,7 +590,7 @@ impl NakamotoBlockBuilder {
     /// `tenure_id_consensus_hash` is the sortition in which the shadow block will be built.
     /// `txs` are transactions to include, beyond a coinbase and tenure-change
     pub fn make_shadow_tenure(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<impl ChainStatePersistence>,
         sortdb: &SortitionDB,
         naka_tip_id: &StacksBlockId,
         tenure_id_consensus_hash: &ConsensusHash,
@@ -882,7 +881,7 @@ impl NakamotoStagingBlocksTx<'_> {
 ///
 /// Insert and process a shadow block into the Stacks chainstate.
 pub fn process_shadow_block(
-    chain_state: &mut StacksChainState,
+    chain_state: &mut StacksChainState<impl ChainStatePersistence>,
     sort_db: &mut SortitionDB,
     shadow_block: NakamotoBlock,
 ) -> Result<(), ChainstateError> {
@@ -966,7 +965,7 @@ pub fn process_shadow_block(
 /// Returns the syntheisized shadow blocks on success.
 /// Returns error on failure.
 pub fn shadow_chainstate_repair(
-    chain_state: &mut StacksChainState,
+    chain_state: &mut StacksChainState<impl ChainStatePersistence>,
     sort_db: &mut SortitionDB,
 ) -> Result<Vec<NakamotoBlock>, ChainstateError> {
     let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())?;

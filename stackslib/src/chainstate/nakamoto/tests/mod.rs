@@ -64,7 +64,8 @@ use crate::chainstate::stacks::boot::{
     NakamotoSignerEntry, RewardSet, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{
-    StacksAccount, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+    ChainStatePersistence, StacksAccount, StacksAccountReader, StacksBlockHeaderTypes,
+    StacksChainState, StacksHeaderInfo, StacksHeadersDb,
 };
 use crate::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksTransaction,
@@ -105,7 +106,7 @@ impl NakamotoStagingBlocksConnRef<'_> {
 
 /// Get an address's account
 pub fn get_account(
-    chainstate: &mut StacksChainState,
+    chainstate: &mut StacksChainState<impl ChainStatePersistence>,
     sortdb: &SortitionDB,
     addr: &StacksAddress,
 ) -> StacksAccount {
@@ -127,9 +128,7 @@ pub fn get_account(
         .with_read_only_clarity_tx(
             &sortdb.index_handle(&snapshot.sortition_id),
             &tip.index_block_hash(),
-            |clarity_conn| {
-                StacksChainState::get_account(clarity_conn, &addr.to_account_principal())
-            },
+            |clarity_conn| clarity_conn.get_account(&addr.to_account_principal()),
         )
         .unwrap()
 }
@@ -1124,7 +1123,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
     {
         let (tx, staging_tx) = chainstate.headers_and_staging_tx_begin().unwrap();
 
-        StacksChainState::insert_stacks_block_header(
+        StacksHeadersDb::insert_stacks_block_header(
             &tx,
             &epoch2_parent_block_id,
             &epoch2_header_info,

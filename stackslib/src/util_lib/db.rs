@@ -594,6 +594,10 @@ pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_
 /// Set up an on-disk database with a MARF index if they don't exist yet.
 /// Either way, returns the MARF path
 pub fn db_mkdirs(path_str: &str) -> Result<String, Error> {
+    if is_sqlite_memory_path(path_str) {
+        return Ok(path_str.to_string());
+    }
+
     let mut path = PathBuf::from(path_str);
     match fs::metadata(path_str) {
         Ok(md) => {
@@ -614,6 +618,25 @@ pub fn db_mkdirs(path_str: &str) -> Result<String, Error> {
     let marf_path = path.to_str().ok_or_else(|| Error::ParseError)?.to_string();
 
     Ok(marf_path)
+}
+
+/// Return true if the given SQLite path names an in-memory database.
+pub fn is_sqlite_memory_path(path_str: &str) -> bool {
+    path_str == ":memory:" || (path_str.starts_with("file:") && path_str.contains("mode=memory"))
+}
+
+#[cfg(any(test, feature = "testing"))]
+pub fn sqlite_memory_namespace(namespace: &str) -> String {
+    namespace
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// Read-only connection to a MARF-indexed DB
@@ -741,6 +764,15 @@ pub fn sqlite_open<P: AsRef<Path>>(
     mut flags: OpenFlags,
     foreign_keys: bool,
 ) -> Result<Connection, sqlite_error> {
+    if path
+        .as_ref()
+        .to_str()
+        .map(is_sqlite_memory_path)
+        .unwrap_or(false)
+    {
+        flags.insert(OpenFlags::SQLITE_OPEN_URI);
+    }
+
     // Without an explicit mutex flag the bundled SQLite defaults to serialized
     // mode, whose per-connection mutex is pure overhead here: `Connection` is
     // `!Sync`, so no thread can ever contend on it.

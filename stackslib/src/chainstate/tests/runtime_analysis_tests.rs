@@ -73,7 +73,7 @@ fn variant_coverage_report(variant: RuntimeCheckErrorKind) {
         ]),
         ExecutionResourceBudgetExceeded(_) => Unreachable_Functionally(
             "All consensus-critical code paths (block validation and transaction processing)
-             pass `ResourceBudget::unlimited()` to StacksChainState::process_transaction,
+             pass `ResourceBudget::unlimited()` to `ClarityTx::process_transaction`,
              causing GlobalContext::execution_resource_limiter to remain unlimited (i.e. no-op).
              The check_interpreter_resource_usage function always returns Ok(()) when there are
              no limits. Execution time limits are only enforced in RPC API calls and miner-local

@@ -136,7 +136,9 @@ impl HttpRequest for RPCPostBlockRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCPostBlockRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCPostBlockRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.block = None;
@@ -148,7 +150,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         // get out the request body
         let block = self

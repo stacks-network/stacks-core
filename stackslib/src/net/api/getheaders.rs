@@ -19,7 +19,9 @@ use serde_json;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
 
-use crate::chainstate::stacks::db::{ExtendedStacksHeader, StacksChainState};
+use crate::chainstate::stacks::db::{
+    ChainStatePersistence, Epoch2StagingBlocksDb, ExtendedStacksHeader, StacksChainState,
+};
 use crate::chainstate::stacks::Error as ChainError;
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
@@ -66,11 +68,11 @@ pub struct StacksHeaderStream {
 
 impl StacksHeaderStream {
     pub fn new(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<impl ChainStatePersistence>,
         tip: &StacksBlockId,
         num_headers_requested: u32,
     ) -> Result<Self, ChainError> {
-        let header_info = StacksChainState::load_staging_block_info(chainstate.db(), tip)?
+        let header_info = Epoch2StagingBlocksDb::load_staging_block_info(chainstate.db(), tip)?
             .ok_or(ChainError::NoSuchBlockError)?;
 
         let num_headers = if header_info.height < (num_headers_requested as u64) {
@@ -133,7 +135,9 @@ impl HttpRequest for RPCHeadersRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCHeadersRequestHandler {
+impl<CSP: crate::chainstate::stacks::db::ChainStatePersistence> RPCRequestHandler<CSP>
+    for RPCHeadersRequestHandler
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.quantity = None;
@@ -144,7 +148,7 @@ impl RPCRequestHandler for RPCHeadersRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<CSP>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let quantity = self
             .quantity
@@ -246,7 +250,7 @@ impl HttpChunkGenerator for StacksHeaderStream {
         if self.total_bytes > 0 && !self.end_of_stream && !self.corked {
             // have more data to send.
             // read next header as JSON
-            match StacksChainState::read_extended_header(
+            match Epoch2StagingBlocksDb::read_extended_header(
                 &self.chainstate_db,
                 &self.blocks_path,
                 &self.index_block_hash,

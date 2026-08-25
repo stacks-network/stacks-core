@@ -9,6 +9,10 @@ on:
         description: "The test archive file"
         required: true
         type: string
+      archive-artifact-name:
+        description: "Artifact containing the test archive"
+        required: true
+        type: string
       debug-binary-path:
         description: "Debug binary path"
         required: true
@@ -18,7 +22,7 @@ on:
         required: true
         type: string
       upload-code-coverage:
-        description: "Whether or not to upload the code coverage artifact"
+        description: "Whether to upload each job's code coverage to Coveralls"
         required: true
         type: string
 
@@ -41,31 +45,46 @@ concurrency:
 jobs:
   # P2P integration tests with code coverage
   integration-tests:
-    name: Integration Tests
+    name: Integration Tests (${{ matrix.shard }})
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     strategy:
-      # Continue with the test matrix even if we've had a failure
       fail-fast: false
       matrix:
-        test-name:
-          - net::tests::convergence::test_walk_ring_allow_15
-          - net::tests::convergence::test_walk_ring_15_plain
-          - net::tests::convergence::test_walk_ring_15_pingback
-          - net::tests::convergence::test_walk_ring_15_org_biased
-          - net::tests::convergence::test_walk_line_allowed_15
-          - net::tests::convergence::test_walk_line_15_plain
-          - net::tests::convergence::test_walk_line_15_org_biased
-          - net::tests::convergence::test_walk_line_15_pingback
-          - net::tests::convergence::test_walk_star_allowed_15
-          - net::tests::convergence::test_walk_star_15_plain
-          - net::tests::convergence::test_walk_star_15_pingback
-          - net::tests::convergence::test_walk_star_15_org_biased
-          - net::tests::convergence::test_walk_inbound_line_15
-          - net::server::test::test_http_10_threads_getinfo
-          - net::server::test::test_http_10_threads_getblock
-          - net::server::test::test_http_too_many_clients
-          - net::server::test::test_http_slow_client
+        include:
+          # Runtime-balanced at P80 across four recent runs. Each convergence
+          # test simulates 15 peers and scales poorly beside another topology;
+          # six single-thread shards avoid that contention while keeping the
+          # estimated test work between 416 and 428 seconds per long shard.
+          - shard: 1
+            test-names: >-
+              net::tests::convergence::test_walk_inbound_line_15
+          - shard: 2
+            test-names: >-
+              net::tests::convergence::test_walk_ring_allow_15,
+              net::tests::convergence::test_walk_star_allowed_15,
+              net::server::test::test_http_10_threads_getblock,
+              net::server::test::test_http_too_many_clients
+          - shard: 3
+            test-names: >-
+              net::tests::convergence::test_walk_line_15_plain,
+              net::tests::convergence::test_walk_ring_15_pingback
+          - shard: 4
+            test-names: >-
+              net::tests::convergence::test_walk_line_15_org_biased,
+              net::server::test::test_http_slow_client,
+              net::tests::convergence::test_walk_star_15_org_biased,
+              net::server::test::test_http_10_threads_getinfo
+          - shard: 5
+            test-names: >-
+              net::tests::convergence::test_walk_star_15_plain,
+              net::tests::convergence::test_walk_line_allowed_15,
+              net::tests::convergence::test_walk_star_15_pingback
+          - shard: 6
+            test-names: >-
+              net::tests::convergence::test_walk_ring_15_plain,
+              net::tests::convergence::test_walk_line_15_pingback,
+              net::tests::convergence::test_walk_ring_15_org_biased
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -81,10 +100,14 @@ jobs:
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         uses: ./.github/actions/run-tests
         with:
-          test-names: ${{ matrix.test-name }}
+          test-names: ${{ matrix.test-names }}
+          test-threads: "1"
+          test-timings-file: .github/test-timings/p2p.json
           archive-file: ${{ inputs.archive-file }}
+          archive-artifact-name: ${{ inputs.archive-artifact-name }}
           debug-binary-path: ${{ inputs.debug-binary-path }}
-          codecov-test-name: ${{ matrix.test-name }}
+          codecov-test-name: p2p-${{ matrix.shard }}
+          no-fail-fast: "true"
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
 

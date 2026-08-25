@@ -509,14 +509,18 @@ fn test_inv_truncate_pox_inv() {
 
 #[test]
 fn test_sync_inv_set_blocks_microblocks_available() {
-    let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-    let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+    let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
-    let mut peer_1 = TestPeer::new(peer_1_config.clone());
-    let mut peer_2 = TestPeer::new(peer_2_config.clone());
+    let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config.clone());
+    let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config.clone());
 
-    let peer_1_test_path = TestChainstate::make_test_path(&peer_1.config.chain_config);
-    let peer_2_test_path = TestChainstate::make_test_path(&peer_2.config.chain_config);
+    let peer_1_test_path = TestChainstate::<
+        crate::chainstate::stacks::db::SharedMemoryChainStateBackend,
+    >::make_test_path(&peer_1.config.chain_config);
+    let peer_2_test_path = TestChainstate::<
+        crate::chainstate::stacks::db::SharedMemoryChainStateBackend,
+    >::make_test_path(&peer_2.config.chain_config);
 
     assert!(peer_1_test_path != peer_2_test_path);
 
@@ -739,7 +743,7 @@ fn test_sync_inv_set_blocks_microblocks_available() {
 
 #[test]
 fn test_sync_inv_make_inv_messages() {
-    let peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
     let indexer = BitcoinIndexer::new_unit_test(&peer_1_config.chain_config.burnchain.working_dir);
     let reward_cycle_length = peer_1_config
@@ -756,7 +760,7 @@ fn test_sync_inv_make_inv_messages() {
 
     assert_eq!(reward_cycle_length, 5);
 
-    let mut peer_1 = TestPeer::new(peer_1_config);
+    let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
 
     let first_stacks_block_height = {
         let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb_ref().conn()).unwrap();
@@ -1136,7 +1140,7 @@ fn test_sync_inv_make_inv_messages() {
 
 #[test]
 fn test_sync_inv_diagnose_nack() {
-    let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let peer_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
     let neighbor = peer_config.to_neighbor();
     let neighbor_key = neighbor.addr;
     let nack_no_block = NackData {
@@ -1241,10 +1245,10 @@ fn test_sync_inv_diagnose_nack() {
 
 #[test]
 fn test_inv_sync_start_reward_cycle() {
-    let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
     peer_1_config.connection_opts.inv_reward_cycles = 0;
 
-    let mut peer_1 = TestPeer::new(peer_1_config);
+    let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
 
     let num_blocks = GETPOXINV_MAX_BITLEN * 2;
     for i in 0..num_blocks {
@@ -1298,10 +1302,10 @@ fn test_inv_sync_start_reward_cycle() {
 
 #[test]
 fn test_inv_sync_check_peer_epoch2x_synced() {
-    let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
     peer_1_config.connection_opts.inv_reward_cycles = 0;
 
-    let mut peer_1 = TestPeer::new(peer_1_config);
+    let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
 
     let num_blocks = GETPOXINV_MAX_BITLEN * 2;
     for i in 0..num_blocks {
@@ -1333,14 +1337,14 @@ fn test_inv_sync_check_peer_epoch2x_synced() {
 #[ignore]
 fn test_sync_inv_2_peers_plain() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.connection_opts.inv_reward_cycles = 10;
         peer_2_config.connection_opts.inv_reward_cycles = 10;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
         peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
@@ -1500,14 +1504,14 @@ fn test_sync_inv_2_peers_plain() {
 #[ignore]
 fn test_sync_inv_2_peers_stale() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.connection_opts.inv_reward_cycles = 10;
         peer_2_config.connection_opts.inv_reward_cycles = 10;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
         peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
@@ -1598,16 +1602,16 @@ fn test_sync_inv_2_peers_stale() {
 #[ignore]
 fn test_sync_inv_2_peers_unstable() {
     with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_1_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
+        let mut peer_2_config = TestPeerConfig::new_shared_ephemeral(function_name!(), 0, 0);
 
         peer_1_config.connection_opts.inv_reward_cycles = 10;
         peer_2_config.connection_opts.inv_reward_cycles = 10;
 
         let stable_confs = peer_1_config.chain_config.burnchain.stable_confirmations as u64;
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::new_shared_ephemeral(peer_1_config);
+        let mut peer_2 = TestPeer::new_shared_ephemeral(peer_2_config);
 
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
         peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
@@ -1627,7 +1631,7 @@ fn test_sync_inv_2_peers_unstable() {
                 peer_2.next_burnchain_block(burn_ops.clone());
             peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-            TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+            TestPeer::<crate::chainstate::stacks::db::DiskChainStateBackend>::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
             // NOTE: the nodes only differ by one block -- they agree on the same PoX vector
             if i + 1 < num_blocks {

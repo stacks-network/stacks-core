@@ -24,7 +24,9 @@ use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::chainstate::nakamoto::NakamotoChainState;
-use stacks::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
+use stacks::chainstate::stacks::db::{
+    DiskChainStateBackend, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+};
 use stacks::chainstate::stacks::TenureChangeCause;
 use stacks::codec::StacksMessageCodec;
 use stacks::core::test_util::{make_stacks_transfer_serialized, to_addr};
@@ -57,7 +59,7 @@ use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_sortition_info, submit_tx, test_observer,
     TestProxy,
 };
-use crate::tests::{self, gen_random_port};
+use crate::tests::{self, gen_random_port, test_port};
 use crate::{BitcoinRegtestController, Keychain};
 
 #[test]
@@ -1348,6 +1350,10 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     miners.ensure_commit_miner_2(&sortdb);
 
     info!("------------------------- Pause Block Validation Submission of N+1'-------------------------");
+    TEST_STALLED_BLOCK_VALIDATION_SUBMISSIONS
+        .lock()
+        .unwrap()
+        .clear();
     TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(true);
     // Don't mine so we can enforce exactly one proposal AFTER consensus reached by the signers
     TEST_MINE_SKIP.set(true);
@@ -1400,8 +1406,13 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         "Node finished processing proposal validation request for N+1: {block_n_1_signature_hash}"
     );
 
-    // This is awful but I can't gurantee signers have reached the submission stall and we need to ensure the event order is as expected.
-    sleep_ms(5_000);
+    wait_for(30, || {
+        Ok(!TEST_STALLED_BLOCK_VALIDATION_SUBMISSIONS
+            .lock()
+            .unwrap()
+            .is_empty())
+    })
+    .expect("Timed out waiting for a signer to stall block validation submission");
 
     info!("------------------------- Unpause Block Validation Submission and Response for N+1' -------------------------");
     TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(false);
@@ -1677,7 +1688,7 @@ fn forked_tenure_testing(
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -1866,8 +1877,19 @@ fn forked_tenure_testing(
         signer_test.check_signer_states_reorg(&[], &signer_pks);
     };
 
-    // allow blocks B and C to be processed
-    sleep_ms(1000);
+    // The proposal counter above advances before the coordinator necessarily
+    // installs tenure C. Wait for C to become canonical instead of racing the
+    // coordinator with a fixed delay.
+    wait_for(60, || {
+        let canonical_tip =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+                .map_err(|error| error.to_string())?;
+        Ok(canonical_tip.is_some_and(|tip| {
+            tip.index_block_hash() != tip_a.index_block_hash()
+                && tip.index_block_hash() != tip_b.index_block_hash()
+        }))
+    })
+    .expect("Tenure C failed to become the canonical chain tip");
 
     info!("Tenure C produced (or proposed) a block!");
     let tip_c = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
@@ -2484,6 +2506,8 @@ fn partial_tenure_fork() {
     })
     .unwrap();
 
+    let mined_before = rl1_counters.naka_mined_blocks.get();
+    let stacks_height_before = signer_test.get_peer_info().stacks_tip_height;
     rl1_skip_commit_op.set(true);
     info!("------- Miner 1 wins the third tenure post-fork ------");
     signer_test.mine_bitcoin_block();
@@ -2492,6 +2516,12 @@ fn partial_tenure_fork() {
     signer_test.check_signer_states_reorg(&signer_test.signer_test_pks(), &[]);
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1.clone()));
+
+    wait_for(60, || {
+        Ok(rl1_counters.naka_mined_blocks.get() > mined_before
+            && signer_test.get_peer_info().stacks_tip_height > stacks_height_before)
+    })
+    .expect("Miner 1 did not produce its third post-fork tenure block");
 
     for interim_block_ix in 0..inter_blocks_per_tenure {
         info!(
@@ -3185,8 +3215,8 @@ fn bitcoin_reorg_extended_tenure() {
         |config| {
             // we will interpose with the testproxy on the second node's bitcoind
             //  connection, so that we can shut off communication before the reorg.
-            config.burnchain.rpc_port = 28132;
-            config.burnchain.peer_port = 28133;
+            config.burnchain.rpc_port = test_port(28132);
+            config.burnchain.peer_port = test_port(28133);
         },
         |signer_port| {
             // only put 1 out of 5 signers on the second node.
@@ -3203,13 +3233,13 @@ fn bitcoin_reorg_extended_tenure() {
 
     let (conf_1, _conf_2) = miners.get_node_configs();
     let btc_p2p_proxy = TestProxy {
-        bind_port: 28133,
+        bind_port: test_port(28133),
         forward_port: conf_1.burnchain.peer_port,
         drop_control: Arc::new(Mutex::new(false)),
         keep_running: Arc::new(Mutex::new(true)),
     };
     let btc_rpc_proxy = TestProxy {
-        bind_port: 28132,
+        bind_port: test_port(28132),
         forward_port: conf_1.burnchain.rpc_port,
         drop_control: Arc::new(Mutex::new(false)),
         keep_running: Arc::new(Mutex::new(true)),
@@ -3257,7 +3287,7 @@ fn bitcoin_reorg_extended_tenure() {
 
     miners.pause_commits_miner_1();
     miners
-        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .mine_bitcoin_block_and_wait_for_both_nodes(60)
         .unwrap();
 
     for _ in 0..2 {
@@ -3317,6 +3347,7 @@ fn bitcoin_reorg_extended_tenure() {
         .get_block_hash(burn_block_height);
     let before_fork = get_chain_info(&conf_1).pox_consensus;
 
+    TEST_MINE_SKIP.set(true);
     miners
         .signer_test
         .running_nodes
@@ -3350,14 +3381,16 @@ fn bitcoin_reorg_extended_tenure() {
 
     info!("Chain info after fork: {:?}", get_chain_info(&conf_1));
 
+    miners.wait_for_matching_chain_tips(60);
+    miners.signer_test.wait_for_signer_state_update();
+    TEST_MINE_SKIP.set(false);
+
     // get blocks produced with the "reorged" txs before we stall broadcasts
     //  to check signer approvals
     miners
         .signer_test
         .wait_for_nonce_increase(&to_addr(&miners.sender_sk), last_nonce - 1)
         .unwrap();
-
-    miners.wait_for_chains(60);
 
     // stall p2p broadcast and signer block announcements
     //  so that we can ensure all the signers approve the proposal
@@ -3502,7 +3535,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
 
     let burnchain = conf_1.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::<DiskChainStateBackend>::open(
         conf_1.is_mainnet(),
         conf_1.burnchain.chain_id,
         &conf_1.get_chainstate_path_str(),
@@ -3561,13 +3594,18 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
         .expect("Failed to get sortition tip");
 
-    let tenure_b_block = chainstate
-        .nakamoto_blocks_db()
-        .get_nakamoto_tenure_start_blocks(&tip_sn.consensus_hash)
-        .unwrap()
-        .first()
-        .cloned()
-        .unwrap();
+    let mut tenure_b_block = None;
+    wait_for(30, || {
+        tenure_b_block = chainstate
+            .nakamoto_blocks_db()
+            .get_nakamoto_tenure_start_blocks(&tip_sn.consensus_hash)
+            .map_err(|error| format!("Failed to load Tenure B from staging: {error}"))?
+            .first()
+            .cloned();
+        Ok(tenure_b_block.is_some())
+    })
+    .expect("Timed out waiting for Tenure B to enter staging");
+    let tenure_b_block = tenure_b_block.expect("Tenure B disappeared after it entered staging");
 
     // synthesize a StacksHeaderInfo from this unprocessed block
     let tip_b = StacksHeaderInfo {
@@ -3632,9 +3670,15 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
     assert_ne!(tip_c.burn_header_hash, tip_a.burn_header_hash);
     assert_eq!(tip_c.block_height, burn_height_before + 1);
 
-    info!("--------------- Waiting for {} Signers to Capitulate to Miner {miner_pkh_1} with tenure id {} ----------------",  allow_reorg_signers.len(), info.pox_consensus);
-    wait_for_state_machine_update_by_miner_tenure_id(30, &info.pox_consensus, &allow_reorg_signers)
-        .expect("Failed to update signer state machines");
+    info!("--------------- Waiting for {} Signers to Capitulate to Miner {miner_pkh_1} with tenure id {} at burn block {} ----------------",  allow_reorg_signers.len(), info.pox_consensus, tip_c.consensus_hash);
+    wait_for_state_machine_update(
+        30,
+        &tip_c.consensus_hash,
+        tip_c.block_height,
+        Some((miner_pkh_1.clone(), tip_a.stacks_block_height)),
+        &allow_reorg_signers,
+    )
+    .expect("Failed to update signer state machines at the current burn block");
     info!("--------------- Miner 1 Extends Tenure B over Tenure C ---------------");
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
     let _tenure_extend_block =
