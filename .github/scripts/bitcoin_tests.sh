@@ -147,6 +147,7 @@ for (( c=1; c<=max_chunks; c++ )); do
     chunk_length=$(echo "$chunk_json" | jq 'length')
     info "Chunk ${c} (batches_${c}): $(hl "${chunk_length}") single-test jobs"
 
+    # Export to GitHub Actions or stdout
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
         echo "batches_${c}=${chunk_json}" >> "${GITHUB_OUTPUT}"
     else
