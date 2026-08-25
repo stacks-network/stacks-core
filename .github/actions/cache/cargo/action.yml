@@ -114,9 +114,6 @@ runs:
         inputs.action == 'create'
       shell: bash
       env:
-        # Match the pull-request archives so restored target artifacts have
-        # the same Cargo profile fingerprint.
-        CARGO_PROFILE_TEST_OPT_LEVEL: "3"
         RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         CARGO_INCREMENTAL: 0
       run: |

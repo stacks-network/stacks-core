@@ -123,9 +123,6 @@ runs:
         ARCHIVE_EXCLUDE_PACKAGES: ${{ inputs.exclude-packages }}
         ARCHIVE_FEATURES: ${{ inputs.features }}
         ARCHIVE_PACKAGE: ${{ inputs.package }}
-        # Coverage counters make integration-heavy workspace crates
-        # substantially slower at the default test-profile optimization.
-        CARGO_PROFILE_TEST_OPT_LEVEL: "3"
         RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         CARGO_INCREMENTAL: 0
       # Keep these package and feature combinations represented in the
