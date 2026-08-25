@@ -1365,7 +1365,9 @@ impl StacksChainState {
                                         tx.clone(),
                                         tx_events,
                                         output.expect("BUG: Post condition contract call must provide would-have-been-returned value"),
-                                        assets_modified.get_stx_burned_total()?,
+                                        assets_modified
+                                            .get_stx_burned_total()
+                                            .map_err(VmExecutionError::from)?,
                                         total_cost,
                                         reason,
                                     );
@@ -1442,7 +1444,9 @@ impl StacksChainState {
                     tx.clone(),
                     events,
                     result,
-                    asset_map.get_stx_burned_total()?,
+                    asset_map
+                        .get_stx_burned_total()
+                        .map_err(VmExecutionError::from)?,
                     total_cost,
                     vm_error,
                 );
@@ -1638,7 +1642,9 @@ impl StacksChainState {
                                     StacksTransactionReceipt::from_condition_aborted_smart_contract(
                                         tx.clone(),
                                         tx_events,
-                                        assets_modified.get_stx_burned_total()?,
+                                        assets_modified
+                                            .get_stx_burned_total()
+                                            .map_err(VmExecutionError::from)?,
                                         contract_analysis,
                                         total_cost,
                                         reason,
@@ -1707,7 +1713,9 @@ impl StacksChainState {
                 let receipt = StacksTransactionReceipt::from_smart_contract(
                     tx.clone(),
                     events,
-                    asset_map.get_stx_burned_total()?,
+                    asset_map
+                        .get_stx_burned_total()
+                        .map_err(VmExecutionError::from)?,
                     contract_analysis,
                     total_cost,
                 );
