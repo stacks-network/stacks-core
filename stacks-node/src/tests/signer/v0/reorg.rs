@@ -1350,6 +1350,10 @@ fn no_reorg_due_to_successive_block_validation_ok() {
     miners.ensure_commit_miner_2(&sortdb);
 
     info!("------------------------- Pause Block Validation Submission of N+1'-------------------------");
+    TEST_STALLED_BLOCK_VALIDATION_SUBMISSIONS
+        .lock()
+        .unwrap()
+        .clear();
     TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(true);
     // Don't mine so we can enforce exactly one proposal AFTER consensus reached by the signers
     TEST_MINE_SKIP.set(true);
@@ -1402,8 +1406,13 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         "Node finished processing proposal validation request for N+1: {block_n_1_signature_hash}"
     );
 
-    // This is awful but I can't gurantee signers have reached the submission stall and we need to ensure the event order is as expected.
-    sleep_ms(5_000);
+    wait_for(30, || {
+        Ok(!TEST_STALLED_BLOCK_VALIDATION_SUBMISSIONS
+            .lock()
+            .unwrap()
+            .is_empty())
+    })
+    .expect("Timed out waiting for a signer to stall block validation submission");
 
     info!("------------------------- Unpause Block Validation Submission and Response for N+1' -------------------------");
     TEST_STALL_BLOCK_VALIDATION_SUBMISSION.set(false);

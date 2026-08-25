@@ -3762,8 +3762,9 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
             "stacks_height_before" => %stacks_height_before
         );
 
-        // Clear stale observer data before unstalling so we only see new events
+        // Clear stale observations before unstalling so we only see new events.
         test_observer::clear();
+        TEST_ACCEPTED_BLOCK_RESPONSES.lock().unwrap().clear();
         TEST_BROADCAST_PROPOSAL_STALL.set(vec![]);
 
         let miner_2_block_n_1 =
@@ -3776,11 +3777,13 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
             info!(
                 "------------------------- Verify ALL Signers Accepted Miner 2's Block N+1 -------------------------"
             );
-            wait_for_block_acceptance_from_signers(
-                30,
-                &miner_2_block_n_1.header.signer_signature_hash(),
-                &all_signers,
-            )
+            let signer_signature_hash = miner_2_block_n_1.header.signer_signature_hash();
+            wait_for(30, || {
+                let accepted_responses = TEST_ACCEPTED_BLOCK_RESPONSES.lock().unwrap();
+                Ok(all_signers.iter().all(|signer| {
+                    accepted_responses.contains(&(signer_signature_hash.clone(), signer.clone()))
+                }))
+            })
             .expect("Failed to get expected acceptances for Miner 2's block N+1.");
         } else {
             info!(
