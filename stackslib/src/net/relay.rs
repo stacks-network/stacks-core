@@ -2342,34 +2342,36 @@ impl Relayer {
         uploaded_chunks: Vec<StackerDBPushChunkData>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) {
-        if let Some(observer) = event_observer {
-            let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
-                HashMap::new();
-            for chunk in uploaded_chunks.into_iter() {
-                // forward if not stale
-                if chunk.rc_consensus_hash != *rc_consensus_hash {
-                    debug!("Drop stale uploaded StackerDB chunk";
+        let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
+            HashMap::new();
+        for chunk in uploaded_chunks.into_iter() {
+            // forward if not stale
+            if chunk.rc_consensus_hash != *rc_consensus_hash {
+                debug!("Drop stale uploaded StackerDB chunk";
                            "stackerdb_contract_id" => %chunk.contract_id,
                            "slot_id" => chunk.chunk_data.slot_id,
                            "slot_version" => chunk.chunk_data.slot_version,
                            "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
                            "network.rc_consensus_hash" => %rc_consensus_hash);
-                    continue;
-                }
+                continue;
+            }
 
+            if event_observer.is_some() {
                 if let Some(events) = all_events.get_mut(&chunk.contract_id) {
                     events.push(chunk.chunk_data.clone());
                 } else {
                     all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
                 }
-
-                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => %chunk.contract_id, "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
-
-                let msg = StacksMessageType::StackerDBPushChunk(chunk);
-                if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
-                    warn!("Failed to broadcast Nakamoto blocks: {e:?}");
-                }
             }
+
+            debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => %chunk.contract_id, "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
+
+            let msg = StacksMessageType::StackerDBPushChunk(chunk);
+            if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
+                warn!("Failed to broadcast StackerDB chunk: {e:?}");
+            }
+        }
+        if let Some(observer) = event_observer {
             for (contract_id, new_chunks) in all_events.into_iter() {
                 observer.new_stackerdb_chunks(contract_id, new_chunks);
             }
@@ -3364,5 +3366,48 @@ impl PeerNetwork {
                 self.relayer_stats.add_relayed_message((*nk).clone(), tx);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::TryRecvError;
+
+    use stacks_common::util::secp256k1::MessageSignature;
+
+    use super::*;
+    use crate::net::p2p::{NetworkHandle, NetworkRequest};
+
+    /// An HTTP-uploaded StackerDB chunk is broadcast to peers whether or not an event observer
+    /// is attached.
+    #[test]
+    fn uploaded_chunk_is_broadcast_without_event_observer() {
+        let (requests, handle) = NetworkHandle::test_channel(4);
+        let mut relayer = Relayer::new(
+            handle,
+            ConnectionOptions::default(),
+            StackerDBs::connect_memory(),
+        );
+        let rc_consensus_hash = ConsensusHash([0x11; 20]);
+        let chunk = StackerDBPushChunkData {
+            contract_id: QualifiedContractIdentifier::transient(),
+            rc_consensus_hash: rc_consensus_hash.clone(),
+            chunk_data: StackerDBChunkData {
+                slot_id: 1,
+                slot_version: 2,
+                sig: MessageSignature::empty(),
+                data: vec![3],
+            },
+        };
+
+        relayer.process_uploaded_stackerdb_chunks(&rc_consensus_hash, vec![chunk.clone()], None);
+        match requests.try_recv().unwrap() {
+            NetworkRequest::Broadcast(relay_hints, StacksMessageType::StackerDBPushChunk(sent)) => {
+                assert!(relay_hints.is_empty());
+                assert_eq!(sent, chunk);
+            }
+            request => panic!("unexpected network request: {request:?}"),
+        }
+        assert!(matches!(requests.try_recv(), Err(TryRecvError::Empty)));
     }
 }
