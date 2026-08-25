@@ -888,6 +888,16 @@ impl StacksEpochId {
         self < &StacksEpochId::Epoch41
     }
 
+    /// Whether the analysis engine's definition sorter should track the `contract-call?`
+    /// function's `contract-name` argument as a dependency. That behavior would be
+    /// correct (starting in Epoch 2, when that argument no longer had to be a literal;
+    /// before that, it was not necessary), but it was broken before Epoch 4.1, and
+    /// because the change is consensus-breaking (even for non-broken contracts, because
+    /// it can change cost), we have to preserve the legacy behavior.
+    pub fn checks_dependency_of_contract_call_target(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {
