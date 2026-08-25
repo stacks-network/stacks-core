@@ -2536,19 +2536,7 @@ impl Relayer {
         let sync_results = stackerdb_chunks
             .into_iter()
             .map(|(relay_hints, chunk_data)| {
-                if chunk_data.contract_id == boot_code_id(MINERS_NAME, true)
-                    || chunk_data.contract_id == boot_code_id(MINERS_NAME, false)
-                {
-                    // A received `.miners` push is rare (one per block proposal), and the time
-                    // at which each node first saw a proposal is the primary diagnostic for
-                    // proposal-propagation stalls, so log it at INFO.
-                    info!("Received pushed .miners StackerDB chunk";
-                        "slot_id" => chunk_data.chunk_data.slot_id,
-                        "slot_version" => chunk_data.chunk_data.slot_version,
-                        "data_hash" => %chunk_data.chunk_data.data_hash());
-                }
-                let sync_result = StackerDBSyncResult::from_pushed_chunk(relay_hints, chunk_data);
-                sync_result
+                StackerDBSyncResult::from_pushed_chunk(relay_hints, chunk_data)
             })
             .collect();
 
