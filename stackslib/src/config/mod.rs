@@ -2641,6 +2641,9 @@ impl Default for NodeConfig {
             event_dispatcher_blocking: true,
             event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
+            #[cfg(any(test, feature = "testing"))]
+            log_stackerdb_chunk_sources: true,
+            #[cfg(not(any(test, feature = "testing")))]
             log_stackerdb_chunk_sources: false,
             txindex: false,
             pox_5_sbtc_contract: None,
@@ -4194,12 +4197,6 @@ pub struct NodeConfigFile {
 
 impl NodeConfigFile {
     fn into_config_default(self, default_node_config: NodeConfig) -> Result<NodeConfig, String> {
-        #[cfg(any(test, feature = "testing"))]
-        let default_node_config = NodeConfig {
-            log_stackerdb_chunk_sources: true,
-            ..default_node_config
-        };
-
         if let Some(marf_cache_strategy) = self.marf_cache_strategy.as_deref() {
             warn!(
                 "node.marf_cache_strategy is deprecated and ignored; MARF node caching has been removed (configured value: {marf_cache_strategy})"
