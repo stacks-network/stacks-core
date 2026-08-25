@@ -130,11 +130,8 @@ fi
 ## ── Create Single-Test Batches ──────────────────────────────────────────────
 all_batches="[]"
 idx=1
-for test_name in "${tests[@]}"; do
-    [[ -z "${test_name}" ]] && continue
-    all_batches=$(echo "$all_batches" | jq --argjson idx "$idx" --arg csv "$test_name" '. += [{"index": $idx, "csv": $csv}]')
-    ((idx++))
-done
+all_batches=$(jq -R 'select(length > 0)' filtered.txt \
+      | jq -s -c 'to_entries | map({index: (.key + 1), csv: .value})')
 
 ## ── Partition Single-Test Batches into Dynamic Chunks ────────────────────────
 # Output chunks: batches_1, batches_2, etc. based on `max_chunks`
