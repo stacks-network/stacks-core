@@ -1,1 +1,2 @@
-Adds new logging to help observe where StackerDB chunks come from
+Adds opt-in logging to help observe where StackerDB chunks come from. Set
+`node.log_stackerdb_chunk_sources = true` to enable it.

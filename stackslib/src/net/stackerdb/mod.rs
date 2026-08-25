@@ -120,6 +120,7 @@ pub mod sync;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::ops::Range;
+use std::sync::RwLock;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
@@ -149,6 +150,15 @@ pub const STACKERDB_MAX_PAGE_COUNT: u32 = 2;
 pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
 pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
 pub const MINER_SLOT_COUNT: u32 = 2;
+
+static LOG_STACKERDB_CHUNK_SOURCES: RwLock<bool> = RwLock::new(false);
+
+/// Set whether newly stored StackerDB chunks should be logged with their origin.
+/// Call once during node startup from the run loop, with the value parsed from
+/// `NodeConfig`.
+pub fn set_log_stackerdb_chunk_sources(enabled: bool) {
+    *LOG_STACKERDB_CHUNK_SOURCES.write().unwrap() = enabled;
+}
 
 /// How a StackerDB chunk arrived at this replica.
 #[derive(Clone, PartialEq, Debug)]
@@ -187,6 +197,10 @@ pub fn log_stored_stackerdb_chunk(
     chunk: &StackerDBChunkData,
     origin: &StackerDBChunkOrigin,
 ) {
+    if !*LOG_STACKERDB_CHUNK_SOURCES.read().unwrap() {
+        return;
+    }
+
     info!(
         "Stored new StackerDB chunk";
         "stackerdb_contract_id" => %contract_id,
