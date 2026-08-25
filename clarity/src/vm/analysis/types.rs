@@ -26,8 +26,8 @@ use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::resource_limiter::ResourceLimiter;
-use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::FunctionType;
+use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::{ClarityVersion, SymbolicExpression};
 
 const DESERIALIZE_FAIL_MESSAGE: &str =

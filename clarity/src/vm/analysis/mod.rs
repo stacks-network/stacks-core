@@ -33,9 +33,10 @@ pub use self::errors::{
 };
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
-use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
+use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 pub use self::types::{AnalysisPass, ContractAnalysis};
+use crate::vm::ClarityVersion;
 #[cfg(feature = "rusqlite")]
 use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
@@ -45,7 +46,6 @@ use crate::vm::resource_limiter::{ResourceLimitExceeded, ResourceLimiter};
 use crate::vm::types::QualifiedContractIdentifier;
 #[cfg(feature = "rusqlite")]
 use crate::vm::types::TypeSignature;
-use crate::vm::ClarityVersion;
 
 /// Cooperative analysis resource limit check shared by analysis passes
 ///
