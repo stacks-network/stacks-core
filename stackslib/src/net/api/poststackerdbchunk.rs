@@ -288,14 +288,6 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                     ));
                 }
 
-                debug!(
-                    "Wrote {}-byte chunk to {} slot {} version {}",
-                    &stackerdb_chunk.data.len(),
-                    &contract_identifier,
-                    stackerdb_chunk.slot_id,
-                    stackerdb_chunk.slot_version
-                );
-
                 crate::net::stackerdb::log_stored_stackerdb_chunk(
                     &contract_identifier,
                     &stackerdb_chunk,
