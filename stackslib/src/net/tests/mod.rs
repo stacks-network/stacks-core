@@ -39,7 +39,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::Address;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::PoxConstants;
@@ -69,8 +69,9 @@ use crate::core::{StacksEpoch, StacksEpochExtension};
 use crate::net::relay::Relayer;
 use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::{
-    BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborKey, NetworkResult,
-    PingData, StackerDBPushChunkData, StacksMessage, StacksMessageType, StacksNodeState,
+    BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborAddress, NeighborKey,
+    NetworkResult, PingData, RelayData, StackerDBPushChunkData, StacksMessage, StacksMessageType,
+    StacksNodeState,
 };
 use crate::util_lib::boot::{boot_code_addr, boot_code_id, boot_code_tx_auth};
 
@@ -1506,7 +1507,7 @@ fn test_network_result_update() {
         .push(uploaded_nblk1);
     network_result_1
         .pushed_stackerdb_chunks
-        .push(pushed_stackerdb_chunk_1);
+        .push((vec![], pushed_stackerdb_chunk_1));
     network_result_1
         .uploaded_stackerdb_chunks
         .push(uploaded_stackerdb_chunk_1);
@@ -1565,7 +1566,7 @@ fn test_network_result_update() {
         .push(uploaded_nblk2);
     network_result_2
         .pushed_stackerdb_chunks
-        .push(pushed_stackerdb_chunk_2);
+        .push((vec![], pushed_stackerdb_chunk_2));
     network_result_2
         .uploaded_stackerdb_chunks
         .push(uploaded_stackerdb_chunk_2);
@@ -1741,15 +1742,17 @@ fn test_network_result_update() {
         },
     };
 
-    old.pushed_stackerdb_chunks.push(old_chunk_1);
+    old.pushed_stackerdb_chunks.push((vec![], old_chunk_1));
     // replaced
-    new.pushed_stackerdb_chunks.push(new_chunk_1.clone());
+    new.pushed_stackerdb_chunks
+        .push((vec![], new_chunk_1.clone()));
     // included
-    new.pushed_stackerdb_chunks.push(new_chunk_2.clone());
+    new.pushed_stackerdb_chunks
+        .push((vec![], new_chunk_2.clone()));
 
     assert_eq!(
         old.update(new).pushed_stackerdb_chunks,
-        vec![new_chunk_1, new_chunk_2]
+        vec![(vec![], new_chunk_1), (vec![], new_chunk_2)]
     );
 
     // nakamoto blocks obtained via download, upload, or pushed get consoldated
@@ -1854,6 +1857,64 @@ fn test_network_result_update() {
     assert!(updated_uploaded.pushed_nakamoto_blocks.is_empty());
     assert_eq!(updated_uploaded.uploaded_nakamoto_blocks.len(), 1);
     assert_eq!(updated_uploaded.uploaded_nakamoto_blocks[0], nblk1);
+}
+
+#[test]
+fn test_network_result_preserves_stackerdb_relay_hints() {
+    let rc_consensus_hash = ConsensusHash([0x11; 20]);
+    let chunk = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: rc_consensus_hash.clone(),
+        chunk_data: StackerDBChunkData {
+            slot_id: 1,
+            slot_version: 2,
+            sig: MessageSignature::empty(),
+            data: vec![3],
+        },
+    };
+    let relay_hint = RelayData {
+        peer: NeighborAddress {
+            addrbytes: PeerAddress([0x22; 16]),
+            port: 20444,
+            public_key_hash: Hash160([0x33; 20]),
+        },
+        seq: 7,
+    };
+    let neighbor = NeighborKey {
+        peer_version: 1,
+        network_id: 1,
+        addrbytes: PeerAddress([0x44; 16]),
+        port: 20444,
+    };
+    let mut message = StacksMessage::new(
+        1,
+        1,
+        1,
+        &BurnchainHeaderHash([0x55; 32]),
+        1,
+        &BurnchainHeaderHash([0x55; 32]),
+        StacksMessageType::StackerDBPushChunk(chunk.clone()),
+    );
+    message.relayers = vec![relay_hint.clone()];
+
+    let mut result = NetworkResult::new(
+        StacksBlockId([0x66; 32]),
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        rc_consensus_hash,
+        HashMap::new(),
+    );
+    result.consume_unsolicited(HashMap::from([((1, neighbor), vec![message])]));
+
+    assert_eq!(
+        result.pushed_stackerdb_chunks,
+        vec![(vec![relay_hint], chunk)]
+    );
 }
 
 #[rstest]
