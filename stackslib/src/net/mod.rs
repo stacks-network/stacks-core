@@ -1535,8 +1535,8 @@ pub struct NetworkResult {
     pub uploaded_microblocks: Vec<MicroblocksData>,
     /// chunks we received from the HTTP server
     pub uploaded_stackerdb_chunks: Vec<StackerDBPushChunkData>,
-    /// chunks we received from p2p push
-    pub pushed_stackerdb_chunks: Vec<StackerDBPushChunkData>,
+    /// chunks we received from p2p push and their message relay hints
+    pub pushed_stackerdb_chunks: Vec<(Vec<RelayData>, StackerDBPushChunkData)>,
     /// Atlas attachments we obtained
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     /// transactions we downloaded via a mempool sync
@@ -1991,7 +1991,7 @@ impl NetworkResult {
         let newer_stackerdb_chunk_versions: HashMap<_, _> = newer
             .uploaded_stackerdb_chunks
             .iter()
-            .chain(newer.pushed_stackerdb_chunks.iter())
+            .chain(newer.pushed_stackerdb_chunks.iter().map(|(_, chunk)| chunk))
             .map(|chunk| {
                 (
                     (
@@ -2033,7 +2033,7 @@ impl NetworkResult {
             }
         });
 
-        self.pushed_stackerdb_chunks.retain(|push_chunk| {
+        self.pushed_stackerdb_chunks.retain(|(_, push_chunk)| {
             if push_chunk.rc_consensus_hash != newer.rc_consensus_hash {
                 debug!(
                     "Drop uploaded StackerDB chunk for {} due to stale view ({} != {}): {:?}",
@@ -2187,9 +2187,9 @@ impl NetworkResult {
                                 .insert(neighbor_key.clone(), vec![(message.relayers, block_data)]);
                         }
                     }
-                    StacksMessageType::StackerDBPushChunk(chunk_data) => {
-                        self.pushed_stackerdb_chunks.push(chunk_data)
-                    }
+                    StacksMessageType::StackerDBPushChunk(chunk_data) => self
+                        .pushed_stackerdb_chunks
+                        .push((message.relayers, chunk_data)),
                     _ => {
                         // forward along
                         if let Some(messages) = self.unhandled_messages.get_mut(&neighbor_key) {

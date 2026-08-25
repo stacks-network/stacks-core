@@ -132,8 +132,9 @@ use crate::net::connection::ConnectionOptions;
 use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
-    Error as net_error, NackData, NackErrorCodes, NeighborAddress, Preamble, StackerDBChunkData,
-    StackerDBChunkInvData, StackerDBGetChunkData, StackerDBPushChunkData, StacksMessageType,
+    Error as net_error, NackData, NackErrorCodes, NeighborAddress, Preamble, RelayData,
+    StackerDBChunkData, StackerDBChunkInvData, StackerDBGetChunkData, StackerDBPushChunkData,
+    StacksMessageType,
 };
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
@@ -158,6 +159,8 @@ pub struct StackerDBSyncResult {
     pub chunk_invs: HashMap<NeighborAddress, StackerDBChunkInvData>,
     /// list of data to store
     pub chunks_to_store: Vec<StackerDBChunkData>,
+    /// relay history supplied with a pushed chunk; empty for inventory/pull synchronization
+    pub relay_hints: Vec<RelayData>,
     /// neighbors that have stale views, but are otherwise online
     pub(crate) stale: HashSet<NeighborAddress>,
     /// number of connections made
@@ -457,11 +460,15 @@ pub struct StackerDBSync<NC: NeighborComms> {
 impl StackerDBSyncResult {
     /// The receipt of a single StackerDBPushChunk message is equivalent to performing a single
     /// sync
-    pub fn from_pushed_chunk(chunk: StackerDBPushChunkData) -> StackerDBSyncResult {
+    pub fn from_pushed_chunk(
+        relay_hints: Vec<RelayData>,
+        chunk: StackerDBPushChunkData,
+    ) -> StackerDBSyncResult {
         StackerDBSyncResult {
             contract_id: chunk.contract_id,
             chunk_invs: HashMap::new(),
             chunks_to_store: vec![chunk.chunk_data],
+            relay_hints,
             stale: HashSet::new(),
             num_attempted_connections: 0,
             num_connections: 0,
