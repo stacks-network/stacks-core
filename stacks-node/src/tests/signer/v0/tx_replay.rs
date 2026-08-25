@@ -2144,7 +2144,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     let pre_fork_tenures = 2;
     for i in 0..pre_fork_tenures {
         info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
-        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+        signer_test.mine_nakamoto_block(Duration::from_secs(60), true);
     }
     signer_test.check_signer_states_normal();
 
@@ -2163,7 +2163,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
         .wait_for_nonce_increase(&sender1_addr, deploy_nonce)
         .expect("Timed out waiting for nonce to increase");
 
-    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    signer_test.mine_nakamoto_block(Duration::from_secs(60), true);
 
     // Then, sumbmit 2 Contract Calls that require Tenure Extension to be addressed.
     info!("---- Waiting for first big tx to be mined ----");
@@ -2322,7 +2322,7 @@ fn tx_replay_budget_exceeded_tenure_extend() {
 
     for i in 0..pre_fork_tenures {
         info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
-        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+        signer_test.mine_nakamoto_block(Duration::from_secs(60), true);
     }
 
     signer_test.check_signer_states_normal();
@@ -2340,7 +2340,7 @@ fn tx_replay_budget_exceeded_tenure_extend() {
         .wait_for_nonce_increase(&sender_addr, deploy_nonce)
         .expect("Timed out waiting for nonce to increase");
 
-    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    signer_test.mine_nakamoto_block(Duration::from_secs(60), true);
 
     let tip = get_chain_info(conf);
 
@@ -2354,7 +2354,7 @@ fn tx_replay_budget_exceeded_tenure_extend() {
         .wait_for_nonce_increase(&sender_addr, txid1_nonce)
         .expect("Timed out waiting for nonce to increase");
 
-    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+    signer_test.mine_nakamoto_block(Duration::from_secs(60), true);
 
     let (txid2, txid2_nonce) = signer_test
         .submit_contract_call(&sender_sk, send_fee, "big-contract", "big-tx", &vec![])

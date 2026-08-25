@@ -95,9 +95,16 @@ impl HttpRequest for RPCPostStackerDBChunkRequestHandler {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StackerDBErrorCodes {
+    /// The slot already holds a chunk whose version is at least the one submitted.
     DataAlreadyExists,
+    /// The chunk's slot ID is out of range for this replica's slot allocation.
     NoSuchSlot,
+    /// The chunk's signature does not recover to the address that owns the slot.
     BadSigner,
+    /// The chunk exceeds the replica's configured chunk size.
+    ChunkTooBig,
+    /// The chunk's slot version exceeds the replica's configured maximum writes.
+    TooManySlotWrites,
 }
 
 impl StackerDBErrorCodes {
@@ -106,6 +113,8 @@ impl StackerDBErrorCodes {
             Self::DataAlreadyExists => 0,
             Self::NoSuchSlot => 1,
             Self::BadSigner => 2,
+            Self::ChunkTooBig => 3,
+            Self::TooManySlotWrites => 4,
         }
     }
 
@@ -115,6 +124,10 @@ impl StackerDBErrorCodes {
             Self::DataAlreadyExists => "Data for this slot and version already exist",
             Self::NoSuchSlot => "No such StackerDB slot",
             Self::BadSigner => "Signature does not match slot signer",
+            Self::ChunkTooBig => "Chunk exceeds the replica's configured chunk size",
+            Self::TooManySlotWrites => {
+                "Slot version exceeds the replica's configured maximum writes"
+            }
         }
     }
 
@@ -132,6 +145,8 @@ impl StackerDBErrorCodes {
             0 => Some(Self::DataAlreadyExists),
             1 => Some(Self::NoSuchSlot),
             2 => Some(Self::BadSigner),
+            3 => Some(Self::ChunkTooBig),
+            4 => Some(Self::TooManySlotWrites),
             _ => None,
         }
     }
@@ -191,6 +206,37 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                         &contract_identifier,
                         &e
                     );
+                    // Classify the rejection directly from the error. `StaleChunk` is the
+                    // only retryable case (the normal version-bump handshake); everything
+                    // else is terminal for an identical chunk. Anything unexpected (DB or
+                    // internal error) is a server error, not a client-classifiable ack, so
+                    // it becomes an HTTP 500 rather than a misleading `accepted: false`.
+                    let err_code = match &e {
+                        NetError::StaleChunk { .. } => StackerDBErrorCodes::DataAlreadyExists,
+                        NetError::NoSuchSlot(..) => StackerDBErrorCodes::NoSuchSlot,
+                        NetError::BadSlotSigner(..) | NetError::VerifyingError(..) => {
+                            StackerDBErrorCodes::BadSigner
+                        }
+                        NetError::StackerDBChunkTooBig(..) => StackerDBErrorCodes::ChunkTooBig,
+                        NetError::TooManySlotWrites { .. } => {
+                            StackerDBErrorCodes::TooManySlotWrites
+                        }
+                        _ => {
+                            error!("Failed to replace StackerDB chunk with an unexpected error";
+                                   "smart_contract_id" => contract_identifier.to_string(),
+                                   "error" => format!("{:?}", &e)
+                            );
+                            return Err(StacksHttpResponse::new_error(
+                                &preamble,
+                                &HttpServerError::new(format!(
+                                    "Failed to store StackerDB chunk for {}: {:?}",
+                                    &contract_identifier, &e
+                                )),
+                            ));
+                        }
+                    };
+
+                    // Load the current slot metadata to populate the ack for the client.
                     let slot_metadata_opt =
                         match tx.get_slot_metadata(&contract_identifier, stackerdb_chunk.slot_id) {
                             Ok(slot_opt) => slot_opt,
@@ -210,15 +256,6 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                             }
                         };
 
-                    let err_code = if slot_metadata_opt.is_some() {
-                        if let NetError::BadSlotSigner(..) = e {
-                            StackerDBErrorCodes::BadSigner
-                        } else {
-                            StackerDBErrorCodes::DataAlreadyExists
-                        }
-                    } else {
-                        StackerDBErrorCodes::NoSuchSlot
-                    };
                     let reason = serde_json::to_string(&err_code.clone().into_json())
                         .unwrap_or("(unable to encode JSON)".to_string());
 

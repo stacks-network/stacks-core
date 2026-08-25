@@ -1,0 +1,120 @@
+name: "Create: Test Caches"
+run-name: "Create: Test Caches [${{ github.ref_name }}]"
+
+################################################################################################################################
+# GitHub caches are scoped to branches, with a fallback mechanism:
+#   1. A branch by default can only see caches created on that branch
+#   2. Failing that, a branch can opt-in to accessing the base branch cache
+#   3. If the base branch cache is missing, the opt-in check will fall through to the default branch cache (`main`)
+#
+# So we build caches on `main` after each push, since our branches typically target `main` as base.
+#
+# This allows any and all PR branches that ultimately derive from `main` to re-use these caches for faster 
+# CI workflows, via an intentionally broad `restore-keys` fallback in the actions/cache GitHub action.
+#
+# The broad cache restore will find the most recently created (newest) caches in `main`.
+#
+# If the branch has updated cargo crates, or the cache is slightly stale, that's OK.
+# The cargo build process will notice the mismatched versions (or new deps) automatically 
+# and build them on-the-fly. This allows slightly stale caches to still be very useful.
+#
+# NOTE: 
+#   This job ONLY runs if a GitHub Action variable is set: ENABLE_CI_WORKFLOWS = true
+################################################################################################################################
+
+on:
+  workflow_dispatch: # Allows manual triggering / seeding
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+# Configure concurrency
+#   - cache will exist longer than workflow execution so other runners have access.
+#   - when multiple pushes to `main` happen in a short time, cancel 
+#     the current run and start the new one with the most recent code.
+concurrency:
+  group: create-caches
+  cancel-in-progress: true
+
+jobs:
+  check-ci-enabled:
+    name: "Check: CI Enabled"
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
+          echo "github.repository:   '${{ github.repository }}'"
+          echo "github.event_name:   '${{ github.event_name }}'"
+    
+          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Result: CI is ENABLED"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: CI is DISABLED"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  #######################################################################################################################
+  ### Create Reusable Caches for Tests
+  ###
+  ### Caches are created from `main` branch when a GitHub Action variable is set: ENABLE_CI_WORKFLOWS = true
+  ### When run on `main`, this workflow creates canonical re-usable caches for future CI runs.
+  ### When manually dispatched from another branch, any created caches will be scoped to that branch.
+  #######################################################################################################################
+  cache-bitcoin-binary:
+    name: "Create: Bitcoin Binary Cache"
+    needs:
+      - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      #   - only .github is required for checking caches
+      - name: Checkout the latest code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Check cache for bitcoin binary
+      # We don't need multiple caches of the same Bitcoin binary, so skip create if one already exists
+      - name: Check Bitcoin Cache
+        id: bitcoin
+        uses: ./.github/actions/cache/bitcoin
+
+      # Only create when a binary doesn't already exist
+      - name: Create Bitcoin Cache
+        if: >-
+          !steps.bitcoin.outputs.cache-matched-key
+        uses: ./.github/actions/cache/bitcoin
+        with:
+          action: create
+
+  cache-cargo:
+    name: "Create: Cargo Cache"
+    needs:
+      - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      #   - only .github is required for checking caches
+      - name: Checkout the latest code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          sparse-checkout: |
+            .github
+
+      - name: Create Cargo Cache
+        uses: ./.github/actions/cache/cargo
+        with:
+          action: create

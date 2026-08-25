@@ -121,8 +121,7 @@ fn inner_build_ast<T: CostTracker>(
     source_code: &str,
     cost_track: &mut T,
     clarity_version: ClarityVersion,
-    // the epoch_id argument can be removed as part of #3662 (removing parser v1)
-    #[allow(unused_variables)] epoch: StacksEpochId,
+    epoch: StacksEpochId,
     error_early: bool,
 ) -> ParseResult<(ContractAST, Vec<Diagnostic>, bool)> {
     let cost_err = match runtime_cost(
@@ -202,7 +201,7 @@ fn inner_build_ast<T: CostTracker>(
         }
         _ => (),
     }
-    match DefinitionSorter::run_pass(&mut contract_ast, cost_track, clarity_version) {
+    match DefinitionSorter::run_pass(&mut contract_ast, cost_track, clarity_version, epoch) {
         Err(e) if error_early => return Err(e),
         Err(e) => {
             diagnostics.push(e.diagnostic);

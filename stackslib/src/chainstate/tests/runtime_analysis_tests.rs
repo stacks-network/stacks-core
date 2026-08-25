@@ -1141,7 +1141,7 @@ fn bad_trait_implementation_mismatched_args() {
 /// Caused by: deserializing an invalid ascii string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
 /// Outcome: Block accepted
 /// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
-/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
+/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact_at_epoch`.
 #[test]
 fn invalid_characters_detected_invalid_ascii() {
     contract_deploy_consensus_snap_test!(
@@ -1160,7 +1160,7 @@ fn invalid_characters_detected_invalid_ascii() {
 /// Caused by: deserializing an invalid utf8 string using `from-consensus-buff?` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
 /// Outcome: Block accepted
 /// Note: [`RuntimeCheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
-/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
+/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact_at_epoch`.
 #[test]
 fn invalid_characters_detected_invalid_utf8() {
     contract_deploy_consensus_snap_test!(
@@ -1175,12 +1175,12 @@ fn invalid_characters_detected_invalid_utf8() {
     );
 }
 
-/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (before epoch 3.4)
+/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (pre-Costs5, Clarity 2–4)
 /// Caused by: calling nlogn with n = 0
 /// Outcome: block accepted at deploy time.
-/// Note: Before epoch 3.4, this returns a `CostComputationFailed` error which wraps the underlying
-///       [`RuntimeError::Arithmetic`] error. After 3.4, this executes successfully (`none` is
-///       stored in the constant).
+/// Note: This error is reachable only with the pre-Costs5 schedule and Clarity 2–4. Clarity 5+
+///       clamps the empty buffer before cost evaluation, while Epoch 4.0's Costs5 schedule accepts
+///       zero directly. Those combinations are excluded because they cannot exercise this error.
 #[test]
 fn arithmetic_zero_n_log_n_cdeploy() {
     contract_deploy_consensus_snap_test!(
@@ -1191,12 +1191,12 @@ fn arithmetic_zero_n_log_n_cdeploy() {
     );
 }
 
-/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (before epoch 3.4)
+/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (pre-Costs5, Clarity 2–4)
 /// Caused by: calling nlogn with n = 0
 /// Outcome: block accepted at call time.
-/// Note: Before epoch 3.4, this returns a `CostComputationFailed` error which wraps the underlying
-///       [`RuntimeError::Arithmetic`] error. After 3.4, this executes successfully and returns
-///       `none`.
+/// Note: This error is reachable only with the pre-Costs5 schedule and Clarity 2–4. Clarity 5+
+///       clamps the empty buffer before cost evaluation, while Epoch 4.0's Costs5 schedule accepts
+///       zero directly. Those combinations are excluded because they cannot exercise this error.
 #[test]
 fn arithmetic_zero_n_log_n_ccall() {
     contract_call_consensus_snap_test!(

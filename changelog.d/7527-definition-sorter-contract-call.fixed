@@ -1,0 +1,1 @@
+Fix a bug that prevented duplicate name detection in some cases during contract analysis. This change applies starting in epoch 4.1.

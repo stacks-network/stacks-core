@@ -28,7 +28,8 @@ use crate::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::types::{
     BOUND_VALUE_SERIALIZATION_BYTES, BufferLength, CallableData, CharType, MAX_TYPE_DEPTH,
     MAX_VALUE_SIZE, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    SequenceSubtype, StandardPrincipalData, StringSubtype, TupleData, TypeSignature, Value,
+    SequenceSubtype, StandardPrincipalData, StringSubtype, TupleData, TupleFieldsBehavior,
+    TypeSignature, Value,
 };
 
 /// Errors that may occur in serialization or deserialization
@@ -68,6 +69,9 @@ const SANITIZATION_READ_BOUND: u64 = 15_000_000;
 /// After epoch-2.4, with type sanitization support, the full
 ///  clarity depth limit is supported.
 const UNSANITIZED_DEPTH_CHECK: usize = 16;
+/// Initial capacity used when deserializing list/tuple containers; the vector
+/// grows as elements are read. Does not change the accepted serialized length.
+const INITIAL_DESERIALIZATION_CONTAINER_CAPACITY: usize = 1024;
 
 impl std::fmt::Display for SerializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -532,10 +536,27 @@ impl Value {
     /// If `sanitize` argument is set to true and `expected_type` is supplied,
     ///  this method will remove any extraneous tuple fields which may have been
     ///  allowed by `least_super_type`.
+    ///
+    /// Strict typed-tuple enforcement is reachable only via the epoch-aware
+    /// `*_at_epoch` deserialization entry points, never here.
     pub fn deserialize_read_count<R: Read>(
         r: &mut R,
         expected_type: Option<&TypeSignature>,
         sanitize: bool,
+    ) -> Result<(Value, u64), SerializationError> {
+        Self::deserialize_read_count_with_options(
+            r,
+            expected_type,
+            sanitize,
+            TupleFieldsBehavior::LEGACY,
+        )
+    }
+
+    fn deserialize_read_count_with_options<R: Read>(
+        r: &mut R,
+        expected_type: Option<&TypeSignature>,
+        sanitize: bool,
+        behavior: TupleFieldsBehavior,
     ) -> Result<(Value, u64), SerializationError> {
         let bound_value_serialization_bytes = if sanitize && expected_type.is_some() {
             SANITIZATION_READ_BOUND
@@ -543,7 +564,8 @@ impl Value {
             BOUND_VALUE_SERIALIZATION_BYTES as u64
         };
         let mut bound_reader = BoundReader::from_reader(r, bound_value_serialization_bytes);
-        let value = Value::inner_deserialize_read(&mut bound_reader, expected_type, sanitize)?;
+        let value =
+            Value::inner_deserialize_read(&mut bound_reader, expected_type, sanitize, behavior)?;
         let bytes_read = bound_reader.num_read();
         if let Some(expected_type) = expected_type {
             let expect_size = match expected_type.max_serialized_size() {
@@ -572,6 +594,7 @@ impl Value {
         r: &mut R,
         top_expected_type: Option<&TypeSignature>,
         sanitize: bool,
+        behavior: TupleFieldsBehavior,
     ) -> Result<Value, SerializationError> {
         use super::Value::*;
 
@@ -738,7 +761,9 @@ impl Value {
                     };
 
                     if len > 0 {
-                        let items = Vec::with_capacity(len as usize);
+                        let items = Vec::with_capacity(
+                            (len as usize).min(INITIAL_DESERIALIZATION_CONTAINER_CAPACITY),
+                        );
                         let stack_item = DeserializeStackItem::List {
                             items,
                             expected_len: len,
@@ -802,7 +827,9 @@ impl Value {
                     };
 
                     if len > 0 {
-                        let items = Vec::with_capacity(expected_len as usize);
+                        let items = Vec::with_capacity(
+                            (expected_len as usize).min(INITIAL_DESERIALIZATION_CONTAINER_CAPACITY),
+                        );
                         let first_key = ClarityName::deserialize_read(r)?;
                         // figure out if the next (key, value) pair for this
                         //  tuple will be elided (or sanitized) from the tuple.
@@ -832,6 +859,7 @@ impl Value {
                                 &DESERIALIZATION_TYPE_CHECK_EPOCH,
                                 vec![],
                                 tuple_type,
+                                behavior,
                             )
                             .map_err(|_| "Illegal tuple type")
                             .map(Value::from)?
@@ -998,6 +1026,7 @@ impl Value {
                                     &DESERIALIZATION_TYPE_CHECK_EPOCH,
                                     items,
                                     &tuple_type,
+                                    behavior,
                                 )
                                 .map_err(|_| "Illegal tuple type")
                                 .map(Value::from)?
@@ -1135,8 +1164,8 @@ impl Value {
 
     /// This function attempts to deserialize a byte buffer into a Clarity Value.
     /// The `expected_type` parameter tells the deserializer to expect (and enforce)
-    /// a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
-    /// have their max-length and other type information set by the type declarations in the contract.
+    /// a particular type. Uses legacy tuple-field handling; consensus code should
+    /// prefer the epoch-aware [`Self::try_deserialize_bytes_at_epoch`].
     pub fn try_deserialize_bytes(
         bytes: &Vec<u8>,
         expected: &TypeSignature,
@@ -1145,10 +1174,27 @@ impl Value {
         Value::deserialize_read(&mut bytes.as_slice(), Some(expected), sanitize)
     }
 
+    /// Behaves like [`Self::try_deserialize_bytes`], selecting historical
+    /// tuple-field handling before Epoch 4.1 and exact field-set enforcement
+    /// from Epoch 4.1 onward.
+    pub fn try_deserialize_bytes_at_epoch(
+        bytes: &Vec<u8>,
+        expected: &TypeSignature,
+        epoch: &StacksEpochId,
+    ) -> Result<Value, SerializationError> {
+        Self::deserialize_read_count_with_options(
+            &mut bytes.as_slice(),
+            Some(expected),
+            epoch.value_sanitizing(),
+            TupleFieldsBehavior::from_epoch(epoch),
+        )
+        .map(|(value, _)| value)
+    }
+
     /// This function attempts to deserialize a hex string into a Clarity Value.
     /// The `expected_type` parameter tells the deserializer to expect (and enforce)
-    /// a particular type. `ClarityDB` uses this to ensure that lists, tuples, etc. loaded from the database
-    /// have their max-length and other type information set by the type declarations in the contract.
+    /// a particular type. Uses legacy tuple-field handling; consensus code should
+    /// prefer the epoch-aware [`Self::try_deserialize_hex_at_epoch`].
     pub fn try_deserialize_hex(
         hex: &str,
         expected: &TypeSignature,
@@ -1158,22 +1204,34 @@ impl Value {
         Value::try_deserialize_bytes(&data, expected, sanitize)
     }
 
-    /// This function attempts to deserialize a byte buffer into a
-    /// Clarity Value, while ensuring that the whole byte buffer is
-    /// consumed by the deserialization, erroring if it is not. The
-    /// `expected_type` parameter tells the deserializer to expect
-    /// (and enforce) a particular type. `ClarityDB` uses this to
-    /// ensure that lists, tuples, etc. loaded from the database have
-    /// their max-length and other type information set by the type
-    /// declarations in the contract.
-    pub fn try_deserialize_bytes_exact(
+    /// Epoch-aware variant of [`Self::try_deserialize_hex`]. `ClarityDB` reads
+    /// values through this so that lists, tuples, etc. loaded from the database
+    /// carry the max-length and other type information declared in the contract.
+    pub fn try_deserialize_hex_at_epoch(
+        hex: &str,
+        expected: &TypeSignature,
+        epoch: &StacksEpochId,
+    ) -> Result<Value, SerializationError> {
+        let data = hex_bytes(hex).map_err(|_| "Bad hex string")?;
+        Value::try_deserialize_bytes_at_epoch(&data, expected, epoch)
+    }
+
+    /// Deserialize a byte buffer into a Clarity Value of `expected` type,
+    /// requiring the whole buffer to be consumed. Sanitization (Epoch 2.4+) and
+    /// strict typed-tuple field enforcement (Epoch 4.1+) are derived from `epoch`
+    /// so consensus behavior is gated entirely by the execution epoch.
+    pub fn try_deserialize_bytes_exact_at_epoch(
         bytes: &Vec<u8>,
         expected: &TypeSignature,
-        sanitize: bool,
+        epoch: &StacksEpochId,
     ) -> Result<Value, SerializationError> {
         let input_length = bytes.len();
-        let (value, read_count) =
-            Value::deserialize_read_count(&mut bytes.as_slice(), Some(expected), sanitize)?;
+        let (value, read_count) = Value::deserialize_read_count_with_options(
+            &mut bytes.as_slice(),
+            Some(expected),
+            epoch.value_sanitizing(),
+            TupleFieldsBehavior::from_epoch(epoch),
+        )?;
         if read_count != (input_length as u64) {
             Err(SerializationError::LeftoverBytesInDeserialization)
         } else {

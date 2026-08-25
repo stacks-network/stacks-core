@@ -27,6 +27,17 @@ This project and everyone participating in it is governed by this [Code of Condu
 
 See the branching document in [branching.md](./docs/branching.md).
 
+### Enabling CI on Forks
+
+The CI will always run on `stacks-network/stacks-core` with other forks and cloned repos able to opt-in.
+
+To **enable** CI workflows within your fork or cloned repository, add a GitHub Actions Variable:
+
+- Name: `ENABLE_CI_WORKFLOWS`
+- Value: `true`
+
+This will enable CI functionality within your repo or fork.
+
 ### Merging PRs from Forks
 
 PRs from forks or opened by contributors without commit access require
@@ -127,7 +138,7 @@ Reviewers should aim to **perform a review in one sitting** whenever possible. T
 Code reviews should be timely. Reviewers should start no more than
 **2 business days** after reviewers are assigned. This applies to each
 reviewer: i.e., we expect all reviewers to respond within two days.
-The `develop` and `next` branches in particular often change quickly,
+The `main` branch in particular often changes quickly,
 so letting a PR languish only creates more merge work for the
 submitter. If a review cannot be started within this timeframe, then
 the reviewers should **tell the submitter when they can begin**. This
@@ -211,6 +222,22 @@ mask compiler warnings with macros.
 ### Minimal `unsafe` code
 
 Contributions should not contain `unsafe` blocks if at all possible.
+
+### Preventing Accidental Releases ("DO NOT RELEASE" Markers)
+
+To safeguard against accidentally deploying incomplete work, experimental features, or unvetted consensus changes, our release pipeline includes an automated check for release-blocking markers.
+
+- **How to use it:** If a pull request contains code or configuration that must **never** be included in a production release, add the exact string `"DO NOT RELEASE"` in a comment or file within the codebase.
+- **CI Safety Check:** During automated release workflows, the `check-do-not-release` job recursively scans the codebase (excluding `.git` and `.github`). If it detects the string anywhere, it immediately halts the pipeline, logs an inline error annotation, and writes a detailed breakdown to the GitHub Job Summary showing every location where the phrase was found.
+- **Resolving the block:** A release cannot proceed until all instances of `"DO NOT RELEASE"` are removed from the codebase and merged to the target branch.
+
+### Blocking a Release With a Label (`X.Y.Z-blocker`)
+
+Work that must land _before_ a given release can also be tracked with a label instead of a marker in the code.
+
+- **How to use it:** Apply the label `X.Y.Z-blocker` (where `X.Y.Z` is the release version, i.e. `4.0.0-blocker`) to any issue or pull request that must be resolved before that release ships.
+- **CI Safety Check:** During automated release workflows, the `check-release-blockers` job derives the label from the release tag and queries the repository for open issues and pull requests carrying it. If any are found, it halts the pipeline, logs an inline error annotation, and writes a list of the blocking issues/PRs to the GitHub Job Summary.
+- **Resolving the block:** A release cannot proceed until every issue/PR with that label is closed (or merged), or the label is removed from anything that turns out not to be a blocker.
 
 # Coding Guidelines
 
@@ -332,9 +359,9 @@ For an example, see [PR #3075](https://github.com/stacks-network/stacks-core/pul
 
 A **consensus-critical change** is a change that affects how the Stacks blockchain processes blocks, microblocks, or transactions, such that a node with the patch _could_ produce a different state root hash than a node without the patch. If this is even _possible_, then the PR is automatically treated as a consensus-critical change and must ship as part of a hard fork. It must also be described in a SIP.
 
-- **All changes to consensus-critical code must be opened against `next`**. It is _never acceptable_ to open them against `develop` or `master`.
-
 - **All consensus-critical changes must be gated on the Stacks epoch**. They may only take effect once the system enters a specific epoch (and this must be documented).
+
+- **Consensus-critical changes are opened against `main`**, like any other change. The epoch gate, not a separate long-lived branch, is what keeps them inert until activation.
 
 A non-exhaustive list of examples of consensus-critical changes include:
 

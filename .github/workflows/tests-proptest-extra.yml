@@ -62,15 +62,37 @@ env:
   BTC_VERSION: "25.0"
 
 jobs:
+  check-ci-enabled:
+    name: "Check: CI Enabled"
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
+          echo "github.repository:   '${{ github.repository }}'"
+          echo "github.event_name:   '${{ github.event_name }}'"
+    
+          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Result: CI is ENABLED"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: CI is DISABLED"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Gate 1: on manual dispatch, always proceed.
   # On pull_request_review, proceed only when the triggering review is an
   # approval targeting the `main` base branch and check approvals
   # from users with write+ permission to be at least `REQUIRED_APPROVALS`.
   check-approvals:
-    name: Check Approval Count
-    if: >
-      (github.event_name == 'workflow_dispatch') ||
-      (github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main')
+    name: "Check: Approval Count"
+    needs:
+      - check-ci-enabled
+    # Only run this if a PR review is approved targeting the main branch
+    if: needs.check-ci-enabled.outputs.enabled == 'true' && github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.count.outputs.ready }}
@@ -129,8 +151,10 @@ jobs:
   # Skips the expensive test listing/filtering job when a PR does not
   # introduce any new proptest tests.
   check-changes:
-    name: Detect New Proptest Tests
-    needs: check-approvals
+    name: "Detect: New Proptest Tests"
+    needs:
+      - check-ci-enabled
+      - check-approvals
     if: needs.check-approvals.outputs.ready == 'true'
     runs-on: ubuntu-latest
     outputs:
@@ -213,7 +237,7 @@ jobs:
     if: |
       needs.check-approvals.outputs.ready == 'true' &&
       needs.check-changes.outputs.found == 'true'
-    uses: ./.github/workflows/check-test-caches.yml
+    uses: ./.github/workflows/_check-test-caches.yml
 
   proptests-run:
     # NOTE: This job name is used as a required Status Check in branch

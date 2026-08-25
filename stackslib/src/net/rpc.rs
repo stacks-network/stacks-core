@@ -614,7 +614,7 @@ impl ConversationHttp {
                 break;
             }
         }
-        monitoring::update_inbound_rpc_bandwidth(total_sz as i64);
+        monitoring::update_outbound_rpc_bandwidth(total_sz as i64);
         Ok(total_sz)
     }
 

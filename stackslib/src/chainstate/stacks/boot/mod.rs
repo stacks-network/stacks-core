@@ -73,6 +73,64 @@ pub const POX_5_NAME: &str = "pox-5";
 /// pox-5's flat minimum to participate as a stacker, mirroring
 /// `SIGNER_SET_MIN_USTX` in `pox-5.clar` (`u50000000000` = 50,000 STX).
 pub const POX_5_SIGNER_SET_MIN_USTX: u64 = 50_000_000_000;
+/// Test-only signer-manager contract used to exercise PoX-5 signer enrollment
+/// and reward handling.
+///
+/// `validate-stake!` accepts fixture stakes without additional policy,
+/// `register-self` grants and registers the signer key under the contract, and
+/// the reward entry points delegate to the PoX-5 boot contract.
+#[cfg(any(test, feature = "testing"))]
+pub const POX_5_SIGNER_MANAGER_TEST_CONTRACT_SOURCE: &str = r#"
+(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
+(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
+
+(define-public (validate-stake!
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (amount-ustx uint)
+        (amount-sats uint)
+        (is-bond bool)
+        (signer-calldata (optional (buff 500)))
+    )
+    (ok true)
+)
+
+(define-public (register-self
+    (signer-manager <signer-manager-trait>)
+    (signer-key (buff 33))
+    (auth-id uint)
+    (signer-sig (buff 65))
+  )
+  (as-contract? ()
+    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
+      signer-key current-contract auth-id signer-sig
+    ))
+    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
+      signer-manager signer-key
+    ))
+  )
+)
+
+(define-public (claim-rewards
+    (bond-periods (list 6 uint))
+    (reward-cycle uint)
+  )
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 claim-rewards
+    bond-periods reward-cycle
+  )
+)
+
+(define-read-only (get-earned-staker-rewards
+    (staker principal)
+    (reward-cycle uint)
+    (bond-index (optional uint))
+  )
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 get-earned-staker-rewards
+    current-contract reward-cycle bond-index staker
+  )
+)
+"#;
 pub const SIGNERS_NAME: &str = "signers";
 pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
@@ -688,6 +746,22 @@ impl StacksChainState {
     ///
     /// This should only be called for PoX v4 cycles.
     pub fn handle_pox_cycle_start_pox_4(
+        _clarity: &mut ClarityTransactionConnection,
+        _cycle_number: u64,
+        _cycle_info: Option<PoxStartCycleInfo>,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        // PASS
+        Ok(vec![])
+    }
+
+    // TODO: add tests from mutation testing results #4854
+    #[cfg_attr(test, mutants::skip)]
+    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
+    ///
+    /// This should only be called for PoX v5 cycles. Like PoX v4, there is no
+    /// cycle-start work (missed-slot auto-unlocks ended in Epoch 2.5), so this is
+    /// intentionally a no-op.
+    pub fn handle_pox_cycle_start_pox_5(
         _clarity: &mut ClarityTransactionConnection,
         _cycle_number: u64,
         _cycle_info: Option<PoxStartCycleInfo>,

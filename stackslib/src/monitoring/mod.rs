@@ -111,7 +111,7 @@ pub fn set_last_execution_cost_observed(
         prometheus::LAST_BLOCK_READ_COUNT
             .set(execution_cost.read_count as f64 / block_limit.read_count as f64);
         prometheus::LAST_BLOCK_WRITE_COUNT
-            .set(execution_cost.write_count as f64 / block_limit.read_count as f64);
+            .set(execution_cost.write_count as f64 / block_limit.write_count as f64);
         prometheus::LAST_BLOCK_READ_LENGTH
             .set(execution_cost.read_length as f64 / block_limit.read_length as f64);
         prometheus::LAST_BLOCK_WRITE_LENGTH
@@ -141,7 +141,7 @@ pub fn set_last_mined_execution_cost_observed(
         prometheus::LAST_MINED_BLOCK_READ_COUNT
             .set(execution_cost.read_count as f64 / block_limit.read_count as f64);
         prometheus::LAST_MINED_BLOCK_WRITE_COUNT
-            .set(execution_cost.write_count as f64 / block_limit.read_count as f64);
+            .set(execution_cost.write_count as f64 / block_limit.write_count as f64);
         prometheus::LAST_MINED_BLOCK_READ_LENGTH
             .set(execution_cost.read_length as f64 / block_limit.read_length as f64);
         prometheus::LAST_MINED_BLOCK_WRITE_LENGTH
