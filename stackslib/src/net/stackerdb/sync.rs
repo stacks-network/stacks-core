@@ -1231,7 +1231,11 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
             let chunk_push = cur_push_priority.0.clone();
             // try the first neighbor in the chunk_push_priorities list
-            let selected_neighbor_opt = cur_push_priority.1.first().map(|neighbor| (0, neighbor));
+            let selected_neighbor_opt = cur_push_priority
+                .1
+                .first()
+                .cloned()
+                .map(|neighbor| (0, neighbor));
 
             let Some((idx, selected_neighbor)) = selected_neighbor_opt else {
                 debug!("{:?}: {}: pushchunks_begin: no available neighbor to send StackerDBChunk(id={},ver={}) to",
@@ -1258,17 +1262,24 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
             let slot_id = chunk_push.chunk_data.slot_id;
             let slot_version = chunk_push.chunk_data.slot_version;
-            if let Err(e) = self.comms.neighbor_send(
+            let send_result = self.comms.neighbor_send(
                 network,
-                selected_neighbor,
+                &selected_neighbor,
                 StacksMessageType::StackerDBPushChunk(chunk_push),
-            ) {
+            );
+
+            // Whether the send succeeded or failed, do not try this same neighbor again for this
+            // chunk.
+            cur_push_priority.1.remove(idx);
+            cur_priority = (cur_priority + 1) % self.chunk_push_priorities.len();
+
+            if let Err(e) = send_result {
                 info!(
                     "{:?}: {}: Failed to send chunk {} from {:?}: {:?}",
                     network.get_local_peer(),
                     &self.smart_contract_id,
                     slot_id,
-                    selected_neighbor,
+                    &selected_neighbor,
                     &e
                 );
                 continue;
@@ -1277,12 +1288,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             // record what we just sent
             self.chunk_push_receipts
                 .insert(selected_neighbor.clone(), (slot_id, slot_version));
-
-            // don't send to this neighbor again
-            cur_push_priority.1.remove(idx);
-
-            // next-prioritized chunk
-            cur_priority = (cur_priority + 1) % self.chunk_push_priorities.len();
 
             num_sent += 1;
             if num_sent > self.request_capacity {
