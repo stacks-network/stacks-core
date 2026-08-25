@@ -28,7 +28,8 @@ use crate::net::neighbors::comms::ToNeighborKey;
 use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::stackerdb::{
-    StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBSyncState, StackerDBs,
+    StackerDBChunkOrigin, StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBSyncState,
+    StackerDBs,
 };
 use crate::net::{
     Error as net_error, NackErrorCodes, NeighborAddress, StackerDBChunkData, StackerDBChunkInvData,
@@ -181,8 +182,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         );
         let mut chunks = vec![];
         let downloaded_chunks = mem::replace(&mut self.downloaded_chunks, HashMap::new());
-        for (_, mut data) in downloaded_chunks.into_iter() {
-            chunks.append(&mut data);
+        for (naddr, data) in downloaded_chunks.into_iter() {
+            for chunk in data {
+                chunks.push((StackerDBChunkOrigin::Poll(naddr.clone()), chunk));
+            }
         }
 
         let chunk_invs = mem::replace(&mut self.chunk_invs, HashMap::new());

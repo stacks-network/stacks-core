@@ -183,7 +183,25 @@ pub enum PeerNetworkWorkState {
 }
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
-pub type PendingMessages = HashMap<(usize, NeighborKey), Vec<StacksMessage>>;
+
+/// Unsolicited messages from one authenticated peer, plus that peer's address
+/// (IP + node public-key hash).
+#[derive(Clone, Debug)]
+pub struct PendingMessagesFrom {
+    pub neighbor_addr: NeighborAddress,
+    pub messages: Vec<StacksMessage>,
+}
+
+impl PendingMessagesFrom {
+    pub fn new(neighbor_addr: NeighborAddress, messages: Vec<StacksMessage>) -> Self {
+        Self {
+            neighbor_addr,
+            messages,
+        }
+    }
+}
+
+pub type PendingMessages = HashMap<(usize, NeighborKey), PendingMessagesFrom>;
 
 pub struct ConnectingPeer {
     socket: mio_net::TcpStream,
@@ -4921,7 +4939,7 @@ impl PeerNetwork {
                 &canonical_sn.consensus_hash,
                 self.pending_messages
                     .iter()
-                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+                    .fold(0, |acc, (_, inbox)| acc + inbox.messages.len())
             );
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
             let unhandled = self.handle_unsolicited_sortition_messages(
@@ -4942,7 +4960,7 @@ impl PeerNetwork {
                 &canonical_sn.consensus_hash,
                 self.pending_stacks_messages
                     .iter()
-                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+                    .fold(0, |acc, (_, inbox)| acc + inbox.messages.len())
             );
             let buffered_stacks_messages =
                 mem::replace(&mut self.pending_stacks_messages, HashMap::new());

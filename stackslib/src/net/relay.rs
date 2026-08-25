@@ -47,7 +47,8 @@ use crate::net::connection::*;
 use crate::net::db::*;
 use crate::net::p2p::*;
 use crate::net::stackerdb::{
-    StackerDBConfig, StackerDBEventDispatcher, StackerDBSyncResult, StackerDBs,
+    log_stored_stackerdb_chunk, StackerDBConfig, StackerDBEventDispatcher, StackerDBSyncResult,
+    StackerDBs,
 };
 use crate::net::{Error as net_error, *};
 
@@ -2422,7 +2423,7 @@ impl Relayer {
             if let Some(config) = stackerdb_configs.get(&sc) {
                 let tx = self.stacker_dbs.tx_begin(config.clone())?;
                 for sync_result in sync_results.into_iter() {
-                    for chunk in sync_result.chunks_to_store.into_iter() {
+                    for (origin, chunk) in sync_result.chunks_to_store.into_iter() {
                         let md = chunk.get_slot_metadata();
                         if let Err(e) = tx.try_replace_chunk(&sc, &md, &chunk.data) {
                             if matches!(e, Error::StaleChunk { .. }) {
@@ -2448,7 +2449,7 @@ impl Relayer {
                             }
                             continue;
                         } else {
-                            debug!("Stored chunk"; "stackerdb_contract_id" => %sync_result.contract_id, "slot_id" => md.slot_id, "slot_version" => md.slot_version);
+                            log_stored_stackerdb_chunk(&sync_result.contract_id, &chunk, &origin);
                         }
 
                         if let Some(event_list) = all_events.get_mut(&sync_result.contract_id) {
@@ -2487,16 +2488,15 @@ impl Relayer {
         &mut self,
         rc_consensus_hash: &ConsensusHash,
         stackerdb_configs: &HashMap<QualifiedContractIdentifier, StackerDBConfig>,
-        stackerdb_chunks: Vec<StackerDBPushChunkData>,
+        stackerdb_chunks: Vec<PushedStackerDBChunk>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) -> Result<(), Error> {
         // synthesize StackerDBSyncResults from each chunk
         let sync_results = stackerdb_chunks
             .into_iter()
-            .map(|chunk_data| {
-                debug!("Received pushed StackerDB chunk {chunk_data:?}");
-                let sync_result = StackerDBSyncResult::from_pushed_chunk(chunk_data);
-                sync_result
+            .map(|pushed| {
+                debug!("Received pushed StackerDB chunk {:?}", pushed.chunk);
+                StackerDBSyncResult::from_pushed_chunk(pushed.chunk, pushed.peer)
             })
             .collect();
 

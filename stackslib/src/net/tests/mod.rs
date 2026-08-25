@@ -39,7 +39,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::Address;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::PoxConstants;
@@ -69,8 +69,9 @@ use crate::core::{StacksEpoch, StacksEpochExtension};
 use crate::net::relay::Relayer;
 use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::{
-    BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborKey, NetworkResult,
-    PingData, StackerDBPushChunkData, StacksMessage, StacksMessageType, StacksNodeState,
+    BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborAddress, NeighborKey,
+    NetworkResult, PingData, PushedStackerDBChunk, StackerDBPushChunkData, StacksMessage,
+    StacksMessageType, StacksNodeState,
 };
 use crate::util_lib::boot::{boot_code_addr, boot_code_id, boot_code_tx_auth};
 
@@ -1118,6 +1119,9 @@ fn test_network_result_update() {
         port: 2,
     };
 
+    let na1 = NeighborAddress::from_neighbor_key(nk1.clone(), Hash160([0x11; 20]));
+    let na2 = NeighborAddress::from_neighbor_key(nk2.clone(), Hash160([0x22; 20]));
+
     let msg1 = StacksMessage::new(
         1,
         1,
@@ -1389,7 +1393,10 @@ fn test_network_result_update() {
         .push(uploaded_nblk1);
     network_result_1
         .pushed_stackerdb_chunks
-        .push(pushed_stackerdb_chunk_1);
+        .push(PushedStackerDBChunk {
+            peer: na1.clone(),
+            chunk: pushed_stackerdb_chunk_1,
+        });
     network_result_1
         .uploaded_stackerdb_chunks
         .push(uploaded_stackerdb_chunk_1);
@@ -1448,7 +1455,10 @@ fn test_network_result_update() {
         .push(uploaded_nblk2);
     network_result_2
         .pushed_stackerdb_chunks
-        .push(pushed_stackerdb_chunk_2);
+        .push(PushedStackerDBChunk {
+            peer: na2.clone(),
+            chunk: pushed_stackerdb_chunk_2,
+        });
     network_result_2
         .uploaded_stackerdb_chunks
         .push(uploaded_stackerdb_chunk_2);
@@ -1624,15 +1634,33 @@ fn test_network_result_update() {
         },
     };
 
-    old.pushed_stackerdb_chunks.push(old_chunk_1);
+    old.pushed_stackerdb_chunks.push(PushedStackerDBChunk {
+        peer: na1.clone(),
+        chunk: old_chunk_1,
+    });
     // replaced
-    new.pushed_stackerdb_chunks.push(new_chunk_1.clone());
+    new.pushed_stackerdb_chunks.push(PushedStackerDBChunk {
+        peer: na1.clone(),
+        chunk: new_chunk_1.clone(),
+    });
     // included
-    new.pushed_stackerdb_chunks.push(new_chunk_2.clone());
+    new.pushed_stackerdb_chunks.push(PushedStackerDBChunk {
+        peer: na1.clone(),
+        chunk: new_chunk_2.clone(),
+    });
 
     assert_eq!(
         old.update(new).pushed_stackerdb_chunks,
-        vec![new_chunk_1, new_chunk_2]
+        vec![
+            PushedStackerDBChunk {
+                peer: na1.clone(),
+                chunk: new_chunk_1,
+            },
+            PushedStackerDBChunk {
+                peer: na1,
+                chunk: new_chunk_2,
+            },
+        ]
     );
 
     // nakamoto blocks obtained via download, upload, or pushed get consoldated

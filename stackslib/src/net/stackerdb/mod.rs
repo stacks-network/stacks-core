@@ -118,6 +118,7 @@ pub mod db;
 pub mod sync;
 
 use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
 use std::ops::Range;
 
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -149,6 +150,54 @@ pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
 pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
 pub const MINER_SLOT_COUNT: u32 = 2;
 
+/// How a StackerDB chunk arrived at this replica.
+#[derive(Clone, PartialEq, Debug)]
+pub enum StackerDBChunkOrigin {
+    /// Downloaded after an inventory poll (`StackerDBGetChunk`)
+    Poll(NeighborAddress),
+    /// Unsolicited p2p push (`StackerDBPushChunk`)
+    Push(NeighborAddress),
+    /// HTTP POST `/v2/stackerdb/.../chunks`. `peer` is the TCP client address of the
+    /// HTTP connection
+    Http { peer: Option<SocketAddr> },
+}
+
+impl StackerDBChunkOrigin {
+    pub fn method(&self) -> &'static str {
+        match self {
+            StackerDBChunkOrigin::Poll(_) => "poll",
+            StackerDBChunkOrigin::Push(_) => "push",
+            StackerDBChunkOrigin::Http { .. } => "http",
+        }
+    }
+
+    pub fn peer_display(&self) -> String {
+        match self {
+            StackerDBChunkOrigin::Poll(peer) | StackerDBChunkOrigin::Push(peer) => peer.to_string(),
+            StackerDBChunkOrigin::Http { peer } => peer
+                .map(|addr| addr.to_string())
+                .unwrap_or_else(|| "unknown".to_string()),
+        }
+    }
+}
+
+/// Log a chunk that was newly stored in the local StackerDB replica.
+pub fn log_stored_stackerdb_chunk(
+    contract_id: &QualifiedContractIdentifier,
+    chunk: &StackerDBChunkData,
+    origin: &StackerDBChunkOrigin,
+) {
+    info!(
+        "Stored new StackerDB chunk";
+        "stackerdb_contract_id" => %contract_id,
+        "slot_id" => chunk.slot_id,
+        "slot_version" => chunk.slot_version,
+        "num_bytes" => chunk.data.len(),
+        "method" => origin.method(),
+        "peer" => origin.peer_display(),
+    );
+}
+
 /// Final result of synchronizing state with a remote set of DB replicas
 #[derive(Clone, PartialEq, Debug)]
 pub struct StackerDBSyncResult {
@@ -156,8 +205,8 @@ pub struct StackerDBSyncResult {
     pub contract_id: QualifiedContractIdentifier,
     /// slot inventory for this replica
     pub chunk_invs: HashMap<NeighborAddress, StackerDBChunkInvData>,
-    /// list of data to store
-    pub chunks_to_store: Vec<StackerDBChunkData>,
+    /// list of data to store, with where each chunk came from
+    pub chunks_to_store: Vec<(StackerDBChunkOrigin, StackerDBChunkData)>,
     /// neighbors that have stale views, but are otherwise online
     pub(crate) stale: HashSet<NeighborAddress>,
     /// number of connections made
@@ -457,11 +506,14 @@ pub struct StackerDBSync<NC: NeighborComms> {
 impl StackerDBSyncResult {
     /// The receipt of a single StackerDBPushChunk message is equivalent to performing a single
     /// sync
-    pub fn from_pushed_chunk(chunk: StackerDBPushChunkData) -> StackerDBSyncResult {
+    pub fn from_pushed_chunk(
+        chunk: StackerDBPushChunkData,
+        from: NeighborAddress,
+    ) -> StackerDBSyncResult {
         StackerDBSyncResult {
             contract_id: chunk.contract_id,
             chunk_invs: HashMap::new(),
-            chunks_to_store: vec![chunk.chunk_data],
+            chunks_to_store: vec![(StackerDBChunkOrigin::Push(from), chunk.chunk_data)],
             stale: HashSet::new(),
             num_attempted_connections: 0,
             num_connections: 0,
@@ -576,7 +628,7 @@ impl PeerNetwork {
     /// pushed to us (with [`PeerNetwork::handle_unsolicited_StackerDBPushChunk`])
     ///
     /// NOTE: does not check write frequency, since the caller has different ways of doing this.
-    /// Returns:  
+    /// Returns:
     /// - Ok(true) if the chunk is valid
     /// - Ok(false) if the chunk is invalid
     /// - Err(..) on DB error

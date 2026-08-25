@@ -1031,7 +1031,7 @@ fn test_stackerdb_push_relayer_late_chunks() {
                 .network
                 .pending_stacks_messages
                 .iter()
-                .fold(0, |acc, (_, msgs)| acc + msgs.len());
+                .fold(0, |acc, (_, inbox)| acc + inbox.messages.len());
             debug!("peer_3.network.pending_stacks_messages: {}", num_pending);
 
             if num_pending >= 10 && !advanced_tenure {

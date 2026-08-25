@@ -159,6 +159,7 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
             .chunk
             .take()
             .ok_or(NetError::SendError("`chunk` not set".into()))?;
+        let http_peer = node.http_peer_addr();
 
         let ack_resp =
             node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {
@@ -256,6 +257,12 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                     &contract_identifier,
                     stackerdb_chunk.slot_id,
                     stackerdb_chunk.slot_version
+                );
+
+                crate::net::stackerdb::log_stored_stackerdb_chunk(
+                    &contract_identifier,
+                    &stackerdb_chunk,
+                    &crate::net::stackerdb::StackerDBChunkOrigin::Http { peer: http_peer },
                 );
 
                 // success!
