@@ -19,16 +19,26 @@
 //! `#[global_allocator]`, which is required for the thread-local counters
 //! to reflect actual allocations.
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::time::Duration;
+
 use clarity::vm::analysis::run_analysis;
 use clarity::vm::clarity::ClarityError;
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::MemoryBackingStore;
-use clarity::vm::resource_limiter::ResourceBudget;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::{ast, eval_all, ClarityVersion, ContractContext};
+use clarity::vm::resource_limiter::{ResourceBudget, ResourceLimitExceeded};
+use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
+use clarity::vm::{ast, eval_all, ClarityVersion, ContractContext, Value};
+use stacks::core::BLOCK_LIMIT_MAINNET_21;
+use stacks::net::api::callreadonly;
+use stacks::net::connection::ConnectionOptions;
+use stacks::net::http::{HttpRequest, HttpRequestContents};
+use stacks::net::httpcore::{StacksHttp, StacksHttpPreamble, StacksHttpRequest};
+use stacks::net::ProtocolFamily;
 use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::{Address, StacksEpochId};
 
 /// A Clarity program that allocates a non-trivial amount of memory
 /// by building a large list of string literals.
@@ -226,15 +236,171 @@ fn test_analysis_limit_fine_but_execution_limit_too_low() {
 /// into the HTTP server state so the handlers can set the correct budget.
 #[test]
 fn test_read_only_call_max_mem_bytes_threaded_into_http() {
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-
-    use stacks::net::connection::ConnectionOptions;
-    use stacks::net::httpcore::StacksHttp;
-
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
     let mut conn_opts = ConnectionOptions::default();
     conn_opts.read_only_call_max_mem_bytes = 12345;
 
     let http = StacksHttp::new(addr, &conn_opts);
     assert_eq!(http.read_only_call_max_mem_bytes, 12345);
+}
+
+fn new_call_read_request(addr: SocketAddr, arguments: Vec<String>) -> StacksHttpRequest {
+    let contract_addr =
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap();
+    StacksHttpRequest::new_for_peer(
+        addr.into(),
+        "POST".into(),
+        format!("/v2/contracts/call-read/{contract_addr}/flood/f"),
+        HttpRequestContents::new().payload_json(
+            serde_json::to_value(callreadonly::CallReadOnlyRequestBody {
+                sender: contract_addr.to_account_principal().to_string(),
+                sponsor: None,
+                arguments,
+            })
+            .unwrap(),
+        ),
+    )
+    .unwrap()
+}
+
+/// Parse a call-read request with the real allocation counter live.
+fn try_parse_call_read(
+    arguments: Vec<String>,
+    read_only_call_max_mem_bytes: u64,
+) -> Result<(), String> {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let mut conn_opts = ConnectionOptions::default();
+    conn_opts.read_only_call_max_mem_bytes = read_only_call_max_mem_bytes;
+    let mut http = StacksHttp::new(addr, &conn_opts);
+    let request = new_call_read_request(addr, arguments);
+    let mut bytes = vec![];
+    request.send(&mut bytes).unwrap();
+
+    let (StacksHttpPreamble::Request(parsed_preamble), offset) =
+        http.read_preamble(&bytes).unwrap()
+    else {
+        panic!("expected request preamble");
+    };
+
+    http.try_parse_request(&parsed_preamble, &bytes[offset..])
+        .map(|_| ())
+        .map_err(|e| format!("{e:?}"))
+}
+
+/// Execution is budgeted from the same total, so parsing must record what it
+/// retained.
+#[test]
+fn test_read_only_parse_records_retained_mem() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let conn_opts = ConnectionOptions::default();
+    let mut http = StacksHttp::new(addr, &conn_opts);
+    let request = new_call_read_request(addr, vec!["03".into(); 8]);
+    let mut bytes = vec![];
+    request.send(&mut bytes).unwrap();
+
+    let (StacksHttpPreamble::Request(parsed_preamble), offset) =
+        http.read_preamble(&bytes).unwrap()
+    else {
+        panic!("expected request preamble");
+    };
+
+    let mut handler = callreadonly::RPCCallReadOnlyRequestHandler::new(
+        conn_opts.maximum_call_argument_size,
+        BLOCK_LIMIT_MAINNET_21,
+        Duration::from_secs(conn_opts.read_only_max_execution_time_secs),
+        conn_opts.read_only_call_max_mem_bytes,
+    );
+    let path = format!(
+        "/v2/contracts/call-read/{}/flood/f",
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap()
+    );
+    let path_regex = handler.path_regex();
+    let captures = path_regex.captures(&path).unwrap();
+    handler
+        .try_parse_request(&parsed_preamble, &captures, None, &bytes[offset..])
+        .unwrap();
+
+    assert!(handler.parse_retained_mem_bytes > 0);
+
+    // with the limit disabled, retention is not measured.
+    let mut handler = callreadonly::RPCCallReadOnlyRequestHandler::new(
+        conn_opts.maximum_call_argument_size,
+        BLOCK_LIMIT_MAINNET_21,
+        Duration::from_secs(conn_opts.read_only_max_execution_time_secs),
+        0,
+    );
+    handler
+        .try_parse_request(&parsed_preamble, &captures, None, &bytes[offset..])
+        .unwrap();
+
+    assert_eq!(handler.parse_retained_mem_bytes, 0);
+}
+
+#[test]
+fn test_read_only_parse_mem_limit_rejects_json_argument_allocation() {
+    let error = try_parse_call_read(vec!["03".into(); 512], 4 * 1024).unwrap_err();
+    assert!(
+        error.contains("Read-only argument parsing exceeded memory limit"),
+        "expected parse allocation limit error, got: {error}"
+    );
+}
+
+/// Guards against over-rejection: a small request must parse.
+#[test]
+fn test_read_only_parse_mem_limit_accepts_request_under_limit() {
+    try_parse_call_read(vec!["03".into(); 8], 1024 * 1024).unwrap();
+}
+
+/// `0` disables the byte budget (the argument-count cap remains).
+#[test]
+fn test_read_only_parse_mem_limit_zero_disables_budget() {
+    try_parse_call_read(vec!["03".into(); 512], 0).unwrap();
+}
+
+/// The post-deserialization checkpoint rejects an argument whose deserialized
+/// size exceeds the limit.
+#[test]
+fn test_read_only_parse_mem_limit_rejects_large_deserialized_value() {
+    let big_list = Value::cons_list_unsanitized(vec![Value::Bool(true); 100_000]).unwrap();
+    let hex = big_list.serialize_to_hex().unwrap();
+    let error = try_parse_call_read(vec![hex], 4 * 1024 * 1024).unwrap_err();
+    assert!(
+        error.contains("Read-only argument parsing exceeded memory limit"),
+        "expected parse allocation limit error, got: {error}"
+    );
+}
+
+/// Execution's limiter gets what the total has left after parsing.
+#[test]
+fn test_execution_limiter_budgets_remaining_total() {
+    let conn_opts = ConnectionOptions::default();
+    let mut handler = callreadonly::RPCCallReadOnlyRequestHandler::new(
+        conn_opts.maximum_call_argument_size,
+        BLOCK_LIMIT_MAINNET_21,
+        Duration::from_secs(conn_opts.read_only_max_execution_time_secs),
+        1024,
+    );
+    handler.parse_retained_mem_bytes = 1000;
+
+    // 24 bytes of budget left: this allocation must trip the limiter.
+    let limiter = handler.execution_resource_limiter();
+    let data = vec![0u8; 4096];
+    assert!(matches!(
+        limiter.check_not_exceeded(),
+        Err(ResourceLimitExceeded::MaxAllocationExceeded(_))
+    ));
+    drop(data);
+
+    // A total of `0` leaves execution unlimited regardless of retention.
+    let mut handler = callreadonly::RPCCallReadOnlyRequestHandler::new(
+        conn_opts.maximum_call_argument_size,
+        BLOCK_LIMIT_MAINNET_21,
+        Duration::from_secs(conn_opts.read_only_max_execution_time_secs),
+        0,
+    );
+    handler.parse_retained_mem_bytes = 1000;
+    let limiter = handler.execution_resource_limiter();
+    let data = vec![0u8; 4096];
+    assert!(limiter.check_not_exceeded().is_ok());
+    drop(data);
 }
