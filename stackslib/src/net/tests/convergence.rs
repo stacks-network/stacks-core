@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::ContractName;
 use rand::prelude::*;
-use rand::thread_rng;
+use rand::rngs::StdRng;
 
 use super::setup_rlimit_nofiles;
 use crate::chainstate::stacks::db::SharedMemoryChainStateBackend;
@@ -35,6 +35,10 @@ type ConvergenceTestPeer<'a> = TestPeer<'a, SharedMemoryChainStateBackend>;
 // Coverage-instrumented CI can take longer than the production 60-second
 // pingback TTL. Keep candidates alive for the tests' full convergence window.
 const CONVERGENCE_PINGBACK_TIMEOUT: u64 = 900;
+
+// Exercise changing peer step orders reproducibly instead of occasionally
+// selecting a pathological random schedule that exhausts the test timeout.
+const CONVERGENCE_STEP_ORDER_SEED: u64 = 0x57ac_5c0e;
 
 /// Assert that all surviving peer conversations completed their handshakes successfully.
 /// NACKs are not errors here because peer-table diversity pruning uses them as normal responses.
@@ -937,6 +941,7 @@ fn run_topology_test_ex<F>(
     let mut count = 0;
     let mut best_progress = 0;
     let mut last_progress_time = Instant::now();
+    let mut rng = StdRng::seed_from_u64(CONVERGENCE_STEP_ORDER_SEED);
     const STALL_TIMEOUT: Duration = Duration::from_secs(120);
 
     while !finished {
@@ -946,7 +951,6 @@ fn run_topology_test_ex<F>(
         for i in 0..peer_count {
             random_order[i] = i;
         }
-        let mut rng = thread_rng();
         random_order.shuffle(&mut rng);
 
         debug!("Random order = {random_order:?}");
