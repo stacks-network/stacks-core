@@ -116,12 +116,12 @@ jobs:
             test-names: tests::signer::v0::epoch_4_0_waterfall::epoch_4_0_block_commit_uses_single_sbtc_output::t::slow::bitcoind::t
           - label: partial-tenure-fork
             test-names: tests::signer::v0::reorg::partial_tenure_fork
-          # Pair two short exclusive tests in one sequential job. This keeps
-          # them off shared batches without consuming another runner slot.
-          - label: block-validation-and-idle-miner
-            test-names: >-
-              tests::signer::v0::block_validation_check_rejection_timeout_heuristic,
-              tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner
+          # These tests require an otherwise-idle runner. Their combined
+          # runtime was the Bitcoin critical path when run sequentially.
+          - label: block-validation-timeout-heuristic
+            test-names: tests::signer::v0::block_validation_check_rejection_timeout_heuristic
+          - label: tenure-extend-after-idle-miner
+            test-names: tests::signer::v0::tenure_extend::tenure_extend_after_idle_miner
     steps:
       - name: Checkout the latest code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
