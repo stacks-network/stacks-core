@@ -149,5 +149,7 @@ for (( c=1; c<=max_chunks; c++ )); do
 
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
         echo "batches_${c}=${chunk_json}" >> "${GITHUB_OUTPUT}"
+    else
+        jq -c . <<< "$batches_json"
     fi
 done
