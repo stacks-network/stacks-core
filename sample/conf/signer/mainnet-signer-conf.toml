@@ -224,7 +224,7 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # reset_replay_set_after_fork_blocks = 2
 
 # HTTP timeout for StackerDB read/write operations.
-# Default: 120
+# Default: 10
 # Units: seconds
 # stackerdb_timeout_secs = 10
 

@@ -463,7 +463,7 @@ struct RawConfigFile {
     pub capitulate_miner_view_timeout_secs: Option<u64>,
     /// HTTP timeout for read/write operations with StackerDB.
     /// ---
-    /// @default: `120`
+    /// @default: `10`
     /// @units: seconds
     pub stackerdb_timeout_secs: Option<u64>,
     #[cfg(any(test, feature = "testing"))]
