@@ -2015,6 +2015,181 @@ fn test_wasm_dynamic_dispatch_validation() {
     });
 }
 
+/// Regression test: the Wasm `call_function` entry point validated arguments
+/// with a plain `admits` check, rejecting contract principals passed for
+/// trait-typed parameters — which the interpreter accepts via the Clarity 1
+/// trait rules and the Clarity 2+ implicit cast (transactions pass trait
+/// arguments as principals).
+#[test]
+#[cfg(feature = "clarity-wasm")]
+fn test_wasm_call_function_accepts_principal_for_trait_arg() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2, 3, 4, 5, 6, 7];
+
+    let trait_def_id = QualifiedContractIdentifier::local("simple-trait").unwrap();
+    let dispatch_id = QualifiedContractIdentifier::local("dispatch").unwrap();
+    let impl_id = QualifiedContractIdentifier::local("good-impl").unwrap();
+    let sender: PrincipalData = StacksAddress::burn_address(false).into();
+
+    let trait_def_src = "(define-trait simple ((do-it () (response bool uint))))";
+    let dispatch_src = "
+        (use-trait simple-trait .simple-trait.simple)
+        (define-public (call-it (t <simple-trait>))
+          (contract-call? t do-it))
+    ";
+    let impl_src = "(define-public (do-it) (if true (ok true) (err u1)))";
+
+    // Advance to epoch 3.0
+    while sim.block_height <= 7 {
+        sim.execute_next_block(|_env| {});
+    }
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        for (id, src) in [
+            (&trait_def_id, trait_def_src),
+            (&dispatch_id, dispatch_src),
+            (&impl_id, impl_src),
+        ] {
+            publish_wasm_contract(conn, id, src, clarity_version);
+        }
+    });
+
+    sim.execute_next_block_as_conn(|conn| {
+        conn.as_transaction(|clarity_db| {
+            let (value, ..) = clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &dispatch_id,
+                    "call-it",
+                    &[Value::Principal(PrincipalData::Contract(impl_id.clone()))],
+                    |_, _| None,
+                    &ResourceBudget::unlimited(),
+                )
+                .unwrap();
+            assert_eq!(Value::okay(Value::Bool(true)).unwrap(), value);
+        });
+    });
+}
+
+/// Regression test: a Wasm-compiled contract statically calling into a
+/// contract published by the interpreter used to fail with
+/// `Wasm(Expect("Function should be typed"))`, because interpreter-published
+/// contracts store `None` for function return types in their
+/// `ContractContext` (only the Wasm publish path populates them). The Wasm
+/// `contract_call` host function now falls back to the declared return type
+/// in the stored contract analysis.
+#[test]
+#[cfg(feature = "clarity-wasm")]
+fn test_wasm_static_call_into_interpreter_published_contract() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2, 3, 4, 5, 6, 7];
+
+    let callee_id = QualifiedContractIdentifier::local("callee").unwrap();
+    let caller_id = QualifiedContractIdentifier::local("caller-contract").unwrap();
+    let sender: PrincipalData = StacksAddress::burn_address(false).into();
+
+    let callee_src = "
+        (define-read-only (get-tuple (x uint))
+          { a: x, b: (list u1 u2 u3) })
+        (define-public (do-add (x uint) (y uint))
+          (if true (ok (+ x y)) (err u1)))
+    ";
+    let caller_src = "
+        (define-public (call-static)
+          (let ((t (contract-call? .callee get-tuple u5))
+                (r (try! (contract-call? .callee do-add u1 u2))))
+            (ok { t: t, r: r })))
+    ";
+
+    // Advance to epoch 3.0
+    while sim.block_height <= 7 {
+        sim.execute_next_block(|_env| {});
+    }
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+
+        // Publish the callee as the interpreter's deploy path does: no
+        // compiled Wasm module, so the stored `ContractContext` has `None`
+        // for every function's return type, like all pre-Wasm mainnet
+        // contracts.
+        conn.as_transaction(|clarity_db| {
+            let (mut ast, analysis) = clarity_db
+                .analyze_smart_contract(
+                    &callee_id,
+                    clarity_version,
+                    callee_src,
+                    &ResourceBudget::unlimited(),
+                )
+                .unwrap();
+            clarity_db
+                .initialize_smart_contract(
+                    &callee_id,
+                    clarity_version,
+                    &mut ast,
+                    &analysis,
+                    callee_src,
+                    None,
+                    |_, _| None,
+                    &ResourceBudget::unlimited(),
+                )
+                .unwrap();
+            clarity_db.save_analysis(&callee_id, &analysis).unwrap();
+        });
+
+        // Publish the caller on the Wasm runtime.
+        publish_wasm_contract(conn, &caller_id, caller_src, clarity_version);
+    });
+
+    sim.execute_next_block_as_conn(|conn| {
+        conn.as_transaction(|clarity_db| {
+            let (value, ..) = clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &caller_id,
+                    "call-static",
+                    &[],
+                    |_, _| None,
+                    &ResourceBudget::unlimited(),
+                )
+                .unwrap();
+            assert_eq!(
+                Value::okay(Value::Tuple(
+                    TupleData::from_data(vec![
+                        (
+                            ClarityName::from_literal("t"),
+                            Value::Tuple(
+                                TupleData::from_data(vec![
+                                    (ClarityName::from_literal("a"), Value::UInt(5)),
+                                    (
+                                        ClarityName::from_literal("b"),
+                                        Value::cons_list_unsanitized(vec![
+                                            Value::UInt(1),
+                                            Value::UInt(2),
+                                            Value::UInt(3)
+                                        ])
+                                        .unwrap()
+                                    ),
+                                ])
+                                .unwrap()
+                            )
+                        ),
+                        (ClarityName::from_literal("r"), Value::UInt(3)),
+                    ])
+                    .unwrap()
+                ))
+                .unwrap(),
+                value
+            );
+        });
+    });
+}
+
 /// Regression test: the Wasm `contract_call` host function used to overwrite
 /// the current context's `caller` with the calling contract's own principal
 /// (via an unbalanced `push_caller`), so reading `contract-caller` after a

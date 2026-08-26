@@ -3274,26 +3274,6 @@ mod test {
             )
             .unwrap();
 
-        let contract_analysis = crate::vm::analysis::run_analysis(
-            &contract_id,
-            &ast.expressions,
-            &mut analysis_db,
-            true,
-            LimitedCostTracker::Free,
-            exec_state.global_context.epoch_id,
-            clarity_version,
-            true,
-            ResourceLimiter::unlimited(),
-        )
-        .map_err(|boxed_err| {
-            let (boxed_check_error, _cost_tracker) = *boxed_err;
-            let err = *boxed_check_error.err;
-            error!("Analysis step has failed: {err:?}");
-            VmExecutionError::Internal(VmInternalError::Expect(format!(
-                "Contract analysis failure in initialize contract {err}"
-            )))
-        })?;
-
         // Second initialization hits ContractAlreadyExists
         let err = exec_state
             .initialize_contract_from_ast(

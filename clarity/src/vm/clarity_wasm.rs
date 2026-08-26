@@ -592,15 +592,61 @@ pub fn call_function<'a>(
         ));
     }
 
-    // Validate argument types
+    // Validate argument types, mirroring the interpreter's
+    // `DefinedFunction::execute_apply`: trait-typed parameters accept
+    // contract principals and callable values, and Clarity 2+ contracts
+    // implicitly cast principals to traits in nested positions (e.g.
+    // `(some .foo)` to `(optional <trait>)`).
     for (arg, expected_type) in args.iter().zip(expected_args.iter()) {
-        if !expected_type.admits(&epoch, arg)? {
-            return Err(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::TypeError(
-                    Box::new(expected_type.clone()),
-                    Box::new(TypeSignature::type_of(arg)?),
-                ),
-            ));
+        if clarity_version < ClarityVersion::Clarity2 {
+            match (expected_type, arg) {
+                // Epoch < 2.1 uses TraitReferenceType
+                (
+                    TypeSignature::TraitReferenceType(_),
+                    Value::Principal(PrincipalData::Contract(_)),
+                ) if epoch < StacksEpochId::Epoch21 => continue,
+                // Epoch >= 2.1 uses CallableType
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(_)),
+                    Value::Principal(PrincipalData::Contract(_)),
+                ) if epoch >= StacksEpochId::Epoch21 => continue,
+                // A Clarity 1 contract may be called from a Clarity 2
+                // contract with a callable value.
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(_)),
+                    Value::CallableContract(_),
+                ) => continue,
+                _ => {}
+            }
+            if !expected_type.admits(&epoch, arg)? {
+                return Err(VmExecutionError::RuntimeCheck(
+                    RuntimeCheckErrorKind::TypeError(
+                        Box::new(expected_type.clone()),
+                        Box::new(TypeSignature::type_of(arg)?),
+                    ),
+                ));
+            }
+        } else {
+            // The cast value is only used for validation: trait values and
+            // contract principals have the same Wasm memory representation,
+            // so the original argument is what gets passed to the module.
+            let cast_value = super::callables::clarity2_implicit_cast(expected_type, arg)?;
+            match (expected_type, &cast_value) {
+                (
+                    TypeSignature::CallableType(CallableSubtype::Trait(_)),
+                    Value::CallableContract(_),
+                ) => {}
+                _ => {
+                    if !expected_type.admits(&epoch, &cast_value)? {
+                        return Err(VmExecutionError::RuntimeCheck(
+                            RuntimeCheckErrorKind::TypeError(
+                                Box::new(expected_type.clone()),
+                                Box::new(TypeSignature::type_of(&cast_value)?),
+                            ),
+                        ));
+                    }
+                }
+            }
         }
     }
 
@@ -7523,13 +7569,42 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                                 function_name.to_string(),
                             )),
                         )?;
-                        let return_ty = function
-                            .get_return_type()
-                            .as_ref()
-                            .ok_or(VmExecutionError::Wasm(WasmError::Expect(
-                                "Function should be typed".into(),
-                            )))?
-                            .clone();
+                        // Contracts published by the interpreter store `None`
+                        // for the return type in their `ContractContext`
+                        // (only the Wasm publish path populates it), so fall
+                        // back to the declared return type in the stored
+                        // contract analysis.
+                        let return_ty = match function.get_return_type() {
+                            Some(ty) => ty.clone(),
+                            None => {
+                                let analysis = caller
+                                    .data_mut()
+                                    .global_context
+                                    .database
+                                    .load_contract_analysis(contract_id)?;
+                                let function_type =
+                                    analysis.as_ref().and_then(|a| match function.define_type {
+                                        DefineType::Public => {
+                                            a.get_public_function_type(function_name.as_str())
+                                        }
+                                        DefineType::ReadOnly => {
+                                            a.get_read_only_function_type(function_name.as_str())
+                                        }
+                                        DefineType::Private => {
+                                            a.get_private_function(function_name.as_str())
+                                        }
+                                    });
+                                match function_type {
+                                    Some(FunctionType::Fixed(fixed)) => fixed.returns.clone(),
+                                    _ => {
+                                        return Err(VmExecutionError::Wasm(WasmError::Expect(
+                                            "Function should be typed".into(),
+                                        ))
+                                        .into());
+                                    }
+                                }
+                            }
+                        };
                         (function, return_ty, None)
                     }
                     Some(trait_id) => {
