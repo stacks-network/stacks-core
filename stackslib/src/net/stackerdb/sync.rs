@@ -1212,8 +1212,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             "chunk_push_priorities" => ?self.chunk_push_priorities
         );
 
-        // fill up our comms with $capacity requests
-        let mut num_sent = 0;
+        // Try each chunk once, stopping when the request capacity is full.
         for _i in 0..self.chunk_push_priorities.len() {
             if self.comms.count_inflight() >= self.request_capacity {
                 break;
@@ -1229,70 +1228,59 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     net_error::InvalidState
                 })?;
 
-            let chunk_push = cur_push_priority.0.clone();
-            // try the first neighbor in the chunk_push_priorities list
-            let selected_neighbor_opt = cur_push_priority
-                .1
-                .first()
-                .cloned()
-                .map(|neighbor| (0, neighbor));
+            loop {
+                let chunk_push = cur_push_priority.0.clone();
+                let Some(selected_neighbor) = cur_push_priority.1.first().cloned() else {
+                    debug!("{:?}: {}: pushchunks_begin: no available neighbor to send StackerDBChunk(id={},ver={}) to",
+                        &network.get_local_peer(),
+                        &self.smart_contract_id,
+                        chunk_push.chunk_data.slot_id,
+                        chunk_push.chunk_data.slot_version,
+                    );
+                    break;
+                };
 
-            let Some((idx, selected_neighbor)) = selected_neighbor_opt else {
-                debug!("{:?}: {}: pushchunks_begin: no available neighbor to send StackerDBChunk(id={},ver={}) to",
+                debug!(
+                    "{:?}: {}: pushchunks_begin: Send StackerDBChunk(id={},ver={}) at {} to {}",
                     &network.get_local_peer(),
                     &self.smart_contract_id,
                     chunk_push.chunk_data.slot_id,
                     chunk_push.chunk_data.slot_version,
+                    &chunk_push.rc_consensus_hash,
+                    &selected_neighbor
                 );
 
-                // next-prioritized chunk
-                cur_priority = (cur_priority + 1) % self.chunk_push_priorities.len();
-                continue;
-            };
-
-            debug!(
-                "{:?}: {}: pushchunks_begin: Send StackerDBChunk(id={},ver={}) at {} to {}",
-                &network.get_local_peer(),
-                &self.smart_contract_id,
-                chunk_push.chunk_data.slot_id,
-                chunk_push.chunk_data.slot_version,
-                &chunk_push.rc_consensus_hash,
-                &selected_neighbor
-            );
-
-            let slot_id = chunk_push.chunk_data.slot_id;
-            let slot_version = chunk_push.chunk_data.slot_version;
-            let send_result = self.comms.neighbor_send(
-                network,
-                &selected_neighbor,
-                StacksMessageType::StackerDBPushChunk(chunk_push),
-            );
-
-            // Whether the send succeeded or failed, do not try this same neighbor again for this
-            // chunk.
-            cur_push_priority.1.remove(idx);
-            cur_priority = (cur_priority + 1) % self.chunk_push_priorities.len();
-
-            if let Err(e) = send_result {
-                info!(
-                    "{:?}: {}: Failed to send chunk {} from {:?}: {:?}",
-                    network.get_local_peer(),
-                    &self.smart_contract_id,
-                    slot_id,
+                let slot_id = chunk_push.chunk_data.slot_id;
+                let slot_version = chunk_push.chunk_data.slot_version;
+                let send_result = self.comms.neighbor_send(
+                    network,
                     &selected_neighbor,
-                    &e
+                    StacksMessageType::StackerDBPushChunk(chunk_push),
                 );
-                continue;
-            }
 
-            // record what we just sent
-            self.chunk_push_receipts
-                .insert(selected_neighbor.clone(), (slot_id, slot_version));
+                // Do not try this same neighbor again for this chunk.
+                cur_push_priority.1.remove(0);
 
-            num_sent += 1;
-            if num_sent > self.request_capacity {
+                if let Err(e) = send_result {
+                    info!(
+                        "{:?}: {}: Failed to send chunk {} from {:?}: {:?}",
+                        network.get_local_peer(),
+                        &self.smart_contract_id,
+                        slot_id,
+                        &selected_neighbor,
+                        &e
+                    );
+                    // neighbor_send is non-blocking, so try the next receiver for this chunk.
+                    continue;
+                }
+
+                self.chunk_push_receipts
+                    .insert(selected_neighbor, (slot_id, slot_version));
                 break;
             }
+
+            // next-prioritized chunk
+            cur_priority = (cur_priority + 1) % self.chunk_push_priorities.len();
         }
         self.next_chunk_push_priority = cur_priority;
         Ok(self

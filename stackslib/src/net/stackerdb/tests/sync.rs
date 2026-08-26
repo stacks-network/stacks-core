@@ -1285,12 +1285,11 @@ fn test_validate_received_chunk_accepts_max_size() {
     assert!(result, "a chunk within chunk_size must pass the size gate");
 }
 
-/// [`StackerDBSync::pushchunks_begin`] must consume a receiver whose send fails, exactly as it
-/// consumes one whose send succeeds: an unreachable neighbor at the head of a chunk's receiver
-/// list must not starve the chunk's push to the remaining receivers, and the state machine must
-/// still drain its schedule and report the round done.
+/// [`StackerDBSync::pushchunks_begin`] must try the next receiver for the same chunk when a send
+/// fails. Failed receivers must not starve the remaining receivers or prevent the state machine
+/// from finishing the round.
 #[test]
-fn test_pushchunks_begin_consumes_failed_receiver() {
+fn test_pushchunks_begin_tries_next_receiver_after_failure() {
     let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 120);
     peer_config.allowed = -1;
 
@@ -1337,21 +1336,7 @@ fn test_pushchunks_begin_consumes_failed_receiver() {
     )];
     sync.next_chunk_push_priority = 0;
 
-    // Pass 1: the send to dead_receiver_1 fails; the receiver must be consumed anyway.
-    let done = sync.pushchunks_begin(&mut peer.network).unwrap();
-    assert!(!done, "one receiver must remain after the first pass");
-    assert_eq!(
-        sync.chunk_push_priorities[0].1,
-        vec![dead_receiver_2.clone()],
-        "the failed receiver must be removed, not retried"
-    );
-    assert!(
-        sync.chunk_push_receipts.is_empty(),
-        "a failed send must not record a push receipt"
-    );
-
-    // Pass 2: the send to dead_receiver_2 fails; the schedule must drain and the state
-    // machine must report done instead of spinning on dead receivers forever.
+    // Both sends fail, so both receivers must be consumed in the chunk's one loop iteration.
     let done = sync.pushchunks_begin(&mut peer.network).unwrap();
     assert!(
         done,

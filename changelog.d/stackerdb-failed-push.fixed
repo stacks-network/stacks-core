@@ -1,1 +1,1 @@
-Remove a receiver from the StackerDB chunk push list when the send fails. This prevents an unavailable receiver from blocking other receivers or the end of the push round.
+When a StackerDB chunk push fails, remove the receiver and immediately try the next receiver for the same chunk. This prevents an unavailable receiver from delaying the push.
