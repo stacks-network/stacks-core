@@ -897,15 +897,16 @@ fn special_contract_of(
 
     let contract_identifier = match context.lookup_callable_contract(contract_ref) {
         Some(trait_data) => {
-            exec_state
+            if !exec_state
                 .global_context
                 .database
-                .get_contract(&trait_data.contract_identifier)
-                .map_err(|_e| {
-                    RuntimeCheckErrorKind::NoSuchContract(
-                        trait_data.contract_identifier.to_string(),
-                    )
-                })?;
+                .has_contract(&trait_data.contract_identifier)
+            {
+                return Err(RuntimeCheckErrorKind::NoSuchContract(
+                    trait_data.contract_identifier.to_string(),
+                )
+                .into());
+            }
 
             &trait_data.contract_identifier
         }

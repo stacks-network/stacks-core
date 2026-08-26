@@ -951,6 +951,35 @@ impl StacksEpochId {
         self < &StacksEpochId::Epoch34
     }
 
+    /// Whether transaction signatures are allowed to have high-S, meaning
+    /// an ambiguity in transaction IDs. At the consensus level this is
+    /// currently allowed, but in a future hard fork we should change that.
+    ///
+    /// As of the time when this function was added, signers will reject
+    /// blocks with such transactions, and they also won't be accepted into
+    /// the mempool anymore.
+    pub fn allows_tx_signatures_with_high_s(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33
+            | StacksEpochId::Epoch34 => true,
+            // Hello there, you who is creating Epoch 3.5, feel free to make this
+            // false from that epoch on. I could've written `self <= Epoch34` here,
+            // but I wanted to make sure we remember to document this change for
+            // the new epoch.
+        }
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {
@@ -978,6 +1007,22 @@ impl StacksEpochId {
             .expect("epoch not found in ALL");
 
         &Self::ALL[idx..]
+    }
+
+    /// Returns all [`StacksEpochId`] from `start` to `end`, both inclusive.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn between(start: StacksEpochId, end: StacksEpochId) -> &'static [StacksEpochId] {
+        let start_idx = Self::ALL
+            .iter()
+            .position(|&e| e == start)
+            .expect("start epoch not found in ALL");
+        let end_idx = Self::ALL
+            .iter()
+            .position(|&e| e == end)
+            .expect("end epoch not found in ALL");
+        assert!(start_idx <= end_idx, "start epoch must be <= end epoch");
+
+        &Self::ALL[start_idx..=end_idx]
     }
 }
 
@@ -1100,12 +1145,11 @@ impl StacksAddress {
 
         // address hash mode must be consistent with the number of keys
         match *hash_mode {
-            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
+            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH
                 // must be a single public key, and must require one signature
-                if num_sigs != 1 || pubkeys.len() != 1 {
+                if (num_sigs != 1 || pubkeys.len() != 1) => {
                     return None;
                 }
-            }
             _ => {}
         }
 

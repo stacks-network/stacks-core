@@ -911,6 +911,10 @@ impl MultipleMinerTest {
         )
     }
 
+    fn node_2_http(&self) -> String {
+        format!("http://{}", &self.conf_node_2.node.rpc_bind)
+    }
+
     /// Sends a transfer tx to the stacks node and waits for the stacks node to mine it
     /// Returns the txid of the transfer tx.
     pub fn send_and_mine_transfer_tx(&mut self, timeout_secs: u64) -> Result<String, String> {
@@ -929,7 +933,31 @@ impl MultipleMinerTest {
         contract_name: &str,
         contract_src: &str,
     ) -> String {
-        let http_origin = self.node_http();
+        self.send_contract_publish_to(&self.node_http(), sender_nonce, contract_name, contract_src)
+    }
+
+    /// Sends a contract publish tx to miner 2's stacks node.
+    pub fn send_contract_publish_to_node_2(
+        &mut self,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+    ) -> String {
+        self.send_contract_publish_to(
+            &self.node_2_http(),
+            sender_nonce,
+            contract_name,
+            contract_src,
+        )
+    }
+
+    fn send_contract_publish_to(
+        &self,
+        http_origin: &str,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+    ) -> String {
         let contract_tx = make_contract_publish(
             &self.sender_sk,
             sender_nonce,
@@ -938,7 +966,7 @@ impl MultipleMinerTest {
             contract_name,
             contract_src,
         );
-        submit_tx(&http_origin, &contract_tx)
+        submit_tx(http_origin, &contract_tx)
     }
 
     /// Sends a contract publish tx to the stacks node and waits for the stacks node to mine it
@@ -953,6 +981,34 @@ impl MultipleMinerTest {
         let stacks_height_before = self.get_peer_stacks_tip_height();
 
         let txid = self.send_contract_publish(sender_nonce, contract_name, contract_src);
+
+        // wait for the new block to be mined
+        wait_for(timeout_secs, || {
+            Ok(self.get_peer_stacks_tip_height() > stacks_height_before)
+        })
+        .unwrap();
+
+        // wait for the observer to see it
+        self.wait_for_test_observer_blocks(timeout_secs);
+
+        if last_block_contains_txid(&txid) {
+            Ok(txid)
+        } else {
+            Err(txid)
+        }
+    }
+
+    /// Sends a contract publish tx to miner 2's stacks node and waits for it to be mined.
+    pub fn send_and_mine_contract_publish_to_node_2(
+        &mut self,
+        sender_nonce: u64,
+        contract_name: &str,
+        contract_src: &str,
+        timeout_secs: u64,
+    ) -> Result<String, String> {
+        let stacks_height_before = self.get_peer_stacks_tip_height();
+
+        let txid = self.send_contract_publish_to_node_2(sender_nonce, contract_name, contract_src);
 
         // wait for the new block to be mined
         wait_for(timeout_secs, || {
@@ -3221,8 +3277,11 @@ fn signer_set_rollover() {
 
     // verify the mined_block signatures against the OLD signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(signer_test_public_keys.contains(&pk.to_bytes_compressed()));
         assert!(!new_signer_public_keys.contains(&pk.to_bytes_compressed()));
     }
@@ -3364,8 +3423,11 @@ fn signer_set_rollover() {
 
     // verify the mined_block signatures against the NEW signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(!signer_test_public_keys.contains(&pk.to_bytes_compressed()));
         assert!(new_signer_public_keys.contains(&pk.to_bytes_compressed()));
     }
@@ -3573,7 +3635,7 @@ fn duplicate_signers() {
         .into_iter()
         .filter(|accepted| accepted.signer_signature_hash == selected_sighash)
         .map(|accepted| {
-            let pubkey = Secp256k1PublicKey::recover_to_pubkey(
+            let pubkey = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
                 accepted.signer_signature_hash.bits(),
                 &accepted.signature,
             )
@@ -3710,8 +3772,11 @@ fn signer_multinode_rollover() {
 
     // verify the mined_block signatures against the OLD signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(signer_test_pks.contains(&pk.to_bytes_compressed()));
         assert!(!new_signer_pks.contains(&pk.to_bytes_compressed()));
     }
@@ -3841,8 +3906,11 @@ fn signer_multinode_rollover() {
 
     // verify the mined_block signatures against the NEW signer set
     for signature in signer_signatures.iter() {
-        let pk = Secp256k1PublicKey::recover_to_pubkey(block_sighash.bits(), signature)
-            .expect("FATAL: Failed to recover pubkey from block sighash");
+        let pk = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+            block_sighash.bits(),
+            signature,
+        )
+        .expect("FATAL: Failed to recover pubkey from block sighash");
         assert!(!signer_test_pks.contains(&pk.to_bytes_compressed()));
         assert!(new_signer_pks.contains(&pk.to_bytes_compressed()));
     }

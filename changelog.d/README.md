@@ -13,14 +13,14 @@ CHANGELOG.md.
 
 ## How to add a changelog entry
 
-1. Create a file in this directory named: `<PR#>-<short-description>.<category>`
+1. Create a file in this directory named: `<short-description>.<category>`
 
    **Categories:** `added`, `changed`, `fixed`, `removed`
 
    **Examples:**
-   - `6811-marf-compress.added`
-   - `6744-tenure-mining-fix.fixed`
-   - `6900-remove-deprecated-rpc.removed`
+   - `marf-compress.added`
+   - `tenure-mining-fix.fixed`
+   - `remove-deprecated-rpc.removed`
 
 2. Write the changelog entry text in the file (one or more lines of markdown):
 

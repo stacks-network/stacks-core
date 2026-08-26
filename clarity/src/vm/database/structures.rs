@@ -20,7 +20,7 @@ use serde::Deserialize;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::analysis::ContractAnalysis;
-use crate::vm::contracts::Contract;
+use crate::vm::contexts::ContractContext;
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 use crate::vm::types::{PrincipalData, TypeSignature};
@@ -45,6 +45,29 @@ impl ClarityDeserializable<String> for String {
     }
 }
 
+/// JSON deserialization helper for non-WASM targets.
+#[cfg(not(target_family = "wasm"))]
+fn deserialize_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, VmExecutionError> {
+    let mut deserializer = serde_json::Deserializer::from_str(json);
+
+    // serde's default 128 depth limit can be exhausted by a 64-stack-depth AST, so
+    // disable the recursion limit and let stacker spill the deserializer to the heap
+    // instead of overflowing.
+    deserializer.disable_recursion_limit();
+    let deserializer = serde_stacker::Deserializer::new(&mut deserializer);
+
+    T::deserialize(deserializer)
+        .map_err(|_| VmInternalError::Expect("Failed to deserialize vm.Value".into()).into())
+}
+
+/// JSON deserialization helper for WASM targets, which don't have access to
+/// `serde_stacker` and thus can't disable the recursion limit.
+#[cfg(target_family = "wasm")]
+fn deserialize_json<T: serde::de::DeserializeOwned>(json: &str) -> Result<T, VmExecutionError> {
+    serde_json::from_str(json)
+        .map_err(|_| VmInternalError::Expect("Failed to deserialize vm.Value".into()).into())
+}
+
 macro_rules! clarity_serializable {
     ($Name:ident) => {
         impl ClaritySerializable for $Name {
@@ -53,24 +76,8 @@ macro_rules! clarity_serializable {
             }
         }
         impl ClarityDeserializable<$Name> for $Name {
-            #[cfg(not(target_family = "wasm"))]
             fn deserialize(json: &str) -> Result<Self, VmExecutionError> {
-                let mut deserializer = serde_json::Deserializer::from_str(&json);
-                // serde's default 128 depth limit can be exhausted
-                //  by a 64-stack-depth AST, so disable the recursion limit
-                deserializer.disable_recursion_limit();
-                // use stacker to prevent the deserializer from overflowing.
-                //  this will instead spill to the heap
-                let deserializer = serde_stacker::Deserializer::new(&mut deserializer);
-                Deserialize::deserialize(deserializer).map_err(|_| {
-                    VmInternalError::Expect("Failed to deserialize vm.Value".into()).into()
-                })
-            }
-            #[cfg(target_family = "wasm")]
-            fn deserialize(json: &str) -> Result<Self, VmExecutionError> {
-                serde_json::from_str(json).map_err(|_| {
-                    VmInternalError::Expect("Failed to deserialize vm.Value".into()).into()
-                })
+                deserialize_json(json)
             }
         }
     };
@@ -106,13 +113,6 @@ pub struct DataVariableMetadata {
 clarity_serializable!(DataVariableMetadata);
 
 #[derive(Serialize, Deserialize)]
-pub struct ContractMetadata {
-    pub contract: Contract,
-}
-
-clarity_serializable!(ContractMetadata);
-
-#[derive(Serialize, Deserialize)]
 pub struct SimmedBlock {
     pub block_height: u64,
     pub block_time: u64,
@@ -127,7 +127,36 @@ clarity_serializable!(PrincipalData);
 clarity_serializable!(i128);
 clarity_serializable!(u128);
 clarity_serializable!(u64);
-clarity_serializable!(Contract);
+
+/// Handle serialization of [`ContractContext`] behind a wrapper struct with a single
+/// `contract_context` field.
+///
+/// This is for compatibility with the current on-disk format, where the `ContractContext` was
+/// previously serialized via the `Contract` type. This removes/isolates that dependency and
+/// allows us to work directly with `ContractContext`s.
+mod contract_context {
+    use super::*;
+
+    #[derive(Serialize, Deserialize)]
+    pub struct Wrapper<T> {
+        pub contract_context: T,
+    }
+
+    impl ClaritySerializable for ContractContext {
+        fn serialize(&self) -> String {
+            serde_json::to_string(&Wrapper {
+                contract_context: self,
+            })
+            .expect("Failed to serialize vm.Value")
+        }
+    }
+    impl ClarityDeserializable<ContractContext> for ContractContext {
+        fn deserialize(json: &str) -> Result<Self, VmExecutionError> {
+            deserialize_json::<Wrapper<ContractContext>>(json).map(|w| w.contract_context)
+        }
+    }
+}
+
 clarity_serializable!(ContractAnalysis);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

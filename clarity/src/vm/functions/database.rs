@@ -156,13 +156,11 @@ pub fn special_contract_call(
                         .map_err(|_e| {
                             RuntimeCheckErrorKind::NoSuchContract(contract_identifier.to_string())
                         })?;
-                    let contract_context_to_check = contract_to_check.contract_context;
 
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
                     // then we can simply rely on the analysis performed at publish time.
-                    if contract_context_to_check.is_explicitly_implementing_trait(&trait_identifier)
-                    {
+                    if contract_to_check.is_explicitly_implementing_trait(&trait_identifier) {
                         (contract_identifier.clone(), None)
                     } else {
                         let trait_name = trait_identifier.name.to_string();
@@ -177,11 +175,9 @@ pub fn special_contract_call(
                                     trait_identifier.contract_identifier.to_string(),
                                 )
                             })?;
-                        let contract_context_defining_trait =
-                            contract_defining_trait.contract_context;
 
                         // Retrieve the function that will be invoked
-                        let function_to_check = contract_context_to_check
+                        let function_to_check = contract_to_check
                             .lookup_function(function_name)
                             .ok_or(RuntimeCheckErrorKind::BadTraitImplementation(
                                 trait_name.clone(),
@@ -208,12 +204,12 @@ pub fn special_contract_call(
                         // If this check succeeds, the subsequent trait reference and method checks cannot fail
                         function_to_check.check_trait_expectations(
                             exec_state.epoch(),
-                            &contract_context_defining_trait,
+                            &contract_defining_trait,
                             &trait_identifier,
                         )?;
 
                         // Retrieve the expected method signature
-                        let constraining_trait = contract_context_defining_trait
+                        let constraining_trait = contract_defining_trait
                             .lookup_trait_definition(&trait_name)
                             .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
                                 "Trait reference unknown: {trait_name}"

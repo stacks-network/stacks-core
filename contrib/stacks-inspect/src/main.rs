@@ -21,6 +21,7 @@ use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity_cli::{DEFAULT_CLI_EPOCH, read_file_or_stdin, read_file_or_stdin_bytes, vm_execute};
+use stacks_common::alloc_tracker::TrackingAllocator;
 use stacks_inspect::cli::{Cli, Command};
 use stacks_inspect::{
     CommonOpts, command_contract_hash, command_replay_mock_mining, command_try_mine,
@@ -29,8 +30,8 @@ use stacks_inspect::{
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksTransaction,
-    StacksTransactionSigner, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionVersion,
+    StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
+    TransactionAuthVerificationMode, TransactionPayload, TransactionVersion,
 };
 use stackslib::config::{Config, ConfigFile};
 use stackslib::core::{
@@ -41,7 +42,13 @@ use tikv_jemallocator::Jemalloc;
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 #[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
+static GLOBAL: TrackingAllocator<Jemalloc> = TrackingAllocator { inner: Jemalloc };
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_arch = "arm"))]
+#[global_allocator]
+static GLOBAL: TrackingAllocator<std::alloc::System> = TrackingAllocator {
+    inner: std::alloc::System,
+};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
@@ -52,7 +59,7 @@ use std::time::{Duration, Instant};
 use std::{fs, io, process, thread};
 
 use libstackerdb::StackerDBChunkData;
-use rusqlite::{Connection, Error as SqliteError, OpenFlags, params};
+use rusqlite::{Error as SqliteError, OpenFlags, params};
 use serde_json::{Value, json};
 use stacks_common::codec::{StacksMessageCodec, read_next};
 use stacks_common::types::MempoolCollectionBehavior;
@@ -405,7 +412,16 @@ fn main() {
                 })
                 .unwrap();
 
-            println!("Verified: {:#?}", tx.verify());
+            let verified_strict = tx.verify(TransactionAuthVerificationMode::EnforceLowS);
+            if verified_strict.is_ok() {
+                println!("Verified: {:#?}", verified_strict);
+            } else {
+                let verified_lenient = tx.verify(TransactionAuthVerificationMode::AllowHighS);
+                println!("Verified: {:#?}", verified_lenient);
+                if verified_lenient.is_ok() {
+                    println!("WARNING: Transaction signature has high-S");
+                }
+            }
             let address = tx.auth.origin().get_address(tx.is_mainnet());
             println!("Address: {address}");
 
@@ -601,7 +617,7 @@ fn main() {
             let tip = BlockHeaderHash::from_hex(&block_hash).unwrap();
             let consensus = ConsensusHash::from_hex(&consensus_hash).unwrap();
 
-            let conn = Connection::open(&db_path).unwrap();
+            let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false).unwrap();
             let mut cur_consensus = consensus.clone();
             let mut cur_tip = tip.clone();
             loop {
@@ -632,8 +648,7 @@ fn main() {
             db_path,
             byte_prefix,
         } => {
-            let conn =
-                Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+            let conn = sqlite_open(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false).unwrap();
             let query = format!("SELECT value FROM data_table WHERE key LIKE \"{byte_prefix}%\"");
             let mut stmt = conn.prepare(&query).unwrap();
             let mut rows = stmt.query(NO_PARAMS).unwrap();
@@ -652,16 +667,18 @@ fn main() {
 
         Command::CheckDeserData { check_file } => {
             let file = File::open(&check_file).unwrap();
-            let mut i = 1;
-            for line in io::BufReader::new(file).lines() {
-                if i % 100000 == 0 {
-                    println!("{i}...");
-                }
-                i += 1;
+            for (line_no, line) in io::BufReader::new(file).lines().enumerate() {
+                let line_no = line_no + 1;
                 let line = line.unwrap().trim().to_string();
+
+                if line_no % 100000 == 0 {
+                    println!("{line_no}...");
+                }
+
                 if line.is_empty() {
                     continue;
                 }
+
                 let vals: Vec<_> = line.split(" => ").map(|x| x.trim()).collect();
                 let hex_string = &vals[0];
                 let expected_value_display = &vals[1];

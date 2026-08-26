@@ -1401,6 +1401,13 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         expected_value: &MARFValue,
         root_block_header: &T,
     ) -> Result<TrieMerkleProof<T>, Error> {
+        // Squash-aware proofs are not currently supported.
+        if storage.is_squashed() {
+            return Err(Error::UnsupportedOnSquashedMarf(
+                "TrieMerkleProof::from_path",
+            ));
+        }
+
         // accumulate proofs in reverse order -- each proof will be from an earlier and earlier
         // trie, so we'll reverse them in the end so the proof starts with the latest trie.
         let mut segment_proofs = vec![];

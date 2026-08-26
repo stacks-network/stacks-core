@@ -1,0 +1,45 @@
+# Check constants output with stacks-inspect
+
+name: "Check: Constants"
+
+on:
+  workflow_call:
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Set default shell
+defaults:
+  run:
+    shell: bash
+
+# Configure concurrency
+concurrency:
+  group: constants-check-${{ github.head_ref || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  check-consts:
+    name: Check stacks-inspect Constants
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      - name: Checkout the latest code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      # Setup the default rust toolchain
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+
+      # Dump constants from stacks-inspect
+      - name: Dump Constants JSON
+        run: |
+          cargo run --bin stacks-inspect -- dump-consts | tee out.json
+
+      # Output any diff to the github job summary
+      - name: Compare Expected Constants JSON
+        run: |
+          diff out.json ./sample/expected_consts.json >> $GITHUB_STEP_SUMMARY

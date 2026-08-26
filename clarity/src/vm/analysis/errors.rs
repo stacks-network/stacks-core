@@ -238,13 +238,19 @@ pub enum StaticCheckErrorKind {
     // Time checker errors
     /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
     ExecutionTimeExpired,
-
+    /// Contract-analysis time exceeds the allowed budget, halting analysis to ensure responsiveness.
+    /// Distinct from `ExecutionTimeExpired` so an analysis-phase timeout is separable end-to-end.
+    AnalysisTimeExpired,
+    /// The read-only checker recursed too deeply while checking native function calls.
+    ReadOnlyCheckerRecursionLimitExceeded,
     /// Value exceeds the maximum allowed size for type-checking or serialization.
     ValueTooLarge,
     /// Value is outside the acceptable range for its type (e.g., integer bounds).
     ValueOutOfBounds,
     /// Type signature nesting depth exceeds the allowed limit during analysis.
     TypeSignatureTooDeep,
+    /// A trait-reference chain exceeds the type-checker's recursion depth limit.
+    TraitReferenceChainTooDeep,
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
     ExpectedName,
     /// Supertype (i.e. common denominator between two types) exceeds the maximum allowed size or complexity.
@@ -565,6 +571,15 @@ pub enum RuntimeCheckErrorKind {
     /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
     Unreachable(String),
 
+    /// Execution was deliberately aborted by the per-`eval` abort callback.
+    /// (e.g., by the memory limit enforcement in block proposal validation or
+    ///  miner block assembly)
+    AbortedByExecutionHook(String),
+
+    /// Block rejection: a `pox-4` call would overwrite
+    /// an existing asset-map stacking entry for its sender.
+    PoxStxAssetMapOverwrite,
+
     // List typing errors
     /// List elements have mismatched types, violating type consistency.
     ListTypesMustMatch,
@@ -666,13 +681,13 @@ pub struct StaticCheckError {
 
 impl RuntimeCheckErrorKind {
     /// This check indicates that the transaction should be rejected.
-    /// Currently identical to `is_unreachable()` since `Unreachable` is the only
-    /// rejectable variant, but they answer different questions and may diverge.
     pub fn rejectable(&self) -> bool {
         matches!(
             self,
             RuntimeCheckErrorKind::Unreachable(_)
                 | RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(_, _)
+                | RuntimeCheckErrorKind::AbortedByExecutionHook(_)
+                | RuntimeCheckErrorKind::PoxStxAssetMapOverwrite
         )
     }
 
@@ -688,7 +703,9 @@ impl StaticCheckErrorKind {
     pub fn rejectable_in_epoch(&self, epoch: StacksEpochId) -> bool {
         match self {
             StaticCheckErrorKind::SupertypeTooLarge => epoch.rejects_supertype_too_large(),
+            StaticCheckErrorKind::TraitReferenceChainTooDeep => true,
             StaticCheckErrorKind::Unreachable(_) => true,
+            StaticCheckErrorKind::ReadOnlyCheckerRecursionLimitExceeded => true,
             _ => false,
         }
     }
@@ -1149,12 +1166,15 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
             StaticCheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
+            StaticCheckErrorKind::AnalysisTimeExpired => "analysis time expired".into(),
+            StaticCheckErrorKind::ReadOnlyCheckerRecursionLimitExceeded => "read-only checker exceeded maximum allowed recursion depth".into(),
             StaticCheckErrorKind::InvalidTypeDescription => "supplied type description is invalid".into(),
             StaticCheckErrorKind::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             StaticCheckErrorKind::UnknownTypeName(name) => format!("failed to parse type: '{name}'"),
             StaticCheckErrorKind::ValueTooLarge => "created a type which was greater than maximum allowed value size".into(),
             StaticCheckErrorKind::ValueOutOfBounds => "created a type which value size was out of defined bounds".into(),
             StaticCheckErrorKind::TypeSignatureTooDeep => "created a type which was deeper than maximum allowed type depth".into(),
+            StaticCheckErrorKind::TraitReferenceChainTooDeep => "trait-reference chain exceeds the maximum allowed type-checker recursion depth".into(),
             StaticCheckErrorKind::ExpectedName => "expected a name argument to this function".into(),
             StaticCheckErrorKind::ConstructedListTooLarge => "reached limit of elements in a sequence".into(),
             StaticCheckErrorKind::TypeError(expected_type, found_type) => format!("expecting expression of type '{expected_type}', found '{found_type}'"),

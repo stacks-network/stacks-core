@@ -1,0 +1,61 @@
+name:  Generate and upload openAPI docs
+description: |
+    Generate and upload openAPI docs using Redocly CLI
+
+inputs:
+  output:
+    description: "openAPI output file"
+    required: false
+    default: "./open-api-docs.html"
+  input:
+    description: "Input file to use to generate openAPI docs"
+    required: true
+    default: ""
+  validate:
+    description: "Validate OpenAPI spec before generating docs"
+    required: false
+    default: "true"
+  redocly-version:
+    description: "Version of Redocly CLI to use"
+    required: false
+    default: "latest"
+  config:
+    description: "Path to the Redocly config file for linting"
+    required: false
+  node-version:
+    description: "Node.js version to use"
+    required: false
+    default: "latest"
+  retention-days:
+    description: "Number of days to retain the artifact"
+    required: false
+    default: "90"
+
+runs:
+  using: "composite"
+  steps:
+    # Setup nodejs (default to latest)
+    - name: Setup Node.js
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: "${{ inputs.node-version }}"
+
+    # Run script to validate and generate input
+    - name: Validate and Generate OpenAPI docs
+      shell: bash
+      env:
+        INPUT_FILE: ${{ inputs.input }}
+        OUTPUT_FILE: ${{ inputs.output }}
+        REDOCLY_VERSION: ${{ inputs.redocly-version }}
+        VALIDATE: ${{ inputs.validate }}
+        CONFIG_FILE: ${{ inputs.config }}
+      run: bash ./.github/scripts/openapi_validation.sh
+
+    # Upload the html file artifact
+    - name: Upload bundled html
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: open-api-bundle
+        path: |
+          ${{ inputs.output }}
+        retention-days: ${{ inputs.retention-days }}

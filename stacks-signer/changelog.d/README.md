@@ -13,13 +13,13 @@ CHANGELOG.md.
 
 ## How to add a changelog entry
 
-1. Create a file in this directory named: `<PR#>-<short-description>.<category>`
+1. Create a file in this directory named: `<short-description>.<category>`
 
    **Categories:** `added`, `changed`, `fixed`, `removed`
 
    **Examples:**
-   - `6800-track-pending-blocks.added`
-   - `6801-db-schema-v19.changed`
+   - `track-pending-blocks.added`
+   - `db-schema-v19.changed`
 
 2. Write the changelog entry text in the file (one or more lines of markdown):
 

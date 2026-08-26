@@ -29,6 +29,7 @@ use clarity::vm::database::{
 };
 use clarity::vm::errors::{ClarityEvalError, StaticCheckError, VmExecutionError};
 use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::time_tracker::TimeTracker;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{
     ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
@@ -245,6 +246,8 @@ fn run_analysis_free<C: ClarityStorage>(
         clarity_version,
         // no type map data is used in the clarity_cli
         false,
+        // CLI tool: no analysis deadline
+        TimeTracker::unlimited(),
     )
 }
 
@@ -280,6 +283,8 @@ fn run_analysis<C: ClarityStorage>(
         clarity_version,
         // no type map data is used in the clarity_cli
         false,
+        // CLI tool: no analysis deadline
+        TimeTracker::unlimited(),
     )
 }
 
@@ -666,6 +671,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_vrf_seed_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<VRFSeed> {
         let conn = self.conn();
@@ -718,6 +724,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_miner_address(
         &self,
         _id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<StacksAddress> {
         None
@@ -726,6 +733,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_burnchain_tokens_spent_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -735,6 +743,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_burnchain_tokens_spent_for_winning_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant
@@ -744,6 +753,7 @@ impl HeadersDB for CLIHeadersDB {
     fn get_tokens_earned_for_block(
         &self,
         id_bhh: &StacksBlockId,
+        _tip: &StacksBlockId,
         _epoch: &StacksEpochId,
     ) -> Option<u128> {
         // if the block is defined at all, then return a constant

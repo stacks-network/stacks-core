@@ -30,6 +30,7 @@ pub mod representations;
 
 pub mod callables;
 pub mod functions;
+pub mod time_tracker;
 pub mod variables;
 
 pub mod analysis;
@@ -60,7 +61,7 @@ use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
 use crate::vm::callables::{CallableType, FunctionIdentifier};
 pub use crate::vm::contexts::{CallStack, ContractContext, LocalContext, MAX_CONTEXT_DEPTH};
-use crate::vm::contexts::{ExecutionState, ExecutionTimeTracker, GlobalContext, InvocationContext};
+use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     CostErrors, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
@@ -483,22 +484,23 @@ pub fn apply_evaluated(
     )
 }
 
-fn check_max_execution_time_expired(
+/// Check for interpreter-level abort conditions.
+///
+/// Currently, this is either the AbortCallback or the execution
+///  time limit.
+fn check_interpreter_abort_condition(
     global_context: &GlobalContext,
 ) -> Result<(), VmExecutionError> {
-    match global_context.execution_time_tracker {
-        ExecutionTimeTracker::NoTracking => Ok(()),
-        ExecutionTimeTracker::MaxTime {
-            start_time,
-            max_duration,
-        } => {
-            if start_time.elapsed() >= max_duration {
-                Err(CostErrors::ExecutionTimeExpired.into())
-            } else {
-                Ok(())
-            }
-        }
+    if global_context.execution_time_tracker.is_expired() {
+        return Err(CostErrors::ExecutionTimeExpired.into());
     }
+    if let Err(reason) = global_context.abort_callback.check() {
+        return Err(VmExecutionError::RuntimeCheck(
+            RuntimeCheckErrorKind::AbortedByExecutionHook(reason),
+        ));
+    }
+
+    Ok(())
 }
 
 pub fn eval<'a>(
@@ -511,7 +513,7 @@ pub fn eval<'a>(
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
-    check_max_execution_time_expired(exec_state.global_context)?;
+    check_interpreter_abort_condition(exec_state.global_context)?;
 
     if let Some(mut eval_hooks) = exec_state.global_context.eval_hooks.take() {
         for hook in eval_hooks.iter_mut() {

@@ -651,7 +651,7 @@ fn inner_synthesize_pox_event_info(
         .special_cc_handler_execute_read_only(
             sender.clone(),
             None,
-            pox_contract.contract_context,
+            &pox_contract,
             |exec_state, invoke_ctx| {
                 let base_event_info = exec_state
                     .eval_read_only(invoke_ctx, contract_id, &code_snippet)

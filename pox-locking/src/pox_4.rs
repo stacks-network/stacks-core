@@ -19,7 +19,7 @@ use clarity::vm::contexts::{ExecutionState, GlobalContext};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
+use clarity::vm::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
@@ -400,6 +400,17 @@ pub fn handle_contract_call(
         // Update the asset map to reflect the delegation
         match (sender_opt, args.first()) {
             (Some(sender), Some(Value::UInt(amount))) => {
+                // Reject any transaction that would overwrite an
+                // existing asset-map stacking entry for `sender`.
+                if global_context
+                    .get_readonly_asset_map()?
+                    .get_stacking(sender)
+                    .is_some()
+                {
+                    return Err(VmExecutionError::from(
+                        RuntimeCheckErrorKind::PoxStxAssetMapOverwrite,
+                    ));
+                }
                 global_context.log_stacking(sender, *amount)?;
             }
             _ => {

@@ -1,0 +1,146 @@
+# Cargo hack to check features on different targets/toolchains
+
+name: "Check: Cargo Hack"
+
+on:
+  workflow_call:
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Set default env vars
+env:
+  RUST_BACKTRACE: full
+
+# Configure concurrency
+concurrency:
+  group: cargo-hack-check-${{ github.head_ref || github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Native targets (Windows/Linux)
+  native-targets:
+    name: All Crates (Windows/Linux)
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
+
+      # Setup the rust toolchain for specified target
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          target: x86_64-pc-windows-gnu,x86_64-unknown-linux-gnu
+
+      # Install cargo-hack tool
+      - name: Install cargo-hack
+        uses: ./.github/actions/install-tool
+        with:
+          tools: cargo-hack
+
+      # Install tools for Windows
+      - name: Install Windows cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64
+
+      # Run cargo-hack against the target
+      - name: Run cargo hack check
+        run: |
+          cargo hack check \
+            --all \
+            --each-feature \
+            --no-dev-deps \
+            --exclude-features=wasm-deterministic,wasm-web \
+            --target x86_64-pc-windows-gnu \
+            --target x86_64-unknown-linux-gnu
+
+  # WASM targets - No caching needed as it runs in parallel with longer jobs
+  wasm-targets:
+    name: WASM Targets
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
+
+      # Setup the rust toolchain for specified target
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          target: wasm32-unknown-unknown
+
+      # Install cargo-hack tool
+      - name: Install cargo-hack
+        uses: ./.github/actions/install-tool
+        with:
+          tools: cargo-hack
+
+      # Run cargo-hack for WASM Web
+      - name: Run cargo hack check (WASM Web)
+        run: |
+          cargo hack check \
+            -p clarity \
+            -p clarity-types \
+            -p stacks-common \
+            -p stacks-codec \
+            --each-feature \
+            --no-dev-deps \
+            --exclude-features=default,rusqlite,ctrlc-handler,wasm-deterministic,testing \
+            --features=wasm-web \
+            --target wasm32-unknown-unknown
+
+      # Run cargo-hack for WASM Deterministic
+      - name: Run cargo hack check (WASM Deterministic)
+        run: |
+          cargo hack check \
+            -p clarity-types \
+            -p stacks-common \
+            --each-feature \
+            --no-dev-deps \
+            --include-features=wasm-deterministic,slog_json \
+            --features=wasm-deterministic
+
+  # Fuzz targets with nightly toolchain
+  fuzz-targets:
+    name: Fuzz Targets (Nightly)
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          persist-credentials: false
+
+      # Setup the rust toolchain for specified target.
+      # Pin to a specific nightly: an unpinned `nightly` tracks the latest build
+      # and breaks the job whenever rustc tightens lints (e.g. unused imports).
+      - name: Setup Rust Toolchain
+        uses: ./.github/actions/setup-rust-toolchain
+        with:
+          toolchain: nightly-2026-06-07
+
+      # Fuzz check clarity targets
+      - name: Check fuzz targets (clarity)
+        run: |
+          cargo +nightly-2026-06-07 check \
+            --manifest-path clarity/fuzz/Cargo.toml \
+            --bins \
+            --locked
+
+      # Fuzz check stackslib targets
+      - name: Check fuzz targets (stackslib)
+        run: |
+          cargo +nightly-2026-06-07 check \
+            --manifest-path stackslib/fuzz/Cargo.toml \
+            --bins \
+            --locked

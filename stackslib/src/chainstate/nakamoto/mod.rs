@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -23,13 +23,13 @@ use clarity::vm::events::{STXEventType, STXMintEventData, StacksTransactionEvent
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, Value};
 use lazy_static::lazy_static;
+use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
-    MAX_PAYLOAD_LEN,
 };
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
@@ -798,8 +798,11 @@ impl NakamotoBlockHeader {
 
     pub fn recover_miner_pk(&self) -> Option<StacksPublicKey> {
         let signed_hash = self.miner_signature_hash();
-        let recovered_pk =
-            StacksPublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature).ok()?;
+        let recovered_pk = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+            signed_hash.bits(),
+            &self.miner_signature,
+        )
+        .ok()?;
 
         Some(recovered_pk)
     }
@@ -873,13 +876,16 @@ impl NakamotoBlockHeader {
             .collect();
 
         for signature in self.signer_signature.iter() {
-            let public_key = Secp256k1PublicKey::recover_to_pubkey(message.bits(), signature)
-                .map_err(|_| {
-                    ChainstateError::InvalidStacksBlock(format!(
-                        "Unable to recover public key from signature {}",
-                        signature.to_hex()
-                    ))
-                })?;
+            let public_key = Secp256k1PublicKey::recover_to_pubkey_without_validating_low_s(
+                message.bits(),
+                signature,
+            )
+            .map_err(|_| {
+                ChainstateError::InvalidStacksBlock(format!(
+                    "Unable to recover public key from signature {}",
+                    signature.to_hex()
+                ))
+            })?;
 
             let mut public_key_bytes = [0u8; 33];
             public_key_bytes.copy_from_slice(&public_key.to_bytes_compressed()[..]);
@@ -1002,6 +1008,15 @@ impl NakamotoBlockHeader {
             signer_signature: vec![],
             pox_treatment: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
+    }
+
+    /// The Nakamoto block header version required for blocks in `epoch_id`.
+    ///
+    /// The header format (and therefore the version number, ignoring the
+    /// shadow-block high bit) is fixed per epoch. Used to reject blocks whose
+    /// version does not match their epoch.
+    pub fn expected_version_for_epoch(_epoch_id: StacksEpochId) -> u8 {
+        NAKAMOTO_BLOCK_VERSION
     }
 }
 
@@ -1669,6 +1684,28 @@ impl NakamotoBlock {
         Ok(())
     }
 
+    /// Static sanity checks on the block header that depend only on the epoch.
+    /// Verifies:
+    /// * the header version matches the epoch. The header version is fixed per
+    ///   epoch and is what gates the `problematic_txs` field in the block hash,
+    ///   so a block whose version doesn't match its epoch (ignoring the
+    ///   shadow-block high bit) is rejected.
+    pub fn validate_header_static(&self, epoch_id: StacksEpochId) -> bool {
+        let expected_version = NakamotoBlockHeader::expected_version_for_epoch(epoch_id);
+        if self.header.version & 0x7f != expected_version {
+            warn!("Block has invalid header version for epoch";
+                "consensus_hash" => %self.header.consensus_hash,
+                "stacks_block_hash" => %self.header.block_hash(),
+                "stacks_block_id" => %self.header.block_id(),
+                "epoch_id" => %epoch_id,
+                "version" => self.header.version,
+                "expected_version" => expected_version
+            );
+            return false;
+        }
+        true
+    }
+
     /// Static sanity checks on transactions.
     /// Verifies:
     /// * the block is non-empty
@@ -2308,10 +2345,11 @@ impl NakamotoChainState {
         Ok(tenure_burn_chain_tip)
     }
 
-    /// Statically validate the block's transactions against the burnchain epoch.
+    /// Statically validate the block's header and transactions against the
+    /// burnchain epoch.
     /// Return Ok(()) if they pass all static checks
     /// Return Err(..) if not.
-    fn validate_nakamoto_block_transactions_static(
+    fn validate_nakamoto_block_static(
         mainnet: bool,
         chain_id: u32,
         sortdb_conn: &Connection,
@@ -2322,18 +2360,20 @@ impl NakamotoChainState {
         // will be in epoch 2.5 (the next block will be epoch 3.0)
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, block_tenure_burn_height + 1)?
             .expect("FATAL: no epoch defined for current Stacks block");
+        let cur_epoch_id = cur_epoch.epoch_id.max(StacksEpochId::Epoch30);
 
-        // static checks on transactions all pass
-        let valid = block.validate_transactions_static(mainnet, chain_id, cur_epoch.epoch_id);
+        // static checks on the header and transactions all pass
+        let valid = block.validate_header_static(cur_epoch_id)
+            && block.validate_transactions_static(mainnet, chain_id, cur_epoch_id);
         if !valid {
             warn!(
-                "Invalid Nakamoto block, transactions failed static checks: {}/{} (epoch {})",
+                "Invalid Nakamoto block, failed static checks: {}/{} (epoch {})",
                 &block.header.consensus_hash,
                 &block.header.block_hash(),
-                cur_epoch.epoch_id
+                cur_epoch_id
             );
             return Err(ChainstateError::InvalidStacksBlock(
-                "Invalid Nakamoto block: failed static transaction checks".into(),
+                "Invalid Nakamoto block: failed static checks".into(),
             ));
         }
 
@@ -2414,7 +2454,7 @@ impl NakamotoChainState {
             return Err(e);
         }
 
-        Self::validate_nakamoto_block_transactions_static(
+        Self::validate_nakamoto_block_static(
             mainnet,
             chain_id,
             db_handle.deref(),
@@ -3194,13 +3234,19 @@ impl NakamotoChainState {
     /// in the single Bitcoin-anchored Stacks block they produce, as
     /// well as the microblock stream they append to it.  But in Nakamoto,
     /// the coinbase height and block height are decoupled.
-    pub fn get_coinbase_height<SDBI: StacksDBIndexed>(
+    ///
+    /// `tip` is the block at which the MARF lookup will be done; it must be `block` itself or a
+    /// descendant of it on the same fork. The coinbase-height mapping is written once per tenure
+    /// and never changes, so any such tip yields the same value. Pass the canonical tip to keep
+    /// the read off blocks a squashed snapshot may have pruned.
+    pub fn get_coinbase_height_at_tip<SDBI: StacksDBIndexed>(
         chainstate_conn: &mut SDBI,
         block: &StacksBlockId,
+        tip: &StacksBlockId,
     ) -> Result<Option<u64>, ChainstateError> {
         // nakamoto header?
         if let Some(hdr) = Self::get_block_header_nakamoto(chainstate_conn.sqlite(), block)? {
-            return Ok(chainstate_conn.get_coinbase_height(block, &hdr.consensus_hash)?);
+            return Ok(chainstate_conn.get_coinbase_height(tip, &hdr.consensus_hash)?);
         }
 
         // epoch2 header
@@ -3213,6 +3259,17 @@ impl NakamotoChainState {
             .map(u64::try_from)
             .transpose()
             .map_err(|_| ChainstateError::DBError(DBError::ParseError))
+    }
+
+    /// Shorthand for [`Self::get_coinbase_height_at_tip`] anchoring the MARF lookup at `block`
+    /// itself, so `block` must still be usable as a MARF read tip. For historical blocks a
+    /// squashed snapshot may have pruned, use [`Self::get_coinbase_height_at_tip`] with a
+    /// descendant canonical tip instead.
+    pub fn get_coinbase_height_at<SDBI: StacksDBIndexed>(
+        chainstate_conn: &mut SDBI,
+        block: &StacksBlockId,
+    ) -> Result<Option<u64>, ChainstateError> {
+        Self::get_coinbase_height_at_tip(chainstate_conn, block, block)
     }
 
     /// Verify that a nakamoto block's block-commit's VRF seed is consistent with the VRF proof.
@@ -3691,9 +3748,11 @@ impl NakamotoChainState {
     ) -> Result<(), ChainstateError> {
         let signer_sighash = block.header.signer_signature_hash();
         for signer_signature in &block.header.signer_signature {
-            let signer_pubkey =
-                StacksPublicKey::recover_to_pubkey(signer_sighash.bits(), signer_signature)
-                    .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
+            let signer_pubkey = StacksPublicKey::recover_to_pubkey_without_validating_low_s(
+                signer_sighash.bits(),
+                signer_signature,
+            )
+            .map_err(|e| ChainstateError::InvalidStacksBlock(e.to_string()))?;
             let sql = "INSERT INTO signer_stats(public_key,reward_cycle) VALUES(?1,?2) ON CONFLICT(public_key,reward_cycle) DO UPDATE SET blocks_signed=blocks_signed+1";
             let params = params![signer_pubkey.to_hex(), reward_cycle];
             tx.execute(sql, params)?;
@@ -4673,7 +4732,7 @@ impl NakamotoChainState {
         let parent_coinbase_height = if block.is_first_mined() {
             0
         } else {
-            Self::get_coinbase_height(chainstate_tx.as_tx(), &parent_block_id)?.ok_or_else(
+            Self::get_coinbase_height_at(chainstate_tx.as_tx(), &parent_block_id)?.ok_or_else(
                 || {
                     warn!(
                         "Parent of Nakamoto block is not in block headers DB yet";
@@ -5219,7 +5278,7 @@ impl NakamotoChainState {
 
         Ok((
             StackerDBConfig {
-                chunk_size: MAX_PAYLOAD_LEN.into(),
+                chunk_size: STACKERDB_MAX_CHUNK_SIZE.into(),
                 signers,
                 write_freq: 0,
                 max_writes: u32::MAX,  // no limit on number of writes
@@ -5282,7 +5341,12 @@ impl NakamotoChainState {
         let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
         clarity_tx.connection().as_transaction(|clarity| {
             let (ast, analysis) = clarity
-                .analyze_smart_contract(&contract_id, ClarityVersion::Clarity2, &contract_content)
+                .analyze_smart_contract(
+                    &contract_id,
+                    ClarityVersion::Clarity2,
+                    &contract_content,
+                    None,
+                )
                 .unwrap();
             clarity
                 .initialize_smart_contract(

@@ -368,6 +368,7 @@ pub enum ClarityRuntimeTxError {
     },
     CostError(ExecutionCost, ExecutionCost),
     AnalysisError(RuntimeCheckErrorKind),
+    ExecutionTimeExpired,
     Rejectable(ClarityError),
 }
 
@@ -407,6 +408,7 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
             reason,
         },
         ClarityError::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
+        ClarityError::ExecutionTimeExpired => ClarityRuntimeTxError::ExecutionTimeExpired,
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
 }
@@ -447,22 +449,30 @@ fn log_unreachable_error(error: &ClarityError, txid: &Txid) {
     }
 }
 
-pub fn convert_clarity_error_to_transaction_result(
+/// Classify a failed transaction into a `TransactionResult`. For failures that
+/// charged execution cost before bailing (problematic txs and cost overflows),
+/// roll back the cost so the failure does not shrink the remaining block
+/// budget for subsequent honest txs.
+pub fn finalize_failed_transaction(
     clarity_tx: &mut ClarityTx,
     tx: &StacksTransaction,
+    cost_before: &ExecutionCost,
     error: Error,
 ) -> TransactionResult {
     let (is_problematic, error) =
         TransactionResult::is_problematic(tx, error, clarity_tx.get_epoch());
     if is_problematic {
+        // Roll back the cost accumulated by this transaction so it does not
+        // shrink the remaining block budget for subsequent honest txs.
+        clarity_tx.reset_cost(cost_before.clone());
         TransactionResult::problematic(tx, error)
     } else {
         match &error {
-            Error::CostOverflowError(cost_before, cost_after, total_budget) => {
+            Error::CostOverflowError(overflow_cost_before, cost_after, total_budget) => {
                 // note: this path _does_ not perform the tx block budget % heuristic,
                 //  because this code path is not directly called with a mempool handle.
                 clarity_tx.reset_cost(cost_before.clone());
-                if total_budget.proportion_largest_dimension(cost_before)
+                if total_budget.proportion_largest_dimension(overflow_cost_before)
                     < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                 {
                     warn!(
@@ -471,7 +481,7 @@ pub fn convert_clarity_error_to_transaction_result(
                         100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                     );
                     let mut measured_cost = cost_after.clone();
-                    let measured_cost = if measured_cost.sub(cost_before).is_ok() {
+                    let measured_cost = if measured_cost.sub(overflow_cost_before).is_ok() {
                         Some(measured_cost)
                     } else {
                         warn!("Failed to compute measured cost of a too big transaction");
@@ -604,11 +614,17 @@ impl StacksChainState {
         Ok(fee)
     }
 
-    /// Pre-check a transaction -- make sure it's well-formed
+    /// Pre-check a transaction -- make sure it's well-formed.
+    ///
+    /// If `auth_verification_mode_override` is `Some(_)`, it specifies whether
+    /// transaction signatures should be verified to be the low-S variant, or if
+    /// high-S is allowed. If it's `None`, this decision is made based on consensus
+    /// rules for the specified epoch.
     pub fn process_transaction_precheck(
         config: &DBConfig,
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
+        auth_verification_mode_override: Option<TransactionAuthVerificationMode>,
     ) -> Result<(), Error> {
         // valid auth?
         if !tx.auth.is_supported_in_epoch(epoch_id) {
@@ -620,7 +636,15 @@ impl StacksChainState {
 
             return Err(Error::InvalidStacksTransaction(msg, false));
         }
-        tx.verify().map_err(Error::NetError)?;
+        let verification_mode = auth_verification_mode_override.unwrap_or_else(|| {
+            if epoch_id.allows_tx_signatures_with_high_s() {
+                TransactionAuthVerificationMode::AllowHighS
+            } else {
+                TransactionAuthVerificationMode::EnforceLowS
+            }
+        });
+
+        tx.verify(verification_mode)?;
 
         // destined for us?
         if config.chain_id != tx.chain_id {
@@ -1113,6 +1137,7 @@ impl StacksChainState {
         tx: &StacksTransaction,
         origin_account: &StacksAccount,
         max_execution_time: Option<std::time::Duration>,
+        max_analysis_time: Option<std::time::Duration>,
     ) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
@@ -1289,6 +1314,16 @@ impl StacksChainState {
                                     )));
                                 }
                             }
+                            ClarityRuntimeTxError::ExecutionTimeExpired => {
+                                warn!("Transaction exceeded miner execution time limit; will be dropped from mempool";
+                                              "txid" => %tx.txid(),
+                                              "origin" => %origin_account.principal,
+                                              "origin_nonce" => %origin_account.nonce,
+                                               "contract_name" => %contract_id,
+                                               "function_name" => %contract_call.function_name,
+                                               "function_args" => %VecDisplay(&contract_call.function_args));
+                                return Err(Error::ExecutionTimeExpired);
+                            }
                             ClarityRuntimeTxError::Rejectable(e) => {
                                 error!("Unexpected error in validating transaction: if included, this will invalidate a block";
                                            "txid" => %tx.txid(),
@@ -1345,10 +1380,15 @@ impl StacksChainState {
                 // analysis pass -- if this fails, then the transaction is still accepted, but nothing is stored or processed.
                 // The reason for this is that analyzing the transaction is itself an expensive
                 // operation, and the paying account will need to be debited the fee regardless.
+                //
+                // `max_analysis_time` bounds the analysis phase on the
+                // non-consensus voting paths (mining / block-proposal validation); it is
+                // `None` on deterministic replay/commit (consensus stays deterministic).
                 let analysis_resp = clarity_tx.analyze_smart_contract(
                     &contract_id,
                     clarity_version,
                     &contract_code_str,
+                    max_analysis_time,
                 );
                 let (contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
@@ -1368,6 +1408,14 @@ impl StacksChainState {
                                     cost_after.clone(),
                                     budget.clone(),
                                 ));
+                            }
+                            ClarityError::AnalysisTimeExpired => {
+                                // The analysis phase exceeded its wall-clock deadline (on a voting path only).
+                                warn!("Contract analysis exceeded the analysis time limit; tx will be dropped from the mempool";
+                                      "txid" => %tx.txid(),
+                                      "contract_name" => %contract_id,
+                                );
+                                return Err(Error::AnalysisTimeExpired);
                             }
                             other_error => {
                                 if let ClarityError::Parse(err) = &other_error {
@@ -1533,6 +1581,12 @@ impl StacksChainState {
                                     )));
                                 }
                             }
+                            ClarityRuntimeTxError::ExecutionTimeExpired => {
+                                warn!("Transaction exceeded miner execution time limit; will be dropped from mempool";
+                                              "txid" => %tx.txid(),
+                                              "contract" => %contract_id);
+                                return Err(Error::ExecutionTimeExpired);
+                            }
                             ClarityRuntimeTxError::Rejectable(e) => {
                                 error!("Unexpected error invalidating transaction: if included, this will invalidate a block";
                                            "txid" => %tx.txid(),
@@ -1647,9 +1701,17 @@ impl StacksChainState {
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
-        Self::process_transaction_with_check(clarity_block, tx, quiet, max_execution_time, |_| {
-            Ok(())
-        })
+        // The generic/replay entry point imposes no analysis deadline (`None`): only the
+        // miner assembly and block-proposal validation paths (which call
+        // `process_transaction_with_check` directly) bound the analysis phase.
+        Self::process_transaction_with_check(
+            clarity_block,
+            tx,
+            quiet,
+            max_execution_time,
+            None,
+            |_| Ok(()),
+        )
     }
 
     pub fn process_transaction_with_check<
@@ -1659,12 +1721,13 @@ impl StacksChainState {
         tx: &StacksTransaction,
         quiet: bool,
         max_execution_time: Option<std::time::Duration>,
+        max_analysis_time: Option<std::time::Duration>,
         mut check: F,
     ) -> Result<(u64, StacksTransactionReceipt), Error> {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let epoch = clarity_block.get_epoch();
 
-        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch)?;
+        StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch, None)?;
 
         // what version of Clarity did the transaction caller want? And, is it valid now?
         let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
@@ -1699,6 +1762,7 @@ impl StacksChainState {
                 tx,
                 &origin_account,
                 max_execution_time,
+                max_analysis_time,
             )?;
 
             // update the account nonces
@@ -1726,6 +1790,7 @@ impl StacksChainState {
                 &mut transaction,
                 tx,
                 &origin_account,
+                None,
                 None,
             )?;
 
@@ -1906,6 +1971,7 @@ pub mod test {
                 nonce: 0,
                 stx_balance: STXBalance::Unlocked { amount: 100 },
             },
+            None,
             None,
         )
         .unwrap();
@@ -12125,5 +12191,132 @@ pub mod test {
 
             conn.commit_block();
         }
+    }
+
+    #[test]
+    fn test_process_transaction_execution_time_expired() {
+        let privk = StacksPrivateKey::random();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+        let balances = vec![(addr.clone(), 1_000_000_000)];
+
+        let mut chainstate =
+            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+
+        let mut conn = chainstate.block_begin(
+            &TestBurnStateDB_21, // or whichever Epoch ≥ 2.1 stub fits
+            &FIRST_BURNCHAIN_CONSENSUS_HASH,
+            &FIRST_STACKS_BLOCK_HASH,
+            &ConsensusHash([1u8; 20]),
+            &BlockHeaderHash([1u8; 32]),
+        );
+
+        let foo = "
+            (define-public (foo)
+                (ok true)
+            )
+            (+ 1 3)
+            "
+        .to_string();
+        let mut tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_smart_contract("foo", &foo, Some(ClarityVersion::Clarity1))
+                .unwrap(),
+        );
+
+        tx.post_condition_mode = TransactionPostConditionMode::Allow;
+        tx.chain_id = 0x80000000;
+        tx.set_tx_fee(1);
+        tx.set_origin_nonce(0);
+
+        let mut signer = StacksTransactionSigner::new(&tx);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_tx = signer.get_tx().unwrap();
+
+        let cost_before_deploy = conn.cost_so_far();
+
+        // set max_execution_time to something that will fire on the first eval()
+        let err = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_tx,
+            false,
+            Some(std::time::Duration::from_nanos(1)),
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(err, Error::ExecutionTimeExpired),
+            "expected Error::ExecutionTimeExpired, got {err:?}",
+        );
+
+        // Exercise the miner-level wrapper: it should classify as Problematic and reset the cost.
+        let result = finalize_failed_transaction(&mut conn, &signed_tx, &cost_before_deploy, err);
+        assert!(
+            matches!(result, TransactionResult::Problematic(_)),
+            "expected Problematic verdict, got {result:?}",
+        );
+        assert_eq!(
+            cost_before_deploy,
+            conn.cost_so_far(),
+            "Expected transaction cost to be reverted on execution time expiry"
+        );
+
+        // allow that transaction to be processed with no max_execution_time, so that it gets
+        // committed to the chainstate
+        StacksChainState::process_transaction(&mut conn, &signed_tx, false, None).unwrap();
+
+        // check that the cost of the transaction was charged this time
+        let cost_after_deploy = conn.cost_so_far();
+        assert!(
+            cost_after_deploy.exceeds(&cost_before_deploy),
+            "Expected transaction cost to be charged after successful execution"
+        );
+
+        // Make a call to the contract to check the contract-call path also handles execution time
+        // expiry correctly
+        let mut call_tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            auth.clone(),
+            TransactionPayload::new_contract_call(addr.clone(), "foo", "foo", vec![]).unwrap(),
+        );
+
+        call_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+        call_tx.chain_id = 0x80000000;
+        call_tx.set_tx_fee(1);
+        call_tx.set_origin_nonce(1);
+
+        let mut signer = StacksTransactionSigner::new(&call_tx);
+        signer.sign_origin(&privk).unwrap();
+
+        let signed_call_tx = signer.get_tx().unwrap();
+
+        let cost_before_call = conn.cost_so_far();
+        let err = StacksChainState::process_transaction(
+            &mut conn,
+            &signed_call_tx,
+            false,
+            Some(std::time::Duration::from_nanos(1)),
+        )
+        .unwrap_err();
+
+        assert!(
+            matches!(err, Error::ExecutionTimeExpired),
+            "expected Error::ExecutionTimeExpired, got {err:?}",
+        );
+
+        // Exercise the miner-level wrapper for the contract-call path too.
+        let result =
+            finalize_failed_transaction(&mut conn, &signed_call_tx, &cost_before_call, err);
+        assert!(
+            matches!(result, TransactionResult::Problematic(_)),
+            "expected Problematic verdict, got {result:?}",
+        );
+        assert_eq!(
+            cost_before_call,
+            conn.cost_so_far(),
+            "Expected transaction cost to be reverted on execution time expiry"
+        );
     }
 }

@@ -1,0 +1,129 @@
+# Github workflow to setup reusable test caches
+
+name: "Setup: Test Caches"
+
+on:
+  workflow_call:
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Set default env vars
+env:
+  RUSTFLAGS: "-C instrument-coverage -A warnings"
+  LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
+
+# Configure concurrency
+#  - All workflows share this one cache, so make it run atomically and block all other attempts when being generated.
+#  - In the case of multiple concurrent attempts, the first will create the caches and the other(s) will find them after.
+concurrency:
+  group: setup-test-caches
+  cancel-in-progress: false
+
+jobs:
+  # Check which caches already exist before creating them
+  check-caches:
+    name: Check Existing Caches
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code
+      #   - only .github is required for checking caches
+      - name: Checkout the latest code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      # Check cache for bitcoin binary
+      - name: Check Bitcoin Cache
+        id: bitcoin
+        uses: ./.github/actions/cache/bitcoin
+
+      # Check cache for cargo binaries
+      - name: Check Cargo Cache
+        id: cargo
+        uses: ./.github/actions/cache/cargo
+
+      # Output a job summary of cache status and crash the CI run if a cache is missing and won't be created
+      - name: Output GitHub Job Summary
+        shell: bash
+        env:
+          IS_MASTER: ${{ github.ref_name == 'master' }}
+          BITCOIN_KEY: ${{ steps.bitcoin.outputs.cache-key }}
+          BITCOIN_MATCHED_KEY: ${{ steps.bitcoin.outputs.cache-matched-key }}
+          CARGO_KEY: ${{ steps.cargo.outputs.cache-key }}
+          CARGO_MATCHED_KEY: ${{ steps.cargo.outputs.cache-matched-key }}
+        run: |
+          BITCOIN_EMOJI="❌"
+          [ -n "$BITCOIN_MATCHED_KEY" ] && BITCOIN_EMOJI="✅"
+          CARGO_EMOJI="❌"
+          [ -n "$CARGO_MATCHED_KEY" ] && CARGO_EMOJI="✅"
+
+          echo "## Cache Status" >> $GITHUB_STEP_SUMMARY
+          echo "This workflow is running from \`${{ github.ref_name }}\`." >> $GITHUB_STEP_SUMMARY
+          echo "Caches can only be created from \`master\`." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Cache | Cache Key | Matched Cache Key | Exists? |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Bitcoin | $BITCOIN_KEY | ${BITCOIN_MATCHED_KEY:-❌} | $BITCOIN_EMOJI |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cargo | $CARGO_KEY | ${CARGO_MATCHED_KEY:-❌} | $CARGO_EMOJI |" >> $GITHUB_STEP_SUMMARY
+
+          # Fail the build gracefully if IS_MASTER == false and any cache is missing
+          if [ "$IS_MASTER" = "false" ]; then
+            if [ -z "$BITCOIN_MATCHED_KEY" ] || [ -z "$CARGO_MATCHED_KEY" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "❌ **Required Cache Missing:** A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER seeding the caches from master manually: https://github.com/stacks-network/stacks-core/actions/workflows/_seed-caches.yml" >> $GITHUB_STEP_SUMMARY
+              echo "::error title=Required Cache Missing::A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER seeding the caches from master manually: https://github.com/stacks-network/stacks-core/actions/workflows/_seed-caches.yml"
+              exit 1
+            fi
+          fi
+
+  # Cache the bitcoin binary (if github.ref_name == 'master')
+  cache-bitcoin-binary:
+    name: Build & Cache Bitcoin Binary
+    needs:
+      - check-caches
+    runs-on: ubuntu-latest
+    if: |
+      !cancelled() && 
+      github.ref_name == 'master'
+    steps:
+      # Checkout the code
+      #   - only .github is required for checking caches
+      - name: Checkout the latest code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      - name: Create Bitcoin Cache
+        uses: ./.github/actions/cache/bitcoin
+        with:
+          action: create
+
+  # Cache the cargo crates (if github.ref_name == 'master')
+  cache-cargo:
+    name: Build & Cache Cargo Crates
+    needs:
+      - check-caches
+    runs-on: ubuntu-latest
+    if: |
+      !cancelled() && 
+      github.ref_name == 'master'
+    steps:
+      # Checkout the code
+      #   - only .github is required for checking caches
+      - name: Checkout the latest code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+
+      - name: Create Cargo Cache
+        uses: ./.github/actions/cache/cargo
+        with:
+          action: create
