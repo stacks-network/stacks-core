@@ -190,7 +190,6 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             contract_id: self.smart_contract_id.clone(),
             chunk_invs,
             chunks_to_store: chunks,
-            relay_hints: vec![],
             stale: std::mem::replace(&mut self.stale_neighbors, HashSet::new()),
             num_connections: self.num_connections,
             num_attempted_connections: self.num_attempted_connections,

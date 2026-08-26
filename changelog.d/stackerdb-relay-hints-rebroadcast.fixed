@@ -1,1 +1,0 @@
-Keep relay hints when the node receives a StackerDB chunk and use them when it sends the chunk to other peers. The node now sends each locally uploaded `.miners` chunk once more after five seconds, which gives miner proposals another chance to reach peers without creating repeated retries at relay nodes.
