@@ -56,7 +56,7 @@ Counts final response delivery attempts.
 - `outcome`: `sent` or `failed`
 
 An RPC call returning an acknowledgement with `accepted=false` is a failed
-delivery. The existing `stacks_signer_block_responses_sent_total` metric is
+delivery. The existing `stacks_signer_block_responses_sent` metric is
 retained unchanged for compatibility.
 
 ## Operational examples

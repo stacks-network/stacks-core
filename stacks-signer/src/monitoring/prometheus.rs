@@ -49,22 +49,22 @@ lazy_static! {
     ))
     .unwrap();
     pub static ref POLICY_EVALUATIONS: IntCounterVec = register_int_counter_vec!(
-        "stacks_signer_policy_evaluations",
+        "stacks_signer_policy_evaluations_total",
         "Signer proposal-policy evaluations by epistemic classification and effective action",
         &["classification", "action"]
     ).unwrap();
     pub static ref POLICY_REJECTIONS: IntCounterVec = register_int_counter_vec!(
-        "stacks_signer_policy_rejections",
+        "stacks_signer_policy_rejections_total",
         "Signer proposal-policy rejections by finite RejectReasonPrefix",
         &["reason"]
     ).unwrap();
     pub static ref BLOCK_VALIDATION_LIFECYCLE: IntCounterVec = register_int_counter_vec!(
-        "stacks_signer_block_validation_lifecycle",
+        "stacks_signer_block_validation_lifecycle_total",
         "Block validation transitions; reason is none except for finite ValidateRejectCode rejections",
         &["event", "reason"]
     ).unwrap();
     pub static ref BLOCK_RESPONSE_DELIVERIES: IntCounterVec = register_int_counter_vec!(
-        "stacks_signer_block_response_deliveries",
+        "stacks_signer_block_response_deliveries_total",
         "Final signer response delivery attempts by response type and outcome",
         &["response_type", "outcome"]
     ).unwrap();
