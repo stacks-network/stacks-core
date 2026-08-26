@@ -31,9 +31,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use clarity::vm::contexts::{AssetMap, AssetMapEntry};
-use clarity::vm::errors::{VmExecutionError, VmInternalError};
 use clarity_types::Value;
+use clarity_types::effects::{AssetMap, AssetMapEntry};
+use clarity_types::types::serialization::SerializationError;
 use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
@@ -50,15 +50,11 @@ mod tests;
 struct HashableClarityValue(Value);
 
 impl TryFrom<Value> for HashableClarityValue {
-    type Error = VmExecutionError;
+    type Error = SerializationError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         // check that serialization _will_ be successful when hashed
-        let _bytes = value.serialize_to_vec().map_err(|_| {
-            VmExecutionError::Internal(VmInternalError::Expect(
-                "Failed to serialize asset in NFT during post-condition checks".into(),
-            ))
-        })?;
+        let _bytes = value.serialize_to_vec()?;
         Ok(Self(value))
     }
 }
@@ -146,7 +142,7 @@ pub fn check_transaction_postconditions(
     origin_principal: &PrincipalData,
     asset_map: &AssetMap,
     epoch_id: StacksEpochId,
-) -> Result<Option<String>, VmExecutionError> {
+) -> Result<Option<String>, SerializationError> {
     let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
         HashMap::new();
     let mut checked_nonfungible_assets: HashMap<

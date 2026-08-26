@@ -19,7 +19,7 @@
 //! pipeline tests that exercise these through the node stay in
 //! `stackslib::chainstate::stacks::db::transactions`.
 
-use clarity::vm::contexts::AssetMap;
+use clarity_types::effects::AssetMap;
 use clarity_types::types::{
     AssetIdentifier, QualifiedContractIdentifier, StacksAddressExtensions, StandardPrincipalData,
 };

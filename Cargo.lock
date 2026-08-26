@@ -4560,7 +4560,6 @@ dependencies = [
 name = "stacks-postconditions"
 version = "0.1.0"
 dependencies = [
- "clarity 0.0.1",
  "clarity-types 0.0.1",
  "pinny",
  "proptest",

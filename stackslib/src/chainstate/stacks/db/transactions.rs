@@ -27,6 +27,7 @@ use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::representations::ClarityName;
 use clarity::vm::resource_limiter::ResourceBudget;
+use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::{
     BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExt, TupleData, TypeSignature, Value,
@@ -669,7 +670,7 @@ impl StacksChainState {
         asset_map: &AssetMap,
         epoch_id: StacksEpochId,
         txid: Txid,
-    ) -> Result<Option<String>, VmExecutionError> {
+    ) -> Result<Option<String>, SerializationError> {
         let result = stacks_postconditions::check_transaction_postconditions(
             post_conditions,
             post_condition_mode,
