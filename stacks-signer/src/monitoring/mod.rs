@@ -357,6 +357,7 @@ pub mod actions {
 #[cfg(not(feature = "monitoring_prom"))]
 pub mod actions {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+    use libsigner::v0::messages::RejectReason;
     use stacks_common::info;
 
     use crate::monitoring::{
@@ -364,7 +365,6 @@ pub mod actions {
     };
     use crate::v0::signer_state::LocalStateMachine;
     use crate::GlobalConfig;
-    use libsigner::v0::messages::RejectReason;
 
     /// Update stacks tip height gauge
     pub fn update_stacks_tip_height(_height: i64) {}
