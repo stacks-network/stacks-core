@@ -98,7 +98,7 @@ jobs:
             -p clarity-types \
             -p stacks-common \
             -p stacks-codec \
-            -p stacks-postconditions \
+            -p stacks-transactions \
             --each-feature \
             --no-dev-deps \
             --exclude-features=default,rusqlite,ctrlc-handler,wasm-deterministic,testing \

@@ -1,1 +1,0 @@
-Moved transaction post-condition verification out of `stackslib` into a new `stacks-postconditions` crate, so that it can be used in WASM environments and can eventually be de-coupled from Clarity

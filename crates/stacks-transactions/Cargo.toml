@@ -1,5 +1,5 @@
 [package]
-name = "stacks-postconditions"
+name = "stacks-transactions"
 version = "0.1.0"
 authors = [
     "Jude Nelson <jude@stacks.org>",
@@ -9,18 +9,18 @@ authors = [
 license = "GPL-3.0"
 homepage = "https://github.com/stacks-network/stacks-core"
 repository = "https://github.com/stacks-network/stacks-core"
-description = "Transaction post-condition verification for the Stacks blockchain"
-keywords = ["stacks", "stx", "blockchain", "post-conditions"]
+description = "Transaction logic for the Stacks blockchain, independent of node and chainstate"
+keywords = ["stacks", "stx", "blockchain", "transactions"]
 edition = "2024"
 
 [lib]
-name = "stacks_postconditions"
+name = "stacks_transactions"
 path = "src/lib.rs"
 
 [dependencies]
-clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false }
-stacks-codec = { package = "stacks-codec", path = "../stacks-codec", default-features = false }
-stacks-common = { package = "stacks-common", path = "../stacks-common", default-features = false }
+clarity-types = { package = "clarity-types", path = "../../clarity-types", default-features = false }
+stacks-codec = { package = "stacks-codec", path = "../../stacks-codec", default-features = false }
+stacks-common = { package = "stacks-common", path = "../../stacks-common", default-features = false }
 
 [dev-dependencies]
 pinny = { workspace = true }

@@ -629,7 +629,7 @@ impl StacksChainState {
             }
         }
 
-        stacks_postconditions::check_post_conditions_supported_in_epoch(
+        stacks_transactions::check_post_conditions_supported_in_epoch(
             &tx.post_conditions,
             &tx.post_condition_mode,
             epoch_id,
@@ -661,7 +661,7 @@ impl StacksChainState {
     }
 
     /// Project the node's [`StacksAccount`] onto the origin principal that
-    /// [`stacks_postconditions::check_transaction_postconditions`] needs.
+    /// [`stacks_transactions::check_transaction_postconditions`] needs.
     /// Returns `Ok(Some(reason))` if the check fails.
     fn check_transaction_postconditions(
         post_conditions: &[TransactionPostCondition],
@@ -671,7 +671,7 @@ impl StacksChainState {
         epoch_id: StacksEpochId,
         txid: Txid,
     ) -> Result<Option<String>, SerializationError> {
-        let result = stacks_postconditions::check_transaction_postconditions(
+        let result = stacks_transactions::check_transaction_postconditions(
             post_conditions,
             post_condition_mode,
             &origin_account.principal,

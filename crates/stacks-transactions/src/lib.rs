@@ -14,20 +14,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Transaction post-condition verification for the Stacks blockchain.
+//! Transaction logic for the Stacks blockchain.
 //!
-//! Post-conditions constrain the assets a transaction is allowed to move. Two
-//! checks define that constraint, and both are required:
-//! [`check_post_conditions_supported_in_epoch`] rejects variants and modes not
-//! yet activated in the current epoch, before execution;
+//! This crate holds the parts of transaction handling that are a pure function
+//! of the transaction and the effects of executing it: no database, no
+//! chainstate, and nothing specific to any one contract language. That lets a
+//! Wasm SDK run the same consensus-critical code mainnet does.
+//!
+//! Today that is post-condition verification. Post-conditions constrain the
+//! assets a transaction is allowed to move. Two checks define that constraint,
+//! and both are required: [`check_post_conditions_supported_in_epoch`] rejects
+//! variants and modes not yet activated in the current epoch, before execution;
 //! [`check_transaction_postconditions`] compares the declared post-conditions
 //! against the [`AssetMap`] of what actually moved, after execution. The latter
-//! runs in every epoch, so it does not subsume the former.
-//!
-//! These live outside the node, and outside any one contract language, because
-//! they need only the codec post-condition types, an [`AssetMap`], the origin
-//! principal and the epoch — no database or chainstate. That lets a Wasm SDK
-//! run the same consensus-critical code mainnet does.
+//! runs in every epoch, so it does not subsume the former. Together they need
+//! only the codec post-condition types, an [`AssetMap`], the origin principal
+//! and the epoch.
 
 use std::collections::{HashMap, HashSet};
 

@@ -572,7 +572,7 @@ impl StacksBlock {
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
     ) -> bool {
-        if let Err(reason) = stacks_postconditions::check_post_conditions_supported_in_epoch(
+        if let Err(reason) = stacks_transactions::check_post_conditions_supported_in_epoch(
             &tx.post_conditions,
             &tx.post_condition_mode,
             epoch_id,
