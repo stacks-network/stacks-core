@@ -144,7 +144,7 @@ const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
 /// phase of a transaction before timing out.
 const DEFAULT_MAX_ANALYSIS_TIME_SECS: u64 = 30;
 /// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
-const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 10;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
 pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Default maximum memory allocation during miner block assembly
@@ -430,6 +430,14 @@ pub struct Config {
 }
 
 impl Config {
+    /// Whether any allocation-limit is enabled (it requires the
+    /// tracking allocator to be installed as the global allocator).
+    pub fn memory_limit_configured(&self) -> bool {
+        self.miner.max_assembly_mem_bytes > 0
+            || self.connection_options.block_proposal_max_tx_mem_bytes > 0
+            || self.connection_options.read_only_call_max_mem_bytes > 0
+    }
+
     /// get the up-to-date burnchain options from the config.
     /// If the config file can't be loaded, then return the existing config
     pub fn get_burnchain_config(&self) -> BurnchainConfig {
