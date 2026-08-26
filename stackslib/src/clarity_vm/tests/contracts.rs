@@ -2015,6 +2015,65 @@ fn test_wasm_dynamic_dispatch_validation() {
     });
 }
 
+/// Regression test: the Wasm `call_function` entry point validated arguments
+/// with a plain `admits` check, rejecting contract principals passed for
+/// trait-typed parameters — which the interpreter accepts via the Clarity 1
+/// trait rules and the Clarity 2+ implicit cast (transactions pass trait
+/// arguments as principals).
+#[test]
+#[cfg(feature = "clarity-wasm")]
+fn test_wasm_call_function_accepts_principal_for_trait_arg() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2, 3, 4, 5, 6, 7];
+
+    let trait_def_id = QualifiedContractIdentifier::local("simple-trait").unwrap();
+    let dispatch_id = QualifiedContractIdentifier::local("dispatch").unwrap();
+    let impl_id = QualifiedContractIdentifier::local("good-impl").unwrap();
+    let sender: PrincipalData = StacksAddress::burn_address(false).into();
+
+    let trait_def_src = "(define-trait simple ((do-it () (response bool uint))))";
+    let dispatch_src = "
+        (use-trait simple-trait .simple-trait.simple)
+        (define-public (call-it (t <simple-trait>))
+          (contract-call? t do-it))
+    ";
+    let impl_src = "(define-public (do-it) (if true (ok true) (err u1)))";
+
+    // Advance to epoch 3.0
+    while sim.block_height <= 7 {
+        sim.execute_next_block(|_env| {});
+    }
+
+    sim.execute_next_block_as_conn(|conn| {
+        let epoch = conn.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch);
+        for (id, src) in [
+            (&trait_def_id, trait_def_src),
+            (&dispatch_id, dispatch_src),
+            (&impl_id, impl_src),
+        ] {
+            publish_wasm_contract(conn, id, src, clarity_version);
+        }
+    });
+
+    sim.execute_next_block_as_conn(|conn| {
+        conn.as_transaction(|clarity_db| {
+            let (value, ..) = clarity_db
+                .run_contract_call(
+                    &sender,
+                    None,
+                    &dispatch_id,
+                    "call-it",
+                    &[Value::Principal(PrincipalData::Contract(impl_id.clone()))],
+                    |_, _| None,
+                    &ResourceBudget::unlimited(),
+                )
+                .unwrap();
+            assert_eq!(Value::okay(Value::Bool(true)).unwrap(), value);
+        });
+    });
+}
+
 /// Regression test: a Wasm-compiled contract statically calling into a
 /// contract published by the interpreter used to fail with
 /// `Wasm(Expect("Function should be typed"))`, because interpreter-published
