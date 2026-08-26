@@ -1,0 +1,2 @@
+`read_only_call_max_mem_bytes` now caps each read-only RPC request end to end: parsing the body's Clarity values (call arguments and map keys) counts toward the same per-request limit as execution, and requests whose parsing exceeds it are rejected with HTTP 400.
+Read-only call RPC endpoints now cap the `arguments` array at 262,144 entries, even when `read_only_call_max_mem_bytes` is `0`.

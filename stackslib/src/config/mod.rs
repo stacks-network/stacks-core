@@ -144,7 +144,7 @@ const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
 /// phase of a transaction before timing out.
 const DEFAULT_MAX_ANALYSIS_TIME_SECS: u64 = 30;
 /// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
-const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 10;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
 pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Default maximum memory allocation during miner block assembly
@@ -430,6 +430,14 @@ pub struct Config {
 }
 
 impl Config {
+    /// Whether any allocation-limit is enabled (it requires the
+    /// tracking allocator to be installed as the global allocator).
+    pub fn memory_limit_configured(&self) -> bool {
+        self.miner.max_assembly_mem_bytes > 0
+            || self.connection_options.block_proposal_max_tx_mem_bytes > 0
+            || self.connection_options.read_only_call_max_mem_bytes > 0
+    }
+
     /// get the up-to-date burnchain options from the config.
     /// If the config file can't be loaded, then return the existing config
     pub fn get_burnchain_config(&self) -> BurnchainConfig {
@@ -1067,6 +1075,9 @@ impl Config {
                         events_keys,
                         timeout_ms: observer.timeout_ms.unwrap_or(1_000),
                         disable_retries: observer.disable_retries.unwrap_or(false),
+                        disable_contract_interface: observer
+                            .disable_contract_interface
+                            .unwrap_or(false),
                     });
                 }
                 observers
@@ -1081,6 +1092,7 @@ impl Config {
                 events_keys: vec![EventKeyType::AnyEvent],
                 timeout_ms: 1_000,
                 disable_retries: false,
+                disable_contract_interface: false,
             });
         };
 
@@ -4810,6 +4822,17 @@ pub struct EventObserverConfigFile {
     ///   - **Warning:** Setting this to `true` can lead to missed events if the
     ///     observer endpoint is temporarily unavailable or experiences issues.
     pub disable_retries: Option<bool>,
+    /// Controls whether the generated contract interface (ABI) is included in the
+    /// event payloads sent to this observer.
+    ///
+    /// If `true`, the `contract_interface` field of every transaction in `new_block`
+    /// and `new_microblocks` event payloads sent to this observer is emitted as
+    /// `null`, regardless of whether the transaction deployed a contract. This only
+    /// affects the event stream sent to this observer; it does not affect consensus,
+    /// block validation, other observers, or any other event field.
+    /// ---
+    /// @default: `false` (contract interfaces are included)
+    pub disable_contract_interface: Option<bool>,
 }
 
 #[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
@@ -4818,6 +4841,7 @@ pub struct EventObserverConfig {
     pub events_keys: Vec<EventKeyType>,
     pub timeout_ms: u64,
     pub disable_retries: bool,
+    pub disable_contract_interface: bool,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]

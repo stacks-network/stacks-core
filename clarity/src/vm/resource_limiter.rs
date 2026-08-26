@@ -118,7 +118,7 @@ impl MemoryTracker {
     pub fn from_max_allocation(limit_bytes: u64) -> Self {
         if !tracking_allocator_installed() {
             error!(
-                "TrackingAllocator is not installed as the global allocator; any miner or signer configured memory limits will never trigger"
+                "TrackingAllocator is not installed as the global allocator; any configured memory limits will never trigger"
             );
         }
 
@@ -145,6 +145,35 @@ impl MemoryTracker {
                     Ok(())
                 }
             }
+        }
+    }
+
+    /// Reject an upcoming allocation of `bytes` that would exceed the limit,
+    /// so a known size can be refused before it is allocated.
+    pub fn check_can_allocate(&self, bytes: u64) -> Result<(), String> {
+        match self {
+            NoTracking => Ok(()),
+            MaxAllocated {
+                baseline,
+                limit_bytes,
+            } => {
+                let allocated = thread_allocated().net_allocated(baseline);
+                if allocated.saturating_add(bytes) > *limit_bytes {
+                    Err(format!(
+                        "Net memory allocation of {allocated} bytes plus {bytes} upcoming bytes exceeds budget of {limit_bytes} bytes."
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+
+    /// Net bytes allocated since the baseline. `None` for `NoTracking`.
+    pub fn net_allocated_bytes(&self) -> Option<u64> {
+        match self {
+            Self::NoTracking => None,
+            Self::MaxAllocated { baseline, .. } => Some(thread_allocated().net_allocated(baseline)),
         }
     }
 }
@@ -256,6 +285,19 @@ impl ResourceLimiter {
         self.mem_tracker
             .check_not_exceeded()
             .map_err(ResourceLimitExceeded::MaxAllocationExceeded)
+    }
+
+    /// Reject an upcoming allocation of `bytes` that would exceed the memory
+    /// limit. Prospective, unlike [`Self::check_not_exceeded`].
+    pub fn check_can_allocate(&self, bytes: u64) -> Result<(), ResourceLimitExceeded> {
+        self.mem_tracker
+            .check_can_allocate(bytes)
+            .map_err(ResourceLimitExceeded::MaxAllocationExceeded)
+    }
+
+    /// Net bytes allocated since the baseline. `None` if memory is untracked.
+    pub fn net_allocated_bytes(&self) -> Option<u64> {
+        self.mem_tracker.net_allocated_bytes()
     }
 }
 
