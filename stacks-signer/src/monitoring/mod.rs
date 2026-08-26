@@ -55,13 +55,13 @@ SignerAgreementStateConflict {
 pub mod actions {
     use ::prometheus::HistogramTimer;
     use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+    use libsigner::v0::signer_state::GlobalStateAgreementSnapshot;
     use stacks_common::error;
 
     use crate::config::GlobalConfig;
     use crate::monitoring::prometheus::*;
     use crate::monitoring::{SignerAgreementStateChangeReason, SignerAgreementStateConflict};
     use crate::v0::signer_state::LocalStateMachine;
-    use libsigner::v0::signer_state::GlobalStateAgreementSnapshot;
 
     /// Update stacks tip height gauge
     pub fn update_stacks_tip_height(height: i64) {
@@ -118,8 +118,7 @@ pub mod actions {
 
     /// Record a canonical burn height learned successfully from the configured node.
     pub fn update_node_burn_block_height(burn_block_height: u64) {
-        SIGNER_NODE_BURN_BLOCK_HEIGHT
-            .set(i64::try_from(burn_block_height).unwrap_or(i64::MAX));
+        SIGNER_NODE_BURN_BLOCK_HEIGHT.set(i64::try_from(burn_block_height).unwrap_or(i64::MAX));
     }
 
     /// Increment the block validation responses counter

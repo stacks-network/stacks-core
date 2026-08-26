@@ -75,8 +75,9 @@ pub enum LocalStateMachine {
 
 #[cfg(test)]
 mod metric_tests {
-    use super::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
     use stacks_common::types::chainstate::ConsensusHash;
+
+    use super::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
 
     #[test]
     fn local_state_reports_only_the_committed_burn_height() {
