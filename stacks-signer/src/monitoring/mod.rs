@@ -160,6 +160,7 @@ fn reject_reason_label(reason: &RejectReason) -> &'static str {
         RejectReason::ProblematicTransactions => "problematic_transactions",
         RejectReason::Unknown(_) => "unknown",
         RejectReason::NotRejected => "not_rejected",
+        RejectReason::ProposalTooOld => "proposal_too_old",
     }
 }
 
