@@ -7523,13 +7523,42 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                                 function_name.to_string(),
                             )),
                         )?;
-                        let return_ty = function
-                            .get_return_type()
-                            .as_ref()
-                            .ok_or(VmExecutionError::Wasm(WasmError::Expect(
-                                "Function should be typed".into(),
-                            )))?
-                            .clone();
+                        // Contracts published by the interpreter store `None`
+                        // for the return type in their `ContractContext`
+                        // (only the Wasm publish path populates it), so fall
+                        // back to the declared return type in the stored
+                        // contract analysis.
+                        let return_ty = match function.get_return_type() {
+                            Some(ty) => ty.clone(),
+                            None => {
+                                let analysis = caller
+                                    .data_mut()
+                                    .global_context
+                                    .database
+                                    .load_contract_analysis(contract_id)?;
+                                let function_type =
+                                    analysis.as_ref().and_then(|a| match function.define_type {
+                                        DefineType::Public => {
+                                            a.get_public_function_type(function_name.as_str())
+                                        }
+                                        DefineType::ReadOnly => {
+                                            a.get_read_only_function_type(function_name.as_str())
+                                        }
+                                        DefineType::Private => {
+                                            a.get_private_function(function_name.as_str())
+                                        }
+                                    });
+                                match function_type {
+                                    Some(FunctionType::Fixed(fixed)) => fixed.returns.clone(),
+                                    _ => {
+                                        return Err(VmExecutionError::Wasm(WasmError::Expect(
+                                            "Function should be typed".into(),
+                                        ))
+                                        .into());
+                                    }
+                                }
+                            }
+                        };
                         (function, return_ty, None)
                     }
                     Some(trait_id) => {
