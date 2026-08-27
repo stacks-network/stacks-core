@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Stacks Open Internet Foundation
+// Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -12,6 +12,9 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+//! Effects produced while executing Clarity code.
+
 mod asset_map;
-mod representations;
-mod types;
+
+pub use asset_map::{AssetMap, AssetMapEntry, AssetMapError};
