@@ -16,6 +16,7 @@
 use std::{error, fmt};
 
 use clarity_types::Value;
+pub use clarity_types::effects::AssetMapError;
 pub use clarity_types::errors::{ClarityTypeError, IncomparableError};
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::FunctionIdentifier;
@@ -286,6 +287,20 @@ impl From<RuntimeError> for VmExecutionError {
     }
 }
 
+impl From<AssetMapError> for VmExecutionError {
+    fn from(err: AssetMapError) -> Self {
+        match err {
+            AssetMapError::AmountOverflow => RuntimeError::ArithmeticOverflow.into(),
+            AssetMapError::BurnTotalOverflow => {
+                VmInternalError::Expect("BURN OVERFLOW".into()).into()
+            }
+            AssetMapError::StackingEntryConflict => {
+                RuntimeCheckErrorKind::PoxStxAssetMapOverwrite.into()
+            }
+        }
+    }
+}
+
 impl From<CommonCheckErrorKind> for VmExecutionError {
     fn from(err: CommonCheckErrorKind) -> Self {
         VmExecutionError::RuntimeCheck(err.into())
@@ -374,7 +389,26 @@ impl fmt::Display for ClarityEvalError {
 mod test {
     use clarity_types::Value;
 
-    use crate::vm::errors::{EarlyReturnError, VmExecutionError, VmInternalError};
+    use crate::vm::errors::{
+        AssetMapError, EarlyReturnError, RuntimeCheckErrorKind, RuntimeError, VmExecutionError,
+        VmInternalError,
+    };
+
+    #[test]
+    fn asset_map_errors_map_to_vm_errors() {
+        assert!(matches!(
+            VmExecutionError::from(AssetMapError::AmountOverflow),
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, None)
+        ));
+        assert_eq!(
+            VmExecutionError::from(AssetMapError::BurnTotalOverflow),
+            VmExecutionError::Internal(VmInternalError::Expect("BURN OVERFLOW".into()))
+        );
+        assert_eq!(
+            VmExecutionError::from(AssetMapError::StackingEntryConflict),
+            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::PoxStxAssetMapOverwrite)
+        );
+    }
 
     #[test]
     #[cfg(feature = "developer-mode")]
