@@ -1625,6 +1625,9 @@ impl Signer {
             );
             let rejection =
                 self.create_block_rejection(RejectReason::ProposalTooOld, &block_proposal.block);
+            crate::monitoring::actions::record_policy_evaluation(Some(
+                &rejection.response_data.reject_reason,
+            ));
             self.send_block_response(&block_proposal.block, rejection.into());
             return;
         }

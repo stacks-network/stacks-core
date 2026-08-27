@@ -5949,6 +5949,7 @@ fn block_validation_pending_table() {
 /// Test Assertion:
 /// - Each signer successfully rejects the recent invalid block proposal.
 /// - Each signer rejects the outdated block proposal with the ProposalTooOld reason.
+/// - The outdated proposal advances both policy counters when monitoring is enabled.
 /// - No signer accepts either block.
 /// - The stacks tip does not advance
 fn block_proposal_max_age_rejections() {
@@ -6054,6 +6055,32 @@ fn block_proposal_max_age_rejections() {
         Ok(block_2_status.0 > num_signers * 7 / 10 && block_1_status.0 > num_signers * 7 / 10)
     })
     .expect("Timed out waiting for block rejections");
+
+    #[cfg(feature = "monitoring_prom")]
+    wait_for(30, || {
+        use regex::Regex;
+
+        let metrics_response = signer_test.get_signer_metrics();
+        let evaluations = Regex::new(
+            r#"stacks_signer_policy_evaluations_total\{(?:action="reject",classification="verdict_reject"|classification="verdict_reject",action="reject")\} (\d+)"#,
+        )
+        .unwrap()
+        .captures(&metrics_response)
+        .and_then(|captures| captures.get(1))
+        .and_then(|value| value.as_str().parse::<u64>().ok());
+        let proposal_too_old = Regex::new(
+            r#"stacks_signer_policy_rejections_total\{reason="proposal_too_old"\} (\d+)"#,
+        )
+        .unwrap()
+        .captures(&metrics_response)
+        .and_then(|captures| captures.get(1))
+        .and_then(|value| value.as_str().parse::<u64>().ok());
+        let min_expected = (num_signers * 7 / 10) as u64;
+
+        Ok(evaluations.is_some_and(|count| count > min_expected)
+            && proposal_too_old.is_some_and(|count| count > min_expected))
+    })
+    .expect("Stale proposal policy metrics did not advance");
 
     info!("------------------------- Test Shutdown-------------------------");
     signer_test.shutdown();
