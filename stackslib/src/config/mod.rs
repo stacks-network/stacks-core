@@ -5212,7 +5212,7 @@ mod tests {
         let config = utils::config_from_valid_string("[node]");
 
         assert!(config.node.log_stackerdb_chunk_sources);
-        assert!(!NodeConfig::default().log_stackerdb_chunk_sources);
+        assert!(NodeConfig::default().log_stackerdb_chunk_sources);
 
         let config = utils::config_from_valid_string(
             r#"
