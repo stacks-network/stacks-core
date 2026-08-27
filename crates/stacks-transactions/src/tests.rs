@@ -988,7 +988,7 @@ fn test_check_postconditions_multiple_fts() {
             TransactionPostConditionMode::Deny,
             origin.clone(),
         ),
-        // one post-condition on origin in allow mode
+        // one post-condition on origin in deny mode
         (
             false,
             vec![TransactionPostCondition::Fungible(
@@ -1044,7 +1044,7 @@ fn test_check_postconditions_multiple_fts() {
             TransactionPostConditionMode::Deny,
             origin.clone(),
         ),
-        // two post-conditions on origin in allow mode
+        // two post-conditions on origin in deny mode
         (
             true,
             vec![
@@ -1140,7 +1140,7 @@ fn test_check_postconditions_multiple_fts() {
             TransactionPostConditionMode::Deny,
             origin.clone(),
         ),
-        // three post-conditions on origin in allow mode, one with sending 0 tokens
+        // three post-conditions on origin in deny mode, one with sending 0 tokens
         (
             true,
             vec![
@@ -1266,7 +1266,7 @@ fn test_check_postconditions_multiple_fts() {
             TransactionPostConditionMode::Deny,
             origin.clone(),
         ),
-        // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
+        // four post-conditions on origin in deny mode, one with sending 0 tokens, one with
         // an unchecked address and a vacuous amount
         (
             true,
@@ -1423,7 +1423,7 @@ fn test_check_postconditions_multiple_fts() {
             TransactionPostConditionMode::Deny,
             origin.clone(),
         ),
-        // one post-condition on origin in allow mode, explicit origin
+        // one post-condition on origin in deny mode, explicit origin
         (
             false,
             vec![TransactionPostCondition::Fungible(
@@ -1479,7 +1479,7 @@ fn test_check_postconditions_multiple_fts() {
             TransactionPostConditionMode::Deny,
             origin.clone(),
         ),
-        // two post-conditions on origin in allow mode, explicit origin
+        // two post-conditions on origin in deny mode, explicit origin
         (
             true,
             vec![
@@ -1575,7 +1575,7 @@ fn test_check_postconditions_multiple_fts() {
             TransactionPostConditionMode::Deny,
             origin.clone(),
         ),
-        // three post-conditions on origin in allow mode, one with sending 0 tokens, explicit
+        // three post-conditions on origin in deny mode, one with sending 0 tokens, explicit
         // origin
         (
             true,
@@ -1702,7 +1702,7 @@ fn test_check_postconditions_multiple_fts() {
             TransactionPostConditionMode::Deny,
             origin.clone(),
         ),
-        // four post-conditions on origin in allow mode, one with sending 0 tokens, one with
+        // four post-conditions on origin in deny mode, one with sending 0 tokens, one with
         // an unchecked address and a vacuous amount, explicit origin
         (
             true,

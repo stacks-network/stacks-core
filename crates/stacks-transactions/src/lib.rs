@@ -18,7 +18,9 @@
 //!
 //! This crate holds the parts of transaction handling that are a pure function
 //! of the transaction and the effects of executing it: no database, no
-//! chainstate, and nothing specific to any one contract language. That lets a
+//! chainstate, and no interpreter. It reads what a transaction actually moved
+//! from an [`AssetMap`], which is independent of the language that produced it,
+//! so the crate needs the Clarity *types* but not the Clarity VM. That lets a
 //! Wasm SDK run the same consensus-critical code mainnet does.
 //!
 //! Today that is post-condition verification. Post-conditions constrain the
@@ -94,8 +96,13 @@ impl std::fmt::Display for UnsupportedPostCondition {
 
 impl std::error::Error for UnsupportedPostCondition {}
 
-/// Reject post-condition variants and modes not yet activated in `epoch_id`,
-/// returning the first unsupported one found.
+/// Reject post-condition variants and modes not yet activated in `epoch_id`.
+///
+/// The checks run in a fixed order — post-condition mode, then NFT
+/// `MaybeSent`, then `Staking`/`Pox` — and the first failing check is
+/// returned. That order, not the order of `post_conditions`, decides which
+/// [`UnsupportedPostCondition`] a transaction with several unsupported
+/// features reports.
 pub fn check_post_conditions_supported_in_epoch(
     post_conditions: &[TransactionPostCondition],
     post_condition_mode: &TransactionPostConditionMode,
@@ -132,7 +139,8 @@ pub fn check_post_conditions_supported_in_epoch(
 /// Apply a post-conditions check.
 /// Return `Ok(None)` if the check passes.
 /// Return `Ok(Some(reason))` if the check fails.
-/// Return `Err` if the check cannot be performed.
+/// Return `Err` if a non-fungible asset value cannot be serialized, which is
+/// required in order to hash it for comparison.
 ///
 /// TODO: return a typed reason rather than a `String`. It becomes
 /// `StacksTransactionReceipt::vm_error`, which reaches the `new_block` event
