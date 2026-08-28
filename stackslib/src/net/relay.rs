@@ -39,6 +39,7 @@ use crate::chainstate::nakamoto::coordinator::{
 };
 use crate::chainstate::nakamoto::staging_blocks::NakamotoBlockObtainMethod;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{StacksBlockHeader, TransactionPayload};
@@ -52,6 +53,7 @@ use crate::net::stackerdb::{
     StackerDBConfig, StackerDBEventDispatcher, StackerDBSyncResult, StackerDBs,
 };
 use crate::net::{Error as net_error, *};
+use crate::util_lib::boot::boot_code_id;
 
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
@@ -59,6 +61,10 @@ pub const MAX_RELAYER_STATS: usize = 4096;
 pub const MAX_RECENT_MESSAGES: usize = 256;
 pub const MAX_RECENT_MESSAGE_AGE: usize = 600; // seconds; equal to the expected epoch length
 pub const RELAY_DUPLICATE_INFERENCE_WARMUP: usize = 128;
+/// Give a locally-uploaded miner proposal one more bounded fanout opportunity before its
+/// StackerDB slot can be overwritten. Only origin uploads are scheduled, so relays do not
+/// multiply this retry at each hop.
+pub const MINERS_STACKERDB_REBROADCAST_DELAY_MS: u128 = 5_000;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod fault_injection {
@@ -116,6 +122,8 @@ pub struct Relayer {
     /// Maps to tenure ID and timestamp, so we can garbage-collect.
     /// Timestamp is in milliseconds
     recently_sent_nakamoto_blocks: HashMap<StacksBlockId, (ConsensusHash, u128)>,
+    /// One-shot retries for locally HTTP-uploaded `.miners` chunks.
+    pending_miners_stackerdb_rebroadcasts: Vec<(u128, StackerDBPushChunkData)>,
 }
 
 #[derive(Debug)]
@@ -580,6 +588,7 @@ impl Relayer {
             connection_opts,
             stacker_dbs,
             recently_sent_nakamoto_blocks: HashMap::new(),
+            pending_miners_stackerdb_rebroadcasts: vec![],
         }
     }
 
@@ -2342,38 +2351,122 @@ impl Relayer {
         uploaded_chunks: Vec<StackerDBPushChunkData>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) {
-        if let Some(observer) = event_observer {
-            let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
-                HashMap::new();
-            for chunk in uploaded_chunks.into_iter() {
-                // forward if not stale
-                if chunk.rc_consensus_hash != *rc_consensus_hash {
-                    debug!("Drop stale uploaded StackerDB chunk";
+        self.process_uploaded_stackerdb_chunks_at(
+            get_epoch_time_ms(),
+            rc_consensus_hash,
+            uploaded_chunks,
+            event_observer,
+        );
+    }
+
+    fn process_uploaded_stackerdb_chunks_at(
+        &mut self,
+        now: u128,
+        rc_consensus_hash: &ConsensusHash,
+        uploaded_chunks: Vec<StackerDBPushChunkData>,
+        event_observer: Option<&dyn StackerDBEventDispatcher>,
+    ) {
+        let mut pending = mem::take(&mut self.pending_miners_stackerdb_rebroadcasts);
+
+        let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
+            HashMap::new();
+        for chunk in uploaded_chunks.into_iter() {
+            // forward if not stale
+            if chunk.rc_consensus_hash != *rc_consensus_hash {
+                debug!("Drop stale uploaded StackerDB chunk";
                            "stackerdb_contract_id" => %chunk.contract_id,
                            "slot_id" => chunk.chunk_data.slot_id,
                            "slot_version" => chunk.chunk_data.slot_version,
                            "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
                            "network.rc_consensus_hash" => %rc_consensus_hash);
-                    continue;
-                }
+                continue;
+            }
 
+            if event_observer.is_some() {
                 if let Some(events) = all_events.get_mut(&chunk.contract_id) {
                     events.push(chunk.chunk_data.clone());
                 } else {
                     all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
                 }
+            }
 
-                debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => %chunk.contract_id, "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
+            debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => %chunk.contract_id, "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
 
-                let msg = StacksMessageType::StackerDBPushChunk(chunk);
-                if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
-                    warn!("Failed to broadcast Nakamoto blocks: {e:?}");
+            let schedule_retry = chunk.contract_id == boot_code_id(MINERS_NAME, true)
+                || chunk.contract_id == boot_code_id(MINERS_NAME, false);
+            let msg = StacksMessageType::StackerDBPushChunk(chunk.clone());
+            if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
+                warn!("Failed to broadcast StackerDB chunk: {e:?}");
+            }
+            if schedule_retry {
+                let previous = pending.iter_mut().find(|(_, pending_chunk)| {
+                    pending_chunk.contract_id == chunk.contract_id
+                        && pending_chunk.chunk_data.slot_id == chunk.chunk_data.slot_id
+                });
+                if let Some((retry_at, pending_chunk)) = previous {
+                    if pending_chunk.rc_consensus_hash != chunk.rc_consensus_hash
+                        || pending_chunk.chunk_data.slot_version <= chunk.chunk_data.slot_version
+                    {
+                        *retry_at = now + MINERS_STACKERDB_REBROADCAST_DELAY_MS;
+                        *pending_chunk = chunk;
+                    }
+                } else {
+                    pending.push((now + MINERS_STACKERDB_REBROADCAST_DELAY_MS, chunk));
                 }
             }
+        }
+
+        pending.retain(|(retry_at, chunk)| {
+            if chunk.rc_consensus_hash != *rc_consensus_hash {
+                debug!("Drop stale delayed StackerDB rebroadcast";
+                    "stackerdb_contract_id" => %chunk.contract_id,
+                    "slot_id" => chunk.chunk_data.slot_id,
+                    "slot_version" => chunk.chunk_data.slot_version);
+                return false;
+            }
+            if *retry_at > now {
+                return true;
+            }
+
+            match self
+                .stacker_dbs
+                .get_slot_metadata(&chunk.contract_id, chunk.chunk_data.slot_id)
+            {
+                Ok(Some(metadata)) if metadata.slot_version > chunk.chunk_data.slot_version => {
+                    debug!("Drop locally superseded delayed StackerDB rebroadcast";
+                        "stackerdb_contract_id" => %chunk.contract_id,
+                        "slot_id" => chunk.chunk_data.slot_id,
+                        "slot_version" => chunk.chunk_data.slot_version,
+                        "local_slot_version" => metadata.slot_version);
+                    return false;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    warn!("Failed to inspect local StackerDB slot before delayed rebroadcast";
+                        "stackerdb_contract_id" => %chunk.contract_id,
+                        "slot_id" => chunk.chunk_data.slot_id,
+                        "error" => ?e);
+                }
+            }
+
+            debug!("Rebroadcast locally-uploaded .miners StackerDB chunk";
+                "slot_id" => chunk.chunk_data.slot_id,
+                "slot_version" => chunk.chunk_data.slot_version);
+            if let Err(e) = self
+                .p2p
+                .broadcast_message(vec![], StacksMessageType::StackerDBPushChunk(chunk.clone()))
+            {
+                warn!("Failed to rebroadcast .miners StackerDB chunk: {e:?}");
+            }
+            false
+        });
+
+        if let Some(observer) = event_observer {
             for (contract_id, new_chunks) in all_events.into_iter() {
                 observer.new_stackerdb_chunks(contract_id, new_chunks);
             }
         }
+        self.pending_miners_stackerdb_rebroadcasts = pending;
     }
 
     /// Process newly-arrived chunks obtained from a peer stackerdb replica.
@@ -2444,7 +2537,10 @@ impl Relayer {
                             rc_consensus_hash: rc_consensus_hash.clone(),
                             chunk_data: chunk,
                         });
-                        if let Err(e) = self.p2p.broadcast_message(vec![], msg) {
+                        if let Err(e) = self
+                            .p2p
+                            .broadcast_message(sync_result.relay_hints.clone(), msg)
+                        {
                             warn!("Failed to broadcast StackerDB chunk: {e:?}");
                         }
                     }
@@ -2469,15 +2565,25 @@ impl Relayer {
         &mut self,
         rc_consensus_hash: &ConsensusHash,
         stackerdb_configs: &HashMap<QualifiedContractIdentifier, StackerDBConfig>,
-        stackerdb_chunks: Vec<StackerDBPushChunkData>,
+        stackerdb_chunks: Vec<(Vec<RelayData>, StackerDBPushChunkData)>,
         event_observer: Option<&dyn StackerDBEventDispatcher>,
     ) -> Result<(), Error> {
         // synthesize StackerDBSyncResults from each chunk
         let sync_results = stackerdb_chunks
             .into_iter()
-            .map(|chunk_data| {
-                debug!("Received pushed StackerDB chunk {chunk_data:?}");
-                let sync_result = StackerDBSyncResult::from_pushed_chunk(chunk_data);
+            .map(|(relay_hints, chunk_data)| {
+                if chunk_data.contract_id == boot_code_id(MINERS_NAME, true)
+                    || chunk_data.contract_id == boot_code_id(MINERS_NAME, false)
+                {
+                    // A received `.miners` push is rare (one per block proposal), and the time
+                    // at which each node first saw a proposal is the primary diagnostic for
+                    // proposal-propagation stalls, so log it at INFO.
+                    info!("Received pushed .miners StackerDB chunk";
+                        "slot_id" => chunk_data.chunk_data.slot_id,
+                        "slot_version" => chunk_data.chunk_data.slot_version,
+                        "data_hash" => %chunk_data.chunk_data.data_hash());
+                }
+                let sync_result = StackerDBSyncResult::from_pushed_chunk(relay_hints, chunk_data);
                 sync_result
             })
             .collect();
@@ -3364,5 +3470,228 @@ impl PeerNetwork {
                 self.relayer_stats.add_relayed_message((*nk).clone(), tx);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::TryRecvError;
+
+    use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+    use stacks_common::util::secp256k1::MessageSignature;
+
+    use super::*;
+    use crate::net::p2p::{NetworkHandle, NetworkRequest};
+    /// An HTTP-uploaded StackerDB chunk is broadcast to peers whether or not an event observer
+    /// is attached.
+    #[test]
+    fn uploaded_chunk_is_broadcast_without_event_observer() {
+        let (requests, handle) = NetworkHandle::test_channel(4);
+        let mut relayer = Relayer::new(
+            handle,
+            ConnectionOptions::default(),
+            StackerDBs::connect_memory(),
+        );
+        let rc_consensus_hash = ConsensusHash([0x11; 20]);
+        let chunk = StackerDBPushChunkData {
+            contract_id: QualifiedContractIdentifier::transient(),
+            rc_consensus_hash: rc_consensus_hash.clone(),
+            chunk_data: StackerDBChunkData {
+                slot_id: 1,
+                slot_version: 2,
+                sig: MessageSignature::empty(),
+                data: vec![3],
+            },
+        };
+
+        relayer.process_uploaded_stackerdb_chunks(&rc_consensus_hash, vec![chunk.clone()], None);
+        match requests.try_recv().unwrap() {
+            NetworkRequest::Broadcast(relay_hints, StacksMessageType::StackerDBPushChunk(sent)) => {
+                assert!(relay_hints.is_empty());
+                assert_eq!(sent, chunk);
+            }
+            request => panic!("unexpected network request: {request:?}"),
+        }
+        assert!(matches!(requests.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn uploaded_miners_chunk_is_broadcast_once_then_retried_once() {
+        let (requests, handle) = NetworkHandle::test_channel(4);
+        let mut relayer = Relayer::new(
+            handle,
+            ConnectionOptions::default(),
+            StackerDBs::connect_memory(),
+        );
+        let rc_consensus_hash = ConsensusHash([0x11; 20]);
+        let chunk = StackerDBPushChunkData {
+            contract_id: boot_code_id(MINERS_NAME, false),
+            rc_consensus_hash: rc_consensus_hash.clone(),
+            chunk_data: StackerDBChunkData {
+                slot_id: 1,
+                slot_version: 2,
+                sig: MessageSignature::empty(),
+                data: vec![3],
+            },
+        };
+
+        relayer.process_uploaded_stackerdb_chunks_at(
+            100,
+            &rc_consensus_hash,
+            vec![chunk.clone()],
+            None,
+        );
+        match requests.try_recv().unwrap() {
+            NetworkRequest::Broadcast(relay_hints, StacksMessageType::StackerDBPushChunk(sent)) => {
+                assert!(relay_hints.is_empty());
+                assert_eq!(sent, chunk);
+            }
+            request => panic!("unexpected network request: {request:?}"),
+        }
+
+        relayer.process_uploaded_stackerdb_chunks_at(
+            100 + MINERS_STACKERDB_REBROADCAST_DELAY_MS - 1,
+            &rc_consensus_hash,
+            vec![],
+            None,
+        );
+        assert!(matches!(requests.try_recv(), Err(TryRecvError::Empty)));
+
+        relayer.process_uploaded_stackerdb_chunks_at(
+            100 + MINERS_STACKERDB_REBROADCAST_DELAY_MS,
+            &rc_consensus_hash,
+            vec![],
+            None,
+        );
+        match requests.try_recv().unwrap() {
+            NetworkRequest::Broadcast(relay_hints, StacksMessageType::StackerDBPushChunk(sent)) => {
+                assert!(relay_hints.is_empty());
+                assert_eq!(sent, chunk);
+            }
+            request => panic!("unexpected network request: {request:?}"),
+        }
+
+        relayer.process_uploaded_stackerdb_chunks_at(
+            100 + 2 * MINERS_STACKERDB_REBROADCAST_DELAY_MS,
+            &rc_consensus_hash,
+            vec![],
+            None,
+        );
+        assert!(matches!(requests.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn newer_uploaded_miners_chunk_supersedes_pending_retry() {
+        let (requests, handle) = NetworkHandle::test_channel(4);
+        let mut relayer = Relayer::new(
+            handle,
+            ConnectionOptions::default(),
+            StackerDBs::connect_memory(),
+        );
+        let rc_consensus_hash = ConsensusHash([0x11; 20]);
+        let chunk_v1 = StackerDBPushChunkData {
+            contract_id: boot_code_id(MINERS_NAME, false),
+            rc_consensus_hash: rc_consensus_hash.clone(),
+            chunk_data: StackerDBChunkData {
+                slot_id: 1,
+                slot_version: 1,
+                sig: MessageSignature::empty(),
+                data: vec![1],
+            },
+        };
+        let mut chunk_v2 = chunk_v1.clone();
+        chunk_v2.chunk_data.slot_version = 2;
+        chunk_v2.chunk_data.data = vec![2];
+
+        relayer.process_uploaded_stackerdb_chunks_at(100, &rc_consensus_hash, vec![chunk_v1], None);
+        assert!(matches!(
+            requests.try_recv(),
+            Ok(NetworkRequest::Broadcast(
+                _,
+                StacksMessageType::StackerDBPushChunk(_)
+            ))
+        ));
+
+        // The newer upload must suppress the old due retry before it is broadcast.
+        relayer.process_uploaded_stackerdb_chunks_at(
+            100 + MINERS_STACKERDB_REBROADCAST_DELAY_MS,
+            &rc_consensus_hash,
+            vec![chunk_v2.clone()],
+            None,
+        );
+        match requests.try_recv().unwrap() {
+            NetworkRequest::Broadcast(_, StacksMessageType::StackerDBPushChunk(sent)) => {
+                assert_eq!(sent, chunk_v2);
+            }
+            request => panic!("unexpected network request: {request:?}"),
+        }
+
+        relayer.process_uploaded_stackerdb_chunks_at(
+            100 + 2 * MINERS_STACKERDB_REBROADCAST_DELAY_MS,
+            &rc_consensus_hash,
+            vec![],
+            None,
+        );
+        match requests.try_recv().unwrap() {
+            NetworkRequest::Broadcast(_, StacksMessageType::StackerDBPushChunk(sent)) => {
+                assert_eq!(sent, chunk_v2);
+            }
+            request => panic!("unexpected network request: {request:?}"),
+        }
+        assert!(matches!(requests.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn local_newer_miners_chunk_suppresses_pending_retry() {
+        let (requests, handle) = NetworkHandle::test_channel(4);
+        let mut relayer = Relayer::new(
+            handle,
+            ConnectionOptions::default(),
+            StackerDBs::connect_memory(),
+        );
+        let rc_consensus_hash = ConsensusHash([0x11; 20]);
+        let contract_id = boot_code_id(MINERS_NAME, false);
+        let signer_privkey = StacksPrivateKey::from_seed(&[42]);
+        let signer = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&signer_privkey));
+        let mut config = StackerDBConfig::noop();
+        config.signers = vec![(signer.clone(), 1)];
+        let tx = relayer.stacker_dbs.tx_begin(config).unwrap();
+        tx.create_stackerdb(&contract_id, &[(signer, 1)]).unwrap();
+        let mut local_chunk = StackerDBChunkData::new(0, 2, vec![2]);
+        local_chunk.sign(&signer_privkey).unwrap();
+        tx.try_replace_chunk(
+            &contract_id,
+            &local_chunk.get_slot_metadata(),
+            &local_chunk.data,
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let pending_chunk = StackerDBPushChunkData {
+            contract_id,
+            rc_consensus_hash: rc_consensus_hash.clone(),
+            chunk_data: StackerDBChunkData::new(0, 1, vec![1]),
+        };
+        relayer.process_uploaded_stackerdb_chunks_at(
+            100,
+            &rc_consensus_hash,
+            vec![pending_chunk],
+            None,
+        );
+        assert!(matches!(
+            requests.try_recv(),
+            Ok(NetworkRequest::Broadcast(
+                _,
+                StacksMessageType::StackerDBPushChunk(_)
+            ))
+        ));
+
+        relayer.process_uploaded_stackerdb_chunks_at(
+            100 + MINERS_STACKERDB_REBROADCAST_DELAY_MS,
+            &rc_consensus_hash,
+            vec![],
+            None,
+        );
+        assert!(matches!(requests.try_recv(), Err(TryRecvError::Empty)));
     }
 }

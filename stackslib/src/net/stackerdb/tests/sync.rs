@@ -22,6 +22,7 @@ use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksPublicKey,
 };
+use stacks_common::types::net::PeerAddress;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
@@ -29,7 +30,9 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::net::p2p::PeerNetwork;
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestPeer, TestPeerConfig};
-use crate::net::{Error as net_error, NetworkResult, StackerDBChunkData};
+use crate::net::{
+    Error as net_error, NeighborAddress, NetworkResult, StackerDBChunkData, StackerDBPushChunkData,
+};
 use crate::util_lib::test::with_timeout;
 
 const BASE_PORT: u16 = 33000;
@@ -1280,4 +1283,82 @@ fn test_validate_received_chunk_accepts_max_size() {
         .validate_received_chunk(&contract_id, &stackerdb_config, &chunk, &expected_versions)
         .unwrap();
     assert!(result, "a chunk within chunk_size must pass the size gate");
+}
+
+/// [`StackerDBSync::pushchunks_begin`] must consume a receiver whose send fails, exactly as it
+/// consumes one whose send succeeds: an unreachable neighbor at the head of a chunk's receiver
+/// list must not starve the chunk's push to the remaining receivers, and the state machine must
+/// still drain its schedule and report the round done.
+#[test]
+fn test_pushchunks_begin_consumes_failed_receiver() {
+    let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 120);
+    peer_config.allowed = -1;
+
+    let idx = add_stackerdb(&mut peer_config, Some(StackerDBConfig::template()));
+    let mut peer = TestPeer::new(peer_config);
+    setup_stackerdb(&mut peer, idx, true, 1);
+
+    let contract_id = peer.config.stacker_dbs[idx].clone();
+    let rc_consensus_hash = peer.network.get_chain_view().rc_consensus_hash.clone();
+
+    // Two receivers that are not connected peers, so `neighbor_send` fails with
+    // PeerNotConnected for each.
+    let dead_receiver_1 = NeighborAddress {
+        addrbytes: PeerAddress([1u8; 16]),
+        port: 1,
+        public_key_hash: Hash160([0x11; 20]),
+    };
+    let dead_receiver_2 = NeighborAddress {
+        addrbytes: PeerAddress([2u8; 16]),
+        port: 2,
+        public_key_hash: Hash160([0x22; 20]),
+    };
+
+    let chunk_push = StackerDBPushChunkData {
+        contract_id: contract_id.clone(),
+        rc_consensus_hash,
+        chunk_data: StackerDBChunkData::new(0, 1, vec![7u8; 32]),
+    };
+
+    let mut stacker_db_syncs = peer
+        .network
+        .stacker_db_syncs
+        .take()
+        .expect("network must hold stacker DB sync machines");
+    let sync = stacker_db_syncs
+        .get_mut(&contract_id)
+        .expect("sync machine must exist for the test stackerdb");
+
+    // Plant a push schedule directly (bypassing make_chunk_push_schedule) with both dead
+    // receivers queued behind one chunk.
+    sync.chunk_push_priorities = vec![(
+        chunk_push,
+        vec![dead_receiver_1.clone(), dead_receiver_2.clone()],
+    )];
+    sync.next_chunk_push_priority = 0;
+
+    // Pass 1: the send to dead_receiver_1 fails; the receiver must be consumed anyway.
+    let done = sync.pushchunks_begin(&mut peer.network).unwrap();
+    assert!(!done, "one receiver must remain after the first pass");
+    assert_eq!(
+        sync.chunk_push_priorities[0].1,
+        vec![dead_receiver_2.clone()],
+        "the failed receiver must be removed, not retried"
+    );
+    assert!(
+        sync.chunk_push_receipts.is_empty(),
+        "a failed send must not record a push receipt"
+    );
+
+    // Pass 2: the send to dead_receiver_2 fails; the schedule must drain and the state
+    // machine must report done instead of spinning on dead receivers forever.
+    let done = sync.pushchunks_begin(&mut peer.network).unwrap();
+    assert!(
+        done,
+        "all receivers consumed: pushchunks_begin must report done"
+    );
+    assert!(sync.chunk_push_priorities[0].1.is_empty());
+    assert!(sync.chunk_push_receipts.is_empty());
+
+    peer.network.stacker_db_syncs = Some(stacker_db_syncs);
 }
