@@ -333,6 +333,21 @@ impl LocalStateMachine {
             return Ok(());
         }
 
+        // Only revert to the prior miner if its tenure is the canonical Stacks tip's
+        // tenure. A miner only continues (extends) a tenure it won, so if the canonical
+        // tip is in some other tenure due to a Bitcoin reorg orphaning the prior
+        // sortition's tenure, the prior miner's node has already stopped mining and
+        // will never propose again.
+        let stacks_tip_ch = client.get_peer_info()?.stacks_tip_consensus_hash;
+        if sortition_data.consensus_hash != stacks_tip_ch {
+            warn!(
+                "Signer State: Current miner timed out due to inactivity, but the canonical stacks tip is not in the prior miner's tenure, so the prior miner cannot continue it. Allowing current miner to continue";
+                "stacks_tip_consensus_hash" => %stacks_tip_ch,
+                "prior_sortition_consensus_hash" => %sortition_data.consensus_hash,
+            );
+            return Ok(());
+        }
+
         if !last_sortition.is_tenure_valid(db, client, proposal_config, eval)? {
             warn!("Signer State: Current miner timed out due to inactivity, but prior miner is not valid. Allowing current miner to continue");
             return Ok(());
