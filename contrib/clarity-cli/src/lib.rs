@@ -119,34 +119,52 @@ pub fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
 
 /// Read text content from a file path or stdin if path is "-"
 pub fn read_file_or_stdin(path: &str) -> String {
-    if path == "-" {
-        let mut buffer = String::new();
-        io::stdin()
-            .read_to_string(&mut buffer)
-            .expect("Error reading from stdin");
-        buffer
-    } else {
-        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
-    }
+    friendly_expect(try_read_file_or_stdin(path), &read_error_message(path))
 }
 
 /// Read binary content from a file path or stdin if path is "-"
 pub fn read_file_or_stdin_bytes(path: &str) -> Vec<u8> {
+    friendly_expect(
+        try_read_file_or_stdin_bytes(path),
+        &read_error_message(path),
+    )
+}
+
+fn read_error_message(path: &str) -> String {
+    if path == "-" {
+        "Error reading from stdin".to_string()
+    } else {
+        format!("Error reading file {path}")
+    }
+}
+
+fn try_read_file_or_stdin(path: &str) -> io::Result<String> {
+    if path == "-" {
+        let mut buffer = String::new();
+        io::stdin().read_to_string(&mut buffer)?;
+        Ok(buffer)
+    } else {
+        fs::read_to_string(path)
+    }
+}
+
+fn try_read_file_or_stdin_bytes(path: &str) -> io::Result<Vec<u8>> {
     if path == "-" {
         let mut buffer = vec![];
-        io::stdin()
-            .read_to_end(&mut buffer)
-            .expect("Error reading from stdin");
-        buffer
+        io::stdin().read_to_end(&mut buffer)?;
+        Ok(buffer)
     } else {
-        fs::read(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
+        fs::read(path)
     }
 }
 
 /// Read content from an optional file path, defaulting to stdin if None or "-"
 pub fn read_optional_file_or_stdin(path: Option<&PathBuf>) -> String {
     match path {
-        Some(p) => read_file_or_stdin(p.to_str().expect("Invalid UTF-8 in path")),
+        Some(p) => read_file_or_stdin(friendly_expect_opt(
+            p.to_str(),
+            &format!("Invalid UTF-8 in path {}", p.display()),
+        )),
         None => read_file_or_stdin("-"),
     }
 }
@@ -2491,5 +2509,30 @@ mod test {
             result_json
         );
         assert!(result_json["error"]["runtime"] != json!(null));
+    }
+
+    #[test]
+    fn read_missing_file_is_an_error() {
+        let missing = format!("/tmp/missing_{}.clar", rand::thread_rng().r#gen::<i32>());
+
+        assert_eq!(
+            try_read_file_or_stdin(&missing).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            try_read_file_or_stdin_bytes(&missing).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+    }
+
+    #[test]
+    fn read_file_returns_its_contents() {
+        let path = format!("/tmp/read_{}.clar", rand::thread_rng().r#gen::<i32>());
+        fs::write(&path, "(ok u1)").unwrap();
+
+        assert_eq!(try_read_file_or_stdin(&path).unwrap(), "(ok u1)");
+        assert_eq!(try_read_file_or_stdin_bytes(&path).unwrap(), b"(ok u1)");
+
+        fs::remove_file(&path).unwrap();
     }
 }

@@ -1,0 +1,1 @@
+`clarity-cli` now prints an error and exits with status 1 when a file it was asked to read is missing or unreadable, instead of panicking with a backtrace.
