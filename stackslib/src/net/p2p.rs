@@ -95,6 +95,12 @@ impl NetworkHandle {
         NetworkHandle { chan_in }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_channel(bufsz: usize) -> (Receiver<NetworkRequest>, NetworkHandle) {
+        let (msg_send, msg_recv) = sync_channel(bufsz);
+        (msg_recv, NetworkHandle::new(msg_send))
+    }
+
     /// Send out a command to the p2p thread.  Do not bother waiting for the response.
     /// Error out if the channel buffer is out of space
     fn send_request(&mut self, req: NetworkRequest) -> Result<(), net_error> {
