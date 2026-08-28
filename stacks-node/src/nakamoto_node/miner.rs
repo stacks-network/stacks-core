@@ -67,6 +67,7 @@ use super::miner_db::MinerDB;
 use super::relayer::{MinerStopHandle, RelayerThread};
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
 use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
+use crate::nakamoto_node::stackerdb_listener::StackerDBListener;
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::neon_node;
 use crate::run_loop::nakamoto::Globals;
@@ -573,6 +574,9 @@ impl BlockMinerThread {
         let mut last_block_rejected = false;
 
         let reward_set = self.load_signer_set()?;
+        let latest_signers_chunks =
+            self.get_latest_signer_state_machine_chunks(&stackerdbs, &reward_set);
+
         let Some(miner_privkey) = self.config.miner.mining_key.clone() else {
             return Err(NakamotoNodeError::MinerConfigurationFailed(
                 "No mining key configured, cannot mine",
@@ -591,6 +595,7 @@ impl BlockMinerThread {
             self.event_dispatcher.stackerdb_channel.clone(),
             self.globals.should_keep_running.clone(),
             &reward_set,
+            latest_signers_chunks,
             &self.burn_election_block,
             &self.burnchain,
             miner_privkey,
@@ -2127,6 +2132,37 @@ impl BlockMinerThread {
             burn_view_consensus_hash: self.burn_block.consensus_hash.clone(),
         };
         self.mined_blocks = 0;
+    }
+
+    /// Get the StackerDB chunks representing the current state of the global signer
+    /// state machine. These are passed to the [`StackerDBListener`] (via the
+    /// [`SignerCoordinator`]) as its initial state upon which to apply any updates it
+    /// receives.
+    fn get_latest_signer_state_machine_chunks(
+        &self,
+        stackerdbs: &StackerDBs,
+        reward_set: &RewardSet,
+    ) -> Vec<Option<Vec<u8>>> {
+        let reward_cycle_id = self
+            .burnchain
+            .block_height_to_reward_cycle(self.burn_election_block.block_height)
+            .expect("FATAL: tried to initialize miner before first burn block height");
+
+        let signers_contract =
+            StackerDBListener::stacker_db_contract(self.config.is_mainnet(), reward_cycle_id);
+
+        let signer_count = reward_set
+            .signers()
+            .map(|s| u32::try_from(s.len()).unwrap_or_default())
+            .unwrap_or_default();
+
+        if signer_count == 0 {
+            return vec![];
+        }
+        let slot_ids: Vec<u32> = (0..signer_count).collect();
+        stackerdbs
+            .get_latest_chunks(&signers_contract, slot_ids.as_slice())
+            .unwrap_or_default()
     }
 }
 

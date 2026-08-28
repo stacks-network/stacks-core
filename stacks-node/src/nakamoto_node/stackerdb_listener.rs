@@ -21,12 +21,13 @@ use std::sync::LazyLock;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::v0::messages::{
     BlockAccepted, BlockResponse, MessageSlotID, RejectCode, SignerMessage as SignerMessageV0,
     StateMachineUpdate,
 };
 use libsigner::v0::signer_state::{GlobalStateEvaluator, SignerStateMachine};
-use libsigner::{SignerEntries, SignerEvent, SignerSession, StackerDBSession};
+use libsigner::{SignerEntries, SignerEvent};
 use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::nakamoto::NakamotoBlockHeader;
@@ -151,6 +152,7 @@ impl StackerDBListener {
         node_keep_running: Arc<AtomicBool>,
         keep_running: Arc<AtomicBool>,
         reward_set: &RewardSet,
+        latest_state_machine_chunks: Vec<Option<Vec<u8>>>,
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
         config: &Config,
@@ -196,29 +198,14 @@ impl StackerDBListener {
             })
             .collect::<Result<HashMap<_, _>, ChainstateError>>()?;
 
-        let signers_contract_id = MessageSlotID::StateMachineUpdate
-            .stacker_db_contract(config.is_mainnet(), reward_cycle_id);
-        let rpc_socket = config
-            .node
-            .get_rpc_loopback()
-            .ok_or_else(|| ChainstateError::MinerAborted)?;
-        let mut signers_session = StackerDBSession::new(
-            &rpc_socket.to_string(),
-            signers_contract_id.clone(),
-            config.miner.stackerdb_timeout,
-        );
         let entries: Vec<_> = signer_entries.values().cloned().collect();
         let parsed_entries = SignerEntries::parse(config.is_mainnet(), &entries)
             .expect("FATAL: could not parse retrieved signer entries");
         let address_weights = parsed_entries.signer_addr_to_weight;
         let slot_ids: Vec<_> = parsed_entries.signer_id_to_addr.keys().cloned().collect();
 
-        let chunks = signers_session
-            .get_latest_chunks(&slot_ids)
-            .inspect_err(|e| warn!("Unable to read the latest signer state from signer db: {e}."))
-            .unwrap_or_default();
         let mut global_state_evaluator = GlobalStateEvaluator::new(HashMap::new(), address_weights);
-        for (chunk, slot_id) in chunks.into_iter().zip(slot_ids) {
+        for (chunk, slot_id) in latest_state_machine_chunks.into_iter().zip(slot_ids) {
             let Some(chunk) = chunk else {
                 continue;
             };
@@ -251,6 +238,12 @@ impl StackerDBListener {
             is_mainnet: config.is_mainnet(),
             signer_read_count_timestamps: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    /// Returns the contract that a StackerDBListener actually cares about: The one with
+    /// the signer state machine updates.
+    pub fn stacker_db_contract(mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier {
+        MessageSlotID::StateMachineUpdate.stacker_db_contract(mainnet, reward_cycle)
     }
 
     pub fn get_comms(&self) -> StackerDBListenerComms {
