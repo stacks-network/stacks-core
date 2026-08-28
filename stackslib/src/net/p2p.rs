@@ -5683,6 +5683,26 @@ mod test {
         p2p
     }
 
+    /// Age pending and active peer connections so disconnect_unresponsive
+    /// observes each applicable timeout branch on its next pass.
+    fn age_unresponsive_connections(p2p: &mut PeerNetwork) {
+        let now = get_epoch_time_secs();
+        for peer in p2p.connecting.values_mut() {
+            peer.timestamp = now.saturating_sub(p2p.connection_opts.connect_timeout + 1);
+        }
+        for convo in p2p.peers.values_mut() {
+            if convo.is_authenticated() && convo.stats.last_contact_time > 0 {
+                convo.stats.last_contact_time = now.saturating_sub(
+                    (convo.peer_heartbeat as u64)
+                        + p2p.connection_opts.neighbor_request_timeout
+                        + 1,
+                );
+            } else {
+                convo.instantiated = now.saturating_sub(p2p.connection_opts.handshake_timeout + 1);
+            }
+        }
+    }
+
     #[test]
     fn test_event_id_no_connecting_leaks() {
         with_timeout(100, || {
@@ -5692,11 +5712,14 @@ mod test {
             use std::net::TcpListener;
             let listener = TcpListener::bind("127.0.0.1:2300").unwrap();
 
-            // start fake neighbor endpoint, which will accept once and wait 35 seconds
+            let (endpoint_release_sx, endpoint_release_rx) = sync_channel(1);
+
+            // start fake neighbor endpoint, which will accept once and stay open
+            // until the dispatcher has exercised unresponsive-peer cleanup.
             let endpoint_thread = thread::spawn(move || {
-                let (sock, addr) = listener.accept().unwrap();
+                let (_sock, addr) = listener.accept().unwrap();
                 test_debug!("Accepted {:?}", &addr);
-                thread::sleep(time::Duration::from_millis(35_000));
+                let _ = endpoint_release_rx.recv_timeout(time::Duration::from_secs(5));
             });
 
             p2p.bind(
@@ -5709,7 +5732,7 @@ mod test {
             // start dispatcher
             let p2p_thread = thread::spawn(move || {
                 let mut total_disconnected = 0;
-                for i in 0..40 {
+                for i in 0..10 {
                     test_debug!("dispatch batch {}", i);
 
                     p2p.dispatch_requests();
@@ -5717,19 +5740,25 @@ mod test {
                         None => {
                             panic!("network not connected");
                         }
-                        Some(ref mut network) => network.poll(100).unwrap(),
+                        Some(ref mut network) => network.poll(10).unwrap(),
                     };
 
                     let mut p2p_poll_state = poll_states.remove(&p2p.p2p_network_handle).unwrap();
 
                     p2p.process_new_sockets(&mut p2p_poll_state);
                     p2p.process_connecting_sockets(&mut p2p_poll_state);
+
+                    // Drive the same timeout condition directly; the test only
+                    // needs to verify the event registration is cleaned up.
+                    age_unresponsive_connections(&mut p2p);
                     total_disconnected += p2p.disconnect_unresponsive();
 
                     let ne = p2p.network.as_ref().unwrap().num_events();
                     test_debug!("{} events", ne);
 
-                    thread::sleep(time::Duration::from_millis(1000));
+                    if total_disconnected == 1 {
+                        break;
+                    }
                 }
 
                 assert_eq!(total_disconnected, 1);
@@ -5741,6 +5770,7 @@ mod test {
             p2p_thread.join().unwrap();
             test_debug!("dispatcher thread joined");
 
+            let _ = endpoint_release_sx.send(());
             endpoint_thread.join().unwrap();
             test_debug!("fake endpoint thread joined");
         })

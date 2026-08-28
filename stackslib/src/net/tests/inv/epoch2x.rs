@@ -30,6 +30,10 @@ use crate::net::test::*;
 use crate::net::{Error as net_error, *};
 use crate::util_lib::test::*;
 
+// These tests step all peers in-process, so keep idle polls short while
+// preserving TestPeer's default timeout for other callers.
+const EPOCH2X_INV_TEST_POLL_TIMEOUT_MS: u64 = 10;
+
 #[test]
 fn peerblocksinv_has_ith_block() {
     let peer_inv = PeerBlocksInv::new(vec![0x55, 0x77], vec![0x11, 0x22], vec![0x01], 16, 1, 12345);
@@ -1253,7 +1257,7 @@ fn test_inv_sync_start_reward_cycle() {
         peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
     }
 
-    let _ = peer_1.step();
+    let _ = peer_1.step_with_poll_timeout(EPOCH2X_INV_TEST_POLL_TIMEOUT_MS);
 
     let block_scan_start = peer_1
         .network
@@ -1310,7 +1314,7 @@ fn test_inv_sync_check_peer_epoch2x_synced() {
         peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
     }
 
-    let _ = peer_1.step();
+    let _ = peer_1.step_with_poll_timeout(EPOCH2X_INV_TEST_POLL_TIMEOUT_MS);
     let tip_rc = peer_1
         .network
         .burnchain
@@ -1371,8 +1375,8 @@ fn test_sync_inv_2_peers_plain() {
         let mut inv_2_count = 0;
 
         while inv_1_count < num_blocks || inv_2_count < num_blocks {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            let _ = peer_1.step_with_poll_timeout(EPOCH2X_INV_TEST_POLL_TIMEOUT_MS);
+            let _ = peer_2.step_with_poll_timeout(EPOCH2X_INV_TEST_POLL_TIMEOUT_MS);
 
             inv_1_count = match peer_1.network.inv_state {
                 Some(ref inv) => {
@@ -1533,8 +1537,8 @@ fn test_sync_inv_2_peers_stale() {
         let mut peer_2_check = false;
 
         while !peer_1_check || !peer_2_check {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            let _ = peer_1.step_with_poll_timeout(EPOCH2X_INV_TEST_POLL_TIMEOUT_MS);
+            let _ = peer_2.step_with_poll_timeout(EPOCH2X_INV_TEST_POLL_TIMEOUT_MS);
 
             inv_1_count = match peer_1.network.inv_state {
                 Some(ref inv) => inv.get_inv_sortitions(&peer_2.to_neighbor().addr),
@@ -1673,8 +1677,8 @@ fn test_sync_inv_2_peers_unstable() {
         let mut peer_2_block_cycle = false;
 
         while inv_1_count < num_stable_blocks || inv_2_count < num_stable_blocks {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
+            let _ = peer_1.step_with_poll_timeout(EPOCH2X_INV_TEST_POLL_TIMEOUT_MS);
+            let _ = peer_2.step_with_poll_timeout(EPOCH2X_INV_TEST_POLL_TIMEOUT_MS);
 
             inv_1_count = match peer_1.network.inv_state {
                 Some(ref inv) => inv.get_inv_num_blocks(&peer_2.to_neighbor().addr),
