@@ -139,19 +139,31 @@ impl Secp256k1PublicKey {
         sig: &MessageSignature,
         verify_low_s: bool,
     ) -> Result<Secp256k1PublicKey, &'static str> {
+        // A `MessageSignature` is VRS: the recovery id is byte 0 and `r || s`
+        // follows in bytes 1..=64. `secp256k1_recover` below is RSV instead,
+        // because its callers are Clarity's `secp256k1-recover?` and
+        // `secp256k1-verify` builtins and RSV is Clarity's wire order. Decode
+        // through the helper that knows the difference rather than handing it
+        // the raw bytes, which would shift `r`, `s` and the recovery id each by
+        // one position and fail to recover any real signature.
+        let (signature, recovery_id) = sig
+            .to_secp256k1_recoverable()
+            .ok_or("Invalid signature: failed to decode recoverable signature")?;
+
         if verify_low_s {
-            let signature = LibSecp256k1Signature::parse_standard_slice(&sig[..64])
-                .map_err(|_| "Invalid signature: incorrect length")?;
             let mut sig_low_s = signature;
             sig_low_s.normalize_s();
             if signature != sig_low_s {
                 return Err("Invalid signature: high-S");
             }
         }
-        let secp256k1_sig = secp256k1_recover(msg, sig.as_bytes())
-            .map_err(|_e| "Invalid signature: failed to recover public key")?;
 
-        Secp256k1PublicKey::from_slice(&secp256k1_sig)
+        let message = LibSecp256k1Message::parse_slice(msg)
+            .map_err(|_| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
+        let recovered = libsecp256k1::recover(&message, &signature, &recovery_id)
+            .map_err(|_| "Invalid signature: failed to recover public key")?;
+
+        Secp256k1PublicKey::from_slice(&recovered.serialize_compressed())
     }
 }
 
