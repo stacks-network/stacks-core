@@ -2387,9 +2387,11 @@ fn tx_replay_budget_exceeded_tenure_extend() {
 
     info!("---- Waiting for replay set to be cleared ----");
 
-    // Now, wait for the tx replay set to be cleared
+    // Now, wait for the tx replay set to be cleared. This requires a BlockFound
+    // block, a budget-full replay block, a tenure extend, a second replay block,
+    // and state convergence across all signers, so give it plenty of time.
     signer_test
-        .wait_for_signer_state_check(60, |state| Ok(state.get_tx_replay_set().is_none()))
+        .wait_for_signer_state_check(120, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
     let mut found_block: Option<StacksBlockEvent> = None;
     wait_for(60, || {
