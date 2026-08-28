@@ -41,7 +41,8 @@ upgrade without taking action, for example:
 - removed or incompatibly-changed RPC endpoints, event payloads, or CLI flags
 - changes to on-disk formats that require a resync, migration, or one-way
   upgrade
-- changed defaults that alter node behavior in a way operators must notice
+- changed defaults that alter node or signer behavior in a way operators must
+  notice
 
 `breaking` entries are assembled into a dedicated **⚠️ Breaking Changes**
 section placed _first_ in the release's changelog section, ahead of Added /
