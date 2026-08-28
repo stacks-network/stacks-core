@@ -1,5 +1,11 @@
 # Changelog
 
+> [!IMPORTANT]
+> This changelog is no longer updated. For releases after 4.0.2, signer changes
+> are recorded in the main [CHANGELOG.md](../CHANGELOG.md) at the repository
+> root, via fragments added to [changelog.d/](../changelog.d/README.md). The
+> entries below are preserved as a historical record.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
