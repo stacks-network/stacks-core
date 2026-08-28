@@ -1,2 +1,2 @@
-Fixed `Secp256k1PublicKey::recover_to_pubkey` on wasm targets, where a `MessageSignature` was decoded as RSV instead of VRS. Every field was read one byte out of position, so `StacksTransaction::verify`, `PublicKey::verify`, and block signature verification could not verify any signature under `wasm32`. Clarity's `secp256k1-recover?` and `secp256k1-verify` builtins were unaffected.
-Added a `Tests: WASM` CI workflow that executes wasm unit tests under Node, so the wasm implementations of `cfg(target_family = "wasm")` code are run rather than only compile-checked.
+Fixed wasm signature recovery to decode `MessageSignature` in VRS order, restoring transaction, public-key, and block-signature verification.
+Added a CI workflow that executes wasm unit tests under Node.

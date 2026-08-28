@@ -24,10 +24,7 @@ variant_count = { workspace = true }
 stacks-common = { path = "../stacks-common", default-features = false, features = ["testing"] }
 clarity-types = { path = "../clarity-types", default-features = false, features = ["testing"] }
 
-# Lets the signature-verification tests actually execute under wasm32, instead
-# of only being compile-checked there. The `native.rs` / `wasm.rs` split in
-# `stacks-common`'s secp256k1 module means a bug can live in one backend while
-# the other is green, so these tests run on both.
+# Run signature-verification tests against the wasm backend.
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
 

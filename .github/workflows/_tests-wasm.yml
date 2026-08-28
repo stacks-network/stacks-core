@@ -1,16 +1,4 @@
-# Run the unit tests that have to execute on a wasm target.
-#
-# `Check: Cargo Hack` already compiles the wasm targets, but compiling is not
-# running. Several crates carry two implementations of the same API selected by
-# `cfg(target_family = "wasm")` — `stacks_common::util::secp256k1` is the
-# clearest case, with `native.rs` over the C `secp256k1` library and `wasm.rs`
-# over the pure-Rust `libsecp256k1`. A behavioural difference between such a
-# pair is invisible to a type check, so without this workflow the wasm half of
-# consensus-critical code is never executed by CI at all.
-#
-# That is not hypothetical: `Secp256k1PublicKey::recover_to_pubkey` decoded
-# `MessageSignature` with the wrong byte order on wasm and reached `main`,
-# leaving `StacksTransaction::verify` unable to verify any signature there.
+# Execute wasm-specific implementations that cargo-hack only compile-checks.
 
 name: "Tests: WASM"
 
@@ -54,10 +42,6 @@ jobs:
         with:
           target: wasm32-unknown-unknown
 
-      # Install wasm-pack, which resolves and fetches the `wasm-bindgen` CLI
-      # matching the `wasm-bindgen` version in Cargo.lock. Doing that by hand
-      # would mean pinning the CLI version here and breaking this job every
-      # time the lockfile moves.
       - name: Install wasm-pack
         # Fail fast if GitHub rate-limits the download instead of retrying
         # until the job times out
@@ -73,13 +57,7 @@ jobs:
           node-version: 25.x
           package-manager-cache: false # cache is not reusable, do not save anything
 
-      # Only `#[wasm_bindgen_test]` functions run here; a plain `#[test]` is
-      # compiled but skipped by the harness. Add a crate to this list once it
-      # has tests annotated that way.
-      #
-      # `--features wasm-web` is required: it selects the wasm-compatible
-      # `getrandom` and `libsecp256k1` backends, without which the test build
-      # does not compile for wasm32.
+      # Add crates here once they contain `#[wasm_bindgen_test]` tests.
       - name: Run wasm tests (stacks-codec)
         working-directory: stacks-codec
         run: wasm-pack test --node --features wasm-web

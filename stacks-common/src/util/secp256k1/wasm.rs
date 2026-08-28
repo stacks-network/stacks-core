@@ -139,13 +139,8 @@ impl Secp256k1PublicKey {
         sig: &MessageSignature,
         verify_low_s: bool,
     ) -> Result<Secp256k1PublicKey, &'static str> {
-        // A `MessageSignature` is VRS: the recovery id is byte 0 and `r || s`
-        // follows in bytes 1..=64. `secp256k1_recover` below is RSV instead,
-        // because its callers are Clarity's `secp256k1-recover?` and
-        // `secp256k1-verify` builtins and RSV is Clarity's wire order. Decode
-        // through the helper that knows the difference rather than handing it
-        // the raw bytes, which would shift `r`, `s` and the recovery id each by
-        // one position and fail to recover any real signature.
+        // `MessageSignature` uses VRS, while the Clarity-facing recovery helper
+        // uses RSV. Decode VRS directly instead of passing it to that helper.
         let (signature, recovery_id) = sig
             .to_secp256k1_recoverable()
             .ok_or("Invalid signature: failed to decode recoverable signature")?;
@@ -340,10 +335,7 @@ impl MessageSignature {
         MessageSignature(ret_bytes)
     }
 
-    // Returns the version of this message signature in which s has
-    // the opposite sign (mod n). This is only used in tests, to
-    // create invalid (or let's call them semi-valid) transaction
-    // signatures to test how the code handles them.
+    /// Return the equivalent signature with `s` negated modulo the curve order.
     #[cfg(any(test, feature = "testing"))]
     pub fn with_negated_s(&self) -> Self {
         let mut bytes = [0u8; 65];

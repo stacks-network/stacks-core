@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2026 Stacks Open Internet Foundation
+// Copyright (C) 2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,26 +13,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Cross-backend tests for [`StacksTransaction::verify`].
+//! Signature-verification tests shared by the native and wasm backends.
 //!
-//! `stacks_common::util::secp256k1` has two independent implementations —
-//! `native.rs` over the C `secp256k1` library, `wasm.rs` over the pure-Rust
-//! `libsecp256k1` — selected by `cfg(target_family = "wasm")`. Signature
-//! verification is consensus-critical and the two backends must agree, but CI
-//! only ever *compile-checks* the wasm one, so a behavioural difference between
-//! them can sit undetected indefinitely.
-//!
-//! Every test here therefore runs on both: as a plain `#[test]` natively, and
-//! as a `#[wasm_bindgen_test]` under `wasm32-unknown-unknown`. Run the wasm
-//! side with:
+//! Run the wasm tests with:
 //!
 //! ```text
 //! cd stacks-codec && wasm-pack test --node --features wasm-web
 //! ```
 //!
-//! The vectors are deliberately deterministic. A byte-order bug can be
-//! invisible for one signature and fatal for the next, so a random suite would
-//! be both flaky and impossible to bisect.
+//! The vectors are deterministic so failures are reproducible.
 
 #![cfg(test)]
 
@@ -52,20 +40,10 @@ use crate::transaction::{
     TransactionSpendingCondition, TransactionVersion,
 };
 
-/// How many distinct signing keys the suite sweeps.
-///
-/// The recovery id is the single byte the two backends can disagree about, and
-/// its value is effectively unpredictable per (key, sighash) pair. Sweeping
-/// many keys is what makes the suite exercise more than one recovery id — see
-/// [`vectors_cover_multiple_recovery_ids`], which asserts that it actually does
-/// rather than trusting it to.
+/// Enough keys to exercise multiple recovery IDs.
 const KEY_COUNT: u8 = 12;
 
 /// Deterministic signing key `i`.
-///
-/// Hashing the index spreads the key bytes across the field, so the resulting
-/// signatures have well-distributed `r`/`s` values instead of the near-adjacent
-/// ones that `[i; 32]` would produce.
 fn key(i: u8) -> StacksPrivateKey {
     let bytes = Sha512Trunc256Sum::from_data(&[b'v', b'e', b'r', b'i', b'f', b'y', i]);
     StacksPrivateKey::from_slice(bytes.as_bytes())
@@ -84,8 +62,7 @@ fn uncompressed_key(i: u8) -> StacksPrivateKey {
     k
 }
 
-/// The payload shapes a transaction can carry. The payload feeds the initial
-/// sighash, so varying it varies every signature in the suite.
+/// Payloads that produce distinct initial sighashes.
 fn payloads() -> Vec<(&'static str, TransactionPayload)> {
     vec![
         (
@@ -134,8 +111,7 @@ fn signed_singlesig(
     tx
 }
 
-/// Every single-signature transaction shape this suite knows how to build,
-/// labelled so a failure names the case rather than an index.
+/// Single-signature transaction vectors.
 fn singlesig_vectors() -> Vec<(String, StacksTransaction)> {
     let mut out = vec![];
 
@@ -147,7 +123,7 @@ fn singlesig_vectors() -> Vec<(String, StacksTransaction)> {
                 TransactionVersion::Mainnet
             };
 
-            // p2pkh, compressed — the shape real clients emit.
+            // The common client-generated shape.
             let privk = compressed_key(i);
             out.push((
                 format!("p2pkh-compressed/{payload_name}/key{i}"),
@@ -160,8 +136,7 @@ fn singlesig_vectors() -> Vec<(String, StacksTransaction)> {
                 ),
             ));
 
-            // p2pkh, uncompressed — a different `key_encoding` branch in
-            // `next_verification`, so it must be covered separately.
+            // Exercise the uncompressed-key branch.
             let privk = uncompressed_key(i);
             out.push((
                 format!("p2pkh-uncompressed/{payload_name}/key{i}"),
@@ -174,7 +149,7 @@ fn singlesig_vectors() -> Vec<(String, StacksTransaction)> {
                 ),
             ));
 
-            // p2wpkh — segwit-style singlesig hash mode.
+            // Exercise the segwit-style hash mode.
             let privk = compressed_key(i);
             out.push((
                 format!("p2wpkh/{payload_name}/key{i}"),
@@ -192,9 +167,7 @@ fn singlesig_vectors() -> Vec<(String, StacksTransaction)> {
     out
 }
 
-/// Ordered 2-of-3 multisig, signed sequentially: each signature commits to the
-/// sighash the previous one produced, so this exercises the rolling-hash path
-/// in `next_verification` rather than a single recovery.
+/// Ordered 2-of-3 multisig vectors exercise rolling signature hashes.
 fn multisig_vectors() -> Vec<(String, StacksTransaction)> {
     let mut out = vec![];
 
@@ -231,9 +204,7 @@ fn multisig_vectors() -> Vec<(String, StacksTransaction)> {
     out
 }
 
-/// Sponsored transactions: the origin signature is verified first and its
-/// resulting sighash is what the sponsor signs, so a recovery failure on the
-/// origin half would be masked without covering this shape.
+/// Sponsored vectors exercise origin and sponsor verification.
 fn sponsored_vectors() -> Vec<(String, StacksTransaction)> {
     let mut out = vec![];
 
@@ -272,10 +243,7 @@ fn all_vectors() -> Vec<(String, StacksTransaction)> {
     out
 }
 
-// -- The tests ----------------------------------------------------------------
-
-/// The headline property: a correctly signed transaction verifies. This is what
-/// fails wholesale on the wasm backend.
+/// Correctly signed transactions verify.
 #[test]
 fn correctly_signed_transactions_verify() {
     let vectors = all_vectors();
@@ -307,9 +275,7 @@ fn correctly_signed_transactions_verify() {
     );
 }
 
-/// `AllowHighS` takes a different recovery entry point
-/// (`recover_to_pubkey_without_validating_low_s`), so it needs its own sweep —
-/// a fix applied to only one of the two would otherwise look complete.
+/// `AllowHighS` uses a separate recovery entry point.
 #[test]
 fn correctly_signed_transactions_verify_allowing_high_s() {
     let vectors = all_vectors();
@@ -333,8 +299,7 @@ fn correctly_signed_transactions_verify_allowing_high_s() {
     );
 }
 
-/// The suite must actually exercise more than one recovery id, or it would not
-/// distinguish a correct implementation from one that hardcodes the common case.
+/// Ensure the deterministic vectors cover multiple recovery IDs.
 #[test]
 fn vectors_cover_multiple_recovery_ids() {
     let mut seen = [0usize; 256];
@@ -361,31 +326,14 @@ fn vectors_cover_multiple_recovery_ids() {
     );
 }
 
-/// Guards against the opposite failure: a `verify` that returns `Ok`
-/// unconditionally would satisfy every test above.
+/// Verification rejects changes to signed fields.
 #[test]
 fn tampered_transactions_do_not_verify() {
     for (name, tx) in all_vectors() {
-        for (what, mut tampered) in [
-            ("nonce", tx.clone()),
-            ("fee", tx.clone()),
-            ("version", tx.clone()),
-        ] {
+        for (what, mut tampered) in [("nonce", tx.clone()), ("fee", tx.clone())] {
             match what {
                 "nonce" => tampered.set_origin_nonce(tx.get_origin_nonce() ^ 0xff),
-                "fee" => tampered.set_tx_fee(tx.get_tx_fee() + 1),
-                _ => {
-                    tampered.version = match tx.version {
-                        TransactionVersion::Mainnet => TransactionVersion::Testnet,
-                        TransactionVersion::Testnet => TransactionVersion::Mainnet,
-                    }
-                }
-            }
-
-            // Changing the version does not change the sighash, so it is only
-            // the nonce and fee that must break verification.
-            if what == "version" {
-                continue;
+                _ => tampered.set_tx_fee(tx.get_tx_fee() + 1),
             }
 
             assert!(
@@ -398,10 +346,7 @@ fn tampered_transactions_do_not_verify() {
     }
 }
 
-/// A high-S signature must be rejected under `EnforceLowS` and accepted under
-/// `AllowHighS`. This is the pair of behaviours that the low-S pre-check inside
-/// the recovery path is responsible for, so it is exactly the code a byte-order
-/// bug would also corrupt.
+/// High-S signatures are accepted only when explicitly allowed.
 #[test]
 fn high_s_signatures_are_rejected_only_when_enforcing_low_s() {
     for (name, tx) in singlesig_vectors() {
@@ -422,9 +367,7 @@ fn high_s_signatures_are_rejected_only_when_enforcing_low_s() {
     }
 }
 
-/// The narrowest reproduction, kept separate so a failure points straight at
-/// `recover_to_pubkey` rather than at transaction assembly: sign a hash, then
-/// recover the signer's public key from it.
+/// Directly exercise the recovery function fixed by this change.
 #[test]
 fn recovering_a_public_key_round_trips() {
     use stacks_common::types::PrivateKey;
