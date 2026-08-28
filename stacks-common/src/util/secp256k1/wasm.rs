@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[cfg(all(any(test, feature = "testing"), not(feature = "wasm-deterministic")))]
+#[cfg(any(test, feature = "testing"))]
 use ::libsecp256k1::curve::Scalar;
 pub use ::libsecp256k1::Error;
 use ::libsecp256k1::{
@@ -156,6 +156,11 @@ impl Secp256k1PublicKey {
 }
 
 impl Secp256k1PrivateKey {
+    #[cfg(feature = "rand")]
+    pub fn random() -> Secp256k1PrivateKey {
+        Self::new()
+    }
+
     #[cfg(feature = "rand")]
     pub fn new() -> Secp256k1PrivateKey {
         use rand::RngCore as _;
@@ -321,6 +326,25 @@ impl MessageSignature {
         ret_bytes[0] = recovery_id_byte;
         ret_bytes[1..=64].copy_from_slice(&bytes[..64]);
         MessageSignature(ret_bytes)
+    }
+
+    // Returns the version of this message signature in which s has
+    // the opposite sign (mod n). This is only used in tests, to
+    // create invalid (or let's call them semi-valid) transaction
+    // signatures to test how the code handles them.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn with_negated_s(&self) -> Self {
+        let mut bytes = [0u8; 65];
+        bytes.copy_from_slice(self.as_bytes());
+
+        // `s` occupies bytes 33..65, since byte 0 is the recovery id.
+        let mut s = Scalar::default();
+        let mut s_bytes = [0u8; 32];
+        s_bytes.copy_from_slice(&bytes[33..]);
+        let _ = s.set_b32(&s_bytes);
+        bytes[33..].copy_from_slice(&(-s).b32());
+        bytes[0] ^= 1; // invert the parity of the recovery id
+        Self(bytes)
     }
 
     pub fn to_secp256k1_recoverable(
