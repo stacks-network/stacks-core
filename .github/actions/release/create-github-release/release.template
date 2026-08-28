@@ -5,6 +5,4 @@ This release is recommended for all Stacks node and signer operators.
 
 ${changelog_section}
 
-${signer_changelog_section}
-
 ${docker_pulls_with_digests}
