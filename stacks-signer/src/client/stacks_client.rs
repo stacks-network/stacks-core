@@ -446,6 +446,37 @@ impl StacksClient {
         })
     }
 
+    /// Get the sortition info for a given burn block height, resolved against
+    /// the node's canonical burnchain fork.
+    pub fn get_sortition_by_burn_height(
+        &self,
+        burn_height: u64,
+    ) -> Result<SortitionInfo, ClientError> {
+        debug!("StacksClient: Getting sortition at burn height {burn_height}");
+        let path = self.sortition_by_burn_height_path(burn_height);
+        let metrics_path = format!(
+            "{}{RPC_SORTITION_INFO_PATH}/burn_height/:burn_height",
+            self.http_origin
+        );
+        let timer =
+            crate::monitoring::actions::new_rpc_call_timer(&metrics_path, &self.http_origin);
+        let send_request = || {
+            self.stacks_node_client
+                .get(&path)
+                .send()
+                .map_err(backoff::Error::transient)
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
+        timer.stop_and_record();
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let sortition_info = response.json::<Vec<SortitionInfo>>()?;
+        sortition_info.first().cloned().ok_or_else(|| {
+            ClientError::InvalidResponse("No sortition info found for given burn height".into())
+        })
+    }
+
     /// Get the sortition info for a given burnchain block hash.
     ///
     /// The node resolves the burn block hash against its *canonical* burnchain fork, so a
@@ -728,6 +759,13 @@ impl StacksClient {
             "{}{RPC_SORTITION_INFO_PATH}/consensus/{}",
             self.http_origin,
             consensus_hash.to_hex()
+        )
+    }
+
+    fn sortition_by_burn_height_path(&self, burn_height: u64) -> String {
+        format!(
+            "{}{RPC_SORTITION_INFO_PATH}/burn_height/{burn_height}",
+            self.http_origin
         )
     }
 
