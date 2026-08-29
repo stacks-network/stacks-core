@@ -1782,12 +1782,12 @@ impl ContractContext {
     /// defined traits are exposed externally, so other types are not
     /// canonicalized.
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) -> Result<(), VmExecutionError> {
-        for (_, function) in self.functions.iter_mut() {
+        for function in self.functions.values_mut() {
             function.canonicalize_types(epoch);
         }
 
         for trait_def in self.defined_traits.values_mut() {
-            for (_, function) in trait_def.iter_mut() {
+            for function in trait_def.values_mut() {
                 *function = function.canonicalize(epoch);
             }
         }
@@ -1795,7 +1795,7 @@ impl ContractContext {
         // In pre-sanitized-variable epochs, sanitize all contract
         // variables at load time so lookups can borrow directly.
         if epoch.uses_pre_sanitized_variables() {
-            for (_, value) in self.variables.iter_mut() {
+            for value in self.variables.values_mut() {
                 let owned = std::mem::replace(value, Value::none());
                 let (sanitized, _) =
                     Value::sanitize_value(epoch, &TypeSignature::type_of(&owned)?, owned)
