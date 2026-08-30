@@ -653,14 +653,17 @@ impl LocalStateMachine {
                     }
                     Ok(_) => {}
                     Err(e) => {
-                        // Without a canonicity verdict the event is unclassifiable; retain the
-                        // last-known-good state rather than degrading to `Uninitialized`.
-                        warn!("Signer State: failed to check canonicity of the current burn view while handling a stale burn block event. Retaining prior state.";
+                        // Without a canonicity verdict the event is unclassifiable. Preserve the
+                        // last-known-good state and park the event for a later retry.
+                        warn!("Signer State: failed to check canonicity of the current burn view while handling a stale burn block event. Retrying later.";
                             "err" => ?e,
                             "stale_burn_block_height" => expected_burn_block.burn_block_height,
                             "burn_block_height" => prior_state_machine.burn_block_height,
                         );
-                        *self = Self::Initialized(prior_state_machine);
+                        *self = Self::Pending {
+                            update: StateMachineUpdate::BurnBlock(expected_burn_block),
+                            prior: prior_state_machine,
+                        };
                         return Err(e.into());
                     }
                 }

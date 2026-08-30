@@ -17,9 +17,9 @@
 //!
 //! These tests cover the relationship between the incoming event, the node's
 //! canonical tip, and the signer's prior view. Confirmed-stale events must be
-//! ignored without losing state, while competing views must still reach fork
-//! handling. Shorter node tips retain the pre-existing behavior pending a
-//! broader reconciliation policy.
+//! ignored without losing state, failed classifications must remain retryable,
+//! and competing views must still reach fork handling. Shorter node tips retain
+//! the pre-existing behavior pending a broader reconciliation policy.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -31,9 +31,8 @@ use std::time::{Duration, SystemTime};
 
 use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
-use blockstack_lib::chainstate::stacks::{
-    StacksTransaction, TokenTransferMemo, TransactionAuth, TransactionPayload, TransactionVersion,
-};
+use blockstack_lib::chainstate::stacks::StacksTransaction;
+use blockstack_lib::core::test_util::make_stacks_transfer_tx;
 use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
@@ -47,16 +46,20 @@ use libsigner::v0::signer_state::{
     GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
 };
 use stacks_common::bitvec::BitVec;
+use stacks_common::consts::CHAIN_ID_TESTNET;
 
 use super::test_proposal_eval_config;
-use crate::chainstate::SignerChainstateError;
+use crate::chainstate::{ProposalEvalConfig, SignerChainstateError};
 use crate::client::tests::{
     build_get_peer_info_response, build_get_pox_data_response, build_get_tenure_tip_response,
     MockServerClient,
 };
+use crate::client::StacksClient;
 use crate::signerdb::tests::tmp_db_path;
 use crate::signerdb::SignerDb;
-use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, ReplayScopeOpt, ReplayState};
+use crate::v0::signer_state::{
+    LocalStateMachine, NewBurnBlock, ReplayScopeOpt, ReplayState, StateMachineUpdate,
+};
 
 fn test_ch(i: u8) -> ConsensusHash {
     ConsensusHash([i; 20])
@@ -143,14 +146,13 @@ fn http_ok_json<T: serde::Serialize>(value: &T) -> String {
 /// A token-transfer transaction and a Nakamoto block containing it, mined in
 /// the tenure with the given consensus hash.
 fn make_replay_tx_and_block(consensus_hash: ConsensusHash) -> (StacksTransaction, NakamotoBlock) {
-    let replay_tx = StacksTransaction::new(
-        TransactionVersion::Testnet,
-        TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap(),
-        TransactionPayload::TokenTransfer(
-            StacksAddress::burn_address(false).into(),
-            100,
-            TokenTransferMemo([0; 34]),
-        ),
+    let replay_tx = make_stacks_transfer_tx(
+        &StacksPrivateKey::random(),
+        0,
+        0,
+        CHAIN_ID_TESTNET,
+        &StacksAddress::burn_address(false).into(),
+        100,
     );
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![replay_tx.clone()]);
     block.header.consensus_hash = consensus_hash;
@@ -160,8 +162,9 @@ fn make_replay_tx_and_block(consensus_hash: ConsensusHash) -> (StacksTransaction
 }
 
 /// Serve canned HTTP responses by request-path prefix until stopped. Routes
-/// are matched in order (put more specific prefixes first); a request
-/// matching no route panics.
+/// are matched in order (put more specific prefixes first). Duplicate prefixes
+/// are consumed in order, with the final response reused; an unmatched request
+/// panics.
 fn spawn_node_responder(
     server: TcpListener,
     routes: Vec<(&'static str, String)>,
@@ -170,6 +173,7 @@ fn spawn_node_responder(
     let handle = std::thread::spawn({
         let stop = stop.clone();
         move || {
+            let mut routes = routes;
             server.set_nonblocking(true).unwrap();
             while !stop.load(Ordering::SeqCst) {
                 let mut stream = match server.accept() {
@@ -184,16 +188,24 @@ fn spawn_node_responder(
                 let mut request_bytes = [0u8; 2048];
                 let n = stream.read(&mut request_bytes).unwrap();
                 let request = String::from_utf8_lossy(&request_bytes[..n]);
-                let response = routes
+                let route_index = routes
                     .iter()
-                    .find(|(prefix, _)| request.starts_with(prefix))
-                    .map(|(_, response)| response)
+                    .position(|(prefix, _)| request.starts_with(prefix))
                     .unwrap_or_else(|| {
                         panic!(
                             "Unexpected request to mock server: {}",
                             request.lines().next().unwrap_or("")
                         )
                     });
+                let route_prefix = routes[route_index].0;
+                let has_later_response = routes[route_index + 1..]
+                    .iter()
+                    .any(|(prefix, _)| *prefix == route_prefix);
+                let response = if has_later_response {
+                    routes.remove(route_index).1
+                } else {
+                    routes[route_index].1.clone()
+                };
                 stream.write_all(response.as_bytes()).unwrap();
             }
         }
@@ -216,6 +228,14 @@ fn burn_height_route(height: u8, consensus_hash: ConsensusHash) -> (&'static str
     (
         "GET /v3/sortitions/burn_height",
         http_ok_json(&vec![sortition]),
+    )
+}
+
+/// Route simulating a transient failure of the burn-height canonicity query.
+fn burn_height_failure_route() -> (&'static str, String) {
+    (
+        "GET /v3/sortitions/burn_height",
+        "HTTP/1.1 500 Internal Server Error\n\n".to_string(),
     )
 }
 
@@ -251,6 +271,92 @@ struct BurnBlockArrivalOutcome {
     replay_scope: ReplayScopeOpt,
 }
 
+/// Mutable state shared across each step of a burn-block arrival scenario.
+struct BurnBlockArrivalDriver {
+    /// Signer database populated for the scenario.
+    db: SignerDb,
+    /// Client connected to the path-routed mock node.
+    client: StacksClient,
+    /// Proposal evaluation settings used by state transitions.
+    proposal_config: ProposalEvalConfig,
+    /// Global signer-state evaluator used by state transitions.
+    eval: GlobalStateEvaluator,
+    /// Local state machine driven by the scenario.
+    state: LocalStateMachine,
+    /// Replay scope produced if the scenario detects a fork.
+    replay_scope: ReplayScopeOpt,
+}
+
+impl BurnBlockArrivalDriver {
+    /// Build a driver whose prior burn view is height 110.
+    fn new(client: StacksClient, db_heights: RangeInclusive<u8>) -> Self {
+        let mut db = SignerDb::new(tmp_db_path()).expect("Failed to create signer db");
+        insert_canonical_burn_blocks(&mut db, db_heights);
+        let proposal_config = test_proposal_eval_config();
+        let mut address_weights = HashMap::new();
+        address_weights.insert(client.get_signer_address().clone(), 10_u32);
+        let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
+
+        Self {
+            db,
+            client,
+            proposal_config,
+            eval,
+            state: LocalStateMachine::Initialized(signer_state_at(110)),
+            replay_scope: None,
+        }
+    }
+
+    /// Process an incoming burn-block event.
+    fn process(&mut self, event: NewBurnBlock) -> Result<(), SignerChainstateError> {
+        self.state.bitcoin_block_arrival(
+            &mut self.db,
+            &self.client,
+            &self.proposal_config,
+            Some(event),
+            &mut self.replay_scope,
+            &self.eval,
+            0,
+        )
+    }
+
+    /// Retry the burn-block event currently parked in `Pending`.
+    fn retry_pending(&mut self) -> Result<(), SignerChainstateError> {
+        self.state.handle_pending_update(
+            &mut self.db,
+            &self.client,
+            &self.proposal_config,
+            &mut self.replay_scope,
+            &self.eval,
+            0,
+        )
+    }
+
+    /// Convert the final driver state and result into test assertions' shared shape.
+    fn into_outcome(self, result: Result<(), SignerChainstateError>) -> BurnBlockArrivalOutcome {
+        BurnBlockArrivalOutcome {
+            result,
+            state: self.state,
+            replay_scope: self.replay_scope,
+        }
+    }
+}
+
+/// Run a multi-step burn-block scenario against a path-routed mock node.
+fn drive_burn_block_scenario(
+    db_heights: RangeInclusive<u8>,
+    routes: Vec<(&'static str, String)>,
+    scenario: impl FnOnce(&mut BurnBlockArrivalDriver) -> Result<(), SignerChainstateError>,
+) -> BurnBlockArrivalOutcome {
+    let MockServerClient { server, client, .. } = MockServerClient::new();
+    let mut driver = BurnBlockArrivalDriver::new(client, db_heights);
+    let (stop, responder) = spawn_node_responder(server, routes);
+    let result = scenario(&mut driver);
+    stop.store(true, Ordering::SeqCst);
+    responder.join().unwrap();
+    driver.into_outcome(result)
+}
+
 /// Drive `bitcoin_block_arrival` for the canonical event at `event_height`
 /// against a prior state machine at height 110, with the mock node serving
 /// `routes`.
@@ -259,34 +365,9 @@ fn drive_burn_block_arrival(
     event_height: u8,
     routes: Vec<(&'static str, String)>,
 ) -> BurnBlockArrivalOutcome {
-    let MockServerClient { server, client, .. } = MockServerClient::new();
-    let mut db = SignerDb::new(tmp_db_path()).expect("Failed to create signer db");
-    insert_canonical_burn_blocks(&mut db, db_heights);
-    let (stop, responder) = spawn_node_responder(server, routes);
-
-    let proposal_config = test_proposal_eval_config();
-    let mut address_weights = HashMap::new();
-    address_weights.insert(client.get_signer_address().clone(), 10_u32);
-    let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
-
-    let mut state = LocalStateMachine::Initialized(signer_state_at(110));
-    let mut replay_scope = None;
-    let result = state.bitcoin_block_arrival(
-        &mut db,
-        &client,
-        &proposal_config,
-        Some(canonical_event_at(event_height)),
-        &mut replay_scope,
-        &eval,
-        0,
-    );
-    stop.store(true, Ordering::SeqCst);
-    responder.join().unwrap();
-    BurnBlockArrivalOutcome {
-        result,
-        state,
-        replay_scope,
-    }
+    drive_burn_block_scenario(db_heights, routes, |driver| {
+        driver.process(canonical_event_at(event_height))
+    })
 }
 
 /// Assert the outcome retained the initialized view at height 110 with no
@@ -316,6 +397,62 @@ fn assert_live_view_retained(outcome: &BurnBlockArrivalOutcome) {
     assert!(
         outcome.replay_scope.is_none(),
         "Stale canonical event set a fork replay scope"
+    );
+}
+
+/// Assert that an unclassified event is parked with the prior live view.
+#[track_caller]
+fn assert_event_pending(driver: &BurnBlockArrivalDriver, expected_event: &NewBurnBlock) {
+    match &driver.state {
+        LocalStateMachine::Pending { update, prior } => {
+            assert_eq!(
+                update,
+                &StateMachineUpdate::BurnBlock(expected_event.clone()),
+                "Pending state did not retain the unclassified event"
+            );
+            assert_eq!(
+                prior,
+                &signer_state_at(110),
+                "Pending state did not retain the prior live view"
+            );
+        }
+        other => panic!("Unclassified burn-block event left the state machine as {other:?}"),
+    }
+    assert!(
+        driver.replay_scope.is_none(),
+        "Failed canonicity check started fork replay"
+    );
+}
+
+/// Assert that fork handling completed with the expected origin and replay transaction.
+#[track_caller]
+fn assert_successful_fork_replay(
+    outcome: &BurnBlockArrivalOutcome,
+    expected_origin: &NewBurnBlock,
+    replay_tx: &StacksTransaction,
+) {
+    assert!(
+        outcome.result.is_ok(),
+        "Fork handling failed: {:?}",
+        outcome.result.as_ref().err()
+    );
+    let scope = outcome
+        .replay_scope
+        .as_ref()
+        .expect("Burn-block event did not enter fork handling");
+    assert_eq!(&scope.fork_origin, expected_origin);
+    assert_eq!(scope.past_tip.burn_block_height, 110);
+    assert_eq!(scope.past_tip.consensus_hash, test_ch(110));
+    let LocalStateMachine::Initialized(machine) = &outcome.state else {
+        panic!(
+            "Successful fork handling left the state machine as {:?}",
+            outcome.state
+        );
+    };
+    assert_eq!(
+        machine.tx_replay_set.clone_as_optional(),
+        Some(vec![replay_tx.clone()]),
+        "Reorged-away transaction missing from the replay set"
     );
 }
 
@@ -419,34 +556,41 @@ fn stale_burn_block_event_with_advanced_node_tip_is_ignored() {
     assert_live_view_retained(&outcome);
 }
 
-/// If canonicity of the current view cannot be established (the sortition
-/// query fails), the last-known-good state must be retained rather than
-/// degraded to `Uninitialized`.
+/// A failed canonicity query parks the event with the prior view. Once the
+/// node confirms that view is canonical, the retry discards the stale event
+/// and returns to `Initialized`.
 #[test]
-fn canonicity_check_failure_retains_prior_state() {
-    let outcome = drive_burn_block_arrival(
+fn canonicity_check_failure_retries_canonical_event() {
+    let stale_event = canonical_event_at(105);
+    let outcome = drive_burn_block_scenario(
         100..=105,
-        105,
         vec![
             peer_info_route(110, test_ch(110)),
-            (
-                "GET /v3/sortitions/burn_height",
-                "HTTP/1.1 404 Not Found\n\n".to_string(),
-            ),
+            burn_height_failure_route(),
+            peer_info_route(110, test_ch(110)),
+            burn_height_route(110, test_ch(110)),
         ],
+        |driver| {
+            assert!(
+                driver.process(stale_event.clone()).is_err(),
+                "Expected the initial canonicity query to fail"
+            );
+            assert_event_pending(driver, &stale_event);
+            driver.retry_pending()
+        },
     );
     assert!(
-        outcome.result.is_err(),
-        "Expected an error when the canonicity query fails"
+        outcome.result.is_ok(),
+        "Retrying the canonical event failed: {:?}",
+        outcome.result.err()
     );
     assert_live_view_retained(&outcome);
 }
 
-/// A lower-height event while the prior view is no longer canonical is a
-/// genuine burnchain reorg and must still enter fork handling — the
-/// canonicity guard must not swallow it.
+/// If the retry instead shows that the prior view was orphaned, the parked
+/// event must continue into fork handling.
 #[test]
-fn stale_event_on_non_canonical_view_still_triggers_fork_handling() {
+fn canonicity_check_failure_retries_non_canonical_event() {
     // The node reorged: its canonical chain at height 110 is now a competing
     // branch, orphaning the prior view.
     let fork_ch = ConsensusHash([0xfe; 20]);
@@ -455,10 +599,12 @@ fn stale_event_on_non_canonical_view_still_triggers_fork_handling() {
     let mut cur_sortition = sortition_info_at(110, Hash160([0xab; 20]));
     cur_sortition.consensus_hash = fork_ch.clone();
     let last_sortition = sortition_info_at(109, Hash160([0xab; 20]));
-    let outcome = drive_burn_block_arrival(
+    let stale_event = canonical_event_at(105);
+    let outcome = drive_burn_block_scenario(
         100..=110,
-        105,
         vec![
+            peer_info_route(110, fork_ch.clone()),
+            burn_height_failure_route(),
             peer_info_route(110, fork_ch.clone()),
             burn_height_route(110, fork_ch),
             (
@@ -478,23 +624,65 @@ fn stale_event_on_non_canonical_view_still_triggers_fork_handling() {
                 build_get_pox_data_response(None, None, None, None).0,
             ),
         ],
+        |driver| {
+            assert!(
+                driver.process(stale_event.clone()).is_err(),
+                "Expected the initial canonicity query to fail"
+            );
+            assert_event_pending(driver, &stale_event);
+            driver.retry_pending()
+        },
     );
 
-    // The replay scope is written before the post-fork view refresh, so it
-    // proves fork handling ran regardless of whether the refresh completed.
-    let scope = outcome
-        .replay_scope
-        .expect("Genuine reorg below the prior view was not detected as a fork");
-    assert_eq!(scope.fork_origin, canonical_event_at(105));
-    assert_eq!(scope.past_tip.burn_block_height, 110);
-    assert_eq!(scope.past_tip.consensus_hash, test_ch(110));
-    if let LocalStateMachine::Initialized(machine) = &outcome.state {
-        assert_eq!(
-            machine.tx_replay_set.clone_as_optional(),
-            Some(vec![replay_tx]),
-            "Reorged-away transaction missing from the replay set"
-        );
-    }
+    assert_successful_fork_replay(&outcome, &canonical_event_at(105), &replay_tx);
+}
+
+/// A newer event supersedes a parked lower-height event. Once the incoming
+/// event reaches the prior view's height, it enters normal fork handling
+/// without depending on the failed lower-height canonicity query.
+#[test]
+fn newer_event_supersedes_failed_canonicity_check() {
+    let fork_ch = ConsensusHash([0xfe; 20]);
+    let fork_event = NewBurnBlock {
+        burn_block_height: 110,
+        consensus_hash: fork_ch.clone(),
+    };
+    let (replay_tx, forked_block) = make_replay_tx_and_block(test_ch(110));
+    let mut cur_sortition = sortition_info_at(110, Hash160([0xab; 20]));
+    cur_sortition.consensus_hash = fork_ch.clone();
+    let last_sortition = sortition_info_at(109, Hash160([0xab; 20]));
+    let stale_event = canonical_event_at(105);
+    let outcome = drive_burn_block_scenario(
+        100..=110,
+        vec![
+            peer_info_route(110, fork_ch.clone()),
+            burn_height_failure_route(),
+            peer_info_route(110, fork_ch),
+            (
+                "GET /v3/tenures/fork_info",
+                http_ok_json(&vec![fork_info_entry(110, Some(vec![forked_block]))]),
+            ),
+            (
+                "GET /v3/sortitions/latest_and_last",
+                http_ok_json(&vec![cur_sortition, last_sortition]),
+            ),
+            tenure_tip_route(test_ch(109)),
+            (
+                "GET /v2/pox",
+                build_get_pox_data_response(None, None, None, None).0,
+            ),
+        ],
+        |driver| {
+            assert!(
+                driver.process(stale_event.clone()).is_err(),
+                "Expected the initial canonicity query to fail"
+            );
+            assert_event_pending(driver, &stale_event);
+            driver.process(fork_event.clone())
+        },
+    );
+
+    assert_successful_fork_replay(&outcome, &fork_event, &replay_tx);
 }
 
 /// When the node's live tip is below the prior state-machine height, the
