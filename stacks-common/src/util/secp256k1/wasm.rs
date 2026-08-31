@@ -139,6 +139,11 @@ impl Secp256k1PublicKey {
         sig: &MessageSignature,
         verify_low_s: bool,
     ) -> Result<Secp256k1PublicKey, &'static str> {
+        // Validate in the same order as `native.rs`, so that both backends return
+        // the same error for the same input.
+        let message = LibSecp256k1Message::parse_slice(msg)
+            .map_err(|_| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
+
         // `MessageSignature` stores the recovery ID before the compact signature
         // (VRS), so decode it into separate recovery ID and signature values.
         let (signature, recovery_id) = sig
@@ -153,8 +158,6 @@ impl Secp256k1PublicKey {
             }
         }
 
-        let message = LibSecp256k1Message::parse_slice(msg)
-            .map_err(|_| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
         let recovered = libsecp256k1::recover(&message, &signature, &recovery_id)
             .map_err(|_| "Invalid signature: failed to recover public key")?;
 
@@ -377,8 +380,14 @@ impl PublicKey for Secp256k1PublicKey {
     fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str> {
         // `recover_to_pubkey` also ensures that the signature has low-S. That matches the
         // corresponding implementation in `native.rs`.
-        let pub_key = Secp256k1PublicKey::recover_to_pubkey(data_hash, sig)?;
-        Ok(self.eq(&pub_key))
+        let recovered = Secp256k1PublicKey::recover_to_pubkey(data_hash, sig)?;
+
+        // Compare the curve points only. `recover_to_pubkey()` always returns a
+        // compressed key, while `self` may use either encoding, and `compressed`
+        // takes part in the derived `PartialEq` for `Secp256k1PublicKey`. Comparing
+        // whole values would reject every uncompressed key. `native.rs` compares
+        // the underlying keys for the same reason.
+        Ok(self.key == recovered.key)
     }
 }
 

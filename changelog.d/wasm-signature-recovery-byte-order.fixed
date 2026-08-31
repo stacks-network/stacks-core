@@ -1,2 +1,2 @@
 Fixed Wasm signature recovery to decode `MessageSignature` in VRS order, restoring transaction, public-key, and block-signature verification.
-Added a CI workflow that executes Wasm unit tests under Node.
+Fixed `Secp256k1PublicKey::verify()` on Wasm rejecting every valid signature for an uncompressed public key.
