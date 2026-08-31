@@ -21,6 +21,8 @@ permissions:
 # Set default env vars
 env:
   RUST_BACKTRACE: full
+  # Emit DEBUG-level logs; nextest only prints captured output for failing tests
+  STACKS_LOG_DEBUG: 1
   TEST_TIMEOUT_MINS: 5
   DISCOVER_TIMEOUT_MINS: 5
   # Minimum Bitcoin Core major version to start discovering Docker tags from.

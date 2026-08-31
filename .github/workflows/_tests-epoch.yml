@@ -32,6 +32,8 @@ env:
   BITCOIND_TEST: 1
   RUST_BACKTRACE: full
   TEST_TIMEOUT: 30
+  # Emit DEBUG-level logs; nextest only prints captured output for failing tests
+  STACKS_LOG_DEBUG: 1
 
 # Configure concurrency
 concurrency:

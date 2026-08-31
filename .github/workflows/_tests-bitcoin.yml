@@ -33,6 +33,8 @@ env:
   # Docker tag for the Bitcoin Core image used when spinning up container with `testcontainers` crate.
   BITCOIN_IMAGE_TAG: "25"
   RUST_BACKTRACE: full
+  # Emit DEBUG-level logs; nextest only prints captured output for failing tests
+  STACKS_LOG_DEBUG: 1
   TEST_TIMEOUT: 30
   TEST_TAG_CI_SKIP: ci_skip
   # This should match the number of jobs we use below
