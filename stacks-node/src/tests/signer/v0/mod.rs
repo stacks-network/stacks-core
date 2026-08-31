@@ -8745,13 +8745,13 @@ fn contract_with_undefined_variable_compat() {
 /// - Shutdown signer is restarted.
 /// - Miner B proposes block N+1 (TenureChange).
 /// - All signers sign the block without issue
-/// -> Verifies that updates are loaded from signerdb on init
+///   -> Verifies that updates are loaded from signerdb on init
 /// - Same signer is shutdown.
 /// - Shutdown signers db is cleared.
 /// - Signer is restarted.
 /// - Miner B proposes block N+2 (Transfer).
 /// - All signers including the restarted signer sign block N+2
-/// -> Verifies that updates are loaded from stackerdb on init
+///   -> Verifies that updates are loaded from stackerdb on init
 #[test]
 #[ignore]
 fn signer_loads_stackerdb_updates_on_startup() {

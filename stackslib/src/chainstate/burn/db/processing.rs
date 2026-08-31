@@ -228,7 +228,7 @@ impl SortitionHandleTx<'_> {
     /// * do a cryptographic sortition to select the next Stacks block
     /// * commit all valid transactions
     /// * commit the results of the sortition
-    /// Returns the BlockSnapshot created from this block.
+    ///   Returns the BlockSnapshot created from this block.
     pub fn process_block_ops(
         &mut self,
         mainnet: bool,

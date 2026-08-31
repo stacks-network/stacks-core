@@ -2853,8 +2853,8 @@ impl Relayer {
     /// * Add all transactions to the mempool.
     /// * Forward transactions we didn't already have.
     /// * Reload the unconfirmed state, if necessary.
-    /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
-    /// turned into peer bans.
+    ///   Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
+    ///   turned into peer bans.
     pub fn process_network_result(
         &mut self,
         local_peer: &LocalPeer,
@@ -3231,11 +3231,11 @@ impl PeerNetwork {
 
     /// Announce blocks that we have to a subset of inbound and outbound peers.
     /// * Outbound peers receive announcements for blocks that we know they don't have, based on
-    /// the inv state we synchronized from them.  We send the blocks themselves, if we have them.
+    ///   the inv state we synchronized from them.  We send the blocks themselves, if we have them.
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
-    /// don't track their inventory state.  We send blocks-available messages to them, since they
-    /// can turn around and ask us for the block data.
-    /// Return the number of inbound and outbound neighbors that have received it
+    ///   don't track their inventory state.  We send blocks-available messages to them, since they
+    ///   can turn around and ask us for the block data.
+    ///   Return the number of inbound and outbound neighbors that have received it
     pub fn advertize_blocks(
         &mut self,
         availability_data: BlocksAvailableMap,
@@ -3283,10 +3283,10 @@ impl PeerNetwork {
 
     /// Announce confirmed microblocks that we have to a subset of inbound and outbound peers.
     /// * Outbound peers receive announcements for confirmed microblocks that we know they don't have, based on
-    /// the inv state we synchronized from them.
+    ///   the inv state we synchronized from them.
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
-    /// don't track their inventory state.
-    /// Return the number of inbound and outbound neighbors that have received it
+    ///   don't track their inventory state.
+    ///   Return the number of inbound and outbound neighbors that have received it
     pub fn advertize_microblocks(
         &mut self,
         availability_data: BlocksAvailableMap,
