@@ -139,8 +139,8 @@ impl Secp256k1PublicKey {
         sig: &MessageSignature,
         verify_low_s: bool,
     ) -> Result<Secp256k1PublicKey, &'static str> {
-        // `MessageSignature` uses VRS, while `secp256k1_recover()` expects RSV.
-        // Decode the `MessageSignature` directly to preserve its byte order.
+        // `MessageSignature` stores the recovery ID before the compact signature
+        // (VRS), so decode it into separate recovery ID and signature values.
         let (signature, recovery_id) = sig
             .to_secp256k1_recoverable()
             .ok_or("Invalid signature: failed to decode recoverable signature")?;
@@ -233,6 +233,7 @@ impl Secp256k1PrivateKey {
 }
 
 #[cfg(not(feature = "wasm-deterministic"))]
+/// Recover a public key from a 32-byte message hash and a 65-byte RSV signature.
 pub fn secp256k1_recover(
     message_arr: &[u8],
     serialized_signature: &[u8],
@@ -354,11 +355,8 @@ impl MessageSignature {
     pub fn to_secp256k1_recoverable(
         &self,
     ) -> Option<(LibSecp256k1Signature, LibSecp256k1RecoveryId)> {
-        let recovery_id = match LibSecp256k1RecoveryId::parse(self.0[0]) {
-            Ok(rid) => rid,
-            Err(_) => {
-                return None;
-            }
+        let Ok(recovery_id) = LibSecp256k1RecoveryId::parse(self.0[0]) else {
+            return None;
         };
         let signature = LibSecp256k1Signature::parse_standard_slice(&self.0[1..65]).ok()?;
         Some((signature, recovery_id))
