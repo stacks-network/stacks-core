@@ -331,9 +331,7 @@ impl NakamotoTenureDownloader {
     /// Returns None if we don't have the start and end blocks yet.
     pub fn tenure_length(&self) -> Option<u64> {
         self.tenure_end_block.as_ref().and_then(|tenure_end_block| {
-            let Some(tc_payload) = tenure_end_block.try_get_tenure_change_payload() else {
-                return None;
-            };
+            let tc_payload = tenure_end_block.try_get_tenure_change_payload()?;
 
             Some(u64::from(tc_payload.previous_tenure_blocks))
         })
@@ -600,7 +598,7 @@ impl NakamotoTenureDownloader {
                         }
                     } else if let Some((tenure_start_block, _sz)) = chainstate
                         .nakamoto_blocks_db()
-                        .get_nakamoto_block(&start_block_id)?
+                        .get_nakamoto_block(start_block_id)?
                     {
                         // we have downloaded this block already
                         self.try_accept_tenure_start_block(tenure_start_block)?;
@@ -674,7 +672,7 @@ impl NakamotoTenureDownloader {
                         }
                     } else if let Some((tenure_end_block, _sz)) = chainstate
                         .nakamoto_blocks_db()
-                        .get_nakamoto_block(&end_block_id)?
+                        .get_nakamoto_block(end_block_id)?
                     {
                         // normal block on disk
                         self.try_accept_tenure_end_block(&tenure_end_block)?;

@@ -139,10 +139,7 @@ impl From<TenureChangeCause> for MinerTenureInfoCause {
 impl MinerTenureInfoCause {
     /// Is this the start of a new tenure?
     pub fn is_new_tenure(&self) -> bool {
-        match self {
-            MinerTenureInfoCause::BlockFound => true,
-            _ => false,
-        }
+        matches!(self, MinerTenureInfoCause::BlockFound)
     }
 
     /// Is this a tenure extension of any kind?
@@ -239,7 +236,7 @@ impl NakamotoBlockBuilder {
             header: NakamotoBlockHeader::genesis(),
             soft_limit: None,
             contract_limit_percentage: None,
-            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
         }
     }
 

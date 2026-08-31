@@ -40,17 +40,20 @@ pub enum Error {
 impl PartialEq for Error {
     fn eq(&self, other: &Self) -> bool {
         use Error::*;
-        match (self, other) {
+        matches!(
+            (self, other),
             (CoordinatorClosed, CoordinatorClosed)
-            | (IndexerError(_), IndexerError(_))
-            | (BurnchainError, BurnchainError)
-            | (MaxFeeRateExceeded, MaxFeeRateExceeded)
-            | (IdenticalOperation, IdenticalOperation)
-            | (NoUTXOs, NoUTXOs)
-            | (TransactionSubmissionFailed(_), TransactionSubmissionFailed(_))
-            | (SerializerError(_), SerializerError(_)) => true,
-            _ => false,
-        }
+                | (IndexerError(_), IndexerError(_))
+                | (BurnchainError, BurnchainError)
+                | (MaxFeeRateExceeded, MaxFeeRateExceeded)
+                | (IdenticalOperation, IdenticalOperation)
+                | (NoUTXOs, NoUTXOs)
+                | (
+                    TransactionSubmissionFailed(_),
+                    TransactionSubmissionFailed(_)
+                )
+                | (SerializerError(_), SerializerError(_))
+        )
     }
 }
 

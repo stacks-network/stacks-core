@@ -796,21 +796,17 @@ impl<'a> StacksNodeState<'a> {
                                 &tip.consensus_hash,
                                 &tip.anchored_header.block_hash(),
                             )),
-                            Ok(None) => {
-                                return Err(StacksHttpResponse::new_error(
-                                    preamble,
-                                    &HttpNotFound::new("No such confirmed tip".to_string()),
-                                ));
-                            }
-                            Err(e) => {
-                                return Err(StacksHttpResponse::new_error(
-                                    preamble,
-                                    &HttpServerError::new(format!(
-                                        "Failed to load chain tip: {:?}",
-                                        &e
-                                    )),
-                                ));
-                            }
+                            Ok(None) => Err(StacksHttpResponse::new_error(
+                                preamble,
+                                &HttpNotFound::new("No such confirmed tip".to_string()),
+                            )),
+                            Err(e) => Err(StacksHttpResponse::new_error(
+                                preamble,
+                                &HttpServerError::new(format!(
+                                    "Failed to load chain tip: {:?}",
+                                    &e
+                                )),
+                            )),
                         }
                     }
                 }
@@ -821,23 +817,16 @@ impl<'a> StacksNodeState<'a> {
                             &tip.consensus_hash,
                             &tip.anchored_header.block_hash(),
                         )),
-                        Ok(None) => {
-                            return Err(StacksHttpResponse::new_error(
-                                preamble,
-                                &HttpNotFound::new(
-                                    "No stacks chain tip exists at this point in time.".to_string(),
-                                ),
-                            ));
-                        }
-                        Err(e) => {
-                            return Err(StacksHttpResponse::new_error(
-                                preamble,
-                                &HttpServerError::new(format!(
-                                    "Failed to load chain tip: {:?}",
-                                    &e
-                                )),
-                            ));
-                        }
+                        Ok(None) => Err(StacksHttpResponse::new_error(
+                            preamble,
+                            &HttpNotFound::new(
+                                "No stacks chain tip exists at this point in time.".to_string(),
+                            ),
+                        )),
+                        Err(e) => Err(StacksHttpResponse::new_error(
+                            preamble,
+                            &HttpServerError::new(format!("Failed to load chain tip: {:?}", &e)),
+                        )),
                     }
                 }
             }
@@ -2434,9 +2423,9 @@ pub mod test {
                 // when reading from a non-blocking socket, a return value of 0 indicates the
                 // remote end was closed.  For this reason, when we're out of bytes to read on our
                 // inner cursor, but still have bytes, we need to re-interpret this as EWOULDBLOCK.
-                return Err(io::Error::from(ErrorKind::WouldBlock));
+                Err(io::Error::from(ErrorKind::WouldBlock))
             } else {
-                return Ok(sz);
+                Ok(sz)
             }
         }
     }
@@ -2491,7 +2480,7 @@ pub mod test {
                 next_port = 1024 + (rng.next_u32() % (65535 - 1024));
                 let hostport = format!("127.0.0.1:{}", next_port);
                 std_listener = match std::net::TcpListener::bind(
-                    &hostport.parse::<std::net::SocketAddr>().unwrap(),
+                    hostport.parse::<std::net::SocketAddr>().unwrap(),
                 ) {
                     Ok(sock) => sock,
                     Err(e) => {
@@ -2507,7 +2496,7 @@ pub mod test {
         };
 
         let std_sock_1 = std::net::TcpStream::connect(
-            &format!("127.0.0.1:{port}")
+            format!("127.0.0.1:{port}")
                 .parse::<std::net::SocketAddr>()
                 .unwrap(),
         )
@@ -3452,9 +3441,7 @@ pub mod test {
             let sortdb = self.chain.sortdb.as_ref().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
             let sort_handle = sortdb.index_handle(&tip.sortition_id);
-            let Some(sn) = sort_handle.get_block_snapshot_by_height(height).unwrap() else {
-                return None;
-            };
+            let sn = sort_handle.get_block_snapshot_by_height(height).unwrap()?;
             Some(self.get_burnchain_block_ops(&sn.burn_header_hash))
         }
 
@@ -3575,15 +3562,13 @@ pub mod test {
                 &block_header_hash
             );
 
-            let block_header = BurnchainBlockHeader {
+            BurnchainBlockHeader {
                 block_height: tip_block_height + 1,
                 block_hash: block_header_hash.clone(),
                 parent_block_hash: parent_hdr.block_hash.clone(),
                 num_txs: num_ops,
                 timestamp: now,
-            };
-
-            block_header
+            }
         }
 
         pub fn add_burnchain_block(

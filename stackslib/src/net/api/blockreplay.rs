@@ -200,7 +200,7 @@ where
     let db_conn = StacksChainState::open_nakamoto_staging_blocks(&staging_db_path, false)?;
     let rowid = db_conn
         .conn()
-        .get_nakamoto_block_rowid(&block_id)?
+        .get_nakamoto_block_rowid(block_id)?
         .ok_or(ChainError::NoSuchBlockError)?;
 
     let mut blob_fd = match db_conn.open_nakamoto_block(rowid, false).map_err(|e| {
@@ -250,7 +250,7 @@ where
         ));
     };
 
-    let mut builder = match NakamotoBlockBuilder::new(
+    let mut builder = NakamotoBlockBuilder::new(
         &parent_stacks_header,
         &block.header.consensus_hash,
         block.header.burn_spent,
@@ -260,23 +260,14 @@ where
         None,
         None,
         Some(block.header.timestamp),
-        u64::from(DEFAULT_MAX_TENURE_BYTES),
-    ) {
-        Ok(builder) => builder,
-        Err(e) => return Err(e),
-    };
+        DEFAULT_MAX_TENURE_BYTES,
+    )?;
 
     let mut miner_tenure_info =
-        match builder.load_ephemeral_tenure_info(chainstate, &burn_dbconn, tenure_cause) {
-            Ok(miner_tenure_info) => miner_tenure_info,
-            Err(e) => return Err(e),
-        };
+        builder.load_ephemeral_tenure_info(chainstate, &burn_dbconn, tenure_cause)?;
 
     let burn_chain_height = miner_tenure_info.burn_tip_height;
-    let mut tenure_tx = match builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info) {
-        Ok(tenure_tx) => tenure_tx,
-        Err(e) => return Err(e),
-    };
+    let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
 
     before_mining(&mut tenure_tx)?;
 
@@ -328,7 +319,7 @@ where
         if let Err(reason) = err {
             let txid = tx.txid();
             return Err(ChainError::InvalidStacksTransaction(
-                format!("Unable to process transaction {txid}: {reason}").into(),
+                format!("Unable to process transaction {txid}: {reason}"),
                 false,
             ));
         }
@@ -350,11 +341,8 @@ where
         RPCReplayedBlock::from_block(&replayed_block, block_fees, tenure_id, parent_block_id);
 
     for (receipt, execution_duration, profiler_result) in &txs_receipts {
-        let transaction = RPCReplayedBlockTransaction::from_receipt(
-            receipt,
-            execution_duration,
-            &profiler_result,
-        );
+        let transaction =
+            RPCReplayedBlockTransaction::from_receipt(receipt, execution_duration, profiler_result);
         rpc_replayed_block.transactions.push(transaction);
     }
 
@@ -476,15 +464,13 @@ impl RPCReplayedBlockTransaction {
             events,
             post_condition_aborted: receipt.post_condition_aborted,
             vm_error: receipt.vm_error.clone(),
-            profiler: if let Some(profiler_result) = profiler_result {
-                Some(RPCReplayedBlockTransactionProfiler {
+            profiler: profiler_result.as_ref().map(|profiler_result| {
+                RPCReplayedBlockTransactionProfiler {
                     cpu_instructions: profiler_result.cpu_instructions,
                     cpu_cycles: profiler_result.cpu_cycles,
                     cpu_ref_cycles: profiler_result.cpu_ref_cycles,
-                })
-            } else {
-                None
-            },
+                }
+            }),
             execution_stats: execution_tracker.clone(),
         }
     }
@@ -645,15 +631,13 @@ impl RPCRequestHandler for RPCNakamotoBlockReplayRequestHandler {
                     &HttpNotFound::new(format!("No such block {block_id}\n")),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
                 let msg = format!("Failed to load block {}: {:?}\n", &block_id, &e);
                 warn!("{}", &msg);
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 
@@ -703,7 +687,7 @@ impl HttpResponse for RPCNakamotoBlockReplayRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let rpc_replayed_block: RPCReplayedBlock = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(rpc_replayed_block)?)
+        HttpResponsePayload::try_from_json(rpc_replayed_block)
     }
 }
 

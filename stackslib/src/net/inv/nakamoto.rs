@@ -668,7 +668,7 @@ impl NakamotoTenureInv {
 
                 let ret = self.merge_tenure_inv(inv_data.tenures, self.reward_cycle());
                 self.next_reward_cycle();
-                return Ok(ret);
+                Ok(ret)
             }
             StacksMessageType::Nack(nack_data) => {
                 info!("{:?}: remote peer NACKed our GetNakamotoInv", network.get_local_peer();
@@ -679,7 +679,7 @@ impl NakamotoTenureInv {
                     // any other error besides this one is a problem
                     self.set_online(false);
                 }
-                return Ok(false);
+                Ok(false)
             }
             _ => {
                 info!(
@@ -689,7 +689,7 @@ impl NakamotoTenureInv {
                     &reply
                 );
                 self.set_online(false);
-                return Err(NetError::ConnectionBroken);
+                Err(NetError::ConnectionBroken)
             }
         }
     }
@@ -824,9 +824,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
 
     /// Make a getnakamotoinv message
     fn make_getnakamotoinv(&self, reward_cycle: u64) -> Option<StacksMessageType> {
-        let Some(ch) = self.reward_cycle_consensus_hashes.get(&reward_cycle) else {
-            return None;
-        };
+        let ch = self.reward_cycle_consensus_hashes.get(&reward_cycle)?;
         Some(StacksMessageType::GetNakamotoInv(GetNakamotoInvData {
             consensus_hash: ch.clone(),
         }))

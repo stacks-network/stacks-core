@@ -1045,7 +1045,7 @@ impl<'a> TestChainstate<'a> {
         burn_height: u64,
     ) {
         let chain_id = self.config.network_id;
-        let pox_5_address: StacksAddress = boot_code_addr(false).into();
+        let pox_5_address: StacksAddress = boot_code_addr(false);
         let mut transactions = vec![];
         for group in groups {
             let manager_contract = group.contract_id();
@@ -1442,9 +1442,7 @@ impl<'a> TestChainstate<'a> {
         let sortdb = self.sortdb.as_ref().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let sort_handle = sortdb.index_handle(&tip.sortition_id);
-        let Some(sn) = sort_handle.get_block_snapshot_by_height(height).unwrap() else {
-            return None;
-        };
+        let sn = sort_handle.get_block_snapshot_by_height(height).unwrap()?;
         Some(self.get_burnchain_block_ops(&sn.burn_header_hash))
     }
 
@@ -2062,7 +2060,7 @@ impl<'a> TestChainstate<'a> {
 
         // patch in reward set info
         let recipients = get_next_recipients(
-            &sortition_tip,
+            sortition_tip,
             &mut stacks_node.chainstate,
             &mut sortdb,
             &self.config.burnchain,

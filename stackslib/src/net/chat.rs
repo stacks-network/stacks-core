@@ -231,8 +231,7 @@ impl NeighborStats {
     }
 
     pub fn take_relayers(&mut self) -> HashMap<NeighborAddress, RelayStats> {
-        let ret = mem::replace(&mut self.relayed_messages, HashMap::new());
-        ret
+        mem::replace(&mut self.relayed_messages, HashMap::new())
     }
 
     /// Get a peer's perceived health -- the last $NUM_HEALTH_POINTS successful messages divided by
@@ -796,7 +795,7 @@ impl ConversationP2P {
             return true;
         }
 
-        return false;
+        false
     }
 
     /// Validate an inbound message's preamble against our knowledge of the burn chain.
@@ -1195,13 +1194,13 @@ impl ConversationP2P {
             port: self.peer_port,
             nonce,
         };
-        let msg = StacksMessage::from_chain_view(
+
+        StacksMessage::from_chain_view(
             self.version,
             self.network_id,
             chain_view,
             StacksMessageType::NatPunchReply(natpunch_data),
-        );
-        msg
+        )
     }
 
     /// Handle an inbound handshake request, and generate either a HandshakeAccept or a HandshakeReject
@@ -2045,7 +2044,7 @@ impl ConversationP2P {
                 return false;
             }
         }
-        return true;
+        true
     }
 
     /// Check that a message was properly relayed.
@@ -2079,7 +2078,7 @@ impl ConversationP2P {
                 .add_relayer(&relayer.peer, (preamble.payload_len - 1) as u64);
         }
 
-        return true;
+        true
     }
 
     /// Validate pushed blocks.
@@ -2520,7 +2519,7 @@ impl ConversationP2P {
                 }
             }
         }
-        return Ok(true);
+        Ok(true)
     }
 
     /// Handle an inbound authenticated p2p control-plane message
@@ -3284,7 +3283,8 @@ mod test {
         let burnchain_db = burnchain.open_burnchain_db(false).unwrap();
 
         let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
-        let network = PeerNetwork::new(
+
+        PeerNetwork::new(
             peerdb,
             atlasdb,
             stackerdbs,
@@ -3296,8 +3296,7 @@ mod test {
             ConnectionOptions::default(),
             HashMap::new(),
             StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
-        );
-        network
+        )
     }
 
     fn testing_burnchain_config(test_name: &str) -> Burnchain {

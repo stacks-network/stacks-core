@@ -191,8 +191,8 @@ impl RelayPayload for BlocksAvailableData {
         let mut bytes = vec![];
         self.consensus_serialize(&mut bytes)
             .expect("BUG: failed to serialize");
-        let h = Sha512Trunc256Sum::from_data(&bytes);
-        h
+
+        Sha512Trunc256Sum::from_data(&bytes)
     }
     fn get_id(&self) -> String {
         format!("{:?}", &self)
@@ -860,9 +860,9 @@ impl Relayer {
                 consensus_hash,
                 &block.block_hash()
             );
-            return Ok(BlockAcceptResponse::Accepted);
+            Ok(BlockAcceptResponse::Accepted)
         } else {
-            return Ok(BlockAcceptResponse::AlreadyStored);
+            Ok(BlockAcceptResponse::AlreadyStored)
         }
     }
 

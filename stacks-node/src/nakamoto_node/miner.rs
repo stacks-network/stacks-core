@@ -1020,7 +1020,7 @@ impl BlockMinerThread {
         loop {
             let processed = match chain_state
                 .nakamoto_blocks_db()
-                .get_block_processed_and_signed_weight(last_consensus_hash, &last_bhh)
+                .get_block_processed_and_signed_weight(last_consensus_hash, last_bhh)
             {
                 Ok(Some((_, processed, _, _))) => processed,
                 Ok(None) => return Err(NakamotoNodeError::UnexpectedChainState),
@@ -1421,7 +1421,7 @@ impl BlockMinerThread {
         chain_state: &mut StacksChainState,
     ) -> Result<StacksHeaderInfo, NakamotoNodeError> {
         let my_tenure_tip = self
-            .find_highest_known_block_in_my_tenure(&burn_db, &chain_state)
+            .find_highest_known_block_in_my_tenure(burn_db, chain_state)
             .map_err(|e| {
                 error!(
                     "Could not find highest header info for miner's tenure {}: {e:?}",
@@ -1460,7 +1460,7 @@ impl BlockMinerThread {
                 })?;
 
         let header_opt = NakamotoChainState::find_highest_known_block_header_in_tenure(
-            &chain_state,
+            chain_state,
             burn_db,
             &parent_tenure_header.consensus_hash,
         )

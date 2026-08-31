@@ -356,7 +356,7 @@ impl NakamotoChainState {
                       "shadow consensus_hash" => %tenure_consensus_hash);
                 })?;
 
-        return Ok(Some(vrf_proof));
+        Ok(Some(vrf_proof))
     }
 
     /// Begin block-processing for a shadow block and return all of the pre-processed state within a
@@ -385,13 +385,13 @@ impl NakamotoChainState {
             })?;
         let block_consensus_hash = &tenure_block_snapshot.consensus_hash;
 
-        let parent_block_id = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
+        let parent_block_id = StacksBlockId::new(parent_consensus_hash, parent_header_hash);
 
         // tenure start header must exist and be processed
         let _ = Self::get_nakamoto_tenure_start_block_header(
             chainstate_tx.as_tx(),
             &parent_block_id,
-            &parent_consensus_hash,
+            parent_consensus_hash,
         )?
         .ok_or_else(|| {
             warn!("Invalid shadow Nakamoto block: no start-tenure block for parent";
@@ -613,15 +613,15 @@ impl NakamotoBlockBuilder {
         // safety -- we know it's a good proof
         let vrf_proof = VRFProof::from_bytes(vrf_proof_bytes.as_slice()).unwrap();
 
-        let naka_tip_header = NakamotoChainState::get_block_header(chainstate.db(), &naka_tip_id)?
+        let naka_tip_header = NakamotoChainState::get_block_header(chainstate.db(), naka_tip_id)?
             .ok_or_else(|| {
-                warn!("No such Nakamoto tip: {:?}", &naka_tip_id);
-                Error::NoSuchBlockError
-            })?;
+            warn!("No such Nakamoto tip: {:?}", &naka_tip_id);
+            Error::NoSuchBlockError
+        })?;
 
         let naka_tip_tenure_start_header = NakamotoChainState::get_tenure_start_block_header(
             &mut chainstate.index_conn(),
-            &naka_tip_id,
+            naka_tip_id,
             &naka_tip_header.consensus_hash,
         )?
         .ok_or_else(|| {
@@ -683,10 +683,10 @@ impl NakamotoBlockBuilder {
 
             let mut tx_signer = StacksTransactionSigner::new(&tx_tenure_change);
             tx_signer.sign_origin(&miner_key)?;
-            let tx_tenure_change_signed = tx_signer
+
+            tx_signer
                 .get_tx()
-                .ok_or_else(|| Error::InvalidStacksBlock("Failed to sign tenure change".into()))?;
-            tx_tenure_change_signed
+                .ok_or_else(|| Error::InvalidStacksBlock("Failed to sign tenure change".into()))?
         };
 
         // coinbase tx
@@ -702,15 +702,15 @@ impl NakamotoBlockBuilder {
 
             let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
             tx_signer.sign_origin(&miner_key)?;
-            let tx_coinbase_signed = tx_signer
+
+            tx_signer
                 .get_tx()
-                .ok_or_else(|| Error::InvalidStacksBlock("Failed to sign coinbase".into()))?;
-            tx_coinbase_signed
+                .ok_or_else(|| Error::InvalidStacksBlock("Failed to sign coinbase".into()))?
         };
 
         // `burn_tip` corresponds to the burn view consensus hash of the tenure.
         let burn_tip =
-            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &tenure_id_consensus_hash)?
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), tenure_id_consensus_hash)?
                 .ok_or_else(|| Error::InvalidStacksBlock("No such tenure ID".into()))?;
 
         debug!(
@@ -721,7 +721,7 @@ impl NakamotoBlockBuilder {
         // make a block
         let builder = NakamotoBlockBuilder::new(
             &naka_tip_header,
-            &tenure_id_consensus_hash,
+            tenure_id_consensus_hash,
             burn_tip.total_burn,
             Some(&tenure_change_tx),
             Some(&coinbase_tx),
@@ -729,7 +729,7 @@ impl NakamotoBlockBuilder {
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )?;
 
         let mut block_txs = vec![tenure_change_tx, coinbase_tx];
@@ -738,7 +738,7 @@ impl NakamotoBlockBuilder {
             builder,
             chainstate,
             &sortdb.index_handle(&burn_tip.sortition_id),
-            &tenure_id_consensus_hash,
+            tenure_id_consensus_hash,
             block_txs,
         )?;
 

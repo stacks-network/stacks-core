@@ -1225,7 +1225,7 @@ impl Config {
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
         let new_balance = InitialBalance {
-            address: PrincipalData::parse(&address).unwrap().into(),
+            address: PrincipalData::parse(&address).unwrap(),
             amount,
         };
         self.initial_balances.push(new_balance);
@@ -1908,10 +1908,8 @@ impl BurnchainConfigFile {
         mut self,
         default_burnchain_config: BurnchainConfig,
     ) -> Result<BurnchainConfig, String> {
-        if self.mode.as_deref() == Some("xenon") {
-            if self.magic_bytes.is_none() {
-                self.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
-            }
+        if self.mode.as_deref() == Some("xenon") && self.magic_bytes.is_none() {
+            self.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
         }
 
         let mode = self.mode.unwrap_or(default_burnchain_config.mode);
@@ -1968,9 +1966,7 @@ impl BurnchainConfigFile {
                         .map_err(|e| format!("Invalid burnchain.peer_host: {}", &e))?
                         .next()
                         .is_none()
-                        .then(|| {
-                            return format!("No IP address could be queried for '{}'", &peer_host);
-                        });
+                        .then(|| format!("No IP address could be queried for '{}'", &peer_host));
                     peer_host.clone()
                 }
                 None => default_burnchain_config.peer_host,

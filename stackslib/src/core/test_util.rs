@@ -431,8 +431,8 @@ pub fn make_coinbase_tx(
     chain_id: u32,
 ) -> StacksTransaction {
     let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
-    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
-    tx
+
+    sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
 }
 
 pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64, chain_id: u32) -> Vec<u8> {

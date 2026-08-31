@@ -85,10 +85,10 @@ mod utils {
             |marf, block_data, _| {
                 for (key, value) in block_data.iter() {
                     let leaf = TrieLeaf::from_value(&[], value.clone());
-                    marf.insert_raw(key.clone(), leaf).unwrap();
+                    marf.insert_raw(*key, leaf).unwrap();
                 }
             },
-            |k| k.clone(),
+            |k| *k,
         )
     }
 

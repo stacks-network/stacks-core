@@ -18,6 +18,7 @@
 */
 
 use std::collections::HashMap;
+use std::slice;
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::{BurnStateDB, HeadersDB};
@@ -292,7 +293,7 @@ impl UnconfirmedState {
                 let (stx_fees, stx_burns, receipts) =
                     match StacksChainState::process_microblocks_transactions(
                         &mut clarity_tx,
-                        &[mblock.clone()],
+                        slice::from_ref(&mblock),
                     ) {
                         Ok(x) => x,
                         Err((e, _)) => {
@@ -807,13 +808,12 @@ mod test {
                         bytes.len() as u64
                     };
 
-                    let microblock = microblock_builder
+                    microblock_builder
                         .mine_next_microblock_from_txs(
                             vec![(signed_tx, signed_tx_len)],
                             &microblock_privkey,
                         )
-                        .unwrap();
-                    microblock
+                        .unwrap()
                 };
 
                 peer.chain.sortdb = Some(sortdb);
@@ -1262,8 +1262,7 @@ mod test {
                         let mut signer = StacksTransactionSigner::new(&tx);
                         signer.sign_origin(&privk).unwrap();
 
-                        let signed_tx = signer.get_tx().unwrap();
-                        signed_tx
+                        signer.get_tx().unwrap()
                     };
                     // this will be accepted
                     recv_balance += 1;
@@ -1355,16 +1354,14 @@ mod test {
                         let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
                         signer.sign_origin(&privk).unwrap();
 
-                        let signed_tx = signer.get_tx().unwrap();
-                        signed_tx
+                        signer.get_tx().unwrap()
                     };
 
                     signed_txs.push(tx);
 
-                    let microblock = microblock_builder
+                    microblock_builder
                         .make_next_microblock(signed_txs, &microblock_privkey, vec![], None)
-                        .unwrap();
-                    microblock
+                        .unwrap()
                 };
 
                 inner_node

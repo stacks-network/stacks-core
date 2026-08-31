@@ -56,14 +56,11 @@ use crate::util_lib::test::*;
 #[test]
 fn test_sample_neighbors() {
     let neighbors: Vec<_> = (0..10)
-        .map(|i| {
-            let nk = NeighborKey {
-                peer_version: 12345,
-                network_id: 0x80000000,
-                addrbytes: PeerAddress([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1]),
-                port: i,
-            };
-            nk
+        .map(|i| NeighborKey {
+            peer_version: 12345,
+            network_id: 0x80000000,
+            addrbytes: PeerAddress([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 127, 0, 0, 1]),
+            port: i,
         })
         .collect();
 
@@ -517,12 +514,8 @@ fn is_peer_connected(peer: &TestPeer, dest: &NeighborKey) -> bool {
     };
 
     match peer.network.peers.get(&event_id) {
-        Some(convo) => {
-            return convo.is_authenticated();
-        }
-        None => {
-            return false;
-        }
+        Some(convo) => convo.is_authenticated(),
+        None => false,
     }
 }
 
@@ -554,15 +547,13 @@ fn push_message(
     };
 
     match peer.network.relay_signed_message(dest, relay_msg) {
-        Ok(_) => {
-            return true;
-        }
+        Ok(_) => true,
         Err(net_error::OutboxOverflow) => {
             test_debug!(
                 "{:?} outbox overflow; try again later",
                 &peer.to_neighbor().addr
             );
-            return false;
+            false
         }
         Err(net_error::SendError(msg)) => {
             warn!(
@@ -570,7 +561,7 @@ fn push_message(
                 &peer.to_neighbor().addr,
                 msg
             );
-            return false;
+            false
         }
         Err(e) => {
             panic!(
@@ -585,7 +576,7 @@ fn http_rpc(peer_http: u16, request: StacksHttpRequest) -> Result<StacksHttpResp
     use std::net::TcpStream;
 
     let mut sock = TcpStream::connect(
-        &format!("127.0.0.1:{}", peer_http)
+        format!("127.0.0.1:{}", peer_http)
             .parse::<SocketAddr>()
             .unwrap(),
     )
@@ -773,8 +764,8 @@ fn http_get_info(http_port: u16) -> RPCPeerInfoData {
     request.keep_alive = false;
     let getinfo = StacksHttpRequest::new(request, HttpRequestContents::new());
     let response = http_rpc(http_port, getinfo).unwrap();
-    let peer_info = response.decode_peer_info().unwrap();
-    peer_info
+
+    response.decode_peer_info().unwrap()
 }
 
 fn http_post_block(http_port: u16, consensus_hash: &ConsensusHash, block: &StacksBlock) -> bool {
@@ -828,7 +819,7 @@ fn http_post_microblock(
     let response = http_rpc(http_port, post_microblock).unwrap();
     let payload = response.get_http_payload_ok().unwrap();
     let bhh: BlockHeaderHash = serde_json::from_value(payload.try_into().unwrap()).unwrap();
-    return true;
+    true
 }
 
 fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(

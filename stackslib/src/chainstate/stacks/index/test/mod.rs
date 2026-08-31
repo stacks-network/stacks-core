@@ -62,8 +62,7 @@ where
     let (root, root_hash) = Trie::read_root(s).unwrap();
     frontier.push((root, root_hash, 0));
 
-    while !frontier.is_empty() {
-        let (next, next_hash, depth) = frontier.pop().unwrap();
+    while let Some((next, next_hash, depth)) = frontier.pop() {
         let (ptrs, path_len) = match next {
             TrieNodeType::Leaf(ref leaf_data) => {
                 test_debug!("{}{} {:?}", &space(depth), next_hash, leaf_data);
@@ -102,7 +101,7 @@ where
 
 pub fn merkle_test(s: &mut TrieStorageConnection<BlockHeaderHash>, path: &[u8], value: &[u8]) {
     let (_, root_hash) = Trie::read_root(s).unwrap();
-    let triepath = TrieHash::from_bytes(&path[..]).unwrap();
+    let triepath = TrieHash::from_bytes(path).unwrap();
 
     let block_header = BlockHeaderHash([0u8; 32]);
     s.open_block(&block_header).unwrap();

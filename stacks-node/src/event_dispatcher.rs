@@ -488,7 +488,7 @@ impl EventDispatcher {
         );
 
         for observer in interested_observers.iter() {
-            self.send_new_burn_block(&observer, &payload);
+            self.send_new_burn_block(observer, &payload);
         }
     }
 
@@ -657,7 +657,7 @@ impl EventDispatcher {
                     metadata,
                     receipts,
                     parent_index_hash,
-                    &winner_txid,
+                    winner_txid,
                     &mature_rewards,
                     parent_burn_block_hash,
                     parent_burn_block_height,
@@ -739,7 +739,7 @@ impl EventDispatcher {
 
             self.send_new_microblocks(
                 observer,
-                &parent_index_block_hash,
+                parent_index_block_hash,
                 &filtered_events,
                 &serialized_txs,
                 &processed_unconfirmed_state.burn_block_hash,

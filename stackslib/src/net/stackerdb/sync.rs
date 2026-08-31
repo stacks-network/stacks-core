@@ -681,7 +681,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                             return true;
                         }
                     }
-                    return false;
+                    false
                 })
                 .is_some();
 

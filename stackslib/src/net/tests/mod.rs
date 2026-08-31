@@ -343,14 +343,9 @@ impl NakamotoBootPlan {
                         function_name,
                         ..
                     }) => {
-                        if contract_name.as_str() == SIGNERS_VOTING_NAME
+                        !(contract_name.as_str() == SIGNERS_VOTING_NAME
                             && address.is_burn()
-                            && function_name.as_str() == SIGNERS_VOTING_FUNCTION_NAME
-                        {
-                            false
-                        } else {
-                            true
-                        }
+                            && function_name.as_str() == SIGNERS_VOTING_FUNCTION_NAME)
                     }
                     _ => true,
                 })
@@ -1094,9 +1089,8 @@ fn test_boot_nakamoto_peer() {
 
         let mut tx_signer = StacksTransactionSigner::new(&stx_transfer);
         tx_signer.sign_origin(&private_key).unwrap();
-        let stx_transfer_signed = tx_signer.get_tx().unwrap();
 
-        stx_transfer_signed
+        tx_signer.get_tx().unwrap()
     };
 
     let boot_tenures = vec![

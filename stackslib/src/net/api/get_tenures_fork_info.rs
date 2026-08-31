@@ -270,8 +270,7 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                         "Supplied start and end sortitions are not in the same sortition fork"
                     )),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
             Err(ChainError::NoSuchBlockError) => {
                 return StacksHttpResponse::new_error(
@@ -282,7 +281,6 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                     )),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
@@ -292,8 +290,7 @@ impl RPCRequestHandler for GetTenuresForkInfo {
                 );
                 warn!("{msg}");
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 
@@ -318,6 +315,6 @@ impl HttpResponse for GetTenuresForkInfo {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let tenures_info: Vec<TenureForkingInfo> = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(tenures_info)?)
+        HttpResponsePayload::try_from_json(tenures_info)
     }
 }

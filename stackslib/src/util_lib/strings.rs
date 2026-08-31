@@ -161,16 +161,8 @@ impl UrlString {
             }
         };
         match url.host_str() {
-            Some(host_str) => {
-                if host_str == "0.0.0.0" || host_str == "[::]" || host_str == "::" {
-                    return false;
-                } else {
-                    return true;
-                }
-            }
-            None => {
-                return false;
-            }
+            Some(host_str) => !(host_str == "0.0.0.0" || host_str == "[::]" || host_str == "::"),
+            None => false,
         }
     }
 

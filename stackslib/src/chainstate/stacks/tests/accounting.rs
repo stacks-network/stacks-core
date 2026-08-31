@@ -185,8 +185,8 @@ fn test_bad_microblock_fees_pre_v210() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-                        tx_coinbase_signed
+                        
+                        tx_signer.get_tx().unwrap()
                     };
 
                 let mut anchored_txs = vec![coinbase_tx];
@@ -510,8 +510,8 @@ fn test_bad_microblock_fees_fix_transition() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-                        tx_coinbase_signed
+                        
+                        tx_signer.get_tx().unwrap()
                     };
 
                 let mut anchored_txs = vec![coinbase_tx];
@@ -868,8 +868,8 @@ fn test_get_block_info_v210() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-                        tx_coinbase_signed
+                        
+                        tx_signer.get_tx().unwrap()
                     };
 
                 let mut anchored_txs = vec![coinbase_tx];
@@ -1241,8 +1241,8 @@ fn test_get_block_info_v210_no_microblocks() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-                        tx_coinbase_signed
+                        
+                        tx_signer.get_tx().unwrap()
                     };
 
                 let mut anchored_txs = vec![coinbase_tx];
@@ -1263,10 +1263,10 @@ fn test_get_block_info_v210_no_microblocks() {
 
                 let mblock_pubkey_hash = {
                     let parent_microblock_privkey = mblock_privks[tenure_id].clone();
-                    let mblock_pubkey_hash = Hash160::from_node_public_key(
-                        &StacksPublicKey::from_private(&parent_microblock_privkey),
-                    );
-                    mblock_pubkey_hash
+
+                    Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                        &parent_microblock_privkey,
+                    ))
                 };
                 let builder = StacksBlockBuilder::make_block_builder(
                     &burnchain,
@@ -1625,8 +1625,8 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        let tx_coinbase_signed = tx_signer.get_tx().unwrap();
-                        tx_coinbase_signed
+
+                        tx_signer.get_tx().unwrap()
                     }
                 };
 

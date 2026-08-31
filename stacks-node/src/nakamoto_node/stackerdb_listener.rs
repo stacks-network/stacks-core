@@ -331,7 +331,7 @@ impl StackerDBListener {
                 continue;
             };
             let slot_ids = modified_slots
-                .into_iter()
+                .iter()
                 .map(|chunk| chunk.slot_id)
                 .collect::<Vec<_>>();
 
@@ -492,27 +492,24 @@ impl StackerDBListener {
                             // per-txid signer weight and whether any signer flagged
                             // the tx as genuinely problematic.
                             if let Some(txid) = &rejected_data.response_data.failed_txid {
-                                match &rejected_data.reason_code {
-                                    RejectCode::ValidationFailed(
-                                        ValidateRejectCode::BadTransaction
-                                        | ValidateRejectCode::ProblematicTransaction,
-                                    ) => {
-                                        let info =
-                                            block.failed_txids.entry(txid.clone()).or_default();
-                                        info.total_weight =
-                                            info.total_weight.saturating_add(signer_entry.weight);
-                                        if matches!(
-                                            rejected_data.reason_code,
-                                            RejectCode::ValidationFailed(
-                                                ValidateRejectCode::ProblematicTransaction
-                                            )
-                                        ) {
-                                            info.problematic_weight = info
-                                                .problematic_weight
-                                                .saturating_add(signer_entry.weight);
-                                        }
+                                if let RejectCode::ValidationFailed(
+                                    ValidateRejectCode::BadTransaction
+                                    | ValidateRejectCode::ProblematicTransaction,
+                                ) = &rejected_data.reason_code
+                                {
+                                    let info = block.failed_txids.entry(txid.clone()).or_default();
+                                    info.total_weight =
+                                        info.total_weight.saturating_add(signer_entry.weight);
+                                    if matches!(
+                                        rejected_data.reason_code,
+                                        RejectCode::ValidationFailed(
+                                            ValidateRejectCode::ProblematicTransaction
+                                        )
+                                    ) {
+                                        info.problematic_weight = info
+                                            .problematic_weight
+                                            .saturating_add(signer_entry.weight);
                                     }
-                                    _ => {}
                                 }
                             }
 

@@ -35,7 +35,7 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let private_key = StacksPrivateKey::from_seed("txsimulate".as_bytes());
     let tx = make_contract_publish_tx(
@@ -43,8 +43,8 @@ fn test_try_parse_request() {
         0,
         1000,
         CHAIN_ID_TESTNET,
-        &"print-contract",
-        &"(print u1)",
+        "print-contract",
+        "(print u1)",
         Some(clarity::vm::ClarityVersion::Clarity1),
     );
 
@@ -116,8 +116,8 @@ fn test_transaction_simulate_errors() {
         0,
         1000,
         CHAIN_ID_TESTNET,
-        &"print-contract",
-        &"(print u1)",
+        "print-contract",
+        "(print u1)",
         Some(clarity::vm::ClarityVersion::Clarity1),
     );
 
@@ -180,8 +180,8 @@ fn test_try_make_response() {
                 0,
                 1000,
                 CHAIN_ID_TESTNET,
-                &"test",
-                &code_body,
+                "test",
+                code_body,
                 None,
             );
 

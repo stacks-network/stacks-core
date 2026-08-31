@@ -265,10 +265,7 @@ impl BitcoinIndexer {
     pub fn dup(&self) -> BitcoinIndexer {
         BitcoinIndexer {
             config: self.config.clone(),
-            runtime: BitcoinIndexerRuntime::new(
-                self.runtime.network_id,
-                self.config.timeout.into(),
-            ),
+            runtime: BitcoinIndexerRuntime::new(self.runtime.network_id, self.config.timeout),
             should_keep_running: self.should_keep_running.clone(),
         }
     }
@@ -512,7 +509,7 @@ impl BitcoinIndexer {
         remove_old: bool,
     ) -> Result<SpvClient, btc_error> {
         if remove_old && PathBuf::from(&reorg_headers_path).exists() {
-            fs::remove_file(&reorg_headers_path).map_err(|e| {
+            fs::remove_file(reorg_headers_path).map_err(|e| {
                 error!("Failed to remove {}", reorg_headers_path);
                 btc_error::Io(e)
             })?;
@@ -929,7 +926,7 @@ impl BitcoinIndexer {
             highest_header_height, highest_header.block_header.header.time
         );
         self.drop_headers(highest_header_height.saturating_sub(1))?;
-        return Err(burnchain_error::TrySyncAgain);
+        Err(burnchain_error::TrySyncAgain)
     }
 }
 

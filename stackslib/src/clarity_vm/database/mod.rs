@@ -275,8 +275,8 @@ impl HeadersDB for HeadersDBConn<'_> {
         let tenure_id_bhh = get_first_block_in_tenure(&self.0, id_bhh, tip, Some(epoch));
         get_miner_column(self.0.conn(), &tenure_id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
-            let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
-            addr
+
+            StacksAddress::from_string(&s).expect("FATAL: malformed address")
         })
     }
 
@@ -435,8 +435,8 @@ impl HeadersDB for ChainstateTx<'_> {
         let tenure_id_bhh = get_first_block_in_tenure(self.deref(), id_bhh, tip, Some(epoch));
         get_miner_column(self.deref().deref(), &tenure_id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
-            let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
-            addr
+
+            StacksAddress::from_string(&s).expect("FATAL: malformed address")
         })
     }
 
@@ -614,8 +614,8 @@ impl HeadersDB for MARF<StacksBlockId> {
         let tenure_id_bhh = get_first_block_in_tenure(self, id_bhh, tip, Some(epoch));
         get_miner_column(self.sqlite_conn(), &tenure_id_bhh, "address", |r| {
             let s: String = r.get_unwrap("address");
-            let addr = StacksAddress::from_string(&s).expect("FATAL: malformed address");
-            addr
+
+            StacksAddress::from_string(&s).expect("FATAL: malformed address")
         })
     }
 
@@ -949,7 +949,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         match SortitionDB::get_block_snapshot(self.tx(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -968,7 +968,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
         let db_handle = SortitionHandleConn::new(&readonly_marf, context);
         match db_handle.get_block_snapshot_by_height(height as u64) {
             Ok(Some(x)) => Some(x.burn_header_hash),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -978,7 +978,7 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     ) -> Option<SortitionId> {
         match SortitionDB::get_block_snapshot_consensus(self.tx(), consensus_hash) {
             Ok(Some(x)) => Some(x.sortition_id),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -1088,7 +1088,7 @@ impl BurnStateDB for SortitionHandleConn<'_> {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         match SortitionDB::get_block_snapshot(self.conn(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -1110,7 +1110,7 @@ impl BurnStateDB for SortitionHandleConn<'_> {
 
         match self.get_block_snapshot_by_height(height as u64) {
             Ok(Some(x)) => Some(x.burn_header_hash),
-            _ => return None,
+            _ => None,
         }
     }
 
@@ -1120,7 +1120,7 @@ impl BurnStateDB for SortitionHandleConn<'_> {
     ) -> Option<SortitionId> {
         match SortitionDB::get_block_snapshot_consensus(self.conn(), consensus_hash) {
             Ok(Some(x)) => Some(x.sortition_id),
-            _ => return None,
+            _ => None,
         }
     }
 

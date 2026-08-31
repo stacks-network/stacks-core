@@ -472,9 +472,9 @@ impl BlocksAvailableData {
     ) -> Result<(), net_error> {
         if self.available.len() < BLOCKS_AVAILABLE_MAX_LEN as usize {
             self.available.push((ch, bhh));
-            return Ok(());
+            Ok(())
         } else {
-            return Err(net_error::InvalidMessage);
+            Err(net_error::InvalidMessage)
         }
     }
 }

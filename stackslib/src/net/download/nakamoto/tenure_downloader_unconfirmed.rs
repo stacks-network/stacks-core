@@ -765,25 +765,22 @@ impl NakamotoUnconfirmedTenureDownloader {
         match &self.state {
             NakamotoUnconfirmedDownloadState::GetTenureInfo => {
                 // need to get the tenure tip
-                return Some(StacksHttpRequest::new_get_nakamoto_tenure_info(peerhost));
+                Some(StacksHttpRequest::new_get_nakamoto_tenure_info(peerhost))
             }
-            NakamotoUnconfirmedDownloadState::GetTenureStartBlock(block_id) => {
-                return Some(StacksHttpRequest::new_get_nakamoto_block(
-                    peerhost,
-                    block_id.clone(),
-                ));
-            }
+            NakamotoUnconfirmedDownloadState::GetTenureStartBlock(block_id) => Some(
+                StacksHttpRequest::new_get_nakamoto_block(peerhost, block_id.clone()),
+            ),
             NakamotoUnconfirmedDownloadState::GetUnconfirmedTenureBlocks(tip_block_id) => {
-                return Some(StacksHttpRequest::new_get_nakamoto_tenure(
+                Some(StacksHttpRequest::new_get_nakamoto_tenure(
                     peerhost,
                     tip_block_id.clone(),
                     self.highest_processed_block_id.clone(),
-                ));
+                ))
             }
             NakamotoUnconfirmedDownloadState::Done => {
                 // got all unconfirmed blocks!  Next step is to turn this downloader into a confirmed
                 // tenure downloader using the earliest unconfirmed tenure block.
-                return None;
+                None
             }
         }
     }
@@ -912,9 +909,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                 debug!("Got unconfirmed tenure blocks"; "complete" => accepted_opt.is_some());
                 Ok(accepted_opt)
             }
-            NakamotoUnconfirmedDownloadState::Done => {
-                return Err(NetError::InvalidState);
-            }
+            NakamotoUnconfirmedDownloadState::Done => Err(NetError::InvalidState),
         }
     }
 

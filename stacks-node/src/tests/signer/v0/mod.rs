@@ -18,7 +18,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::{env, thread};
+use std::{env, slice, thread};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
@@ -2172,7 +2172,7 @@ pub fn wait_for_block_proposal_block(
     expected_miner: &StacksPublicKey,
 ) -> Result<NakamotoBlock, String> {
     wait_for_block_proposal(timeout_secs, expected_height, expected_miner)
-        .and_then(|proposal| Ok(proposal.block))
+        .map(|proposal| proposal.block)
 }
 
 /// Returns all successfully deserialized (StackerDBChunkData, SignerMessage) pairs
@@ -5733,7 +5733,7 @@ fn block_validation_check_rejection_timeout_heuristic() {
         wait_for_block_rejections_from_signers(
             timeout.as_secs(),
             &proposal.header.signer_signature_hash(),
-            &reject_signers,
+            reject_signers,
         )
         .unwrap();
 
@@ -6465,7 +6465,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
 
     // Setup the new signers that will take over
     let new_signer_config = build_signer_config_tomls(
-        &[new_signer_private_key.clone()],
+        slice::from_ref(&new_signer_private_key),
         &rpc_bind,
         Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
         &Network::Testnet,
@@ -8177,7 +8177,7 @@ fn mine_burn_block_and_confirm_signer_rollover(
         &tip.consensus_hash,
         tip.block_height,
         None,
-        &expected_versions,
+        expected_versions,
     )
     .expect("Timed out waiting for signers to send their state updates after a bitcoin block");
     let info = signer_test.get_peer_info();
@@ -8872,7 +8872,7 @@ fn signer_loads_stackerdb_updates_on_startup() {
     wait_for_block_acceptance_from_signers(
         30,
         &block_n_2.header.signer_signature_hash(),
-        &accepting,
+        accepting,
     )
     .expect("Not all signers accepted the block");
 
@@ -8892,7 +8892,7 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
     info!("------------------------- Test Setup -------------------------");
     let num_signers = 20;
 
-    let mut signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(num_signers, vec![]);
     let miner_sk = signer_test
         .running_nodes
         .conf
@@ -8919,7 +8919,7 @@ fn signers_do_not_commit_unless_threshold_precommitted() {
     let height_before = signer_test.get_peer_info().stacks_tip_height;
     info!("------------------------- Start Tenure A -------------------------");
     next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
+        &signer_test.running_nodes.btc_regtest_controller,
         30,
         || Ok(test_observer::get_mined_nakamoto_blocks().len() > blocks_before),
     )
@@ -9017,7 +9017,7 @@ fn signers_treat_signatures_as_precommits() {
     wait_for_block_pre_commits_from_signers(
         30,
         &signer_signature_hash,
-        &[operating_signer.clone()],
+        slice::from_ref(&operating_signer),
     )
     .expect("Operating signer did not send a pre-commit");
     assert!(
@@ -9068,7 +9068,7 @@ fn signers_treat_signatures_as_precommits() {
         while !accepted {
             let mut chunk = StackerDBChunkData::new(slot_id, version, message.serialize_to_vec());
             chunk
-                .sign(&signer_private_key)
+                .sign(signer_private_key)
                 .expect("Failed to sign message chunk");
             debug!("Produced a signature: {:?}", chunk.sig);
             let result = session.put_chunk(&chunk).expect("Failed to put chunk");

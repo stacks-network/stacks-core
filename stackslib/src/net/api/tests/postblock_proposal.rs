@@ -276,7 +276,7 @@ fn test_try_make_response() {
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )
         .unwrap();
 
@@ -582,7 +582,7 @@ fn test_block_proposal_validation_timeout() {
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )
         .unwrap();
 
@@ -774,7 +774,7 @@ fn test_block_proposal_validation_execution_time_expired_blames_tx() {
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )
         .unwrap();
 
@@ -951,7 +951,7 @@ fn test_block_proposal_validation_analysis_time_expired_blames_tx() {
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )
         .unwrap();
 
@@ -1097,7 +1097,7 @@ fn replay_validation_test(
             None,
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )
         .unwrap();
 
@@ -1492,7 +1492,7 @@ fn replay_validation_test_budget_exceeded() {
             36,
             1000,
             CHAIN_ID_TESTNET,
-            &"big-contract",
+            "big-contract",
             &contract_code,
         );
 
@@ -1502,7 +1502,7 @@ fn replay_validation_test_budget_exceeded() {
             1000,
             CHAIN_ID_TESTNET,
             &miner_addr,
-            &"big-contract",
+            "big-contract",
             "big-tx",
             &vec![],
         );
@@ -1513,7 +1513,7 @@ fn replay_validation_test_budget_exceeded() {
             1000,
             CHAIN_ID_TESTNET,
             &miner_addr,
-            &"big-contract",
+            "big-contract",
             "big-tx",
             &vec![],
         );
@@ -1569,7 +1569,7 @@ fn replay_validation_test_budget_exhausted() {
             36,
             1000,
             CHAIN_ID_TESTNET,
-            &"big-contract",
+            "big-contract",
             &contract_code,
         );
 
@@ -1579,7 +1579,7 @@ fn replay_validation_test_budget_exhausted() {
             1000,
             CHAIN_ID_TESTNET,
             &miner_addr,
-            &"big-contract",
+            "big-contract",
             "big-tx",
             &vec![],
         );
@@ -1590,7 +1590,7 @@ fn replay_validation_test_budget_exhausted() {
             1000,
             CHAIN_ID_TESTNET,
             &miner_addr,
-            &"big-contract",
+            "big-contract",
             "big-tx",
             &vec![],
         );

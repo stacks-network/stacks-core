@@ -2103,10 +2103,7 @@ fn test_build_anchored_blocks_invalid() {
                     }
                     else {
                         assert!(tenure_id != bad_block_tenure + 1);
-                        match parent_opt {
-                            Some(p) => Some((*p).clone()),
-                            None => None
-                        }
+                        parent_opt.as_ref().map(|p| (*p).clone())
                     }
                 }
                 else {
@@ -4946,7 +4943,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
     let address_6 = accounts[6].to_string();
 
     let test_name = function_name!();
-    let mut peer_config = TestPeerConfig::new(&test_name, 0, 0);
+    let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
     peer_config.chain_config.initial_balances = vec![];
     for (privk, addr) in &key_address_pairs {
         peer_config
@@ -4958,8 +4955,8 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
     let recipient =
         StacksAddress::from_string("ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV").unwrap();
 
-    let mut chainstate = TestChainstateBuilder::new_testnet(&test_name).build();
-    let chainstate_path = chainstate_path(&test_name);
+    let mut chainstate = TestChainstateBuilder::new_testnet(test_name).build();
+    let chainstate_path = chainstate_path(test_name);
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
     let b_1 = make_block(
         &mut chainstate,
@@ -5029,7 +5026,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
                 TokenTransferMemo([0; 34]),
             );
             sign_sponsored_singlesig_tx(
-                payload.into(),
+                payload,
                 &key_address_pairs[origin_index].0,
                 &key_address_pairs[sponsor_index].0,
                 origin_nonce,

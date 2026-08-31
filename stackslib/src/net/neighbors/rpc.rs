@@ -233,9 +233,7 @@ impl NeighborRPC {
                     match http.connect_http(network_state, network, data_url, data_addr, None) {
                         Ok(event_id) => Ok(event_id),
                         Err(NetError::AlreadyConnected(event_id, _)) => Ok(event_id),
-                        Err(e) => {
-                            return Err(e);
-                        }
+                        Err(e) => Err(e),
                     }
                 })
             })?;

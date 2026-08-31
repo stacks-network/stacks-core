@@ -396,14 +396,10 @@ pub fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
         let sort_db = peer.sortdb_ref();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         let sort_ic = sort_db.index_conn();
-        let ancestor_tip = SortitionDB::get_ancestor_snapshot(
-            &sort_ic,
-            replay_tip.block_height,
-            &tip.sortition_id,
-        )
-        .unwrap()
-        .unwrap();
-        ancestor_tip
+
+        SortitionDB::get_ancestor_snapshot(&sort_ic, replay_tip.block_height, &tip.sortition_id)
+            .unwrap()
+            .unwrap()
     };
 
     assert_eq!(tip, replay_tip);
@@ -436,9 +432,8 @@ pub fn make_token_transfer(
 
     let mut tx_signer = StacksTransactionSigner::new(&stx_transfer);
     tx_signer.sign_origin(private_key).unwrap();
-    let stx_transfer_signed = tx_signer.get_tx().unwrap();
 
-    stx_transfer_signed
+    tx_signer.get_tx().unwrap()
 }
 
 /// Make contract publish
@@ -2837,7 +2832,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
             matured_rewards.push(matured_reward_opt);
         }
     }
-    for (i, matured_reward_opt) in matured_rewards[4..].into_iter().enumerate() {
+    for (i, matured_reward_opt) in matured_rewards[4..].iter().enumerate() {
         let matured_reward = (*matured_reward_opt).clone().unwrap();
         debug!("{}: {:?}", i, &matured_reward);
 
@@ -2935,7 +2930,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     );
 
     peer.check_nakamoto_migration();
-    return peer;
+    peer
 }
 
 #[test]
@@ -3291,7 +3286,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     );
 
     peer.check_nakamoto_migration();
-    return peer;
+    peer
 }
 
 #[test]
@@ -3589,7 +3584,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
 
     peer.check_nakamoto_migration();
     peer.check_malleablized_blocks(all_blocks, 2);
-    return peer;
+    peer
 }
 
 #[test]
@@ -3938,7 +3933,7 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
 
     peer.check_nakamoto_migration();
     peer.check_malleablized_blocks(all_blocks, 2);
-    return peer;
+    peer
 }
 
 #[test]
@@ -4578,7 +4573,7 @@ fn test_stacks_on_burnchain_ops() {
         debug!("Expected: {:?}", &expected_burnchain_txids);
         assert_eq!(block_burn_txids, expected_burnchain_txids);
 
-        observed_burn_txids.extend(block_burn_txids.into_iter());
+        observed_burn_txids.extend(block_burn_txids);
     }
 
     // all extra burn ops are represented

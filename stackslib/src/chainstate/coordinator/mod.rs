@@ -552,11 +552,8 @@ impl<
             debug!("Received new stacks block notice");
             match self.handle_new_stacks_block() {
                 Ok(missing_block_opt) => {
-                    if missing_block_opt.is_some() {
-                        debug!(
-                            "Missing affirmed anchor block: {:?}",
-                            &missing_block_opt.as_ref().expect("unreachable")
-                        );
+                    if let Some(missing_block) = &missing_block_opt {
+                        debug!("Missing affirmed anchor block: {:?}", missing_block);
                     }
                 }
                 Err(e) => {
@@ -591,7 +588,7 @@ impl<
             return false;
         }
 
-        return true;
+        true
     }
 }
 
@@ -1831,7 +1828,7 @@ pub fn check_chainstate_db_versions(
     chainstate_path: &str,
 ) -> Result<bool, DBError> {
     let mut cur_epoch_opt = None;
-    if fs::metadata(&sortdb_path).is_ok() {
+    if fs::metadata(sortdb_path).is_ok() {
         // check sortition DB and load up the current epoch
         let max_height = SortitionDB::get_highest_block_height_from_path(sortdb_path)
             .expect("FATAL: could not query sortition DB for maximum block height");
@@ -1930,10 +1927,10 @@ impl SortitionDBMigrator {
 
         let ancestor_sn = {
             let sort_ih = sort_db.index_handle(&sort_tip.sortition_id);
-            let sn = sort_ih
+
+            sort_ih
                 .get_block_snapshot_by_height(rc_start)?
-                .ok_or(DBError::NotFoundError)?;
-            sn
+                .ok_or(DBError::NotFoundError)?
         };
 
         let mut chainstate = self
@@ -1977,7 +1974,7 @@ pub fn migrate_chainstate_dbs(
         return Err(DBError::TooOldForEpoch.into());
     }
 
-    if fs::metadata(&sortdb_path).is_ok() {
+    if fs::metadata(sortdb_path).is_ok() {
         info!("Migrating sortition DB to the latest schema version");
         let migrator = SortitionDBMigrator::new(
             burnchain.clone(),
@@ -1986,7 +1983,7 @@ pub fn migrate_chainstate_dbs(
         )?;
         SortitionDB::migrate_if_exists(sortdb_path, epochs, migrator)?;
     }
-    if fs::metadata(&chainstate_path).is_ok() {
+    if fs::metadata(chainstate_path).is_ok() {
         info!("Migrating chainstate DB to the latest schema version");
         let db_config = StacksChainState::get_db_config_from_path(chainstate_path)?;
 

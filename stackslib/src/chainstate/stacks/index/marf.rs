@@ -397,7 +397,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         current_block_hash: &T,
     ) -> Result<Option<u32>, Error> {
         if Some(bhh) == self.get_open_chain_tip() {
-            return Ok(self.get_open_chain_tip_height());
+            Ok(self.get_open_chain_tip_height())
         } else {
             MARF::get_block_height_miner_tip(&mut self.storage, bhh, current_block_hash)
         }
@@ -1021,7 +1021,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
 
         trace!("Trie has a cycle");
-        return Err(Error::CorruptionError("Trie has a cycle".to_string()));
+        Err(Error::CorruptionError("Trie has a cycle".to_string()))
     }
 
     /// Walk down this MARF at the given block hash, resolving backptrs to previous tries.
@@ -1115,7 +1115,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
 
         trace!("Trie has a cycle");
-        return Err(Error::CorruptionError("Trie has a cycle".to_string()));
+        Err(Error::CorruptionError("Trie has a cycle".to_string()))
     }
 
     pub fn format(
@@ -1170,13 +1170,13 @@ impl<T: MarfTrieId> MARF<T> {
         match node {
             TrieNodeType::Leaf(data) => {
                 // found!
-                return Ok(Some(data));
+                Ok(Some(data))
             }
             _ => {
                 // Trie invariant violation -- a full path reached a non-leaf
-                return Err(Error::CorruptionError(
+                Err(Error::CorruptionError(
                     "Path reached a non-leaf".to_string(),
-                ));
+                ))
             }
         }
     }
@@ -1722,7 +1722,7 @@ impl<T: MarfTrieId> MARF<T> {
         current_block_hash: &T,
     ) -> Result<Option<u32>, Error> {
         if Some(bhh) == self.get_open_chain_tip() {
-            return Ok(self.get_open_chain_tip_height());
+            Ok(self.get_open_chain_tip_height())
         } else {
             MARF::get_block_height_miner_tip(
                 &mut self.storage.connection(),

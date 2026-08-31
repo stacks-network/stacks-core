@@ -586,7 +586,7 @@ pub fn sql_vacuum(conn: &Connection) -> Result<(), Error> {
 ///  database of the provided SQLite connection.
 pub fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, sqlite_error> {
     let sql = "SELECT name FROM sqlite_master WHERE type='table' AND name=?";
-    conn.query_row(sql, &[table_name], |row| row.get::<_, String>(0))
+    conn.query_row(sql, [table_name], |row| row.get::<_, String>(0))
         .optional()
         .map(|r| r.is_some())
 }
@@ -642,7 +642,7 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
         ancestor_block_hash: &T,
         tip_block_hash: &T,
     ) -> Result<Option<u64>, Error> {
-        get_ancestor_block_height(&self.index, ancestor_block_hash, tip_block_hash)
+        get_ancestor_block_height(self.index, ancestor_block_hash, tip_block_hash)
     }
 
     /// Get a value from the fork index
@@ -921,7 +921,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
         let marf_value = MARFValue::from_value(value);
         self.tx().execute(
             "INSERT OR REPLACE INTO __fork_storage (value_hash, value) VALUES (?1, ?2)",
-            &[&to_hex(&marf_value.to_vec()), value],
+            [&to_hex(&marf_value.to_vec()), value],
         )?;
         Ok(marf_value)
     }

@@ -531,7 +531,7 @@ impl BurnchainDB {
                             let pparent_path = ppath
                                 .parent()
                                 .unwrap_or_else(|| panic!("BUG: no parent of '{path}'"));
-                            fs::create_dir_all(&pparent_path)
+                            fs::create_dir_all(pparent_path)
                                 .map_err(|e| BurnchainError::from(DBError::IOError(e)))?;
 
                             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
@@ -727,7 +727,7 @@ impl BurnchainDB {
 
     pub fn has_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<bool, BurnchainError> {
         let qry = "SELECT 1 FROM burnchain_db_block_headers WHERE block_hash = ?1";
-        let res: Option<i64> = query_row(&self.conn, qry, &[block])?;
+        let res: Option<i64> = query_row(&self.conn, qry, [block])?;
         Ok(res.is_some())
     }
 
@@ -790,17 +790,12 @@ impl BurnchainDB {
 
         let ops: Vec<BlockstackOperationType> =
             query_rows(&self.conn, qry, args).expect("FATAL: burnchain DB query error");
-        for op in ops {
-            if indexer
+        ops.into_iter().find(|op| {
+            indexer
                 .find_burnchain_header_height(&op.burn_header_hash())
                 .expect("FATAL: burnchain DB query error")
                 .is_some()
-            {
-                // this is the op on the canonical fork
-                return Some(op);
-            }
-        }
-        None
+        })
     }
 
     /// Filter out the burnchain block's transactions that could be blockstack transactions.
@@ -898,7 +893,7 @@ impl BurnchainDB {
                 }
             }
         }
-        return Ok(None);
+        Ok(None)
     }
 
     pub fn get_canonical_anchor_block_commit<B: BurnchainHeaderReader>(

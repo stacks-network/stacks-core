@@ -134,7 +134,7 @@ impl RPCRequestHandler for RPCGetTransactionUnconfirmedRequestHandler {
                     });
                 }
 
-                return Err(NetError::NotFoundError);
+                Err(NetError::NotFoundError)
             });
 
         let txinfo = match txinfo_res {
@@ -147,8 +147,7 @@ impl RPCRequestHandler for RPCGetTransactionUnconfirmedRequestHandler {
                         &txid
                     )),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
             Err(e) => {
                 return StacksHttpResponse::new_error(
@@ -158,8 +157,7 @@ impl RPCRequestHandler for RPCGetTransactionUnconfirmedRequestHandler {
                         &txid, &e
                     )),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
         };
 
@@ -177,7 +175,7 @@ impl HttpResponse for RPCGetTransactionUnconfirmedRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let txinfo: UnconfirmedTransactionResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(txinfo)?)
+        HttpResponsePayload::try_from_json(txinfo)
     }
 }
 

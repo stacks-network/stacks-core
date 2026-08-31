@@ -187,7 +187,7 @@ impl DNSResolver {
                 }
             }
         }
-        return Ok(received);
+        Ok(received)
     }
 
     pub fn handle_query(&mut self) -> Option<DNSResponse> {

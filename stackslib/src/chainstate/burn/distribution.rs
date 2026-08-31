@@ -1326,8 +1326,8 @@ mod tests {
             eprintln!("Fixture #{}", i);
             let dist = BurnSamplePoint::make_distribution(
                 MINING_COMMITMENT_WINDOW,
-                f.block_commits.iter().cloned().collect(),
-                f.consumed_leader_keys.iter().cloned().collect(),
+                f.block_commits.to_vec(),
+                f.consumed_leader_keys.to_vec(),
             );
             assert_eq!(dist, f.res);
         }

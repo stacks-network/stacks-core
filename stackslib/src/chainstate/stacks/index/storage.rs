@@ -156,7 +156,7 @@ impl<T: MarfTrieId> BlockMap for TrieSqlHashMapCursor<'_, T> {
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
         self.cache
-            .get_block_hash_caching(id, |id| trie_sql::get_block_hash(&self.db, id))
+            .get_block_hash_caching(id, |id| trie_sql::get_block_hash(self.db, id))
     }
 
     fn is_block_hash_cached(&self, id: u32) -> bool {
@@ -979,11 +979,11 @@ impl<T: MarfTrieId> TrieRAM<T> {
                     &old_node,
                     node
                 );
-                return Ok(TrieNodePatch::try_from_nodetype(
+                Ok(TrieNodePatch::try_from_nodetype(
                     *base_ptr.ptr(),
                     &old_node,
-                    &node,
-                ));
+                    node,
+                ))
             }
             Err(Error::Patch(_, old_patch)) => {
                 // building atop an existing patch.
@@ -1002,21 +1002,19 @@ impl<T: MarfTrieId> TrieRAM<T> {
                             &old_patch,
                             node
                         );
-                        return Ok(TrieNodePatch::try_from_patch(
+                        Ok(TrieNodePatch::try_from_patch(
                             *base_ptr.ptr(),
                             &old_patch,
-                            &node,
-                        ));
+                            node,
+                        ))
                     }
                     Err(e) => {
                         storage_tx.open_block(&cur_block)?;
-                        return Err(e);
+                        Err(e)
                     }
                 }
             }
-            Err(e) => {
-                return Err(e);
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -1065,7 +1063,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                         );
                         patch_ptr.back_block = *last_patch_block_id;
                         let base_ptr = TrieCowPtr::new(block_hash.clone(), patch_ptr);
-                        let patch_node_opt = Self::make_node_patch(storage_tx, base_ptr, &node)?;
+                        let patch_node_opt = Self::make_node_patch(storage_tx, base_ptr, node)?;
                         if let Some(patch_node) = patch_node_opt {
                             trace!("Create amendment patch for node at {base_ptr:?}: {node:?}");
                             Some((node_hash.to_bytes(), patch_node))
@@ -1073,7 +1071,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
                             None
                         }
                     } else if let Some(cowptr) = node.get_cow_ptr() {
-                        let patch_node_opt = Self::make_node_patch(storage_tx, *cowptr, &node)?;
+                        let patch_node_opt = Self::make_node_patch(storage_tx, *cowptr, node)?;
                         if let Some(patch_node) = patch_node_opt {
                             trace!("Create COW patch for node at {cowptr:?}: {node:?}");
                             Some((node_hash.to_bytes(), patch_node))
@@ -1714,7 +1712,7 @@ impl<'a, T: MarfTrieId> ReopenedTrieStorageConnection<'a, T> {
 
     pub fn connection(&mut self) -> TrieStorageConnection<'_, T> {
         TrieStorageConnection {
-            db: SqliteConnection::ConnRef(&self.db),
+            db: SqliteConnection::ConnRef(self.db),
             db_path: self.db_path,
             data: &mut self.data,
             blobs: self.blobs.as_mut(),
@@ -2086,7 +2084,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     /// reopen this transaction as a read-only marf.
     ///  _does not_ preserve the cur_block/open tip
     pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
-        let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
+        let db = marf_sqlite_open(self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let blobs = if self.blobs.is_some() {
             Some(TrieFile::from_db_path(self.db_path, true)?)
         } else {
@@ -3299,7 +3297,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                 }
             }
         }
-        return Err(Error::NodeTooDeep);
+        Err(Error::NodeTooDeep)
     }
 
     /// Read a node and optionally its hash.  If `read_hash` is false, then an empty hash will be

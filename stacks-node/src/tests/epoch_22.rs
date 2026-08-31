@@ -120,7 +120,7 @@ fn disable_pox() {
     test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
@@ -180,16 +180,16 @@ fn disable_pox() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // push us to block 205
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // stack right away
     let sort_height = channel.get_sortitions_processed();
@@ -236,7 +236,7 @@ fn disable_pox() {
         if tip_info.burn_block_height >= epoch_2_1 - 2 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     // skip a couple sortitions
@@ -248,8 +248,8 @@ fn disable_pox() {
     assert!(sort_height > v1_unlock_height);
 
     // *now* advance to 2.1
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     info!("Test passed processing 2.1");
 
@@ -303,7 +303,7 @@ fn disable_pox() {
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..5 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;
@@ -328,7 +328,7 @@ fn disable_pox() {
     submit_tx(&http_origin, &tx);
 
     for _i in 0..15 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;
@@ -357,7 +357,7 @@ fn disable_pox() {
     // finish the cycle after the 2.2 transition,
     //  and mine two more cycles
     for _i in 0..25 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;
@@ -652,7 +652,7 @@ fn pox_2_unlock_all() {
     });
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
@@ -712,16 +712,16 @@ fn pox_2_unlock_all() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // push us to block 205
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // stack right away
     let sort_height = channel.get_sortitions_processed();
@@ -768,7 +768,7 @@ fn pox_2_unlock_all() {
         if tip_info.burn_block_height >= epoch_2_1 - 2 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     // skip a couple sortitions
@@ -780,9 +780,9 @@ fn pox_2_unlock_all() {
     assert!(sort_height > v1_unlock_height);
 
     // *now* advance to 2.1
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     info!("Test passed processing 2.1");
 
@@ -854,7 +854,7 @@ fn pox_2_unlock_all() {
         if tip_info.burn_block_height >= epoch_2_2 - 3 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let tx = make_contract_call(
@@ -875,7 +875,7 @@ fn pox_2_unlock_all() {
     //  in bitcoin block epoch_2_2 - 1, so `nonce_of_2_1_unlock_ht_call`
     //  will be included in that bitcoin block.
     // this will build the last block before 2.2 activates
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tx = make_contract_call(
         &spender_sk,
@@ -896,13 +896,13 @@ fn pox_2_unlock_all() {
     //  in bitcoin block epoch_2_2, so `nonce_of_2_2_unlock_ht_call`
     //  will be included in that bitcoin block.
     // this block activates 2.2
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // this *burn block* is when the unlock occurs
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // and this will mine the first block whose parent is the unlock block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let spender_1_account = get_account(&http_origin, &spender_addr);
     let spender_2_account = get_account(&http_origin, &spender_2_addr);
@@ -940,7 +940,7 @@ fn pox_2_unlock_all() {
 
     // and this will mice the bitcoin block containing the first block whose parent has >= unlock burn block
     //  (which is the criterion for the unlock)
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let spender_1_account = get_account(&http_origin, &spender_addr);
     let spender_2_account = get_account(&http_origin, &spender_2_addr);
@@ -984,9 +984,9 @@ fn pox_2_unlock_all() {
     submit_tx(&http_origin, &tx);
 
     // this wakes up the node to mine the transaction
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     // this block selects the previously mined block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let spender_1_account = get_account(&http_origin, &spender_addr);
     let spender_2_account = get_account(&http_origin, &spender_2_addr);
@@ -1033,7 +1033,7 @@ fn pox_2_unlock_all() {
     // finish the cycle after the 2.2 transition,
     //  and mine two more cycles
     for _i in 0..10 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;

@@ -833,10 +833,10 @@ impl PeerNetwork {
             return false;
         };
         if block_proposal_thread.is_finished() {
-            return false;
+            false
         } else {
             self.block_proposal_thread = Some(block_proposal_thread);
-            return true;
+            true
         }
     }
 
@@ -1160,10 +1160,9 @@ impl PeerNetwork {
         event_id: usize,
         handle: &mut ReplyHandleP2P,
     ) -> Result<(usize, bool), net_error> {
-        let res = self.with_p2p_convo(event_id, |_network, convo, client_sock| {
+        self.with_p2p_convo(event_id, |_network, convo, client_sock| {
             PeerNetwork::do_saturate_p2p_socket(convo, client_sock, handle)
-        })?;
-        res
+        })?
     }
 
     /// Send a message via a given conversation
@@ -1179,9 +1178,9 @@ impl PeerNetwork {
             return Ok(rh);
         }
         info!("No ongoing conversation for event {event_id}");
-        return Err(net_error::PeerNotConnected(format!(
+        Err(net_error::PeerNotConnected(format!(
             "No ongoing conversation for event {event_id}",
-        )));
+        )))
     }
 
     /// Send a message to a peer.
@@ -1197,7 +1196,7 @@ impl PeerNetwork {
             return self.send_p2p_message(*event_id, message, ttl);
         }
         info!("Not connected to {:?}", &neighbor_key);
-        return Err(net_error::NoSuchNeighbor);
+        Err(net_error::NoSuchNeighbor)
     }
 
     /// Add an ongoing message handle to the network's internal relay handles
@@ -1967,7 +1966,7 @@ impl PeerNetwork {
                     }
                 }
             }
-            return Ok(());
+            Ok(())
         })
     }
 
@@ -2872,9 +2871,9 @@ impl PeerNetwork {
                         );
                         return Ok((num_sent, flushed));
                     }
-                    return Err(net_error::PeerNotConnected(format!(
+                    Err(net_error::PeerNotConnected(format!(
                         "No relay handles for event {event_id}",
-                    )));
+                    )))
                 });
 
                 let (num_sent, flushed) = match res {
@@ -3122,7 +3121,7 @@ impl PeerNetwork {
             }
         }
 
-        return Ok(true);
+        Ok(true)
     }
 
     /// Do we need to (re)fetch our public IP?
@@ -3162,7 +3161,7 @@ impl PeerNetwork {
             }
         }
 
-        return true;
+        true
     }
 
     /// Reset all state for querying our public IP address
@@ -3397,9 +3396,9 @@ impl PeerNetwork {
                 "{:?}: AntiEntropy: Peer {:?} is missing Stacks block {} from height {}, which we have",
                 &self.local_peer, nk, &index_block_hash, height
             );
-            return Some((ancestor_sn.consensus_hash, block));
+            Some((ancestor_sn.consensus_hash, block))
         } else {
-            return None;
+            None
         }
     }
 
@@ -3501,13 +3500,13 @@ impl PeerNetwork {
                 "{:?}: AntiEntropy: Peer {:?} is missing Stacks microblocks {} from height {}, which we have",
                 &self.local_peer, nk, &index_block_hash, height
             );
-            return Some((
+            Some((
                 block_info.parent_consensus_hash,
                 block_info.parent_anchored_block_hash,
                 microblocks,
-            ));
+            ))
         } else {
-            return None;
+            None
         }
     }
 
@@ -4062,7 +4061,7 @@ impl PeerNetwork {
                             let done = self.do_network_block_download(
                                 sortdb,
                                 chainstate,
-                                *dns_client,
+                                dns_client,
                                 ibd,
                                 network_result,
                             );
@@ -5242,7 +5241,7 @@ impl PeerNetwork {
         }
 
         debug!("Stored tx {}", txid);
-        return true;
+        true
     }
 
     /// Store all inbound transactions, and return the ones that we actually stored so they can be
@@ -5485,10 +5484,7 @@ impl PeerNetwork {
                 debug!("{:?}: network not connected", &self.local_peer);
                 Err(net_error::NotConnected)
             }
-            Some(ref mut network) => {
-                let poll_result = network.poll(poll_timeout);
-                poll_result
-            }
+            Some(ref mut network) => network.poll(poll_timeout),
         }?;
 
         let p2p_poll_state = poll_states
@@ -5614,7 +5610,7 @@ mod test {
     }
 
     fn make_test_neighbor(port: u16) -> Neighbor {
-        let neighbor = Neighbor {
+        Neighbor {
             addr: NeighborKey {
                 peer_version: 0x12345678,
                 network_id: 0x9abcdef0,
@@ -5636,8 +5632,7 @@ mod test {
             org: 45678,
             in_degree: 1,
             out_degree: 1,
-        };
-        neighbor
+        }
     }
 
     fn make_test_p2p_network(initial_neighbors: &[Neighbor]) -> PeerNetwork {
@@ -5691,7 +5686,8 @@ mod test {
         let burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
 
         let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
-        let p2p = PeerNetwork::new(
+
+        PeerNetwork::new(
             db,
             atlasdb,
             stacker_db,
@@ -5703,8 +5699,7 @@ mod test {
             conn_opts,
             HashMap::new(),
             StacksEpoch::unit_test_up_to(0, StacksEpochId::Epoch20),
-        );
-        p2p
+        )
     }
 
     #[test]

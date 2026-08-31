@@ -89,7 +89,7 @@ fn advance_to_2_1(
     conf.miner.block_reward_recipient = block_reward_recipient;
     test_observer::register_any(&mut conf);
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
@@ -191,20 +191,20 @@ fn advance_to_2_1(
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tip_info = get_chain_info(&conf);
     assert_eq!(tip_info.burn_block_height, epoch_2_05 - 4);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // cross the epoch 2.05 boundary
     for _i in 0..3 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let tip_info = get_chain_info(&conf);
@@ -272,7 +272,7 @@ fn advance_to_2_1(
             eprintln!("No pox-2: {e}");
         }
 
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let tip_info = get_chain_info(&conf);
@@ -385,8 +385,8 @@ fn transition_adds_burn_block_height() {
     submit_tx(&http_origin, &tx);
 
     // mine it
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tx = make_contract_call(
         &spender_sk,
@@ -405,8 +405,8 @@ fn transition_adds_burn_block_height() {
         .txid();
 
     // mine it
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // check it
     let mut header_hashes: HashMap<u64, Option<BurnchainHeaderHash>> = HashMap::new();
@@ -501,7 +501,7 @@ fn transition_adds_pay_to_alt_recipient_contract() {
     // a contract in the config file when it mines after epoch 2.1.
     let target_contract_address =
         QualifiedContractIdentifier::parse("ST000000000000000000002AMW42H.bns").unwrap();
-    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
+    let (conf, _btcd_controller, btc_regtest_controller, blocks_processed, coord_channel) =
         advance_to_2_1(
             vec![],
             Some(PrincipalData::Contract(target_contract_address.clone())),
@@ -513,7 +513,7 @@ fn transition_adds_pay_to_alt_recipient_contract() {
     let contract_account_before = get_account(&http_origin, &target_contract_address);
 
     for _i in 0..stacks_common::consts::MINER_REWARD_MATURITY + 1 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let contract_account_after = get_account(&http_origin, &target_contract_address);
@@ -534,14 +534,14 @@ fn transition_adds_pay_to_alt_recipient_principal() {
     // an alternative principal in the config file when it mines after epoch 2.1.
     let target_principal_address =
         PrincipalData::parse("ST34CV1214XJF9S8WPT09TJNYJTM8GM4W6N7ZGKDF").unwrap();
-    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
+    let (conf, _btcd_controller, btc_regtest_controller, blocks_processed, coord_channel) =
         advance_to_2_1(vec![], Some(target_principal_address.clone()), None, false);
 
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let alt_account_before = get_account(&http_origin, &target_principal_address);
 
     for _i in 0..stacks_common::consts::MINER_REWARD_MATURITY + 1 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let alt_account_after = get_account(&http_origin, &target_principal_address);
@@ -593,7 +593,7 @@ fn transition_fixes_bitcoin_rigidity() {
     conf.initial_balances.append(&mut initial_balances);
     test_observer::register_any(&mut conf);
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
@@ -655,20 +655,20 @@ fn transition_fixes_bitcoin_rigidity() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tip_info = get_chain_info(&conf);
     assert_eq!(tip_info.burn_block_height, epoch_2_05 - 4);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // cross the epoch 2.05 boundary
     for _i in 0..3 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let tip_info = get_chain_info(&conf);
@@ -698,7 +698,7 @@ fn transition_fixes_bitcoin_rigidity() {
     );
 
     // mine it
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // Fire off a transfer op that lands pre-2.1, within window distance of the 2.1 boundary: the
     // 2.1 burnchain consideration window must not reach back before the 2.1 epoch start.
@@ -828,7 +828,7 @@ fn transition_fixes_bitcoin_rigidity() {
             eprintln!("No costs-3: {e}");
         }
 
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let tip_info = get_chain_info(&conf);
@@ -870,7 +870,7 @@ fn transition_fixes_bitcoin_rigidity() {
         "Pre-stx operation should submit successfully"
     );
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // let's fire off our transfer op.
     let recipient_sk = StacksPrivateKey::random();
@@ -907,8 +907,8 @@ fn transition_fixes_bitcoin_rigidity() {
     }
 
     // this block should process the transfer, even though it was mined in a sortition-less block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     assert_eq!(get_balance(&http_origin, &spender_addr), 300);
     assert_eq!(get_balance(&http_origin, &recipient_addr), 100_000);
@@ -978,8 +978,8 @@ fn transition_fixes_bitcoin_rigidity() {
     }
 
     // should process the transfer
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     assert_eq!(get_balance(&http_origin, &spender_addr), 300);
     assert_eq!(get_balance(&http_origin, &recipient_addr), 200_000);
@@ -1044,8 +1044,8 @@ fn transition_fixes_bitcoin_rigidity() {
     }
 
     // should NOT process the transfer
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     assert_eq!(get_balance(&http_origin, &spender_addr), 300);
     assert_eq!(get_balance(&http_origin, &recipient_addr), 200_000);
@@ -1106,7 +1106,7 @@ fn transition_adds_get_pox_addr_recipients() {
     .unwrap();
     let pox_pubkey_hash = bytes_to_hex(&Hash160::from_node_public_key(&pox_pubkey).to_bytes());
 
-    let (conf, _btcd_controller, mut btc_regtest_controller, blocks_processed, coord_channel) =
+    let (conf, _btcd_controller, btc_regtest_controller, blocks_processed, coord_channel) =
         advance_to_2_1(initial_balances, None, Some(pox_constants.clone()), false);
 
     let mut sort_height = coord_channel.get_sortitions_processed();
@@ -1226,8 +1226,8 @@ fn transition_adds_get_pox_addr_recipients() {
     );
 
     submit_tx(&http_origin, &contract_tx);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     eprintln!("Sort height: {sort_height}");
     test_observer::clear();
@@ -1235,7 +1235,7 @@ fn transition_adds_get_pox_addr_recipients() {
     // mine through two reward cycles
     // now let's mine until the next reward cycle starts ...
     while sort_height < stack_sort_height + (((2 * pox_constants.reward_cycle_length) + 1) as u64) {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = coord_channel.get_sortitions_processed();
         eprintln!("Sort height: {sort_height}");
     }
@@ -1255,8 +1255,8 @@ fn transition_adds_get_pox_addr_recipients() {
         .txid();
 
     submit_tx(&http_origin, &cc_tx);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // check result of test-get-pox-addrs
     let blocks = test_observer::get_blocks();
@@ -1430,11 +1430,11 @@ fn transition_adds_mining_from_segwit() {
     }
 
     eprintln!("Wake up miner");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // mine a Stacks block
     let tip_info_before = get_chain_info(&conf);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     let tip_info_after = get_chain_info(&conf);
 
     // we were able to do so
@@ -1518,7 +1518,7 @@ fn transition_removes_pox_sunset() {
 
     let epoch_21 = epoch_21_rc * reward_cycle_len + 1;
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = 1;
     epochs[StacksEpochId::Epoch2_05].start_height = 1;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_21;
@@ -1552,7 +1552,7 @@ fn transition_removes_pox_sunset() {
     );
     burnchain_config.pox_constants = pox_constants;
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
@@ -1575,13 +1575,13 @@ fn transition_removes_pox_sunset() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     sleep_ms(10_000);
 
     let sort_height = channel.get_sortitions_processed();
@@ -1633,7 +1633,7 @@ fn transition_removes_pox_sunset() {
 
     // advance to next reward cycle
     for _i in 0..(reward_cycle_len * 2 + 2) {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height pox-1: {sort_height} <= {epoch_21}");
     }
@@ -1646,7 +1646,7 @@ fn transition_removes_pox_sunset() {
 
     // advance to 2.1
     while sort_height <= epoch_21 + 1 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height pox-1: {sort_height} <= {epoch_21}");
     }
@@ -1689,7 +1689,7 @@ fn transition_removes_pox_sunset() {
 
     eprintln!("Try and confirm pox-2 stack-stx");
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     sort_height = channel.get_sortitions_processed();
     eprintln!("Sort height pox-1 to pox-2 with stack-stx to pox-2: {sort_height}");
 
@@ -1698,7 +1698,7 @@ fn transition_removes_pox_sunset() {
 
     // get pox back online
     while sort_height <= epoch_21 + reward_cycle_len {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         sort_height = channel.get_sortitions_processed();
         eprintln!("Sort height pox-2: {sort_height}");
     }
@@ -1771,7 +1771,7 @@ fn transition_empty_blocks() {
 
     let (mut conf, miner_account) = neon_integration_test_conf();
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
@@ -1819,7 +1819,7 @@ fn transition_empty_blocks() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
@@ -1842,17 +1842,17 @@ fn transition_empty_blocks() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tip_info = get_chain_info(&conf);
     let key_block_ptr = tip_info.burn_block_height as u32;
     let key_vtxindex = 1; // nothing else here but the coinbase
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let burnchain = Burnchain::regtest(&conf.get_burn_db_path());
     let mut bitcoin_controller = BitcoinRegtestController::new_dummy(conf.clone());
@@ -1946,7 +1946,7 @@ fn transition_empty_blocks() {
             assert!(res.is_ok(), "Failed to submit block-commit");
         }
 
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let account = get_account(&http_origin, &miner_account);
@@ -2049,7 +2049,7 @@ fn test_sortition_divergence_pre_21() {
     conf_template.burnchain.pox_2_activation = Some(v1_unlock_height);
 
     // make epoch 2.1 start after we have created this error condition
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = 101;
     epochs[StacksEpochId::Epoch2_05].start_height = 101;
     epochs[StacksEpochId::Epoch2_05].end_height = 241;
@@ -2223,11 +2223,7 @@ fn test_sortition_divergence_pre_21() {
         } else {
             eprintln!("\n\nWaiting for miner 0...\n\n");
         }
-        next_block_and_iterate(
-            &mut btc_regtest_controller,
-            &blocks_processed[0],
-            block_time_ms,
-        );
+        next_block_and_iterate(&btc_regtest_controller, &blocks_processed[0], block_time_ms);
     }
 
     for (i, conf) in confs.iter().enumerate().skip(1) {
@@ -2242,7 +2238,7 @@ fn test_sortition_divergence_pre_21() {
             } else {
                 eprintln!("\n\nWaiting for miner {i}...\n\n");
             }
-            next_block_and_iterate(&mut btc_regtest_controller, &blocks_processed[i], 5_000);
+            next_block_and_iterate(&btc_regtest_controller, &blocks_processed[i], 5_000);
         }
     }
 
@@ -2486,7 +2482,7 @@ fn trait_invocation_cross_epoch() {
     }];
     conf.initial_balances.append(&mut initial_balances);
     test_observer::register_any(&mut conf);
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
@@ -2521,7 +2517,7 @@ fn trait_invocation_cross_epoch() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
@@ -2545,20 +2541,20 @@ fn trait_invocation_cross_epoch() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let tip_info = get_chain_info(&conf);
     assert_eq!(tip_info.burn_block_height, epoch_2_05 - 4);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // cross the epoch 2.05 boundary
     for _i in 0..3 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let tip_info = get_chain_info(&conf);
@@ -2596,7 +2592,7 @@ fn trait_invocation_cross_epoch() {
 
     // mine the transactions and advance to epoch 2.1
     for _ in 0..5 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let tip_info = get_chain_info(&conf);
@@ -2613,7 +2609,7 @@ fn trait_invocation_cross_epoch() {
     let invoke_txid = submit_tx(&http_origin, &tx);
 
     for _ in 0..2 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let tx = make_contract_call(
@@ -2643,7 +2639,7 @@ fn trait_invocation_cross_epoch() {
     let invoke_2_txid = submit_tx(&http_origin, &tx);
 
     for _ in 0..2 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     let interesting_txids = [
@@ -2754,7 +2750,7 @@ fn test_v1_unlock_height_with_current_stackers() {
     test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
@@ -2812,13 +2808,13 @@ fn test_v1_unlock_height_with_current_stackers() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // stack right away
     let sort_height = channel.get_sortitions_processed() + 1;
@@ -2855,7 +2851,7 @@ fn test_v1_unlock_height_with_current_stackers() {
         if tip_info.burn_block_height >= epoch_2_1 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     info!("Test passed processing 2.1");
@@ -2891,7 +2887,7 @@ fn test_v1_unlock_height_with_current_stackers() {
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..10 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;
@@ -3014,7 +3010,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
@@ -3072,16 +3068,16 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // push us to block 205
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // stack right away
     let sort_height = channel.get_sortitions_processed();
@@ -3118,7 +3114,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         if tip_info.burn_block_height >= epoch_2_1 - 2 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     // skip a couple sortitions
@@ -3130,8 +3126,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     assert!(sort_height > v1_unlock_height);
 
     // *now* advance to 2.1
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     info!("Test passed processing 2.1");
 
@@ -3166,7 +3162,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     // that it can mine _at all_ is a success criterion
     let mut last_block_height = get_chain_info(&conf).burn_block_height;
     for _i in 0..20 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
         let tip_info = get_chain_info(&conf);
         if tip_info.burn_block_height > last_block_height {
             last_block_height = tip_info.burn_block_height;

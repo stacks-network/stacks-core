@@ -106,7 +106,7 @@ fn trait_invocation_behavior() {
     test_observer::register_any(&mut conf);
     conf.initial_balances.append(&mut initial_balances);
 
-    let mut epochs = EpochList::new(&*core::STACKS_EPOCHS_REGTEST);
+    let mut epochs = EpochList::new(&core::STACKS_EPOCHS_REGTEST);
     epochs[StacksEpochId::Epoch20].end_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
@@ -143,7 +143,7 @@ fn trait_invocation_behavior() {
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
-    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+    let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
         conf.clone(),
         None,
         Some(burnchain_config.clone()),
@@ -168,16 +168,16 @@ fn trait_invocation_behavior() {
     wait_for_runloop(&blocks_processed);
 
     // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // push us to block 205
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // publish contracts right away!
     let publish_trait = make_contract_publish(
@@ -240,7 +240,7 @@ fn trait_invocation_behavior() {
         if tip_info.burn_block_height >= epoch_2_1 - 3 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     // submit invocation txs.
@@ -276,7 +276,7 @@ fn trait_invocation_behavior() {
     // this mines bitcoin block epoch_2_1 - 2, and causes the
     // stacks node to mine the stacks block which will be included in
     // epoch_2_1 - 1, so these are the last transactions processed pre-2.1.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // submit invocation txs.
     let tx_1 = make_contract_call(
@@ -315,7 +315,7 @@ fn trait_invocation_behavior() {
         if tip_info.burn_block_height >= epoch_2_2 - 3 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     // submit invocation txs.
@@ -351,7 +351,7 @@ fn trait_invocation_behavior() {
     // this mines bitcoin block epoch_2_2 - 2, and causes the
     // stacks node to mine the stacks block which will be included in
     // epoch_2_2 - 1, so these are the last transactions processed pre-2.2.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     let publish_wrap = make_contract_publish(
         &spender_sk,
@@ -365,8 +365,8 @@ fn trait_invocation_behavior() {
     spender_nonce += 1;
     submit_tx(&http_origin, &publish_wrap);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // submit invocation txs.
     let tx_1 = make_contract_call(
@@ -405,7 +405,7 @@ fn trait_invocation_behavior() {
         if tip_info.burn_block_height >= epoch_2_3 - 3 {
             break;
         }
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     }
 
     // submit invocation txs in epoch 2.2.
@@ -441,7 +441,7 @@ fn trait_invocation_behavior() {
     // this mines bitcoin block epoch_2_3 - 2, and causes the
     // stacks node to mine the stacks block which will be included in
     // epoch_2_3 - 1, so these are the last transactions processed pre-2.3.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
     // this sleep is placed here to reduce test flakiness
     sleep_ms(10_000);
 
@@ -476,8 +476,8 @@ fn trait_invocation_behavior() {
 
     // advance to epoch_2_3 before submitting the next transactions,
     //  so that they can pass the mempool.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     // submit invocation txs.
     let tx_1 = make_contract_call(
@@ -509,8 +509,8 @@ fn trait_invocation_behavior() {
     submit_tx(&http_origin, &tx_1);
     submit_tx(&http_origin, &tx_2);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&btc_regtest_controller, &blocks_processed);
 
     info!("Total spender txs = {spender_nonce}");
 

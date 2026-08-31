@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::{cmp, slice};
 
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
@@ -137,7 +137,7 @@ pub fn produce_burn_block<'a, I: Iterator<Item = &'a mut BurnchainDB>>(
 fn get_burn_distribution(conn: &Connection, sortition: &SortitionId) -> Vec<BurnSamplePoint> {
     conn.query_row(
         "SELECT data FROM snapshot_burn_distributions WHERE sortition_id = ?",
-        &[sortition],
+        [sortition],
         |row| {
             let data_str: String = row.get_unwrap(0);
             Ok(serde_json::from_str(&data_str).unwrap())
@@ -3422,17 +3422,13 @@ fn get_delegation_info_pox_2(
                 .unwrap()
                 .expect_u128()
                 .unwrap();
-            let reward_addr_opt = if let Some(reward_addr) = data
+            let reward_addr_opt = data
                 .get("pox-addr")
                 .cloned()
                 .unwrap()
                 .expect_optional()
                 .unwrap()
-            {
-                Some(PoxAddress::try_from_pox_tuple(false, &reward_addr).unwrap())
-            } else {
-                None
-            };
+                .map(|reward_addr| PoxAddress::try_from_pox_tuple(false, &reward_addr).unwrap());
             Some((delegated_amt, reward_addr_opt))
         }
     }
@@ -6521,15 +6517,20 @@ fn test_check_chainstate_db_versions() {
     };
 
     // should work just fine in epoch 2 if the DBs don't exist
-    assert!(
-        check_chainstate_db_versions(&[epoch_2.clone()], &sortdb_path, &chainstate_path).unwrap()
-    );
+    assert!(check_chainstate_db_versions(
+        slice::from_ref(&epoch_2),
+        &sortdb_path,
+        &chainstate_path
+    )
+    .unwrap());
 
     // should work just fine in epoch 2.05 if the DBs don't exist
-    assert!(
-        check_chainstate_db_versions(&[epoch_2_05.clone()], &sortdb_path, &chainstate_path)
-            .unwrap()
-    );
+    assert!(check_chainstate_db_versions(
+        slice::from_ref(&epoch_2_05),
+        &sortdb_path,
+        &chainstate_path
+    )
+    .unwrap());
 
     StacksChainState::make_chainstate_dirs(&chainstate_path).unwrap();
 

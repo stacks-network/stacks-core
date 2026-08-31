@@ -201,7 +201,7 @@ pub trait NeighborComms {
                     &nk,
                     event_id
                 );
-                return Ok(None);
+                Ok(None)
             }
             Err(net_error::AlreadyConnected(_event_id, alt_nk)) => {
                 test_debug!(
@@ -212,7 +212,7 @@ pub trait NeighborComms {
                     &alt_nk
                 );
                 self.remove_connecting(network, &alt_nk);
-                return self.neighbor_handshake(network, &alt_nk).map(Some);
+                self.neighbor_handshake(network, &alt_nk).map(Some)
             }
             Err(e) => {
                 info!(
@@ -221,7 +221,7 @@ pub trait NeighborComms {
                     &nk,
                     &e
                 );
-                return Err(e);
+                Err(e)
             }
         }
     }
@@ -275,9 +275,9 @@ pub trait NeighborComms {
                     "AlreadyConnected error on event {} has no conversation",
                     event_id
                 );
-                return Err(net_error::PeerNotConnected(format!(
+                Err(net_error::PeerNotConnected(format!(
                     "Already connected to {nk} as {handshake_nk} on event {event_id}",
-                )));
+                )))
             }
             Err(e) => {
                 test_debug!(
@@ -286,7 +286,7 @@ pub trait NeighborComms {
                     &nk,
                     &e
                 );
-                return Err(e);
+                Err(e)
             }
         }
     }
@@ -361,12 +361,10 @@ pub trait NeighborComms {
         }
 
         match req.try_send_recv() {
-            Ok(message) => {
-                return Ok(message);
-            }
+            Ok(message) => Ok(message),
             Err(Ok(same_req)) => {
                 // try again
-                return Err(Ok(same_req));
+                Err(Ok(same_req))
             }
             Err(Err(e)) => {
                 // disconnected
@@ -375,7 +373,7 @@ pub trait NeighborComms {
                     network.get_local_peer(),
                     &e
                 );
-                return Err(Err(e));
+                Err(Err(e))
             }
         }
     }
@@ -591,8 +589,7 @@ impl NeighborComms for PeerNetworkComms {
     }
 
     fn clear_pinned_connections(&mut self) -> HashSet<usize> {
-        let events = mem::replace(&mut self.events, HashSet::new());
-        events
+        mem::replace(&mut self.events, HashSet::new())
     }
 
     fn is_pinned(&self, event_id: usize) -> bool {

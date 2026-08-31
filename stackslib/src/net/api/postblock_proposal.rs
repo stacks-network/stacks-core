@@ -315,7 +315,7 @@ pub fn is_event_pox_addr_valid(is_mainnet: bool, event: &StacksTransactionEvent)
         // only care about (okay ...) results
         return true;
     };
-    let Some(outer_tuple_data) = match_tuple(&pox_event_tuple) else {
+    let Some(outer_tuple_data) = match_tuple(pox_event_tuple) else {
         // should be unreachable
         return true;
     };
@@ -323,7 +323,7 @@ pub fn is_event_pox_addr_valid(is_mainnet: bool, event: &StacksTransactionEvent)
         // should be unreachable
         return true;
     };
-    let Some(data_tuple_data) = match_tuple(&data_tuple) else {
+    let Some(data_tuple_data) = match_tuple(data_tuple) else {
         // should be unreachable
         return true;
     };
@@ -720,7 +720,7 @@ impl NakamotoBlockProposal {
             None,
             None,
             Some(self.block.header.timestamp),
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )?;
 
         let mut miner_tenure_info =
@@ -919,7 +919,7 @@ impl NakamotoBlockProposal {
         };
 
         let mut replay_builder = NakamotoBlockBuilder::new(
-            &parent_stacks_header,
+            parent_stacks_header,
             &self.block.header.consensus_hash,
             self.block.header.burn_spent,
             tenure_change,
@@ -928,13 +928,13 @@ impl NakamotoBlockProposal {
             None,
             None,
             Some(self.block.header.timestamp),
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            DEFAULT_MAX_TENURE_BYTES,
         )?;
         let (mut replay_chainstate, _) = chainstate_handle.reopen()?;
         let mut replay_miner_tenure_info =
-            replay_builder.load_tenure_info(&mut replay_chainstate, &burn_dbconn, tenure_cause)?;
+            replay_builder.load_tenure_info(&mut replay_chainstate, burn_dbconn, tenure_cause)?;
         let mut replay_tenure_tx =
-            replay_builder.tenure_begin(&burn_dbconn, &mut replay_miner_tenure_info)?;
+            replay_builder.tenure_begin(burn_dbconn, &mut replay_miner_tenure_info)?;
 
         let mut total_receipts = 0;
         for (i, tx) in self.block.txs.iter().enumerate() {
@@ -1057,7 +1057,7 @@ impl NakamotoBlockProposal {
             && replay_txs.iter().all(|tx| {
                 let tx_result = replay_builder.try_mine_tx_with_len(
                     &mut replay_tenure_tx,
-                    &tx,
+                    tx,
                     tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
                     &TransactionResourceBudgets::unlimited(),

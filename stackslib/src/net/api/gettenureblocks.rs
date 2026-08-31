@@ -129,7 +129,7 @@ pub fn get_prior_last_sortition_consensus_hash(
         let block_height = block_snapshot.block_height.saturating_sub(1);
         let handle = get_handle_from_ch(sortdb, preamble, &block_snapshot.consensus_hash)?;
         handle
-            .get_last_snapshot_with_sortition(block_height.into())
+            .get_last_snapshot_with_sortition(block_height)
             .map_err(|e| {
                 e.to_http_response(
                     preamble,
@@ -293,7 +293,7 @@ impl RPCTenure {
         Self {
             consensus_hash: snapshot.consensus_hash.clone(),
             last_sortition_ch,
-            burn_block_height: snapshot.block_height.into(),
+            burn_block_height: snapshot.block_height,
             burn_block_hash: snapshot.burn_header_hash.to_hex(),
             stacks_blocks: vec![],
         }
@@ -540,7 +540,7 @@ impl HttpResponse for RPCNakamotoTenureBlocksRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let tenure: RPCTenure = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(tenure)?)
+        HttpResponsePayload::try_from_json(tenure)
     }
 }
 

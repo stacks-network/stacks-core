@@ -39,7 +39,7 @@ fn trie_node_patch_try_from_nodetype_returns_none_when_no_diffs() {
 fn trie_node_patch_try_from_patch_returns_none_when_no_diffs() {
     let old_patch_ptr = TriePtr::new(TrieNodeID::Node4 as u8, 0, 0);
     let old_patch = TrieNodePatch {
-        ptr: old_patch_ptr.clone(),
+        ptr: old_patch_ptr,
         ptr_diff: vec![],
     };
     let new_node = TrieNodeType::Node4(TrieNode4::new(&[1]));
@@ -55,7 +55,7 @@ fn trie_node_patch_try_from_patch_returns_none_when_no_diffs() {
 fn trie_node_patch_serialize_ok() {
     let patch_node = TrieNodePatch {
         ptr: TriePtr::new(1, 10, 0),
-        ptr_diff: vec![TriePtr::new(1, 20, 0).clone(); 1],
+        ptr_diff: vec![TriePtr::new(1, 20, 0); 1],
     };
 
     let mut buffer = Cursor::new(Vec::new());

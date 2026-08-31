@@ -503,10 +503,7 @@ fn test_http_parse_host_header_value() {
     ];
 
     for (host, expected_host) in hosts.iter().zip(peerhosts.iter()) {
-        let peerhost = match host.parse::<PeerHost>() {
-            Ok(ph) => Some(ph),
-            Err(_) => None,
-        };
+        let peerhost = host.parse::<PeerHost>().ok();
 
         match (peerhost, expected_host) {
             (Some(ref ph), Some(ref expected_ph)) => assert_eq!(*ph, *expected_ph),

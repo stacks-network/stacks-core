@@ -90,7 +90,6 @@ fn create_error_response(
 ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
     StacksHttpResponse::new_error(preamble, &HttpServerError::new(error_message.to_string()))
         .try_into_contents()
-        .map_err(NetError::from)
 }
 
 impl RPCRequestHandler for RPCGetHealthRequestHandler {
@@ -139,7 +138,7 @@ impl HttpResponse for RPCGetHealthRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let txinfo: RPCGetHealthResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(txinfo)?)
+        HttpResponsePayload::try_from_json(txinfo)
     }
 }
 

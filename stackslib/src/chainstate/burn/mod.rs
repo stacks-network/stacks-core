@@ -307,7 +307,7 @@ impl ConsensusHashExtensions for ConsensusHash {
             hasher.update(opshash.as_bytes());
 
             // total burn amount on this fork...
-            hasher.update(&burn_bytes);
+            hasher.update(burn_bytes);
 
             // pox-fork bit vector
             write!(hasher, "{}", pox_id).unwrap();
@@ -322,7 +322,7 @@ impl ConsensusHashExtensions for ConsensusHash {
 
         use ripemd::Digest;
         let mut r160 = Ripemd160::new();
-        r160.update(&result);
+        r160.update(result);
 
         let mut ch_bytes = [0u8; 20];
         ch_bytes.copy_from_slice(r160.finalize().as_slice());
@@ -401,7 +401,7 @@ impl ConsensusHashExtensions for ConsensusHash {
 
         use ripemd::Digest;
         let mut r160 = Ripemd160::new();
-        r160.update(&result);
+        r160.update(result);
 
         let mut ch_bytes = [0u8; 20];
         ch_bytes.copy_from_slice(r160.finalize().as_slice());
