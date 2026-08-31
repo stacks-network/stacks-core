@@ -185,7 +185,7 @@ fn test_bad_microblock_fees_pre_v210() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        
+
                         tx_signer.get_tx().unwrap()
                     };
 
@@ -510,7 +510,7 @@ fn test_bad_microblock_fees_fix_transition() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        
+
                         tx_signer.get_tx().unwrap()
                     };
 
@@ -868,7 +868,7 @@ fn test_get_block_info_v210() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        
+
                         tx_signer.get_tx().unwrap()
                     };
 
@@ -1241,7 +1241,7 @@ fn test_get_block_info_v210_no_microblocks() {
 
                         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
                         tx_signer.sign_origin(&pk).unwrap();
-                        
+
                         tx_signer.get_tx().unwrap()
                     };
 
