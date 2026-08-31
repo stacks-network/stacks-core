@@ -2346,23 +2346,23 @@ impl Relayer {
         let mut all_events: HashMap<QualifiedContractIdentifier, Vec<StackerDBChunkData>> =
             HashMap::new();
         for chunk in uploaded_chunks.into_iter() {
-            // forward if not stale
-            if chunk.rc_consensus_hash != *rc_consensus_hash {
-                debug!("Drop stale uploaded StackerDB chunk";
-                           "stackerdb_contract_id" => %chunk.contract_id,
-                           "slot_id" => chunk.chunk_data.slot_id,
-                           "slot_version" => chunk.chunk_data.slot_version,
-                           "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
-                           "network.rc_consensus_hash" => %rc_consensus_hash);
-                continue;
-            }
-
+            // Always forward the event to ensure the local signer receives it.
             if event_observer.is_some() {
                 if let Some(events) = all_events.get_mut(&chunk.contract_id) {
                     events.push(chunk.chunk_data.clone());
                 } else {
                     all_events.insert(chunk.contract_id.clone(), vec![chunk.chunk_data.clone()]);
                 }
+            }
+
+            if chunk.rc_consensus_hash != *rc_consensus_hash {
+                debug!("Not rebroadcasting stale uploaded StackerDB chunk";
+                           "stackerdb_contract_id" => %chunk.contract_id,
+                           "slot_id" => chunk.chunk_data.slot_id,
+                           "slot_version" => chunk.chunk_data.slot_version,
+                           "chunk.rc_consensus_hash" => %chunk.rc_consensus_hash,
+                           "network.rc_consensus_hash" => %rc_consensus_hash);
+                continue;
             }
 
             debug!("Got uploaded StackerDB chunk"; "stackerdb_contract_id" => %chunk.contract_id, "slot_id" => chunk.chunk_data.slot_id, "slot_version" => chunk.chunk_data.slot_version);
