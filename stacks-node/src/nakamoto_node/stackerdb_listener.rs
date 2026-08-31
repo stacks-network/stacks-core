@@ -36,6 +36,7 @@ use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
 use stacks::net::api::postblock_proposal::ValidateRejectCode;
+use stacks::net::stackerdb::StackerDBs;
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::types::PublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -85,6 +86,46 @@ pub struct BlockStatus {
 pub(crate) struct TimestampInfo {
     pub timestamp: u64,
     pub weight: u32,
+}
+
+/// Captures all necessary data the miner has to provide so that the [`StackerDBListener`] can
+/// load the initial state of the StackerDB. The miner creates an [`InitialChunksLoader`] and
+/// then passes it to the [`StackerDBListener`] (via the [`SignerCoordinator`]).
+pub struct InitialChunksLoader<'a> {
+    reward_cycle_id: u64,
+    signer_count: u32,
+    stacker_dbs: &'a StackerDBs,
+}
+
+impl<'a> InitialChunksLoader<'a> {
+    pub fn new(
+        reward_cycle_id: u64,
+        signer_count: u32,
+        stacker_dbs: &'a StackerDBs,
+    ) -> InitialChunksLoader<'a> {
+        InitialChunksLoader {
+            reward_cycle_id,
+            signer_count,
+            stacker_dbs,
+        }
+    }
+
+    fn load_chunks(&self, config: &Config) -> Vec<Option<Vec<u8>>> {
+        if self.signer_count == 0 {
+            return vec![];
+        }
+
+        // the contract that a StackerDBListener actually cares about: The one with
+        // the signer state machine updates
+        let signers_contract = MessageSlotID::StateMachineUpdate
+            .stacker_db_contract(config.is_mainnet(), self.reward_cycle_id);
+        let slot_ids: Vec<u32> = (0..self.signer_count).collect();
+
+        self.stacker_dbs
+            .get_latest_chunks(&signers_contract, slot_ids.as_slice())
+            .inspect_err(|e| warn!("Unable to read the latest signer state from signer db: {e}."))
+            .unwrap_or_default()
+    }
 }
 
 /// The listener for the StackerDB, which listens for messages from the
@@ -152,7 +193,7 @@ impl StackerDBListener {
         node_keep_running: Arc<AtomicBool>,
         keep_running: Arc<AtomicBool>,
         reward_set: &RewardSet,
-        latest_state_machine_chunks: Vec<Option<Vec<u8>>>,
+        initial_chunks_loader: InitialChunksLoader,
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
         config: &Config,
@@ -204,8 +245,10 @@ impl StackerDBListener {
         let address_weights = parsed_entries.signer_addr_to_weight;
         let slot_ids: Vec<_> = parsed_entries.signer_id_to_addr.keys().cloned().collect();
 
+        let chunks = initial_chunks_loader.load_chunks(config);
+
         let mut global_state_evaluator = GlobalStateEvaluator::new(HashMap::new(), address_weights);
-        for (chunk, slot_id) in latest_state_machine_chunks.into_iter().zip(slot_ids) {
+        for (chunk, slot_id) in chunks.into_iter().zip(slot_ids) {
             let Some(chunk) = chunk else {
                 continue;
             };
@@ -238,12 +281,6 @@ impl StackerDBListener {
             is_mainnet: config.is_mainnet(),
             signer_read_count_timestamps: Arc::new(Mutex::new(HashMap::new())),
         })
-    }
-
-    /// Returns the contract that a StackerDBListener actually cares about: The one with
-    /// the signer state machine updates.
-    pub fn stacker_db_contract(mainnet: bool, reward_cycle: u64) -> QualifiedContractIdentifier {
-        MessageSlotID::StateMachineUpdate.stacker_db_contract(mainnet, reward_cycle)
     }
 
     pub fn get_comms(&self) -> StackerDBListenerComms {

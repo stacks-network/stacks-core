@@ -43,7 +43,9 @@ use super::miner_db::MinerDB;
 use super::stackerdb_listener::StackerDBListenerComms;
 use super::Error as NakamotoNodeError;
 use crate::event_dispatcher::StackerDBChannel;
-use crate::nakamoto_node::stackerdb_listener::{StackerDBListener, EVENT_RECEIVER_POLL};
+use crate::nakamoto_node::stackerdb_listener::{
+    InitialChunksLoader, StackerDBListener, EVENT_RECEIVER_POLL,
+};
 use crate::neon::Counters;
 use crate::Config;
 
@@ -111,7 +113,7 @@ impl SignerCoordinator {
         stackerdb_channel: Arc<Mutex<StackerDBChannel>>,
         node_keep_running: Arc<AtomicBool>,
         reward_set: &RewardSet,
-        latest_state_machine_chunks: Vec<Option<Vec<u8>>>,
+        initial_chunks_loader: InitialChunksLoader,
         election_block: &BlockSnapshot,
         burnchain: &Burnchain,
         message_key: StacksPrivateKey,
@@ -127,7 +129,7 @@ impl SignerCoordinator {
             node_keep_running,
             keep_running.clone(),
             reward_set,
-            latest_state_machine_chunks,
+            initial_chunks_loader,
             election_block,
             burnchain,
             config,
