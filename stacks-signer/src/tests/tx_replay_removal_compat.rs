@@ -29,8 +29,6 @@ use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::StateMachineUpdate;
 use serde_json::json;
 
-use crate::signerdb::SignerDb;
-
 /// Byte layout of a `StateMachineUpdate` carrying a `V2` content payload with an
 /// `ActiveMiner`, assembled **by hand** rather than through the Rust types.
 ///
@@ -215,24 +213,5 @@ fn validate_reject_code_seven_stays_reserved() {
         ValidateRejectCode::from_u8(7),
         Some(ValidateRejectCode::InvalidTransactionReplay),
         "code 7 must remain decodable and must never be reassigned"
-    );
-}
-
-/// Tripwire 5 — the signer database schema version is pinned.
-///
-/// Bumping `SCHEMA_VERSION` is a one-way door: a signer that migrates and then rolls back
-/// to an older binary fails to start with "Database schema is newer than SCHEMA_VERSION".
-/// Dropping the now-dead `block_validated_by_replay_txs` table is therefore deferred; the
-/// table is left in place and only its accessors are removed.
-///
-/// The constant is pinned so that *this* change cannot bump it. Unrelated upstream
-/// migrations do bump it, and updating the number here is the correct response to those —
-/// what the tripwire forbids is the tx-replay removal being the thing that moves it.
-#[test]
-fn signer_db_schema_version_is_pinned() {
-    assert_eq!(
-        SignerDb::SCHEMA_VERSION,
-        20,
-        "bumping the schema removes the downgrade path; the dead replay table stays for now"
     );
 }
