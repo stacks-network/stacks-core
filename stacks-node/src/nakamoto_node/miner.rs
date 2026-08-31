@@ -2162,6 +2162,7 @@ impl BlockMinerThread {
         let slot_ids: Vec<u32> = (0..signer_count).collect();
         stackerdbs
             .get_latest_chunks(&signers_contract, slot_ids.as_slice())
+            .inspect_err(|e| warn!("Unable to read the latest signer state from signer db: {e}."))
             .unwrap_or_default()
     }
 }
