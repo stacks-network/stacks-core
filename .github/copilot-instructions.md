@@ -18,7 +18,7 @@ Path-specific guidance under `.github/instructions/` adds language- and subsyste
 - Verify that changed tests prove the intended invariant through the affected production path and cover material boundary, negative, and regression cases.
 - Check whether behavior changes require matching configuration, RPC, event, operator, contract, or other user-facing documentation.
 - When documentation changes, verify factual claims, commands, paths, examples, links, and sample output against the implementation.
-- Validate changelog handling that CI cannot establish: whether a no-changelog decision is justified and whether separate node and signer fragments are present when the PR affects those components independently.
+- Validate changelog handling that CI cannot establish: whether a no-changelog decision is justified and whether the fragment(s) cover the PR's impact on each affected component.
 - Raise maintainability concerns only when the PR introduces duplication, coupling, misleading structure, or complexity that creates a specific correctness or future-change risk.
 
 ## Review comment threshold

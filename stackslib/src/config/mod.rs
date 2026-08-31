@@ -66,6 +66,7 @@ use crate::net::connection::{
     DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
     DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
 };
+use crate::net::stackerdb::set_log_stackerdb_chunk_sources;
 use crate::net::{Neighbor, NeighborAddress, NeighborKey};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::EpochList;
@@ -1251,6 +1252,7 @@ impl Config {
         set_pox_5_sbtc_registry_contract(self.node.pox_5_sbtc_registry_contract.clone());
         set_pox_5_bond_admin(self.node.pox_5_bond_admin.clone());
         set_pox_5_pause_admin(self.node.pox_5_pause_admin.clone());
+        set_log_stackerdb_chunk_sources(self.node.log_stackerdb_chunk_sources);
     }
 
     pub fn is_node_event_driven(&self) -> bool {
@@ -2339,6 +2341,11 @@ pub struct NodeConfig {
     ///     "SP2C2YFP12AJZB4M4KUPSTMZQR0SNHNPH204SCQJM.stx-oracle-v1"
     ///   ]
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
+    /// Enables INFO logging for each newly stored StackerDB chunk, including
+    /// whether it arrived via polling, P2P push, or HTTP.
+    /// ---
+    /// @default: `false`
+    pub log_stackerdb_chunk_sources: bool,
     /// Enables the transaction index, which maps transaction IDs to the blocks
     /// containing them. Setting this to `true` allows the use of RPC endpoints
     /// that look up transactions by ID (e.g., `/extended/v1/tx/{txid}`), but
@@ -2634,6 +2641,10 @@ impl Default for NodeConfig {
             event_dispatcher_blocking: true,
             event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
+            #[cfg(any(test, feature = "testing"))]
+            log_stackerdb_chunk_sources: true,
+            #[cfg(not(any(test, feature = "testing")))]
+            log_stackerdb_chunk_sources: false,
             txindex: false,
             pox_5_sbtc_contract: None,
             pox_5_sbtc_registry_contract: None,
@@ -4161,6 +4172,8 @@ pub struct NodeConfigFile {
     pub event_dispatcher_queue_size: Option<usize>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
+    /// Enable INFO logging for each newly stored StackerDB chunk, including its origin.
+    pub log_stackerdb_chunk_sources: Option<bool>,
     /// fault injection: fail to push blocks with this probability (0-100)
     pub fault_injection_block_push_fail_probability: Option<u8>,
     /// enable transactions indexing, note this will require additional storage (in the order of gigabytes)
@@ -4274,6 +4287,9 @@ impl NodeConfigFile {
                 .iter()
                 .filter_map(|contract_id| QualifiedContractIdentifier::parse(contract_id).ok())
                 .collect(),
+            log_stackerdb_chunk_sources: self
+                .log_stackerdb_chunk_sources
+                .unwrap_or(default_node_config.log_stackerdb_chunk_sources),
             fault_injection_block_push_fail_probability: if self
                 .fault_injection_block_push_fail_probability
                 .is_some()
@@ -5189,6 +5205,22 @@ mod tests {
         .into_config_default(default_burnchain_config)
         .unwrap();
         assert_eq!(merged.wallet_name.as_deref(), expected);
+    }
+
+    #[test]
+    fn test_stackerdb_chunk_source_logging_config() {
+        let config = utils::config_from_valid_string("[node]");
+
+        assert!(config.node.log_stackerdb_chunk_sources);
+        assert!(NodeConfig::default().log_stackerdb_chunk_sources);
+
+        let config = utils::config_from_valid_string(
+            r#"
+            [node]
+            log_stackerdb_chunk_sources = false
+            "#,
+        );
+        assert!(!config.node.log_stackerdb_chunk_sources);
     }
 
     #[test]
