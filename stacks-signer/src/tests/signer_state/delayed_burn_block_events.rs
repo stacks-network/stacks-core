@@ -718,17 +718,5 @@ fn shorter_node_tip_bypasses_canonicity_guard_and_triggers_fork_handling() {
         ],
     );
 
-    let scope = outcome
-        .replay_scope
-        .expect("A shorter node tip did not reach existing fork handling");
-    assert_eq!(scope.fork_origin, canonical_event_at(105));
-    assert_eq!(scope.past_tip.burn_block_height, 110);
-    assert_eq!(scope.past_tip.consensus_hash, test_ch(110));
-    if let LocalStateMachine::Initialized(machine) = &outcome.state {
-        assert_eq!(
-            machine.tx_replay_set.clone_as_optional(),
-            Some(vec![replay_tx]),
-            "Reorged-away transaction missing from the replay set"
-        );
-    }
+    assert_successful_fork_replay(&outcome, &canonical_event_at(105), &replay_tx);
 }
