@@ -21,7 +21,6 @@ use std::sync::LazyLock;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::v0::messages::{
     BlockAccepted, BlockResponse, MessageSlotID, RejectCode, SignerMessage as SignerMessageV0,
     StateMachineUpdate,
