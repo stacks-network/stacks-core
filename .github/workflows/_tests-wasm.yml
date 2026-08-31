@@ -1,6 +1,6 @@
-# Execute wasm-specific implementations that cargo-hack only compile-checks.
+# Execute Wasm-specific implementations that cargo-hack only compile-checks.
 
-name: "Tests: WASM"
+name: "Tests: Wasm"
 
 on:
   workflow_call:
@@ -26,7 +26,7 @@ concurrency:
 jobs:
   # No caching needed as it runs in parallel with much longer jobs
   wasm-tests:
-    name: WASM Unit Tests (Node)
+    name: Wasm Unit Tests (Node)
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -36,7 +36,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           persist-credentials: false
 
-      # Setup the rust toolchain for the wasm target
+      # Set up the Rust toolchain for the Wasm target.
       - name: Setup Rust Toolchain
         uses: ./.github/actions/setup-rust-toolchain
         with:
@@ -50,7 +50,7 @@ jobs:
         with:
           tools: wasm-pack
 
-      # `wasm-pack test --node` runs the built wasm under Node
+      # `wasm-pack test --node` runs the built Wasm module under Node.
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -58,6 +58,6 @@ jobs:
           package-manager-cache: false # cache is not reusable, do not save anything
 
       # Add crates here once they contain `#[wasm_bindgen_test]` tests.
-      - name: Run wasm tests (stacks-codec)
+      - name: Run Wasm tests (stacks-codec)
         working-directory: stacks-codec
         run: wasm-pack test --node --features wasm-web

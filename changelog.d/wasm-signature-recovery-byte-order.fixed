@@ -1,2 +1,2 @@
-Fixed wasm signature recovery to decode `MessageSignature` in VRS order, restoring transaction, public-key, and block-signature verification.
-Added a CI workflow that executes wasm unit tests under Node.
+Fixed Wasm signature recovery to decode `MessageSignature` in VRS order, restoring transaction, public-key, and block-signature verification.
+Added a CI workflow that executes Wasm unit tests under Node.

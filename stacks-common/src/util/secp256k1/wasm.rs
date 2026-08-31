@@ -139,8 +139,8 @@ impl Secp256k1PublicKey {
         sig: &MessageSignature,
         verify_low_s: bool,
     ) -> Result<Secp256k1PublicKey, &'static str> {
-        // `MessageSignature` uses VRS, while the Clarity-facing recovery helper
-        // uses RSV. Decode VRS directly instead of passing it to that helper.
+        // `MessageSignature` uses VRS, while `secp256k1_recover()` expects RSV.
+        // Decode the `MessageSignature` directly to preserve its byte order.
         let (signature, recovery_id) = sig
             .to_secp256k1_recoverable()
             .ok_or("Invalid signature: failed to decode recoverable signature")?;

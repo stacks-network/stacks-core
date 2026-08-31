@@ -24,7 +24,7 @@ variant_count = { workspace = true }
 stacks-common = { path = "../stacks-common", default-features = false, features = ["testing"] }
 clarity-types = { path = "../clarity-types", default-features = false, features = ["testing"] }
 
-# Run signature-verification tests against the wasm backend.
+# Run signature-verification tests against the Wasm backend.
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
 

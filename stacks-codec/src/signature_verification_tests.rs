@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Signature-verification tests shared by the native and wasm backends.
+//! Signature-verification tests shared by the native and Wasm backends.
 //!
-//! Run the wasm tests with:
+//! Run the Wasm tests with:
 //!
 //! ```text
 //! cd stacks-codec && wasm-pack test --node --features wasm-web
