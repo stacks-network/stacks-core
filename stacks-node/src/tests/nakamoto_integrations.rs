@@ -94,7 +94,7 @@ use stacks::net::api::postblock_proposal::{
 };
 use stacks::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks::types::{MinerDiagnosticData, MiningReason};
-use stacks::util::hash::{hex_bytes, MerkleTree};
+use stacks::util::hash::hex_bytes;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
