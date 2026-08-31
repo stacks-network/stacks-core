@@ -14,14 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashMap;
 
-use blockstack_lib::chainstate::stacks::{
-    StacksTransaction, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-    TransactionPayload, TransactionPostConditionMode, TransactionVersion,
-};
 use blockstack_lib::core::NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD;
-use clarity::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
-};
+use clarity::types::chainstate::{ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey};
 use clarity::util::hash::Hash160;
 
 use crate::v0::messages::{
@@ -29,81 +23,6 @@ use crate::v0::messages::{
     StateMachineUpdateMinerState,
 };
 use crate::v0::signer_state::{GlobalStateEvaluator, SignerStateMachine};
-
-/// Test setup helper struct containing common test data
-struct SignerStateTest {
-    global_eval: GlobalStateEvaluator,
-    addresses: Vec<StacksAddress>,
-    burn_block: ConsensusHash,
-    burn_block_height: u64,
-    current_miner: StateMachineUpdateMinerState,
-    local_supported_signer_protocol_version: u64,
-    active_signer_protocol_version: u64,
-    tx_a: StacksTransaction,
-    tx_b: StacksTransaction,
-    tx_c: StacksTransaction,
-    tx_d: StacksTransaction,
-}
-
-impl SignerStateTest {
-    fn new(num_signers: u32) -> Self {
-        let global_eval = generate_global_state_evaluator(num_signers);
-        let addresses: Vec<_> = global_eval.address_weights.keys().cloned().collect();
-        let local_address = addresses[0].clone();
-
-        let burn_block = ConsensusHash([20u8; 20]);
-        let burn_block_height = 100;
-        let current_miner = StateMachineUpdateMinerState::ActiveMiner {
-            current_miner_pkh: Hash160([0xab; 20]),
-            tenure_id: ConsensusHash([0x44; 20]),
-            parent_tenure_id: ConsensusHash([0x22; 20]),
-            parent_tenure_last_block: StacksBlockId([0x33; 32]),
-            parent_tenure_last_block_height: 1,
-        };
-
-        let local_supported_signer_protocol_version = 1;
-        let active_signer_protocol_version = 1;
-
-        // Create test transactions with different memos for uniqueness
-        let pk1 = StacksPrivateKey::random();
-        let pk2 = StacksPrivateKey::random();
-        let pk3 = StacksPrivateKey::random();
-        let pk4 = StacksPrivateKey::random();
-
-        let make_tx = |pk: &StacksPrivateKey, memo: [u8; 34]| StacksTransaction {
-            version: TransactionVersion::Testnet,
-            chain_id: 0x80000000,
-            auth: TransactionAuth::from_p2pkh(pk).unwrap(),
-            anchor_mode: TransactionAnchorMode::Any,
-            post_condition_mode: TransactionPostConditionMode::Allow,
-            post_conditions: vec![],
-            payload: TransactionPayload::TokenTransfer(
-                local_address.clone().into(),
-                100,
-                TokenTransferMemo(memo),
-            ),
-        };
-
-        let tx_a = make_tx(&pk1, [1u8; 34]);
-        let tx_b = make_tx(&pk2, [2u8; 34]);
-        let tx_c = make_tx(&pk3, [3u8; 34]);
-        let tx_d = make_tx(&pk4, [4u8; 34]);
-
-        Self {
-            global_eval,
-            addresses,
-            burn_block,
-            burn_block_height,
-            current_miner,
-            local_supported_signer_protocol_version,
-            active_signer_protocol_version,
-            tx_a,
-            tx_b,
-            tx_c,
-            tx_d,
-        }
-    }
-}
 
 fn generate_global_state_evaluator(num_addresses: u32) -> GlobalStateEvaluator {
     let address_weights = generate_random_address_with_equal_weights(num_addresses);
