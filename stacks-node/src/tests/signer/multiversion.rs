@@ -80,6 +80,7 @@ pub fn miner_state_v3_3_0_0_5_to_current(
 }
 
 // Helper function to convert from one to the other
+#[allow(dead_code)]
 pub fn stacks_transaction_v3_3_0_0_5_to_current(
     tx: &stacks_v3_3_0_0_5::chainstate::stacks::StacksTransaction,
 ) -> StacksTransaction {
@@ -293,6 +294,7 @@ fn old_version_parses_new_messages() {
             tenure_extend_timestamp: 2049,
             reject_reason: RejectReason::NotRejected,
             tenure_extend_read_count_timestamp: 5058,
+            failed_txid: None,
             unknown_bytes: vec![],
         },
     };
