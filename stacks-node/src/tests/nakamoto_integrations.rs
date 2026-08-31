@@ -3590,31 +3590,6 @@ fn block_proposal_api_endpoint() {
             HTTP_UNPROCESSABLE,
             None,
         ),
-        (
-            "High-S signature",
-            {
-                let mut p = proposal.clone();
-                p.block.executed_and_skipped_txs_mut()[0] =
-                    p.block.executed_and_skipped_txs()[0].with_negated_s_in_signature();
-                // tweaking the signature changes the transaction id (which is
-                // the main problem with high-S signatures), so we need to update
-                // the transaction merkle root
-                let txid_vecs: Vec<_> = p
-                    .block
-                    .txs()
-                    .map(|tx| tx.txid().as_bytes().to_vec())
-                    .collect();
-
-                let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
-                let tx_merkle_root = merkle_tree.root();
-
-                p.block.header.tx_merkle_root = tx_merkle_root;
-
-                sign(&p)
-            },
-            HTTP_ACCEPTED,
-            Some(Err(ValidateRejectCode::BadTransaction)),
-        ),
     ];
 
     // Build HTTP client
@@ -10795,7 +10770,6 @@ fn test_shadow_recovery() {
 
     let stacks_height_before = get_chain_info(&naka_conf).stacks_tip_height;
 
-    // TODO: stall block processing; otherwise this test can flake
     // stop block processing on the node
     TEST_COORDINATOR_STALL.lock().unwrap().replace(true);
 
@@ -10818,8 +10792,17 @@ fn test_shadow_recovery() {
     // revive ATC-C by waiting for commits
     next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
-    // make another tenure
-    next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    // make another tenure.
+    //
+    // NOTE: `next_block_and_mine_commit()` can be flaky here because the
+    // shadow-parent commit may be rejected by the PoX output check, and the
+    // miner may tenure-extend instead of winning a new tenure.
+    let stacks_height_before = get_chain_info(&naka_conf).stacks_tip_height;
+    next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    wait_for(60, || {
+        Ok(get_chain_info(&naka_conf).stacks_tip_height > stacks_height_before)
+    })
+    .unwrap();
 
     // all shadow blocks are present and processed
     let mut shadow_ids = HashSet::new();

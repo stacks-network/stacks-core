@@ -39,7 +39,9 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::function_name;
 
 use crate::chainstate::{ProposalEvalConfig, SortitionData};
-use crate::client::tests::{build_get_tenure_tip_response, MockServerClient};
+use crate::client::tests::{
+    build_get_peer_info_response, build_get_tenure_tip_response, MockServerClient,
+};
 use crate::client::StacksClient;
 use crate::config::{GlobalConfig, DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS};
 use crate::signerdb::tests::{create_block_override, tmp_db_path};
@@ -1194,6 +1196,41 @@ fn check_miner_inactivity_timeout() {
     let json_payload = serde_json::to_string(&expected_result).unwrap();
     let to_send_1 = format!("HTTP/1.1 200 OK\n\n{json_payload}");
 
+    // If the canonical stacks tip is NOT in the prior sortition's tenure (e.g. a
+    // Bitcoin reorg orphaned it), the prior miner's node has already stopped mining,
+    // so the current miner must NOT be demoted.
+    let (_, mut peer_info) = build_get_peer_info_response(None, None);
+    peer_info.stacks_tip_consensus_hash = ConsensusHash([0x77; 20]);
+    let json_payload = serde_json::to_string(&peer_info).unwrap();
+    let to_send_tip_mismatch = format!("HTTP/1.1 200 OK\n\n{json_payload}");
+
+    let MockServerClient {
+        mut server,
+        client,
+        config,
+    } = MockServerClient::new();
+    let expected_state = local_state_machine.clone();
+    let h = std::thread::spawn(move || {
+        local_state_machine
+            .check_miner_inactivity(&mut signer_db, &client, &proposal_config, &eval)
+            .unwrap();
+        // The timed out miner must remain the current miner: the prior miner cannot
+        // continue a tenure it does not own.
+        assert_eq!(local_state_machine, expected_state);
+        (local_state_machine, signer_db, proposal_config, eval)
+    });
+    crate::client::tests::write_response(server, to_send_1.as_bytes());
+    server = crate::client::tests::mock_server_from_config(&config);
+    crate::client::tests::write_response(server, to_send_tip_mismatch.as_bytes());
+    let (mut local_state_machine, mut signer_db, proposal_config, eval) = h.join().unwrap();
+
+    // Now the canonical stacks tip IS in the prior sortition's tenure, so the prior
+    // miner can continue it and the demotion should proceed.
+    let (_, mut peer_info) = build_get_peer_info_response(None, None);
+    peer_info.stacks_tip_consensus_hash = last_sortition.consensus_hash.clone();
+    let json_payload = serde_json::to_string(&peer_info).unwrap();
+    let to_send_tip_match = format!("HTTP/1.1 200 OK\n\n{json_payload}");
+
     // Next it will check if the prior sortition is both valid
     // and that it has chosen a good parent
     let expected_result = vec![
@@ -1246,6 +1283,9 @@ fn check_miner_inactivity_timeout() {
     });
 
     crate::client::tests::write_response(server, to_send_1.as_bytes());
+
+    server = crate::client::tests::mock_server_from_config(&config);
+    crate::client::tests::write_response(server, to_send_tip_match.as_bytes());
 
     server = crate::client::tests::mock_server_from_config(&config);
     crate::client::tests::write_response(server, to_send_2.as_bytes());

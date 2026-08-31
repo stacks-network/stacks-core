@@ -1,0 +1,1 @@
+Broadcast HTTP-uploaded StackerDB chunks even when no event observer is attached. This allows uploaded chunks to reach peers in configurations that do not use an event observer.

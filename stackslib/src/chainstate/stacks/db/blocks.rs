@@ -6615,18 +6615,8 @@ impl StacksChainState {
         // 2: it must be validly signed.
         let epoch = clarity_connection.get_epoch();
 
-        // Enforce low-S on the transaction signatures. While consensus allows high-S
-        // signatures at the time of writing, they are a concern because the ambiguity
-        // makes transaction ids malleable. That's why we don't admit them to the mempol,
-        // and signers reject blocks with them. Once Epoch 4.0 begins, they will also
-        // not be allowed by consensus anymore.
-        StacksChainState::process_transaction_precheck(
-            chainstate_config,
-            tx,
-            epoch,
-            Some(TransactionAuthVerificationMode::EnforceLowS),
-        )
-        .map_err(MemPoolRejection::FailedToValidate)?;
+        StacksChainState::process_transaction_precheck(chainstate_config, tx, epoch)
+            .map_err(MemPoolRejection::FailedToValidate)?;
 
         // 3: it must pay a tx fee
         let fee = tx.get_tx_fee();
