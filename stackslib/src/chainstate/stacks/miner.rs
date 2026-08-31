@@ -23,7 +23,6 @@ use std::thread::ThreadId;
 use std::time::Instant;
 
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::VmExecutionError;
 use clarity::vm::resource_limiter::ResourceBudget;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
@@ -44,6 +43,7 @@ use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
     finalize_failed_transaction, handle_clarity_runtime_error, ClarityRuntimeTxError,
+    RejectedRuntimeTxError,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
@@ -631,50 +631,25 @@ impl TransactionResult {
         epoch_id: StacksEpochId,
     ) -> (bool, Error) {
         let error = match error {
-            Error::ClarityError(e) => match handle_clarity_runtime_error(e) {
-                ClarityRuntimeTxError::Rejectable(e) => {
+            Error::ClarityError(e) => match handle_clarity_runtime_error(e, epoch_id) {
+                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
+                    error: e,
+                    ..
+                }) => {
                     // this transaction would invalidate the whole block, so don't re-consider it
                     info!("Problematic transaction would invalidate the block, so dropping from mempool"; "txid" => %tx.txid(), "error" => %e);
                     return (true, Error::ClarityError(e));
                 }
-                // recover original ClarityError
-                ClarityRuntimeTxError::Acceptable { error, .. } => {
-                    if let ClarityError::Parse(ref parse_err) = error {
-                        info!("Parse error: {}", parse_err; "txid" => %tx.txid());
-                        if parse_err.rejectable_in_epoch(epoch_id) {
-                            info!("Problematic transaction failed parse checks"; "txid" => %tx.txid());
-                            return (true, Error::ClarityError(error));
-                        }
-                    }
-                    Error::ClarityError(error)
-                }
-                ClarityRuntimeTxError::CostError(cost, budget) => {
-                    Error::ClarityError(ClarityError::CostError(cost, budget))
-                }
-                ClarityRuntimeTxError::AnalysisError(e) => {
-                    let clarity_err = Error::ClarityError(ClarityError::Interpreter(
-                        VmExecutionError::RuntimeCheck(e),
-                    ));
-                    if epoch_id < StacksEpochId::Epoch21 {
-                        // this would invalidate the block, so it's problematic
-                        return (true, clarity_err);
-                    } else {
-                        // in 2.1 and later, this can be mined
-                        clarity_err
-                    }
-                }
-                ClarityRuntimeTxError::AbortedByCallback {
-                    output,
-                    assets_modified,
-                    tx_events,
-                    reason,
-                } => Error::ClarityError(ClarityError::AbortedByCallback {
-                    output: output.map(Box::new),
-                    assets_modified: Box::new(assets_modified),
-                    tx_events,
-                    reason,
-                }),
-                ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
+                // An included failure is still mineable: recover the original `ClarityError`.
+                ClarityRuntimeTxError::Included(included) => Error::ClarityError(included.into()),
+                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Cost {
+                    cost,
+                    budget,
+                    ..
+                }) => Error::ClarityError(ClarityError::CostError(cost, budget)),
+                ClarityRuntimeTxError::Rejected(
+                    RejectedRuntimeTxError::ExecutionResourceBudgetExceeded { message: s, .. },
+                ) => {
                     // This transaction took too long to execute or used too much heap memory. Consider it problematic.
                     info!("Problematic transaction caused ExecutionResourceBudgetExceeded";
                           "error" => s.clone(),

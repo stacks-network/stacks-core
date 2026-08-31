@@ -26,18 +26,28 @@ module.exports = async ({ github, context, core }) => {
 
   // Fail if CHANGELOG.md is modified directly
   const directEdits = files.filter(
-    (f) =>
-      (f.filename === "CHANGELOG.md" ||
-        f.filename === "stacks-signer/CHANGELOG.md") &&
-      f.status === "modified"
+    (f) => f.filename === "CHANGELOG.md" && f.status === "modified"
   );
 
   if (directEdits.length > 0) {
-    const edited = directEdits.map((f) => f.filename).join(", ");
     core.setFailed(
-      `Do not edit ${edited} directly. ` +
-        "Add a changelog fragment to changelog.d/ or stacks-signer/changelog.d/ instead " +
+      "Do not edit CHANGELOG.md directly. " +
+        "Add a changelog fragment to changelog.d/ instead " +
         "(see changelog.d/README.md for instructions)."
+    );
+    return;
+  }
+
+  // stacks-signer/CHANGELOG.md is a frozen historical record
+  const signerEdits = files.filter(
+    (f) => f.filename === "stacks-signer/CHANGELOG.md"
+  );
+
+  if (signerEdits.length > 0) {
+    core.setFailed(
+      "stacks-signer/CHANGELOG.md is a frozen historical record. " +
+        "Signer changes now go in the root CHANGELOG.md via fragments in " +
+        "changelog.d/ (see changelog.d/README.md for instructions)."
     );
     return;
   }
@@ -51,8 +61,7 @@ module.exports = async ({ github, context, core }) => {
   ];
   const fragments = files.filter(
     (f) =>
-      (f.filename.startsWith("changelog.d/") ||
-        f.filename.startsWith("stacks-signer/changelog.d/")) &&
+      f.filename.startsWith("changelog.d/") &&
       f.status === "added" &&
       validExtensions.some((ext) => f.filename.endsWith(`.${ext}`))
   );
@@ -60,7 +69,7 @@ module.exports = async ({ github, context, core }) => {
   if (fragments.length === 0) {
     core.setFailed(
       "No changelog fragment found. Please add a fragment file to changelog.d/ " +
-        "or stacks-signer/changelog.d/ (see changelog.d/README.md for instructions). " +
+        "(see changelog.d/README.md for instructions). " +
         'If no changelog entry is needed, add the "no changelog" label to the PR.'
     );
   } else {

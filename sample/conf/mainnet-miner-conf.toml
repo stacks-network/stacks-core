@@ -365,9 +365,9 @@ wallet_name = "<YOUR_BITCOIN_WALLET_NAME>"
 # --- Advanced / Debugging ---
 
 # StackerDB socket timeout for miner operations.
-# Default: 120
+# Default: 10
 # Units: seconds
-# stackerdb_timeout_secs = 120
+# stackerdb_timeout_secs = 10
 
 # Log transactions that are skipped during mempool walk.
 # Default: false

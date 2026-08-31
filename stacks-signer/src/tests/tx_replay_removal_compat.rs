@@ -224,11 +224,15 @@ fn validate_reject_code_seven_stays_reserved() {
 /// to an older binary fails to start with "Database schema is newer than SCHEMA_VERSION".
 /// Dropping the now-dead `block_validated_by_replay_txs` table is therefore deferred; the
 /// table is left in place and only its accessors are removed.
+///
+/// The constant is pinned so that *this* change cannot bump it. Unrelated upstream
+/// migrations do bump it, and updating the number here is the correct response to those —
+/// what the tripwire forbids is the tx-replay removal being the thing that moves it.
 #[test]
 fn signer_db_schema_version_is_pinned() {
     assert_eq!(
         SignerDb::SCHEMA_VERSION,
-        19,
+        20,
         "bumping the schema removes the downgrade path; the dead replay table stays for now"
     );
 }

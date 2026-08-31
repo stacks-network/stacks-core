@@ -117,8 +117,9 @@ use stacks_signer::v0::SpawnedSigner;
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
-    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
-    TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
+    fault_injection_stall_miner, fault_injection_unstall_miner, TestTransientError,
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_MINE_TRANSIENT_ERRORS,
+    TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::Counters;
@@ -10731,7 +10732,6 @@ fn test_shadow_recovery() {
 
     let stacks_height_before = get_chain_info(&naka_conf).stacks_tip_height;
 
-    // TODO: stall block processing; otherwise this test can flake
     // stop block processing on the node
     TEST_COORDINATOR_STALL.lock().unwrap().replace(true);
 
@@ -10754,8 +10754,17 @@ fn test_shadow_recovery() {
     // revive ATC-C by waiting for commits
     next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
-    // make another tenure
-    next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    // make another tenure.
+    //
+    // NOTE: `next_block_and_mine_commit()` can be flaky here because the
+    // shadow-parent commit may be rejected by the PoX output check, and the
+    // miner may tenure-extend instead of winning a new tenure.
+    let stacks_height_before = get_chain_info(&naka_conf).stacks_tip_height;
+    next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    wait_for(60, || {
+        Ok(get_chain_info(&naka_conf).stacks_tip_height > stacks_height_before)
+    })
+    .unwrap();
 
     // all shadow blocks are present and processed
     let mut shadow_ids = HashSet::new();
@@ -19395,4 +19404,80 @@ fn tenure_extend_no_commits() {
     run_loop_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Verify that the miner thread survives transient mining errors
+/// (`ParentNotFound`, `NewParentDiscovered`, and DB errors) by retrying,
+/// rather than exiting and stalling for the remainder of the tenure.
+///
+/// Each injected error causes one `mine_block()` attempt to fail. The miner
+/// must consume all of them and still mine a submitted transfer within the
+/// same tenure (i.e. without a new burnchain block arriving).
+fn miner_recovers_from_transient_mining_errors() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let send_amt = 100;
+    let send_fee = 180;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new(1, vec![(sender_addr.clone(), send_amt + send_fee)]);
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    signer_test.boot_to_epoch_3();
+    let naka_conf = signer_test.running_nodes.conf.clone();
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    // Give the miner a chance to mine the tenure-start block, so that the
+    // test starts from a quiescent, mid-tenure state.
+    wait_for(30, || {
+        Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before)
+    })
+    .expect("Timed out waiting for the tenure-start block to be mined");
+
+    info!("------------------------- Injecting transient mining errors -------------------------");
+    // Each subsequent mining attempt pops and returns one of these errors.
+    TEST_MINE_TRANSIENT_ERRORS.set(vec![
+        TestTransientError::ParentNotFound,
+        TestTransientError::NewParentDiscovered,
+        TestTransientError::DBError,
+    ]);
+
+    let info_before = get_chain_info(&naka_conf);
+
+    // Submit a transfer. The miner must retry through the injected errors and
+    // mine it within the current tenure.
+    let transfer_tx = make_stacks_transfer_serialized(
+        &sender_sk,
+        0,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    wait_for(60, || {
+        let info = get_chain_info(&naka_conf);
+        assert_eq!(
+            info.burn_block_height, info_before.burn_block_height,
+            "The burnchain tip must not change during this test"
+        );
+        Ok(get_account(&http_origin, &sender_addr).nonce > 0)
+    })
+    .expect(
+        "Timed out waiting for the miner to recover from injected transient errors and mine the transfer",
+    );
+
+    assert!(
+        TEST_MINE_TRANSIENT_ERRORS.get().is_empty(),
+        "All injected transient errors should have been consumed by mining attempts"
+    );
+
+    signer_test.shutdown();
 }

@@ -238,6 +238,7 @@ pub enum Error {
     /// too many writes to a slot
     TooManySlotWrites {
         supplied_version: u32,
+        latest_version: u32,
         max_writes: u32,
     },
     /// too frequent writes to a slot
@@ -395,12 +396,13 @@ impl fmt::Display for Error {
             }
             Error::TooManySlotWrites {
                 supplied_version,
+                latest_version,
                 max_writes,
             } => {
                 write!(
                     f,
-                    "Too many slot writes (max={},given={})",
-                    max_writes, supplied_version
+                    "Too many slot writes (supplied={},latest={},max={})",
+                    supplied_version, latest_version, max_writes
                 )
             }
             Error::TooFrequentSlotWrites(ref deadline) => {
@@ -646,6 +648,8 @@ pub struct StacksNodeState<'a> {
     inner_mempool: Option<&'a mut MemPoolDB>,
     inner_rpc_args: Option<&'a RPCHandlerArgs<'a>>,
     relay_message: Option<StacksMessageType>,
+    /// TCP peer address of the HTTP conversation currently being handled, if any.
+    http_peer_addr: Option<SocketAddr>,
     /// Are we in Initial Block Download (IBD) phase?
     ibd: bool,
     /// Are we indexing transactions?
@@ -669,6 +673,7 @@ impl<'a> StacksNodeState<'a> {
             inner_mempool: Some(inner_mempool),
             inner_rpc_args: Some(inner_rpc_args),
             relay_message: None,
+            http_peer_addr: None,
             ibd,
             txindex,
         }
@@ -727,6 +732,14 @@ impl<'a> StacksNodeState<'a> {
 
     pub fn take_relay_message(&mut self) -> Option<StacksMessageType> {
         self.relay_message.take()
+    }
+
+    pub fn set_http_peer_addr(&mut self, addr: SocketAddr) {
+        self.http_peer_addr = Some(addr);
+    }
+
+    pub fn http_peer_addr(&self) -> Option<SocketAddr> {
+        self.http_peer_addr
     }
 
     /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block
@@ -1147,6 +1160,14 @@ pub struct StackerDBPushChunkData {
     pub chunk_data: StackerDBChunkData,
 }
 
+/// A StackerDB chunk received via p2p push, with the sending peer's identifier.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PushedStackerDBChunk {
+    /// Authenticated peer that sent the push (IP + node public-key hash)
+    pub peer: NeighborAddress,
+    pub chunk: StackerDBPushChunkData,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelayData {
     pub peer: NeighborAddress,
@@ -1534,7 +1555,7 @@ pub struct NetworkResult {
     /// chunks we received from the HTTP server
     pub uploaded_stackerdb_chunks: Vec<StackerDBPushChunkData>,
     /// chunks we received from p2p push
-    pub pushed_stackerdb_chunks: Vec<StackerDBPushChunkData>,
+    pub pushed_stackerdb_chunks: Vec<PushedStackerDBChunk>,
     /// Atlas attachments we obtained
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     /// transactions we downloaded via a mempool sync
@@ -1989,7 +2010,6 @@ impl NetworkResult {
         let newer_stackerdb_chunk_versions: HashMap<_, _> = newer
             .uploaded_stackerdb_chunks
             .iter()
-            .chain(newer.pushed_stackerdb_chunks.iter())
             .map(|chunk| {
                 (
                     (
@@ -2000,6 +2020,16 @@ impl NetworkResult {
                     chunk.chunk_data.slot_version,
                 )
             })
+            .chain(newer.pushed_stackerdb_chunks.iter().map(|pushed| {
+                (
+                    (
+                        pushed.chunk.contract_id.clone(),
+                        pushed.chunk.rc_consensus_hash.clone(),
+                        pushed.chunk.chunk_data.slot_id,
+                    ),
+                    pushed.chunk.chunk_data.slot_version,
+                )
+            }))
             .collect();
 
         self.uploaded_stackerdb_chunks.retain(|push_chunk| {
@@ -2031,7 +2061,8 @@ impl NetworkResult {
             }
         });
 
-        self.pushed_stackerdb_chunks.retain(|push_chunk| {
+        self.pushed_stackerdb_chunks.retain(|pushed| {
+            let push_chunk = &pushed.chunk;
             if push_chunk.rc_consensus_hash != newer.rc_consensus_hash {
                 debug!(
                     "Drop uploaded StackerDB chunk for {} due to stale view ({} != {}): {:?}",
@@ -2146,8 +2177,9 @@ impl NetworkResult {
     }
 
     pub fn consume_unsolicited(&mut self, unhandled_messages: PendingMessages) {
-        for ((_event_id, neighbor_key), messages) in unhandled_messages.into_iter() {
-            for message in messages.into_iter() {
+        for ((_event_id, neighbor_key), inbox) in unhandled_messages.into_iter() {
+            let neighbor_addr = inbox.neighbor_addr;
+            for message in inbox.messages.into_iter() {
                 match message.payload {
                     StacksMessageType::Blocks(block_data) => {
                         if let Some(blocks_msgs) = self.pushed_blocks.get_mut(&neighbor_key) {
@@ -2186,7 +2218,10 @@ impl NetworkResult {
                         }
                     }
                     StacksMessageType::StackerDBPushChunk(chunk_data) => {
-                        self.pushed_stackerdb_chunks.push(chunk_data)
+                        self.pushed_stackerdb_chunks.push(PushedStackerDBChunk {
+                            peer: neighbor_addr.clone(),
+                            chunk: chunk_data,
+                        })
                     }
                     _ => {
                         // forward along

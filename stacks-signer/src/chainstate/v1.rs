@@ -56,8 +56,15 @@ impl SortitionState {
         db: &SignerDb,
         block_proposal_timeout: Duration,
     ) -> Result<bool, SignerChainstateError> {
-        // if we've already approved/signed a block in this tenure, the miner can't have timed out.
-        let has_block = db.has_approved_block_in_tenure(sortition)?;
+        // If we've already signed a block in this tenure, the miner can't have timed out: we have
+        // committed a signature to this tenure and must not help abandon it.
+        //
+        // Importantly, a block we have only pre-committed to does not count! A pre-commit carries
+        // no signature, and if it never reaches the pre-commit threshold the tenure can stall
+        // indefinitely. Treating it as signed here would suppress the inactivity timeout for
+        // exactly the signers that pre-committed, so they could never fall back to the prior
+        // miner and the tenure could never recover.
+        let has_block = db.has_signed_block_in_tenure(sortition)?;
         if has_block {
             return Ok(false);
         }

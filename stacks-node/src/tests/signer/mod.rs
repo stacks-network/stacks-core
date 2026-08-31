@@ -269,8 +269,6 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             password,
             run_stamp,
             3000,
-            Some(100_000),
-            None,
             Some(9000),
             None,
         )
@@ -1688,6 +1686,35 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .expect("Failed to send accept signature");
     }
 
+    /// Broadcast a block pre-commit on behalf of the given signer, as a faulty or malicious
+    /// signer that pre-commits to a block without following through with a signature would.
+    /// This lets a test push the other signers over the pre-commit threshold so that they
+    /// sign the block, while the impersonated signer never does.
+    pub fn inject_pre_commit(
+        &self,
+        block: &NakamotoBlock,
+        private_key: &StacksPrivateKey,
+        reward_cycle: u64,
+    ) {
+        let mut stackerdb = StackerDB::new_normal(
+            &self.running_nodes.conf.node.rpc_bind,
+            private_key.clone(),
+            false,
+            reward_cycle,
+            self.get_signer_slot_id(reward_cycle, &to_addr(private_key))
+                .expect("Failed to get signer slot id")
+                .expect("Signer does not have a slot id"),
+            SignerDb::new(":memory:").unwrap(),
+            Duration::from_secs(30),
+        );
+
+        stackerdb
+            .send_message_with_retry::<SignerMessage>(SignerMessage::BlockPreCommit(
+                block.header.signer_signature_hash(),
+            ))
+            .expect("Failed to send block pre-commit");
+    }
+
     /// Restart the signer at `idx` with a new supported protocol version.
     pub fn restart_signer_with_supported_version(&mut self, idx: usize, version: u64) {
         let mut cfg = self.stop_signer(idx);
@@ -1725,6 +1752,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
             ],
             timeout_ms: 1000,
             disable_retries: false,
+            disable_contract_interface: false,
         });
     }
 
@@ -1742,6 +1770,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
         ],
         timeout_ms: 1000,
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     // The signers need some initial balances in order to pay for epoch 2.5 transaction votes

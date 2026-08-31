@@ -66,6 +66,7 @@ use crate::net::connection::{
     DEFAULT_BLOCK_PROPOSAL_MAX_TX_EXECUTION_TIME_SECS,
     DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
 };
+use crate::net::stackerdb::set_log_stackerdb_chunk_sources;
 use crate::net::{Neighbor, NeighborAddress, NeighborKey};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::EpochList;
@@ -144,7 +145,7 @@ const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
 /// phase of a transaction before timing out.
 const DEFAULT_MAX_ANALYSIS_TIME_SECS: u64 = 30;
 /// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
-const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 10;
 /// Default maximum size for a tenure (note: the counter is reset on tenure extend).
 pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Default maximum memory allocation during miner block assembly
@@ -430,6 +431,14 @@ pub struct Config {
 }
 
 impl Config {
+    /// Whether any allocation-limit is enabled (it requires the
+    /// tracking allocator to be installed as the global allocator).
+    pub fn memory_limit_configured(&self) -> bool {
+        self.miner.max_assembly_mem_bytes > 0
+            || self.connection_options.block_proposal_max_tx_mem_bytes > 0
+            || self.connection_options.read_only_call_max_mem_bytes > 0
+    }
+
     /// get the up-to-date burnchain options from the config.
     /// If the config file can't be loaded, then return the existing config
     pub fn get_burnchain_config(&self) -> BurnchainConfig {
@@ -1064,6 +1073,9 @@ impl Config {
                         events_keys,
                         timeout_ms: observer.timeout_ms.unwrap_or(1_000),
                         disable_retries: observer.disable_retries.unwrap_or(false),
+                        disable_contract_interface: observer
+                            .disable_contract_interface
+                            .unwrap_or(false),
                     });
                 }
                 observers
@@ -1078,6 +1090,7 @@ impl Config {
                 events_keys: vec![EventKeyType::AnyEvent],
                 timeout_ms: 1_000,
                 disable_retries: false,
+                disable_contract_interface: false,
             });
         };
 
@@ -1236,6 +1249,7 @@ impl Config {
         set_pox_5_sbtc_registry_contract(self.node.pox_5_sbtc_registry_contract.clone());
         set_pox_5_bond_admin(self.node.pox_5_bond_admin.clone());
         set_pox_5_pause_admin(self.node.pox_5_pause_admin.clone());
+        set_log_stackerdb_chunk_sources(self.node.log_stackerdb_chunk_sources);
     }
 
     pub fn is_node_event_driven(&self) -> bool {
@@ -2324,6 +2338,11 @@ pub struct NodeConfig {
     ///     "SP2C2YFP12AJZB4M4KUPSTMZQR0SNHNPH204SCQJM.stx-oracle-v1"
     ///   ]
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
+    /// Enables INFO logging for each newly stored StackerDB chunk, including
+    /// whether it arrived via polling, P2P push, or HTTP.
+    /// ---
+    /// @default: `false`
+    pub log_stackerdb_chunk_sources: bool,
     /// Enables the transaction index, which maps transaction IDs to the blocks
     /// containing them. Setting this to `true` allows the use of RPC endpoints
     /// that look up transactions by ID (e.g., `/extended/v1/tx/{txid}`), but
@@ -2619,6 +2638,10 @@ impl Default for NodeConfig {
             event_dispatcher_blocking: true,
             event_dispatcher_queue_size: 1000,
             stacker_dbs: vec![],
+            #[cfg(any(test, feature = "testing"))]
+            log_stackerdb_chunk_sources: true,
+            #[cfg(not(any(test, feature = "testing")))]
+            log_stackerdb_chunk_sources: false,
             txindex: false,
             pox_5_sbtc_contract: None,
             pox_5_sbtc_registry_contract: None,
@@ -4142,6 +4165,8 @@ pub struct NodeConfigFile {
     pub event_dispatcher_queue_size: Option<usize>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
+    /// Enable INFO logging for each newly stored StackerDB chunk, including its origin.
+    pub log_stackerdb_chunk_sources: Option<bool>,
     /// fault injection: fail to push blocks with this probability (0-100)
     pub fault_injection_block_push_fail_probability: Option<u8>,
     /// enable transactions indexing, note this will require additional storage (in the order of gigabytes)
@@ -4255,6 +4280,9 @@ impl NodeConfigFile {
                 .iter()
                 .filter_map(|contract_id| QualifiedContractIdentifier::parse(contract_id).ok())
                 .collect(),
+            log_stackerdb_chunk_sources: self
+                .log_stackerdb_chunk_sources
+                .unwrap_or(default_node_config.log_stackerdb_chunk_sources),
             fault_injection_block_push_fail_probability: if self
                 .fault_injection_block_push_fail_probability
                 .is_some()
@@ -4800,6 +4828,17 @@ pub struct EventObserverConfigFile {
     ///   - **Warning:** Setting this to `true` can lead to missed events if the
     ///     observer endpoint is temporarily unavailable or experiences issues.
     pub disable_retries: Option<bool>,
+    /// Controls whether the generated contract interface (ABI) is included in the
+    /// event payloads sent to this observer.
+    ///
+    /// If `true`, the `contract_interface` field of every transaction in `new_block`
+    /// and `new_microblocks` event payloads sent to this observer is emitted as
+    /// `null`, regardless of whether the transaction deployed a contract. This only
+    /// affects the event stream sent to this observer; it does not affect consensus,
+    /// block validation, other observers, or any other event field.
+    /// ---
+    /// @default: `false` (contract interfaces are included)
+    pub disable_contract_interface: Option<bool>,
 }
 
 #[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
@@ -4808,6 +4847,7 @@ pub struct EventObserverConfig {
     pub events_keys: Vec<EventKeyType>,
     pub timeout_ms: u64,
     pub disable_retries: bool,
+    pub disable_contract_interface: bool,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
@@ -5155,6 +5195,22 @@ mod tests {
         .into_config_default(default_burnchain_config)
         .unwrap();
         assert_eq!(merged.wallet_name.as_deref(), expected);
+    }
+
+    #[test]
+    fn test_stackerdb_chunk_source_logging_config() {
+        let config = utils::config_from_valid_string("[node]");
+
+        assert!(config.node.log_stackerdb_chunk_sources);
+        assert!(NodeConfig::default().log_stackerdb_chunk_sources);
+
+        let config = utils::config_from_valid_string(
+            r#"
+            [node]
+            log_stackerdb_chunk_sources = false
+            "#,
+        );
+        assert!(!config.node.log_stackerdb_chunk_sources);
     }
 
     #[test]
