@@ -285,8 +285,7 @@ impl SpvClient {
     }
 
     fn db_migrate(conn: &mut DBConn) -> Result<(), btc_error> {
-        let version = SpvClient::db_get_version(conn)?;
-        while version != SPV_DB_VERSION {
+        loop {
             let version = SpvClient::db_get_version(conn)?;
             match version.as_str() {
                 "1" => {

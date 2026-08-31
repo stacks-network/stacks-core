@@ -300,6 +300,7 @@ fn old_version_parses_new_messages() {
             tenure_extend_timestamp: 2049,
             reject_reason: RejectReason::NotRejected,
             tenure_extend_read_count_timestamp: 5058,
+            failed_txid: None,
             unknown_bytes: vec![],
         },
     };
