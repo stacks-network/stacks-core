@@ -39,7 +39,7 @@ use crate::vm::types::{BuffData, ListData, SequenceData, TupleData, TypeSignatur
 /// Maximum supported merkle proof depth for `(verify-merkle-proof ...)`.
 /// Also pins the `(list N (buff 32))` type the type checker enforces for the
 /// `sibling-hashes` argument.
-pub(crate) const VERIFY_MERKLE_PROOF_MAX_DEPTH: u32 = 24;
+pub const VERIFY_MERKLE_PROOF_MAX_DEPTH: u32 = 24;
 
 /// Maximum supported `scriptPubKey` size for `(get-bitcoin-tx-output? ...)`.
 pub(crate) const GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN: usize = 1024;
