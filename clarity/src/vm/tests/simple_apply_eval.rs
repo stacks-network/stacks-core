@@ -464,7 +464,7 @@ fn test_secp256k1() {
     )
     .unwrap(); // need the "compressed extra 0x01 to match, as this changes the address"
     eprintln!("privk {privk:?}");
-    eprintln!("from_private {:?}", &StacksPublicKey::from_private(&privk));
+    eprintln!("from_private {:?}", StacksPublicKey::from_private(&privk));
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,

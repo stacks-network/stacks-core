@@ -1,7 +1,14 @@
 description: "Represents a Clarity type. It can be a simple string for primitive types or a nested object for complex types like lists and tuples."
 oneOf:
   - type: string
-    description: "Simple primitive type (e.g., 'int', 'uint', 'bool', 'principal')"
+    description: Simple primitive type
+    enum:
+      - none
+      - int128
+      - uint128
+      - bool
+      - principal
+      - trait_reference
   - type: object
     description: "List type"
     required:
@@ -11,13 +18,14 @@ oneOf:
         type: object
         required:
           - type
+          - length
         properties:
           type:
             $ref: "#"
             description: "Type of list elements"
           length:
             type: integer
-            description: "Fixed length for list types"
+            description: "Maximum number of elements"
   - type: object
     description: "Tuple type"
     required:

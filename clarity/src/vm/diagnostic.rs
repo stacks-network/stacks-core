@@ -82,7 +82,7 @@ impl fmt::Display for Diagnostic {
             }
             _ => {}
         }
-        write!(f, ": {}.", &self.message)?;
+        write!(f, ": {}.", self.message)?;
         if let Some(suggestion) = &self.suggestion {
             write!(f, "\n{suggestion}")?;
         }

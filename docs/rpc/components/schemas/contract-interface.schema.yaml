@@ -11,7 +11,7 @@ required:
 properties:
   functions:
     type: array
-    description: List of defined methods
+    description: List of defined functions
     items:
       type: object
       required: [name, access, args, outputs]
@@ -20,6 +20,7 @@ properties:
           type: string
         access:
           type: string
+          description: Whether the function was defined with `define-private`, `define-public` or `define-read-only`
           enum: [public, private, read_only]
         args:
           type: array
@@ -39,7 +40,7 @@ properties:
               $ref: "./clarity-type.schema.yaml"
   variables:
     type: array
-    description: List of defined constants
+    description: List of defined constants and data variables
     items:
       type: object
       required: [name, type, access]
@@ -50,6 +51,7 @@ properties:
           $ref: "./clarity-type.schema.yaml"
         access:
           type: string
+          description: Whether the value was defined with `define-constant` or `define-data-var`
           enum: [constant, variable]
   maps:
     type: array
@@ -90,4 +92,4 @@ properties:
   clarity_version:
     type: string
     description: Clarity language version used by this contract.
-    enum: [Clarity1, Clarity2, Clarity3]
+    enum: [Clarity1, Clarity2, Clarity3, Clarity4, Clarity5, Clarity6]
