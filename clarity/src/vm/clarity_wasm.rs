@@ -8747,7 +8747,19 @@ fn link_get_bitcoin_tx_output_fn(
                     .and_then(|export| export.into_memory())
                     .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
-                let ret_ty = get_bitcoin_tx_output_result_type()?;
+                let ok_ty: TypeSignature = TupleTypeSignature::try_from(vec![
+                    (
+                        ClarityName::from_literal("script"),
+                        TypeSignature::BUFFER_1024.clone(),
+                    ),
+                    (ClarityName::from_literal("amount"), TypeSignature::UIntType),
+                    (
+                        ClarityName::from_literal("txid"),
+                        TypeSignature::BUFFER_32.clone(),
+                    ),
+                ])?
+                .into();
+                let ret_ty = TypeSignature::new_response(ok_ty, TypeSignature::UIntType)?;
                 let repr_size = get_type_size(&ret_ty);
 
                 // Read the transaction bytes from the memory
