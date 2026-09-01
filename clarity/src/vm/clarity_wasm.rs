@@ -17,6 +17,7 @@ use super::callables::{DefineType, DefinedFunction};
 use super::costs::{CostTracker, constants as cost_constants};
 use super::database::STXBalance;
 use super::events::*;
+use super::functions::bitcoin::{VERIFY_MERKLE_PROOF_MAX_DEPTH, native_verify_merkle_proof};
 use super::functions::crypto::{pubkey_to_address_v1, pubkey_to_address_v2};
 use super::types::signatures::CallableSubtype;
 use super::types::{
@@ -2401,6 +2402,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Vm
     link_secp256k1_verify_fn(linker)?;
     link_secp256r1_verify_double_hash_fn(linker)?;
     link_secp256r1_verify_simple_hash_fn(linker)?;
+    link_verify_merkle_proof_fn(linker)?;
     link_principal_of_fn(linker)?;
     link_save_constant_fn(linker)?;
     link_load_constant_fn(linker)?;
@@ -8519,6 +8521,79 @@ fn link_secp256r1_verify_simple_hash_fn(
         .map_err(|e| {
             VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "secp256r1_verify_simple_hash".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `verify_merkle_proof`, into the Wasm module.
+/// This function is called for the Clarity expression, `verify-merkle-proof`.
+fn link_verify_merkle_proof_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), VmExecutionError> {
+    linker
+        .func_wrap(
+            "clarity",
+            "verify_merkle_proof",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             leaf_offset: i32,
+             leaf_length: i32,
+             root_offset: i32,
+             root_length: i32,
+             tx_index_lo: i64,
+             tx_index_hi: i64,
+             tx_count_lo: i64,
+             tx_count_hi: i64,
+             siblings_offset: i32,
+             siblings_length: i32| {
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
+
+                let epoch = caller.data_mut().global_context.epoch_id;
+
+                let leaf = read_bytes_from_wasm(memory, &mut caller, leaf_offset, leaf_length)?;
+                let root = read_bytes_from_wasm(memory, &mut caller, root_offset, root_length)?;
+
+                // The list is read back using the element type only; how many
+                // siblings there actually are comes from `siblings_length`.
+                let siblings_ty = TypeSignature::list_of(
+                    TypeSignature::BUFFER_32,
+                    VERIFY_MERKLE_PROOF_MAX_DEPTH,
+                )?;
+
+                let siblings = read_from_wasm(
+                    memory,
+                    &mut caller,
+                    &siblings_ty,
+                    siblings_offset,
+                    siblings_length,
+                    epoch,
+                )?;
+
+                let tx_index = ((tx_index_hi as u64 as u128) << 64) | (tx_index_lo as u64 as u128);
+                let tx_count = ((tx_count_hi as u64 as u128) << 64) | (tx_count_lo as u64 as u128);
+
+                let result = native_verify_merkle_proof(vec![
+                    Value::buff_from(leaf)?,
+                    Value::buff_from(root)?,
+                    Value::UInt(tx_index),
+                    Value::UInt(tx_count),
+                    siblings,
+                ])?;
+
+                match result {
+                    Value::Bool(verified) => Ok(verified as i32),
+                    _ => Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch).into()),
+                }
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
+                "verify_merkle_proof".to_string(),
                 e,
             ))
         })
