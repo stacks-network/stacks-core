@@ -678,9 +678,9 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
     let summary = format!(
         "block @ height = {h} off of {pid} ({pch}/{pbh}) in {t}ms. Min-fee: {min_fee}, Max-time: {max_time}",
         h = parent_stacks_header.stacks_block_height + 1,
-        pid = &parent_stacks_header.index_block_hash(),
-        pch = &parent_stacks_header.consensus_hash,
-        pbh = &parent_stacks_header.anchored_header.block_hash(),
+        pid = parent_stacks_header.index_block_hash(),
+        pch = parent_stacks_header.consensus_hash,
+        pbh = parent_stacks_header.anchored_header.block_hash(),
         t = elapsed.as_millis(),
     );
 
@@ -908,7 +908,7 @@ fn replay_block(
             block_consensus_hash,
             block.block_hash(),
             parent_block_header.block_hash(),
-            &parent_header_info.consensus_hash
+            parent_header_info.consensus_hash
         ));
     }
 
@@ -1088,8 +1088,8 @@ fn replay_block_nakamoto(
             .unwrap_or_else(|| {
                 panic!(
                     "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
-                    &block.header.consensus_hash,
-                    &block.header.block_hash()
+                    block.header.consensus_hash,
+                    block.header.block_hash()
                 )
             });
 

@@ -134,7 +134,7 @@ fn test_simple_signer() {
             let req = format!(
                 "POST /stackerdb_chunks HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
                 endpoint,
-                &body.len(),
+                body.len(),
                 body
             );
             debug!("Send:\n{}", &req);
