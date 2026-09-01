@@ -2893,13 +2893,14 @@ impl StacksChainState {
     /// Given a microblock stream, does it connect the parent and child anchored blocks?
     /// * verify that the blocks are a contiguous sequence, with no duplicate sequence numbers
     /// * verify that each microblock is signed by the parent anchor block's key
-    ///   The stream must be in order by sequence number, and there must be no duplicates.
-    ///   If the stream connects to the anchored block, then
-    ///   return the index in the given microblocks vec that corresponds to the highest valid
-    ///   block -- i.e. the microblock indicated by the anchored header as the parent.
-    ///   If there was a duplicate sequence number, then also return a poison-microblock
-    ///   transaction for the two headers with the lowest duplicate sequence number.
-    ///   Return None if the stream does not connect to this block (e.g. it's incomplete or the like)
+    ///
+    /// The stream must be in order by sequence number, and there must be no duplicates.
+    /// If the stream connects to the anchored block, then
+    /// return the index in the given microblocks vec that corresponds to the highest valid
+    /// block -- i.e. the microblock indicated by the anchored header as the parent.
+    /// If there was a duplicate sequence number, then also return a poison-microblock
+    /// transaction for the two headers with the lowest duplicate sequence number.
+    /// Return None if the stream does not connect to this block (e.g. it's incomplete or the like)
     pub fn validate_parent_microblock_stream(
         parent_anchored_block_header: &StacksBlockHeader,
         anchored_block_header: &StacksBlockHeader,

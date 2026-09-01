@@ -2853,8 +2853,9 @@ impl Relayer {
     /// * Add all transactions to the mempool.
     /// * Forward transactions we didn't already have.
     /// * Reload the unconfirmed state, if necessary.
-    ///   Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
-    ///   turned into peer bans.
+    ///
+    /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
+    /// turned into peer bans.
     pub fn process_network_result(
         &mut self,
         local_peer: &LocalPeer,
@@ -3235,7 +3236,8 @@ impl PeerNetwork {
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
     ///   don't track their inventory state.  We send blocks-available messages to them, since they
     ///   can turn around and ask us for the block data.
-    ///   Return the number of inbound and outbound neighbors that have received it
+    ///
+    /// Return the number of inbound and outbound neighbors that have received it
     pub fn advertize_blocks(
         &mut self,
         availability_data: BlocksAvailableMap,

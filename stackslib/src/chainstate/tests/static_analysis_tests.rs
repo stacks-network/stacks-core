@@ -1448,7 +1448,8 @@ fn error_invalid_stacks_transaction_duplicate_contract() {
 ///     reachable via an oversized tuple `merge`).
 ///   - 4.0+: `check_special_merge` rejects the oversized merge at the merge site with the
 ///     checked `ValueTooLarge`.
-///     Outcome: block rejected pre-4.0, accepted 4.0+ (deploy tx mined with `committed:false`).
+///
+/// Outcome: block rejected pre-4.0, accepted 4.0+ (deploy tx mined with `committed:false`).
 #[test]
 fn tuple_merge_exceeds_max_value_size_cdeploy() {
     contract_deploy_consensus_snap_test!(
@@ -1512,8 +1513,9 @@ fn tuple_merge_exceeds_max_value_size_cdeploy() {
 ///     contract deployed pre-4.0 but called at 4.0+ reaches the runtime gate, which rejects
 ///     the oversized `merge` cleanly with `ValueTooLarge` (tx `committed:false`) instead of
 ///     invalidating the block.
-///     Outcome: the `run` call invalidates the block pre-4.0, but is accepted at 4.0+ (both the
-///     deploy and the call are mined with `committed:false`).
+///
+/// Outcome: the `run` call invalidates the block pre-4.0, but is accepted at 4.0+ (both the
+/// deploy and the call are mined with `committed:false`).
 #[test]
 fn tuple_merge_overflow_unused_runtime_ccall() {
     contract_call_consensus_snap_test!(

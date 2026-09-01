@@ -4726,7 +4726,7 @@ impl SortitionDB {
     /// * burn_header_hash
     /// * 1st ancestor of burn_header_hash
     /// * 2nd ancestor of burn_header_hash
-    ///   ...
+    /// * ...
     /// * Nth ancestor of burn_header_hash
     ///
     /// That is, the resulting list will have up to N+1 items.

@@ -470,7 +470,8 @@ impl Neighbor {
     ///   configuration state will be loaded as well.  This includes things like the calculated
     ///   in/out-degree and last-contact time, as well as the allow/deny time limits.
     /// * If we do not know about this neighbor, then the above state will not be loaded.
-    ///   Returns (the neighbor, whether or not the neighbor was known)
+    ///
+    /// Returns (the neighbor, whether or not the neighbor was known)
     pub fn load_and_update(
         conn: &DBConn,
         peer_version: u32,
@@ -2051,7 +2052,8 @@ impl ConversationP2P {
     /// Check that a message was properly relayed.
     /// * there are no relay cycles
     /// * we didn't send this
-    ///   Update relayer statistics for this conversation
+    ///
+    /// Update relayer statistics for this conversation
     fn process_relayers(
         &mut self,
         local_peer: &LocalPeer,
