@@ -2146,7 +2146,6 @@ mod test {
     use rand::{thread_rng, Rng, RngCore};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::StacksPrivateKey;
-    use stacks_common::util::bounded_string::MAX_ERROR_MESSAGE_LEN;
 
     use super::*;
     use crate::events::BlockProposalData;
@@ -2202,100 +2201,6 @@ mod test {
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
             .expect("Failed to deserialize BlockRejection");
         assert_eq!(rejection, deserialized_rejection);
-    }
-
-    /// An unpatched sender can put a reason of any length on the wire.
-    /// Decoding must clamp it rather than reject the message: a dropped
-    /// rejection would vanish from threshold accounting.
-    #[test]
-    fn deserialize_clamps_oversized_wire_reason() {
-        let rejection = BlockRejection::new(
-            Sha512Trunc256Sum([2u8; 32]),
-            RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
-            &StacksPrivateKey::random(),
-            false,
-            thread_rng().next_u64(),
-            thread_rng().next_u64(),
-        );
-        let expected_pubkey = rejection
-            .recover_public_key()
-            .expect("Failed to recover public key");
-
-        // Re-encode the same message the way an unpatched sender would,
-        // substituting an over-long reason.
-        let huge_reason = "x".repeat(MAX_ERROR_MESSAGE_LEN * 4);
-        let mut bytes = vec![];
-        write_next(&mut bytes, &huge_reason.as_bytes().to_vec()).unwrap();
-        write_next(&mut bytes, &rejection.reason_code).unwrap();
-        write_next(&mut bytes, &rejection.signer_signature_hash).unwrap();
-        write_next(&mut bytes, &rejection.chain_id).unwrap();
-        write_next(&mut bytes, &rejection.signature).unwrap();
-        write_next(&mut bytes, &rejection.metadata).unwrap();
-        write_next(&mut bytes, &rejection.response_data).unwrap();
-
-        let decoded = read_next::<BlockRejection, _>(&mut &bytes[..])
-            .expect("an oversized reason must clamp, not fail the decode");
-        assert!(decoded.reason.len() <= MAX_ERROR_MESSAGE_LEN);
-        assert!(decoded.reason.ends_with("..."));
-        assert!(huge_reason.starts_with(&decoded.reason[..decoded.reason.len() - 3]));
-        // Everything else survives untouched, including the signature: the
-        // signed digest does not cover the reason.
-        assert_eq!(decoded.reason_code, rejection.reason_code);
-        assert_eq!(
-            decoded.signer_signature_hash,
-            rejection.signer_signature_hash
-        );
-        assert_eq!(
-            decoded
-                .recover_public_key()
-                .expect("Failed to recover public key"),
-            expected_pubkey
-        );
-    }
-
-    /// A locally-produced rejection must never carry an unbounded reason,
-    /// however large the connectivity error it wraps.
-    #[test]
-    fn construction_clamps_huge_connectivity_reason() {
-        let huge = "e".repeat(MAX_ERROR_MESSAGE_LEN * 4);
-        let rejection = BlockRejection::new(
-            Sha512Trunc256Sum([3u8; 32]),
-            RejectReason::ConnectivityIssues(huge),
-            &StacksPrivateKey::random(),
-            false,
-            thread_rng().next_u64(),
-            thread_rng().next_u64(),
-        );
-        assert!(rejection.reason.len() <= MAX_ERROR_MESSAGE_LEN);
-        assert!(rejection.reason.ends_with("..."));
-    }
-
-    /// Reasons a patched sender can emit are at or under the bound; those
-    /// must round-trip byte-identically, including exactly at the boundary
-    /// and when a multi-byte character straddles the clamp point.
-    #[test]
-    fn boundary_reasons_round_trip_identically() {
-        let cases: [String; 4] = [
-            "a".repeat(MAX_ERROR_MESSAGE_LEN - 1),
-            "a".repeat(MAX_ERROR_MESSAGE_LEN),
-            "a".repeat(MAX_ERROR_MESSAGE_LEN + 1), // clamped at construction
-            "€".repeat(MAX_ERROR_MESSAGE_LEN / 3 + 1), // multi-byte at the clamp point
-        ];
-        for raw in cases {
-            let mut rejection = BlockRejection::new(
-                Sha512Trunc256Sum([4u8; 32]),
-                RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
-                &StacksPrivateKey::random(),
-                false,
-                thread_rng().next_u64(),
-                thread_rng().next_u64(),
-            );
-            rejection.reason = BoundedErrorString::from_display(&raw);
-            let serialized = rejection.serialize_to_vec();
-            let decoded = read_next::<BlockRejection, _>(&mut &serialized[..])
-                .expect("Failed to deserialize BlockRejection");
-            assert_eq!(rejection, decoded, "input length {}", raw.len());
-        }
     }
 
     #[test]

@@ -64,8 +64,6 @@ pub enum SignerChainstateError {
 
 impl From<SignerChainstateError> for RejectReason {
     fn from(error: SignerChainstateError) -> Self {
-        // Bound at the source: this string is cloned into `RejectCode` and
-        // debug-rendered into log lines, none of which clamp it themselves.
         RejectReason::ConnectivityIssues(BoundedErrorString::from_display(&error).into())
     }
 }
