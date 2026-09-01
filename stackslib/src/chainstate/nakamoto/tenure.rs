@@ -51,8 +51,8 @@
 //!   winning miner.  Note that due to the above, it may not be the highest sortition processed.
 //! * The _previous tenure consensus hash_: this is the consensus hash of the sortition that chose
 //!   the miner who produced the parent tenure of the current ongoing tenure.
-//! * The _sortition consensus hash: this is the tip of the sortition history that Stackers knew
-//!   about when they created the `TenureChange.
+//! * The _sortition consensus hash_: this is the tip of the sortition history that Stackers knew
+//!   about when they created the `TenureChange`.
 //!
 //! The Nakamoto system uses this module to track the set of all tenures.  It does so within a
 //! (derived-state) table called `nakamoto_tenure_events`.  Whenever a `TenureChange` transaction is

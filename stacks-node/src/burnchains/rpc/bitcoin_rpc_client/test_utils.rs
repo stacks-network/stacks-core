@@ -216,7 +216,8 @@ impl BitcoinRpcClient {
     /// * `txs` - List of transactions to include in the block. Each entry can be:
     ///   - A raw hex-encoded transaction
     ///   - A transaction ID (must be present in the mempool)
-    ///     If the list is empty, an empty block (with only the coinbase transaction) will be generated.
+    ///
+    ///   If the list is empty, an empty block (with only the coinbase transaction) will be generated.
     ///
     /// # Returns
     /// A [`BurnchainHeaderHash`] struct containing the block hash of the newly generated block.
