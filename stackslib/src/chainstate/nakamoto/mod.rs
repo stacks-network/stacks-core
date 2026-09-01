@@ -2821,9 +2821,11 @@ impl NakamotoChainState {
     /// * the public key cannot be recovered from the miner's signature
     /// * the stackers during the tenure didn't sign it
     /// * a DB error occurs
-    ///   Does nothing if:
+    ///
+    /// Does nothing if:
     /// * we already have the block
-    ///   Returns true if we stored the block; false if not.
+    ///
+    /// Returns true if we stored the block; false if not.
     pub fn accept_block(
         chainstate: &mut StacksChainState,
         block: &NakamotoBlock,
