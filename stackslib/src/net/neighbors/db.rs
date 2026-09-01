@@ -30,7 +30,7 @@ use crate::net::{
 use crate::util_lib::db::DBConn;
 
 /// Capture replacement state
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct NeighborReplacements {
     /// neighbors to be replaced
     replacements: HashMap<NeighborAddress, Neighbor>,
@@ -274,6 +274,7 @@ pub trait NeighborWalkDB {
 }
 
 /// Production database I/O implementation that uses PeerDB
+#[derive(Default)]
 pub struct PeerDBNeighborWalk {}
 
 /// Database I/O helpers for the NeighborWalkDB implementation

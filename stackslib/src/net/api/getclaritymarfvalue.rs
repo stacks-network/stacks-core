@@ -37,7 +37,7 @@ pub struct ClarityMarfResponse {
     pub marf_proof: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetClarityMarfRequestHandler {
     pub marf_key_hash: Option<TrieHash>,
 }

@@ -446,6 +446,7 @@ pub trait NeighborComms {
 
 /// Transport-level API for peer network state machines.
 /// Prod implementation of NeighborComms.
+#[derive(Default)]
 pub struct PeerNetworkComms {
     /// Set of PeerNetwork event IDs that this walk is tracking (so they won't get pruned)
     events: HashSet<usize>,
@@ -687,7 +688,7 @@ impl ToNeighborKey for NeighborAddress {
 
 /// This struct represents a batch of in-flight requests to a set of peers, identified by a
 /// neighbor key (or something that converts to it)
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct NeighborCommsRequest {
     state: HashMap<NeighborAddress, ReplyHandleP2P>,
 }
