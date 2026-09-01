@@ -754,6 +754,27 @@ ALTER TABLE blocks
     ADD COLUMN tenure_change_cause INTEGER;
 "#;
 
+static CREATE_SUPERSEDED_TENURES_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS superseded_tenures (
+    -- consensus hash of a tenure that a later tenure was permitted to reorg. Its sortition is
+    -- still canonical -- unlike an orphaned tenure -- but the reorg rules
+    -- (`first_proposal_burn_block_timing`) sanctioned replacing the blocks it built, so a
+    -- signature we put over one of them must not stand in the way of that replacement.
+    consensus_hash TEXT PRIMARY KEY,
+    -- burn block height of the superseded tenure's sortition, used to age the record out
+    burn_block_height INTEGER NOT NULL,
+    -- consensus hash of the tenure that was permitted to do the reorg. The permit only means
+    -- anything while this tenure's sortition is still canonical: if a burnchain fork orphans
+    -- it, the reorg we sanctioned can no longer happen and the record stops excluding the
+    -- superseded tenure's blocks from conflict checks.
+    superseded_by_consensus_hash TEXT NOT NULL,
+    -- burn block hash of the permitting tenure's sortition, used to ask the node whether that
+    -- sortition is still canonical
+    superseded_by_burn_block_hash TEXT NOT NULL,
+    -- epoch seconds at which we permitted the reorg
+    superseded_at INTEGER NOT NULL
+) STRICT;"#;
+
 // New tables for tracking per-signer untracked block proposal responses with auto-eviction
 static CREATE_SIGNER_PENDING_PRE_COMMIT_RESPONSES: &str = r#"
 CREATE TABLE IF NOT EXISTS signer_pending_pre_commit_responses (
@@ -763,10 +784,10 @@ CREATE TABLE IF NOT EXISTS signer_pending_pre_commit_responses (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_addr_time 
+CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_addr_time
 ON signer_pending_pre_commit_responses (signer_addr, received_time DESC);
 
-CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_hash_time 
+CREATE INDEX IF NOT EXISTS idx_signer_pre_commit_responses_by_hash_time
 ON signer_pending_pre_commit_responses (signer_signature_hash, received_time DESC);
 "#;
 
@@ -779,10 +800,10 @@ CREATE TABLE IF NOT EXISTS signer_pending_signature_responses (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_addr_time 
+CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_addr_time
 ON signer_pending_signature_responses (signer_addr, received_time DESC);
 
-CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_hash_time 
+CREATE INDEX IF NOT EXISTS idx_signer_signature_responses_by_hash_time
 ON signer_pending_signature_responses (signer_signature_hash, received_time DESC);
 "#;
 
@@ -795,10 +816,10 @@ CREATE TABLE IF NOT EXISTS signer_pending_rejection_responses (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_addr_time 
+CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_addr_time
 ON signer_pending_rejection_responses (signer_addr, received_time DESC);
 
-CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_hash_time 
+CREATE INDEX IF NOT EXISTS idx_signer_rejection_responses_by_hash_time
 ON signer_pending_rejection_responses (signer_signature_hash, received_time DESC);
 "#;
 
@@ -1095,6 +1116,14 @@ static SCHEMA_19: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (19);",
 ];
 
+static SCHEMA_20: &[&str] = &[
+    CREATE_SUPERSEDED_TENURES_TABLE,
+    // `get_signed_conflicts` filters on a height range near the chain tip across all tenures;
+    // a plain height index makes that a bounded range scan and serves its ORDER BY.
+    "CREATE INDEX IF NOT EXISTS blocks_stacks_height ON blocks (stacks_height DESC);",
+    "INSERT INTO db_config (version) VALUES (20);",
+];
+
 struct Migration {
     version: SchemaVersion,
     statements: &'static [&'static str],
@@ -1126,6 +1155,7 @@ enum SchemaVersion {
     V17 = 17,
     V18 = 18,
     V19 = 19,
+    V20 = 20,
 }
 
 impl SchemaVersion {
@@ -1211,11 +1241,15 @@ static MIGRATIONS: &[Migration] = &[
         version: SchemaVersion::V19,
         statements: SCHEMA_19,
     },
+    Migration {
+        version: SchemaVersion::V20,
+        statements: SCHEMA_20,
+    },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = SchemaVersion::V19.as_u32();
+    pub const SCHEMA_VERSION: u32 = SchemaVersion::V20.as_u32();
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -1445,8 +1479,37 @@ impl SignerDb {
     }
 
     /// Return whether there was an approved/signed block in a tenure (identified by its consensus hash)
+    ///
+    /// Note: this includes blocks that were only pre-committed (because `mark_pre_committed`
+    /// records an `approved_time`). It is therefore NOT a test of whether this signer put a
+    /// signature over a block in the tenure -- use [`SignerDb::has_signed_block_in_tenure`] for
+    /// that (which is why production code no longer uses this; it is kept for tests pinning
+    /// down the approved-vs-signed distinction).
+    #[cfg(any(test, feature = "testing"))]
     pub fn has_approved_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
         let query = "SELECT 1 FROM blocks WHERE consensus_hash = ? AND (signed_self IS NOT NULL OR signed_group IS NOT NULL OR approved_time IS NOT NULL) LIMIT 1;";
+        let result: Option<u64> = query_row(&self.db, query, [tenure])?;
+
+        Ok(result.is_some())
+    }
+
+    /// Return whether this signer has signed a block, or observed the signer set sign a block,
+    /// in a tenure (identified by its consensus hash). Used by `is_timed_out` to keep a tenure
+    /// we are committed to from being timed out.
+    ///
+    /// Unlike [`SignerDb::has_approved_block_in_tenure`] this excludes blocks that were only
+    /// pre-committed. A pre-commit does not put a signature over the block, so it does not
+    /// represent a commitment that would be violated by abandoning the tenure.
+    ///
+    /// Rejection, even global rejection, does NOT clear the commitment. A rejection is a
+    /// revocable opinion; a signature is a bearer instrument. Once ours is public, anyone can
+    /// aggregate it toward the 70% threshold should enough rejecting signers change their
+    /// minds, so a block we signed binds us to its tenure no matter what state it later fell
+    /// to. This is deliberately a different predicate from
+    /// [`SignerDb::get_last_signed_block`], which answers a tip question rather than a
+    /// commitment question (see there).
+    pub fn has_signed_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
+        let query = "SELECT 1 FROM blocks WHERE consensus_hash = ? AND (signed_self IS NOT NULL OR signed_group IS NOT NULL) LIMIT 1;";
         let result: Option<u64> = query_row(&self.db, query, [tenure])?;
 
         Ok(result.is_some())
@@ -1478,6 +1541,10 @@ impl SignerDb {
     }
 
     /// Return the last accepted block in a tenure (identified by its consensus hash).
+    ///
+    /// Note: this includes blocks that were only pre-committed. A pre-commit does not put a
+    /// signature over the block, so this must NOT be used to determine the tenure's tip for
+    /// validation purposes -- use [`SignerDb::get_last_signed_block`] for that.
     pub fn get_last_accepted_block(
         &self,
         tenure: &ConsensusHash,
@@ -1498,6 +1565,10 @@ impl SignerDb {
     /// A block is considered signed if it is locally or globally accepted. Blocks that
     /// have only been pre-committed are excluded, because a pre-commit does not put a
     /// signature over the block and may be safely superseded by a competing proposal.
+    ///
+    /// This answers "what is the tenure's signed tip?", a different question from
+    /// [`SignerDb::has_signed_block_in_tenure`]'s "does a signature bind us to this tenure?",
+    /// which is why the predicates deliberately differ on rejected blocks (see there).
     pub fn get_last_signed_block(
         &self,
         tenure: &ConsensusHash,
@@ -1513,54 +1584,97 @@ impl SignerDb {
         try_deserialize(result)
     }
 
-    /// Return a signed block in a tenure at or above the given Stacks height that was endorsed
-    /// strictly after `endorsed_after` (epoch seconds), excluding the block with the given
-    /// signer signature hash. A block is considered signed if it is locally or globally accepted.
-    pub fn get_fresh_signed_conflict(
+    /// Return every signed block at or above the given Stacks height, in ANY tenure, excluding
+    /// the block with the given signer signature hash, ordered by height (highest first). A
+    /// block is considered signed if a signature was ever put over it, ours (`signed_self`)
+    /// or the observed group's (`signed_group`). Blocks that were only pre-committed carry no
+    /// signature and are never returned. Each row carries the most recent endorsement time
+    /// (`signed_self`/`signed_group`, whichever is later) so the caller can judge freshness per
+    /// conflict.
+    ///
+    /// The search deliberately spans all tenures: two blocks at the same height are siblings
+    /// no matter which tenure they belong to (e.g. a tenure-start block conflicts with the
+    /// previous tenure's block at the same height), so a signature over either may conflict
+    /// with a fresh signature over the other.
+    ///
+    /// Blocks in tenures whose reorg we sanctioned under the reorg-timing rules (see
+    /// [`SignerDb::mark_tenure_superseded`]) are still returned, but annotated with the
+    /// permitting tenure's sortition (`superseded_by_*`): the permit only holds while that
+    /// sortition is canonical, which the caller derives from the node per evaluation (see
+    /// `Signer::reorg_permit_stands`) -- like every other question about whether a conflict is
+    /// still *live* (`Signer::conflict_still_blocks`), it is not recorded.
+    pub fn get_signed_conflicts(
         &self,
-        tenure: &ConsensusHash,
         height: u64,
         excluded_signer_signature_hash: &Sha512Trunc256Sum,
-        endorsed_after: u64,
-    ) -> Result<Option<SignedConflictInfo>, DBError> {
-        let query = "SELECT signer_signature_hash, stacks_height
-            FROM blocks
-            WHERE consensus_hash = ?1 AND state IN (?2, ?3) AND stacks_height >= ?4
-                AND signer_signature_hash != ?5
-                AND MAX(COALESCE(signed_self, 0), COALESCE(signed_group, 0)) > ?6
-            LIMIT 1";
+    ) -> Result<Vec<SignedConflictInfo>, DBError> {
+        let query = "SELECT b.consensus_hash, b.signer_signature_hash, b.stacks_height, b.state,
+                MAX(COALESCE(b.signed_self, 0), COALESCE(b.signed_group, 0)) AS last_endorsed,
+                st.superseded_by_consensus_hash, st.superseded_by_burn_block_hash
+            FROM blocks b
+            LEFT JOIN superseded_tenures st ON st.consensus_hash = b.consensus_hash
+            WHERE (b.signed_self IS NOT NULL OR b.signed_group IS NOT NULL)
+                AND b.stacks_height >= ?1
+                AND b.signer_signature_hash != ?2
+            ORDER BY b.stacks_height DESC";
         let args = params![
-            tenure,
-            &BlockState::GloballyAccepted.to_string(),
-            &BlockState::LocallyAccepted.to_string(),
             u64_to_sql(height)?,
             excluded_signer_signature_hash.to_string(),
-            u64_to_sql(endorsed_after)?,
         ];
-        query_row(&self.db, query, args)
+        query_rows(&self.db, query, args)
     }
 
-    /// Return a signed block in a tenure at or above the given Stacks height, excluding the block
-    /// with the given signer signature hash, regardless of when (or whether) it was endorsed.
-    pub fn get_any_signed_conflict(
-        &self,
-        tenure: &ConsensusHash,
-        height: u64,
-        excluded_signer_signature_hash: &Sha512Trunc256Sum,
-    ) -> Result<Option<SignedConflictInfo>, DBError> {
-        let query = "SELECT signer_signature_hash, stacks_height
-            FROM blocks
-            WHERE consensus_hash = ?1 AND state IN (?2, ?3) AND stacks_height >= ?4
-                AND signer_signature_hash != ?5
-            LIMIT 1";
-        let args = params![
-            tenure,
-            &BlockState::GloballyAccepted.to_string(),
-            &BlockState::LocallyAccepted.to_string(),
-            u64_to_sql(height)?,
-            excluded_signer_signature_hash.to_string(),
-        ];
-        query_row(&self.db, query, args)
+    /// Record that we permitted the tenure identified by `superseded_by_*` to reorg this one
+    /// under the reorg-timing rules (`first_proposal_burn_block_timing`).
+    ///
+    /// Having sanctioned the replacement, our own signature over what this tenure built must not
+    /// then block it: its blocks stop counting as conflicts (see
+    /// [`SignerDb::get_signed_conflicts`]). Recorded when the reorg is permitted rather than
+    /// derived at signing time, because by the time a replacement reaches the pre-commit
+    /// threshold the sortition view that sanctioned the reorg may be long gone.
+    ///
+    /// The permit is only honored while the permitting tenure's sortition is still canonical
+    /// (checked against the node when the record is applied): if a burnchain fork orphans it,
+    /// the reorg we sanctioned can no longer happen, so the record must not keep suppressing
+    /// this tenure's conflicts. A re-permit by a different tenure replaces the record, so the
+    /// latest permitting sortition is the one checked. Records age out via
+    /// [`SignerDb::prune_superseded_tenures`].
+    pub fn mark_tenure_superseded(
+        &mut self,
+        consensus_hash: &ConsensusHash,
+        burn_block_height: u64,
+        superseded_by_consensus_hash: &ConsensusHash,
+        superseded_by_burn_block_hash: &BurnchainHeaderHash,
+    ) -> Result<(), DBError> {
+        self.db.execute(
+            "INSERT OR REPLACE INTO superseded_tenures (consensus_hash, burn_block_height, superseded_by_consensus_hash, superseded_by_burn_block_hash, superseded_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                consensus_hash,
+                u64_to_sql(burn_block_height)?,
+                superseded_by_consensus_hash,
+                superseded_by_burn_block_hash,
+                u64_to_sql(get_epoch_time_secs())?
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Whether we permitted a later tenure to reorg this one
+    #[cfg(any(test, feature = "testing"))]
+    pub fn is_tenure_superseded(&self, consensus_hash: &ConsensusHash) -> Result<bool, DBError> {
+        let query = "SELECT 1 FROM superseded_tenures WHERE consensus_hash = ?1";
+        Ok(query_row::<i64, _>(&self.db, query, params![consensus_hash])?.is_some())
+    }
+
+    /// Drop superseded-tenure records for sortitions below `burn_block_height`. A tenure that
+    /// old cannot conflict with a proposal anywhere near the chain tip, so the record has no
+    /// further use.
+    pub fn prune_superseded_tenures(&mut self, burn_block_height: u64) -> Result<(), DBError> {
+        self.db.execute(
+            "DELETE FROM superseded_tenures WHERE burn_block_height < ?1",
+            params![u64_to_sql(burn_block_height)?],
+        )?;
+        Ok(())
     }
 
     /// Return the last globally accepted block in a tenure (identified by its consensus hash).
@@ -1711,7 +1825,7 @@ impl SignerDb {
             "vote" => vote
         );
         self.db.execute(
-            "INSERT OR REPLACE INTO blocks 
+            "INSERT OR REPLACE INTO blocks
               (reward_cycle, burn_block_height, signer_signature_hash, block_info,
                broadcasted, stacks_height, consensus_hash, valid, state, signed_group, signed_self, approved_time,
                proposed_time, validation_time_ms, tenure_change, tenure_change_cause)
@@ -2533,23 +2647,64 @@ where
 }
 
 /// The identifying details of a signed block that conflicts with a block proposal, as
-/// returned by [`SignerDb::get_fresh_signed_conflict`] and
-/// [`SignerDb::get_any_signed_conflict`].
+/// returned by [`SignerDb::get_signed_conflicts`].
 #[derive(Debug)]
 pub struct SignedConflictInfo {
+    /// The consensus hash of the tenure containing the conflicting block
+    pub consensus_hash: ConsensusHash,
     /// The signer signature hash of the conflicting block
     pub signer_signature_hash: Sha512Trunc256Sum,
     /// The Stacks height of the conflicting block
     pub stacks_height: u64,
+    /// The most recent time (epoch seconds) at which we signed the block or observed the
+    /// signer set accept it (0 if neither was recorded)
+    pub last_endorsed: u64,
+    /// Whether the block reached global acceptance, which is what decides if the node ever had
+    /// it: a locally accepted block is not handed to the node until the whole signer set has
+    /// signed it, so the node not having one says nothing about whether it is still live.
+    pub globally_accepted: bool,
+    /// The sortition of the tenure we permitted to reorg this block's tenure, if we recorded
+    /// such a permit (see [`SignerDb::mark_tenure_superseded`]). The permit excludes this
+    /// conflict only while that sortition is still canonical, which the caller must derive
+    /// from the node.
+    pub superseded_by: Option<SupersededBy>,
+}
+
+/// The sortition of a tenure we permitted to reorg another tenure, as carried by
+/// [`SignedConflictInfo::superseded_by`].
+#[derive(Debug)]
+pub struct SupersededBy {
+    /// The consensus hash of the permitting tenure
+    pub consensus_hash: ConsensusHash,
+    /// The burn block hash of the permitting tenure's sortition, used to ask the node whether
+    /// that sortition is still canonical
+    pub burn_block_hash: BurnchainHeaderHash,
 }
 
 impl FromRow<SignedConflictInfo> for SignedConflictInfo {
     fn from_row(row: &rusqlite::Row) -> Result<Self, DBError> {
+        let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let signer_signature_hash = Sha512Trunc256Sum::from_column(row, "signer_signature_hash")?;
         let stacks_height = u64::from_column(row, "stacks_height")?;
+        let last_endorsed = u64::from_column(row, "last_endorsed")?;
+        let state: String = row.get("state")?;
+        let superseded_by_ch: Option<ConsensusHash> = row.get("superseded_by_consensus_hash")?;
+        let superseded_by_bbh: Option<BurnchainHeaderHash> =
+            row.get("superseded_by_burn_block_hash")?;
+        let superseded_by = match (superseded_by_ch, superseded_by_bbh) {
+            (Some(consensus_hash), Some(burn_block_hash)) => Some(SupersededBy {
+                consensus_hash,
+                burn_block_hash,
+            }),
+            _ => None,
+        };
         Ok(SignedConflictInfo {
+            consensus_hash,
             signer_signature_hash,
             stacks_height,
+            last_endorsed,
+            globally_accepted: state == BlockState::GloballyAccepted.to_string(),
+            superseded_by,
         })
     }
 }
@@ -2755,7 +2910,7 @@ pub mod tests {
     #[test]
     fn test_basic_signer_db() {
         let db_path = tmp_db_path();
-        eprintln!("db path is {}", &db_path.display());
+        eprintln!("db path is {}", db_path.display());
         test_basic_signer_db_with_path(db_path)
     }
 
@@ -3379,10 +3534,11 @@ pub mod tests {
             b.block.header.chain_length = 4;
             b.burn_height = 3;
         });
-        // Give blocks 2 and 3 distinct signing times so the freshest conflict is unambiguous
-        // (`mark_locally_accepted` preserves an already-set `signed_self`).
+        // Give blocks 2, 3, and 4 distinct signing times so the freshest conflict is unambiguous
+        // (`mark_locally_accepted` and `mark_globally_accepted` preserve already-set timestamps).
         block_info_2.signed_self = Some(100);
         block_info_3.signed_self = Some(50);
+        block_info_4.signed_group = Some(60);
         block_info_1.mark_globally_accepted().unwrap();
         block_info_2.mark_locally_accepted(false).unwrap();
         block_info_3.mark_locally_accepted(false).unwrap();
@@ -3443,62 +3599,132 @@ pub mod tests {
             .unwrap()
             .is_none());
 
-        // Verify the signed-conflict queries. Blocks 2 and 3 were signed at times 100 and 50
-        // respectively; block_info_5 (height 4) is only pre-committed, so it must never be
+        // Verify the signed-conflict query. It searches across ALL tenures and returns every
+        // signed conflict, highest first, with its endorsement time. Blocks 2 and 3 (tenure 1,
+        // heights 2 and 3) were signed at times 100 and 50, block 4 (tenure 2, height 3) at
+        // time 60; block_info_5 (height 4) is only pre-committed, so it must never be
         // considered.
         let unrelated_hash = Sha512Trunc256Sum([0xff; 32]);
-        // With a cutoff of 75, only block 2 (signed at 100) is fresh.
-        let conflict = db
-            .get_fresh_signed_conflict(&consensus_hash_1, 2, &unrelated_hash, 75)
-            .unwrap()
+        let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
+        assert_eq!(conflicts.len(), 3);
+        // Heights descending; block 3 and block 4 tie at height 3, then block 2 at height 2.
+        assert_eq!(conflicts[0].stacks_height, 3);
+        assert_eq!(conflicts[1].stacks_height, 3);
+        assert_eq!(conflicts[2].stacks_height, 2);
+        let tenure_2_conflict = conflicts
+            .iter()
+            .find(|c| c.consensus_hash == consensus_hash_2)
             .unwrap();
         assert_eq!(
-            conflict.signer_signature_hash,
+            tenure_2_conflict.signer_signature_hash,
+            block_info_4.block.header.signer_signature_hash()
+        );
+        assert_eq!(tenure_2_conflict.stacks_height, 3);
+        assert_eq!(tenure_2_conflict.last_endorsed, 60);
+        assert_eq!(conflicts[2].consensus_hash, consensus_hash_1);
+        assert_eq!(
+            conflicts[2].signer_signature_hash,
             block_info_2.block.header.signer_signature_hash()
         );
-        assert_eq!(conflict.stacks_height, 2);
-        // The endorsement comparison is strictly-greater-than the cutoff.
-        assert!(db
-            .get_fresh_signed_conflict(&consensus_hash_1, 2, &unrelated_hash, 100)
-            .unwrap()
-            .is_none());
-        // The excluded (proposed) block is never its own conflict, even when fresh.
-        assert!(db
-            .get_fresh_signed_conflict(
-                &consensus_hash_1,
-                2,
-                &block_info_2.block.header.signer_signature_hash(),
-                75,
-            )
-            .unwrap()
-            .is_none());
-        // Any-conflict ignores endorsement times: block 3 (signed at 50) still conflicts.
-        let conflict = db
-            .get_any_signed_conflict(
-                &consensus_hash_1,
-                3,
-                &block_info_2.block.header.signer_signature_hash(),
-            )
-            .unwrap()
+        assert_eq!(conflicts[2].last_endorsed, 100);
+        // Height is a lower bound: at height 3, block 2 no longer conflicts.
+        let conflicts = db.get_signed_conflicts(3, &unrelated_hash).unwrap();
+        assert_eq!(conflicts.len(), 2);
+        assert!(conflicts.iter().all(|c| c.stacks_height == 3));
+        // The excluded (proposed) block is never its own conflict.
+        let conflicts = db
+            .get_signed_conflicts(3, &block_info_4.block.header.signer_signature_hash())
             .unwrap();
+        assert_eq!(conflicts.len(), 1);
         assert_eq!(
-            conflict.signer_signature_hash,
+            conflicts[0].signer_signature_hash,
             block_info_3.block.header.signer_signature_hash()
         );
-        assert_eq!(conflict.stacks_height, 3);
-        // Above every signed block (only the pre-committed block 5 is at height 4): no conflict.
+        assert_eq!(conflicts[0].consensus_hash, consensus_hash_1);
+        assert_eq!(conflicts[0].last_endorsed, 50);
+        // Above every signed block in every tenure (only the pre-committed block 5 is at
+        // height 4): no conflict.
         assert!(db
-            .get_fresh_signed_conflict(&consensus_hash_1, 4, &unrelated_hash, 0)
+            .get_signed_conflicts(4, &unrelated_hash)
             .unwrap()
-            .is_none());
+            .is_empty());
+
+        // A tenure whose reorg we permitted under the reorg-timing rules stays in the results
+        // but carries the permitting tenure's sortition, so the caller can honor the permit
+        // only while that sortition is still canonical. Superseding tenure 1 annotates blocks
+        // 2 and 3; block 4 (tenure 2) stays unannotated.
+        let permitting_ch = ConsensusHash([0x77; 20]);
+        let permitting_bbh = BurnchainHeaderHash([0x88; 32]);
+        assert!(!db.is_tenure_superseded(&consensus_hash_1).unwrap());
+        db.mark_tenure_superseded(&consensus_hash_1, 42, &permitting_ch, &permitting_bbh)
+            .unwrap();
+        assert!(db.is_tenure_superseded(&consensus_hash_1).unwrap());
+        let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
+        assert_eq!(conflicts.len(), 3);
+        for conflict in &conflicts {
+            if conflict.consensus_hash == consensus_hash_1 {
+                let superseded_by = conflict.superseded_by.as_ref().unwrap();
+                assert_eq!(superseded_by.consensus_hash, permitting_ch);
+                assert_eq!(superseded_by.burn_block_hash, permitting_bbh);
+            } else {
+                assert!(conflict.superseded_by.is_none());
+            }
+        }
+
+        // A re-permit by a different tenure replaces the record, so the latest permitting
+        // sortition is the one carried.
+        let repermitting_ch = ConsensusHash([0x79; 20]);
+        let repermitting_bbh = BurnchainHeaderHash([0x8a; 32]);
+        db.mark_tenure_superseded(&consensus_hash_1, 42, &repermitting_ch, &repermitting_bbh)
+            .unwrap();
+        let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
+        let annotated = conflicts
+            .iter()
+            .find(|c| c.consensus_hash == consensus_hash_1)
+            .unwrap();
+        let superseded_by = annotated.superseded_by.as_ref().unwrap();
+        assert_eq!(superseded_by.consensus_hash, repermitting_ch);
+        assert_eq!(superseded_by.burn_block_hash, repermitting_bbh);
+
+        db.mark_tenure_superseded(&consensus_hash_2, 43, &permitting_ch, &permitting_bbh)
+            .unwrap();
         assert!(db
-            .get_any_signed_conflict(&consensus_hash_1, 4, &unrelated_hash)
+            .get_signed_conflicts(2, &unrelated_hash)
             .unwrap()
-            .is_none());
-        assert!(db
-            .get_any_signed_conflict(&consensus_hash_3, 1, &unrelated_hash)
+            .iter()
+            .all(|c| c.superseded_by.is_some()));
+
+        // Pruning only drops records for sortitions below the cutoff: tenure 1 (burn 42) goes,
+        // tenure 2 (burn 43) stays, so tenure 1's blocks lose their annotation.
+        db.prune_superseded_tenures(43).unwrap();
+        assert!(!db.is_tenure_superseded(&consensus_hash_1).unwrap());
+        assert!(db.is_tenure_superseded(&consensus_hash_2).unwrap());
+        let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
+        assert_eq!(conflicts.len(), 3);
+        for conflict in &conflicts {
+            assert_eq!(
+                conflict.superseded_by.is_some(),
+                conflict.consensus_hash == consensus_hash_2
+            );
+        }
+
+        // Rejection does not clear a conflict: the signature over block 3 is public and can
+        // still be aggregated toward the 70% threshold if rejecting signers change their
+        // minds, so it keeps conflicting even once globally rejected. The tip question is
+        // different: a rejected block is no longer the tenure's signed tip.
+        block_info_3.mark_globally_rejected().unwrap();
+        db.insert_block(&block_info_3).unwrap();
+        let conflicts = db.get_signed_conflicts(2, &unrelated_hash).unwrap();
+        assert_eq!(conflicts.len(), 3);
+        assert!(conflicts.iter().any(|c| {
+            c.signer_signature_hash == block_info_3.block.header.signer_signature_hash()
+                && !c.globally_accepted
+        }));
+        let tip = db
+            .get_last_signed_block(&consensus_hash_1)
             .unwrap()
-            .is_none());
+            .unwrap();
+        assert_eq!(tip, block_info_2);
     }
 
     fn generate_tenure_blocks() -> Vec<BlockInfo> {
@@ -3862,6 +4088,63 @@ pub mod tests {
 
         assert!(db.has_approved_block_in_tenure(&consensus_hash_1).unwrap());
         assert!(db.has_approved_block_in_tenure(&consensus_hash_2).unwrap());
+    }
+
+    #[test]
+    fn has_signed_block() {
+        let db_path = tmp_db_path();
+        let consensus_hash_1 = ConsensusHash([0x01; 20]);
+        let consensus_hash_2 = ConsensusHash([0x02; 20]);
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let (mut block_info, _) = create_block_override(|b| {
+            b.block.header.consensus_hash = consensus_hash_1.clone();
+            b.block.header.chain_length = 1;
+        });
+
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        // A pre-commit sets `approved_time` but puts no signature over the block, so it must
+        // not count as a signed block. This is the regression: treating it as signed suppressed
+        // the miner inactivity timeout and stalled the tenure.
+        block_info.mark_pre_committed().unwrap();
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_approved_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        // Signing it locally does count.
+        block_info.mark_locally_accepted(false).unwrap();
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        // A block signed by the group in another tenure counts for that tenure only.
+        block_info.block.header.consensus_hash = consensus_hash_2.clone();
+        block_info.block.header.chain_length = 2;
+        block_info.signed_self = None;
+        block_info.signed_group = None;
+        block_info.approved_time = None;
+        db.insert_block(&block_info).unwrap();
+
+        assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        block_info.signed_group = Some(get_epoch_time_secs());
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
+
+        // Global rejection does not clear the commitment: a rejection is a revocable opinion,
+        // while the signature is public and can still be aggregated toward the 70% threshold
+        // if enough rejecting signers change their minds. The block must keep counting.
+        block_info.mark_globally_rejected().unwrap();
+        db.insert_block(&block_info).unwrap();
+
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
+        assert!(db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
     }
 
     #[test]
@@ -4853,6 +5136,16 @@ pub mod tests {
                             "Index should not exist: {removed}"
                         );
                     }
+                }
+                SchemaVersion::V20 => {
+                    // The superseded tenures table exists and starts empty
+                    let superseded: i64 = signer_db
+                        .db
+                        .query_row("SELECT COUNT(*) FROM superseded_tenures", [], |row| {
+                            row.get(0)
+                        })
+                        .expect("superseded_tenures table should exist after V20");
+                    assert_eq!(superseded, 0);
                 }
             }
         }

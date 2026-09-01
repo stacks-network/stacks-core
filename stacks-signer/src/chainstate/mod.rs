@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TenureChangePayload;
+use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksPublicKey};
@@ -158,9 +159,17 @@ impl TryFrom<SortitionInfo> for SortitionData {
 impl SortitionData {
     /// Check if the tenure defined by `sortition_state` is building off of an
     ///  appropriate tenure.
+    ///
+    /// A permitted reorg is recorded once the whole reorg is permitted: each tenure whose
+    /// blocks this one is allowed to replace is marked superseded (see
+    /// [`SignerDb::mark_tenure_superseded`]), so a signature we already placed on one of those
+    /// blocks does not later block the replacement. The record carries this tenure's sortition
+    /// as the permitting one, so the permit stops applying if a burnchain fork later orphans
+    /// it. Nothing is recorded for a refused reorg, even for the tenures in it that
+    /// individually qualified.
     pub fn check_parent_tenure_choice(
         &self,
-        signer_db: &SignerDb,
+        signer_db: &mut SignerDb,
         client: &StacksClient,
         first_proposal_burn_block_timing: &Duration,
     ) -> Result<bool, SignerChainstateError> {
@@ -189,6 +198,9 @@ impl SortitionData {
         let sortition_state_received_time =
             signer_db.get_burn_block_receive_time(&self.burn_block_hash)?;
 
+        // Track which tenures are superseded by the reorg, then mark them in
+        // the DB after the reorg is permitted.
+        let mut superseded_tenures = Vec::new();
         for tenure in tenures_reorged.iter() {
             if tenure.consensus_hash == self.parent_tenure_id {
                 // this was a built-upon tenure, no need to check this tenure as part of the reorg.
@@ -211,6 +223,12 @@ impl SortitionData {
             }
 
             let Some(first_block_mined) = &tenure.first_block_mined else {
+                // The node saw no blocks in this tenure, so the reorg takes nothing away from
+                // the canonical chain. We may still hold a signature over a block in it that
+                // the node has never seen (a block we accept locally is not handed to the node
+                // until the whole signer set has signed it), so the reorg must still be
+                // recorded if it is permitted.
+                superseded_tenures.push(tenure);
                 continue;
             };
             let Some(local_block_info) =
@@ -251,6 +269,7 @@ impl SortitionData {
                         "first_proposal_burn_block_timing_secs" => first_proposal_burn_block_timing.as_secs(),
                         "proposal_to_sortition" => proposal_to_sortition,
                     );
+                    superseded_tenures.push(tenure);
                     continue;
                 }
                 true
@@ -268,28 +287,62 @@ impl SortitionData {
             );
             return Ok(false);
         }
+        // Every reorged tenure cleared the rules, so the reorg is permitted.
+        for tenure in superseded_tenures {
+            self.record_superseded_tenure(signer_db, tenure);
+        }
         Ok(true)
+    }
+
+    /// Note that we have sanctioned `self`'s tenure replacing whatever `tenure` built, so a
+    /// signature we already placed on one of its blocks must stop counting as a conflict while
+    /// `self`'s sortition remains canonical.
+    ///
+    /// A failure to record only costs a delayed replacement -- the conflict keeps blocking until
+    /// the signature goes stale -- so it is logged rather than propagated.
+    fn record_superseded_tenure(&self, signer_db: &mut SignerDb, tenure: &TenureForkingInfo) {
+        if let Err(e) = signer_db.mark_tenure_superseded(
+            &tenure.consensus_hash,
+            tenure.burn_block_height,
+            &self.consensus_hash,
+            &self.burn_block_hash,
+        ) {
+            warn!("Failed to record a tenure whose reorg we permitted: {e}";
+                "superseded_tenure_id" => %tenure.consensus_hash,
+                "superseded_by" => %self.consensus_hash,
+            );
+        }
     }
 
     /// Get the last signed block from the given tenure if it has not timed out.
     /// Even globally accepted blocks are allowed to be timed out, as that
     /// triggers the signer to consult the Stacks node for the latest globally
     /// accepted block. This is needed to handle Bitcoin reorgs correctly.
+    ///
+    /// The timeout window is measured from the last time a signature actually covered the
+    /// block: our own (`signed_self`) or the observed group/global acceptance
+    /// (`signed_group`), whichever is later, matching how `get_signed_conflicts` measures
+    /// endorsement freshness. `approved_time` is deliberately not used: it is stamped at
+    /// pre-commit, which carries no signature, so it would close the window early. This also
+    /// means a globally accepted block we never signed ourselves gets a full window from the
+    /// time its acceptance was observed, rather than timing out instantly for lack of a
+    /// timestamp.
     pub fn get_tenure_last_block_info(
         consensus_hash: &ConsensusHash,
         signer_db: &SignerDb,
         tenure_last_block_proposal_timeout: Duration,
     ) -> Result<Option<BlockInfo>, ClientError> {
-        // Get the last accepted block in the tenure
-        let last_accepted_block = signer_db
-            .get_last_accepted_block(consensus_hash)
+        // Get the last signed block in the tenure
+        let last_signed_block = signer_db
+            .get_last_signed_block(consensus_hash)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
 
-        let Some(block_info) = last_accepted_block else {
+        let Some(block_info) = last_signed_block else {
             return Ok(None);
         };
 
-        let Some(signed_over_time) = block_info.approved_time else {
+        // `approved_time` may hold the pre-commit time; use the actual signature time.
+        let Some(signed_over_time) = block_info.signed_self.max(block_info.signed_group) else {
             return Ok(None);
         };
 
@@ -366,6 +419,34 @@ impl SortitionData {
             }
         }
 
+        // A block we have only pre-committed to must NOT veto this proposal, but, similar to above
+        // this should still count as activity for the miner.
+        let last_accepted_block = signer_db
+            .get_last_accepted_block(tenure_id)
+            .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
+        if let Some(info) = last_accepted_block {
+            let is_fresh_pre_commit = info.state == BlockState::PreCommitted
+                && info.approved_time.is_some_and(|approved_time| {
+                    approved_time.saturating_add(tenure_last_block_proposal_timeout.as_secs())
+                        > get_epoch_time_secs()
+                });
+            if is_fresh_pre_commit && block.header.chain_length <= info.block.header.chain_length {
+                info!(
+                    "Miner's block proposal conflicts with a block we have only pre-committed to. Counting it as miner activity, but not rejecting the proposal.";
+                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
+                    "proposed_chain_length" => block.header.chain_length,
+                    "pre_committed_signer_signature_hash" => %info.block.header.signer_signature_hash(),
+                    "pre_committed_chain_length" => info.block.header.chain_length,
+                );
+                if let Err(e) = signer_db
+                    .update_last_activity_time(&block.header.consensus_hash, get_epoch_time_secs())
+                {
+                    warn!("Failed to update last activity time: {e}");
+                }
+            }
+        }
+
         let tip = match client.get_tenure_tip(tenure_id) {
             Ok(tip) => tip.anchored_header,
             Err(e) => {
@@ -397,7 +478,7 @@ impl SortitionData {
     }
 
     /// Check if the tenure change block confirms the expected parent block
-    /// (i.e., the last locally accepted block in the parent tenure, or if that block is timed out, the last globally accepted block in the parent tenure)
+    /// (i.e., the last signed block in the parent tenure, or if that block is timed out, the last globally accepted block in the parent tenure)
     /// It checks the local DB first, and if the block is not present in the local DB, it asks the
     /// Stacks node for the highest processed block header in the given tenure (and then caches it
     /// in the DB).
@@ -499,7 +580,7 @@ impl SortitionState {
     ///  (2) has not "timed out"
     pub fn is_tenure_valid(
         &self,
-        signer_db: &SignerDb,
+        signer_db: &mut SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,

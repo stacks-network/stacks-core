@@ -1,0 +1,1 @@
+Lower the default StackerDB timeouts to retry HTTP RPC sooner.

@@ -20,6 +20,7 @@ use std::{env, thread};
 
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{BlockResponse, RejectReason};
+use libsigner::v0::signer_state::MinerState;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
@@ -30,12 +31,13 @@ use stacks::codec::StacksMessageCodec;
 use stacks::core::test_util::{make_stacks_transfer_serialized, to_addr};
 use stacks::core::StacksEpochId;
 use stacks::net::relay::fault_injection::set_ignore_block;
-use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
+use stacks::types::chainstate::{ConsensusHash, StacksAddress, StacksPublicKey};
 use stacks::types::PublicKey;
 use stacks::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::types::chainstate::TrieHash;
 use stacks_common::util::sleep_ms;
+use stacks_signer::v0::signer_state::LocalStateMachine;
 use stacks_signer::v0::tests::{
     TEST_PIN_SUPPORTED_SIGNER_PROTOCOL_VERSION, TEST_REJECT_ALL_BLOCK_PROPOSAL,
     TEST_SIGNERS_SKIP_BLOCK_RESPONSE_BROADCAST, TEST_SKIP_BLOCK_BROADCAST,
@@ -54,8 +56,8 @@ use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{next_block_and, next_block_and_controller, wait_for};
 use crate::tests::neon_integrations::{
-    get_account, get_chain_info, get_chain_info_opt, get_sortition_info, submit_tx, test_observer,
-    TestProxy,
+    get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch,
+    submit_tx, test_observer, TestProxy,
 };
 use crate::tests::{self, gen_random_port};
 use crate::{BitcoinRegtestController, Keychain};
@@ -218,6 +220,18 @@ fn reorg_attempts_count_towards_miner_validity() {
         num_signers,
     )
     .expect("Failed to see majority rejections of block N'");
+
+    // No signer should have put a signature over block N': it is a sibling of
+    // the already-signed block N, so accepting it would be a double-sign.
+    for (_chunk, message) in get_stackerdb_signer_messages() {
+        if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
+            assert_ne!(
+                accepted.signer_signature_hash,
+                block_proposal_n_prime.header.signer_signature_hash(),
+                "A signer accepted block N', which conflicts with the already-signed block N"
+            );
+        }
+    }
 
     let wait_for = block_proposal_timeout
         .saturating_sub(start.elapsed())
@@ -2198,6 +2212,251 @@ fn bitcoind_forking_test() {
         "New chain info: {:?}",
         get_chain_info(&signer_test.running_nodes.conf)
     );
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Test that the miner inactivity timeout does not revert signers to a miner
+/// that cannot continue its tenure after a Bitcoin reorg.
+///
+/// After a 1-block Bitcoin fork orphans the latest tenure, the replacement
+/// burn block's sortition is won by the re-included block commit. Its parent
+/// (the post-reorg canonical tip) makes it a valid fallback tenure from the
+/// signers' point of view, but no blocks are ever mined in it: the canonical
+/// Stacks tip stays in an older tenure, so its miner will never issue a tenure
+/// extend for it. If the next sortition's winner is then slow to propose,
+/// signers used to revert their active miner view to the replacement
+/// sortition's miner and reject all of the actual winner's proposals until the
+/// next burn block. Signers must only revert to a prior miner whose tenure
+/// contains the canonical Stacks tip.
+///
+/// Test Setup:
+/// The test spins up five stacks signers, one miner Nakamoto node, and a
+/// corresponding bitcoind. The block proposal timeout is set to 60 seconds.
+///
+/// Test Execution:
+/// - Mine several normal tenures.
+/// - Stall the miner, then trigger a 1-block Bitcoin fork, orphaning the
+///   latest tenure. The replacement burn block's sortition is won by the
+///   re-included block commit, but no blocks are mined in its tenure.
+/// - Mine empty burn blocks until the miner submits a fresh commit, then mine
+///   a burn block whose sortition the miner wins, keeping the miner stalled
+///   past the block proposal timeout.
+/// - Verify that every signer still reports the new sortition's winner as the
+///   active miner rather than reverting to the replacement sortition's miner.
+/// - Unstall the miner.
+///
+/// Test Assertion:
+/// The stacks tip advances into the new sortition's tenure.
+fn no_revert_to_prior_miner_after_bitcoin_fork() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let block_proposal_timeout = Duration::from_secs(60);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        num_signers,
+        vec![],
+        |signer_config| {
+            signer_config.block_proposal_timeout = block_proposal_timeout;
+        },
+        |node_config| {
+            node_config.miner.block_commit_delay = Duration::from_secs(1);
+        },
+        None,
+        None,
+    );
+    let conf = signer_test.running_nodes.conf.clone();
+    // The BTC key funds the block commits; the Stacks mining key is the one a
+    // sortition's `miner_pk_hash160` refers to.
+    let btc_miner_pk = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_mining_pubkey()
+        .as_deref()
+        .map(Secp256k1PublicKey::from_hex)
+        .unwrap()
+        .unwrap();
+    let miner_sk = conf.miner.mining_key.clone().unwrap();
+    let miner_pkh = Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner_sk));
+
+    let get_unconfirmed_commit_data = |btc_controller: &BitcoinRegtestController| {
+        let unconfirmed_utxo = btc_controller
+            .get_all_utxos(&btc_miner_pk)
+            .into_iter()
+            .find(|utxo| utxo.confirmations == 0)?;
+        let unconfirmed_txid = Txid::from_bitcoin_tx_hash(&unconfirmed_utxo.txid);
+        let unconfirmed_tx = btc_controller.get_raw_transaction(&unconfirmed_txid);
+        let unconfirmed_tx_opreturn_bytes = unconfirmed_tx.output[0].script_pubkey.as_bytes();
+        let data = LeaderBlockCommitOp::parse_data(
+            &unconfirmed_tx_opreturn_bytes[unconfirmed_tx_opreturn_bytes.len() - 77..],
+        )
+        .unwrap();
+        Some(data)
+    };
+
+    let assert_all_signers_active_tenure =
+        |state_machines: Vec<LocalStateMachine>, expected_tenure: &ConsensusHash| {
+            for (ix, state_machine) in state_machines.into_iter().enumerate() {
+                let LocalStateMachine::Initialized(state_machine) = state_machine else {
+                    panic!("Local state machine for signer #{ix} was not initialized");
+                };
+                let MinerState::ActiveMiner { tenure_id, .. } = state_machine.current_miner else {
+                    panic!("State machine for signer #{ix} did not have an active miner");
+                };
+                assert_eq!(
+                    tenure_id, *expected_tenure,
+                    "Signer #{ix} does not view the expected tenure's miner as active"
+                );
+            }
+        };
+
+    signer_test.boot_to_epoch_3();
+    info!("------------------------- Reached Epoch 3.0 -------------------------");
+
+    let pre_fork_tenures = 10;
+    for i in 0..pre_fork_tenures {
+        info!("Mining pre-fork tenure {} of {pre_fork_tenures}", i + 1);
+        signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+        signer_test.check_signer_states_normal();
+    }
+
+    // Stall the miner BEFORE the fork so that no blocks are ever mined in the
+    // replacement burn block's tenure.
+    fault_injection_stall_miner();
+
+    info!("------------------------- Triggering Bitcoin Fork -------------------------");
+
+    let burn_block_height = get_chain_info(&conf).burn_block_height;
+    let burn_header_hash_to_fork = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_block_hash(burn_block_height);
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .invalidate_block(&burn_header_hash_to_fork);
+    signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .build_next_block(1);
+
+    // The replacement burn block's sortition is won by the re-included commit.
+    // Its tenure is valid (its parent is the canonical tip), so signer states
+    // are still "normal" -- but no blocks will ever be mined in it.
+    signer_test.check_signer_states_normal();
+    let replacement_tenure = get_chain_info(&conf).pox_consensus;
+    let replacement_sortition = get_sortition_info_ch(&conf, &replacement_tenure);
+    assert!(replacement_sortition.was_sortition);
+
+    let submitted_commits = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
+
+    // We need to mine some blocks for the miner to be considered a frequent
+    // miner again. These burn blocks have no sortition. Note: we deliberately
+    // do NOT check signer states in this loop; the stalled miner may exceed
+    // the block proposal timeout while these blocks are mined, and the states
+    // are recomputed at each burn block arrival anyway.
+    for i in 0..3 {
+        let current_burn_height = get_chain_info(&conf).burn_block_height;
+        info!(
+            "Mining block #{i} to be considered a frequent miner";
+            "current_burn_height" => current_burn_height,
+        );
+        let commits_count = submitted_commits.load(Ordering::SeqCst);
+        next_block_and_controller(
+            &signer_test.running_nodes.btc_regtest_controller,
+            60,
+            |btc_controller| {
+                let commits_submitted = submitted_commits.load(Ordering::SeqCst);
+                if commits_submitted <= commits_count {
+                    // wait until a commit was submitted
+                    return Ok(false);
+                }
+                let Some(payload) = get_unconfirmed_commit_data(btc_controller) else {
+                    warn!("Commit submitted, but bitcoin doesn't see it in the unconfirmed UTXO set, will try to wait.");
+                    return Ok(false);
+                };
+                let burn_parent_modulus = payload.burn_parent_modulus;
+                let current_modulus = u8::try_from((current_burn_height + 1) % 5).unwrap();
+                Ok(burn_parent_modulus == current_modulus)
+            },
+        )
+        .unwrap();
+    }
+
+    info!(
+        "------------------------- Mining Sortition With Stalled Winner -------------------------"
+    );
+
+    let current_burn_height = get_chain_info(&conf).burn_block_height;
+    let commits_count = submitted_commits.load(Ordering::SeqCst);
+    next_block_and_controller(
+        &signer_test.running_nodes.btc_regtest_controller,
+        60,
+        |btc_controller| {
+            let commits_submitted = submitted_commits.load(Ordering::SeqCst);
+            if commits_submitted <= commits_count {
+                return Ok(false);
+            }
+            let Some(payload) = get_unconfirmed_commit_data(btc_controller) else {
+                return Ok(false);
+            };
+            let burn_parent_modulus = payload.burn_parent_modulus;
+            let current_modulus = u8::try_from((current_burn_height + 1) % 5).unwrap();
+            Ok(burn_parent_modulus == current_modulus)
+        },
+    )
+    .unwrap();
+
+    let stalled_winner_tenure = get_chain_info(&conf).pox_consensus;
+    let stalled_winner_sortition = get_sortition_info_ch(&conf, &stalled_winner_tenure);
+    assert!(
+        stalled_winner_sortition.was_sortition,
+        "The new burn block must have a sortition winner"
+    );
+    assert_eq!(
+        stalled_winner_sortition.miner_pk_hash160,
+        Some(miner_pkh.clone())
+    );
+    assert_ne!(stalled_winner_tenure, replacement_tenure);
+
+    // All signers view the new sortition's winner as the active miner.
+    let (state_machines, _) = signer_test.get_burn_updated_states();
+    assert_all_signers_active_tenure(state_machines, &stalled_winner_tenure);
+
+    info!(
+        "------------------------- Waiting Out The Block Proposal Timeout -------------------------"
+    );
+
+    // Keep the miner stalled past the block proposal timeout: the inactivity
+    // check must NOT revert the signers to the replacement sortition's miner,
+    // because the canonical stacks tip is not in that miner's tenure (its node
+    // will never mine in it).
+    sleep_ms(block_proposal_timeout.as_millis() as u64 + 15_000);
+
+    let (state_machines, _) = signer_test.get_burn_updated_states();
+    assert_all_signers_active_tenure(state_machines, &stalled_winner_tenure);
+
+    info!("------------------------- Unstalling The Miner -------------------------");
+
+    let info_before = get_chain_info(&conf);
+    fault_injection_unstall_miner();
+
+    // The (very late) proposals from the sortition winner must be accepted:
+    // the stacks tip advances into its tenure.
+    wait_for(120, || {
+        let info = get_chain_info(&conf);
+        Ok(info.stacks_tip_consensus_hash == stalled_winner_tenure
+            && info.stacks_tip_height > info_before.stacks_tip_height)
+    })
+    .expect("Timed out waiting for the stalled sortition winner's blocks to be accepted");
+
     signer_test.shutdown();
 }
 

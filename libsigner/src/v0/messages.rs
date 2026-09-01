@@ -1072,6 +1072,7 @@ impl From<&RejectReason> for RejectReasonPrefix {
             RejectReason::NoSignerConsensus => RejectReasonPrefix::NoSignerConsensus,
             RejectReason::ConsensusHashMismatch { .. } => RejectReasonPrefix::ConsensusHashMismatch,
             RejectReason::ProblematicTransactions => RejectReasonPrefix::ProblematicTransactions,
+            RejectReason::ProposalTooOld => RejectReasonPrefix::ProposalTooOld,
             RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
             RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
@@ -1160,6 +1161,9 @@ pub enum RejectReason {
     /// The block marks one or more transactions as problematic, which signers
     /// do not yet allow
     ProblematicTransactions,
+    /// The block proposal's header timestamp is older than the signer's
+    /// configured `block_proposal_max_age_secs`
+    ProposalTooOld,
     /// The block was approved, no rejection details needed
     NotRejected,
     /// Handle unknown codes gracefully
@@ -1210,6 +1214,9 @@ pub enum RejectReasonPrefix {
     /// The block marks one or more transactions as problematic, which signers
     /// do not yet allow
     ProblematicTransactions = 17,
+    /// The block proposal's header timestamp is older than the signer's
+    /// configured `block_proposal_max_age_secs`
+    ProposalTooOld = 18,
     /// Unknown reject code, for forward compatibility
     Unknown = 254,
     /// The block was approved, no rejection details needed
@@ -1238,6 +1245,7 @@ impl RejectReasonPrefix {
             Self::NoSignerConsensus => 15,
             Self::ConsensusHashMismatch => 16,
             Self::ProblematicTransactions => 17,
+            Self::ProposalTooOld => 18,
             Self::Unknown => 254,
             Self::NotRejected => 255,
         }
@@ -1265,6 +1273,7 @@ impl From<u8> for RejectReasonPrefix {
             15 => Self::NoSignerConsensus,
             16 => Self::ConsensusHashMismatch,
             17 => Self::ProblematicTransactions,
+            18 => Self::ProposalTooOld,
             255 => Self::NotRejected,
             // For forward compatibility, all other values are unknown
             _ => Self::Unknown,
@@ -1491,7 +1500,7 @@ impl StacksMessageCodec for SignerMessageMetadata {
                 let server_version = String::from_utf8(server_version).map_err(|e| {
                     CodecError::DeserializeError(format!(
                         "Failed to decode server version: {:?}",
-                        &e
+                        e
                     ))
                 })?;
                 Ok(Self { server_version })
@@ -1843,7 +1852,7 @@ impl StacksMessageCodec for BlockRejection {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let reason_bytes = read_next::<Vec<u8>, _>(fd)?;
         let reason = String::from_utf8(reason_bytes).map_err(|e| {
-            CodecError::DeserializeError(format!("Failed to decode reason string: {:?}", &e))
+            CodecError::DeserializeError(format!("Failed to decode reason string: {:?}", e))
         })?;
         let reason_code = read_next::<RejectCode, _>(fd)?;
         let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
@@ -1888,7 +1897,7 @@ impl StacksMessageCodec for RejectCode {
                 ValidateRejectCode::try_from(read_next::<u8, _>(fd)?).map_err(|e| {
                     CodecError::DeserializeError(format!(
                         "Failed to decode validation reject code: {:?}",
-                        &e
+                        e
                     ))
                 })?,
             ),
@@ -1930,6 +1939,7 @@ impl StacksMessageCodec for RejectReason {
             | RejectReason::IrrecoverablePubkeyHash
             | RejectReason::NoSignerConsensus
             | RejectReason::ProblematicTransactions
+            | RejectReason::ProposalTooOld
             | RejectReason::Unknown(_)
             | RejectReason::NotRejected => {
                 // No additional data to serialize / deserialize
@@ -1948,7 +1958,7 @@ impl StacksMessageCodec for RejectReason {
                 ValidateRejectCode::try_from(read_next::<u8, _>(fd)?).map_err(|e| {
                     CodecError::DeserializeError(format!(
                         "Failed to decode validation reject code: {:?}",
-                        &e
+                        e
                     ))
                 })?,
             ),
@@ -1975,6 +1985,7 @@ impl StacksMessageCodec for RejectReason {
                 RejectReason::ConsensusHashMismatch { expected, actual }
             }
             RejectReasonPrefix::ProblematicTransactions => RejectReason::ProblematicTransactions,
+            RejectReasonPrefix::ProposalTooOld => RejectReason::ProposalTooOld,
             RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
             RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
@@ -2079,6 +2090,12 @@ impl std::fmt::Display for RejectReason {
                 write!(
                     f,
                     "The block has an irrecoverable associated miner public key hash."
+                )
+            }
+            RejectReason::ProposalTooOld => {
+                write!(
+                    f,
+                    "The block proposal's header timestamp is older than the maximum proposal age."
                 )
             }
             RejectReason::NoSignerConsensus => {

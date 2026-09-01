@@ -29,14 +29,13 @@ runs:
           with:
               artifact_download_pattern: "${{ github.sha }}-stacks-core*"
 
-        # Generate the release body from the template and changelogs
+        # Generate the release body from the template and changelog
         - name: Draft Release Body
           id: draft
           shell: bash
           env:
               VERSION: ${{ inputs.tag }}
               CHANGELOG: CHANGELOG.md
-              SIGNER_CHANGELOG: stacks-signer/CHANGELOG.md
               TEMPLATE: .github/actions/release/create-github-release/release.template
               REPO: ${{ github.repository }}
               DIGEST_MANIFEST: ${{ inputs.digest_manifest }}
