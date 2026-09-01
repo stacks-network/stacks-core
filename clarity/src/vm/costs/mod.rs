@@ -204,7 +204,7 @@ pub struct ClarityCostFunctionReference {
 
 impl ::std::fmt::Display for ClarityCostFunctionReference {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "{}.{}", &self.contract_id, &self.function_name)
+        write!(f, "{}.{}", self.contract_id, self.function_name)
     }
 }
 
@@ -274,7 +274,7 @@ impl DefaultVersion {
         } else if value.name.as_str() == COSTS_5_NAME {
             Ok(Self::Costs5)
         } else {
-            Err(format!("Unknown default contract {}", &value.name))
+            Err(format!("Unknown default contract {}", value.name))
         }
     }
 }
@@ -1025,7 +1025,7 @@ impl TrackerData {
             }
         }
 
-        for (_, circuit_target) in self.contract_call_circuits.iter() {
+        for circuit_target in self.contract_call_circuits.values() {
             if !cost_contracts.contains_key(&circuit_target.contract_id) {
                 let contract = match clarity_db.get_contract(&circuit_target.contract_id) {
                     Ok(contract) => contract,
