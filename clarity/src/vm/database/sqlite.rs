@@ -21,7 +21,7 @@ use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::db::tx_busy_handler;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
-use super::clarity_store::{ContractCommitment, make_contract_hash_key};
+use super::clarity_store::{ContractCommitment, SqliteBackingStore, make_contract_hash_key};
 use super::{
     ClarityBackingStore, ClarityDatabase, ClarityDeserializable, NULL_BURN_STATE_DB,
     NULL_HEADER_DB, SpecialCaseHandler,
@@ -108,7 +108,7 @@ pub fn sqlite_get_contract_hash(
 }
 
 pub fn sqlite_insert_metadata(
-    store: &mut dyn ClarityBackingStore,
+    store: &mut dyn SqliteBackingStore,
     contract: &QualifiedContractIdentifier,
     key: &str,
     value: &str,
@@ -124,7 +124,7 @@ pub fn sqlite_insert_metadata(
 }
 
 pub fn sqlite_get_metadata(
-    store: &mut dyn ClarityBackingStore,
+    store: &mut dyn SqliteBackingStore,
     contract: &QualifiedContractIdentifier,
     key: &str,
 ) -> Result<Option<String>, VmExecutionError> {
@@ -133,7 +133,7 @@ pub fn sqlite_get_metadata(
 }
 
 pub fn sqlite_get_metadata_manual(
-    store: &mut dyn ClarityBackingStore,
+    store: &mut dyn SqliteBackingStore,
     at_height: u32,
     contract: &QualifiedContractIdentifier,
     key: &str,
@@ -408,19 +408,17 @@ impl ClarityBackingStore for MemoryBackingStore {
     fn get_data_with_proof(
         &mut self,
         key: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
-        Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
+        // This backend has no MARF trie, so it can't produce a real Merkle proof -- report that
+        // honestly instead of fabricating one.
+        Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, None)))
     }
 
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         self.get_data_with_proof(&hash.to_string())
-    }
-
-    fn get_side_store(&mut self) -> &Connection {
-        &self.side_store
     }
 
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
@@ -485,6 +483,12 @@ impl ClarityBackingStore for MemoryBackingStore {
         key: &str,
     ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
+    }
+}
+
+impl SqliteBackingStore for MemoryBackingStore {
+    fn get_side_store(&mut self) -> &Connection {
+        &self.side_store
     }
 }
 

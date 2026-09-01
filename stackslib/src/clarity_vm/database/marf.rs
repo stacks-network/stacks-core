@@ -23,7 +23,9 @@ use clarity::vm::database::sqlite::{
     sqlite_get_contract_hash, sqlite_get_metadata, sqlite_get_metadata_manual,
     sqlite_insert_metadata,
 };
-use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
+use clarity::vm::database::{
+    ClarityBackingStore, SpecialCaseHandler, SqliteBackingStore, SqliteConnection,
+};
 use clarity::vm::errors::{IncomparableError, RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::Connection;
@@ -35,9 +37,7 @@ use crate::chainstate::stacks::index::marf::{
 };
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, Error, MARFValue};
-use crate::clarity_vm::clarity::{
-    ClarityMarfStore, ClarityMarfStoreTransaction, WritableMarfStore,
-};
+use crate::clarity_vm::clarity::{ClarityStore, ClarityStoreTransaction, WritableClarityStore};
 use crate::clarity_vm::database::ephemeral::EphemeralMarfStore;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
@@ -56,7 +56,7 @@ pub struct MarfedKV {
     /// RAM-backed MARF that will be mutably referenced in an EphemeralMarfStore instance.
     /// Due to limits in Rust's type system, it is necessary for this to be instantiated in
     /// MarfedKV, since it must outlive EphemeralMarfStore, and MarfedKV is the "parent" of
-    /// all data referenced by ClarityMarfStore implementations (including the read-only and
+    /// all data referenced by ClarityStore implementations (including the read-only and
     /// persistent MARF stores).
     ephemeral_marf: Option<MARF<StacksBlockId>>,
 }
@@ -398,16 +398,19 @@ pub struct ReadOnlyMarfStore<'a> {
     marf: &'a mut MARF<StacksBlockId>,
 }
 
-impl ClarityMarfStore for ReadOnlyMarfStore<'_> {}
-impl ClarityMarfStore for PersistentWritableMarfStore<'_> {}
+impl ClarityStore for ReadOnlyMarfStore<'_> {}
+impl ClarityStore for PersistentWritableMarfStore<'_> {}
 
-impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
+impl ClarityStoreTransaction for PersistentWritableMarfStore<'_> {
     /// Commit metadata for a given `target` trie.  In this MARF store, this just renames all
     /// metadata rows with `self.chain_tip` as their block identifier to have `target` instead.
     ///
     /// Returns Ok(()) on success
     /// Returns Err(VmInternalError(..)) on sqlite failure
-    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
+    fn commit_metadata_for_block(
+        &mut self,
+        target: &StacksBlockId,
+    ) -> Result<(), VmExecutionError> {
         SqliteConnection::commit_metadata_to(self.marf.sqlite_tx(), &self.chain_tip, target)
     }
 
@@ -416,13 +419,13 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
     ///
     /// Returns Ok(()) on success
     /// Returns Err(VmInternalError(..)) on sqlite failure
-    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
+    fn drop_metadata_for_block(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         SqliteConnection::drop_metadata(self.marf.sqlite_tx(), target)
     }
 
     /// Seal the trie -- compute the root hash.
     /// NOTE: This is a one-time operation for this implementation -- a subsequent call will panic.
-    fn seal_trie(&mut self) -> TrieHash {
+    fn seal(&mut self) -> TrieHash {
         self.marf
             .seal()
             .expect("FATAL: failed to .seal() MARF transaction")
@@ -430,7 +433,7 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
 
     /// Drop the trie being built. This just drops the data from RAM and aborts the underlying
     /// sqlite transaction.  This instance is consumed.
-    fn drop_current_trie(self) {
+    fn drop_current_block(self) {
         self.marf.drop_current();
     }
 
@@ -442,7 +445,7 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
     fn drop_unconfirmed(mut self) -> Result<(), VmExecutionError> {
         let chain_tip = self.chain_tip.clone();
         debug!("Drop unconfirmed MARF trie {}", &chain_tip);
-        self.drop_metadata_for_trie(&chain_tip)?;
+        self.drop_metadata_for_block(&chain_tip)?;
         self.marf.drop_unconfirmed();
         Ok(())
     }
@@ -455,7 +458,7 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
     /// Returns Err(VmInternalError(..)) on sqlite failure
     fn commit_to_processed_block(mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         debug!("commit_to({})", target);
-        self.commit_metadata_for_trie(target)?;
+        self.commit_metadata_for_block(target)?;
         let _ = self.marf.commit_to(target).map_err(|e| {
             error!("Failed to commit to MARF block {target}: {e:?}");
             VmInternalError::Expect("Failed to commit to MARF block".into())
@@ -477,7 +480,7 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
         //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
         //    we should probably commit the data to a different table which does not have uniqueness constraints.
         let chain_tip = self.chain_tip.clone();
-        self.drop_metadata_for_trie(&chain_tip)?;
+        self.drop_metadata_for_block(&chain_tip)?;
         let _ = self.marf.commit_mined(target).map_err(|e| {
             error!("Failed to commit to mined MARF block {target}: {e:?}",);
             VmInternalError::Expect("Failed to commit to MARF block".into())
@@ -531,10 +534,6 @@ impl ReadOnlyMarfStore<'_> {
 }
 
 impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
-    fn get_side_store(&mut self) -> &Connection {
-        self.marf.sqlite_conn()
-    }
-
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         Some(&handle_contract_call_special_cases)
     }
@@ -632,7 +631,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     fn get_data_with_proof(
         &mut self,
         key: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -649,7 +648,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                             side_key
                         ))
                     })?;
-                Ok((data, proof.serialize_to_vec()))
+                Ok((data, Some(proof.serialize_to_vec())))
             })
             .transpose()
     }
@@ -657,7 +656,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         self.marf
             .get_with_proof_from_hash(&self.chain_tip, hash)
             .or_else(|e| match e {
@@ -674,7 +673,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                             side_key
                         ))
                     })?;
-                Ok((data, proof.serialize_to_vec()))
+                Ok((data, Some(proof.serialize_to_vec())))
             })
             .transpose()
     }
@@ -785,6 +784,12 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     }
 }
 
+impl SqliteBackingStore for ReadOnlyMarfStore<'_> {
+    fn get_side_store(&mut self) -> &Connection {
+        self.marf.sqlite_conn()
+    }
+}
+
 impl PersistentWritableMarfStore<'_> {
     #[cfg(test)]
     fn do_test_commit(self) {
@@ -892,7 +897,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
     fn get_data_with_proof(
         &mut self,
         key: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -909,7 +914,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
                             side_key
                         ))
                     })?;
-                Ok((data, proof.serialize_to_vec()))
+                Ok((data, Some(proof.serialize_to_vec())))
             })
             .transpose()
     }
@@ -917,7 +922,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         self.marf
             .get_with_proof_from_hash(&self.chain_tip, hash)
             .or_else(|e| match e {
@@ -934,13 +939,9 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
                             side_key
                         ))
                     })?;
-                Ok((data, proof.serialize_to_vec()))
+                Ok((data, Some(proof.serialize_to_vec())))
             })
             .transpose()
-    }
-
-    fn get_side_store(&mut self) -> &Connection {
-        self.marf.sqlite_tx()
     }
 
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
@@ -1050,27 +1051,33 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
     }
 }
 
-impl WritableMarfStore for PersistentWritableMarfStore<'_> {}
+impl SqliteBackingStore for PersistentWritableMarfStore<'_> {
+    fn get_side_store(&mut self) -> &Connection {
+        self.marf.sqlite_tx()
+    }
+}
 
-/// This trait exists so we can implement `ClarityMarfStore`, `ClarityMarfStoreTransaction`, and
-/// `WritableMarfStore` for `Box<dyn WritableMarfStore + '_>`.  We need
-/// `Box<dyn WritableMarfStore + '_>` because `dyn WritableMarfStore` doesn't have a size known at
-/// compile time (so it cannot be Sized).  But then we'd need it to implement `WritableMarfStore`,
-/// which is tricky because some of `ClartyMarfStoreTransaction`'s functions take an instance
+impl WritableClarityStore for PersistentWritableMarfStore<'_> {}
+
+/// This trait exists so we can implement `ClarityStore`, `ClarityStoreTransaction`, and
+/// `WritableClarityStore` for `Box<dyn WritableClarityStore + '_>`.  We need
+/// `Box<dyn WritableClarityStore + '_>` because `dyn WritableClarityStore` doesn't have a size known at
+/// compile time (so it cannot be Sized).  But then we'd need it to implement `WritableClarityStore`,
+/// which is tricky because some of `ClarityStoreTransaction`'s functions take an instance
 /// `self` instead of a reference.  Because we don't know the size of `self` at compile-time, we
 /// have to employ a layer of indirection.
 ///
-/// To work around this, `WritableMarfStore` is composed of `BoxedClarityMarfStoreTransaction`
-/// below, and we have a blanket implementation of `BoxedClarityMarfStoreTransaction` for any
-/// `T: ClarityMarfStoreTransaction`.  This in turn allows us to implement
-/// `ClarityMarfStoreTransaction for `Box<dyn WritableMarfStore + 'a>` -- we cast to
-/// `ClarityMarfStoreTransaction` to call functions that take a reference to `self`, and we cast to
-/// `BoxedClarityMarfStoreTransaction` to call functions that take an instance of `self`.  In the
+/// To work around this, `WritableClarityStore` is composed of `BoxedClarityStoreTransaction`
+/// below, and we have a blanket implementation of `BoxedClarityStoreTransaction` for any
+/// `T: ClarityStoreTransaction`.  This in turn allows us to implement
+/// `ClarityStoreTransaction for `Box<dyn WritableClarityStore + 'a>` -- we cast to
+/// `ClarityStoreTransaction` to call functions that take a reference to `self`, and we cast to
+/// `BoxedClarityStoreTransaction` to call functions that take an instance of `self`.  In the
 /// latter case, the instance will have a compile-time size since it will be a Box.  The
-/// implementation of `BoxedClarityMarfStoreTransaction` just forwards the call to the
-/// corresponding function in `ClarityMarfStoreTransaction` with a reference to the boxed instance.
-pub trait BoxedClarityMarfStoreTransaction {
-    fn boxed_drop_current_trie(self: Box<Self>);
+/// implementation of `BoxedClarityStoreTransaction` just forwards the call to the
+/// corresponding function in `ClarityStoreTransaction` with a reference to the boxed instance.
+pub trait BoxedClarityStoreTransaction {
+    fn boxed_drop_current_block(self: Box<Self>);
     fn boxed_drop_unconfirmed(self: Box<Self>) -> Result<(), VmExecutionError>;
     fn boxed_commit_to_processed_block(
         self: Box<Self>,
@@ -1086,78 +1093,81 @@ pub trait BoxedClarityMarfStoreTransaction {
     fn boxed_test_commit(self: Box<Self>);
 }
 
-impl<T: ClarityMarfStoreTransaction> BoxedClarityMarfStoreTransaction for T {
-    fn boxed_drop_current_trie(self: Box<Self>) {
-        <Self as ClarityMarfStoreTransaction>::drop_current_trie(*self)
+impl<T: ClarityStoreTransaction> BoxedClarityStoreTransaction for T {
+    fn boxed_drop_current_block(self: Box<Self>) {
+        <Self as ClarityStoreTransaction>::drop_current_block(*self)
     }
 
     fn boxed_drop_unconfirmed(self: Box<Self>) -> Result<(), VmExecutionError> {
-        <Self as ClarityMarfStoreTransaction>::drop_unconfirmed(*self)
+        <Self as ClarityStoreTransaction>::drop_unconfirmed(*self)
     }
 
     fn boxed_commit_to_processed_block(
         self: Box<Self>,
         target: &StacksBlockId,
     ) -> Result<(), VmExecutionError> {
-        <Self as ClarityMarfStoreTransaction>::commit_to_processed_block(*self, target)
+        <Self as ClarityStoreTransaction>::commit_to_processed_block(*self, target)
     }
 
     fn boxed_commit_to_mined_block(
         self: Box<Self>,
         target: &StacksBlockId,
     ) -> Result<(), VmExecutionError> {
-        <Self as ClarityMarfStoreTransaction>::commit_to_mined_block(*self, target)
+        <Self as ClarityStoreTransaction>::commit_to_mined_block(*self, target)
     }
 
     fn boxed_commit_unconfirmed(self: Box<Self>) {
-        <Self as ClarityMarfStoreTransaction>::commit_unconfirmed(*self)
+        <Self as ClarityStoreTransaction>::commit_unconfirmed(*self)
     }
 
     #[cfg(test)]
     fn boxed_test_commit(self: Box<Self>) {
-        <Self as ClarityMarfStoreTransaction>::test_commit(*self)
+        <Self as ClarityStoreTransaction>::test_commit(*self)
     }
 }
 
-impl<'a> ClarityMarfStoreTransaction for Box<dyn WritableMarfStore + 'a> {
-    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
-        ClarityMarfStoreTransaction::commit_metadata_for_trie(self.deref_mut(), target)
+impl<'a> ClarityStoreTransaction for Box<dyn WritableClarityStore + 'a> {
+    fn commit_metadata_for_block(
+        &mut self,
+        target: &StacksBlockId,
+    ) -> Result<(), VmExecutionError> {
+        ClarityStoreTransaction::commit_metadata_for_block(self.deref_mut(), target)
     }
 
-    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
-        ClarityMarfStoreTransaction::drop_metadata_for_trie(self.deref_mut(), target)
+    fn drop_metadata_for_block(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
+        ClarityStoreTransaction::drop_metadata_for_block(self.deref_mut(), target)
     }
 
-    fn seal_trie(&mut self) -> TrieHash {
-        ClarityMarfStoreTransaction::seal_trie(self.deref_mut())
+    fn seal(&mut self) -> TrieHash {
+        ClarityStoreTransaction::seal(self.deref_mut())
     }
 
-    fn drop_current_trie(self) {
-        BoxedClarityMarfStoreTransaction::boxed_drop_current_trie(self)
+    fn drop_current_block(self) {
+        BoxedClarityStoreTransaction::boxed_drop_current_block(self)
     }
 
     fn drop_unconfirmed(self) -> Result<(), VmExecutionError> {
-        BoxedClarityMarfStoreTransaction::boxed_drop_unconfirmed(self)
+        BoxedClarityStoreTransaction::boxed_drop_unconfirmed(self)
     }
     fn commit_to_processed_block(self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
-        BoxedClarityMarfStoreTransaction::boxed_commit_to_processed_block(self, target)
+        BoxedClarityStoreTransaction::boxed_commit_to_processed_block(self, target)
     }
 
     fn commit_to_mined_block(self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
-        BoxedClarityMarfStoreTransaction::boxed_commit_to_mined_block(self, target)
+        BoxedClarityStoreTransaction::boxed_commit_to_mined_block(self, target)
     }
 
     fn commit_unconfirmed(self) {
-        BoxedClarityMarfStoreTransaction::boxed_commit_unconfirmed(self)
+        BoxedClarityStoreTransaction::boxed_commit_unconfirmed(self)
     }
 
     #[cfg(test)]
     fn test_commit(self) {
-        BoxedClarityMarfStoreTransaction::boxed_test_commit(self)
+        BoxedClarityStoreTransaction::boxed_test_commit(self)
     }
 }
 
-impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
+impl<'a> ClarityBackingStore for Box<dyn WritableClarityStore + 'a> {
     fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
         ClarityBackingStore::put_all_data(self.deref_mut(), items)
     }
@@ -1173,14 +1183,14 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
     fn get_data_with_proof(
         &mut self,
         key: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         ClarityBackingStore::get_data_with_proof(self.deref_mut(), key)
     }
 
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         ClarityBackingStore::get_data_with_proof_from_path(self.deref_mut(), hash)
     }
 
@@ -1202,10 +1212,6 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
 
     fn get_open_chain_tip(&mut self) -> StacksBlockId {
         ClarityBackingStore::get_open_chain_tip(self.deref_mut())
-    }
-
-    fn get_side_store(&mut self) -> &Connection {
-        ClarityBackingStore::get_side_store(self.deref_mut())
     }
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
@@ -1246,5 +1252,5 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
     }
 }
 
-impl<'a> ClarityMarfStore for Box<dyn WritableMarfStore + 'a> {}
-impl<'a> WritableMarfStore for Box<dyn WritableMarfStore + 'a> {}
+impl<'a> ClarityStore for Box<dyn WritableClarityStore + 'a> {}
+impl<'a> WritableClarityStore for Box<dyn WritableClarityStore + 'a> {}

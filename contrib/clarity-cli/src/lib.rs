@@ -56,7 +56,7 @@ use stackslib::chainstate::stacks::boot::{
     POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
 use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
-use stackslib::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
+use stackslib::clarity_vm::clarity::{ClarityStore, ClarityStoreTransaction};
 use stackslib::clarity_vm::database::MemoryBackingStore;
 use stackslib::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
 use stackslib::core::{BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20, StacksEpochId};
@@ -406,7 +406,7 @@ where
 
     let marf_tx = marf_kv.begin(&from, &to);
     let (marf_return, result) = f(marf_tx);
-    marf_return.drop_current_trie();
+    marf_return.drop_current_block();
     result
 }
 
@@ -421,7 +421,7 @@ where
 
     let marf_tx = marf_kv.begin(&from, &to);
     let (marf_return, result) = f(marf_tx);
-    marf_return.drop_current_trie();
+    marf_return.drop_current_block();
     result
 }
 
