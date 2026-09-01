@@ -57,6 +57,34 @@ lazy_static! {
         "stacks_signer_current_reward_cycle",
         "The current reward cycle"
     )).unwrap();
+    pub static ref SIGNER_RUNLOOP_READY: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_runloop_ready",
+        "Whether the outer signer runloop has initialized successfully (1) or is still retrying (0)"
+    )).unwrap();
+    pub static ref SIGNER_REGISTERED_CURRENT_REWARD_CYCLE: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_registered_for_current_reward_cycle",
+        "Whether this signer has an active registered signer instance for the current reward cycle"
+    )).unwrap();
+    pub static ref SIGNER_REGISTERED_NEXT_REWARD_CYCLE: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_registered_for_next_reward_cycle",
+        "Whether this signer has an active registered signer instance for the next reward cycle"
+    )).unwrap();
+    pub static ref SIGNER_STATE_BURN_BLOCK_HEIGHT: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_state_burn_block_height",
+        "Burn block height represented by the current signer's local agreement state"
+    )).unwrap();
+    pub static ref SIGNER_STATE_LAST_CHANGED_TIMESTAMP_SECONDS: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_state_last_changed_timestamp_seconds",
+        "Process wall-clock timestamp at which the current signer's local agreement state was initialized or last changed"
+    )).unwrap();
+    pub static ref SIGNER_NODE_BURN_BLOCK_HEIGHT: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_node_burn_block_height",
+        "Latest canonical burn block height learned successfully from the signer's configured node"
+    )).unwrap();
+    pub static ref SIGNER_PENDING_BLOCK_VALIDATIONS: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_pending_block_validations",
+        "Number of block validations currently pending in the signer process"
+    )).unwrap();
     pub static ref SIGNER_STX_BALANCE: IntGauge = register_int_gauge!(opts!(
         "stacks_signer_stx_balance",
         "The current STX balance of the signer"
@@ -95,6 +123,31 @@ lazy_static! {
         "The number of state machine conflicts in signer agreement protocol. `conflict` can be one of: 'burn_block_delay', 'stacks_block_delay', 'miner_view'",
         &["conflict"]
     ).unwrap();
+
+    pub static ref SIGNER_GLOBAL_STATE_AVAILABLE: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_global_state_available",
+        "Whether the current reward-cycle evaluator can derive a global signer state (1 or 0)"
+    )).unwrap();
+    pub static ref SIGNER_GLOBAL_STATE_TOTAL_WEIGHT: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_global_state_total_weight",
+        "Total configured signer weight in the current reward cycle"
+    )).unwrap();
+    pub static ref SIGNER_GLOBAL_STATE_KNOWN_WEIGHT: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_global_state_known_weight",
+        "Configured signer weight from which a latest state update is currently known"
+    )).unwrap();
+    pub static ref SIGNER_GLOBAL_STATE_MAXIMUM_VIEW_WEIGHT: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_global_state_maximum_view_weight",
+        "Greatest signer weight currently supporting one exact global state view"
+    )).unwrap();
+    pub static ref SIGNER_GLOBAL_STATE_EVALUATOR_THRESHOLD_WEIGHT: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_global_state_evaluator_threshold_weight",
+        "Rounded-down weight threshold currently used by the global state evaluator"
+    )).unwrap();
+    pub static ref SIGNER_GLOBAL_STATE_CANONICAL_THRESHOLD_WEIGHT: IntGauge = register_int_gauge!(opts!(
+        "stacks_signer_global_state_canonical_threshold_weight",
+        "Rounded-up weight threshold enforced for Nakamoto block signatures"
+    )).unwrap();
 
     pub static ref SIGNER_AGREEMENT_CAPITULATION_LATENCIES_HISTOGRAM: HistogramVec = register_histogram_vec!(histogram_opts!(
         "stacks_signer_agreement_capitulation_latencies_histogram",

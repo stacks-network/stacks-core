@@ -381,14 +381,20 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         } else {
             self.state = State::RegisteredSigners;
         }
+        crate::monitoring::actions::update_node_burn_block_height(
+            self.current_reward_cycle_info
+                .as_ref()
+                .expect("reward-cycle info was just initialized")
+                .last_burnchain_block_height,
+        );
+        self.update_registration_metrics();
         Ok(())
     }
 
     fn refresh_runloop(&mut self, ev_burn_block_height: u64) -> Result<(), ClientError> {
-        let current_burn_block_height = std::cmp::max(
-            self.stacks_client.get_peer_info()?.burn_block_height,
-            ev_burn_block_height,
-        );
+        let node_burn_block_height = self.stacks_client.get_peer_info()?.burn_block_height;
+        crate::monitoring::actions::update_node_burn_block_height(node_burn_block_height);
+        let current_burn_block_height = std::cmp::max(node_burn_block_height, ev_burn_block_height);
         let reward_cycle_info = self
             .current_reward_cycle_info
             .as_mut()
@@ -444,7 +450,27 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
         } else {
             self.state = State::RegisteredSigners;
         }
+        self.update_registration_metrics();
         Ok(())
+    }
+
+    fn update_registration_metrics(&self) {
+        let (current, next) = if let Some(reward_cycle_info) = self.current_reward_cycle_info {
+            let current_reward_cycle = reward_cycle_info.reward_cycle;
+            (
+                Self::is_registered_for_cycle(&self.stacks_signers, current_reward_cycle),
+                Self::is_registered_for_cycle(
+                    &self.stacks_signers,
+                    current_reward_cycle.saturating_add(1),
+                ),
+            )
+        } else {
+            (false, false)
+        };
+        crate::monitoring::actions::update_reward_cycle_registration(current, next);
+        if !current {
+            crate::monitoring::actions::clear_current_signer_metrics();
+        }
     }
 
     fn is_configured_for_cycle(
@@ -574,6 +600,8 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
         }
 
         if self.state == State::Uninitialized {
+            crate::monitoring::actions::update_runloop_ready(false);
+            self.update_registration_metrics();
             if let Err(e) = self.initialize_runloop() {
                 error!("Failed to initialize signer runloop: {e}.");
                 if let Some(event) = event {
@@ -581,6 +609,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug>
                 }
                 return None;
             }
+            crate::monitoring::actions::update_runloop_ready(true);
         } else if let Some(SignerEvent::NewBurnBlock { burn_height, .. }) = event {
             if let Err(e) = self.refresh_runloop(burn_height) {
                 error!("Failed to refresh signer runloop: {e}.");

@@ -2069,16 +2069,16 @@ impl SignerDb {
         }))
     }
 
-    /// Remove a pending block validation
+    /// Remove a pending block validation, returning whether a row was deleted.
     pub fn remove_pending_block_validation(
         &self,
         sighash: &Sha512Trunc256Sum,
-    ) -> Result<(), DBError> {
-        self.db.execute(
+    ) -> Result<bool, DBError> {
+        let removed = self.db.execute(
             "DELETE FROM block_validations_pending WHERE signer_signature_hash = ?1",
             params![sighash.to_string()],
         )?;
-        Ok(())
+        Ok(removed > 0)
     }
 
     /// Insert a pending block validation
@@ -2103,6 +2103,20 @@ impl SignerDb {
         let args = params![sighash.to_string()];
         let sighash_opt: Option<String> = query_row(&self.db, qry, args)?;
         Ok(sighash_opt.is_some())
+    }
+
+    /// Count pending block validations when constructing signer metrics.
+    ///
+    /// The signer calls this once during initialization and then maintains the
+    /// gauge at the existing successful queue transitions. Prometheus scrapes
+    /// never query SQLite.
+    pub fn get_pending_block_validation_count(&self) -> Result<u64, DBError> {
+        let count: i64 = self.db.query_row(
+            "SELECT COUNT(*) FROM block_validations_pending",
+            params![],
+            |row| row.get(0),
+        )?;
+        u64::try_from(count).map_err(|_| DBError::Overflow)
     }
 
     /// Returns:
@@ -3955,6 +3969,7 @@ pub mod tests {
 
         let pending_hash = db.get_and_remove_pending_block_validation().unwrap();
         assert!(pending_hash.is_none());
+        assert_eq!(db.get_pending_block_validation_count().unwrap(), 0);
 
         db.insert_pending_block_validation(&Sha512Trunc256Sum([0x01; 32]), 1000)
             .unwrap();
@@ -3962,6 +3977,17 @@ pub mod tests {
             .unwrap();
         db.insert_pending_block_validation(&Sha512Trunc256Sum([0x03; 32]), 3000)
             .unwrap();
+        assert_eq!(db.get_pending_block_validation_count().unwrap(), 3);
+
+        assert!(!db
+            .remove_pending_block_validation(&Sha512Trunc256Sum([0xff; 32]))
+            .unwrap());
+        assert_eq!(db.get_pending_block_validation_count().unwrap(), 3);
+
+        assert!(db
+            .remove_pending_block_validation(&Sha512Trunc256Sum([0x03; 32]))
+            .unwrap());
+        assert_eq!(db.get_pending_block_validation_count().unwrap(), 2);
 
         let (pending_hash, _) = db
             .get_and_remove_pending_block_validation()
@@ -3970,7 +3996,8 @@ pub mod tests {
         assert_eq!(pending_hash, Sha512Trunc256Sum([0x01; 32]));
 
         let pendings = db.get_all_pending_block_validations().unwrap();
-        assert_eq!(pendings.len(), 2);
+        assert_eq!(pendings.len(), 1);
+        assert_eq!(db.get_pending_block_validation_count().unwrap(), 1);
 
         let (pending_hash, _) = db
             .get_and_remove_pending_block_validation()
@@ -3979,16 +4006,8 @@ pub mod tests {
         assert_eq!(pending_hash, Sha512Trunc256Sum([0x02; 32]));
 
         let pendings = db.get_all_pending_block_validations().unwrap();
-        assert_eq!(pendings.len(), 1);
-
-        let (pending_hash, _) = db
-            .get_and_remove_pending_block_validation()
-            .unwrap()
-            .unwrap();
-        assert_eq!(pending_hash, Sha512Trunc256Sum([0x03; 32]));
-
-        let pendings = db.get_all_pending_block_validations().unwrap();
         assert!(pendings.is_empty());
+        assert_eq!(db.get_pending_block_validation_count().unwrap(), 0);
     }
 
     #[test]
