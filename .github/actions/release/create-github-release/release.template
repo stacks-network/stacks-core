@@ -1,9 +1,7 @@
 This release contains bugfixes and improvements to the stacks-node and stacks-signer binaries, ensuring more consistent block production.
 This release is compatible with chainstate directories from ${node_epoch}.
 
-${companion_line}
-
-This release is recommended for all Stacks node operators.
+This release is recommended for all Stacks node and signer operators.
 
 ${changelog_section}
 

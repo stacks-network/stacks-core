@@ -122,7 +122,7 @@ fn canonical_merkle_depth(tx_count: u128) -> u32 {
 ///
 /// Together with the `tx_index < tx_count` and path-length checks, these
 /// pin the proof to the canonical tree of a real Bitcoin block.
-fn verify_merkle(
+pub(crate) fn verify_merkle(
     leaf: [u8; 32],
     root: [u8; 32],
     tx_index: u128,
@@ -903,40 +903,7 @@ mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::{OutPoint, TxIn, TxOut};
     use stacks_common::deps_common::bitcoin::network::serialize::serialize as btc_serialize;
 
-    /// Walk a Bitcoin-style merkle proof bottom-up using the canonical tree
-    /// shape implied by `tx_count`, forcing the duplicated-padding sibling
-    /// at every odd-row edge to equal the running hash. Returns the synthesized
-    /// `(siblings, root)` pair. Used by the prop-test strategies to produce
-    /// proofs that are valid by construction for `verify_merkle`, without
-    /// materializing 2^24-leaf trees in memory. Independent canonical-tree
-    /// coverage comes from the real-mainnet merkle proof unit tests above.
-    fn synth_canonical_proof(
-        leaf: [u8; 32],
-        tx_index: u128,
-        tx_count: u128,
-        raw_siblings: &[[u8; 32]],
-    ) -> (Vec<[u8; 32]>, [u8; 32]) {
-        let mut siblings = Vec::with_capacity(raw_siblings.len());
-        let mut cur = leaf;
-        let mut idx = tx_index;
-        let mut row_count = tx_count;
-        let mut buf = [0u8; 64];
-        for raw in raw_siblings {
-            let sibling = if (idx | 1) >= row_count { cur } else { *raw };
-            siblings.push(sibling);
-            if idx & 1 == 1 {
-                buf[..32].copy_from_slice(&sibling);
-                buf[32..].copy_from_slice(&cur);
-            } else {
-                buf[..32].copy_from_slice(&cur);
-                buf[32..].copy_from_slice(&sibling);
-            }
-            cur = Sha256dHash::from_data(&buf).0;
-            idx >>= 1;
-            row_count = (row_count + 1) >> 1;
-        }
-        (siblings, cur)
-    }
+    use crate::vm::tests::proptest_strategies::{arb_simple_tx, synth_canonical_proof};
 
     prop_compose! {
         /// Synthesize a valid merkle proof spanning the full supported range:
@@ -963,60 +930,88 @@ mod tests {
         }
     }
 
-    /// Either an empty witness (forces non-segwit serialization) or 1..=4
-    /// witness items of 0..=128 bytes (forces segwit marker/flag/witness
-    /// encoding). With only one input, this toggles the whole tx between
-    /// the two encodings.
-    fn arb_witness() -> impl Strategy<Value = Vec<Vec<u8>>> {
-        prop_oneof![
-            Just(Vec::new()),
-            prop::collection::vec(prop::collection::vec(any::<u8>(), 0..=128), 1..=4),
-        ]
+    prop_compose! {
+        /// Same as [`arb_merkle_proof`] but restricted to `tx_count >= 2`,
+        /// guaranteeing `canonical_depth(tx_count) >= 1` and hence at least
+        /// one sibling. Use for tampering tests that need a non-empty
+        /// siblings vector (the sibling-tamper variant cannot operate on
+        /// an empty list).
+        fn arb_merkle_proof_with_nonempty_siblings()(
+            tx_count in 2u128..=(1u128 << VERIFY_MERKLE_PROOF_MAX_DEPTH),
+            leaf in any::<[u8; 32]>(),
+        )(
+            tx_index in 0u128..tx_count,
+            leaf in Just(leaf),
+            tx_count in Just(tx_count),
+            raw_siblings in prop::collection::vec(
+                any::<[u8; 32]>(),
+                canonical_merkle_depth(tx_count) as usize,
+            ),
+        ) -> ([u8; 32], [u8; 32], u128, u128, Vec<[u8; 32]>) {
+            let (siblings, root) = synth_canonical_proof(leaf, tx_index, tx_count, &raw_siblings);
+            (leaf, root, tx_index, tx_count, siblings)
+        }
     }
 
-    /// Tx with 1..=16 outputs and scripts spanning the full 0..=1024-byte
-    /// allowed range. Randomized witness exercises both segwit and
-    /// non-segwit encodings; the canonical (witness-stripped) txid is
-    /// recovered via `Transaction::txid()` regardless of which path is
-    /// taken.
-    fn arb_simple_tx() -> impl Strategy<Value = (Transaction, Vec<(u64, Vec<u8>)>)> {
-        (
-            arb_witness(),
-            prop::collection::vec(
-                (
-                    any::<u64>(),
-                    prop::collection::vec(any::<u8>(), 0..=GET_BITCOIN_TX_OUTPUT_MAX_SCRIPT_LEN),
-                ),
-                1..=16,
-            ),
-        )
-            .prop_map(|(witness, outputs)| {
-                let tx = Transaction {
-                    version: 1,
-                    lock_time: 0,
-                    input: vec![TxIn {
-                        previous_output: OutPoint {
-                            txid: Sha256dHash([0u8; 32]),
-                            vout: 0,
-                        },
-                        script_sig: Script::from(Vec::<u8>::new()),
-                        sequence: 0xffffffff,
-                        witness,
-                    }],
-                    output: outputs
-                        .iter()
-                        .map(|(amount, script)| TxOut {
-                            value: *amount,
-                            script_pubkey: Script::from(script.clone()),
-                        })
-                        .collect(),
-                };
-                (tx, outputs)
-            })
+    prop_compose! {
+        /// A valid merkle proof plus a `bad_tx_count` whose canonical depth
+        /// is GUARANTEED different from the original `tx_count`'s depth.
+        /// Used by [`prop_merkle_cross_tree_fails`] to exercise the
+        /// depth-downgrade defense without needing a runtime
+        /// `prop_assume!` filter.
+        ///
+        /// Construction: pick `depth_shift in 1..=MAX_DEPTH`, then
+        /// `target_depth = (n_depth + depth_shift) mod (MAX_DEPTH + 1)`.
+        /// Because `depth_shift in 1..=MAX_DEPTH`, the modulus result is
+        /// never `n_depth`, so the depth differs by construction.
+        fn arb_merkle_proof_with_different_depth_tx_count()(
+            (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
+            depth_shift in 1u32..=VERIFY_MERKLE_PROOF_MAX_DEPTH,
+        ) -> ([u8; 32], [u8; 32], u128, u128, Vec<[u8; 32]>, u128) {
+            let n_depth = canonical_merkle_depth(tx_count);
+            let target_depth =
+                (n_depth + depth_shift) % (VERIFY_MERKLE_PROOF_MAX_DEPTH + 1);
+            debug_assert_ne!(
+                target_depth, n_depth,
+                "depth_shift in 1..=MAX_DEPTH guarantees target_depth != n_depth"
+            );
+            let bad_tx_count = if target_depth == 0 {
+                1u128
+            } else {
+                (1u128 << (target_depth - 1)) + 1
+            };
+            (leaf, root, tx_index, tx_count, siblings, bad_tx_count)
+        }
+    }
+
+    /// `buff_to_array::<32>` must reject any buffer whose length is not exactly 32
+    /// and return `None`, never panic. Clarity `(buff 32)` is a *maximum*
+    /// length, so a shorter buffer is a type-valid argument to
+    /// `verify-merkle-proof`; without the length guard the `copy_from_slice`
+    /// below would panic on a short buffer — a node-crash vector on consensus
+    /// input. The 32-byte case is accepted.
+    #[test]
+    fn buff_to_array_32_rejects_non_32_length() {
+        for len in [0usize, 1, 31, 33, 64, 100] {
+            let v = Value::buff_from(vec![0xabu8; len]).unwrap();
+            assert!(
+                buff_to_array::<32>(&v).is_none(),
+                "buffer of length {len} must be rejected, not coerced",
+            );
+        }
+        let exact = Value::buff_from(vec![0x07u8; 32]).unwrap();
+        assert_eq!(buff_to_array::<32>(&exact), Some([0x07u8; 32]));
+        // A non-buffer value is also rejected.
+        assert!(buff_to_array::<32>(&Value::UInt(32)).is_none());
     }
 
     proptest! {
-        /// Any canonical proof we hand to the verifier must verify.
+        /// Any canonical proof we hand to the verifier must verify. The
+        /// synthesizer (`synth_canonical_proof`) shares the padding/hashing
+        /// logic with `verify_merkle`, so this pins determinism and tree-shape
+        /// agreement, not the rejection paths; those are covered by the
+        /// tampering/wrong-depth/cross-tree properties and the real-mainnet
+        /// fixtures below.
         #[tag(t_prop)]
         #[test]
         fn prop_merkle_roundtrip_verifies(
@@ -1037,52 +1032,62 @@ mod tests {
             prop_assert!(!verify_merkle(leaf, root, bad_idx, tx_count, &siblings));
         }
 
-        /// Flipping a bit of the leaf, root, or any sibling must break the
-        /// proof.
+        /// Flipping a bit of the LEAF breaks the proof.
         #[tag(t_prop)]
         #[test]
-        fn prop_merkle_tampering_breaks_proof(
+        fn prop_merkle_tampered_leaf_fails(
             (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
-            target in 0u8..3,
             byte_idx in 0usize..32,
             bit in 0u8..8,
         ) {
             let mask = 1u8 << bit;
+            let mut tampered = leaf;
+            tampered[byte_idx] ^= mask;
+            // A bit-flip is by definition a change, so the bit can never
+            // collide with the original byte at that position.
+            debug_assert_ne!(tampered, leaf);
+            prop_assert!(!verify_merkle(
+                tampered, root, tx_index, tx_count, &siblings,
+            ));
+        }
 
-            // Sanity: the untampered proof verifies.
-            prop_assert!(verify_merkle(leaf, root, tx_index, tx_count, &siblings));
+        /// Flipping a bit of the ROOT breaks the proof.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_tampered_root_fails(
+            (leaf, root, tx_index, tx_count, siblings) in arb_merkle_proof(),
+            byte_idx in 0usize..32,
+            bit in 0u8..8,
+        ) {
+            let mask = 1u8 << bit;
+            let mut tampered = root;
+            tampered[byte_idx] ^= mask;
+            debug_assert_ne!(tampered, root);
+            prop_assert!(!verify_merkle(
+                leaf, tampered, tx_index, tx_count, &siblings,
+            ));
+        }
 
-            match target {
-                0 => {
-                    let mut tampered = leaf;
-                    tampered[byte_idx] ^= mask;
-                    // A bit-flip that happens to land on a same-as-original
-                    // collision is astronomically unlikely; skip the equality
-                    // edge case rather than weakening the assertion.
-                    prop_assume!(tampered != leaf);
-                    prop_assert!(!verify_merkle(
-                        tampered, root, tx_index, tx_count, &siblings,
-                    ));
-                }
-                1 => {
-                    let mut tampered = root;
-                    tampered[byte_idx] ^= mask;
-                    prop_assume!(tampered != root);
-                    prop_assert!(!verify_merkle(
-                        leaf, tampered, tx_index, tx_count, &siblings,
-                    ));
-                }
-                _ => {
-                    prop_assume!(!siblings.is_empty());
-                    let mut tampered = siblings.clone();
-                    let pick = byte_idx % siblings.len();
-                    tampered[pick][byte_idx] ^= mask;
-                    prop_assume!(tampered != siblings);
-                    prop_assert!(!verify_merkle(
-                        leaf, root, tx_index, tx_count, &tampered,
-                    ));
-                }
-            }
+        /// Flipping a bit in any SIBLING breaks the proof. Uses the
+        /// nonempty-siblings generator so the test never operates on an
+        /// empty proof.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_tampered_sibling_fails(
+            (leaf, root, tx_index, tx_count, siblings)
+                in arb_merkle_proof_with_nonempty_siblings(),
+            sibling_seed in 0usize..VERIFY_MERKLE_PROOF_MAX_DEPTH as usize,
+            byte_idx in 0usize..32,
+            bit in 0u8..8,
+        ) {
+            let mask = 1u8 << bit;
+            let pick = sibling_seed % siblings.len();
+            let mut tampered = siblings.clone();
+            tampered[pick][byte_idx] ^= mask;
+            debug_assert_ne!(tampered, siblings);
+            prop_assert!(!verify_merkle(
+                leaf, root, tx_index, tx_count, &tampered,
+            ));
         }
 
         /// A proof whose sibling count doesn't match canonical depth must
@@ -1185,6 +1190,239 @@ mod tests {
                 parse_tx_output(&bytes, 0),
                 Err(ParseTxError::ScriptTooLarge),
             );
+        }
+
+        /// `tx_count == 0` describes an empty block, which has no leaves and
+        /// thus no valid inclusion proof. The verifier must reject regardless
+        /// of leaf, root, tx_index, or sibling contents — there's nothing to
+        /// be included in.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_zero_tx_count_always_false(
+            leaf in any::<[u8; 32]>(),
+            root in any::<[u8; 32]>(),
+            tx_index in any::<u128>(),
+            siblings in prop::collection::vec(
+                any::<[u8; 32]>(),
+                0..=VERIFY_MERKLE_PROOF_MAX_DEPTH as usize,
+            ),
+        ) {
+            prop_assert!(!verify_merkle(leaf, root, tx_index, 0, &siblings));
+        }
+
+        /// Substituting `tx_count` with a value of a *different* canonical
+        /// depth must always reject a valid proof. The path-length check is
+        /// the defense against CVE-2012-2459-style depth-downgrade attacks:
+        /// claiming a smaller `tx_count` to pass off an intermediate node
+        /// as a leaf necessarily mismatches the sibling count, and the
+        /// verifier rejects before walking.
+        ///
+        /// Note: this invariant only holds across different *depths*. Two
+        /// distinct `tx_count` values that share a canonical depth (e.g. 5
+        /// and 8 both have depth 3) reach the same walk and verify the
+        /// same synthetic proof — a real on-chain merkle root would differ,
+        /// but a property test using synthetic siblings cannot distinguish
+        /// them. The depth-mismatch case is the one the codebase actually
+        /// defends against.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_cross_tree_fails(
+            (leaf, root, tx_index, _tx_count, siblings, bad_tx_count)
+                in arb_merkle_proof_with_different_depth_tx_count(),
+        ) {
+            prop_assert!(!verify_merkle(
+                leaf, root, tx_index, bad_tx_count, &siblings,
+            ));
+        }
+
+        /// A CVE-2012-2459 *deflation* collision is accepted by `verify_merkle`,
+        /// by design. Bitcoin pads odd rows by duplicating the last node, so a
+        /// 3-leaf block `[A, B, C]` has shape `[A, B, C, C]` and
+        /// `root = H(H(A, B), H(C, C))`. The node `H(C, C)` is also a valid leaf
+        /// of a 2-leaf tree with sibling `H(A, B)` and the same root, so
+        /// presenting it at index 1 with `tx_count = 2` verifies: an honest
+        /// 2-leaf proof that happens to collide with the 3-leaf root.
+        ///
+        /// The builtin cannot reject this without an authenticated `tx_count` —
+        /// from `(leaf, root, tx_index, tx_count, siblings)` alone it cannot tell
+        /// the root came from a 3-leaf tree. Upstream commit 9fccbe7bea closed
+        /// the complementary *inflation* variant (claiming a larger `tx_count`
+        /// to relocate the last real leaf into the padded region) via the
+        /// per-level sibling-shape checks; this deflation collision is
+        /// fundamental to Merkle proofs and is not closeable here.
+        ///
+        /// Real callers are safe regardless: pox-5.clar's `validate-l1-lockup`
+        /// passes a `leaf` of `SHA256d(tx-bytes)` from a parsed transaction and a
+        /// `root` authenticated against the burnchain header. Hitting the
+        /// collision would need a txid equal to an internal node `H(C, C)` — a
+        /// SHA256d preimage — so the leaf can never be aimed at an internal node.
+        ///
+        /// The assertion pins this accepted-by-design behavior; flip it only if
+        /// the builtin is ever changed to reject honest small-tree proofs.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_merkle_deflated_tx_count_collision_accepted(
+            a in any::<[u8; 32]>(),
+            b in any::<[u8; 32]>(),
+            c in any::<[u8; 32]>(),
+        ) {
+            // Canonical 3-leaf padded tree: [a, b, c, c].
+            let mut buf = [0u8; 64];
+            buf[..32].copy_from_slice(&a);
+            buf[32..].copy_from_slice(&b);
+            let h_ab = Sha256dHash::from_data(&buf).0;
+            buf[..32].copy_from_slice(&c);
+            buf[32..].copy_from_slice(&c);
+            let h_cc = Sha256dHash::from_data(&buf).0;
+            buf[..32].copy_from_slice(&h_ab);
+            buf[32..].copy_from_slice(&h_cc);
+            let root = Sha256dHash::from_data(&buf).0;
+
+            // h_cc is a valid leaf of the 2-leaf tree [_, h_cc] with sibling
+            // h_ab; the walk reaches the real 3-leaf root. Accepted by design.
+            prop_assert!(verify_merkle(h_cc, root, 1, 2, &[h_ab]));
+        }
+
+        /// `cost_input_verify_merkle_proof` must return exactly the
+        /// siblings-list length: the cost scales linearly with the proof
+        /// depth, and a wrong length lets an attacker either over- or
+        /// under-charge the verification gas. Pins the function against
+        /// `Ok(0)` / `Ok(1)` / fall-through mutants that lose the length
+        /// signal.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_cost_verify_merkle_proof_equals_siblings_len(
+            siblings_len in 0usize..=VERIFY_MERKLE_PROOF_MAX_DEPTH as usize,
+            leaf in any::<[u8; 32]>(),
+            root in any::<[u8; 32]>(),
+            tx_index in any::<u128>(),
+            tx_count in any::<u128>(),
+        ) {
+            let siblings: Vec<Value> = (0..siblings_len)
+                .map(|_| Value::buff_from(vec![0u8; 32]).unwrap())
+                .collect();
+            let args = vec![
+                Value::buff_from(leaf.to_vec()).unwrap(),
+                Value::buff_from(root.to_vec()).unwrap(),
+                Value::UInt(tx_index),
+                Value::UInt(tx_count),
+                Value::cons_list_unsanitized(siblings).unwrap(),
+            ];
+            let cost = cost_input_verify_merkle_proof(&args).unwrap();
+            prop_assert_eq!(cost, siblings_len as u64);
+        }
+
+        /// `cost_input_get_bitcoin_tx_output` must return exactly the
+        /// raw-tx buffer length. Same mutant-killing rationale as the
+        /// merkle counterpart above.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_cost_get_bitcoin_tx_output_equals_buffer_len(
+            tx_bytes in prop::collection::vec(any::<u8>(), 0..=2048),
+            vout in any::<u128>(),
+        ) {
+            let args = vec![
+                Value::buff_from(tx_bytes.clone()).unwrap(),
+                Value::UInt(vout),
+            ];
+            let cost = cost_input_get_bitcoin_tx_output(&args).unwrap();
+            prop_assert_eq!(cost, tx_bytes.len() as u64);
+        }
+
+        /// `verify-merkle-proof` with any arity other than 5 must return an
+        /// error, never panic. Guards the `try_into::<[Value; 5]>` arity check
+        /// on consensus input.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_native_verify_merkle_proof_wrong_arity(
+            arity in prop_oneof![0usize..=4, 6usize..=12],
+        ) {
+            let args: Vec<Value> = (0..arity).map(|_| Value::UInt(0)).collect();
+            prop_assert!(
+                native_verify_merkle_proof(args).is_err(),
+                "non-5 arity must error, not panic"
+            );
+        }
+
+        /// A single mis-typed argument (non-32 buff leaf/root, non-uint
+        /// index/count, or non-list siblings) must return an error, never
+        /// panic. Pins the per-argument coercion guards.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_native_verify_merkle_proof_wrong_arg_type(
+            which in 0usize..=4,
+            short_len in 0usize..=31,
+        ) {
+            let buff32 = Value::buff_from(vec![0u8; 32]).unwrap();
+            let mut args = vec![
+                buff32.clone(),
+                buff32.clone(),
+                Value::UInt(1),
+                Value::UInt(2),
+                Value::cons_list_unsanitized(vec![buff32]).unwrap(),
+            ];
+            args[which] = match which {
+                0 | 1 => Value::buff_from(vec![0u8; short_len]).unwrap(),
+                2 | 3 => Value::Bool(true),
+                _ => Value::UInt(7),
+            };
+            prop_assert!(
+                native_verify_merkle_proof(args).is_err(),
+                "mis-typed arg {which} must error, not panic"
+            );
+        }
+
+        /// A siblings list longer than the depth-24 cap (well past it) must be
+        /// handled without panic: the depth check rejects it (`Bool(false)`).
+        /// Defends against an oversized consensus list crashing the verifier.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_native_verify_merkle_proof_oversized_siblings(
+            extra in 1usize..=40,
+            leaf in any::<[u8; 32]>(),
+            root in any::<[u8; 32]>(),
+        ) {
+            let n = VERIFY_MERKLE_PROOF_MAX_DEPTH as usize + extra;
+            let siblings: Vec<Value> = (0..n)
+                .map(|_| Value::buff_from(vec![0u8; 32]).unwrap())
+                .collect();
+            // tx_count = 2 has canonical depth 1, so any n > 24 mismatches.
+            let args = vec![
+                Value::buff_from(leaf.to_vec()).unwrap(),
+                Value::buff_from(root.to_vec()).unwrap(),
+                Value::UInt(1),
+                Value::UInt(2),
+                Value::cons_list_unsanitized(siblings).unwrap(),
+            ];
+            let result = native_verify_merkle_proof(args)
+                .expect("well-typed args must not error, only reject");
+            prop_assert_eq!(result, Value::Bool(false));
+        }
+
+        /// `get-bitcoin-tx-output?` with a non-buff `tx-bytes` or a non-uint
+        /// `vout` must return an error, never panic.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_native_get_bitcoin_tx_output_wrong_arg_type(corrupt_tx in any::<bool>()) {
+            let (tx_value, vout_value) = if corrupt_tx {
+                (Value::UInt(0), Value::UInt(0))
+            } else {
+                (Value::buff_from(vec![0u8; 4]).unwrap(), Value::Bool(true))
+            };
+            prop_assert!(
+                native_get_bitcoin_tx_output(tx_value, vout_value).is_err(),
+                "mis-typed get-bitcoin-tx-output? arg must error, not panic"
+            );
+        }
+
+        /// Any buffer whose length is not exactly 32 coerces to `None` (never
+        /// a `copy_from_slice` panic on a short buffer, a consensus crash
+        /// vector); a 32-byte buffer coerces to `Some`.
+        #[tag(t_prop)]
+        #[test]
+        fn prop_buff_to_array_32_rejects_non_32(len in 0usize..=128) {
+            let v = Value::buff_from(vec![0xabu8; len]).unwrap();
+            prop_assert_eq!(buff_to_array::<32>(&v).is_some(), len == 32);
         }
     }
 }

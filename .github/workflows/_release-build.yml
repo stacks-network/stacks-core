@@ -1,0 +1,136 @@
+# Github workflow to create release binaries (and attest them)
+
+name: Build Release Binaries
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release Tag"
+        required: true
+        type: string
+
+# Set default permissions
+permissions:
+  contents: read
+
+# Set default shell
+defaults:
+  run:
+    shell: bash
+
+# Configure concurrency
+concurrency:
+  group: release-build-${{ github.head_ref || github.ref }}
+  # Always cancel duplicate jobs
+  cancel-in-progress: true
+
+run-name: Build Release Binaries ${{ inputs.tag }}
+
+# Set default env vars
+env:
+  # Set a default command to build. we'll define specific build config options later per arch.
+  CMD: "cargo build --features monitoring_prom,slog_json --profile release --workspace"
+
+jobs:
+  build-binaries:
+    name: Build Binaries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Run a maximum of 10 builds concurrently
+      max-parallel: 10
+      matrix:
+        arch:
+          - linux-glibc
+          - linux-musl
+          - macos
+          - windows
+        cpu:
+          - x86-64
+          - arm64
+        os:
+          - ubuntu-latest
+          - macos-latest-large
+        # Only run for macos-arm64 and windows-x64 if this run from stacks-network
+        is_fork:
+          - ${{ github.repository_owner != 'stacks-network' }}
+        exclude:
+          # exclude linux-musl on macos
+          - arch: linux-musl
+            os: macos-latest-large
+          # exclude linux-glibc on macos
+          - arch: linux-glibc
+            os: macos-latest-large
+          # excludes macos on ubuntu
+          - arch: macos
+            os: ubuntu-latest
+          # excludes windows on macos
+          - arch: windows
+            os: macos-latest-large
+          # excludes windows-arm64
+          - arch: windows
+            cpu: arm64
+          # excludes macos-x64 (always)
+          - arch: macos
+            cpu: x86-64
+          # excludes macos-arm64 (fork only)
+          - arch: macos
+            cpu: arm64
+            is_fork: true
+          # excludes windows-x64 (fork only)
+          - arch: windows
+            cpu: x86-64
+            is_fork: true
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      # Checkout the code
+      - name: Checkout the latest code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      # Configure target platform, install Rust toolchain, and build binaries
+      - name: Build Binaries
+        id: build-binaries
+        env:
+          MATRIX_CPU: ${{ matrix.cpu }}
+          MATRIX_ARCH: ${{ matrix.arch }}
+          CMD: ${{ env.CMD }}
+        run: bash ./.github/scripts/build_binaries.sh
+
+      # For macOS,install the GNU version of sed used in compress_artifacts_stacks_node
+      #  - Included BSD version of sed returns an error: `sed: first RE may not be empty`
+      - name: Install GNU sed on macOS
+        if: |
+          runner.os == 'macOS'
+        run: |
+          brew install gnu-sed
+          echo "/usr/local/bin" >> $GITHUB_PATH
+          echo "$(brew --prefix)/opt/gnu-sed/libexec/gnubin" >> $GITHUB_PATH
+
+      # Release artifact steps
+      #  - the node and signer share a version and ship in one combined release,
+      #    so a single binary archive (containing both the stacks-node and
+      #    stacks-signer binaries) is produced per target
+      #
+      # Compress the binaries in the target directory
+      - name: Compress binaries (stacks-core)
+        run: |
+          # compress all binaries in the target directory for any architecture
+          file -0 ./target/${{ steps.build-binaries.outputs.target }}/release/* | sed -nE 's/\x0:\s*(ELF|PE32+|Mach).*//p' | zip --junk-paths  ${{ steps.build-binaries.outputs.zipfile_name }}.zip -@
+
+      # Upload the binary archive using the commit sha as the key
+      - name: Upload Artifact (stacks-core)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ github.sha }}-stacks-core-${{ steps.build-binaries.outputs.zipfile_name }}
+          path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
+
+      # Attest the binary archive
+      - name: Attest Artifact (stacks-core)
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip

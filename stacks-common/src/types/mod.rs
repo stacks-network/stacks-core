@@ -38,7 +38,7 @@ use crate::consts::{
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
-    PEER_VERSION_EPOCH_4_0, STACKS_EPOCH_MAX,
+    PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1, STACKS_EPOCH_MAX,
 };
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
@@ -167,6 +167,7 @@ define_stacks_epochs! {
     Epoch33 = 0x03003 => "3.3",
     Epoch34 = 0x03004 => "3.4",
     Epoch40 = 0x04000 => "4.0",
+    Epoch41 = 0x04001 => "4.1",
 }
 
 #[derive(Debug)]
@@ -185,21 +186,29 @@ pub struct CoinbaseInterval {
     pub effective_start_height: u64,
 }
 
-// From SIP-029:
+/// Burnchain height of the Stacks genesis block (mainnet).
+pub const BITCOIN_MAINNET_GENESIS_BURN_HEIGHT: u64 = 666_050;
+
+/// Burnchain height at which the Stacks 4.0 epoch activates (mainnet).
+pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 960_230;
+
+/// Burnchain height of the Stacks genesis block (testnet).
+pub const BITCOIN_TESTNET_GENESIS_BURN_HEIGHT: u64 = 2_000_000;
+
+/// Burnchain height at which the Stacks 4.0 epoch activates (testnet).
+pub const BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT: u64 = 40_000_000;
+
+// Mainnet coinbase intervals, as defined in SIP-029 + SIP-045
 //
-// | Coinbase Interval  | Bitcoin Height | Offset Height       | Approx. Supply   | STX Reward | Annual Inflation |
-// |--------------------|----------------|---------------------|------------------|------------|------------------|
-// | Current            | -              | -                   | 1,552,452,847    | 1000       | -                |
-// | 1st                |   945,000      |   278,950           | 1,627,352,847    | 500 (50%)  | 3.23%            |
-// | 2nd                | 1,050,000      |   383,950           | 1,679,852,847    | 250 (50%)  | 1.57%            |
-// | 3rd                | 1,260,000      |   593,950           | 1,732,352,847    | 125 (50%)  | 0.76%            |
-// | 4th                | 1,470,000      |   803,950           | 1,758,602,847    | 62.5 (50%) | 0.37%            |
-// | -                  | 2,197,560      | 1,531,510           | 1,804,075,347    | 62.5 (0%)  | 0.18%            |
+// | Coinbase Interval  | Bitcoin Height                        | Offset Height       | Approx. Supply   | STX Reward | Annual Inflation |
+// |--------------------|---------------------------------------|---------------------|------------------|------------|------------------|
+// | Current            | -                                     | -                   | 1,552,452,847    | 1000       | -                |
+// | 1st (SIP-029)      | 945,000                               | 278,950             | 1,627,352,847    | 500 (50%)  | 3.23%            |
+// | 2nd (SIP-045)      | BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT | -                   | TBD              | 1000       | Variable         |
 //
 // The above is for mainnet, which has a burnchain year of 52596 blocks and starts at burnchain height 666050.
 
-/// Mainnet coinbase intervals, as of SIP-029
-pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 5]> = LazyLock::new(|| {
+pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 3]> = LazyLock::new(|| {
     let emissions_schedule = [
         CoinbaseInterval {
             coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
@@ -210,24 +219,16 @@ pub static COINBASE_INTERVALS_MAINNET: LazyLock<[CoinbaseInterval; 5]> = LazyLoc
             effective_start_height: 278_950,
         },
         CoinbaseInterval {
-            coinbase: 250 * u128::from(MICROSTACKS_PER_STACKS),
-            effective_start_height: 383_950,
-        },
-        CoinbaseInterval {
-            coinbase: 125 * u128::from(MICROSTACKS_PER_STACKS),
-            effective_start_height: 593_950,
-        },
-        CoinbaseInterval {
-            coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
-            effective_start_height: 803_950,
+            coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT
+                - BITCOIN_MAINNET_GENESIS_BURN_HEIGHT,
         },
     ];
     assert!(CoinbaseInterval::check_order(&emissions_schedule));
     emissions_schedule
 });
 
-/// Testnet coinbase intervals, as of SIP-029
-pub static COINBASE_INTERVALS_TESTNET: LazyLock<[CoinbaseInterval; 5]> = LazyLock::new(|| {
+pub static COINBASE_INTERVALS_TESTNET: LazyLock<[CoinbaseInterval; 6]> = LazyLock::new(|| {
     let emissions_schedule = [
         CoinbaseInterval {
             coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
@@ -248,6 +249,11 @@ pub static COINBASE_INTERVALS_TESTNET: LazyLock<[CoinbaseInterval; 5]> = LazyLoc
         CoinbaseInterval {
             coinbase: (625 * u128::from(MICROSTACKS_PER_STACKS)) / 10,
             effective_start_height: 77_777 * 21,
+        },
+        CoinbaseInterval {
+            coinbase: 1_000 * u128::from(MICROSTACKS_PER_STACKS),
+            effective_start_height: BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT
+                - BITCOIN_TESTNET_GENESIS_BURN_HEIGHT,
         },
     ];
     assert!(CoinbaseInterval::check_order(&emissions_schedule));
@@ -501,7 +507,7 @@ impl StacksEpochId {
 
     #[cfg(any(test, feature = "testing"))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch40
+        StacksEpochId::Epoch41
     }
 
     #[cfg(not(any(test, feature = "testing")))]
@@ -530,8 +536,26 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch24
     }
 
+    /// Returns whether or not this Epoch should perform
+    ///  Clarity value sanitization on function invocation
+    pub fn sanitize_in_function_invocation(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
+    /// Whether typed tuple deserialization requires every declared field to be
+    /// present exactly once after sanitization.
+    pub fn enforces_exact_typed_tuple_field_set(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_specific_budget_extends(&self) -> bool {
         self >= &StacksEpochId::Epoch33
+    }
+
+    /// Whether or not signer signatures on a Nakamoto block must be strictly
+    /// ordered by the signer's index in the reward set.
+    pub fn enforces_strict_signature_order(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
     }
 
     /// Whether or not this epoch supports the punishment of PoX reward
@@ -767,6 +791,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch33
     }
 
+    /// Whether contract analysis charges `AnalysisUseTraitEntry` for traits
+    /// resolved from the in-memory type-checking context, not only for those
+    /// fetched from the datastore.
+    pub fn meters_in_contract_trait_entry(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
     pub fn handles_with_stx_combined_check(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
@@ -775,6 +806,25 @@ impl StacksEpochId {
     /// which constrain how much STX a principal may stake (lock for PoX)
     /// during a transaction?
     pub fn supports_staking_post_conditions(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
+    /// Does this epoch sum stacking entries in the assetmap or just replace
+    ///  and error-on-replace?
+    pub fn sums_stacking_assetmap(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
+    /// Whether this epoch eagerly rejects a tuple `merge` whose combined size
+    /// exceeds `MAX_VALUE_SIZE`, at the merge site, with `ValueTooLarge` — both at
+    /// static-analysis time and at runtime.
+    ///
+    /// Before this epoch, an oversized merge was not checked at the merge site: the
+    /// oversized tuple type/value propagated and only failed later (block-invalidating
+    /// `InvariantViolation` when its size was eventually computed — or, if never
+    /// sized, the contract deployed and became uncallable). Gated here so the
+    /// behavior changes atomically at the epoch boundary. See PR #6946.
+    pub fn fixes_tuple_merge_size_check(&self) -> bool {
         self >= &StacksEpochId::Epoch40
     }
 
@@ -797,6 +847,51 @@ impl StacksEpochId {
         self < &StacksEpochId::Epoch40
     }
 
+    /// Whether the Clarity `map` built-in stops iteration at the shortest input
+    /// sequence.
+    ///
+    /// The original implementation had an off-by-one when mapping over sequences
+    /// of unequal length that included an empty sequence: it iterated one step
+    /// past the shortest sequence, producing a spurious element (or a runtime
+    /// arity error for a strict-arity function) instead of stopping. This is
+    /// corrected from Epoch 4.0 onwards. The fix is consensus-breaking, so
+    /// earlier epochs must preserve the misbehavior.
+    pub fn fixes_map_off_by_one(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
+    /// Whether trait-compliance type-checking surfaces cost-tracking errors
+    /// (e.g. `CostBalanceExceeded` / `CostOverflow`) as their real error instead
+    /// of masking them as `IncompatibleTrait`.
+    ///
+    /// Before this epoch, a cost error raised inside the trait-compatibility
+    /// recursion was swallowed and reported as `IncompatibleTrait`. That masking
+    /// is corrected from Epoch 4.0 onwards. The change is consensus-breaking, so
+    /// earlier epochs must preserve the masking.
+    pub fn surfaces_trait_compliance_cost_errors(&self) -> bool {
+        self >= &StacksEpochId::Epoch40
+    }
+
+    /// During the contract analysis phase, which check runs first --
+    /// the read-only check or the type check? Until Epoch 4.0, the
+    /// read-only check ran first. But since the implementation of the
+    /// read-only checker makes some assumptions about type correctness,
+    /// it is more appropriate for the type checker to run first, so
+    /// this behavior changes beginning with Epoch 4.1.
+    pub fn performs_read_only_checks_before_type_checks(&self) -> bool {
+        self < &StacksEpochId::Epoch41
+    }
+
+    /// Whether the analysis engine's definition sorter should track the `contract-call?`
+    /// function's `contract-name` argument as a dependency. That behavior would be
+    /// correct (starting in Epoch 2, when that argument no longer had to be a literal;
+    /// before that, it was not necessary), but it was broken before Epoch 4.1, and
+    /// because the change is consensus-breaking (even for non-broken contracts, because
+    /// it can change cost), we have to preserve the legacy behavior.
+    pub fn checks_dependency_of_contract_call_target(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Return the network epoch associated with the StacksEpochId
     pub fn network_epoch(epoch: StacksEpochId) -> u8 {
         match epoch {
@@ -814,6 +909,7 @@ impl StacksEpochId {
             StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_3,
             StacksEpochId::Epoch34 => PEER_VERSION_EPOCH_3_4,
             StacksEpochId::Epoch40 => PEER_VERSION_EPOCH_4_0,
+            StacksEpochId::Epoch41 => PEER_VERSION_EPOCH_4_1,
         }
     }
 }
@@ -836,14 +932,14 @@ impl StacksEpochId {
 
     /// Returns all [`StacksEpochId`] variants after the provided `epoch` (exclusive).
     ///
-    /// Provided as a helper function since this can't be expressed as a range (there's no
-    /// "excluded" start-bound syntax).
+    /// Provided as a helper function since this can't be expressed using standard range syntax
+    /// (there's no "excluded" start-bound syntax).
     ///
     /// Useful for iterating over all epochs _after_ a specific epoch, when the next epoch may not
     /// yet be known or defined (e.g. in tests that want to assert an invariant for all future
     /// [`StacksEpochId`] variants).
-    pub fn all_after(epoch: Self) -> impl Iterator<Item = Self> {
-        (Bound::Excluded(epoch), Bound::Unbounded).iter().copied()
+    pub fn all_after(epoch: Self) -> &'static [Self] {
+        (Bound::Excluded(epoch), Bound::Unbounded).as_slice()
     }
 
     /// Returns the first (lowest) [`StacksEpochId`] variant.
@@ -858,6 +954,7 @@ impl StacksEpochId {
 }
 
 /// Extension methods for iterating over standard Rust range bounds of [`StacksEpochId`].
+///
 /// Note: When `Step` stabilizes, this can be refactored.
 #[cfg(any(test, feature = "testing"))]
 pub trait StacksEpochRangeTestExt: RangeBounds<StacksEpochId> + Sized {
@@ -866,6 +963,11 @@ pub trait StacksEpochRangeTestExt: RangeBounds<StacksEpochId> + Sized {
     /// Forgiving: behaves like standard `Range` iterators in that `start >= end` results in an
     /// empty iterator.
     fn iter(&self) -> std::slice::Iter<'static, StacksEpochId> {
+        self.as_slice().iter()
+    }
+
+    /// Returns a slice of all [`StacksEpochId`] variants in this range.
+    fn as_slice(&self) -> &'static [StacksEpochId] {
         let start = match self.start_bound() {
             Bound::Included(epoch) => StacksEpochId::index_of(*epoch),
             Bound::Excluded(epoch) => StacksEpochId::index_of(*epoch) + 1,
@@ -880,12 +982,7 @@ pub trait StacksEpochRangeTestExt: RangeBounds<StacksEpochId> + Sized {
 
         // Yield an empty slice if end <= start, mirroring standard Rust behavior.
         let end = end.max(start);
-        StacksEpochId::ALL[start..end].iter()
-    }
-
-    /// Returns a slice of all [`StacksEpochId`] variants in this range.
-    fn as_slice(&self) -> &'static [StacksEpochId] {
-        self.iter().as_slice()
+        &StacksEpochId::ALL[start..end]
     }
 }
 
@@ -947,12 +1044,11 @@ impl StacksAddress {
 
         // address hash mode must be consistent with the number of keys
         match *hash_mode {
-            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH => {
+            AddressHashMode::SerializeP2PKH | AddressHashMode::SerializeP2WPKH
                 // must be a single public key, and must require one signature
-                if num_sigs != 1 || pubkeys.len() != 1 {
+                if (num_sigs != 1 || pubkeys.len() != 1) => {
                     return None;
                 }
-            }
             _ => {}
         }
 

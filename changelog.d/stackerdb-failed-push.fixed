@@ -1,0 +1,1 @@
+When a StackerDB chunk push fails, remove the receiver and immediately try the next receiver for the same chunk. This prevents an unavailable receiver from delaying the push.

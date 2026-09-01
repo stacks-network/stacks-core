@@ -27,6 +27,7 @@ use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{ClarityEvalError, VmExecutionError};
 use crate::vm::events::StacksTransactionEvent;
+use crate::vm::resource_limiter::ResourceBudget;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, analysis, ast};
 
@@ -61,8 +62,11 @@ pub enum ClarityError {
         /// A human-readable explanation for aborting the transaction
         reason: String,
     },
-    /// Transaction exceeded the maximum execution time allowed.
-    ExecutionTimeExpired,
+    /// Transaction exceeded the maximum execution time or heap usage allowed.
+    ExecutionResourceBudgetExceeded(String),
+    /// Contract analysis exceeded the maximum analysis time or heap usage allowed.
+    /// Distinct from `ExecutionResourceBudgetExceeded` so an analysis-phase issue is separable end-to-end.
+    AnalysisResourceBudgetExceeded(String),
 }
 
 impl fmt::Display for ClarityError {
@@ -78,7 +82,12 @@ impl fmt::Display for ClarityError {
             }
             ClarityError::Interpreter(e) => fmt::Display::fmt(e, f),
             ClarityError::BadTransaction(s) => fmt::Display::fmt(s, f),
-            ClarityError::ExecutionTimeExpired => write!(f, "Execution time expired"),
+            ClarityError::ExecutionResourceBudgetExceeded(s) => {
+                write!(f, "Execution resource budget exceeded: {s}")
+            }
+            ClarityError::AnalysisResourceBudgetExceeded(s) => {
+                write!(f, "Analysis resource budget exceeded: {s}")
+            }
         }
     }
 }
@@ -92,7 +101,191 @@ impl std::error::Error for ClarityError {
             ClarityError::Parse(ref e) => Some(e),
             ClarityError::Interpreter(ref e) => Some(e),
             ClarityError::BadTransaction(ref _s) => None,
-            ClarityError::ExecutionTimeExpired => None,
+            ClarityError::ExecutionResourceBudgetExceeded(_) => None,
+            ClarityError::AnalysisResourceBudgetExceeded(_) => None,
+        }
+    }
+}
+
+/// An execution-phase failure for a transaction that remains included in its block.
+// Left unboxed, as it was in `stackslib`.
+#[allow(clippy::large_enum_variant)]
+pub enum IncludedRuntimeTxError {
+    /// An error raised by the interpreter while executing the transaction.
+    #[non_exhaustive]
+    Runtime {
+        /// The underlying interpreter error: always a runtime error or an early return.
+        error: VmExecutionError,
+        /// A short description used when logging the failure.
+        err_type: &'static str,
+    },
+    /// Execution stopped by an abort callback, such as a failed post-condition check.
+    #[non_exhaustive]
+    AbortedByCallback {
+        /// What the output value of the transaction would have been.
+        output: Option<Value>,
+        /// The asset map evaluated by the abort callback.
+        assets_modified: AssetMap,
+        /// Events emitted while processing the transaction.
+        tx_events: Vec<StacksTransactionEvent>,
+        /// A human-readable explanation for aborting the transaction.
+        reason: String,
+    },
+    /// A non-rejectable runtime analysis error in Epoch 2.1 or later.
+    #[non_exhaustive]
+    Analysis { error: RuntimeCheckErrorKind },
+}
+
+/// An execution-phase failure that prevents a transaction from being included in a block.
+pub enum RejectedRuntimeTxError {
+    /// The execution cost and the budget it exceeded.
+    #[non_exhaustive]
+    Cost {
+        cost: ExecutionCost,
+        budget: ExecutionCost,
+    },
+    /// Execution exceeded a non-consensus resource budget.
+    #[non_exhaustive]
+    ExecutionResourceBudgetExceeded { message: String },
+    /// A Clarity error with no more specific variant in this enum.
+    #[non_exhaustive]
+    Clarity { error: ClarityError },
+}
+
+/// The authoritative block-inclusion disposition of an execution-phase failure.
+// Size is inherited from `IncludedRuntimeTxError`, which is left unboxed as it was in `stackslib`.
+#[allow(clippy::large_enum_variant)]
+#[must_use]
+pub enum ClarityRuntimeTxError {
+    /// The transaction remains included, charges its fee, and advances its nonces.
+    Included(IncludedRuntimeTxError),
+    /// Transaction processing fails and its state changes are not committed.
+    Rejected(RejectedRuntimeTxError),
+}
+
+impl ClarityRuntimeTxError {
+    /// Whether the classified failure still results in an included transaction.
+    pub fn is_included_in_block(&self) -> bool {
+        matches!(self, Self::Included(_))
+    }
+}
+
+/// Classify an execution-phase [`ClarityError`] by its block-inclusion disposition.
+pub fn handle_clarity_runtime_error(
+    error: ClarityError,
+    epoch_id: StacksEpochId,
+) -> ClarityRuntimeTxError {
+    let included_error = match error {
+        ClarityError::Interpreter(error @ VmExecutionError::Runtime(..)) => {
+            IncludedRuntimeTxError::Runtime {
+                error,
+                err_type: "runtime error",
+            }
+        }
+        ClarityError::Interpreter(error @ VmExecutionError::EarlyReturn(_)) => {
+            IncludedRuntimeTxError::Runtime {
+                error,
+                err_type: "short return/panic",
+            }
+        }
+        ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_check_err)) => {
+            if runtime_check_err.rejectable() || epoch_id < StacksEpochId::Epoch21 {
+                return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
+                    error: ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
+                        runtime_check_err,
+                    )),
+                });
+            }
+            IncludedRuntimeTxError::Analysis {
+                error: runtime_check_err,
+            }
+        }
+        ClarityError::AbortedByCallback {
+            output,
+            assets_modified,
+            tx_events,
+            reason,
+        } => IncludedRuntimeTxError::AbortedByCallback {
+            output: output.map(|v| *v),
+            assets_modified: *assets_modified,
+            tx_events,
+            reason,
+        },
+        ClarityError::CostError(cost, budget) => {
+            return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Cost { cost, budget });
+        }
+        ClarityError::ExecutionResourceBudgetExceeded(s) => {
+            return ClarityRuntimeTxError::Rejected(
+                RejectedRuntimeTxError::ExecutionResourceBudgetExceeded { message: s },
+            );
+        }
+        unhandled_error => {
+            return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
+                error: unhandled_error,
+            });
+        }
+    };
+    ClarityRuntimeTxError::Included(included_error)
+}
+
+/// The authoritative block-inclusion disposition of a deployment-analysis failure.
+#[must_use]
+pub enum ClarityAnalysisTxError {
+    /// The failed deployment remains included and produces a failure receipt.
+    #[non_exhaustive]
+    Included { error: ClarityError },
+    /// The failed deployment prevents the transaction from being included.
+    #[non_exhaustive]
+    Rejected { error: ClarityError },
+}
+
+impl ClarityAnalysisTxError {
+    /// Whether the classified analysis failure still results in an included transaction.
+    pub fn is_included_in_block(&self) -> bool {
+        matches!(self, Self::Included { .. })
+    }
+}
+
+/// Classify a contract-deployment transaction whose analysis phase failed.
+pub fn handle_clarity_analysis_error(
+    error: ClarityError,
+    epoch_id: StacksEpochId,
+) -> ClarityAnalysisTxError {
+    let is_included = match &error {
+        ClarityError::CostError(..) | ClarityError::AnalysisResourceBudgetExceeded(_) => false,
+        ClarityError::Parse(err) => !err.rejectable_in_epoch(epoch_id),
+        ClarityError::StaticCheck(err) => !err.err.rejectable_in_epoch(epoch_id),
+        // `analyze_smart_contract` only produces the variants above. Reject any
+        // unexpected variant instead of manufacturing an invalid included state.
+        _ => false,
+    };
+    if is_included {
+        ClarityAnalysisTxError::Included { error }
+    } else {
+        ClarityAnalysisTxError::Rejected { error }
+    }
+}
+
+impl From<IncludedRuntimeTxError> for ClarityError {
+    /// Recover the error that was classified. Inverse of the `Included` half of
+    /// [`handle_clarity_runtime_error`], less the logging label.
+    fn from(included: IncludedRuntimeTxError) -> Self {
+        match included {
+            IncludedRuntimeTxError::Runtime { error, .. } => ClarityError::Interpreter(error),
+            IncludedRuntimeTxError::AbortedByCallback {
+                output,
+                assets_modified,
+                tx_events,
+                reason,
+            } => ClarityError::AbortedByCallback {
+                output: output.map(Box::new),
+                assets_modified: Box::new(assets_modified),
+                tx_events,
+                reason,
+            },
+            IncludedRuntimeTxError::Analysis { error } => {
+                ClarityError::Interpreter(VmExecutionError::RuntimeCheck(error))
+            }
         }
     }
 }
@@ -107,7 +300,9 @@ impl From<StaticCheckError> for ClarityError {
             StaticCheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            StaticCheckErrorKind::ExecutionTimeExpired => ClarityError::ExecutionTimeExpired,
+            StaticCheckErrorKind::AnalysisResourceBudgetExceeded(s) => {
+                ClarityError::AnalysisResourceBudgetExceeded(s)
+            }
             _ => ClarityError::StaticCheck(e),
         }
     }
@@ -153,9 +348,9 @@ impl From<VmExecutionError> for ClarityError {
             VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::CostOverflow) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExecutionTimeExpired) => {
-                ClarityError::ExecutionTimeExpired
-            }
+            VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(s),
+            ) => ClarityError::ExecutionResourceBudgetExceeded(s.clone()),
             _ => ClarityError::Interpreter(e),
         }
     }
@@ -171,7 +366,6 @@ impl From<ParseError> for ClarityError {
             ParseErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            ParseErrorKind::ExecutionTimeExpired => ClarityError::ExecutionTimeExpired,
             _ => ClarityError::Parse(e),
         }
     }
@@ -245,14 +439,16 @@ pub trait TransactionConnection: ClarityConnection {
     /// containing a human-readable reason for aborting the transaction.
     ///
     /// If `to_do` returns an `Err` variant, then the changes are aborted.
-    fn with_abort_callback<F, A, R, E>(
-        &mut self,
+    fn with_abort_callback<'hooks, F, A, R, E>(
+        &'hooks mut self,
         to_do: F,
         abort_call_back: A,
     ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
-        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
+        F: FnOnce(
+            &mut OwnedEnvironment<'_, 'hooks>,
+        ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<VmExecutionError>;
 
     /// Do something with the analysis database and cost tracker
@@ -264,16 +460,32 @@ pub trait TransactionConnection: ClarityConnection {
     where
         F: FnOnce(&mut AnalysisDatabase, LimitedCostTracker) -> (LimitedCostTracker, R);
 
-    /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
+    /// Analyze a provided smart contract with an optional resource budget (wall-clock
+    /// deadline and allocation limit) covering AST building and static analysis, but do
+    /// not write the analysis to the AnalysisDatabase.
+    ///
+    /// `analysis_resource_budget` must be limited only on the non-consensus voting paths
+    /// (block assembly / block-proposal validation) and [`ResourceBudget::unlimited`]
+    /// on deterministic replay/commit, so consensus stays deterministic. When the deadline
+    /// elapses or allocations exceed the limit, the analysis aborts with
+    /// [`ClarityError::AnalysisResourceBudgetExceeded`].
+    ///
+    /// The clock starts before AST building so that time counts against the budget;
+    /// the deadline itself is only enforced at the cooperative checkpoints inside the
+    /// analysis passes. The same goes for measuring the baseline memory usage.
     fn analyze_smart_contract(
         &mut self,
         identifier: &QualifiedContractIdentifier,
         clarity_version: ClarityVersion,
         contract_content: &str,
+        analysis_resource_budget: &ResourceBudget,
     ) -> Result<(ContractAST, ContractAnalysis), ClarityError> {
         let epoch_id = self.get_epoch();
 
         self.with_analysis_db(|db, mut cost_track| {
+            // Start the analysis baseline here and take into account AST building.
+            let resource_limiter = analysis_resource_budget.start_tracking();
+
             let ast_result = ast::build_ast(
                 identifier,
                 contract_content,
@@ -296,6 +508,7 @@ pub trait TransactionConnection: ClarityConnection {
                 epoch_id,
                 clarity_version,
                 false,
+                resource_limiter,
             );
 
             match result {
@@ -374,7 +587,7 @@ pub trait TransactionConnection: ClarityConnection {
         public_function: &str,
         args: &[Value],
         abort_call_back: F,
-        max_execution_time: Option<std::time::Duration>,
+        resource_budget: &ResourceBudget,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
@@ -386,11 +599,9 @@ pub trait TransactionConnection: ClarityConnection {
 
         self.with_abort_callback(
             |vm_env| {
-                if let Some(max_execution_time_duration) = max_execution_time {
-                    vm_env
-                        .context
-                        .set_max_execution_time(max_execution_time_duration);
-                }
+                vm_env
+                    .context
+                    .set_execution_resource_limiter(resource_budget.start_tracking());
                 vm_env
                     .execute_transaction(
                         sender.clone(),
@@ -431,18 +642,17 @@ pub trait TransactionConnection: ClarityConnection {
         contract_str: &str,
         sponsor: Option<PrincipalData>,
         abort_call_back: F,
-        max_execution_time: Option<std::time::Duration>,
+        execution_resource_budget: &ResourceBudget,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
         let (_, assets_modified, tx_events, reason) = self.with_abort_callback(
             |vm_env| {
-                if let Some(max_execution_time_duration) = max_execution_time {
-                    vm_env
-                        .context
-                        .set_max_execution_time(max_execution_time_duration);
-                }
+                vm_env
+                    .context
+                    .set_execution_resource_limiter(execution_resource_budget.start_tracking());
+
                 vm_env
                     .initialize_contract_from_ast(
                         identifier.clone(),
@@ -465,5 +675,253 @@ pub trait TransactionConnection: ClarityConnection {
         } else {
             Ok((assets_modified, tx_events))
         }
+    }
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    use crate::vm::analysis::errors::StaticCheckErrorKind;
+    use crate::vm::ast::errors::ParseErrorKind;
+    use crate::vm::errors::{EarlyReturnError, RuntimeError};
+    use crate::vm::events::{STXBurnEventData, STXEventType};
+    use crate::vm::types::StandardPrincipalData;
+
+    #[test]
+    fn runtime_error_disposition_is_authoritative() {
+        let epoch = StacksEpochId::latest();
+
+        let runtime = ClarityError::Interpreter(VmExecutionError::Runtime(
+            RuntimeError::ArithmeticOverflow,
+            None,
+        ));
+        assert!(handle_clarity_runtime_error(runtime, epoch).is_included_in_block());
+
+        let aborted = ClarityError::AbortedByCallback {
+            output: None,
+            assets_modified: Box::new(AssetMap::new()),
+            tx_events: vec![],
+            reason: "post-condition".into(),
+        };
+        assert!(handle_clarity_runtime_error(aborted, epoch).is_included_in_block());
+
+        let cost = ClarityError::CostError(ExecutionCost::ZERO, ExecutionCost::max_value());
+        assert!(!handle_clarity_runtime_error(cost, epoch).is_included_in_block());
+        let resource = ClarityError::ExecutionResourceBudgetExceeded("too slow".into());
+        assert!(!handle_clarity_runtime_error(resource, epoch).is_included_in_block());
+        let rejectable = ClarityError::BadTransaction("nope".into());
+        assert!(!handle_clarity_runtime_error(rejectable, epoch).is_included_in_block());
+    }
+
+    #[test]
+    fn early_return_is_included_with_its_logging_label() {
+        let error = ClarityError::Interpreter(VmExecutionError::EarlyReturn(
+            EarlyReturnError::UnwrapFailed(Box::new(Value::Int(42))),
+        ));
+
+        match handle_clarity_runtime_error(error, StacksEpochId::latest()) {
+            ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Runtime {
+                error,
+                err_type,
+                ..
+            }) => {
+                assert_eq!(err_type, "short return/panic");
+                assert!(matches!(
+                    error,
+                    VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(value))
+                        if *value == Value::Int(42)
+                ));
+            }
+            _ => panic!("early returns must be included as acceptable runtime errors"),
+        }
+    }
+
+    #[test]
+    fn aborted_by_callback_payload_round_trips() {
+        let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+        let mut assets_modified = AssetMap::new();
+        assets_modified
+            .add_stx_burn(&sender, 123)
+            .expect("valid STX burn");
+        let tx_events = vec![StacksTransactionEvent::STXEvent(
+            STXEventType::STXBurnEvent(STXBurnEventData {
+                sender,
+                amount: 123,
+            }),
+        )];
+
+        let error = ClarityError::AbortedByCallback {
+            output: Some(Box::new(Value::Int(42))),
+            assets_modified: Box::new(assets_modified.clone()),
+            tx_events: tx_events.clone(),
+            reason: "post-condition failed".into(),
+        };
+
+        match handle_clarity_runtime_error(error, StacksEpochId::latest()) {
+            ClarityRuntimeTxError::Included(IncludedRuntimeTxError::AbortedByCallback {
+                output,
+                assets_modified: classified_assets,
+                tx_events: classified_events,
+                reason,
+                ..
+            }) => {
+                assert_eq!(output, Some(Value::Int(42)));
+                assert_eq!(classified_assets, assets_modified);
+                assert_eq!(classified_events, tx_events);
+                assert_eq!(reason, "post-condition failed");
+            }
+            _ => panic!("callback aborts must preserve their payload and remain included"),
+        }
+    }
+
+    #[test]
+    fn analysis_error_inclusion_is_gated_on_epoch_21() {
+        let err = || {
+            ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::ValueTooLarge,
+            ))
+        };
+
+        assert!(
+            !handle_clarity_runtime_error(err(), StacksEpochId::Epoch20).is_included_in_block()
+        );
+        assert!(
+            !handle_clarity_runtime_error(err(), StacksEpochId::Epoch2_05).is_included_in_block()
+        );
+        assert!(handle_clarity_runtime_error(err(), StacksEpochId::Epoch21).is_included_in_block());
+        assert!(
+            handle_clarity_runtime_error(err(), StacksEpochId::latest()).is_included_in_block()
+        );
+    }
+
+    /// Runtime-check errors are classified by `rejectable() || epoch_id < Epoch21`. The test
+    /// above pins the epoch half; this pins the `rejectable()` half. Every epoch used here is
+    /// >= 2.1, so the epoch half is false and only `rejectable()` can reject.
+    #[test]
+    fn rejectable_runtime_checks_are_rejected_in_every_epoch() {
+        for epoch in [
+            StacksEpochId::Epoch21,
+            StacksEpochId::Epoch33,
+            StacksEpochId::latest(),
+        ] {
+            // `RuntimeCheckErrorKind` is not `Clone`, so rebuild the set for each epoch.
+            let rejectable = [
+                RuntimeCheckErrorKind::Unreachable("bug".into()),
+                RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(1, 0),
+                RuntimeCheckErrorKind::PoxStxAssetMapOverwrite,
+            ];
+
+            for kind in rejectable {
+                // Pin the premise: if a kind stops being rejectable, fail here rather than below.
+                assert!(kind.rejectable(), "{kind:?} is expected to be rejectable");
+
+                let label = format!("{kind:?}");
+                let error = ClarityError::Interpreter(VmExecutionError::RuntimeCheck(kind));
+                assert!(
+                    !handle_clarity_runtime_error(error, epoch).is_included_in_block(),
+                    "{label} must never be included in a block, even in {epoch}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn analysis_failure_excludes_resource_exhaustion() {
+        let epoch = StacksEpochId::latest();
+
+        assert!(
+            !handle_clarity_analysis_error(
+                ClarityError::CostError(ExecutionCost::ZERO, ExecutionCost::max_value()),
+                epoch
+            )
+            .is_included_in_block()
+        );
+        assert!(
+            !handle_clarity_analysis_error(
+                ClarityError::AnalysisResourceBudgetExceeded("too slow".into()),
+                epoch
+            )
+            .is_included_in_block()
+        );
+        assert!(
+            !handle_clarity_analysis_error(
+                ClarityError::BadTransaction("not an analysis error".into()),
+                epoch
+            )
+            .is_included_in_block()
+        );
+    }
+
+    #[test]
+    fn analysis_failure_excludes_rejectable_errors() {
+        let epoch = StacksEpochId::latest();
+
+        // Rejectable in every epoch.
+        assert!(
+            !handle_clarity_analysis_error(
+                ClarityError::Parse(ParseError::new(ParseErrorKind::InterpreterFailure)),
+                epoch
+            )
+            .is_included_in_block()
+        );
+        assert!(
+            !handle_clarity_analysis_error(
+                ClarityError::StaticCheck(StaticCheckError::new(
+                    StaticCheckErrorKind::TraitReferenceChainTooDeep
+                )),
+                epoch
+            )
+            .is_included_in_block()
+        );
+    }
+
+    #[test]
+    fn analysis_failure_includes_ordinary_type_errors() {
+        let epoch = StacksEpochId::latest();
+
+        assert!(
+            handle_clarity_analysis_error(
+                ClarityError::StaticCheck(StaticCheckError::new(
+                    StaticCheckErrorKind::UnknownFunction("no-such-fn".into())
+                )),
+                epoch
+            )
+            .is_included_in_block()
+        );
+    }
+
+    #[test]
+    fn analysis_failure_includes_ordinary_parse_errors() {
+        let epoch = StacksEpochId::latest();
+        let parse_error = ParseError::new(ParseErrorKind::SeparatorExpected("token".into()));
+        assert!(!parse_error.rejectable_in_epoch(epoch));
+
+        match handle_clarity_analysis_error(ClarityError::Parse(parse_error), epoch) {
+            ClarityAnalysisTxError::Included {
+                error: ClarityError::Parse(error),
+                ..
+            } => assert!(matches!(
+                *error.err,
+                ParseErrorKind::SeparatorExpected(ref token) if token == "token"
+            )),
+            _ => panic!("ordinary parse errors must produce included analysis failures"),
+        }
+    }
+
+    /// `SupertypeTooLarge` stops being rejectable at 3.4.
+    #[test]
+    fn analysis_failure_rejectability_can_change_with_epoch() {
+        let err = || {
+            ClarityError::StaticCheck(StaticCheckError::new(
+                StaticCheckErrorKind::SupertypeTooLarge,
+            ))
+        };
+
+        assert!(
+            !handle_clarity_analysis_error(err(), StacksEpochId::Epoch33).is_included_in_block()
+        );
+        assert!(
+            handle_clarity_analysis_error(err(), StacksEpochId::Epoch34).is_included_in_block()
+        );
     }
 }

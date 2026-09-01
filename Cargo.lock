@@ -809,6 +809,7 @@ dependencies = [
  "criterion",
  "integer-sqrt",
  "lazy_static",
+ "madhouse",
  "mutants",
  "pinny",
  "proptest",
@@ -2553,6 +2554,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "marf-squash"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "rstest",
+ "rusqlite",
+ "serde",
+ "sha2 0.10.8",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+ "tempfile",
+ "toml 0.5.11",
+]
+
+[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3147,7 +3163,10 @@ name = "pox-locking"
 version = "2.4.0"
 dependencies = [
  "clarity 0.0.1",
+ "madhouse",
  "mutants",
+ "pinny",
+ "proptest",
  "slog",
  "stacks-common 0.0.1",
 ]
@@ -4621,6 +4640,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-transactions"
+version = "0.1.0"
+dependencies = [
+ "clarity-types 0.0.1",
+ "pinny",
+ "proptest",
+ "stacks-codec",
+ "stacks-common 0.0.1",
+]
+
+[[package]]
 name = "stackslib"
 version = "0.0.1"
 dependencies = [
@@ -4659,6 +4689,7 @@ dependencies = [
  "slog",
  "stacks-codec",
  "stacks-common 0.0.1",
+ "stacks-transactions",
  "stdext",
  "stx-genesis",
  "tempfile",

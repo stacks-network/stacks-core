@@ -36,7 +36,6 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use stacks::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
-use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
     set_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
@@ -302,6 +301,11 @@ impl MinerStopHandle {
         self.join_handle
     }
 
+    /// Signal the miner thread that it should abort
+    pub fn set_aborted(&self) {
+        self.abort_flag.store(true, Ordering::SeqCst);
+    }
+
     /// Stop the inner miner thread.
     /// Blocks the miner, and sets the abort flag so that a blocked miner will error out.
     pub fn stop(self, globals: &Globals) -> Result<(), NakamotoNodeError> {
@@ -312,7 +316,7 @@ impl MinerStopHandle {
             &my_id, &prior_thread_id
         );
 
-        self.abort_flag.store(true, Ordering::SeqCst);
+        self.set_aborted();
         globals.block_miner();
 
         let prior_miner = self.into_inner();
@@ -1125,21 +1129,12 @@ impl RelayerThread {
             NakamotoNodeError::SnapshotNotFoundForChainTip
         })?;
 
-        let commit_outs = match recipients.as_ref() {
-            // Under waterfall PoX, every block in the cycle (including
-            // prepare-phase blocks) commits to the cycle's sBTC address.
-            // Don't let the classic prepare-phase burn-output override clobber it.
-            Some(RewardSetInfo::Waterfall(_)) => {
-                RewardSetInfo::into_commit_outs(recipients, self.config.is_mainnet())
-            }
-            _ if self
-                .burnchain
-                .is_in_prepare_phase(sort_tip.block_height + 1) =>
-            {
-                vec![PoxAddress::standard_burn_address(self.config.is_mainnet())]
-            }
-            _ => RewardSetInfo::into_commit_outs(recipients, self.config.is_mainnet()),
-        };
+        let commit_outs = RewardSetInfo::commit_outs_for(
+            recipients,
+            self.burnchain
+                .is_in_prepare_phase(sort_tip.block_height + 1),
+            self.config.is_mainnet(),
+        );
 
         // find the sortition that kicked off this tenure (it may be different from the sortition
         // tip, such as when there is no sortition or when the miner of the current sortition never

@@ -47,10 +47,10 @@ pub(crate) use stream::compute_node_hash;
 use stream::recompute_content_hashes;
 pub(crate) use stream::stream_squash_blob;
 
-/// Classify a child pointer: resolve the `(block_id, byte_offset)` pair that
-/// locates the child in blob storage. Backpointers carry the target block_id
-/// directly; inline pointers belong to `origin_block_id`.
-/// Returns `None` for empty pointers.
+/// Resolve a child pointer to the `(block_id, byte_offset)` locating it in
+/// blob storage; `None` for empty pointers. Backpointers and squash-annotated
+/// inline pointers (non-zero `back_block`) name the child's block directly;
+/// plain inline pointers inherit `origin_block_id`.
 #[inline]
 fn resolve_child_ptr(ptr: &TriePtr, origin_block_id: u32) -> Option<(u32, u64)> {
     if ptr.id() == TrieNodeID::Empty as u8 {
@@ -58,6 +58,8 @@ fn resolve_child_ptr(ptr: &TriePtr, origin_block_id: u32) -> Option<(u32, u64)> 
     }
     if is_backptr(ptr.id()) {
         Some((ptr.back_block(), ptr.from_backptr().ptr()))
+    } else if ptr.back_block() != 0 {
+        Some((ptr.back_block(), ptr.ptr()))
     } else {
         Some((origin_block_id, ptr.ptr()))
     }
@@ -625,13 +627,13 @@ impl<T: MarfTrieId> MARF<T> {
     /// that `get_block_hash_caching(local_id)` returns the correct original
     /// `StacksBlockId`.
     ///
-    /// Backpointer identity is preserved via `TriePtr.back_block` annotations.
-    /// Children that were backpointers in the archival MARF are stored inline in
-    /// the blob but with `back_block` set to the squashed DB's local_id for the
-    /// original block.  When the squashed MARF is extended to height H+1,
-    /// `node_copy_update_ptrs` preserves these annotations, ensuring
-    /// that `inner_write_children_hashes` uses the same `StacksBlockId` values
-    /// as the archival MARF.  This guarantees identical per-block root hashes.
+    /// Block identity is preserved via `TriePtr.back_block` annotations: every
+    /// non-empty child pointer in the blob is stored inline, annotated with the
+    /// local_id of the block the child came from (its backpointer target in the
+    /// archival MARF, or its containing block). When the squashed MARF is later
+    /// extended, `node_copy_update_ptrs` turns the annotation back into a
+    /// backpointer, so `inner_write_children_hashes` hashes the same
+    /// `StacksBlockId`s as archival state - identical per-block root hashes.
     ///
     /// `tip` is used to identify the canonical fork the squash height
     /// lives on: it must be at or above `height`.
@@ -751,7 +753,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         // Destination requires `external_blobs = true` and `compress = false`;
         // the rest is unused because we bypass the normal MARF write path.
-        let dst_open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true);
+        let dst_open_opts = MARFOpenOpts::new(TrieHashCalculationMode::Deferred, true);
         let mut dst = MARF::from_path(dst_path, dst_open_opts)?;
         apply_offline_squash_pragmas(dst.sqlite_conn())?;
 
@@ -1024,24 +1026,20 @@ impl<T: MarfTrieId> MARF<T> {
                     .expect("BUG: next_child within bounds");
                 frame.next_child += 1;
 
-                if ptr.id() == TrieNodeID::Empty as u8 {
+                let Some(source_key) = resolve_child_ptr(&ptr, frame.origin_block_id) else {
                     continue;
-                }
-
-                let (child_block_id, read_ptr) = if is_backptr(ptr.id()) {
-                    (ptr.back_block(), ptr.from_backptr())
-                } else {
-                    (frame.origin_block_id, ptr)
                 };
-
-                let source_key = (child_block_id, read_ptr.ptr());
+                let (child_block_id, _) = source_key;
                 if source_to_idx.contains_key(&source_key) {
                     continue;
                 }
 
                 let child_bh = source.get_block_from_local_id(child_block_id)?.clone();
                 source.open_block_maybe_id(&child_bh, Some(child_block_id))?;
-                let (child_node, child_hash) = source.read_nodetype(&read_ptr)?;
+                // The block to read was chosen by `open_block_maybe_id` above;
+                // `from_backptr` strips the pointer's location metadata (backptr
+                // bit, annotation), leaving the offset to read there.
+                let (child_node, child_hash) = source.read_nodetype(&ptr.from_backptr())?;
 
                 let child_is_leaf = child_node.is_leaf();
                 let child_ptrs_vec: Vec<TriePtr> = if child_is_leaf {
@@ -1071,13 +1069,11 @@ impl<T: MarfTrieId> MARF<T> {
                     // Already-collected nodes are skipped: the DFS never
                     // reads them again, so their readahead would be wasted.
                     for ptr in child_ptrs_vec.iter() {
-                        if ptr.id() == TrieNodeID::Empty as u8 {
+                        // Resolve exactly as the DFS will so readahead hits the right page.
+                        let Some((target_block_id, target_in_block_ptr)) =
+                            resolve_child_ptr(ptr, child_block_id)
+                        else {
                             continue;
-                        }
-                        let (target_block_id, target_in_block_ptr) = if is_backptr(ptr.id()) {
-                            (ptr.back_block(), ptr.from_backptr().ptr())
-                        } else {
-                            (child_block_id, ptr.ptr())
                         };
                         if source_to_idx.contains_key(&(target_block_id, target_in_block_ptr)) {
                             continue;

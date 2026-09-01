@@ -22,9 +22,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
 
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::VmExecutionError;
+use clarity::vm::resource_limiter::ResourceBudget;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -35,16 +34,15 @@ use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::util::tests::TestFlag;
-use stacks_common::util::vrf::*;
 
 use crate::burnchains::{Burnchain, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::*;
-use crate::chainstate::nakamoto::miner::make_mem_abort_callback;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
     finalize_failed_transaction, handle_clarity_runtime_error, ClarityRuntimeTxError,
+    RejectedRuntimeTxError,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
@@ -243,12 +241,15 @@ pub struct BlockBuilderSettings {
     /// Should the builder attempt to confirm any parent microblocks
     pub confirm_microblocks: bool,
     pub max_execution_time: Option<std::time::Duration>,
+    /// Wall-clock deadline for the contract-analysis phase of a single tx
+    pub max_analysis_time: Option<std::time::Duration>,
     pub max_tenure_bytes: u64,
     /// Transaction IDs to temporarily exclude from block building (e.g., signer-rejected txs)
     pub temporarily_excluded_txids: HashSet<Txid>,
     /// Sets a limit for the bytes that the miner thread may have
-    /// allocated at any one time during block assembly. 0 means no
-    /// limit.
+    /// allocated at any one time during block assembly. Measured separately
+    /// during analysis phase and execution phase of a contract deploy tx.
+    /// 0 means no limit.
     pub max_assembly_mem_bytes: u64,
 }
 
@@ -262,6 +263,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_analysis_time: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
@@ -277,6 +279,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_analysis_time: None,
             max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
             temporarily_excluded_txids: HashSet::new(),
             max_assembly_mem_bytes: 0,
@@ -661,57 +664,33 @@ impl TransactionResult {
         epoch_id: StacksEpochId,
     ) -> (bool, Error) {
         let error = match error {
-            Error::ClarityError(e) => match handle_clarity_runtime_error(e) {
-                ClarityRuntimeTxError::Rejectable(e) => {
+            Error::ClarityError(e) => match handle_clarity_runtime_error(e, epoch_id) {
+                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
+                    error: e,
+                    ..
+                }) => {
                     // this transaction would invalidate the whole block, so don't re-consider it
                     info!("Problematic transaction would invalidate the block, so dropping from mempool"; "txid" => %tx.txid(), "error" => %e);
                     return (true, Error::ClarityError(e));
                 }
-                // recover original ClarityError
-                ClarityRuntimeTxError::Acceptable { error, .. } => {
-                    if let ClarityError::Parse(ref parse_err) = error {
-                        info!("Parse error: {}", parse_err; "txid" => %tx.txid());
-                        if parse_err.rejectable_in_epoch(epoch_id) {
-                            info!("Problematic transaction failed parse checks"; "txid" => %tx.txid());
-                            return (true, Error::ClarityError(error));
-                        }
-                    }
-                    Error::ClarityError(error)
-                }
-                ClarityRuntimeTxError::CostError(cost, budget) => {
-                    Error::ClarityError(ClarityError::CostError(cost, budget))
-                }
-                ClarityRuntimeTxError::AnalysisError(e) => {
-                    let clarity_err = Error::ClarityError(ClarityError::Interpreter(
-                        VmExecutionError::RuntimeCheck(e),
-                    ));
-                    if epoch_id < StacksEpochId::Epoch21 {
-                        // this would invalidate the block, so it's problematic
-                        return (true, clarity_err);
-                    } else {
-                        // in 2.1 and later, this can be mined
-                        clarity_err
-                    }
-                }
-                ClarityRuntimeTxError::AbortedByCallback {
-                    output,
-                    assets_modified,
-                    tx_events,
-                    reason,
-                } => Error::ClarityError(ClarityError::AbortedByCallback {
-                    output: output.map(Box::new),
-                    assets_modified: Box::new(assets_modified),
-                    tx_events,
-                    reason,
-                }),
-                ClarityRuntimeTxError::ExecutionTimeExpired => {
-                    // This transaction took too long to execute. Consider it problematic.
-                    info!("Problematic transaction caused ExecutionTimeExpired";
+                // An included failure is still mineable: recover the original `ClarityError`.
+                ClarityRuntimeTxError::Included(included) => Error::ClarityError(included.into()),
+                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Cost {
+                    cost,
+                    budget,
+                    ..
+                }) => Error::ClarityError(ClarityError::CostError(cost, budget)),
+                ClarityRuntimeTxError::Rejected(
+                    RejectedRuntimeTxError::ExecutionResourceBudgetExceeded { message: s, .. },
+                ) => {
+                    // This transaction took too long to execute or used too much heap memory. Consider it problematic.
+                    info!("Problematic transaction caused ExecutionResourceBudgetExceeded";
+                          "error" => s.clone(),
                           "txid" => %tx.txid(),
                           "origin" => %tx.get_origin().get_address(false),
                           "payload" => ?tx.payload,
                     );
-                    return (true, Error::ExecutionTimeExpired);
+                    return (true, Error::ExecutionResourceBudgetExceeded(s));
                 }
             },
             Error::InvalidFee => {
@@ -727,18 +706,99 @@ impl TransactionResult {
                 );
                 return (true, Error::InvalidFee);
             }
-            Error::ExecutionTimeExpired => {
-                // The transaction took too long to execute. Consider it problematic.
-                info!("Problematic transaction caused ExecutionTimeExpired";
+            Error::ExecutionResourceBudgetExceeded(s) => {
+                // The transaction took too long to execute or used too much heap memory. Consider it problematic.
+                info!("Problematic transaction caused ExecutionResourceBudgetExceeded";
+                      "error" => s.clone(),
                       "txid" => %tx.txid(),
                       "origin" => %tx.get_origin().get_address(false),
                       "payload" => ?tx.payload,
                 );
-                return (true, Error::ExecutionTimeExpired);
+                return (true, Error::ExecutionResourceBudgetExceeded(s));
+            }
+            Error::AnalysisResourceBudgetExceeded(s) => {
+                // The transaction's contract analysis took too long or used too much memory. Consider it problematic
+                // so the contract-publish is dropped and blacklisted instead of being re-mined.
+                info!("Problematic transaction caused AnalysisResourceBudgetExceeded";
+                      "error" => s.clone(),
+                      "txid" => %tx.txid(),
+                      "origin" => %tx.get_origin().get_address(false),
+                      "payload" => ?tx.payload,
+                );
+                return (true, Error::AnalysisResourceBudgetExceeded(s));
             }
             e => e,
         };
         (false, error)
+    }
+}
+
+/// Defines limits on computing resources (heap allocation and wallclock time)
+/// during processing of contract deploy and call transaction. These are
+/// independent of cost tracking and MUST be [`ResourceBudget::unlimited`]
+/// during consensus-critical processing, because that must remain deterministic.
+///
+/// The budgets are limited during the miner's block construction and the
+/// signer node's proposal validation to ensure that a smart contract that
+/// triggers excessive memory usage or delays is not included in the chain.
+/// This is a defense-in-depth measure -- if these budgets are exceeded, that
+/// probably means there's an underlying bug in the VM or analysis engine that
+/// should be fixed.
+pub struct TransactionResourceBudgets {
+    /// The budget that applies during clarity evalution, used both during
+    /// contract deploy and contract call transactions.
+    execution_budget: ResourceBudget,
+
+    /// The budget that applies during contract analysis, only used during
+    /// contract deploy transactions.
+    analysis_budget: ResourceBudget,
+}
+
+impl TransactionResourceBudgets {
+    pub fn new() -> Self {
+        Self {
+            execution_budget: ResourceBudget::unlimited(),
+            analysis_budget: ResourceBudget::unlimited(),
+        }
+    }
+
+    pub fn unlimited() -> Self {
+        Self::new()
+    }
+
+    pub fn from_settings(settings: &BlockBuilderSettings) -> Self {
+        let memory_limit = if settings.max_assembly_mem_bytes > 0 {
+            Some(settings.max_assembly_mem_bytes)
+        } else {
+            None
+        };
+
+        Self {
+            execution_budget: ResourceBudget::new()
+                .with_max_duration(settings.max_execution_time)
+                .with_max_memory_use(memory_limit),
+            analysis_budget: ResourceBudget::new()
+                .with_max_duration(settings.max_analysis_time)
+                .with_max_memory_use(memory_limit),
+        }
+    }
+
+    pub fn with_execution_budget(mut self, execution_budget: ResourceBudget) -> Self {
+        self.execution_budget = execution_budget;
+        self
+    }
+
+    pub fn with_analysis_budget(mut self, analysis_budget: ResourceBudget) -> Self {
+        self.analysis_budget = analysis_budget;
+        self
+    }
+
+    pub fn get_execution_budget(&self) -> &ResourceBudget {
+        &self.execution_budget
+    }
+
+    pub fn get_analysis_budget(&self) -> &ResourceBudget {
+        &self.analysis_budget
     }
 }
 
@@ -750,7 +810,7 @@ pub trait BlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        max_execution_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> TransactionResult;
 
@@ -760,7 +820,7 @@ pub trait BlockBuilder {
         &mut self,
         clarity_tx: &mut ClarityTx,
         tx: &StacksTransaction,
-        max_execution_time: Option<std::time::Duration>,
+        resource_budgets: &TransactionResourceBudgets,
         total_receipts_size: &mut u64,
     ) -> Result<TransactionResult, Error> {
         let tx_len = tx.tx_len();
@@ -769,7 +829,7 @@ pub trait BlockBuilder {
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            max_execution_time,
+            resource_budgets,
             total_receipts_size,
         ) {
             TransactionResult::Success(s) => Ok(TransactionResult::Success(s)),
@@ -2071,7 +2131,12 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info = builder.pre_epoch_begin(&mut chainstate, burn_dbconn, true)?;
         let (mut epoch_tx, _) = builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;
         for tx in txs.into_iter() {
-            match builder.try_mine_tx(&mut epoch_tx, &tx, None, &mut 0) {
+            match builder.try_mine_tx(
+                &mut epoch_tx,
+                &tx,
+                &TransactionResourceBudgets::unlimited(),
+                &mut 0,
+            ) {
                 Ok(_) => {
                     debug!("Included {}", &tx.txid());
                 }
@@ -2238,7 +2303,7 @@ impl StacksBlockBuilder {
                     .try_mine_tx(
                         epoch_tx,
                         initial_tx,
-                        settings.max_execution_time,
+                        &TransactionResourceBudgets::from_settings(&settings),
                         &mut receipts_total,
                     )?
                     .convert_to_event(),
@@ -2445,7 +2510,7 @@ impl BlockBuilder for StacksBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        _max_execution_time: Option<std::time::Duration>,
+        _resource_budgets: &TransactionResourceBudgets,
         _total_receipt_size: &mut u64,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
@@ -2709,22 +2774,14 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
 
                 fault_injection_stall_tx();
 
-                if settings.max_assembly_mem_bytes > 0 {
-                    epoch_tx.set_abort_callback(make_mem_abort_callback(
-                        settings.max_assembly_mem_bytes,
-                    ));
-                }
-
                 let tx_result = builder.try_mine_tx_with_len(
                     epoch_tx,
                     &txinfo.tx,
                     txinfo.metadata.len,
                     &block_limit_hit,
-                    settings.max_execution_time,
+                    &TransactionResourceBudgets::from_settings(&settings),
                     &mut receipts_total,
                 );
-
-                epoch_tx.set_abort_callback(AbortCallback::None);
 
                 let result_event = tx_result.convert_to_event();
                 match tx_result {
@@ -2896,7 +2953,7 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
             replay_tx,
             replay_tx.tx_len(),
             &BlockLimitFunction::NO_LIMIT_HIT,
-            None,
+            &TransactionResourceBudgets::unlimited(),
             &mut receipts_total,
         );
         let tx_event = tx_result.convert_to_event();

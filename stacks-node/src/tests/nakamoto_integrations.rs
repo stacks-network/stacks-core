@@ -59,8 +59,8 @@ use stacks::chainstate::stacks::boot::{
 };
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
-    BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResult, TransactionSuccessEvent,
-    TEST_TX_STALL,
+    BlockBuilder, BlockLimitFunction, TransactionEvent, TransactionResourceBudgets,
+    TransactionResult, TransactionSuccessEvent, TEST_TX_STALL,
 };
 use stacks::chainstate::stacks::{
     AssetInfo, FungibleConditionCode, NonfungibleConditionCode, PostConditionPrincipal,
@@ -81,7 +81,8 @@ use stacks::core::{
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
-    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_TESTNET,
+    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1,
+    PEER_VERSION_TESTNET,
 };
 use stacks::libstackerdb::{SlotMetadata, StackerDBChunkData};
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
@@ -93,7 +94,7 @@ use stacks::net::api::postblock_proposal::{
 };
 use stacks::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks::types::{MinerDiagnosticData, MiningReason};
-use stacks::util::hash::{hex_bytes, MerkleTree};
+use stacks::util::hash::hex_bytes;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
@@ -122,8 +123,8 @@ use stacks_signer::v0::SpawnedSigner;
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_try_stall_miner, fault_injection_unstall_miner,
-    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP,
-    TEST_P2P_BROADCAST_STALL,
+    TestTransientError, TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL,
+    TEST_MINE_TRANSIENT_ERRORS, TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::Counters;
@@ -151,7 +152,7 @@ use stacks::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::clarity::vm::clarity::ClarityConnection;
 
 lazy_static! {
-    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 14] = [
+    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 15] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -258,7 +259,16 @@ lazy_static! {
             start_height: 1_002,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_3_4
+            network_epoch: PEER_VERSION_EPOCH_4_0
+        },
+        // Epoch 4.1 is present but disabled: zero-width at STACKS_EPOCH_MAX, so
+        // `find_epoch` never resolves to it and Epoch 4.0 stays open-ended.
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch41,
+            start_height: STACKS_EPOCH_MAX,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: HELIUM_BLOCK_LIMIT_20,
+            network_epoch: PEER_VERSION_EPOCH_4_1
         },
     ];
 }
@@ -3500,7 +3510,7 @@ fn block_proposal_api_endpoint() {
             &tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            None,
+            &TransactionResourceBudgets::unlimited(),
             &mut 0,
         );
         assert!(
@@ -3579,31 +3589,6 @@ fn block_proposal_api_endpoint() {
             },
             HTTP_UNPROCESSABLE,
             None,
-        ),
-        (
-            "High-S signature",
-            {
-                let mut p = proposal.clone();
-                p.block.txs[0] = p.block.txs[0].with_negated_s_in_signature();
-                // tweaking the signature changes the transaction id (which is
-                // the main problem with high-S signatures), so we need to update
-                // the transaction merkle root
-                let txid_vecs: Vec<_> = p
-                    .block
-                    .txs
-                    .iter()
-                    .map(|tx| tx.txid().as_bytes().to_vec())
-                    .collect();
-
-                let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
-                let tx_merkle_root = merkle_tree.root();
-
-                p.block.header.tx_merkle_root = tx_merkle_root;
-
-                sign(&p)
-            },
-            HTTP_ACCEPTED,
-            Some(Err(ValidateRejectCode::BadTransaction)),
         ),
     ];
 
@@ -7307,13 +7292,11 @@ fn signer_chainstate() {
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
         pox_treatment: BitVec::ones(1).unwrap(),
+        problematic_txs: vec![],
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
-    let sibling_block = NakamotoBlock {
-        header: sibling_block_header,
-        txs: vec![],
-    };
+    let sibling_block = NakamotoBlock::new(sibling_block_header, vec![]);
 
     // this config disallows any reorg due to poorly timed block commits
     let proposal_conf = ProposalEvalConfig {
@@ -7352,12 +7335,13 @@ fn signer_chainstate() {
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
         pox_treatment: BitVec::ones(1).unwrap(),
+        problematic_txs: vec![],
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
-    let sibling_block = NakamotoBlock {
-        header: sibling_block_header,
-        txs: vec![
+    let sibling_block = NakamotoBlock::new(
+        sibling_block_header,
+        vec![
             StacksTransaction {
                 version: TransactionVersion::Testnet,
                 chain_id: 1,
@@ -7378,9 +7362,9 @@ fn signer_chainstate() {
                     last_tenure.get_tenure_change_tx_payload().unwrap().clone(),
                 ),
             },
-            last_tenure.txs[1].clone(),
+            last_tenure.executed_and_skipped_txs()[1].clone(),
         ],
-    };
+    );
 
     sortitions_view
         .check_proposal(
@@ -7406,12 +7390,13 @@ fn signer_chainstate() {
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
         pox_treatment: BitVec::ones(1).unwrap(),
+        problematic_txs: vec![],
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
-    let sibling_block = NakamotoBlock {
-        header: sibling_block_header.clone(),
-        txs: vec![
+    let sibling_block = NakamotoBlock::new(
+        sibling_block_header.clone(),
+        vec![
             StacksTransaction {
                 version: TransactionVersion::Testnet,
                 chain_id: 1,
@@ -7438,9 +7423,9 @@ fn signer_chainstate() {
                     pubkey_hash: Hash160::from_node_public_key(&miner_pk),
                 }),
             },
-            last_tenure.txs[1].clone(),
+            last_tenure.executed_and_skipped_txs()[1].clone(),
         ],
-    };
+    );
 
     sortitions_view
         .check_proposal(
@@ -7469,12 +7454,13 @@ fn signer_chainstate() {
         miner_signature: MessageSignature([0; 65]),
         signer_signature: Vec::new(),
         pox_treatment: BitVec::ones(1).unwrap(),
+        problematic_txs: vec![],
     };
     sibling_block_header.sign_miner(&miner_sk).unwrap();
 
-    let sibling_block = NakamotoBlock {
-        header: sibling_block_header.clone(),
-        txs: vec![
+    let sibling_block = NakamotoBlock::new(
+        sibling_block_header.clone(),
+        vec![
             StacksTransaction {
                 version: TransactionVersion::Testnet,
                 chain_id: 1,
@@ -7501,9 +7487,9 @@ fn signer_chainstate() {
                     pubkey_hash: Hash160::from_node_public_key(&miner_pk),
                 }),
             },
-            last_tenure.txs[1].clone(),
+            last_tenure.executed_and_skipped_txs()[1].clone(),
         ],
-    };
+    );
 
     sortitions_view
         .check_proposal(
@@ -10784,7 +10770,6 @@ fn test_shadow_recovery() {
 
     let stacks_height_before = get_chain_info(&naka_conf).stacks_tip_height;
 
-    // TODO: stall block processing; otherwise this test can flake
     // stop block processing on the node
     TEST_COORDINATOR_STALL.lock().unwrap().replace(true);
 
@@ -10807,8 +10792,17 @@ fn test_shadow_recovery() {
     // revive ATC-C by waiting for commits
     next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
-    // make another tenure
-    next_block_and_mine_commit(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    // make another tenure.
+    //
+    // NOTE: `next_block_and_mine_commit()` can be flaky here because the
+    // shadow-parent commit may be rejected by the PoX output check, and the
+    // miner may tenure-extend instead of winning a new tenure.
+    let stacks_height_before = get_chain_info(&naka_conf).stacks_tip_height;
+    next_block_and_commits_only(btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+    wait_for(60, || {
+        Ok(get_chain_info(&naka_conf).stacks_tip_height > stacks_height_before)
+    })
+    .unwrap();
 
     // all shadow blocks are present and processed
     let mut shadow_ids = HashSet::new();
@@ -19728,4 +19722,80 @@ fn tenure_extend_no_commits() {
     run_loop_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Verify that the miner thread survives transient mining errors
+/// (`ParentNotFound`, `NewParentDiscovered`, and DB errors) by retrying,
+/// rather than exiting and stalling for the remainder of the tenure.
+///
+/// Each injected error causes one `mine_block()` attempt to fail. The miner
+/// must consume all of them and still mine a submitted transfer within the
+/// same tenure (i.e. without a new burnchain block arriving).
+fn miner_recovers_from_transient_mining_errors() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let send_amt = 100;
+    let send_fee = 180;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new(1, vec![(sender_addr.clone(), send_amt + send_fee)]);
+    let mined_blocks = signer_test.running_nodes.counters.naka_mined_blocks.clone();
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    signer_test.boot_to_epoch_3();
+    let naka_conf = signer_test.running_nodes.conf.clone();
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    // Give the miner a chance to mine the tenure-start block, so that the
+    // test starts from a quiescent, mid-tenure state.
+    wait_for(30, || {
+        Ok(mined_blocks.load(Ordering::SeqCst) > blocks_before)
+    })
+    .expect("Timed out waiting for the tenure-start block to be mined");
+
+    info!("------------------------- Injecting transient mining errors -------------------------");
+    // Each subsequent mining attempt pops and returns one of these errors.
+    TEST_MINE_TRANSIENT_ERRORS.set(vec![
+        TestTransientError::ParentNotFound,
+        TestTransientError::NewParentDiscovered,
+        TestTransientError::DBError,
+    ]);
+
+    let info_before = get_chain_info(&naka_conf);
+
+    // Submit a transfer. The miner must retry through the injected errors and
+    // mine it within the current tenure.
+    let transfer_tx = make_stacks_transfer_serialized(
+        &sender_sk,
+        0,
+        send_fee,
+        naka_conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+
+    wait_for(60, || {
+        let info = get_chain_info(&naka_conf);
+        assert_eq!(
+            info.burn_block_height, info_before.burn_block_height,
+            "The burnchain tip must not change during this test"
+        );
+        Ok(get_account(&http_origin, &sender_addr).nonce > 0)
+    })
+    .expect(
+        "Timed out waiting for the miner to recover from injected transient errors and mine the transfer",
+    );
+
+    assert!(
+        TEST_MINE_TRANSIENT_ERRORS.get().is_empty(),
+        "All injected transient errors should have been consumed by mining attempts"
+    );
+
+    signer_test.shutdown();
 }

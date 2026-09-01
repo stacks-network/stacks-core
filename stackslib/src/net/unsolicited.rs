@@ -16,11 +16,16 @@
 
 use std::collections::HashMap;
 
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::Hash160;
+
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::net::p2p::{PeerNetwork, PendingMessages};
-use crate::net::{NakamotoBlocksData, NeighborKey, Preamble, StacksMessage, StacksMessageType};
+use crate::net::p2p::{PeerNetwork, PendingMessages, PendingMessagesFrom};
+use crate::net::{
+    NakamotoBlocksData, NeighborAddress, NeighborKey, Preamble, StacksMessage, StacksMessageType,
+};
 
 /// This module contains all of the code needed to handle unsolicited messages -- that is, messages
 /// that get pushed to us.  These include:
@@ -72,6 +77,14 @@ impl PeerNetwork {
             return None;
         }
         Some(remote_neighbor_key)
+    }
+
+    fn pending_peer_addr(&self, event_id: usize, neighbor_key: &NeighborKey) -> NeighborAddress {
+        self.get_p2p_convo(event_id)
+            .map(|convo| convo.to_neighbor_address())
+            .unwrap_or_else(|| {
+                NeighborAddress::from_neighbor_key(neighbor_key.clone(), Hash160([0u8; 20]))
+            })
     }
 
     #[cfg_attr(test, mutants::skip)]
@@ -134,8 +147,12 @@ impl PeerNetwork {
         msg: StacksMessage,
     ) -> bool {
         let key = (event_id, neighbor_key.clone());
-        let Some(msgs) = self.pending_messages.get(&key) else {
-            self.pending_messages.insert(key.clone(), vec![msg]);
+        let neighbor_addr = self.pending_peer_addr(event_id, neighbor_key);
+        let Some(inbox) = self.pending_messages.get(&key) else {
+            self.pending_messages.insert(
+                key.clone(),
+                PendingMessagesFrom::new(neighbor_addr, vec![msg]),
+            );
             debug!(
                 "{:?}: Event {} has 1 messages buffered",
                 &self.get_local_peer(),
@@ -146,7 +163,7 @@ impl PeerNetwork {
 
         // check limits against connection opts, and if the limit is not met, then buffer up the
         // message.
-        if !self.can_buffer_data_message(event_id, msgs, &msg) {
+        if !self.can_buffer_data_message(event_id, &inbox.messages, &msg) {
             return false;
         }
 
@@ -154,13 +171,13 @@ impl PeerNetwork {
             "{:?}: buffer message from event {} (buffered: {}): {:?}",
             self.get_local_peer(),
             event_id,
-            msgs.len() + 1,
+            inbox.messages.len() + 1,
             &msg
         );
-        if let Some(msgs) = self.pending_messages.get_mut(&key) {
+        if let Some(inbox) = self.pending_messages.get_mut(&key) {
             // should always be reachable
             debug!("{}", &debug_msg);
-            msgs.push(msg);
+            inbox.messages.push(msg);
         }
         true
     }
@@ -177,7 +194,8 @@ impl PeerNetwork {
         msg: StacksMessage,
     ) -> bool {
         let key = (event_id, neighbor_key.clone());
-        let Some(msgs) = self.pending_stacks_messages.get(&key) else {
+        let neighbor_addr = self.pending_peer_addr(event_id, neighbor_key);
+        let Some(inbox) = self.pending_stacks_messages.get(&key) else {
             // check limits against connection opts, and if the limit is not met, then buffer up the
             // message.
             if !self.can_buffer_data_message(event_id, &[], &msg) {
@@ -189,7 +207,10 @@ impl PeerNetwork {
                 event_id,
                 &msg
             );
-            self.pending_stacks_messages.insert(key.clone(), vec![msg]);
+            self.pending_stacks_messages.insert(
+                key.clone(),
+                PendingMessagesFrom::new(neighbor_addr, vec![msg]),
+            );
             debug!(
                 "{:?}: Event {} has 1 messages buffered",
                 &self.get_local_peer(),
@@ -200,7 +221,7 @@ impl PeerNetwork {
 
         // check limits against connection opts, and if the limit is not met, then buffer up the
         // message.
-        if !self.can_buffer_data_message(event_id, msgs, &msg) {
+        if !self.can_buffer_data_message(event_id, &inbox.messages, &msg) {
             return false;
         }
 
@@ -208,23 +229,25 @@ impl PeerNetwork {
             "{:?}: buffer message from event {} (buffered: {}): {:?}",
             self.get_local_peer(),
             event_id,
-            msgs.len() + 1,
+            inbox.messages.len() + 1,
             &msg
         );
-        if let Some(msgs) = self.pending_stacks_messages.get_mut(&key) {
+        if let Some(inbox) = self.pending_stacks_messages.get_mut(&key) {
             // should always be reachable
             debug!("{}", &debug_msg);
-            msgs.push(msg);
+            inbox.messages.push(msg);
         }
         true
     }
 
     #[cfg_attr(test, mutants::skip)]
     /// Check the signature of a NakamotoBlock against its sortition's reward cycle.
-    /// The reward cycle must be recent.
+    /// The reward cycle must be recent. `epoch_id` is the epoch of the block's
+    /// sortition.
     pub(crate) fn check_nakamoto_block_signer_signature(
         &mut self,
         reward_cycle: u64,
+        epoch_id: StacksEpochId,
         nakamoto_block: &NakamotoBlock,
     ) -> bool {
         let Some(rc_data) = self.current_reward_sets.get(&reward_cycle) else {
@@ -245,7 +268,10 @@ impl PeerNetwork {
             return false;
         };
 
-        if let Err(e) = nakamoto_block.header.verify_signer_signatures(reward_set) {
+        if let Err(e) = nakamoto_block
+            .header
+            .verify_signer_signatures(reward_set, epoch_id)
+        {
             info!(
                 "{:?}: signature verification failure for Nakamoto block {}/{} in reward cycle {}: {:?}", self.get_local_peer(), &nakamoto_block.header.consensus_hash, &nakamoto_block.header.block_hash(), reward_cycle, &e
             );
@@ -336,7 +362,28 @@ impl PeerNetwork {
             return false;
         };
 
-        if !self.check_nakamoto_block_signer_signature(sn_rc, nakamoto_block) {
+        // Determine the epoch in which to apply the signer-signature ordering
+        // rule. If the block's sortition hasn't been processed yet, fall back
+        // to the burnchain tip, otherwise we'd refuse to buffer the very
+        // blocks this method exists to buffer.
+        let epoch_burn_height = match SortitionDB::get_block_snapshot_consensus(
+            sortdb.conn(),
+            &nakamoto_block.header.consensus_hash,
+        ) {
+            Ok(Some(block_sn)) => block_sn.block_height,
+            _ => {
+                debug!(
+                    "{:?}: no sortition yet for block {} consensus hash {}; use burnchain tip epoch",
+                    self.get_local_peer(),
+                    &nakamoto_block.header.block_hash(),
+                    &nakamoto_block.header.consensus_hash,
+                );
+                self.burnchain_tip.block_height
+            }
+        };
+        let epoch_id = self.get_epoch_at_burn_height(epoch_burn_height).epoch_id;
+
+        if !self.check_nakamoto_block_signer_signature(sn_rc, epoch_id, nakamoto_block) {
             return false;
         }
 
@@ -353,7 +400,7 @@ impl PeerNetwork {
     /// sortition identified by the block's consensus hash is known to this node (in which case,
     /// the relayer can store it to staging).
     ///
-    /// Returns true if this message should be buffered and re-processed  
+    /// Returns true if this message should be buffered and re-processed
     pub(crate) fn inner_handle_unsolicited_NakamotoBlocksData(
         &mut self,
         sortdb: &SortitionDB,
@@ -392,7 +439,7 @@ impl PeerNetwork {
     /// sortition identified by the block's consensus hash is known to this node (in which case,
     /// the relayer can store it to staging).
     ///
-    /// Returns true if this message should be buffered and re-processed  
+    /// Returns true if this message should be buffered and re-processed
     ///
     /// Wraps inner_handle_unsolicited_NakamotoBlocksData by resolving the event_id to the optional
     /// neighbor key.
@@ -554,9 +601,7 @@ impl PeerNetwork {
                     return None;
                 }
             };
-            let neighbor_key = if let Some(convo) = self.peers.get(&event_id) {
-                convo.to_neighbor_key()
-            } else {
+            let Some(convo) = self.peers.get(&event_id) else {
                 debug!(
                     "{:?}: No longer such neighbor event={}, dropping {} unsolicited messages",
                     &self.get_local_peer(),
@@ -565,7 +610,10 @@ impl PeerNetwork {
                 );
                 return None;
             };
-            Some(((event_id, neighbor_key), messages))
+            Some((
+                (event_id, convo.to_neighbor_key()),
+                PendingMessagesFrom::new(convo.to_neighbor_address(), messages),
+            ))
         })
         .collect()
     }
@@ -594,14 +642,17 @@ impl PeerNetwork {
         chainstate: &StacksChainState,
         mut unsolicited: PendingMessages,
         buffer: bool,
-    ) -> HashMap<(usize, NeighborKey), Vec<StacksMessage>> {
-        unsolicited.retain(|(event_id, neighbor_key), messages| {
-            debug!("{:?}: Process {} unsolicited sortition-bound messages from {:?}", &self.get_local_peer(), messages.len(), neighbor_key; "buffer" => %buffer);
-            messages.retain(|message| {
+    ) -> PendingMessages {
+        unsolicited.retain(|(event_id, neighbor_key), inbox| {
+            debug!("{:?}: Process {} unsolicited sortition-bound messages from {:?}", &self.get_local_peer(), inbox.messages.len(), neighbor_key; "buffer" => %buffer);
+            inbox.messages.retain(|message| {
                 if buffer
                     && !self.can_buffer_data_message(
                         *event_id,
-                        self.pending_messages.get(&(*event_id, neighbor_key.clone())).unwrap_or(&vec![]),
+                        self.pending_messages
+                            .get(&(*event_id, neighbor_key.clone()))
+                            .map(|inbox| inbox.messages.as_slice())
+                            .unwrap_or(&[]),
                         message,
                     )
                 {
@@ -640,7 +691,7 @@ impl PeerNetwork {
                 }
                 true
             });
-            !messages.is_empty()
+            !inbox.messages.is_empty()
         });
         unsolicited
     }
@@ -665,14 +716,14 @@ impl PeerNetwork {
         chainstate: &mut StacksChainState,
         mut unsolicited: PendingMessages,
         buffer: bool,
-    ) -> HashMap<(usize, NeighborKey), Vec<StacksMessage>> {
-        unsolicited.retain(|(event_id, neighbor_key), messages| {
-            if messages.is_empty() {
+    ) -> PendingMessages {
+        unsolicited.retain(|(event_id, neighbor_key), inbox| {
+            if inbox.messages.is_empty() {
                 // no messages for this node
                 return false;
             }
-            debug!("{:?}: Process {} unsolicited tenure-bound messages from {:?}", &self.get_local_peer(), messages.len(), &neighbor_key; "buffer" => %buffer);
-            messages.retain(|message| {
+            debug!("{:?}: Process {} unsolicited tenure-bound messages from {:?}", &self.get_local_peer(), inbox.messages.len(), &neighbor_key; "buffer" => %buffer);
+            inbox.messages.retain(|message| {
                 if !buffer {
                     debug!(
                         "{:?}: Re-try handling buffered tenure-bound message {} from {:?}",
@@ -703,7 +754,7 @@ impl PeerNetwork {
                 }
                 true
             });
-            !messages.is_empty()
+            !inbox.messages.is_empty()
         });
         unsolicited
     }

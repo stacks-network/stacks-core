@@ -9,13 +9,14 @@ import {
 } from '@stacks/transactions';
 import { hex } from '@scure/base';
 import {
+  err,
   extractErrors,
   projectErrors,
   projectFactory,
   contractFactory,
 } from '@clarigen/core';
 import { accounts, project } from '../clarigen-types';
-import { rov, rovOk, txOk } from '@clarigen/test';
+import { rov, rovOk, tx, txOk } from '@clarigen/test';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { concatBytes } from '@noble/hashes/utils.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
@@ -28,8 +29,16 @@ const contracts = projectFactory(project, 'simnet');
 // `pox5` handle points there. The local [contracts.pox-5] still deploys but is
 // unused.
 export const POX5_BOOT_ID: string = 'ST000000000000000000002AMW42H.pox-5';
-export const pox5 = contractFactory(project.contracts.pox5, POX5_BOOT_ID);
+// Cast to the generated pox5 type. contractFactory infers the identifier as
+// `string`, but the `contracts` override needs the generated literal-id type.
+export const pox5 = contractFactory(
+  project.contracts.pox5,
+  POX5_BOOT_ID,
+) as typeof contracts.pox5;
 export const errorCodes = projectErrors(project).pox5;
+// The signer-manager wrapper has its own error constants;
+// `claim-staker-rewards` asserts with these, not pox-5's.
+export const signerErrorCodes = projectErrors(project).testPox5Signer;
 export const testSigner = contracts.testPox5Signer;
 export const testSignerErrors = extractErrors(testSigner);
 export const signerManager = contracts.signerManager;
@@ -39,16 +48,104 @@ export const sbtc = contracts.sbtcToken;
 export const REWARD_CYCLE_LENGTH = 100n;
 export const HALF_CYCLE_LENGTH = REWARD_CYCLE_LENGTH / 2n;
 export const BASIS_POINTS = 10000n;
+/** Largest value a Clarity `uint` (uint128) can hold. */
+export const MAX_UINT128 = 2n ** 128n - 1n;
+/** Cap on simultaneously-deployed signer-manager contracts. */
+export const MAX_SIGNERS = 10;
+/** Cycles between consecutive bond-period starts (contract `BOND_GAP_CYCLES`). */
+export const BOND_GAP_CYCLES = 2n;
+/** Length of a bond period in cycles (contract `BOND_LENGTH_CYCLES`). */
+export const BOND_LENGTH_CYCLES = 12n;
+/** Min uSTX delegation for a signer to enter the reward set. */
+export const SIGNER_SET_MIN_USTX = pox5.constants.SIGNER_SET_MIN_USTX;
+/** Sum of the simnet STX balances in settings/Devnet.toml. */
+export const TOTAL_LIQUID_SUPPLY_USTX = 1_200_000_000_000_000n;
+/** Fixed-point scale for the rewards-per-token accumulators (1e18). */
+export const PRECISION = pox5.constants.PRECISION;
+/** Basis-point share of rewards skimmed into the reserve (1500 = 15%). */
+export const RESERVE_RATIO = pox5.constants.RESERVE_RATIO;
 
 export const deployer = accounts.deployer.address;
+// With `override_boot_contracts_source`, pox-5 starts with the placeholder
+// mainnet admin principal baked into pox-5.clar for both admin roles.
+const POX5_BOOTSTRAP_ADMIN = 'SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX';
+export const AUTH_PROXY_NAME = 'pox-5-auth-proxy';
+export const AUTH_PROXY_ID = `${deployer}.${AUTH_PROXY_NAME}`;
+
+type ProxyStakeArgs = {
+  sender: string;
+  signerManager: string;
+  amountUstx: bigint;
+  numCycles: bigint;
+  startBurnHeight: bigint | number;
+};
+
+function proxyStakeCall(args: ProxyStakeArgs) {
+  const { signerManager, amountUstx, numCycles, startBurnHeight } = args;
+  return contracts.pox5AuthProxy.stakeForSender({
+    signerManager,
+    amountUstx,
+    numCycles,
+    startBurnHt: startBurnHeight,
+    signerCalldata: null,
+  });
+}
+
+export function proxyStake(args: ProxyStakeArgs) {
+  return tx(proxyStakeCall(args), args.sender);
+}
+
+export function proxyStakeOk(args: ProxyStakeArgs) {
+  return txOk(proxyStakeCall(args), args.sender);
+}
+
+type ProxyUnstakeArgs = {
+  sender: string;
+  oldSignerManager: string;
+};
+
+function proxyUnstakeCall(args: ProxyUnstakeArgs) {
+  const { oldSignerManager } = args;
+  return contracts.pox5AuthProxy.unstakeForSender(oldSignerManager);
+}
+
+export function proxyUnstake(args: ProxyUnstakeArgs) {
+  return tx(proxyUnstakeCall(args), args.sender);
+}
+
+export function proxyUnstakeOk(args: ProxyUnstakeArgs) {
+  return txOk(proxyUnstakeCall(args), args.sender);
+}
+
+type ProxyRegisterForBondArgs = {
+  sender: string;
+  bondIndex: bigint;
+  signerManager: string;
+  amountUstx: bigint;
+  sats: bigint;
+};
+
+function proxyRegisterForBondCall(args: ProxyRegisterForBondArgs) {
+  const { bondIndex, signerManager, amountUstx, sats } = args;
+  return contracts.pox5AuthProxy.registerForBondForSender({
+    bondIndex,
+    signerManager,
+    amountUstx,
+    btcLockup: err(sats),
+    signerCalldata: null,
+  });
+}
+
+export function proxyRegisterForBond(args: ProxyRegisterForBondArgs) {
+  return tx(proxyRegisterForBondCall(args), args.sender);
+}
+
+export function proxyRegisterForBondOk(args: ProxyRegisterForBondArgs) {
+  return txOk(proxyRegisterForBondCall(args), args.sender);
+}
 
 export function toWitnessOutput(script: Uint8Array) {
-  return BTC.OutScript.encode(
-    BTC.p2wsh({
-      type: 'wsh',
-      script,
-    }),
-  );
+  return concatBytes(new Uint8Array([0x00, 0x20]), sha256(script));
 }
 
 export function serializeLockupScript({
@@ -282,28 +379,73 @@ export function signPerTransactionAuth({
   return hex.decode(data.slice(2) + data.slice(0, 2));
 }
 
-// /** Register the test signer with a valid signer key grant. Returns the signer key and pox address. */
-export function registerSigner(
-  { caller }: { caller: string } = { caller: deployer },
-) {
-  const signerSk = secp256k1.utils.randomSecretKey();
+/**
+ * Register a test-pox-5-signer instance with a valid signer key grant.
+ *
+ * Defaults to the project's `testSigner`; pass `signerManager` to register a
+ * different deployed instance (e.g. one returned by `deployTestSignerContract`).
+ * Passing both `seed` and `authId` makes the call fully deterministic;
+ * omitting them uses fresh entropy and the module-level auth-id counter.
+ */
+export function registerSigner({
+  signerManager = testSigner,
+  caller = deployer,
+  seed,
+  authId,
+}: {
+  signerManager?: typeof testSigner;
+  caller?: string;
+  seed?: Uint8Array;
+  authId?: bigint;
+} = {}) {
+  const signerSk = secp256k1.utils.randomSecretKey(seed);
   const signerKey = secp256k1.getPublicKey(signerSk, true);
-  const authId = grantAuthIdCounter++;
+  const resolvedAuthId = authId ?? grantAuthIdCounter++;
   const signature = signSignerKeyGrant({
-    signerManager: testSigner.identifier,
-    authId,
+    signerManager: signerManager.identifier,
+    authId: resolvedAuthId,
     signerSk,
   });
   txOk(
-    testSigner.registerSelf({
+    signerManager.registerSelf({
       signerKey,
-      signerManager: testSigner.identifier,
-      authId,
+      signerManager: signerManager.identifier,
+      authId: resolvedAuthId,
       signerSig: signature,
     }),
     caller,
   );
-  return { signerKey, signer: testSigner.identifier };
+  return { signerKey, signer: signerManager.identifier };
+}
+
+/**
+ * Deploy a fresh test-pox-5-signer contract instance (using the same source
+ * as the default `testSigner`) but do NOT register it. Returns a typed
+ * contract handle that can be passed to `registerSigner({ signerManager })`.
+ */
+export function deployTestSignerContract(name: string) {
+  const newId = `${accounts.deployer.address}.${name}`;
+  const signerSource = simnet.getContractSource(testSigner.identifier)!;
+  simnet.deployContract(
+    name,
+    signerSource,
+    // @ts-ignore
+    { clarityVersion: 6 },
+    accounts.deployer.address,
+  );
+  return testSignerHandle(newId);
+}
+
+/**
+ * Reconstruct a typed test-pox-5-signer contract handle for an identifier
+ * that was already deployed earlier in the session (e.g. tracked in the
+ * stateful test model).
+ */
+export function testSignerHandle(identifier: string): typeof testSigner {
+  return contractFactory(
+    project.contracts.testPox5Signer,
+    identifier,
+  ) as typeof testSigner;
 }
 
 export function registerSignerManager() {
@@ -402,8 +544,6 @@ export function expectAllSignersHaveKeys() {
 }
 
 export function initPox5() {
-  const INITIAL_PAUSE_ADMIN = 'SP000000000000000000002Q6VF78';
-
   txOk(
     pox5.setBurnchainParameters({
       firstBurnHeight: 0n,
@@ -413,8 +553,31 @@ export function initPox5() {
     }),
     deployer,
   );
-  txOk(pox5.setBondAdmin(deployer), INITIAL_PAUSE_ADMIN);
-  txOk(pox5.setPauseAdmin(deployer), INITIAL_PAUSE_ADMIN);
+  txOk(pox5.setBondAdmin(deployer), POX5_BOOTSTRAP_ADMIN);
+  txOk(pox5.setPauseAdmin(deployer), POX5_BOOTSTRAP_ADMIN);
+}
+
+//  The boot-deployed pox-5 (`ST0…AMW42H.pox-5`) that clarinet-sdk recognizes
+//  and applies STX locking to. `signer-manager.clar` now targets this instance,
+//  so the test infra must register/stake against it. The local
+//  `[contracts.pox-5]` is not lock-aware in simnet. Typed via the local ABI
+//  re-pointed at the boot id.
+
+/** `initPox5` for the boot instance used by the stateful suite. */
+export function initBootPox5() {
+  txOk(
+    pox5.setBurnchainParameters({
+      firstBurnHeight: 0n,
+      prepareCycleLength: 10n,
+      rewardCycleLength: REWARD_CYCLE_LENGTH,
+      beginPox5RewardCycle: 1n,
+    }),
+    deployer,
+  );
+  // Hand bond-admin from the shipped mainnet placeholder to the deployer so
+  // the stateful test can drive `setup-bond`.
+  txOk(pox5.setBondAdmin(deployer), POX5_BOOTSTRAP_ADMIN);
+  txOk(pox5.setPauseAdmin(deployer), POX5_BOOTSTRAP_ADMIN);
 }
 
 export function sbtcTransfer(

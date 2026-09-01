@@ -28,7 +28,7 @@ use crate::vm::types::TypeSignature::{self, BoolType, IntType, SequenceType, UIn
 use crate::vm::types::signatures::SequenceSubtype::{self, BufferType, StringType};
 use crate::vm::types::signatures::StringSubtype::ASCII;
 use crate::vm::types::{BufferLength, ListTypeData, StringSubtype, StringUTF8Length, Value};
-use crate::vm::{ClarityVersion, execute, execute_v2, execute_v6};
+use crate::vm::{ClarityVersion, execute, execute_v2, execute_v6, execute_with_parameters};
 
 #[test]
 fn test_simple_list_admission() {
@@ -391,11 +391,43 @@ fn test_simple_map_list() {
     );
 }
 
+/// Fixed variadic `map` behavior, gated to **Epoch 4.0** (see `special_map_v400`).
+///
+/// Iteration stops at the length of the *shortest* input sequence, so any
+/// empty input sequence yields an empty result.
+///
+/// The legacy (buggy) behavior for Epoch [2.0 .. 3.4]
+/// is pinned in [`test_variadic_map_list_pre_epoch40`].
 #[test]
 fn test_variadic_map_list() {
+    // User functions
+    // - 1 sequence: 1 empty, result empty.
     let test = "(define-private (area (w int) (h int)) (* w h))
-         (map area (list 5 10 1 2) (list 5 2 30 3))";
+        (map area (list))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
 
+    // - 2 sequences: 2 empties, result empty.
+    let test = "(define-private (area (w int) (h int)) (* w h))
+        (map area (list) (list))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // - 2 sequences: 1 empty and 1 not, result empty.
+    let test = "(define-private (area (w int) (h int)) (* w h))
+        (map area (list) (list 10 20))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // - 3 sequences: 1 empty in between, result empty.
+    let test = "(define-private (area (w int) (h int)) (* w h))
+        (map area (list 1 2 3) (list) (list 10 20))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // - 2 sequences: same length 4, result contains 4 elements.
+    let test = "(define-private (area (w int) (h int)) (* w h))
+        (map area (list 5 10 1 2) (list 5 2 30 3))";
     let expected = Value::list_from(vec![
         Value::Int(25),
         Value::Int(20),
@@ -403,11 +435,11 @@ fn test_variadic_map_list() {
         Value::Int(6),
     ])
     .unwrap();
-    assert_eq!(expected, execute(test).unwrap().unwrap());
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
 
+    // - 2 sequences: same length 4 with different int types, result contains 4 elements.
     let test = "(define-private (u+ (a uint) (b int)) (+ a (to-uint b)))
-    (map u+ (list u5 u10 u1 u2) (list 5 2 30 3))";
-
+        (map u+ (list u5 u10 u1 u2) (list 5 2 30 3))";
     let expected = Value::list_from(vec![
         Value::UInt(10),
         Value::UInt(12),
@@ -415,23 +447,227 @@ fn test_variadic_map_list() {
         Value::UInt(5),
     ])
     .unwrap();
-    assert_eq!(expected, execute(test).unwrap().unwrap());
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
 
+    // Native functions
+    // - 1 sequence: 1 empty, result empty.
+    let test = "(map + (list))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // - 2 sequences: 2 empties, result empty.
+    let test = "(map + (list) (list))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // - 2 sequences: 1 empty and 1 not, result empty.
+    let test = "(map + (list) (list 10 20))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // - 3 sequences: 1 empty in between, result empty.
+    let test = "(map + (list 1 2 3) (list) (list 10 20))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // - 2 sequences: last is longer, result contains 2 elements.
     let test = "(map + (list 5 10) (list 5 2 30 3))";
-
     let expected = Value::list_from(vec![Value::Int(10), Value::Int(12)]).unwrap();
-    assert_eq!(expected, execute(test).unwrap().unwrap());
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
 
-    let test = "(map pow (list 2 2 2 2) (list 1 2 3 4 5 6 7))";
+    // - 3 sequences: last is the longest, result contains 2 elements.
+    let test = "(map + (list 1 2) (list 10 20 30) (list 100 200 300 400))";
+    let expected = Value::list_from(vec![Value::Int(111), Value::Int(222)]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
 
+    // - 3 sequences: last is the shortest, result contains 1 element.
+    let test = "(map + (list 1 2) (list 10 20 30) (list 100))";
+    let expected = Value::list_from(vec![Value::Int(111)]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // Special Functions
+    // - 1 sequence: 1 empty, result empty.
+    let test = "(map > (list))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // - 2 sequences: 2 empties, result empty.
+    let test = "(map > (list) (list))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // - 2 sequences: 1 empty and 1 not, result empty.
+    let test = "(map > (list) (list 10 20))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // - 3 sequences: 1 empty in between, result empty.
+    let test = "(map > (list 1 2 3) (list) (list 10 20))";
+    let expected = Value::list_from(vec![]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+
+    // - 2 sequences: last is longer, result contains 2 elements.
+    let test = "(map > (list 1 10) (list 2 3 4 5))";
+    let expected = Value::list_from(vec![Value::Bool(false), Value::Bool(true)]).unwrap();
+    assert_eq!(expected, execute_v6(test).unwrap().unwrap());
+}
+
+/// Legacy variadic `map` behavior for Epoch 2.0 .. 3.4 (see `special_map_v200`).
+///
+/// This pins the *buggy* pre-Epoch-4.0 behavior for consensus compatibility.
+/// The iteration does not stop at the shortest sequence when
+/// an earlier/interleaved sequence is empty.
+/// The result is that mixing an empty sequence with a non-empty one
+/// either:
+///   - produces a spurious non-empty result (using the wrong elements), or
+///   - errors with `IncorrectArgumentCount` when a strict-arity function is
+///     applied with too few arguments,
+///
+/// where the fixed Epoch 4.0 behavior would return an empty list. Cases without
+/// an empty input sequence are unaffected and match the fixed behavior.
+///
+/// Runs at Epoch 3.4, the last epoch before the fix activates
+/// (see [`test_variadic_map_list`]).
+#[test]
+fn test_variadic_map_list_pre_epoch40() {
+    let exec = |program: &str| {
+        execute_with_parameters(
+            program,
+            ClarityVersion::Clarity5,
+            StacksEpochId::Epoch34,
+            false,
+        )
+    };
+
+    // === Cases that match the fixed Epoch 4.0 behavior (no empty input) ===
+
+    // User functions
+    // - 1 sequence: 1 empty, result empty.
+    let test = "(define-private (area (w int) (h int)) (* w h))
+        (map area (list))";
+    assert_eq!(
+        Value::list_from(vec![]).unwrap(),
+        exec(test).unwrap().unwrap()
+    );
+
+    // - 2 sequences: 2 empties, result empty.
+    let test = "(define-private (area (w int) (h int)) (* w h))
+        (map area (list) (list))";
+    assert_eq!(
+        Value::list_from(vec![]).unwrap(),
+        exec(test).unwrap().unwrap()
+    );
+
+    // - 2 sequences: same length 4, result contains 4 elements.
+    let test = "(define-private (area (w int) (h int)) (* w h))
+        (map area (list 5 10 1 2) (list 5 2 30 3))";
     let expected = Value::list_from(vec![
-        Value::Int(2),
-        Value::Int(4),
-        Value::Int(8),
-        Value::Int(16),
+        Value::Int(25),
+        Value::Int(20),
+        Value::Int(30),
+        Value::Int(6),
     ])
     .unwrap();
-    assert_eq!(expected, execute(test).unwrap().unwrap());
+    assert_eq!(expected, exec(test).unwrap().unwrap());
+
+    // - 2 sequences: same length 4 with different int types, result contains 4 elements.
+    let test = "(define-private (u+ (a uint) (b int)) (+ a (to-uint b)))
+        (map u+ (list u5 u10 u1 u2) (list 5 2 30 3))";
+    let expected = Value::list_from(vec![
+        Value::UInt(10),
+        Value::UInt(12),
+        Value::UInt(31),
+        Value::UInt(5),
+    ])
+    .unwrap();
+    assert_eq!(expected, exec(test).unwrap().unwrap());
+
+    // Native functions
+    let test = "(map + (list))";
+    assert_eq!(
+        Value::list_from(vec![]).unwrap(),
+        exec(test).unwrap().unwrap()
+    );
+
+    let test = "(map + (list) (list))";
+    assert_eq!(
+        Value::list_from(vec![]).unwrap(),
+        exec(test).unwrap().unwrap()
+    );
+
+    // - 2 sequences: last is longer, result contains 2 elements.
+    let test = "(map + (list 5 10) (list 5 2 30 3))";
+    let expected = Value::list_from(vec![Value::Int(10), Value::Int(12)]).unwrap();
+    assert_eq!(expected, exec(test).unwrap().unwrap());
+
+    // - 3 sequences: last is the longest, result contains 2 elements.
+    let test = "(map + (list 1 2) (list 10 20 30) (list 100 200 300 400))";
+    let expected = Value::list_from(vec![Value::Int(111), Value::Int(222)]).unwrap();
+    assert_eq!(expected, exec(test).unwrap().unwrap());
+
+    // - 3 sequences: last is the shortest, result contains 1 element.
+    let test = "(map + (list 1 2) (list 10 20 30) (list 100))";
+    let expected = Value::list_from(vec![Value::Int(111)]).unwrap();
+    assert_eq!(expected, exec(test).unwrap().unwrap());
+
+    // Special Functions
+    let test = "(map > (list))";
+    assert_eq!(
+        Value::list_from(vec![]).unwrap(),
+        exec(test).unwrap().unwrap()
+    );
+
+    let test = "(map > (list) (list))";
+    assert_eq!(
+        Value::list_from(vec![]).unwrap(),
+        exec(test).unwrap().unwrap()
+    );
+
+    // - 2 sequences: last is longer, result contains 2 elements.
+    let test = "(map > (list 1 10) (list 2 3 4 5))";
+    let expected = Value::list_from(vec![Value::Bool(false), Value::Bool(true)]).unwrap();
+    assert_eq!(expected, exec(test).unwrap().unwrap());
+
+    // === Cases that DIVERGE from the fixed behavior (empty input sequence) ===
+    // The fixed Epoch 4.0 behavior returns an empty list for all of these.
+
+    // - 2 sequences (user fn): 1 empty and 1 not. The off-by-one applies the
+    //   function with a single argument, so strict arity fails.
+    let test = "(define-private (area (w int) (h int)) (* w h))
+        (map area (list) (list 10 20))";
+    assert_eq!(
+        exec(test).unwrap_err(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into()
+    );
+
+    // - 3 sequences (user fn): 1 empty in between. A spurious 1-element list is
+    //   produced from the first elements of the non-empty sequences.
+    let test = "(define-private (area (w int) (h int)) (* w h))
+        (map area (list 1 2 3) (list) (list 10 20))";
+    let expected = Value::list_from(vec![Value::Int(10)]).unwrap();
+    assert_eq!(expected, exec(test).unwrap().unwrap());
+
+    // - 2 sequences (native +): 1 empty and 1 not. `(+ 10)` = 10, spuriously.
+    let test = "(map + (list) (list 10 20))";
+    let expected = Value::list_from(vec![Value::Int(10)]).unwrap();
+    assert_eq!(expected, exec(test).unwrap().unwrap());
+
+    // - 3 sequences (native +): 1 empty in between. `(+ 1 10)` = 11, spuriously.
+    let test = "(map + (list 1 2 3) (list) (list 10 20))";
+    let expected = Value::list_from(vec![Value::Int(11)]).unwrap();
+    assert_eq!(expected, exec(test).unwrap().unwrap());
+
+    // - 2 sequences (special >): 1 empty and 1 not. `>` requires 2 args.
+    let test = "(map > (list) (list 10 20))";
+    assert_eq!(
+        exec(test).unwrap_err(),
+        RuntimeCheckErrorKind::IncorrectArgumentCount(2, 1).into()
+    );
+
+    // - 3 sequences (special >): 1 empty in between. `(> 1 10)` = false, spuriously.
+    let test = "(map > (list 1 2 3) (list) (list 10 20))";
+    let expected = Value::list_from(vec![Value::Bool(false)]).unwrap();
+    assert_eq!(expected, exec(test).unwrap().unwrap());
 }
 
 #[test]
@@ -711,7 +947,7 @@ fn test_variadic_concat_string_ascii() {
 #[test]
 fn test_variadic_concat_string_utf8() {
     // Existing test_string_utf8_concat builds the same emoji from 5 binary
-    // concats — here we do it in one variadic call to verify the v600 path
+    // concats — here we do it in one variadic call to verify the v400 path
     // preserves UTF-8 semantics.
     let variadic =
         "(concat u\"\\u{1F926}\" u\"\\u{1F3FC}\" u\"\\u{200D}\" u\"\\u{2642}\" u\"\\u{FE0F}\")";
@@ -1562,7 +1798,7 @@ fn test_filter_with_special_functions() {
 // with random data, builds the variadic `(concat a1 a2 ... aN)` snippet, and
 // verifies the result equals the byte/char/element-wise concatenation of all
 // args computed in Rust. This exercises both the two-pass evaluation in
-// `special_concat_v600` (phase 1 sum, phase 2 reserve+concat) and the
+// `special_concat_v400` (phase 1 sum, phase 2 reserve+concat) and the
 // type-checker fold in `check_special_concat`.
 //
 // Per-arg lengths are kept small so that the combined result fits comfortably
@@ -1574,12 +1810,22 @@ fn buff_chunk_strategy() -> impl Strategy<Value = Vec<u8>> {
     prop::collection::vec(any::<u8>(), 0..=32)
 }
 
+/// Printable-ASCII bytes (`0x20..=0x7E`) excluding `"` and `\`, which need
+/// escaping in a Clarity string literal.
+///
+/// Callers sample from this set directly rather than `prop_filter`-ing the full
+/// range: a per-byte filter rejects `"`/`\` ~2% of the time, and with many
+/// bytes per case the cumulative local rejects blow past proptest's cap under
+/// high case counts (aborting the run).
+fn allowed_ascii_bytes() -> Vec<u8> {
+    (0x20u8..=0x7Eu8)
+        .filter(|b| *b != b'"' && *b != b'\\')
+        .collect()
+}
+
 /// Random printable-ASCII bytes (no `"` or `\`) for a string-ascii arg.
 fn ascii_chunk_strategy() -> impl Strategy<Value = Vec<u8>> {
-    prop::collection::vec(
-        (0x20u8..=0x7Eu8).prop_filter("not quote or backslash", |b| *b != b'"' && *b != b'\\'),
-        0..=32,
-    )
+    prop::collection::vec(prop::sample::select(allowed_ascii_bytes()), 0..=32)
 }
 
 /// Random Unicode chars (printable ASCII + BMP + emoji) for a string-utf8 arg.
@@ -1587,9 +1833,7 @@ fn utf8_chunk_strategy() -> impl Strategy<Value = Vec<char>> {
     prop::collection::vec(
         prop_oneof![
             // Printable ASCII excluding `"` and `\`
-            (0x20u8..=0x7Eu8)
-                .prop_filter("not quote or backslash", |b| *b != b'"' && *b != b'\\')
-                .prop_map(|b| b as char),
+            prop::sample::select(allowed_ascii_bytes()).prop_map(|b| b as char),
             // BMP non-control non-surrogate codepoints
             (0xA1u32..=0xD7FF).prop_filter_map("valid bmp char", |n| {
                 char::from_u32(n).filter(|c| !c.is_control())

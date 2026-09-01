@@ -25,6 +25,8 @@ use lazy_static::lazy_static;
 pub use stacks_common::consts::MICROSTACKS_PER_STACKS;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 pub use stacks_common::types::StacksEpochId;
+#[cfg(test)]
+use stacks_common::types::StacksEpochRangeTestExt as _;
 use stacks_common::types::{EpochList as GenericEpochList, StacksEpoch as GenericStacksEpoch};
 #[cfg(test)]
 use stacks_common::versions::STACKS_NODE_VERSION;
@@ -55,8 +57,8 @@ pub use stacks_common::consts::{
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
     PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
     PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4,
-    PEER_VERSION_EPOCH_4_0, PEER_VERSION_MAINNET, PEER_VERSION_MAINNET_MAJOR, PEER_VERSION_TESTNET,
-    PEER_VERSION_TESTNET_MAJOR, STACKS_EPOCH_MAX,
+    PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1, PEER_VERSION_MAINNET,
+    PEER_VERSION_MAINNET_MAJOR, PEER_VERSION_TESTNET, PEER_VERSION_TESTNET_MAJOR, STACKS_EPOCH_MAX,
 };
 
 // default port
@@ -95,9 +97,7 @@ pub const NUMS_X_COORDINATE: [u8; 32] = [
 ];
 
 /// Maximum BTC fee, in satoshis, encoded into the sBTC deposit script's
-/// `<deposit-data>` payload. Scaffolding constant: chosen high enough that
-/// real-world bitcoin fees never exceed it. Will be replaced by a
-/// protocol-determined value before mainnet activation.
+/// `<deposit-data>` payload. Chosen high enough that real-world bitcoin fees never exceed it.
 pub const POX_5_SBTC_DEPOSIT_MAX_FEE_SATS: u64 = 80_000;
 
 /// The number of blocks which will share the block bonus
@@ -141,8 +141,10 @@ pub const BITCOIN_MAINNET_STACKS_32_BURN_HEIGHT: u64 = 907_740;
 pub const BITCOIN_MAINNET_STACKS_33_BURN_HEIGHT: u64 = 923_222;
 /// This is Epoch-3.4, activation timing proposed in SIP-039
 pub const BITCOIN_MAINNET_STACKS_34_BURN_HEIGHT: u64 = 943_333;
-/// This is Epoch-4.0, activation timing TBD. Placeholder until scheduled.
-pub const BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT: u64 = 4_000_000;
+/// This is Epoch-4.0, activation timing proposed in SIP-045.
+pub use stacks_common::types::BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT;
+/// This is Epoch-4.1, activation timing TBD. Placeholder until scheduled.
+pub const BITCOIN_MAINNET_STACKS_41_BURN_HEIGHT: u64 = STACKS_EPOCH_MAX;
 
 /// Bitcoin mainline testnet3 activation heights.
 /// TODO: No longer used since testnet3 is dead, so remove.
@@ -162,6 +164,7 @@ pub const BITCOIN_TESTNET_STACKS_32_BURN_HEIGHT: u64 = 30_000_002;
 pub const BITCOIN_TESTNET_STACKS_33_BURN_HEIGHT: u64 = 30_000_003;
 pub const BITCOIN_TESTNET_STACKS_34_BURN_HEIGHT: u64 = 30_000_004;
 pub const BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT: u64 = 40_000_000;
+pub const BITCOIN_TESTNET_STACKS_41_BURN_HEIGHT: u64 = 40_000_001;
 
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
@@ -251,6 +254,15 @@ pub const BLOCK_LIMIT_MAINNET_21: ExecutionCost = ExecutionCost {
     write_count: 15_000,
     read_length: 100_000_000,
     read_count: 15_000,
+    runtime: 5_000_000_000,
+};
+
+// Block limit in Stacks 4.0. Same as 2.1, except the read budget is doubled.
+pub const BLOCK_LIMIT_MAINNET_40: ExecutionCost = ExecutionCost {
+    write_length: 15_000_000,
+    write_count: 15_000,
+    read_length: 200_000_000,
+    read_count: 30_000,
     runtime: 5_000_000_000,
 };
 
@@ -374,9 +386,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch40,
             start_height: BITCOIN_MAINNET_STACKS_40_BURN_HEIGHT,
-            end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_MAINNET_21,
+            end_height: BITCOIN_MAINNET_STACKS_41_BURN_HEIGHT,
+            block_limit: BLOCK_LIMIT_MAINNET_40,
             network_epoch: PEER_VERSION_EPOCH_4_0
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch41,
+            start_height: BITCOIN_MAINNET_STACKS_41_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_40,
+            network_epoch: PEER_VERSION_EPOCH_4_1
         },
     ]);
 }
@@ -477,9 +496,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch40,
             start_height: BITCOIN_TESTNET_STACKS_40_BURN_HEIGHT,
-            end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_MAINNET_21,
+            end_height: BITCOIN_TESTNET_STACKS_41_BURN_HEIGHT,
+            block_limit: BLOCK_LIMIT_MAINNET_40,
             network_epoch: PEER_VERSION_EPOCH_4_0
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch41,
+            start_height: BITCOIN_TESTNET_STACKS_41_BURN_HEIGHT,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_40,
+            network_epoch: PEER_VERSION_EPOCH_4_1
         },
     ]);
 }
@@ -580,9 +606,16 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch40,
             start_height: 12001,
-            end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_MAINNET_21,
+            end_height: 13001,
+            block_limit: BLOCK_LIMIT_MAINNET_40,
             network_epoch: PEER_VERSION_EPOCH_4_0
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch41,
+            start_height: 13001,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: BLOCK_LIMIT_MAINNET_40,
+            network_epoch: PEER_VERSION_EPOCH_4_1
         },
     ]);
 }
@@ -638,6 +671,10 @@ pub static STACKS_EPOCH_3_4_MARKER: u8 = 0x10;
 /// *or greater*.
 pub static STACKS_EPOCH_4_0_MARKER: u8 = 0x11;
 
+/// Stacks 4.1 epoch marker.  All block-commits in 4.1 must have a memo bitfield with this value
+/// *or greater*.
+pub static STACKS_EPOCH_4_1_MARKER: u8 = 0x12;
+
 /// Latest Stacks epoch marker. Automatically uses the marker for the highest supported epoch.
 pub static STACKS_EPOCH_LATEST_MARKER: u8 =
     marker_for_epoch(StacksEpochId::latest()).expect("Latest epoch should always have a marker");
@@ -658,6 +695,7 @@ pub const fn marker_for_epoch(epoch_id: StacksEpochId) -> Option<u8> {
         StacksEpochId::Epoch33 => Some(STACKS_EPOCH_3_3_MARKER),
         StacksEpochId::Epoch34 => Some(STACKS_EPOCH_3_4_MARKER),
         StacksEpochId::Epoch40 => Some(STACKS_EPOCH_4_0_MARKER),
+        StacksEpochId::Epoch41 => Some(STACKS_EPOCH_4_1_MARKER),
     }
 }
 
@@ -927,6 +965,26 @@ fn test_ord_for_stacks_epoch_id() {
         StacksEpochId::Epoch20.cmp(&StacksEpochId::Epoch10),
         Ordering::Greater
     );
+}
+
+// The doubled Epoch 4.0 read budget is exercised end-to-end via a real contract
+// call in `chainstate::tests::consensus_unit_tests::epoch_40_read_budget`. This
+// test only pins the wiring: that the production epoch tables actually reference
+// `BLOCK_LIMIT_MAINNET_40` for Epoch 4.0, rather than e.g. `BLOCK_LIMIT_MAINNET_21`.
+#[test]
+fn test_epoch_40_uses_the_doubled_read_budget_block_limit() {
+    for (network_name, epochs) in [
+        ("mainnet", &*STACKS_EPOCHS_MAINNET),
+        ("testnet", &*STACKS_EPOCHS_TESTNET),
+        ("regtest", &*STACKS_EPOCHS_REGTEST),
+    ] {
+        for epoch_id in (StacksEpochId::Epoch40..).iter() {
+            assert_eq!(
+                epochs[*epoch_id].block_limit, BLOCK_LIMIT_MAINNET_40,
+                "{network_name} epoch {epoch_id} must use BLOCK_LIMIT_MAINNET_40"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

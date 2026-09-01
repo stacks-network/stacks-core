@@ -13,7 +13,7 @@ import {
 import { filterEvents, rov, txErr, txOk } from '@clarigen/test';
 import { hex } from '@scure/base';
 import { accounts, project } from '../clarigen-types';
-import { mineUntil, randomPoxAddress, stxToUStx } from '../test-helpers';
+import { mineUntil, stxToUStx } from '../test-helpers';
 import { Cl, serializeCV } from '@stacks/transactions';
 import {
   CoreNodeEventType,
@@ -34,7 +34,6 @@ const alice = accounts.wallet_1.address;
 const bob = accounts.wallet_2.address;
 const charlie = accounts.wallet_3.address;
 const dave = accounts.wallet_4.address;
-const emily = accounts.wallet_5.address;
 
 beforeEach(() => {
   initPox5();
@@ -78,6 +77,23 @@ function setupStaker(staker: string, signerCalldata: Uint8Array | null = null) {
     pox5.stake({
       signerManager: signerManager.identifier,
       amountUstx: stxToUStx(50_000),
+      numCycles: 2n,
+      startBurnHt: simnet.burnBlockHeight,
+      signerCalldata,
+    }),
+    staker,
+  );
+}
+
+function setupStakerWithAmount(
+  staker: string,
+  amountUstx: bigint,
+  signerCalldata: Uint8Array | null = null,
+) {
+  txOk(
+    pox5.stake({
+      signerManager: signerManager.identifier,
+      amountUstx,
       numCycles: 2n,
       startBurnHt: simnet.burnBlockHeight,
       signerCalldata,
@@ -229,6 +245,82 @@ test('fees are deducted from newly earned staker rewards', () => {
   });
 });
 
+test('uneven multi-staker rewards conserve gross, fees, and residual dust', () => {
+  const rewards = 2000n;
+  const aliceStake = stxToUStx(50_000);
+  const bobStake = stxToUStx(30_000);
+  const charlieStake = stxToUStx(20_001);
+
+  txOk(signerManager.updateFees(1000n), deployer);
+  setupStakerWithAmount(alice, aliceStake);
+  setupStakerWithAmount(bob, bobStake);
+  setupStakerWithAmount(charlie, charlieStake);
+  calculateAndClaimSignerRewards(
+    rewards,
+    rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH,
+  );
+
+  const grossClaimedBySigner = rov(signerManager.getUnclaimedStakerRewards());
+  const aliceRewards = rov(
+    signerManager.getEarnedStakerRewards(alice, 1n, null),
+  );
+  const bobRewards = rov(signerManager.getEarnedStakerRewards(bob, 1n, null));
+  const charlieRewards = rov(
+    signerManager.getEarnedStakerRewards(charlie, 1n, null),
+  );
+  const grossAlice = aliceRewards.earned + aliceRewards.fees;
+  const grossBob = bobRewards.earned + bobRewards.fees;
+  const grossCharlie = charlieRewards.earned + charlieRewards.fees;
+  const totalGross = grossAlice + grossBob + grossCharlie;
+  const residualDust = grossClaimedBySigner - totalGross;
+
+  expect(aliceRewards).toEqual({ earned: 765n, fees: 84n });
+  expect(bobRewards).toEqual({ earned: 459n, fees: 50n });
+  expect(charlieRewards).toEqual({ earned: 306n, fees: 34n });
+  expect(grossClaimedBySigner).toBe(1699n);
+  expect(residualDust).toBe(1n);
+
+  const aliceBalance = sbtcBalance(alice);
+  const bobBalance = sbtcBalance(bob);
+  const charlieBalance = sbtcBalance(charlie);
+  txOk(signerManager.claimStakerRewards(alice, 1n, null), alice);
+  txOk(signerManager.claimStakerRewards(bob, 1n, null), bob);
+  txOk(signerManager.claimStakerRewards(charlie, 1n, null), charlie);
+
+  expect(sbtcBalance(alice)).toBe(aliceBalance + aliceRewards.earned);
+  expect(sbtcBalance(bob)).toBe(bobBalance + bobRewards.earned);
+  expect(sbtcBalance(charlie)).toBe(charlieBalance + charlieRewards.earned);
+  expect(rov(signerManager.getEarnedFees())).toBe(
+    aliceRewards.fees + bobRewards.fees + charlieRewards.fees,
+  );
+  expect(rov(signerManager.getUnclaimedStakerRewards())).toBe(residualDust);
+  expect(sbtcBalance(signerManager.identifier)).toBe(
+    rov(signerManager.getEarnedFees()) + residualDust,
+  );
+
+  expect(txErr(signerManager.sweepFeeRefunds(dave), deployer).value).toBe(
+    signerManagerErrors.ERR_NO_REFUNDS,
+  );
+
+  txOk(signerManager.updateAdmin(dave, true), deployer);
+  expect(txErr(signerManager.sweepFeeRefunds(dave), dave).value).toBe(
+    signerManagerErrors.ERR_NO_REFUNDS,
+  );
+
+  const deployerBalance = sbtcBalance(deployer);
+  const fees = rov(signerManager.getEarnedFees());
+  txOk(
+    signerManager.withdrawFees({ amount: fees, recipient: deployer }),
+    deployer,
+  );
+  expect(sbtcBalance(deployer)).toBe(deployerBalance + fees);
+  expect(rov(signerManager.getEarnedFees())).toBe(0n);
+  expect(sbtcBalance(signerManager.identifier)).toBe(residualDust);
+  expect(txErr(signerManager.sweepFeeRefunds(dave), dave).value).toBe(
+    signerManagerErrors.ERR_NO_REFUNDS,
+  );
+});
+
 test('claiming staker rewards transfers net rewards after fees', () => {
   const rewards = 2000n;
   const grossPerStaker = stxRewards(rewards) / 2n;
@@ -243,6 +335,13 @@ test('claiming staker rewards transfers net rewards after fees', () => {
 
   const aliceBalance = sbtcBalance(alice);
   const claim = txOk(signerManager.claimStakerRewards(alice, 1n, null), alice);
+
+  // No pox-addr, so the staker is paid directly in sBTC and no L1 withdrawal
+  // is initiated; the return carries `none` for the request-id.
+  expect(claim.value).toStrictEqual({
+    earned: netRewards,
+    withdrawalRequest: null,
+  });
   const [transfer] = filterEvents(
     claim.events,
     CoreNodeEventType.FtTransferEvent,
@@ -301,7 +400,10 @@ test('admins can withdraw accrued fees', () => {
   ).toBe(signerManagerErrors.ERR_UNAUTHORIZED_ADMIN);
   expect(
     txErr(
-      signerManager.withdrawFees({ amount: fee * 2n + 1n, recipient: deployer }),
+      signerManager.withdrawFees({
+        amount: fee * 2n + 1n,
+        recipient: deployer,
+      }),
       deployer,
     ).value,
   ).toBe(signerManagerErrors.ERR_INSUFFICIENT_FEES);
@@ -421,6 +523,69 @@ test('bond rewards remain claimable from old signer after staker changes signers
   });
 });
 
+test('staker reward claim before signer reward pull returns no claimable rewards', () => {
+  const bondIndex = 0n;
+  const aliceSats = 480000n;
+  const rewards = 1200n;
+
+  txOk(
+    pox5.setupBond({
+      bondIndex,
+      targetRate: 1500n,
+      stxValueRatio: 10n,
+      minUstxRatio: 100n,
+      earlyUnlockBytes: new Uint8Array(),
+      allowlist: [{ maxSats: aliceSats, staker: alice }],
+    }),
+    deployer,
+  );
+  txOk(
+    pox5.registerForBond({
+      bondIndex,
+      signerManager: signerManager.identifier,
+      amountUstx: stxToUStx(50_000),
+      btcLockup: err(aliceSats),
+      signerCalldata: null,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: pox5.identifier,
+      amount: rewards,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  mineUntil(rov(pox5.rewardCycleToBurnHeight(1n)) + HALF_CYCLE_LENGTH);
+  txOk(pox5.calculateRewards([bondIndex]), deployer);
+  txOk(
+    pox5.unstakeSbtc({
+      signerManager: signerManager.identifier,
+      amountToWithdrawalSats: aliceSats,
+    }),
+    alice,
+  );
+  txOk(
+    sbtc.transfer({
+      recipient: signerManager.identifier,
+      amount: 1n,
+      sender: deployer,
+      memo: null,
+    }),
+    deployer,
+  );
+
+  expect(
+    txErr(signerManager.claimStakerRewards(alice, 1n, bondIndex), bob).value,
+  ).toBe(signerManagerErrors.ERR_NO_CLAIMABLE_REWARDS);
+
+  txOk(signerManager.claimRewards([bondIndex], 1n), deployer);
+  txOk(signerManager.claimStakerRewards(alice, 1n, bondIndex), bob);
+});
+
 test('claiming staker rewards with pox-addr initiates a withdrawal request', () => {
   const rewards = 2000n;
   const grossPerStaker = stxRewards(rewards) / 2n;
@@ -500,7 +665,9 @@ test('claiming all rewards with pox-addr leaves room for withdrawal max-fee', ()
 
   const claim = txOk(signerManager.claimStakerRewards(alice, 1n, null), bob);
 
-  expect(claim.value).toBe(earned);
+  // Since a pox-addr is set, the payout is routed to an sBTC withdrawal, and
+  // the request-id starts at 1 in this test's simnet.
+  expect(claim.value).toStrictEqual({ earned, withdrawalRequest: 1n });
 });
 
 test('claiming staker rewards with pox-addr errors when earned is less than max-fee', () => {

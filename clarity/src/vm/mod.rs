@@ -26,10 +26,12 @@ pub mod contracts;
 pub mod ast;
 pub mod contexts;
 pub mod database;
+pub mod hooks;
 pub mod representations;
 
 pub mod callables;
 pub mod functions;
+pub mod resource_limiter;
 pub mod variables;
 
 pub mod analysis;
@@ -58,12 +60,12 @@ use self::analysis::ContractAnalysis;
 use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
-use crate::vm::callables::{CallableType, FunctionIdentifier};
+use crate::vm::callables::{BuiltinKind, CallableType, FunctionIdentifier};
 pub use crate::vm::contexts::{CallStack, ContractContext, LocalContext, MAX_CONTEXT_DEPTH};
-use crate::vm::contexts::{ExecutionState, ExecutionTimeTracker, GlobalContext, InvocationContext};
+use crate::vm::contexts::{ExecutionState, GlobalContext, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
-    CostErrors, CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
+    CostOverflowingMath, CostTracker, LimitedCostTracker, MemoryConsumer, runtime_cost,
 };
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
@@ -73,9 +75,13 @@ use crate::vm::errors::{RuntimeCheckErrorKind, RuntimeError, VmExecutionError, V
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
 pub use crate::vm::functions::stx_transfer_consolidated;
+use crate::vm::hooks::{CallArguments, CallTraceFrame, EvalHookNotifier as _};
 pub use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
+#[cfg(any(test, feature = "testing"))]
+use crate::vm::resource_limiter::ResourceBudget;
+use crate::vm::resource_limiter::ResourceLimitExceeded;
 pub use crate::vm::types::Value;
 use crate::vm::types::{PrincipalData, TypeSignature};
 pub use crate::vm::version::ClarityVersion;
@@ -163,32 +169,6 @@ impl CostSynthesis {
             memory_limit: cost_tracker.get_memory_limit(),
         }
     }
-}
-
-/// EvalHook defines an interface for hooks to execute during evaluation.
-/// NOTE: Used in the Clarinet repo.
-pub trait EvalHook {
-    // Called before the expression is evaluated
-    fn will_begin_eval(
-        &mut self,
-        _env: &mut ExecutionState,
-        _invoke_ctx: &InvocationContext,
-        _context: &LocalContext,
-        _expr: &SymbolicExpression,
-    );
-
-    // Called after the expression is evaluated
-    fn did_finish_eval<'a>(
-        &mut self,
-        _env: &mut ExecutionState,
-        _invoke_ctx: &'a InvocationContext,
-        _context: &'a LocalContext,
-        _expr: &SymbolicExpression,
-        _res: &core::result::Result<ValueRef<'a>, crate::vm::errors::VmExecutionError>,
-    );
-
-    // Called upon completion of the execution
-    fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>);
 }
 
 fn lookup_variable<'a>(
@@ -313,28 +293,52 @@ fn dispatch_args(
     invoke_ctx: &InvocationContext,
 ) -> Result<Value, VmExecutionError> {
     exec_state.call_stack.insert(&identifier, track_recursion);
-    let mut resp = match function {
-        CallableType::NativeFunction(_, function, cost_function) => {
-            runtime_cost(cost_function.clone(), exec_state, args.len())
-                .map_err(VmExecutionError::from)
-                .and_then(|_| function.apply(args, exec_state, invoke_ctx))
+
+    // Scope `?` to callable execution so the common cleanup below always runs.
+    let mut resp = (|| -> Result<Value, VmExecutionError> {
+        match function {
+            // Built-ins (Native)
+            CallableType::Builtin {
+                kind: BuiltinKind::Native(_, function, cost_function),
+                ..
+            } => {
+                runtime_cost(cost_function.clone(), exec_state, args.len())
+                    .map_err(VmExecutionError::from)?;
+                function.apply(args, exec_state, invoke_ctx)
+            }
+
+            // Built-ins (Native 2.05+)
+            CallableType::Builtin {
+                kind: BuiltinKind::Native205(_, function, cost_function, cost_input_handle),
+                ..
+            } => {
+                let cost_input = if exec_state.epoch() >= &StacksEpochId::Epoch2_05 {
+                    cost_input_handle(args.as_slice())?
+                } else {
+                    args.len() as u64
+                };
+
+                runtime_cost(cost_function.clone(), exec_state, cost_input)
+                    .map_err(VmExecutionError::from)?;
+                function.apply(args, exec_state, invoke_ctx)
+            }
+
+            // User-defined functions (Clarity)
+            CallableType::UserFunction(function) => function.apply(&args, exec_state, invoke_ctx),
+
+            // Special functions evaluate their own arguments and are dispatched directly in
+            // `apply`/`apply_evaluated`, so they never reach `dispatch_args`.
+            CallableType::Builtin {
+                kind: BuiltinKind::Special(..),
+                ..
+            } => Err(VmInternalError::Expect("Should be unreachable.".into()).into()),
         }
-        CallableType::NativeFunction205(_, function, cost_function, cost_input_handle) => {
-            let cost_input = if exec_state.epoch() >= &StacksEpochId::Epoch2_05 {
-                cost_input_handle(args.as_slice())?
-            } else {
-                args.len() as u64
-            };
-            runtime_cost(cost_function.clone(), exec_state, cost_input)
-                .map_err(VmExecutionError::from)
-                .and_then(|_| function.apply(args, exec_state, invoke_ctx))
-        }
-        CallableType::UserFunction(function) => function.apply(&args, exec_state, invoke_ctx),
-        _ => return Err(VmInternalError::Expect("Should be unreachable.".into()).into()),
-    };
+    })();
+
     add_stack_trace(&mut resp, exec_state);
     exec_state.drop_memory(used_memory)?;
     exec_state.call_stack.remove(&identifier, track_recursion)?;
+
     resp
 }
 
@@ -342,9 +346,9 @@ fn dispatch_args(
 ///
 /// Each [`SymbolicExpression`] in `args` is evaluated (via [`eval`]) and charged for memory.
 /// The resulting [`Value`]s are then dispatched through [`dispatch_args`] to the appropriate
-/// callable variant (native, native-205, user-defined, or special).
+/// callable variant (builtin or user-defined).
 ///
-/// For [`CallableType::SpecialFunction`]s, `args` are passed unevaluated — the special
+/// For [`BuiltinKind::Special`] functions, `args` are passed unevaluated — the special
 /// function is responsible for evaluating its own arguments (e.g., short-circuiting in `and`/`or`).
 ///
 /// Enforces recursion detection and max stack-depth limits before dispatch.
@@ -356,51 +360,80 @@ pub fn apply(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let (identifier, track_recursion) = check_call_preconditions(function, exec_state)?;
+    let call_hook = CallTraceFrame::when(exec_state.has_eval_hooks(), || {
+        function.call_trace_hook(invoke_ctx)
+    });
 
-    if let CallableType::SpecialFunction(_, function) = function {
+    if let CallableType::Builtin {
+        kind: BuiltinKind::Special(_, function),
+        ..
+    } = function
+    {
         exec_state.call_stack.insert(&identifier, track_recursion);
+        call_hook.begin(exec_state, invoke_ctx, CallArguments::Expressions(args));
         let mut resp = function(args, exec_state, invoke_ctx, context);
+        call_hook.finish(exec_state, invoke_ctx, &resp);
         add_stack_trace(&mut resp, exec_state);
         exec_state.call_stack.remove(&identifier, track_recursion)?;
         return resp;
     }
 
+    call_hook.begin(exec_state, invoke_ctx, CallArguments::Expressions(args));
+
+    macro_rules! return_call_error {
+        ($err:expr) => {{
+            let resp = Err($err);
+            call_hook.finish(exec_state, invoke_ctx, &resp);
+            return resp;
+        }};
+    }
+
     let mut used_memory = 0;
     let mut evaluated_args = Vec::with_capacity(args.len());
     exec_state.call_stack.incr_apply_depth();
-    for arg_x in args.iter() {
+    for (arg_index, arg_x) in args.iter().enumerate() {
         let arg_value = match eval(arg_x, exec_state, invoke_ctx, context)
             .and_then(|v| v.clone_with_cost(exec_state))
         {
             Ok(x) => x,
             Err(e) => {
-                exec_state.drop_memory(used_memory)?;
+                let err = match exec_state.drop_memory(used_memory) {
+                    Ok(()) => e,
+                    Err(drop_err) => drop_err.into(),
+                };
                 exec_state.call_stack.decr_apply_depth();
-                return Err(e);
+                return_call_error!(err);
             }
         };
         let arg_use = match arg_value.get_memory_use() {
             Ok(x) => x,
             Err(e) => {
-                exec_state.drop_memory(used_memory)?;
+                let err = match exec_state.drop_memory(used_memory) {
+                    Ok(()) => e.into(),
+                    Err(drop_err) => drop_err.into(),
+                };
                 exec_state.call_stack.decr_apply_depth();
-                return Err(e.into());
+                return_call_error!(err);
             }
         };
         match exec_state.add_memory(arg_use) {
             Ok(_x) => {}
             Err(e) => {
-                exec_state.drop_memory(used_memory)?;
+                let err = match exec_state.drop_memory(used_memory) {
+                    Ok(()) => e.into(),
+                    Err(drop_err) => drop_err.into(),
+                };
                 exec_state.call_stack.decr_apply_depth();
-                return Err(VmExecutionError::from(e));
+                return_call_error!(err);
             }
         };
         used_memory += arg_use;
+        call_hook.did_evaluate_argument(exec_state, invoke_ctx, arg_index, &arg_value);
         evaluated_args.push(arg_value);
     }
     exec_state.call_stack.decr_apply_depth();
 
-    dispatch_args(
+    let resp = dispatch_args(
         function,
         identifier,
         track_recursion,
@@ -408,7 +441,9 @@ pub fn apply(
         used_memory,
         exec_state,
         invoke_ctx,
-    )
+    );
+    call_hook.finish(exec_state, invoke_ctx, &resp);
+    resp
 }
 
 /// Like [`apply`], but takes pre-evaluated [`Value`]s, skipping the `eval` + `clone_with_cost`
@@ -419,7 +454,7 @@ pub fn apply(
 /// allocations per step.  This function performs the same recursion/stack/memory bookkeeping
 /// as `apply` while bypassing the eval pass entirely.
 ///
-/// For [`CallableType::SpecialFunction`]s (e.g. comparison operators `>=`, `<=`, `<`, `>`,
+/// For [`BuiltinKind::Special`] functions (e.g. comparison operators `>=`, `<=`, `<`, `>`,
 /// or boolean operators `and`, `or`), the values are wrapped back into
 /// `SymbolicExpression::atom_value` so the special function can evaluate them normally
 /// with `eval`.
@@ -431,22 +466,43 @@ pub fn apply_evaluated(
     context: &LocalContext,
 ) -> Result<Value, VmExecutionError> {
     let (identifier, track_recursion) = check_call_preconditions(function, exec_state)?;
+    let call_hook = CallTraceFrame::when(exec_state.has_eval_hooks(), || {
+        function.call_trace_hook(invoke_ctx)
+    });
 
-    // SpecialFunctions require unevaluated SymbolicExpressions. They evaluate their own
+    // `BuiltinKind::Special` functions require unevaluated SymbolicExpressions. They evaluate their own
     // arguments (e.g. short-circuit in `and`/`or`). Wrap the pre-evaluated Values back
     // into atom_value expressions so the special function dispatch works correctly.
     // This path is hit when built-in operators like >=, <=, <, >, and, or are used as
     // step functions in fold/map/filter. Note: In this case it works like `apply`.
-    if let CallableType::SpecialFunction(_, function) = function {
+    if let CallableType::Builtin {
+        kind: BuiltinKind::Special(_, function),
+        ..
+    } = function
+    {
+        call_hook.begin(exec_state, invoke_ctx, CallArguments::Values(&args));
+        call_hook.did_evaluate_arguments(exec_state, invoke_ctx, &args);
         let sym_args: Vec<SymbolicExpression> = args
             .into_iter()
             .map(SymbolicExpression::atom_value)
             .collect();
         exec_state.call_stack.insert(&identifier, track_recursion);
         let mut resp = function(&sym_args, exec_state, invoke_ctx, context);
+        call_hook.finish(exec_state, invoke_ctx, &resp);
         add_stack_trace(&mut resp, exec_state);
         exec_state.call_stack.remove(&identifier, track_recursion)?;
         return resp;
+    }
+
+    call_hook.begin(exec_state, invoke_ctx, CallArguments::Values(&args));
+    call_hook.did_evaluate_arguments(exec_state, invoke_ctx, &args);
+
+    macro_rules! return_call_error {
+        ($err:expr) => {{
+            let resp = Err($err);
+            call_hook.finish(exec_state, invoke_ctx, &resp);
+            return resp;
+        }};
     }
 
     let mut used_memory = 0;
@@ -455,24 +511,30 @@ pub fn apply_evaluated(
         let arg_use = match arg.get_memory_use() {
             Ok(x) => x,
             Err(e) => {
-                exec_state.drop_memory(used_memory)?;
+                let err = match exec_state.drop_memory(used_memory) {
+                    Ok(()) => e.into(),
+                    Err(drop_err) => drop_err.into(),
+                };
                 exec_state.call_stack.decr_apply_depth();
-                return Err(e.into());
+                return_call_error!(err);
             }
         };
         match exec_state.add_memory(arg_use) {
             Ok(_) => {}
             Err(e) => {
-                exec_state.drop_memory(used_memory)?;
+                let err = match exec_state.drop_memory(used_memory) {
+                    Ok(()) => e.into(),
+                    Err(drop_err) => drop_err.into(),
+                };
                 exec_state.call_stack.decr_apply_depth();
-                return Err(VmExecutionError::from(e));
+                return_call_error!(err);
             }
         };
         used_memory += arg_use;
     }
     exec_state.call_stack.decr_apply_depth();
 
-    dispatch_args(
+    let resp = dispatch_args(
         function,
         identifier,
         track_recursion,
@@ -480,34 +542,33 @@ pub fn apply_evaluated(
         used_memory,
         exec_state,
         invoke_ctx,
-    )
+    );
+    call_hook.finish(exec_state, invoke_ctx, &resp);
+    resp
 }
 
-/// Check for interpreter-level abort conditions.
-///
-/// Currently, this is either the AbortCallback or the execution
-///  time limit.
-fn check_interpreter_abort_condition(
+/// Check for interpreter-level violations of the resource limits
+/// (execution time limit or excessive heap allocations).
+fn check_interpreter_resource_usage(
     global_context: &GlobalContext,
 ) -> Result<(), VmExecutionError> {
-    match global_context.execution_time_tracker {
-        ExecutionTimeTracker::NoTracking => {}
-        ExecutionTimeTracker::MaxTime {
-            start_time,
-            max_duration,
-        } => {
-            if start_time.elapsed() >= max_duration {
-                return Err(CostErrors::ExecutionTimeExpired.into());
+    global_context
+        .execution_resource_limiter
+        .check_not_exceeded()
+        .map_err(|err| match err {
+            ResourceLimitExceeded::MaxDurationExceeded(s) => {
+                RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(format!(
+                    "Evaluation took too much time: {s}"
+                ))
+                .into()
             }
-        }
-    }
-    if let Err(reason) = global_context.abort_callback.check() {
-        return Err(VmExecutionError::RuntimeCheck(
-            RuntimeCheckErrorKind::AbortedByExecutionHook(reason),
-        ));
-    }
-
-    Ok(())
+            ResourceLimitExceeded::MaxAllocationExceeded(s) => {
+                RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(format!(
+                    "Evaluation used too much memory: {s}"
+                ))
+                .into()
+            }
+        })
 }
 
 pub fn eval<'a>(
@@ -520,14 +581,9 @@ pub fn eval<'a>(
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
-    check_interpreter_abort_condition(exec_state.global_context)?;
+    check_interpreter_resource_usage(exec_state.global_context)?;
 
-    if let Some(mut eval_hooks) = exec_state.global_context.eval_hooks.take() {
-        for hook in eval_hooks.iter_mut() {
-            hook.will_begin_eval(exec_state, invoke_ctx, context, exp);
-        }
-        exec_state.global_context.eval_hooks = Some(eval_hooks);
-    }
+    exec_state.notify_will_begin_eval(invoke_ctx, context, exp);
 
     let res = match &exp.expr {
         AtomValue(value) | LiteralValue(value) => Ok(ValueRef::Owned(value.clone())),
@@ -557,12 +613,7 @@ pub fn eval<'a>(
         }
     };
 
-    if let Some(mut eval_hooks) = exec_state.global_context.eval_hooks.take() {
-        for hook in eval_hooks.iter_mut() {
-            hook.did_finish_eval(exec_state, invoke_ctx, context, exp, &res);
-        }
-        exec_state.global_context.eval_hooks = Some(eval_hooks);
-    }
+    exec_state.notify_did_finish_eval(invoke_ctx, context, exp, &res);
 
     res
 }
@@ -835,7 +886,8 @@ pub fn execute_with_limited_execution_time(
         false,
         clarity_types::types::StandardPrincipalData::transient(),
         |g| {
-            g.set_max_execution_time(max_execution_time);
+            let budget = ResourceBudget::new().with_max_duration(Some(max_execution_time));
+            g.set_execution_resource_limiter(budget.start_tracking());
             Ok(())
         },
         |_| Ok(()),

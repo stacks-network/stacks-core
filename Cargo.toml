@@ -4,6 +4,7 @@ members = [
     "stackslib",
     "stacks-common",
     "stacks-codec",
+    "crates/stacks-transactions",
     "pox-locking",
     "clarity-types",
     "clarity",
@@ -16,7 +17,8 @@ members = [
     "stacks-profiler-macros",
     "contrib/stacks-inspect",
     "contrib/clarity-cli",
-    "contrib/stacks-cli"
+    "contrib/stacks-cli",
+    "contrib/marf-squash",
 ]
 
 exclude = ["contrib/tools/config-docs-generator"]

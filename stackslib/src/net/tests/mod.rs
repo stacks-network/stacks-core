@@ -39,7 +39,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::Address;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::PoxConstants;
@@ -69,8 +69,9 @@ use crate::core::{StacksEpoch, StacksEpochExtension};
 use crate::net::relay::Relayer;
 use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::{
-    BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborKey, NetworkResult,
-    PingData, StackerDBPushChunkData, StacksMessage, StacksMessageType, StacksNodeState,
+    BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborAddress, NeighborKey,
+    NetworkResult, PingData, PushedStackerDBChunk, StackerDBPushChunkData, StacksMessage,
+    StacksMessageType, StacksNodeState,
 };
 use crate::util_lib::boot::{boot_code_addr, boot_code_id, boot_code_tx_auth};
 
@@ -111,6 +112,30 @@ pub struct NakamotoBootPlan {
     pub extra_tenures: Vec<NakamotoBootTenure>,
     /// Do not fail if a transaction returns error (by default the BootPlan will stop on tx failure)
     pub ignore_transaction_errors: bool,
+}
+
+/// Compact PoX constants shared by Nakamoto test harnesses.
+pub fn test_pox_constants(cycle_length: u32, prepare_length: u32) -> PoxConstants {
+    PoxConstants::new(
+        cycle_length,
+        prepare_length,
+        (80 * prepare_length / 100).max(1),
+        0,
+        0,
+        u64::MAX,
+        u64::MAX,
+        // v1 unlocks at start of second reward cycle
+        cycle_length + 2,
+        // v2 unlocks at start of third cycle
+        2 * cycle_length + 1,
+        // v3 unlocks at start of fourth cycle
+        3 * cycle_length + 1,
+        // pox-3 activates at start of third cycle, just before v2 unlock
+        2 * cycle_length + 1,
+        // Placeholder for pre-4.0 fixtures. TestChainstate aligns this
+        // value with Epoch 4.0 whenever that epoch is actually enabled.
+        1000 * cycle_length + 1,
+    )
 }
 
 impl NakamotoBootPlan {
@@ -190,9 +215,18 @@ impl NakamotoBootPlan {
         chainstate_config.test_stackers = Some(self.test_stackers.clone());
         chainstate_config.burnchain.pox_constants = self.pox_constants.clone();
 
-        if let Some(epochs) = chainstate_config.epochs.as_ref() {
+        // With Epoch 4.0 enabled this schedule is not final:
+        // `TestChainstateConfig::configure_pox_5_transition` (run when the
+        // chainstate is constructed) may still shift the Epoch 4.0 boundary,
+        // wires `pox_5_activation_height` to it only then, and re-runs this
+        // validation on the final schedule (so validating the temporary one
+        // here is useless).
+        if !chainstate_config.is_epoch_enabled(StacksEpochId::Epoch40) {
             StacksEpoch::validate_nakamoto_transition_schedule(
-                epochs,
+                chainstate_config
+                    .epochs
+                    .as_ref()
+                    .expect("Nakamoto boot plan must define its epoch schedule"),
                 &chainstate_config.burnchain,
             );
         }
@@ -211,26 +245,7 @@ impl NakamotoBootPlan {
     }
 
     pub fn with_pox_constants(mut self, cycle_length: u32, prepare_length: u32) -> Self {
-        let new_consts = PoxConstants::new(
-            cycle_length,
-            prepare_length,
-            (80 * prepare_length / 100).max(1),
-            0,
-            0,
-            u64::MAX,
-            u64::MAX,
-            // v1 unlocks at start of second reward cycle
-            cycle_length + 2,
-            // v2 unlocks at start of third cycle
-            2 * cycle_length + 1,
-            // v3 unlocks at start of fourth cycle
-            3 * cycle_length + 1,
-            // pox-3 activates at start of third cycle, just before v2 unlock
-            2 * cycle_length + 1,
-            // do not activate pox-5 in default tests for now.
-            1000 * cycle_length + 1,
-        );
-        self.pox_constants = new_consts;
+        self.pox_constants = test_pox_constants(cycle_length, prepare_length);
         self
     }
 
@@ -476,7 +491,10 @@ impl NakamotoBootPlan {
             .push(boot_code_id(MINERS_NAME, false));
 
         let mut peer = TestPeer::new_with_observer(peer_config.clone(), observer);
-        peer.chain.mine_malleablized_blocks = self.malleablized_blocks;
+        // Bootstrap blocks are harness infrastructure. Do not queue their
+        // malleablized siblings for replay as part of the first user plan step
+        // (restored after bootstrap below).
+        peer.chain.mine_malleablized_blocks = false;
 
         let mut other_peers = vec![];
         for i in 0..self.num_peers {
@@ -491,20 +509,69 @@ impl NakamotoBootPlan {
             other_config.add_neighbor(&peer.to_neighbor());
 
             let mut other_peer = TestPeer::new_with_observer(other_config, None);
-            other_peer.chain.mine_malleablized_blocks = self.malleablized_blocks;
+            other_peer.chain.mine_malleablized_blocks = false;
             other_peers.push(other_peer);
         }
 
-        // Advance primary peer and other peers to Nakamoto epoch
-        peer.chain
-            .advance_to_epoch_boundary(&self.private_key, self.epoch);
-        for other_peer in &mut other_peers {
-            other_peer
-                .chain
+        // For pre-4.0 targets, the boot plan itself mines the first block of
+        // its target epoch. Epoch 4.0+ is different: PoX-5 can only be
+        // deployed and its signers enrolled after the first Epoch 4.0 block,
+        // so let the shared TestChainstate transition perform that setup
+        // before user-supplied boot-plan blocks.
+        if self.epoch >= StacksEpochId::Epoch40 {
+            peer.chain.advance_into_epoch(&self.private_key, self.epoch);
+            peer.refresh_burnchain_view();
+            for other_peer in &mut other_peers {
+                other_peer
+                    .chain
+                    .advance_into_epoch(&self.private_key, self.epoch);
+                other_peer.refresh_burnchain_view();
+            }
+        } else {
+            peer.chain
                 .advance_to_epoch_boundary(&self.private_key, self.epoch);
+            for other_peer in &mut other_peers {
+                other_peer
+                    .chain
+                    .advance_to_epoch_boundary(&self.private_key, self.epoch);
+            }
+        }
+
+        Self::assert_bootstrap_tips_consistent(&peer, &other_peers);
+
+        peer.chain.mine_malleablized_blocks = self.malleablized_blocks;
+        for other_peer in &mut other_peers {
+            other_peer.chain.mine_malleablized_blocks = self.malleablized_blocks;
         }
 
         (peer, other_peers)
+    }
+
+    /// Assert that every follower booted to the same burn and Stacks tips as
+    /// the primary peer.
+    fn assert_bootstrap_tips_consistent(peer: &TestPeer<'_>, other_peers: &[TestPeer<'_>]) {
+        let primary_burn_tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb_ref().conn()).unwrap();
+        let primary_stacks_tip =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(peer.chain.sortdb_ref().conn())
+                .unwrap();
+        for other_peer in other_peers {
+            let follower_burn_tip =
+                SortitionDB::get_canonical_burn_chain_tip(other_peer.chain.sortdb_ref().conn())
+                    .unwrap();
+            let follower_stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(
+                other_peer.chain.sortdb_ref().conn(),
+            )
+            .unwrap();
+            assert_eq!(
+                follower_burn_tip.consensus_hash, primary_burn_tip.consensus_hash,
+                "Peer bootstrap burn tips diverged"
+            );
+            assert_eq!(
+                follower_stacks_tip, primary_stacks_tip,
+                "Peer bootstrap Stacks tips diverged"
+            );
+        }
     }
 
     pub fn boot_into_nakamoto_peers(
@@ -513,8 +580,6 @@ impl NakamotoBootPlan {
         observer: Option<&TestEventObserver>,
     ) -> (TestPeer<'_>, Vec<TestPeer<'_>>) {
         let test_signers = self.test_signers.clone();
-        let pox_constants = self.pox_constants.clone();
-        let test_stackers = self.test_stackers.clone();
         let ignore_transaction_errors = self.ignore_transaction_errors;
 
         boot_plan.extend(self.extra_tenures.clone());
@@ -814,19 +879,6 @@ impl NakamotoBootPlan {
         // transaction in `all_blocks` ran to completion
         if let Some(observer) = observer {
             let mut observed_blocks = observer.get_blocks();
-            let mut block_idx = (peer
-                .config
-                .chain_config
-                .burnchain
-                .pox_constants
-                .pox_4_activation_height
-                + peer
-                    .config
-                    .chain_config
-                    .burnchain
-                    .pox_constants
-                    .reward_cycle_length
-                - 25) as usize;
 
             // filter out observed blocks that are malleablized
             observed_blocks.retain(|blk| {
@@ -839,15 +891,23 @@ impl NakamotoBootPlan {
                 }
             });
 
+            // The observer watched the whole bootstrap (epoch advancement,
+            // PoX-4 lockup, and — for Epoch 4.0+ — a variable number of PoX-5
+            // signer-setup blocks), so the first boot-plan block sits at an
+            // unknown offset. Scan forward from the previous match so
+            // boot-plan blocks must still appear in order.
+            let mut observed_cursor = 0;
             for tenure in all_blocks.iter() {
                 for block in tenure.iter() {
-                    let observed_block = &observed_blocks[block_idx];
-                    block_idx += 1;
-
-                    assert_eq!(
-                        observed_block.metadata.anchored_header.block_hash(),
-                        block.header.block_hash()
-                    );
+                    let observed_offset = observed_blocks[observed_cursor..]
+                        .iter()
+                        .position(|observed| {
+                            observed.metadata.anchored_header.block_hash()
+                                == block.header.block_hash()
+                        })
+                        .expect("Boot-plan Nakamoto block was not observed in order");
+                    let observed_block = &observed_blocks[observed_cursor + observed_offset];
+                    observed_cursor += observed_offset + 1;
 
                     // each transaction was mined in the same order as described in the boot plan,
                     // and it succeeded.
@@ -940,6 +1000,64 @@ impl NakamotoBootPlan {
         }
 
         false
+    }
+}
+
+#[test]
+#[should_panic(expected = "Epoch 3.0 must start *during* a reward phase")]
+fn reject_pre_epoch_4_boot_plan_with_epoch_3_in_prepare_phase() {
+    let epochs = StacksEpoch::unit_test_epoch_only(48, StacksEpochId::Epoch30);
+
+    NakamotoBootPlan::new(function_name!())
+        .with_pox_constants(10, 3)
+        .with_epoch(StacksEpochId::Epoch30)
+        .with_epochs(epochs)
+        .build_nakamoto_chainstate_config();
+}
+
+#[test]
+fn test_boot_nakamoto_peers_epoch_4() {
+    let private_key = StacksPrivateKey::from_seed(&[2]);
+    let recipient =
+        StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
+    let mut transfer = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::from_p2pkh(&private_key).unwrap(),
+        TransactionPayload::TokenTransfer(
+            recipient.to_account_principal(),
+            1,
+            TokenTransferMemo([0x00; 34]),
+        ),
+    );
+    transfer.chain_id = 0x80000000;
+    transfer.anchor_mode = TransactionAnchorMode::OnChainOnly;
+    transfer.set_tx_fee(1);
+    transfer.auth.set_origin_nonce(0);
+    let mut tx_signer = StacksTransactionSigner::new(&transfer);
+    tx_signer.sign_origin(&private_key).unwrap();
+    let transfer = tx_signer.get_tx().unwrap();
+
+    let observer = TestEventObserver::new();
+    let boot_plan = vec![NakamotoBootTenure::Sortition(vec![
+        NakamotoBootStep::Block(vec![transfer]),
+    ])];
+    // Keep this focused on hash-based observer matching across the PoX-5
+    // setup prefix; malleablized sibling handling is covered separately.
+    let (peer, other_peers) = NakamotoBootPlan::new(function_name!())
+        .with_pox_constants(10, 3)
+        .with_epoch(StacksEpochId::Epoch40)
+        .with_extra_peers(2)
+        .with_malleablized_blocks(false)
+        .boot_into_nakamoto_peers(boot_plan, Some(&observer));
+
+    assert_eq!(other_peers.len(), 2);
+    for chain in std::iter::once(&peer.chain).chain(other_peers.iter().map(|peer| &peer.chain)) {
+        let burn_height = chain.get_burn_block_height();
+        let epoch = SortitionDB::get_stacks_epoch(chain.sortdb_ref().conn(), burn_height)
+            .unwrap()
+            .unwrap()
+            .epoch_id;
+        assert_eq!(epoch, StacksEpochId::Epoch40);
     }
 }
 
@@ -1118,6 +1236,9 @@ fn test_network_result_update() {
         port: 2,
     };
 
+    let na1 = NeighborAddress::from_neighbor_key(nk1.clone(), Hash160([0x11; 20]));
+    let na2 = NeighborAddress::from_neighbor_key(nk2.clone(), Hash160([0x22; 20]));
+
     let msg1 = StacksMessage::new(
         1,
         1,
@@ -1187,6 +1308,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let naka_header_2 = NakamotoBlockHeader {
@@ -1201,6 +1323,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let naka_pushed_header_1 = NakamotoBlockHeader {
@@ -1215,6 +1338,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let naka_pushed_header_2 = NakamotoBlockHeader {
@@ -1229,6 +1353,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let naka_uploaded_header_1 = NakamotoBlockHeader {
@@ -1243,6 +1368,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let naka_uploaded_header_2 = NakamotoBlockHeader {
@@ -1257,6 +1383,7 @@ fn test_network_result_update() {
         miner_signature: MessageSignature::empty(),
         signer_signature: vec![],
         pox_treatment: BitVec::zeros(1).unwrap(),
+        problematic_txs: vec![],
     };
 
     let nblk1 = NakamotoBlock {
@@ -1383,7 +1510,10 @@ fn test_network_result_update() {
         .push(uploaded_nblk1);
     network_result_1
         .pushed_stackerdb_chunks
-        .push(pushed_stackerdb_chunk_1);
+        .push(PushedStackerDBChunk {
+            peer: na1.clone(),
+            chunk: pushed_stackerdb_chunk_1,
+        });
     network_result_1
         .uploaded_stackerdb_chunks
         .push(uploaded_stackerdb_chunk_1);
@@ -1442,7 +1572,10 @@ fn test_network_result_update() {
         .push(uploaded_nblk2);
     network_result_2
         .pushed_stackerdb_chunks
-        .push(pushed_stackerdb_chunk_2);
+        .push(PushedStackerDBChunk {
+            peer: na2.clone(),
+            chunk: pushed_stackerdb_chunk_2,
+        });
     network_result_2
         .uploaded_stackerdb_chunks
         .push(uploaded_stackerdb_chunk_2);
@@ -1482,7 +1615,13 @@ fn test_network_result_update() {
     network_result_union
         .uploaded_nakamoto_blocks
         .append(&mut n1.uploaded_nakamoto_blocks);
-    // stackerdb chunks from n1 get dropped since their rc_consensus_hash no longer matches
+    // n1's *pushed* stackerdb chunk gets dropped since its rc_consensus_hash no longer matches:
+    // a peer sent it to us under a view we have moved past, and we never stored it.
+    //
+    // n1's *uploaded* stackerdb chunk is kept.
+    network_result_union
+        .uploaded_stackerdb_chunks
+        .append(&mut n1.uploaded_stackerdb_chunks);
     network_result_union
         .synced_transactions
         .append(&mut n1.synced_transactions);
@@ -1492,7 +1631,7 @@ fn test_network_result_update() {
     let new = network_result_1.clone();
     assert_eq!(old.update(new), network_result_1);
 
-    // disjoint results get unioned, except for stackerdb chunks
+    // disjoint results get unioned, except for stackerdb chunks pushed to us under a stale view
     let old = network_result_1.clone();
     let new = network_result_2.clone();
     assert_eq!(old.update(new), network_result_union);
@@ -1618,16 +1757,145 @@ fn test_network_result_update() {
         },
     };
 
-    old.pushed_stackerdb_chunks.push(old_chunk_1);
+    old.pushed_stackerdb_chunks.push(PushedStackerDBChunk {
+        peer: na1.clone(),
+        chunk: old_chunk_1,
+    });
     // replaced
-    new.pushed_stackerdb_chunks.push(new_chunk_1.clone());
+    new.pushed_stackerdb_chunks.push(PushedStackerDBChunk {
+        peer: na1.clone(),
+        chunk: new_chunk_1.clone(),
+    });
     // included
-    new.pushed_stackerdb_chunks.push(new_chunk_2.clone());
+    new.pushed_stackerdb_chunks.push(PushedStackerDBChunk {
+        peer: na1.clone(),
+        chunk: new_chunk_2.clone(),
+    });
 
     assert_eq!(
         old.update(new).pushed_stackerdb_chunks,
-        vec![new_chunk_1, new_chunk_2]
+        vec![
+            PushedStackerDBChunk {
+                peer: na1.clone(),
+                chunk: new_chunk_1,
+            },
+            PushedStackerDBChunk {
+                peer: na1.clone(),
+                chunk: new_chunk_2,
+            },
+        ]
     );
+
+    // An uploaded chunk survives coalescing even when the newer result carries a copy of it.
+    let mut old = NetworkResult::new(
+        StacksBlockId([0xaa; 32]),
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        ConsensusHash([0xaa; 20]),
+        HashMap::new(),
+    );
+    let mut new = old.clone();
+
+    let uploaded = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0xaa; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 1,
+            slot_version: 1,
+            sig: MessageSignature::empty(),
+            data: vec![3],
+        },
+    };
+    // the same chunk, echoed back to us by a peer we relayed it to
+    let echoed = PushedStackerDBChunk {
+        peer: na1.clone(),
+        chunk: uploaded.clone(),
+    };
+
+    old.uploaded_stackerdb_chunks.push(uploaded.clone());
+    new.pushed_stackerdb_chunks.push(echoed);
+
+    let updated = old.update(new);
+    assert_eq!(
+        updated.uploaded_stackerdb_chunks,
+        vec![uploaded.clone()],
+        "uploaded chunk must not be dropped in favor of a peer's echo of it"
+    );
+    // The echo itself stays since `update` only filters the older result, but it is harmless:
+    // the relayer will reject it as a stale chunk when it tries to store it, because the upload
+    // already wrote that data. The event comes from the uploaded record above.
+    assert_eq!(updated.pushed_stackerdb_chunks.len(), 1);
+
+    // An uploaded chunk also survives our own view moving on. Its rc_consensus_hash was stamped
+    // by this node when it accepted the upload, so a mismatch says nothing about the chunk;
+    // only the rebroadcast is view-sensitive, and that is decided later in the relayer.
+    let mut old = NetworkResult::new(
+        StacksBlockId([0xaa; 32]),
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        ConsensusHash([0xaa; 20]),
+        HashMap::new(),
+    );
+    let new = NetworkResult::new(
+        StacksBlockId([0xaa; 32]),
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        ConsensusHash([0xbb; 20]),
+        HashMap::new(),
+    );
+
+    let stale_view_upload = StackerDBPushChunkData {
+        contract_id: QualifiedContractIdentifier::transient(),
+        rc_consensus_hash: ConsensusHash([0xaa; 20]),
+        chunk_data: StackerDBChunkData {
+            slot_id: 1,
+            slot_version: 1,
+            sig: MessageSignature::empty(),
+            data: vec![3],
+        },
+    };
+    let stale_view_push = PushedStackerDBChunk {
+        peer: na1.clone(),
+        chunk: StackerDBPushChunkData {
+            contract_id: QualifiedContractIdentifier::transient(),
+            rc_consensus_hash: ConsensusHash([0xaa; 20]),
+            chunk_data: StackerDBChunkData {
+                slot_id: 2,
+                slot_version: 1,
+                sig: MessageSignature::empty(),
+                data: vec![3],
+            },
+        },
+    };
+
+    old.uploaded_stackerdb_chunks
+        .push(stale_view_upload.clone());
+    old.pushed_stackerdb_chunks.push(stale_view_push);
+
+    let updated = old.update(new);
+    assert_eq!(
+        updated.uploaded_stackerdb_chunks,
+        vec![stale_view_upload],
+        "uploaded chunk must survive our own view advancing"
+    );
+    // a *pushed* chunk from a stale view is still dropped -- it reflects a peer's disagreement
+    // with us, and we have not stored it, so nothing is owed
+    assert!(updated.pushed_stackerdb_chunks.is_empty());
 
     // nakamoto blocks obtained via download, upload, or pushed get consoldated
     let mut old = NetworkResult::new(

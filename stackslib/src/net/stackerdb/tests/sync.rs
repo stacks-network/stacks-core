@@ -22,6 +22,7 @@ use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksPublicKey,
 };
+use stacks_common::types::net::PeerAddress;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
@@ -29,7 +30,9 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::net::p2p::PeerNetwork;
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestPeer, TestPeerConfig};
-use crate::net::{Error as net_error, NetworkResult, StackerDBChunkData};
+use crate::net::{
+    Error as net_error, NeighborAddress, NetworkResult, StackerDBChunkData, StackerDBPushChunkData,
+};
 use crate::util_lib::test::with_timeout;
 
 const BASE_PORT: u16 = 33000;
@@ -1031,7 +1034,7 @@ fn test_stackerdb_push_relayer_late_chunks() {
                 .network
                 .pending_stacks_messages
                 .iter()
-                .fold(0, |acc, (_, msgs)| acc + msgs.len());
+                .fold(0, |acc, (_, inbox)| acc + inbox.messages.len());
             debug!("peer_3.network.pending_stacks_messages: {}", num_pending);
 
             if num_pending >= 10 && !advanced_tenure {
@@ -1196,4 +1199,151 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
 
         debug!("Completed stacker DB sync in {} step(s)", step_count);
     })
+}
+
+/// [`PeerNetwork::validate_received_chunk`] rejects any chunk whose `data` exceeds the
+/// per-replica `config.chunk_size`, regardless of whether the rest of the chunk
+/// would otherwise validate.
+#[test]
+fn test_validate_received_chunk_rejects_oversized() {
+    let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 100);
+    peer_config.allowed = -1;
+
+    // Use a small chunk_size so we can build an "oversized" chunk cheaply.
+    let mut stackerdb_config = StackerDBConfig::template();
+    stackerdb_config.chunk_size = 1024;
+    let idx = add_stackerdb(&mut peer_config, Some(stackerdb_config));
+
+    let mut peer = TestPeer::new(peer_config);
+    // 1 slot, no fill — signer key generated and registered.
+    setup_stackerdb(&mut peer, idx, false, 1);
+
+    let contract_id = peer.config.stacker_dbs[idx].clone();
+    let stackerdb_config = peer.config.stacker_db_configs[idx]
+        .clone()
+        .expect("stackerdb config must exist");
+    let expected_versions = vec![0u32; 1];
+
+    // Oversized: chunk_size + 1 bytes. Signature does not need to be valid — the
+    // size check is the first gate in `validate_received_chunk` and fires before
+    // signer/version checks.
+    let oversized_data = vec![0u8; (stackerdb_config.chunk_size as usize) + 1];
+    let oversized_chunk = StackerDBChunkData::new(0, 1, oversized_data);
+
+    let result = peer
+        .network
+        .validate_received_chunk(
+            &contract_id,
+            &stackerdb_config,
+            &oversized_chunk,
+            &expected_versions,
+        )
+        .unwrap();
+    assert!(!result, "an oversized chunk must be rejected");
+}
+
+/// [`PeerNetwork::validate_received_chunk`] accepts a chunk at exactly `config.chunk_size` bytes
+/// (if other validations — signer, version — pass as well)
+#[test]
+fn test_validate_received_chunk_accepts_max_size() {
+    let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 102);
+    peer_config.allowed = -1;
+
+    let mut stackerdb_config = StackerDBConfig::template();
+    stackerdb_config.chunk_size = 1024;
+    let idx = add_stackerdb(&mut peer_config, Some(stackerdb_config));
+
+    let mut peer = TestPeer::new(peer_config);
+    // 1 slot, fill with a valid signed chunk so a same-size resubmission can
+    // pass signature + version checks and we can confirm Ok(true).
+    setup_stackerdb(&mut peer, idx, true, 1);
+
+    let contract_id = peer.config.stacker_dbs[idx].clone();
+    let stackerdb_config = peer.config.stacker_db_configs[idx]
+        .clone()
+        .expect("stackerdb config must exist");
+
+    // Load the chunk we just stored — it's valid for this replica, signed by
+    // the registered slot signer, and exactly `chunk_size` bytes.
+    let (stored_metadata, stored_data) = load_stackerdb(&peer, idx).into_iter().next().unwrap();
+    assert_eq!(stored_data.len(), stackerdb_config.chunk_size as usize);
+
+    // Replay it through `validate_received_chunk`. Use the stored version as
+    // the expected version so the freshness check passes.
+    let chunk = StackerDBChunkData {
+        slot_id: stored_metadata.slot_id,
+        slot_version: stored_metadata.slot_version,
+        sig: stored_metadata.signature,
+        data: stored_data,
+    };
+    let expected_versions = vec![stored_metadata.slot_version];
+
+    let result = peer
+        .network
+        .validate_received_chunk(&contract_id, &stackerdb_config, &chunk, &expected_versions)
+        .unwrap();
+    assert!(result, "a chunk within chunk_size must pass the size gate");
+}
+
+/// [`StackerDBSync::pushchunks_begin`] must try the next receiver for the same chunk when a send
+/// fails. Failed receivers must not starve the remaining receivers or prevent the state machine
+/// from finishing the round.
+#[test]
+fn test_pushchunks_begin_tries_next_receiver_after_failure() {
+    let mut peer_config = TestPeerConfig::from_port(BASE_PORT + 120);
+    peer_config.allowed = -1;
+
+    let idx = add_stackerdb(&mut peer_config, Some(StackerDBConfig::template()));
+    let mut peer = TestPeer::new(peer_config);
+    setup_stackerdb(&mut peer, idx, true, 1);
+
+    let contract_id = peer.config.stacker_dbs[idx].clone();
+    let rc_consensus_hash = peer.network.get_chain_view().rc_consensus_hash.clone();
+
+    // Two receivers that are not connected peers, so `neighbor_send` fails with
+    // PeerNotConnected for each.
+    let dead_receiver_1 = NeighborAddress {
+        addrbytes: PeerAddress([1u8; 16]),
+        port: 1,
+        public_key_hash: Hash160([0x11; 20]),
+    };
+    let dead_receiver_2 = NeighborAddress {
+        addrbytes: PeerAddress([2u8; 16]),
+        port: 2,
+        public_key_hash: Hash160([0x22; 20]),
+    };
+
+    let chunk_push = StackerDBPushChunkData {
+        contract_id: contract_id.clone(),
+        rc_consensus_hash,
+        chunk_data: StackerDBChunkData::new(0, 1, vec![7u8; 32]),
+    };
+
+    let mut stacker_db_syncs = peer
+        .network
+        .stacker_db_syncs
+        .take()
+        .expect("network must hold stacker DB sync machines");
+    let sync = stacker_db_syncs
+        .get_mut(&contract_id)
+        .expect("sync machine must exist for the test stackerdb");
+
+    // Plant a push schedule directly (bypassing make_chunk_push_schedule) with both dead
+    // receivers queued behind one chunk.
+    sync.chunk_push_priorities = vec![(
+        chunk_push,
+        vec![dead_receiver_1.clone(), dead_receiver_2.clone()],
+    )];
+    sync.next_chunk_push_priority = 0;
+
+    // Both sends fail, so both receivers must be consumed in the chunk's one loop iteration.
+    let done = sync.pushchunks_begin(&mut peer.network).unwrap();
+    assert!(
+        done,
+        "all receivers consumed: pushchunks_begin must report done"
+    );
+    assert!(sync.chunk_push_priorities[0].1.is_empty());
+    assert!(sync.chunk_push_receipts.is_empty());
+
+    peer.network.stacker_db_syncs = Some(stacker_db_syncs);
 }

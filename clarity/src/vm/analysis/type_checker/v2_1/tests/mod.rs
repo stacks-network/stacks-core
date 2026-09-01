@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
 use clarity_types::types::SequenceSubtype;
 #[cfg(test)]
 use rstest::rstest;
@@ -22,18 +24,25 @@ use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind, SyntaxBindingError};
-use crate::vm::analysis::mem_type_check as mem_run_analysis;
+use crate::vm::analysis::tests::utils::{SingleAnalysisPass, run_single_analysis_pass};
 use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis};
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::parser::v2::lexer::token::Token;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{ExecutionCost, LimitedCostTracker, runtime_cost};
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::signatures::TypeSignature::OptionalType;
-use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
+use crate::vm::types::signatures::{
+    CallableSubtype, FunctionSignature, ListTypeData, StringUTF8Length,
+};
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, MAX_VALUE_SIZE, QualifiedContractIdentifier,
     TraitIdentifier, TypeSignature, TypeSignatureExt as _,
@@ -66,7 +75,7 @@ pub fn mem_type_check(
 
 /// NOTE: runs at latest Clarity version
 fn type_check_helper(exp: &str) -> Result<TypeSignature, StaticCheckError> {
-    mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+    type_check_helper_version(exp, ClarityVersion::latest(), StacksEpochId::latest())
 }
 
 fn type_check_helper_version(
@@ -74,7 +83,15 @@ fn type_check_helper_version(
     version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> Result<TypeSignature, StaticCheckError> {
-    mem_run_analysis(exp, version, epoch).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+    let pass = if epoch < StacksEpochId::Epoch21 {
+        SingleAnalysisPass::TypeChecker2_05
+    } else {
+        SingleAnalysisPass::TypeChecker2_1
+    };
+    match run_single_analysis_pass(pass, exp, version, epoch) {
+        Ok(analysis) => Ok(analysis.type_of_final_expression()?.unwrap()),
+        Err(e) => Err(e),
+    }
 }
 
 fn type_check_helper_v1(exp: &str) -> Result<TypeSignature, StaticCheckError> {
@@ -1532,7 +1549,7 @@ fn test_lists() {
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(buff_type(20))),
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(IntType)),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 3),
-        StaticCheckErrorKind::UnknownFunction("ynot".to_string()),
+        StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("ynot".to_string()),
         StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("if".to_string()),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
         StaticCheckErrorKind::UnionTypeError(vec![IntType, UIntType], Box::new(BoolType)),
@@ -1587,7 +1604,7 @@ fn test_buff() {
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(buff_type(20))),
         StaticCheckErrorKind::TypeError(Box::new(BoolType), Box::new(IntType)),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 3),
-        StaticCheckErrorKind::UnknownFunction("ynot".to_string()),
+        StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("ynot".to_string()),
         StaticCheckErrorKind::IllegalOrUnknownFunctionApplication("if".to_string()),
         StaticCheckErrorKind::IncorrectArgumentCount(2, 1),
         StaticCheckErrorKind::UnionTypeError(vec![IntType, UIntType], Box::new(BoolType)),
@@ -3075,6 +3092,59 @@ fn test_combine_tuples() {
     mem_type_check("(merge { a: 1, b: 2, c: 3 } 5)").unwrap_err();
 }
 
+/// Static-analysis epoch gate for an oversized tuple `merge`.
+///
+/// Two individually-valid `(buff 524288)`-typed fields merge into a tuple type whose value
+/// size exceeds `MAX_VALUE_SIZE`. The failure mode flips at the 4.0 boundary:
+/// - epoch < 4.0: `check_special_merge` does not size the merged tuple; the oversized type
+///   propagates and only fails when `new_response` (the `ok`) sizes it, surfacing as a
+///   block-invalidating `Unreachable` (wrapping an `InvariantViolation`).
+/// - epoch >= 4.0: `check_special_merge` rejects the oversized merge at the merge site with a
+///   clean `ValueTooLarge`.
+#[test]
+fn tuple_merge_oversized_analysis_gate_epoch40() {
+    let snippet = "(define-private (f (x (buff 524288)))
+        (ok (merge (tuple (a x)) (tuple (b x)))))";
+
+    // epoch < 4.0 (legacy): block-invalidating `Unreachable` from the later `.size()`.
+    let legacy_err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch34).unwrap_err();
+    assert!(
+        matches!(*legacy_err.err, StaticCheckErrorKind::Unreachable(_)),
+        "expected a pre-4.0 Unreachable failure, got {:?}",
+        legacy_err.err
+    );
+
+    // epoch >= 4.0: clean `ValueTooLarge` at the merge site.
+    let gated_err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch40).unwrap_err();
+    assert_eq!(*gated_err.err, StaticCheckErrorKind::ValueTooLarge);
+}
+
+/// Static-analysis epoch gate for an oversized tuple `merge` whose result is **never sized**.
+///
+/// The merge result is bound in a `let` but never used (the function returns `(ok true)`), so
+/// nothing computes its size during analysis. This is the case that pre-4.0 slipped past the
+/// static checker entirely — the contract type-checks and deploys, then becomes uncallable.
+/// The 4.0 gate rejects it at the merge site regardless of whether the result is ever used.
+/// - epoch < 4.0: analysis accepts the contract (no sizing occurs).
+/// - epoch >= 4.0: `check_special_merge` rejects it with `ValueTooLarge`.
+#[test]
+fn tuple_merge_unused_oversized_analysis_gate_epoch40() {
+    let snippet = "(define-private (f (x (buff 524288)))
+        (let ((m (merge (tuple (a x)) (tuple (b x)))))
+            (ok true)))";
+
+    // epoch < 4.0 (legacy): analysis accepts the unused oversized merge.
+    mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch34)
+        .expect("pre-4.0 analysis must accept an unused oversized merge");
+
+    // epoch >= 4.0: rejected at the merge site with `ValueTooLarge`, even though unused.
+    let gated_err =
+        mem_run_analysis(snippet, ClarityVersion::Clarity3, StacksEpochId::Epoch40).unwrap_err();
+    assert_eq!(*gated_err.err, StaticCheckErrorKind::ValueTooLarge);
+}
+
 #[test]
 fn test_using_merge() {
     let t = "(define-map users uint
@@ -4448,4 +4518,186 @@ fn test_contract_call_with_non_callable_constant_target(
             );
         }
     }
+}
+
+#[test]
+fn test_clarity2_inner_type_check_type_aborts_when_deadline_elapsed() {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let mut cost_tracker = LimitedCostTracker::new_free();
+    // A zero-duration deadline is already elapsed at the first check.
+    let resource_limiter = ResourceBudget::new()
+        .with_max_duration(Some(Duration::ZERO))
+        .start_tracking();
+
+    let result = super::clarity2_inner_type_check_type(
+        &mut db,
+        None,
+        StacksEpochId::latest(),
+        &BoolType,
+        &BoolType,
+        1,
+        &mut cost_tracker,
+        &resource_limiter,
+    );
+
+    assert!(
+        matches!(result, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::AnalysisResourceBudgetExceeded(_))),
+        "expected AnalysisResourceBudgetExceeded, got {result:?}"
+    );
+}
+
+/// A cost error raised inside the trait-compliance recursion is masked as
+/// `IncompatibleTrait` before Epoch 4.0, and surfaces as its real error from
+/// Epoch 4.0 on.
+#[test]
+fn test_trait_compliance_cost_error_masking_is_epoch40_gated() {
+    // Builds a single-method trait whose method `f` takes one trait-typed
+    // argument (a reference to `arg_trait`).
+    let single_trait_arg_method = |arg_trait: TraitIdentifier| {
+        let mut methods = std::collections::BTreeMap::new();
+        methods.insert(
+            ClarityName::try_from("f").unwrap(),
+            FunctionSignature {
+                args: vec![TypeSignature::CallableType(CallableSubtype::Trait(
+                    arg_trait,
+                ))],
+                returns: BoolType,
+            },
+        );
+        methods
+    };
+
+    // Two distinct top-level traits, each with a method `f` taking a trait-typed
+    // argument. The argument trait identifiers differ, so compatibility checking
+    // enters the (Trait, Trait) arm and calls `clarity2_lookup_trait`, whose cost
+    // charge exceeds the zero budget below.
+    let expected_trait_id = TraitIdentifier {
+        name: ClarityName::try_from("expected").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("expected-def").unwrap(),
+    };
+    let actual_trait_id = TraitIdentifier {
+        name: ClarityName::try_from("actual").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("actual-def").unwrap(),
+    };
+    let expected_trait = single_trait_arg_method(TraitIdentifier {
+        name: ClarityName::try_from("arg-trait-a").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("arg-def-a").unwrap(),
+    });
+    let actual_trait = single_trait_arg_method(TraitIdentifier {
+        name: ClarityName::try_from("arg-trait-b").unwrap(),
+        contract_identifier: QualifiedContractIdentifier::local("arg-def-b").unwrap(),
+    });
+
+    // Runs the compliance check under `epoch` with a fresh zero-budget tracker.
+    // The zero budget makes the first `runtime_cost` charge (the nested trait
+    // lookup) fail with `CostBalanceExceeded`.
+    let run_for_epoch = |epoch: StacksEpochId| {
+        let mut marf = MemoryBackingStore::new();
+        let mut db = marf.as_analysis_db();
+        let mut tracker = LimitedCostTracker::new_with_limit(epoch, ExecutionCost::ZERO);
+        // Unlimited time: the deadline never fires, so only the cost charge can error.
+        let resource_limiter = ResourceLimiter::unlimited();
+        super::clarity2_trait_check_trait_compliance(
+            &mut db,
+            None,
+            epoch,
+            &actual_trait_id,
+            &actual_trait,
+            &expected_trait_id,
+            &expected_trait,
+            0,
+            &mut tracker,
+            &resource_limiter,
+        )
+    };
+
+    // Before the gate: the real cause (`CostBalanceExceeded`) is masked.
+    let pre = run_for_epoch(StacksEpochId::Epoch34);
+    assert!(
+        matches!(pre, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::IncompatibleTrait(..))),
+        "pre-Epoch40: expected the cost error masked as IncompatibleTrait, got {pre:?}"
+    );
+
+    // From Epoch 4.0: the real cost error surfaces.
+    let post = run_for_epoch(StacksEpochId::Epoch40);
+    assert!(
+        matches!(post, Err(ref e) if matches!(*e.err, StaticCheckErrorKind::CostBalanceExceeded(..))),
+        "Epoch40: expected the real CostBalanceExceeded to surface, got {post:?}"
+    );
+}
+
+/// In-contract trait lookups are charged `AnalysisUseTraitEntry` from Epoch 4.0,
+/// matching the datastore lookup path; earlier epochs charge only the datastore
+/// path.
+#[test]
+fn test_in_contract_trait_entry_metered_from_epoch40() {
+    // Checking a <trait-a> value against a <trait-b> parameter forces the
+    // type-checker to resolve both in-contract trait definitions.
+    let contract = r#"
+        (define-trait trait-a ((f (uint) (response bool bool))))
+        (define-trait trait-b ((f (uint) (response bool bool))))
+        (define-private (sink (x <trait-b>)) true)
+        (define-private (pass (y <trait-a>)) (sink y))
+    "#;
+
+    let analyze_at = |epoch: StacksEpochId| -> ContractAnalysis {
+        let id = QualifiedContractIdentifier::transient();
+        let version = ClarityVersion::Clarity2;
+        let ast = build_ast(&id, contract, &mut (), version, epoch).expect("ast");
+        let mut marf = MemoryBackingStore::new();
+        let mut adb = marf.as_analysis_db();
+        let tracker = LimitedCostTracker::new_with_limit(epoch, ExecutionCost::max_value());
+        run_analysis(
+            &id,
+            &ast.expressions,
+            &mut adb,
+            false,
+            tracker,
+            epoch,
+            version,
+            true,
+            ResourceLimiter::unlimited(),
+        )
+        .expect("analysis succeeds")
+    };
+    let total_of = |analysis: &ContractAnalysis| -> ExecutionCost {
+        analysis
+            .cost_track
+            .as_ref()
+            .expect("cost tracker present")
+            .get_total()
+    };
+
+    let pre = analyze_at(StacksEpochId::Epoch33);
+    let post = analyze_at(StacksEpochId::Epoch40);
+    let pre_cost = total_of(&pre);
+    let post_cost = total_of(&post);
+
+    // The analysis cost functions are identical between the two epochs' cost
+    // contracts, so the runtime difference must be exactly the two in-contract
+    // lookups (trait-a and trait-b, equally sized) newly charged at Epoch 4.0.
+    let trait_sig = post.defined_traits.get("trait-a").expect("trait-a defined");
+    let type_size = super::trait_type_size(trait_sig).expect("trait size");
+    let mut expected =
+        LimitedCostTracker::new_with_limit(StacksEpochId::Epoch40, ExecutionCost::max_value());
+    for _ in 0..2 {
+        runtime_cost(
+            ClarityCostFunction::AnalysisUseTraitEntry,
+            &mut expected,
+            type_size,
+        )
+        .expect("charge");
+    }
+    assert_eq!(
+        post_cost.runtime - pre_cost.runtime,
+        expected.get_total().runtime,
+        "Epoch 4.0 analysis should cost exactly two AnalysisUseTraitEntry charges more"
+    );
+    // Only the runtime dimension is charged for in-contract lookups: resolving
+    // from the in-memory context does no datastore I/O.
+    assert_eq!(post_cost.read_count, pre_cost.read_count);
+    assert_eq!(post_cost.read_length, pre_cost.read_length);
+    assert_eq!(post_cost.write_count, pre_cost.write_count);
+    assert_eq!(post_cost.write_length, pre_cost.write_length);
 }

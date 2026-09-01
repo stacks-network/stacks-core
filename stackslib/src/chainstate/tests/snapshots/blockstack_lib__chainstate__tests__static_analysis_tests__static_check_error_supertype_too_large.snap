@@ -1,10 +1,10 @@
 ---
 source: stackslib/src/chainstate/tests/static_analysis_tests.rs
-expression: result
+expression: result.get_expected_results()
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "3eb778aec610f8e28b6e81a1030678224ee8a0324c9c5eb149b2b06ed49e8ed0",
+    marf_hash: "7739e121436ba032f1b99eeabebcb936b990e4a2ffc50c08ca2c533b3f410d69",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -34,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ea7e3237a4b0f6020ae3eff2e6edb3b08e049f640511d6f10e76357cc5045c4a",
+    marf_hash: "dbb65a99cebc7555bb710c2d295eeefaea7d67adf4a18876ece86ff247700a45",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -64,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "090f4b92369ef8fe9991caaa3a46719664ff52b8a0e4b8392ae80e8e236c7c50",
+    marf_hash: "348161f3699bc04e62375d22d9f654c55e70ba0faf69a182a9a72912c116362c",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -94,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2de02fe494e56afe528573e028bc7748fc86281b6677afdf53ee9dfa07734683",
+    marf_hash: "c0af94eae50ac5f494807439c27798ee8450095fa4a6d49afdda4d8e020bfa89",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,11 +124,191 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "608f386051815209dad48be43b2ae929a76597948c69467fa59d2485a66b6b37",
+    marf_hash: "4ab8406754d9534b23dd9d6878ca612a475f23499b077ef8421e8ac92eb24dfe",
     evaluated_epoch: Epoch34,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: supertype-too-large-Epoch3_4-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: supertype of two types is too large) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 55,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12578,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 55,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12578,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c3b6b6e84fb88fcfd50fcd3a367471a49a61f13196b15fe082e60792272b4da3",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: supertype-too-large-Epoch4_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: supertype of two types is too large) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 55,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12580,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 55,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12580,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "04d248e6d27d258092cc1512d9339d5c1191c6e3e7cd62e88f074f8482236167",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: supertype-too-large-Epoch4_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: supertype of two types is too large) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 55,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12578,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 55,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12578,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c70fdb4e701dfe3d69ca3f227827a58ced6b114b4a0f3241c393bbed2341b822",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: supertype-too-large-Epoch4_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: supertype of two types is too large) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 55,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12578,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 55,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12578,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b7d0f43ee38e2d937509b9a32c2c6043c7cd0749d6a3782298343d3d4887c4c3",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: supertype-too-large-Epoch4_0-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: supertype of two types is too large) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 55,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12578,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 55,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12578,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "01f2de80f54a5179731564c4e042b8f3f586e1a5a164a0902228a97774ce3b1a",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: supertype-too-large-Epoch4_0-Clarity5, code_body: [..], clarity_version: Some(Clarity5))",
+        vm_error: "Some(:0:0: supertype of two types is too large) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 55,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 12578,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 55,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 12578,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "4b8ea58ba5ab9d43a7ae98f28b2f9a31a22c7550152f7e42b2beb82ac67c85e6",
+    evaluated_epoch: Epoch40,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: supertype-too-large-Epoch4_0-Clarity6, code_body: [..], clarity_version: Some(Clarity6))",
         vm_error: "Some(:0:0: supertype of two types is too large) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,

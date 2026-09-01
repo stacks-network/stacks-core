@@ -54,6 +54,7 @@ use crate::strings::StacksString;
 /// Max size of a serialized Stacks transaction (consensus-encoded).
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
 pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
+pub const MIN_TRANSACTION_LEN: u32 = 180;
 use stacks_common::{
     define_u8_enum, impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
     impl_byte_array_newtype, impl_byte_array_serde, impl_index_newtype,
@@ -1292,7 +1293,7 @@ impl SinglesigSpendingCondition {
             return Err(AuthError::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
                 addr.bytes(),
-                &self.signer
+                self.signer
             )));
         }
 
@@ -2798,7 +2799,7 @@ fn clarity_version_consensus_deserialize<R: Read>(
         6u8 => Ok(ClarityVersion::Clarity6),
         _ => Err(codec_error::DeserializeError(format!(
             "Unrecognized ClarityVersion byte {}",
-            &version_byte
+            version_byte
         ))),
     }
 }
@@ -3078,20 +3079,20 @@ impl StacksTransaction {
         // Otherwise, if the offending leader is the next leader, they can just orphan their proof
         // of malfeasance.
         match payload {
-            TransactionPayload::PoisonMicroblock(_, _) => {
-                if anchor_mode != TransactionAnchorMode::OnChainOnly {
-                    return Err(codec_error::DeserializeError(
-                        "Failed to parse transaction: invalid anchor mode for PoisonMicroblock"
-                            .to_string(),
-                    ));
-                }
+            TransactionPayload::PoisonMicroblock(_, _)
+                if anchor_mode != TransactionAnchorMode::OnChainOnly =>
+            {
+                return Err(codec_error::DeserializeError(
+                    "Failed to parse transaction: invalid anchor mode for PoisonMicroblock"
+                        .to_string(),
+                ));
             }
-            TransactionPayload::Coinbase(..) => {
-                if anchor_mode != TransactionAnchorMode::OnChainOnly {
-                    return Err(codec_error::DeserializeError(
-                        "Failed to parse transaction: invalid anchor mode for Coinbase".to_string(),
-                    ));
-                }
+            TransactionPayload::Coinbase(..)
+                if anchor_mode != TransactionAnchorMode::OnChainOnly =>
+            {
+                return Err(codec_error::DeserializeError(
+                    "Failed to parse transaction: invalid anchor mode for Coinbase".to_string(),
+                ));
             }
             _ => {}
         }

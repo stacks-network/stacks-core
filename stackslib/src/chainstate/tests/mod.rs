@@ -21,27 +21,34 @@ mod runtime_analysis_tests;
 mod runtime_tests;
 mod static_analysis_tests;
 
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 
+use clarity::boot_util::boot_code_addr;
+use clarity::codec::StacksMessageCodec;
 use clarity::consts::{
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
-    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_4_0, STACKS_EPOCH_MAX,
+    PEER_VERSION_EPOCH_3_3, PEER_VERSION_EPOCH_3_4, PEER_VERSION_EPOCH_4_0, PEER_VERSION_EPOCH_4_1,
+    STACKS_EPOCH_MAX,
 };
 use clarity::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, TrieHash,
 };
 use clarity::vm::ast::parser::v1::CONTRACT_MAX_NAME_LENGTH;
+use clarity::vm::clarity::ClarityConnection as _;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::STXBalance;
 use clarity::vm::types::*;
-use clarity::vm::ContractName;
+use clarity::vm::{ClarityName, ContractName};
 use rand::{self, thread_rng, Rng};
 use stacks_common::address::*;
+use stacks_common::bitvec::BitVec;
 use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::*;
+use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 
 use self::nakamoto::test_signers::TestSigners;
@@ -52,23 +59,32 @@ use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::*;
 use crate::chainstate::coordinator::{Error as CoordinatorError, *};
-use crate::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
+use crate::chainstate::nakamoto::coordinator::{
+    get_nakamoto_next_recipients, load_nakamoto_reward_set_for_tenure,
+};
 use crate::chainstate::nakamoto::signer_set::{
     set_pox_5_sbtc_contract, set_pox_5_sbtc_registry_contract,
 };
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, TestStacker};
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, StacksDBIndexed};
+use crate::chainstate::nakamoto::{
+    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, StacksDBIndexed, TxToProcess,
+};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::test::make_pox_4_lockup_chain_id;
-use crate::chainstate::stacks::boot::{POX_5_NAME, POX_5_SIGNER_SET_MIN_USTX};
+use crate::chainstate::stacks::boot::test::{key_to_stacks_addr, make_pox_4_lockup_chain_id};
+use crate::chainstate::stacks::boot::{
+    RewardSet, POX_5_NAME, POX_5_SIGNER_MANAGER_TEST_CONTRACT_SOURCE, POX_5_SIGNER_SET_MIN_USTX,
+};
 use crate::chainstate::stacks::db::{StacksChainState, *};
+use crate::chainstate::stacks::miner::TransactionResourceBudgets;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksMicroblockHeader, *};
+use crate::core::test_util::{make_contract_call_tx, make_contract_publish_versioned};
 use crate::core::{
     EpochList, StacksEpoch, StacksEpochExtension, BLOCK_LIMIT_MAINNET_21, BOOT_BLOCK_HASH,
 };
@@ -79,6 +95,7 @@ use crate::util_lib::boot::{boot_code_id, boot_code_test_addr, boot_code_tx_auth
 use crate::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
 };
+use crate::util_lib::signed_structured_data::pox5::make_pox_5_signer_grant_signature;
 use crate::util_lib::strings::*;
 
 /// Minimal SIP-010 `sbtc-token` stub deployed at chainstate genesis from
@@ -113,14 +130,60 @@ const POX_5_SBTC_TOKEN_STUB_BODY: &str = r#"
 
 /// Minimal `sbtc-registry` stub deployed alongside the token stub. Exposes
 /// `get-current-aggregate-pubkey` so signer-set computation has a real
-/// contract to read from. The returned key is a fixed 33-byte buffer; tests
-/// that need a specific aggregate pubkey should override via their own setup.
+/// contract to read from. The returned key is the secp256k1 generator point:
+/// a deterministic, valid compressed key whose x-only coordinate is on the
+/// curve, so Waterfall recipient derivation succeeds. Tests that need a
+/// specific aggregate pubkey should override via their own setup.
 const POX_5_SBTC_REGISTRY_STUB_NAME: &str = "sbtc-registry";
 const POX_5_SBTC_REGISTRY_STUB_BODY: &str = r#"
 (define-read-only (get-current-aggregate-pubkey)
-    0x000000000000000000000000000000000000000000000000000000000000000000
+    0x0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 )
 "#;
+
+/// Match the harness's long-lived PoX-4 lock so test signers remain active
+/// through the first PoX-5 Waterfall cycle.
+const POX_5_STAKE_LOCK_CYCLES: u128 = 12;
+
+/// One PoX-5 signing key and the stackers that share it, together with the
+/// signer-manager contract deployed on their behalf.
+struct Pox5SignerGroup {
+    signer_key: Vec<u8>,
+    stackers: Vec<TestStacker>,
+    contract_name: ContractName,
+}
+
+impl Pox5SignerGroup {
+    fn representative(&self) -> &TestStacker {
+        self.stackers
+            .first()
+            .expect("A signer-key group must contain a stacker")
+    }
+
+    fn representative_address(&self) -> StacksAddress {
+        key_to_stacks_addr(&self.representative().stacker_private_key)
+    }
+
+    fn contract_id(&self) -> QualifiedContractIdentifier {
+        QualifiedContractIdentifier::new(
+            self.representative_address().into(),
+            self.contract_name.clone(),
+        )
+    }
+}
+
+/// Raw outcome from appending a Nakamoto extension block through the shared
+/// test-chainstate pipeline.
+pub struct TestNakamotoBlockOutcome {
+    pub block: NakamotoBlock,
+    pub execution: Result<StacksEpochReceipt, ChainstateError>,
+}
+
+/// Compute the transaction Merkle root used by test block constructors.
+fn compute_tx_merkle_root(txs: &[StacksTransaction]) -> Sha512Trunc256Sum {
+    let txids: Vec<_> = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
+    MerkleTree::<Sha512Trunc256Sum>::new(&txids).root()
+}
 
 // describes a chainstate's initial configuration
 #[derive(Debug, Clone)]
@@ -183,6 +246,157 @@ impl TestChainstateConfig {
             ..Self::default()
         }
     }
+
+    pub fn is_epoch_enabled(&self, epoch_id: StacksEpochId) -> bool {
+        self.epochs
+            .as_ref()
+            .and_then(|epochs| epochs.get(epoch_id))
+            .is_some_and(|epoch| epoch.start_height < epoch.end_height)
+    }
+
+    /// Test configurations follow the production convention that Epoch 4.0
+    /// and PoX-5 activate together. If a compact fixture placed Epoch 4.0 on
+    /// an unsafe reward-cycle boundary, extend Epoch 3.4 just enough to reach
+    /// the next valid reward-phase height.
+    fn configure_pox_5_transition(&mut self) {
+        // Do not impose production Nakamoto-transition validation on older
+        // fixtures. Many Epoch 3.x tests intentionally use synthetic schedules
+        // that are sufficient for their local scenario.
+        if !self.is_epoch_enabled(StacksEpochId::Epoch40) {
+            // PoX-5 activates with Epoch 4.0; a schedule that enables a later
+            // epoch without it would run that epoch under classic PoX while
+            // claiming to test the PoX-5 era. Fail loudly instead.
+            assert!(
+                !self.is_epoch_enabled(StacksEpochId::Epoch41),
+                "Epoch 4.1 requires an enabled Epoch 4.0: without it, PoX-5 never \
+                 activates and the chain runs Epoch 4.1 under classic PoX"
+            );
+            return;
+        }
+        let configured_epochs = self
+            .epochs
+            .as_ref()
+            .expect("Enabled Epoch 4.0 requires an epoch configuration");
+        let epoch_40 = configured_epochs
+            .get(StacksEpochId::Epoch40)
+            .expect("Enabled Epoch 4.0 disappeared from its configuration");
+        let epoch_30 = configured_epochs
+            .get(StacksEpochId::Epoch30)
+            .expect("Epoch 4.0 test configuration requires Epoch 3.0");
+
+        let configured_epoch_40_start = epoch_40.start_height;
+        let configured_pox_5_activation =
+            u64::from(self.burnchain.pox_constants.pox_5_activation_height);
+        let reward_cycle_length = u64::from(self.burnchain.pox_constants.reward_cycle_length);
+        let epoch_30_cycle = epoch_30.start_height / reward_cycle_length;
+        let first_block_height = self.burnchain.first_block_height;
+        let mut activation_height = epoch_40.start_height;
+        let search_limit = activation_height + 2 * reward_cycle_length;
+
+        while !self.is_pox_5_safe_activation(activation_height, first_block_height, epoch_30_cycle)
+        {
+            activation_height += 1;
+            assert!(
+                activation_height <= search_limit,
+                "No PoX-5-safe Epoch 4.0 activation height within two reward cycles; \
+                 activation and signer-setup execution must both occur in a reward phase"
+            );
+            assert!(
+                activation_height < epoch_40.end_height,
+                "Cannot move Epoch 4.0 activation to a PoX-5-safe height without \
+                 crossing its configured end"
+            );
+        }
+
+        if self.is_epoch_enabled(StacksEpochId::Epoch41) {
+            // A chain advancing through Epoch 4.0 toward 4.1 enrolls the
+            // PoX-5 signers inside 4.0: the activation block plus the
+            // enrollment's setup tenure need two burn blocks before the
+            // Epoch 4.1 boundary.
+            assert!(
+                activation_height + 2 <= epoch_40.end_height,
+                "Epoch 4.0 must retain at least two burn blocks after its PoX-5 \
+                 activation ({activation_height}) when Epoch 4.1 is enabled; \
+                 it ends at {}",
+                epoch_40.end_height
+            );
+        }
+
+        if activation_height != epoch_40.start_height {
+            self.shift_epoch_40_activation(activation_height);
+        }
+
+        if activation_height != configured_epoch_40_start
+            || activation_height != configured_pox_5_activation
+        {
+            info!(
+                "Normalized test Epoch 4.0/PoX-5 activation for '{}': \
+                 Epoch 4.0 {} -> {}, PoX-5 {} -> {}",
+                self.test_name,
+                configured_epoch_40_start,
+                activation_height,
+                configured_pox_5_activation,
+                activation_height
+            );
+        }
+        self.burnchain.pox_constants.pox_5_activation_height = activation_height
+            .try_into()
+            .expect("Epoch 4.0 activation height must fit in u32");
+        StacksEpoch::validate_nakamoto_transition_schedule(
+            self.epochs
+                .as_ref()
+                .expect("Epoch configuration disappeared"),
+            &self.burnchain,
+        );
+    }
+
+    /// Move the Epoch 4.0 boundary — and the end of its predecessor epoch —
+    /// to `activation_height`.
+    fn shift_epoch_40_activation(&mut self, activation_height: u64) {
+        let mut epochs = self
+            .epochs
+            .as_ref()
+            .expect("Epoch configuration disappeared")
+            .clone()
+            .to_vec();
+        let epoch_40_index = epochs
+            .iter()
+            .position(|epoch| epoch.epoch_id == StacksEpochId::Epoch40)
+            .expect("Epoch 4.0 disappeared from test configuration");
+        assert!(
+            epoch_40_index > 0,
+            "Epoch 4.0 test configuration must have a predecessor"
+        );
+        epochs[epoch_40_index - 1].end_height = activation_height;
+        epochs[epoch_40_index].start_height = activation_height;
+        self.epochs = Some(EpochList::new(&epochs));
+    }
+
+    /// A PoX-5-safe Epoch 4.0 activation height:
+    /// * keeps the activation block and the block after it out of the prepare
+    ///   phase (the setup extension blocks see the following burn height from
+    ///   Clarity),
+    /// * sits past the first two blocks of its reward cycle, and
+    /// * lands in a different reward cycle than Epoch 3.0.
+    fn is_pox_5_safe_activation(
+        &self,
+        height: u64,
+        first_block_height: u64,
+        epoch_30_cycle: u64,
+    ) -> bool {
+        let reward_cycle_length = u64::from(self.burnchain.pox_constants.reward_cycle_length);
+        // Keep this raw-height cycle comparison in lockstep with
+        // `StacksEpoch::validate_nakamoto_transition_schedule`.
+        let activation_cycle = height / reward_cycle_length;
+        let cycle_offset = height
+            .checked_sub(first_block_height)
+            .expect("Epoch 4.0 cannot precede the first burn block")
+            % reward_cycle_length;
+        !self.burnchain.is_in_prepare_phase(height)
+            && !self.burnchain.is_in_prepare_phase(height + 1)
+            && cycle_offset > 1
+            && activation_cycle != epoch_30_cycle
+    }
 }
 
 pub struct TestChainstate<'a> {
@@ -206,6 +420,7 @@ pub struct TestChainstate<'a> {
     pub mine_malleablized_blocks: bool,
     pub test_path: String,
     pub chainstate_path: String,
+    pox_5_signers_initialized: bool,
 }
 
 impl<'a> TestChainstate<'a> {
@@ -236,6 +451,7 @@ impl<'a> TestChainstate<'a> {
         mut config: TestChainstateConfig,
         observer: Option<&'a TestEventObserver>,
     ) -> TestChainstate<'a> {
+        config.configure_pox_5_transition();
         let test_path = Self::make_test_path(&config);
         let chainstate_path = get_chainstate_path_str(&test_path);
         let mut miner_factory = TestMinerFactory::new();
@@ -340,7 +556,7 @@ impl<'a> TestChainstate<'a> {
                         clarity,
                         &smart_contract_tx,
                         &boot_code_account,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                     .expect("FATAL: failed to deploy sbtc stub")
                 })
@@ -405,7 +621,7 @@ impl<'a> TestChainstate<'a> {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
-                        None,
+                        &TransactionResourceBudgets::unlimited(),
                     )
                     .unwrap()
                 });
@@ -486,6 +702,418 @@ impl<'a> TestChainstate<'a> {
             nakamoto_parent_tenure_opt: None,
             malleablized_blocks: vec![],
             mine_malleablized_blocks: true,
+            pox_5_signers_initialized: false,
+        }
+    }
+
+    /// Append a Nakamoto extension block containing exactly `transactions`.
+    ///
+    /// Unlike the normal miner path, this deliberately keeps invalid
+    /// transactions in the constructed block so consensus tests can exercise
+    /// block-validation failures. The raw epoch receipt stays at this shared
+    /// layer; callers decide how to interpret or snapshot it.
+    pub fn append_nakamoto_block_with_txs(
+        &mut self,
+        transactions: &[StacksTransaction],
+    ) -> TestNakamotoBlockOutcome {
+        let (nakamoto_block, reward_set) = self.construct_nakamoto_block_with_txs(transactions);
+        let mut sortdb = self.sortdb.take().unwrap();
+        let mut stacks_node = self.stacks_node.take().unwrap();
+
+        let execution = TestStacksNode::process_pushed_next_ready_block(
+            &mut stacks_node,
+            &mut sortdb,
+            &mut self.coord,
+            nakamoto_block.clone(),
+            &reward_set,
+        )
+        .map(|receipt| receipt.expect("Appended Nakamoto block produced no execution receipt"));
+
+        self.sortdb = Some(sortdb);
+        self.stacks_node = Some(stacks_node);
+
+        TestNakamotoBlockOutcome {
+            block: nakamoto_block,
+            execution,
+        }
+    }
+
+    fn construct_nakamoto_block_with_txs(
+        &mut self,
+        transactions: &[StacksTransaction],
+    ) -> (NakamotoBlock, RewardSet) {
+        let chain_tip = NakamotoChainState::get_canonical_block_header(
+            self.stacks_node.as_ref().unwrap().chainstate.db(),
+            self.sortdb.as_ref().unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        let tenure_snapshot = SortitionDB::get_block_snapshot_consensus(
+            self.sortdb_ref().conn(),
+            &chain_tip.consensus_hash,
+        )
+        .unwrap()
+        .unwrap();
+        let epoch_id =
+            SortitionDB::get_stacks_epoch(self.sortdb_ref().conn(), tenure_snapshot.block_height)
+                .unwrap()
+                .expect("FATAL: no epoch defined for the current Nakamoto tenure")
+                .epoch_id;
+        let reward_set = load_nakamoto_reward_set_for_tenure(
+            &tenure_snapshot,
+            &self.config.burnchain,
+            &mut self.stacks_node.as_mut().unwrap().chainstate,
+            &chain_tip.index_block_hash(),
+            self.sortdb.as_ref().unwrap(),
+            &OnChainRewardSetProvider::new(),
+        )
+        .expect("Failed to load the active reward set for the current Nakamoto tenure")
+        .expect("The active reward set is not known for the current Nakamoto tenure");
+        let mut block = NakamotoBlock {
+            header: NakamotoBlockHeader {
+                version: NakamotoBlockHeader::expected_version_for_epoch(epoch_id),
+                chain_length: chain_tip.stacks_block_height + 1,
+                burn_spent: chain_tip.anchored_header.total_burns(),
+                consensus_hash: chain_tip.consensus_hash.clone(),
+                parent_block_id: chain_tip.index_block_hash(),
+                tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
+                state_index_root: TrieHash::EMPTY,
+                timestamp: 1,
+                miner_signature: MessageSignature::empty(),
+                signer_signature: vec![],
+                pox_treatment: BitVec::ones(reward_set.pox_treatment_bitvec_len())
+                    .expect("Active reward set must produce a valid PoX treatment length"),
+                problematic_txs: vec![],
+            },
+            txs: transactions.to_vec(),
+        };
+
+        block.header.tx_merkle_root = compute_tx_merkle_root(&block.txs);
+        block.header.state_index_root = self
+            .compute_nakamoto_marf_root(block.header.timestamp, &block.txs)
+            .unwrap_or_else(|e| TrieHash::ZERO);
+
+        self.miner.sign_nakamoto_block(&mut block);
+        let signers = self.config.test_signers.clone().unwrap_or_default();
+        signers.sign_block_with_reward_set(&mut block, &reward_set);
+        (block, reward_set)
+    }
+
+    fn compute_nakamoto_marf_root(
+        &mut self,
+        block_time: u64,
+        block_txs: &[StacksTransaction],
+    ) -> Result<TrieHash, String> {
+        let node = self.stacks_node.as_mut().unwrap();
+        let sortdb = self.sortdb.as_ref().unwrap();
+        let chainstate = &mut node.chainstate;
+        let chain_tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+            .unwrap()
+            .unwrap();
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
+        let burndb_conn = sortdb.index_handle_at_tip();
+        let mut clarity_tx = StacksChainState::chainstate_block_begin(
+            &chainstate_tx,
+            clarity_instance,
+            &burndb_conn,
+            &chain_tip.consensus_hash,
+            &chain_tip.anchored_header.block_hash(),
+            &MINER_BLOCK_CONSENSUS_HASH,
+            &MINER_BLOCK_HEADER_HASH,
+        );
+        let result = Self::inner_compute_nakamoto_marf_root(
+            &mut clarity_tx,
+            block_time,
+            block_txs,
+            chain_tip.burn_header_height,
+        );
+        clarity_tx.rollback_block();
+        result
+    }
+
+    fn inner_compute_nakamoto_marf_root(
+        clarity_tx: &mut ClarityTx,
+        block_time: u64,
+        block_txs: &[StacksTransaction],
+        burn_header_height: u32,
+    ) -> Result<TrieHash, String> {
+        clarity_tx
+            .connection()
+            .as_free_transaction(|clarity_tx_conn| {
+                clarity_tx_conn.with_clarity_db(|db| {
+                    db.setup_block_metadata(Some(block_time))?;
+                    Ok(())
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        StacksChainState::process_block_transactions(
+            clarity_tx,
+            TxToProcess::all_execute(block_txs),
+            0,
+        )
+        .map_err(|e| e.to_string())?;
+        NakamotoChainState::finish_block(clarity_tx, None, false, burn_header_height)
+            .map_err(|e| e.to_string())?;
+
+        Ok(clarity_tx.seal())
+    }
+
+    /// Set up all configured test stackers in PoX-5 once for this harness,
+    /// then begin a fresh tenure.
+    ///
+    /// Setup is split across extension blocks so contract publication,
+    /// signer registration, and staking each have an independently checked
+    /// receipt. A fresh tenure follows so setup execution costs cannot reduce
+    /// the budget available to the caller's first test block.
+    fn setup_pox_5_signers(&mut self) {
+        if self.pox_5_signers_initialized {
+            return;
+        }
+
+        let burn_height = self.get_burn_block_height();
+        let current_epoch = SortitionDB::get_stacks_epoch(self.sortdb().conn(), burn_height)
+            .unwrap()
+            .expect("No epoch configured at the current burn height")
+            .epoch_id;
+        assert!(
+            current_epoch >= StacksEpochId::Epoch40,
+            "PoX-5 signers cannot be initialized before Epoch 4.0"
+        );
+        assert!(
+            !self.config.burnchain.is_in_prepare_phase(burn_height),
+            "PoX-5 signers must be initialized before its first prepare phase"
+        );
+
+        let groups = self.plan_pox_5_signer_groups();
+        let mut nonces = self.pox_5_account_nonces(&groups);
+        self.publish_pox_5_signer_manager_contracts(&groups, &mut nonces);
+        self.register_pox_5_signer_keys(&groups, &mut nonces);
+        self.stake_pox_5_stackers(&groups, &mut nonces, burn_height);
+        self.pox_5_signers_initialized = true;
+
+        // The setup tenure is harness infrastructure, so do not expose its
+        // malleablized sibling through the consumer-facing tracking list.
+        let tracked_malleablized_blocks = self.malleablized_blocks.len();
+        self.mine_nakamoto_tenure();
+        self.malleablized_blocks
+            .truncate(tracked_malleablized_blocks);
+    }
+
+    fn plan_pox_5_signer_groups(&self) -> Vec<Pox5SignerGroup> {
+        let test_stackers = self.config.test_stackers.clone().unwrap_or_default();
+        assert!(
+            !test_stackers.is_empty(),
+            "Epoch 4.0 test configuration requires at least one PoX-5 test stacker"
+        );
+
+        let mut stackers_by_signer_key: BTreeMap<Vec<u8>, Vec<TestStacker>> = BTreeMap::new();
+        for stacker in test_stackers {
+            stackers_by_signer_key
+                .entry(stacker.signer_public_key().to_bytes_compressed())
+                .or_default()
+                .push(stacker);
+        }
+
+        let stacker_signer_keys: BTreeSet<_> = stackers_by_signer_key.keys().cloned().collect();
+        let configured_signer_keys: BTreeSet<_> = self
+            .config
+            .test_signers
+            .as_ref()
+            .expect("Epoch 4.0 test configuration requires PoX-5 test signers")
+            .signer_keys
+            .iter()
+            .map(|signer_key| {
+                StacksPublicKey::from_private(signer_key)
+                    .to_bytes_compressed()
+                    .to_vec()
+            })
+            .collect();
+        assert_eq!(
+            stacker_signer_keys, configured_signer_keys,
+            "Epoch 4.0 test stacker signer keys must exactly match the configured test signers"
+        );
+
+        stackers_by_signer_key
+            .into_iter()
+            .enumerate()
+            .map(|(index, (signer_key, stackers))| Pox5SignerGroup {
+                signer_key,
+                stackers,
+                contract_name: ContractName::try_from(format!("pox5-signer-manager-{index}"))
+                    .expect("PoX-5 signer-manager contract name must be valid"),
+            })
+            .collect()
+    }
+
+    fn pox_5_account_nonces(&mut self, groups: &[Pox5SignerGroup]) -> HashMap<StacksAddress, u64> {
+        let mut nonces = HashMap::new();
+        for group in groups {
+            for stacker in &group.stackers {
+                let address = key_to_stacks_addr(&stacker.stacker_private_key);
+                if !nonces.contains_key(&address) {
+                    let sortdb = self.sortdb.as_ref().unwrap();
+                    let stacks_node = self.stacks_node.as_mut().unwrap();
+                    let nonce = get_account(&mut stacks_node.chainstate, sortdb, &address).nonce;
+                    nonces.insert(address, nonce);
+                }
+            }
+        }
+        nonces
+    }
+
+    fn next_pox_5_nonce(nonces: &mut HashMap<StacksAddress, u64>, address: &StacksAddress) -> u64 {
+        let nonce = nonces
+            .get_mut(address)
+            .expect("Missing PoX-5 setup account nonce");
+        let next = *nonce;
+        *nonce += 1;
+        next
+    }
+
+    fn publish_pox_5_signer_manager_contracts(
+        &mut self,
+        groups: &[Pox5SignerGroup],
+        nonces: &mut HashMap<StacksAddress, u64>,
+    ) {
+        let chain_id = self.config.network_id;
+        let transactions = groups
+            .iter()
+            .map(|group| {
+                let address = group.representative_address();
+                let nonce = Self::next_pox_5_nonce(nonces, &address);
+                let bytes = make_contract_publish_versioned(
+                    &group.representative().stacker_private_key,
+                    nonce,
+                    0,
+                    chain_id,
+                    group.contract_name.as_str(),
+                    POX_5_SIGNER_MANAGER_TEST_CONTRACT_SOURCE,
+                    None,
+                );
+                StacksTransaction::consensus_deserialize(&mut bytes.as_slice()).unwrap()
+            })
+            .collect();
+        self.append_pox_5_setup_block("signer-manager publishes", transactions);
+    }
+
+    fn register_pox_5_signer_keys(
+        &mut self,
+        groups: &[Pox5SignerGroup],
+        nonces: &mut HashMap<StacksAddress, u64>,
+    ) {
+        let chain_id = self.config.network_id;
+        let transactions = groups
+            .iter()
+            .enumerate()
+            .map(|(index, group)| {
+                let auth_id = u128::try_from(index).unwrap();
+                let contract = group.contract_id();
+                let signature = make_pox_5_signer_grant_signature(
+                    &PrincipalData::Contract(contract.clone()),
+                    auth_id,
+                    chain_id,
+                    &group.representative().signer_private_key,
+                )
+                .expect("Failed to sign PoX-5 signer-key grant");
+                let address = group.representative_address();
+                let nonce = Self::next_pox_5_nonce(nonces, &address);
+                make_contract_call_tx(
+                    &group.representative().stacker_private_key,
+                    nonce,
+                    0,
+                    chain_id,
+                    &address,
+                    group.contract_name.clone(),
+                    ClarityName::from_literal("register-self"),
+                    &[
+                        Value::Principal(PrincipalData::Contract(contract)),
+                        Value::buff_from(group.signer_key.clone()).unwrap(),
+                        Value::UInt(auth_id),
+                        Value::buff_from(signature.to_rsv()).unwrap(),
+                    ],
+                )
+            })
+            .collect();
+        self.append_pox_5_setup_block("signer registrations", transactions);
+    }
+
+    fn stake_pox_5_stackers(
+        &mut self,
+        groups: &[Pox5SignerGroup],
+        nonces: &mut HashMap<StacksAddress, u64>,
+        burn_height: u64,
+    ) {
+        let chain_id = self.config.network_id;
+        let pox_5_address: StacksAddress = boot_code_addr(false).into();
+        let mut transactions = vec![];
+        for group in groups {
+            let manager_contract = group.contract_id();
+            for stacker in &group.stackers {
+                let stacker_address = key_to_stacks_addr(&stacker.stacker_private_key);
+                let nonce = Self::next_pox_5_nonce(nonces, &stacker_address);
+                transactions.push(make_contract_call_tx(
+                    &stacker.stacker_private_key,
+                    nonce,
+                    0,
+                    chain_id,
+                    &pox_5_address,
+                    ContractName::from_literal(POX_5_NAME),
+                    ClarityName::from_literal("stake"),
+                    &[
+                        Value::Principal(PrincipalData::Contract(manager_contract.clone())),
+                        Value::UInt(stacker.amount),
+                        Value::UInt(POX_5_STAKE_LOCK_CYCLES),
+                        Value::UInt(u128::from(burn_height)),
+                        Value::none(),
+                    ],
+                ));
+            }
+        }
+        self.append_pox_5_setup_block("stakes", transactions);
+    }
+
+    fn append_pox_5_setup_block(
+        &mut self,
+        description: &str,
+        transactions: Vec<StacksTransaction>,
+    ) {
+        let outcome = self.append_nakamoto_block_with_txs(&transactions);
+        let receipt = outcome
+            .execution
+            .unwrap_or_else(|error| panic!("PoX-5 {description} block failed: {error:?}"));
+
+        for transaction in &transactions {
+            let transaction_receipt = receipt
+                .tx_receipts
+                .iter()
+                .find(|candidate| candidate.transaction.txid() == transaction.txid())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "PoX-5 {description} transaction {} had no receipt",
+                        transaction.txid()
+                    )
+                });
+            assert!(
+                transaction_receipt.vm_error.is_none(),
+                "PoX-5 {description} transaction failed with VM error: {:?}",
+                transaction_receipt.vm_error
+            );
+            assert!(
+                !transaction_receipt.post_condition_aborted,
+                "PoX-5 {description} transaction was aborted by a post condition"
+            );
+            assert!(
+                matches!(
+                    transaction_receipt.result,
+                    Value::Response(ResponseData {
+                        committed: true,
+                        ..
+                    })
+                ),
+                "PoX-5 {description} transaction returned an error: {:?}",
+                transaction_receipt.result
+            );
         }
     }
 
@@ -515,56 +1143,17 @@ impl<'a> TestChainstate<'a> {
 
         debug!("Advancing to epoch {target_epoch} boundary at {target_height}. Current burn block height: {burn_block_height}");
 
-        let epoch_25_height = self
-            .config
-            .epochs
-            .as_ref()
-            .expect("Epoch configuration missing")
-            .iter()
-            .find_map(|e| {
-                if e.epoch_id == StacksEpochId::Epoch25 {
-                    Some(e.start_height)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(u64::MAX);
-
-        let epoch_30_height = self
-            .config
-            .epochs
-            .as_ref()
-            .expect("Epoch configuration missing")
-            .iter()
-            .find_map(|e| {
-                if e.epoch_id == StacksEpochId::Epoch30 {
-                    Some(e.start_height)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(u64::MAX);
-
-        let epoch_30_reward_cycle = self
-            .config
-            .burnchain
-            .block_height_to_reward_cycle(epoch_30_height)
-            .unwrap_or(u64::MAX);
+        let epoch_30_height = self.epoch_start_height(StacksEpochId::Epoch30);
 
         let mut mined_pox_4_lockup = false;
         while burn_block_height < target_height {
             if burn_block_height < epoch_30_height - 1 {
                 let current_reward_cycle = self.get_reward_cycle();
-                // Before we can mine pox 4 lockup, make sure we mine at least one block.
-                // If we have mined the lockup already, just mine a regular tenure
-                // Note, we cannot mine a pox 4 lockup, if it isn't activated yet
-                // And must mine it in the reward cycle directly prior to the Nakamoto
-                // activated reward cycle
-                if !mined_pox_4_lockup
-                    && burn_block_height > self.config.current_block
-                    && burn_block_height + 1 >= epoch_25_height
-                    && current_reward_cycle + 1 == epoch_30_reward_cycle
-                {
+                if self.should_mine_pox_4_lockup(
+                    mined_pox_4_lockup,
+                    burn_block_height,
+                    current_reward_cycle,
+                ) {
                     debug!("Mining pox-4 lockup");
                     self.mine_pox_4_lockup(private_key);
                     mined_pox_4_lockup = true;
@@ -582,7 +1171,54 @@ impl<'a> TestChainstate<'a> {
                 self.mine_nakamoto_tenure();
             }
             burn_block_height = self.get_burn_block_height();
+            // Crossing into Epoch 4.0 on the way to a later target: enroll
+            // the PoX-5 signers immediately, before the first prepare phase
+            // of the activation cycle computes an (otherwise empty) Waterfall
+            // reward set and mining cannot continue.
+            if !self.pox_5_signers_initialized
+                && burn_block_height < target_height
+                && burn_block_height >= self.epoch_start_height(StacksEpochId::Epoch40)
+            {
+                self.setup_pox_5_signers();
+                burn_block_height = self.get_burn_block_height();
+            }
         }
+    }
+
+    /// Start height of `epoch_id` in this configuration, or `u64::MAX` if the
+    /// epoch is not configured.
+    fn epoch_start_height(&self, epoch_id: StacksEpochId) -> u64 {
+        self.config
+            .epochs
+            .as_ref()
+            .expect("Epoch configuration missing")
+            .iter()
+            .find(|e| e.epoch_id == epoch_id)
+            .map(|e| e.start_height)
+            .unwrap_or(u64::MAX)
+    }
+
+    /// Whether the tenure about to be mined at `burn_block_height` should
+    /// include the PoX-4 lockup: it has not been mined yet, we are past both
+    /// the first block and the Epoch 2.5 boundary, and we are in the reward
+    /// cycle directly before the Nakamoto-activated cycle. The lockup can
+    /// only be mined once PoX-4 is active.
+    fn should_mine_pox_4_lockup(
+        &self,
+        mined_pox_4_lockup: bool,
+        burn_block_height: u64,
+        current_reward_cycle: u64,
+    ) -> bool {
+        let epoch_25_height = self.epoch_start_height(StacksEpochId::Epoch25);
+        let epoch_30_reward_cycle = self
+            .config
+            .burnchain
+            .block_height_to_reward_cycle(self.epoch_start_height(StacksEpochId::Epoch30))
+            .unwrap_or(u64::MAX);
+        !mined_pox_4_lockup
+            && burn_block_height > self.config.current_block
+            && burn_block_height + 1 >= epoch_25_height
+            && current_reward_cycle + 1 == epoch_30_reward_cycle
     }
 
     /// This must be called after pox 4 activation and at or past the Epoch 2.5 boundary
@@ -663,8 +1299,7 @@ impl<'a> TestChainstate<'a> {
     /// Mines a new bitcoin block with a new tenure block-commit, using it to mine the start of a new Stacks Nakmoto tenure,
     /// It will mine subsequently mine the coinbase and tenure change Stacks txs.
     /// NOTE: mines a total of one Bitcoin block and one Stacks block.
-    fn mine_nakamoto_tenure(&mut self) {
-        let burn_block_height = self.get_burn_block_height();
+    pub fn mine_nakamoto_tenure(&mut self) {
         let (burn_ops, mut tenure_change, miner_key) =
             self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
         let (_, header_hash, consensus_hash) = self.next_burnchain_block(burn_ops);
@@ -685,14 +1320,59 @@ impl<'a> TestChainstate<'a> {
         );
     }
 
+    /// Advance an Epoch 4.0 chain to the first PoX-5 Waterfall block.
+    ///
+    /// Returns the Waterfall activation height so callers can inspect the
+    /// reward set selected there.
+    pub fn advance_to_first_pox_5_waterfall(&mut self) -> u64 {
+        let burn_height = self.get_burn_block_height();
+        let current_epoch = SortitionDB::get_stacks_epoch(self.sortdb().conn(), burn_height)
+            .unwrap()
+            .expect("No epoch configured at the current burn height")
+            .epoch_id;
+        assert!(
+            current_epoch >= StacksEpochId::Epoch40,
+            "Cannot advance to the first PoX-5 Waterfall block before Epoch 4.0"
+        );
+
+        let waterfall_height = self
+            .config
+            .burnchain
+            .pox_constants
+            .first_pox_waterfall_block(self.config.burnchain.first_block_height)
+            .expect("PoX-5 activation must map to a reward cycle");
+        assert!(
+            burn_height <= waterfall_height,
+            "Already advanced past the first PoX-5 Waterfall block at height \
+             {waterfall_height}; current burn height is {burn_height}"
+        );
+
+        while self.get_burn_block_height() < waterfall_height {
+            self.mine_nakamoto_tenure();
+        }
+        assert_eq!(
+            self.get_burn_block_height(),
+            waterfall_height,
+            "Failed to advance to the first PoX-5 Waterfall block"
+        );
+
+        waterfall_height
+    }
+
     /// Advance a TestChainstate into the provided epoch.
-    /// Does nothing if chainstate is already in the target epoch. Panics if it is past the epoch.
+    /// If already in the target epoch, completes any pending idempotent
+    /// epoch setup (PoX-5 signer enrollment for Epoch 4.0+) and otherwise
+    /// does nothing. Panics if the chainstate is past the target epoch.
     pub fn advance_into_epoch(
         &mut self,
         private_key: &StacksPrivateKey,
         target_epoch: StacksEpochId,
     ) {
         let burn_block_height = self.get_burn_block_height();
+        let current_epoch = SortitionDB::get_stacks_epoch(self.sortdb().conn(), burn_block_height)
+            .unwrap()
+            .expect("No epoch configured at the current burn height")
+            .epoch_id;
         let target_height = self
             .config
             .epochs
@@ -702,7 +1382,19 @@ impl<'a> TestChainstate<'a> {
             .find(|e| e.epoch_id == target_epoch)
             .expect("Target epoch not found")
             .start_height;
-        assert!(burn_block_height <= target_height, "We cannot advance backwards. Examine your bootstrap setup. Current burn block height: {burn_block_height}. Target height: {target_height}");
+        assert!(
+            current_epoch <= target_epoch,
+            "We cannot advance backwards. Examine your bootstrap setup. Current epoch: \
+             {current_epoch}. Target epoch: {target_epoch}"
+        );
+
+        if current_epoch == target_epoch {
+            if target_epoch >= StacksEpochId::Epoch40 {
+                self.setup_pox_5_signers();
+            }
+            return;
+        }
+
         // Don't bother advancing to the boundary if we are already at it.
         if burn_block_height < target_height {
             self.advance_to_epoch_boundary(private_key, target_epoch);
@@ -711,6 +1403,9 @@ impl<'a> TestChainstate<'a> {
             } else {
                 self.mine_nakamoto_tenure();
             }
+        }
+        if target_epoch >= StacksEpochId::Epoch40 {
+            self.setup_pox_5_signers();
         }
         let burn_block_height = self.get_burn_block_height();
         debug!(
@@ -1374,34 +2069,13 @@ impl<'a> TestChainstate<'a> {
             &OnChainRewardSetProvider::new(),
         )
         .unwrap_or_else(|e| panic!("Failure fetching recipient set: {e:?}"));
-        block_commit_op.commit_outs = match recipients {
-            Some(info) => {
-                let mut recipients = info
-                    .unwrap_v0()
-                    .recipients
-                    .into_iter()
-                    .map(|x| x.0)
-                    .collect::<Vec<PoxAddress>>();
-                if recipients.len() == 1 {
-                    recipients.push(PoxAddress::standard_burn_address(false));
-                }
-                recipients
-            }
-            None => {
-                if self
-                    .config
-                    .burnchain
-                    .is_in_prepare_phase(burn_block.block_height)
-                {
-                    vec![PoxAddress::standard_burn_address(false)]
-                } else {
-                    vec![
-                        PoxAddress::standard_burn_address(false),
-                        PoxAddress::standard_burn_address(false),
-                    ]
-                }
-            }
-        };
+        block_commit_op.commit_outs = RewardSetInfo::commit_outs_for(
+            recipients,
+            self.config
+                .burnchain
+                .is_in_prepare_phase(burn_block.block_height),
+            false,
+        );
         // Put everything back
         self.stacks_node = Some(stacks_node);
         self.sortdb = Some(sortdb);
@@ -1652,34 +2326,13 @@ impl<'a> TestChainstate<'a> {
             &self.config.burnchain,
         )
         .unwrap_or_else(|e| panic!("Failure fetching recipient set: {e:?}"));
-        block_commit_op.commit_outs = match recipients {
-            Some(info) => {
-                let mut recipients = info
-                    .unwrap_v0()
-                    .recipients
-                    .into_iter()
-                    .map(|x| x.0)
-                    .collect::<Vec<PoxAddress>>();
-                if recipients.len() == 1 {
-                    recipients.push(PoxAddress::standard_burn_address(false));
-                }
-                recipients
-            }
-            None => {
-                if self
-                    .config
-                    .burnchain
-                    .is_in_prepare_phase(burn_block.block_height)
-                {
-                    vec![PoxAddress::standard_burn_address(false)]
-                } else {
-                    vec![
-                        PoxAddress::standard_burn_address(false),
-                        PoxAddress::standard_burn_address(false),
-                    ]
-                }
-            }
-        };
+        block_commit_op.commit_outs = RewardSetInfo::commit_outs_for(
+            recipients,
+            self.config
+                .burnchain
+                .is_in_prepare_phase(burn_block.block_height),
+            false,
+        );
         test_debug!(
             "Block commit at height {} has {} recipients: {:?}",
             block_commit_op.block_height,
@@ -1880,9 +2533,20 @@ impl<'a> TestChainstate<'a> {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch40,
                 start_height: first_burnchain_height + 5,
-                end_height: STACKS_EPOCH_MAX,
+                // Two 7-block reward cycles: `configure_pox_5_transition`
+                // may shift the Epoch 4.0 start to the next PoX-5-safe
+                // height, and the width absorbs that shift so the Epoch 4.1
+                // boundary never has to move.
+                end_height: first_burnchain_height + 19,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_4_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch41,
+                start_height: first_burnchain_height + 19,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_4_1,
             },
         ])
     }
@@ -1989,9 +2653,20 @@ impl<'a> TestChainstate<'a> {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch40,
                 start_height: first_burnchain_height + 33,
-                end_height: STACKS_EPOCH_MAX,
+                // Two 7-block reward cycles: `configure_pox_5_transition`
+                // may shift the Epoch 4.0 start to the next PoX-5-safe
+                // height, and the width absorbs that shift so the Epoch 4.1
+                // boundary never has to move.
+                end_height: first_burnchain_height + 47,
                 block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_4_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch41,
+                start_height: first_burnchain_height + 47,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_4_1,
             },
         ])
     }
@@ -2033,6 +2708,7 @@ fn advance_through_all_epochs() {
         StacksEpochId::Epoch33,
         StacksEpochId::Epoch34,
         StacksEpochId::Epoch40,
+        StacksEpochId::Epoch41,
     ] {
         chainstate.advance_to_epoch_boundary(&privk, target_epoch);
         let burn_block_height = chainstate.get_burn_block_height();
@@ -2049,6 +2725,80 @@ fn advance_through_all_epochs() {
                 .epoch_id;
         assert_eq!(next_epoch, target_epoch);
     }
+}
+
+#[test]
+#[should_panic(expected = "Epoch 4.1 requires an enabled Epoch 4.0")]
+/// A schedule that enables Epoch 4.1 without Epoch 4.0 must be rejected:
+/// PoX-5 activates with Epoch 4.0, so such a chain would silently run
+/// Epoch 4.1 under classic PoX.
+fn reject_epoch_41_schedule_without_epoch_40() {
+    let privk = StacksPrivateKey::random();
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_pox_constants(7, 3)
+        .with_private_key(privk);
+    let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
+        + boot_plan.pox_constants.reward_cycle_length
+        + 1) as u64;
+    let mut epochs = TestChainstate::all_epochs(first_burnchain_height).to_vec();
+    // Collapse Epoch 4.0 to zero width so Epoch 4.1 is enabled without it.
+    let epoch_40_index = epochs
+        .iter()
+        .position(|epoch| epoch.epoch_id == StacksEpochId::Epoch40)
+        .expect("all_epochs must contain Epoch 4.0");
+    let epoch_40_start = epochs[epoch_40_index].start_height;
+    epochs[epoch_40_index].end_height = epoch_40_start;
+    epochs[epoch_40_index + 1].start_height = epoch_40_start;
+    boot_plan = boot_plan.with_epochs(EpochList::new(&epochs));
+
+    let _ = boot_plan.to_chainstate(None, Some(first_burnchain_height));
+}
+
+#[test]
+/// Cross the Epoch 4.0 -> 4.1 boundary for real.
+///
+/// `advance_through_all_epochs` stops one block *short* of each activation
+/// height, so nothing else executes the 4.0 -> 4.1 transition arm.
+fn advance_into_epoch_41_runs_the_epoch_transition() {
+    let privk = StacksPrivateKey::random();
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_pox_constants(7, 3)
+        .with_private_key(privk.clone());
+    let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
+        + boot_plan.pox_constants.reward_cycle_length
+        + 1) as u64;
+    let epochs = TestChainstate::all_epochs(first_burnchain_height);
+    boot_plan = boot_plan.with_epochs(epochs);
+    let mut chainstate = boot_plan.to_chainstate(None, Some(first_burnchain_height));
+
+    chainstate.advance_into_epoch(&privk, StacksEpochId::Epoch41);
+
+    let burn_block_height = chainstate.get_burn_block_height();
+    let current_epoch =
+        SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height)
+            .unwrap()
+            .unwrap()
+            .epoch_id;
+    assert_eq!(current_epoch, StacksEpochId::Epoch41);
+
+    // `initialize_epoch_4_1` deploys nothing, so the persisted Clarity epoch is
+    // its only observable effect.
+    let sortdb = chainstate.sortdb.take().unwrap();
+    let (consensus_hash, block_bhh) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+    let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
+    let iconn = sortdb.index_handle_at_tip();
+    let clarity_epoch = chainstate
+        .chainstate()
+        .with_read_only_clarity_tx(&iconn, &stacks_block_id, |conn| conn.get_epoch())
+        .expect("failed to open a read-only Clarity connection at the tip");
+    chainstate.sortdb = Some(sortdb);
+
+    assert_eq!(
+        clarity_epoch,
+        StacksEpochId::Epoch41,
+        "initialize_epoch_4_1 must bump the Clarity DB epoch version"
+    );
 }
 
 #[test]
@@ -2070,8 +2820,29 @@ fn pox_5_get_pox_info_min_amount_matches_rust_constant() {
     boot_plan = boot_plan.with_epochs(epochs);
     let mut chainstate = boot_plan.to_chainstate(None, Some(first_burnchain_height));
 
-    // Advance into Epoch 4.0, which deploys the pox-5 boot contract.
+    // Boundary advancement must stop before Epoch 4.0 and must not try to
+    // enroll signers before the pox-5 boot contract exists.
+    let epoch_40_start = chainstate
+        .config
+        .epochs
+        .as_ref()
+        .unwrap()
+        .get(StacksEpochId::Epoch40)
+        .unwrap()
+        .start_height;
+    chainstate.advance_to_epoch_boundary(&privk, StacksEpochId::Epoch40);
+    assert_eq!(chainstate.get_burn_block_height(), epoch_40_start - 1);
+    assert!(
+        !chainstate.pox_5_signers_initialized,
+        "Boundary advancement must not initialize PoX-5 signers"
+    );
+
+    // Entering Epoch 4.0 deploys pox-5 and performs the shared signer setup.
     chainstate.advance_into_epoch(&privk, StacksEpochId::Epoch40);
+    assert!(
+        chainstate.pox_5_signers_initialized,
+        "Entering Epoch 4.0 must initialize PoX-5 signers"
+    );
     let burn_block_height = chainstate.get_burn_block_height();
     let current_epoch =
         SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height)
@@ -2079,6 +2850,17 @@ fn pox_5_get_pox_info_min_amount_matches_rust_constant() {
             .unwrap()
             .epoch_id;
     assert_eq!(current_epoch, StacksEpochId::Epoch40);
+
+    // Re-entering the current epoch is a true no-op: signer setup is
+    // idempotent and does not append duplicate setup blocks or tenures.
+    let stacks_tip_before =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(chainstate.sortdb().conn()).unwrap();
+    chainstate.advance_into_epoch(&privk, StacksEpochId::Epoch40);
+    assert_eq!(chainstate.get_burn_block_height(), burn_block_height);
+    assert_eq!(
+        SortitionDB::get_canonical_stacks_chain_tip_hash(chainstate.sortdb().conn()).unwrap(),
+        stacks_tip_before
+    );
 
     // Call pox-5's `get-pox-info` read-only function at the chain tip.
     let sortdb = chainstate.sortdb.take().unwrap();

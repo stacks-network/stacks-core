@@ -124,8 +124,8 @@ fn setup_test_environment(
     fs::create_dir_all(signer_db_dir).unwrap();
     let signer_db = SignerDb::new(signer_db_path).unwrap();
 
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader {
+    let mut block = NakamotoBlock::new(
+        NakamotoBlockHeader {
             version: 1,
             chain_length: 10,
             burn_spent: 10,
@@ -137,9 +137,10 @@ fn setup_test_environment(
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
         },
-        txs: vec![],
-    };
+        vec![],
+    );
 
     block.header.sign_miner(&block_sk).unwrap();
     (stacks_client, signer_db, block_sk, view, block)
@@ -223,7 +224,7 @@ fn reorg_timing_testing(
         .parent_tenure_id
         .clone();
     block.header.consensus_hash = view.cur_sortition.data.consensus_hash.clone();
-    block.txs.push(StacksTransaction::new(
+    let tenure_change_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::TenureChange(TenureChangePayload {
@@ -235,12 +236,13 @@ fn reorg_timing_testing(
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160::from_node_public_key(&block_pk),
         }),
-    ));
-    block.txs.push(StacksTransaction::new(
+    );
+    let coinbase_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, Some(VRFProof::empty())),
-    ));
+    );
+    *block.executed_and_skipped_txs_mut() = vec![tenure_change_tx, coinbase_tx];
     block.header.sign_miner(&block_sk).unwrap();
 
     let last_sortition = view.last_sortition.as_ref().unwrap();
@@ -269,8 +271,8 @@ fn reorg_timing_testing(
     ];
 
     let block_proposal_1 = BlockProposal {
-        block: NakamotoBlock {
-            header: NakamotoBlockHeader {
+        block: NakamotoBlock::new(
+            NakamotoBlockHeader {
                 version: 1,
                 chain_length: 10,
                 burn_spent: 10,
@@ -282,9 +284,10 @@ fn reorg_timing_testing(
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
-            txs: vec![],
-        },
+            vec![],
+        ),
         burn_height: 2,
         reward_cycle: 1,
         block_proposal_data: BlockProposalData::empty(),
@@ -527,8 +530,9 @@ where
         client: stacks_client,
         config: _,
     } = MockServerClient::new();
+    let port = server.local_addr().unwrap().port();
     let (_stacks_client, mut signer_db, block_sk, mut view, mut block) =
-        setup_test_environment(function_name!());
+        setup_test_environment(&format!("{}_{port}", function_name!()));
     let mut parent_block_header = make_parent_header_meta(&block_sk, &mut block);
     parent_block_header.burn_view = Some(view.cur_sortition.data.consensus_hash.clone());
     let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);
@@ -537,7 +541,7 @@ where
     let mut payload = make_payload(&mut view, &block);
     payload.previous_tenure_end = block.header.parent_block_id.clone();
     let tx = make_tenure_change_tx(payload);
-    block.txs = vec![tx];
+    *block.executed_and_skipped_txs_mut() = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();
     let exit_flag = Arc::new(AtomicBool::new(false));
     let moved_exit_flag = exit_flag.clone();
@@ -693,8 +697,8 @@ fn check_sortition_timeout() {
     .unwrap());
     // Insert a signed over block so its no longer an empty tenure
     let block_proposal = BlockProposal {
-        block: NakamotoBlock {
-            header: NakamotoBlockHeader {
+        block: NakamotoBlock::new(
+            NakamotoBlockHeader {
                 version: 1,
                 chain_length: 10,
                 burn_spent: 10,
@@ -706,9 +710,10 @@ fn check_sortition_timeout() {
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
+                problematic_txs: vec![],
             },
-            txs: vec![],
-        },
+            vec![],
+        ),
         burn_height: 2,
         reward_cycle: 1,
         block_proposal_data: BlockProposalData::empty(),
@@ -718,7 +723,19 @@ fn check_sortition_timeout() {
     block_info.mark_pre_committed().unwrap();
     signer_db.insert_block(&block_info).unwrap();
 
-    // This will no longer be timed out as we have a non-empty tenure
+    // A block we have only pre-committed to must NOT suppress the timeout: a pre-commit puts no
+    // signature over the block.
+    assert!(SortitionState::is_timed_out(
+        &sortition.data.consensus_hash,
+        &signer_db,
+        Duration::from_secs(1)
+    )
+    .unwrap());
+
+    // Once we actually sign the block, the tenure is no longer empty and must not time out.
+    block_info.mark_locally_accepted(false).unwrap();
+    signer_db.insert_block(&block_info).unwrap();
+
     assert!(!SortitionState::is_timed_out(
         &sortition.data.consensus_hash,
         &signer_db,
@@ -822,7 +839,7 @@ fn check_proposal_with_extend_during_replay() {
     extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
     extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
     let tx = make_tenure_change_tx(extend_payload);
-    block.txs = vec![tx];
+    *block.executed_and_skipped_txs_mut() = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();
     let block_pk = StacksPublicKey::from_private(&block_sk);
 

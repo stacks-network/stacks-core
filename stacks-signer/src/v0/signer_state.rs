@@ -139,7 +139,7 @@ impl LocalStateMachine {
     /// Initialize a local state machine by querying the local stacks-node
     ///  and signerdb for the current sortition information
     pub fn new(
-        db: &SignerDb,
+        db: &mut SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
@@ -256,7 +256,7 @@ impl LocalStateMachine {
     /// If this local state machine has pending updates, process them
     pub fn handle_pending_update(
         &mut self,
-        db: &SignerDb,
+        db: &mut SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         tx_replay_scope: &mut ReplayScopeOpt,
@@ -283,7 +283,7 @@ impl LocalStateMachine {
     /// validity and the validity of the prior sortition
     pub fn check_miner_inactivity(
         &mut self,
-        db: &SignerDb,
+        db: &mut SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         eval: &GlobalStateEvaluator,
@@ -330,6 +330,21 @@ impl LocalStateMachine {
         // as there is no other miner available.
         if &sortition_data.consensus_hash == tenure_id {
             warn!("Signer State: Last sortition miner has timed out, but no prior valid miner. Allowing last sortition miner to continue");
+            return Ok(());
+        }
+
+        // Only revert to the prior miner if its tenure is the canonical Stacks tip's
+        // tenure. A miner only continues (extends) a tenure it won, so if the canonical
+        // tip is in some other tenure due to a Bitcoin reorg orphaning the prior
+        // sortition's tenure, the prior miner's node has already stopped mining and
+        // will never propose again.
+        let stacks_tip_ch = client.get_peer_info()?.stacks_tip_consensus_hash;
+        if sortition_data.consensus_hash != stacks_tip_ch {
+            warn!(
+                "Signer State: Current miner timed out due to inactivity, but the canonical stacks tip is not in the prior miner's tenure, so the prior miner cannot continue it. Allowing current miner to continue";
+                "stacks_tip_consensus_hash" => %stacks_tip_ch,
+                "prior_sortition_consensus_hash" => %sortition_data.consensus_hash,
+            );
             return Ok(());
         }
 
@@ -547,7 +562,7 @@ impl LocalStateMachine {
     #[allow(clippy::too_many_arguments)]
     pub fn bitcoin_block_arrival(
         &mut self,
-        db: &SignerDb,
+        db: &mut SignerDb,
         client: &StacksClient,
         proposal_config: &ProposalEvalConfig,
         mut expected_burn_block: Option<NewBurnBlock>,
@@ -1373,16 +1388,16 @@ impl LocalStateMachine {
         forked_blocks.sort_by_key(|block| block.header.chain_length);
         let forked_txs = forked_blocks
             .iter()
-            .flat_map(|block| block.txs.iter())
+            .flat_map(|block| block.txs())
             .filter(|tx|
                 // Don't include Coinbase, TenureChange, or PoisonMicroblock transactions
                 !matches!(
-                    tx.payload,
+                    tx.payload(),
                     TransactionPayload::TenureChange(..)
                         | TransactionPayload::Coinbase(..)
                         | TransactionPayload::PoisonMicroblock(..)
                 ))
-            .cloned()
+            .map(|tx| tx.tx_ignoring_problematic_state().clone())
             .collect::<Vec<_>>();
         forked_txs
     }

@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
 # Generates a GitHub release body by expanding a template with release variables.
 # Notes:
-#   - stacks-core releases will output all docker images with a sha256 (if available), including stacks-signer images
-#   - stacks-core releases will link to a companion stacks-signer release (e.g. stacks-core release 1.2.3.4.5 will link to stacks-signer 1.2.3.4.5.0)
-#   - stacks-signer releases will *only* output images for the stacks-signer release (for stacks-core, a release link is provided for those images)
-#   - stacks-signer point releases will link to the stacks-core release for that version (e.g. stacks-signer 1.2.3.4.5.1 will link to stacks-core 1.2.3.4.5)
-#   - rc releases will respect the same above rules
-#     - if there is an rc signer release, e.g. 1.2.3.4.5.1-rc1, it will link to stacks-core 1.2.3.4.5-rc1
+#   - the node and signer share a single version and ship in one combined release
+#   - the release body lists all docker images (stacks-core and stacks-signer)
+#     with a sha256 (if available)
+#   - the release body includes the changelog section for the release version
+#   - rc releases follow the same rules
 #
 # Required env vars:
-#   VERSION      - Bare release version (no 'signer-' prefix)
+#   VERSION      - Release version (e.g. 4.0.0)
 #   CHANGELOG    - Path to the CHANGELOG.md file
 #   TEMPLATE     - Path to the release body template
-#   RELEASE_TYPE - one of: stacks-core, stacks-signer
 #   REPO         - repository to create release for
 #
-# Optional env var:
-#   DIGEST_MANIFEST - json file containing sha256 for image variants and package IDs
+# Optional env vars:
+#   DIGEST_MANIFEST  - json file containing sha256 for image variants and package IDs
 #       Example manifest:
 #       {
 #         "stacks-core": {
@@ -40,14 +38,11 @@
 #           }
 #         }
 #       }
-
-
+#
 # Template variables substituted:
-#   ${node_tag}          - 5-part node version  (e.g. 1.2.3.4.5)
-#   ${signer_tag}        - 6-part signer version (e.g. 1.2.3.4.5.0)
-#   ${node_epoch}        - epoch compatibility tag (e.g. 1.2.x.x.x)
-#   ${companion_line}    - line to reference companion release (differs by RELEASE_TYPE, stacks-core mentions stacks-signer and vice-versa)
-#   ${changelog_content} - extracted changelog block (may be empty for signer releases)
+#   ${tag}                      - release version (e.g. 4.0.0)
+#   ${node_epoch}               - epoch compatibility tag (e.g. 4.0.x)
+#   ${changelog_section}        - extracted changelog block (may be empty)
 #
 # Outputs:
 #   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stderr if unset (via logging.sh)
@@ -61,7 +56,6 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 : "${VERSION:?VERSION is required}"
 : "${CHANGELOG:?CHANGELOG is required}"
 : "${TEMPLATE:?TEMPLATE is required}"
-: "${RELEASE_TYPE:?RELEASE_TYPE is required}"
 : "${REPO:?REPO is required}"
 
 DIGEST_MANIFEST="${DIGEST_MANIFEST:-}"
@@ -76,27 +70,16 @@ if [[ ! -f "${CHANGELOG}" ]]; then
     exit 1
 fi
 
-## ── Derive node_tag, signer_tag, node_epoch, companion_line ─────────────────
-if [[ "${RELEASE_TYPE}" == "stacks-signer" ]]; then
-    signer_tag="${VERSION}"
-    # Extract first 5 dot-separated parts and preserve any suffix (like -rc1)
-    node_tag=$(echo "${signer_tag}" | sed 's/^\([^.]*\.[^.]*\.[^.]*\.[^.]*\.[^.]*\)\.[0-9]*\(.*\)$/\1\2/')
-    companion_line="The version of stacks-node compatible with this release is ${node_tag}, available here: https://github.com/${REPO}/releases/tag/${node_tag}."
-else
-    node_tag="${VERSION}"
-    signer_tag=$(sed 's/\(-[^-]*\)*$/.0\1/' <<<"${node_tag}")
-    companion_line="The version of stacks-signer compatible with this release is ${signer_tag}, available at: https://github.com/${REPO}/releases/tag/signer-${signer_tag}."
-fi
-
-node_epoch="$(echo "${node_tag}" | cut -d. -f1-2).x.x.x"
+## ── Derive tag, node_epoch ───────────────────────────────────────────────────
+tag="${VERSION}"
+node_epoch="$(echo "${tag}" | cut -d. -f1-2).x"
 repo_owner="${REPO%%/*}"
 
 ## ── Format docker pull commands with digests (if manifest provided) ─────────
 format_docker_pulls() {
     local manifest_file="$1"
-    local node_tag="$2"
-    local signer_tag="$3"
-    local repo_owner="$4"
+    local tag="$2"
+    local repo_owner="$3"
 
     # Print a single image variant with or without digest
     print_image() {
@@ -155,45 +138,26 @@ format_docker_pulls() {
 
     {
         printf "### Docker images have been published to GitHub Container Registry:\n\n"
-        # if RELEASE_TYPE is stacks-core, show all images. if stacks-signer, only show signer images
-        if [[ "${RELEASE_TYPE}" != "stacks-signer" ]]; then
-            printf "#### **stacks-core**\n"
-            print_image "stacks-core" "glibc" "${node_tag}" "${core_glibc}" "${core_glibc_id}"
-            print_image "stacks-core" "musl" "${node_tag}" "${core_musl}" "${core_musl_id}"
+        printf "#### **stacks-core**\n"
+        print_image "stacks-core" "glibc" "${tag}" "${core_glibc}" "${core_glibc_id}"
+        print_image "stacks-core" "musl" "${tag}" "${core_musl}" "${core_musl_id}"
 
-            printf "#### **stacks-signer**\n"
-        else
-            printf "#### **stacks-signer**\n"
-        fi
-        print_image "stacks-signer" "glibc" "${signer_tag}" "${signer_glibc}" "${signer_glibc_id}"
-        print_image "stacks-signer" "musl" "${signer_tag}" "${signer_musl}" "${signer_musl_id}"
+        printf "#### **stacks-signer**\n"
+        print_image "stacks-signer" "glibc" "${tag}" "${signer_glibc}" "${signer_glibc_id}"
+        print_image "stacks-signer" "musl" "${tag}" "${signer_musl}" "${signer_musl_id}"
     }
 }
 
 ## ── Generate docker pull section with or without digests ───────────────────
 if [[ -n "${DIGEST_MANIFEST}" ]] && [[ -f "${DIGEST_MANIFEST}" ]]; then
     info "docker_pulls: using digest manifest from ${DIGEST_MANIFEST}"
-    if ! docker_pulls_with_digests=$(format_docker_pulls "${DIGEST_MANIFEST}" "${node_tag}" "${signer_tag}" "${repo_owner}"); then
+    if ! docker_pulls_with_digests=$(format_docker_pulls "${DIGEST_MANIFEST}" "${tag}" "${repo_owner}"); then
         # Fallback if manifest processing fails
         info "docker_pulls: manifest processing failed, using fallback"
-        docker_pulls_with_digests=$(cat <<-EOF
-		### Docker images have been published to GitHub Container Registry:
-
-		#### **stacks-core**: https://github.com/${REPO}/pkgs/container/stacks-core
-		* Debian (glibc):
-		\`\`\`sh
-		docker pull ghcr.io/${repo_owner}/stacks-core:${node_tag}
-		\`\`\`
-
-		#### **stacks-signer**: https://github.com/${REPO}/pkgs/container/stacks-signer
-		* Debian (glibc):
-		\`\`\`sh
-		docker pull ghcr.io/${repo_owner}/stacks-signer:${signer_tag}
-		\`\`\`
-		EOF
-        )
+        docker_pulls_with_digests=""
     fi
-else
+fi
+if [[ -z "${docker_pulls_with_digests:-}" ]]; then
     # Fallback to simple docker pull commands without digests (with generic link to ghcr)
     info "docker_pulls: digest manifest not found, using fallback"
     docker_pulls_with_digests=$(cat <<-EOF
@@ -202,13 +166,13 @@ else
 	#### **stacks-core**: https://github.com/${REPO}/pkgs/container/stacks-core
 	* Debian (glibc):
 	\`\`\`sh
-	docker pull ghcr.io/${repo_owner}/stacks-core:${node_tag}
+	docker pull ghcr.io/${repo_owner}/stacks-core:${tag}
 	\`\`\`
 
 	#### **stacks-signer**: https://github.com/${REPO}/pkgs/container/stacks-signer
 	* Debian (glibc):
 	\`\`\`sh
-	docker pull ghcr.io/${repo_owner}/stacks-signer:${signer_tag}
+	docker pull ghcr.io/${repo_owner}/stacks-signer:${tag}
 	\`\`\`
 	EOF
     )
@@ -216,19 +180,20 @@ fi
 
 ## ── Extract changelog content (empty is acceptable) ─────────────────────────
 # Extract the changelog section for this release: from "## [VERSION]" until the next "## " header
-changelog_content=$(awk -v ver="## [${VERSION}]" '
-    { sub(/[[:space:]]*$/, "") }
-    $0 == ver       { found=1; next }
-    found && /^## / { exit }
-    found
-' "${CHANGELOG}")
+extract_changelog() {
+    local changelog_file="$1"
+    awk -v ver="## [${VERSION}]" '
+        { sub(/[[:space:]]*$/, "") }
+        $0 == ver       { found=1; next }
+        found && /^## / { exit }
+        found
+    ' "${changelog_file}"
+}
+
+changelog_content=$(extract_changelog "${CHANGELOG}")
 
 ## ── Build changelog section (omitted entirely when content is empty) ────────
-if [[ "${RELEASE_TYPE}" == "stacks-signer" ]]; then
-    changelog_link="https://github.com/${REPO}/blob/signer-${signer_tag}/stacks-signer/CHANGELOG.md"
-else
-    changelog_link="https://github.com/${REPO}/blob/${node_tag}/CHANGELOG.md"
-fi
+changelog_link="https://github.com/${REPO}/blob/${tag}/CHANGELOG.md"
 
 if [[ -n "${changelog_content}" ]]; then
     changelog_section="This release includes the following changes:
@@ -240,9 +205,7 @@ else
 fi
 
 ## ── Log derived values ──────────────────────────────────────────────────────
-info "RELEASE_TYPE:      $(hl "${RELEASE_TYPE}")"
-info "node_tag:          $(hl "${node_tag}")"
-info "signer_tag:        $(hl "${signer_tag}")"
+info "tag:               $(hl "${tag}")"
 info "node_epoch:        $(hl "${node_epoch}")"
 info "changelog_link:    $(hl "${changelog_link}")"
 info "DIGEST_MANIFEST:   $(hl "${DIGEST_MANIFEST}")"
@@ -252,10 +215,10 @@ changelog_lines=0
 info "changelog_content: $(hl "${CHANGELOG}") (${changelog_lines} lines)"
 
 ## ── Expand template ─────────────────────────────────────────────────────────
-export node_tag signer_tag node_epoch companion_line changelog_section repo_owner docker_pulls_with_digests
+export tag node_epoch changelog_section repo_owner docker_pulls_with_digests
 
 # shellcheck disable=SC2016
-if ! body=$(envsubst '${node_tag}${signer_tag}${node_epoch}${companion_line}${changelog_section}${repo_owner}${docker_pulls_with_digests}' < "${TEMPLATE}" 2>/dev/null); then
+if ! body=$(envsubst '${tag}${node_epoch}${changelog_section}${repo_owner}${docker_pulls_with_digests}' < "${TEMPLATE}" 2>/dev/null); then
     error "failed to expand template with envsubst"
     exit 1
 fi

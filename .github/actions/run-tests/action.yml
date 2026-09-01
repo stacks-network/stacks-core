@@ -21,13 +21,18 @@ inputs:
   archive-file:
     description: "Archive file to use for tests"
     required: true
+  debug-binary-path:
+    description: "Debug binary path"
+    required: true
   codecov-test-name:
     description: "Code coverage test name"
     required: true
-  codecov-binary-path:
-    description: "Code coverage binary path"
-    required: false
-    default: "./target/debug/"
+  upload-junit-xml:
+    description: "Whether or not to upload the nextest JUnit XML artifact"
+    required: true
+  upload-code-coverage:
+    description: "Whether or not to upload the code coverage artifact"
+    required: true
 
 runs:
   using: "composite"
@@ -68,20 +73,13 @@ runs:
       run: |
         sudo prlimit --nofile=4096:4096
 
-    # Restore nextest test archive cache data
-    - name: Restore Test Archive Cache
-      uses: ./.github/actions/cache/test-archive
+    # Restore Nextest archive artifact
+    - name: Restore Nextest Archive Artifact
+      uses: ./.github/actions/artifacts/nextest-archive
       with:
         action: restore
         archive-file: ${{ inputs.archive-file }}
-        codecov-binary-path: ${{ inputs.codecov-binary-path }}
-
-    # Install dependencies
-    #   grcov is used in the code coverage workflow in tests, so it's installed here
-    - name: Install Dependencies
-      uses: ./.github/actions/install-tool
-      with:
-        tools: nextest, grcov
+        debug-binary-path: ${{ inputs.debug-binary-path }}
 
     ############################################################################
     ### Run the tests
@@ -196,10 +194,10 @@ runs:
 
     # Store JUnit file in GitHub CI artifacts (with SHA and "nextest" prefix)
     - name: Store JUnit Report as Artifact
-      if: always() # needed to be able to execute this step for test failures
+      if: always() && inputs.upload-junit-xml == 'true'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
-        name: ${{ github.sha }}-nextest-${{ steps.generate-sanitized-file-name.outputs.file-name }}
+        name: nextest-${{ steps.generate-sanitized-file-name.outputs.file-name }}
         path: junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
         if-no-files-found: error
         retention-days: 1
@@ -211,13 +209,13 @@ runs:
     ############################################################################
 
     # Generate code coverage using grcov
-    #   - Resulting coverage filenames must be unique, so use test-name input to name the file
+    # Resulting coverage filenames must be unique, so use test-name input to name the file
     - name: Run grcov
-      if: github.event.repository.visibility == 'public'
+      if: inputs.upload-code-coverage == 'true'
       shell: bash
       run: |
         grcov . \
-          -b ${{ inputs.codecov-binary-path }} \
+          -b ${{ inputs.debug-binary-path }} \
           -s . \
           -t lcov \
           --branch \
@@ -246,10 +244,10 @@ runs:
 
     # Store coverage file in GitHub CI artifacts (with SHA and "lcov" prefix)
     - name: Store Code Coverage as Artifact
-      if: github.event.repository.visibility == 'public'
+      if: inputs.upload-code-coverage == 'true'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
       with:
-        name: ${{ github.sha }}-codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
+        name: codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
         path: lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info
         if-no-files-found: error
         retention-days: 1

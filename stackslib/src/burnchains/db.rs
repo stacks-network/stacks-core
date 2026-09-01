@@ -943,7 +943,94 @@ impl BurnchainDB {
             Ok(None)
         }
     }
+}
 
+// Raw-row test fixture writers. Each helper owns its table's column
+// list so fixtures can't drift from the schema; values are raw
+// TEXT/ints because fixtures use readable labels, not valid hashes
+// (which the typed write paths would reject).
+#[cfg(test)]
+impl BurnchainDB {
+    /// Insert a `burnchain_db_block_headers` row with no transactions.
+    pub fn test_insert_block_header_row(
+        conn: &Connection,
+        block_height: u64,
+        block_hash: &str,
+        parent_block_hash: &str,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO burnchain_db_block_headers \
+             (block_height, block_hash, parent_block_hash, num_txs, timestamp) \
+             VALUES (?1, ?2, ?3, 0, 0)",
+            params![u64_to_sql(block_height)?, block_hash, parent_block_hash],
+        )?;
+        Ok(())
+    }
+
+    /// Insert a `burnchain_db_block_ops` row with an opaque op payload.
+    pub fn test_insert_block_ops_row(
+        conn: &Connection,
+        block_hash: &str,
+        op: &str,
+        txid: &str,
+    ) -> rusqlite::Result<()> {
+        conn.execute(
+            "INSERT INTO burnchain_db_block_ops (block_hash, op, txid) VALUES (?1, ?2, ?3)",
+            params![block_hash, op, txid],
+        )?;
+        Ok(())
+    }
+
+    /// Insert a minimal `block_commit_metadata` row.
+    pub fn test_insert_block_commit_metadata_row(
+        conn: &Connection,
+        burn_block_hash: &str,
+        txid: &str,
+        block_height: u64,
+        anchor_block: Option<u64>,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO block_commit_metadata \
+             (burn_block_hash, txid, block_height, vtxindex, anchor_block, \
+              anchor_block_descendant) \
+             VALUES (?1, ?2, ?3, 0, ?4, NULL)",
+            params![
+                burn_block_hash,
+                txid,
+                u64_to_sql(block_height)?,
+                opt_u64_to_sql(anchor_block)?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Insert an `anchor_blocks` row.
+    pub fn test_insert_anchor_block_row(
+        conn: &Connection,
+        reward_cycle: u64,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO anchor_blocks (reward_cycle) VALUES (?1)",
+            params![u64_to_sql(reward_cycle)?],
+        )?;
+        Ok(())
+    }
+
+    /// Insert an `overrides` row.
+    pub fn test_insert_override_row(
+        conn: &Connection,
+        reward_cycle: u64,
+        affirmation_map: &str,
+    ) -> Result<(), DBError> {
+        conn.execute(
+            "INSERT INTO overrides (reward_cycle, affirmation_map) VALUES (?1, ?2)",
+            params![u64_to_sql(reward_cycle)?, affirmation_map],
+        )?;
+        Ok(())
+    }
+}
+
+impl BurnchainDB {
     // do NOT call directly; only call directly in tests.
     // This is only `pub` because the tests for it live in a different file.
     #[cfg(test)]

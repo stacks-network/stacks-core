@@ -16,51 +16,67 @@
 use std::collections::HashSet;
 use std::time::Instant;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::types::Value;
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use stacks_common::types::chainstate::StacksBlockId;
 
 use super::common::{
-    clone_schemas_from_source, copied_rows, execute_copy_specs, with_offline_write_session,
-    TableCopySpec,
+    classify_hint, clone_schemas_from_source, copied_rows, with_offline_write_session,
+    DbSnapshotSpec, TableCopySpec, TableCopySpecs, MARF_INFRA_TABLES,
 };
 use super::fork_storage::{collect_canonical_leaf_hashes, copy_canonical_fork_storage};
 use crate::burnchains::PoxConstants;
 use crate::chainstate::stacks::index::{trie_sql, Error, MARFValue};
+use crate::util_lib::db::{sqlite_open, u64_to_sql};
 
-/// Tables copied (with canonical-filtered content) into the squashed index DB.
-pub(crate) const COPIED_TABLES: &[&str] = &[
-    "db_config",
-    "block_headers",
-    "nakamoto_block_headers",
-    "payments",
-    "transactions",
-    "nakamoto_tenure_events",
-    "nakamoto_reward_sets",
-    "signer_stats",
-    "matured_rewards",
-    "burnchain_txids",
-    "epoch_transitions",
-    "staging_blocks",
-];
+/// The index snapshot's `?N` bind: the `signer_stats` reward-cycle bound.
+#[derive(Clone, Copy)]
+pub enum IndexBind {
+    /// `signer_stats` filters `reward_cycle <= ?1`.
+    MaxRewardCycle,
+}
 
-/// Tables the index copy clones for schema fidelity but does not populate. They
-/// are intentionally schema-only in this slice (never written by the index
-/// copy); cloning their schema prevents missing-table crashes if any code path
-/// references them.
-pub(crate) const SCHEMA_ONLY_TABLES: &[&str] = &[
-    "staging_microblocks",
-    "staging_microblocks_data",
-    "invalidated_microblocks_data", // Epoch 2.x block orphaning only (blocks.rs:2189)
-    "user_supporters",              // Dead table: zero runtime references
-];
+/// The index (`index.sqlite`) side-table snapshot spec. `max_reward_cycle` feeds
+/// the `signer_stats` `?N` bind only -- the table-name set is independent of it.
+/// The MARF infra tables ([`MARF_INFRA_TABLES`]) are created by the squash
+/// engine, so they're recognized by the guard but not row-copied.
+struct IndexDbSnapshotSpec {
+    max_reward_cycle: u64,
+}
 
-/// Every table whose schema must exist in the squashed dst (copied + schema-only).
-fn all_required_tables() -> Vec<&'static str> {
-    COPIED_TABLES
-        .iter()
-        .chain(SCHEMA_ONLY_TABLES)
-        .copied()
-        .collect()
+impl DbSnapshotSpec for IndexDbSnapshotSpec {
+    type Bind = IndexBind;
+
+    fn copy_spec_list() -> TableCopySpecs<'static, IndexBind> {
+        index_copy_specs()
+    }
+
+    fn extra_recognized_tables() -> Vec<&'static str> {
+        MARF_INFRA_TABLES.to_vec()
+    }
+
+    fn db_label() -> &'static str {
+        "index DB"
+    }
+
+    fn classify_hint() -> &'static str {
+        classify_hint!(index_copy_specs)
+    }
+
+    fn bind_params(&self, bind: IndexBind) -> Result<Vec<Value>, Error> {
+        match bind {
+            IndexBind::MaxRewardCycle => {
+                Ok(vec![Value::Integer(u64_to_sql(self.max_reward_cycle)?)])
+            }
+        }
+    }
+}
+
+/// The index snapshot's source-schema guard (see
+/// [`DbSnapshotSpec::assert_source_classified`]);
+/// `test_no_unclassified_source_tables` runs it against a fresh schema.
+pub fn assert_source_tables_classified(src_conn: &Connection) -> Result<(), Error> {
+    IndexDbSnapshotSpec::assert_source_classified(src_conn)
 }
 
 /// Row-count statistics returned by [`copy_index_side_tables`].
@@ -178,76 +194,80 @@ fn derive_max_reward_cycle(
 /// - `db_config` is copied in full.
 /// - `staging_blocks` adds a check for processend and non-orphaned blocks.
 /// - `signer_stats` is cut off at the canonical tip's  reward cycle.
-pub(super) fn index_copy_specs(max_reward_cycle: u64) -> Vec<TableCopySpec> {
-    let cb = "SELECT index_block_hash FROM canonical_blocks";
-    vec![
-        TableCopySpec {
-            table: "db_config",
-            source_sql: "SELECT * FROM src.db_config".into(),
-        },
-        TableCopySpec {
-            table: "block_headers",
-            source_sql: format!("SELECT * FROM src.block_headers WHERE index_block_hash IN ({cb})"),
-        },
-        TableCopySpec {
-            table: "nakamoto_block_headers",
-            source_sql: format!(
-                "SELECT * FROM src.nakamoto_block_headers WHERE index_block_hash IN ({cb})"
-            ),
-        },
-        TableCopySpec {
-            table: "payments",
-            source_sql: format!("SELECT * FROM src.payments WHERE index_block_hash IN ({cb})"),
-        },
-        TableCopySpec {
-            table: "transactions",
-            source_sql: format!("SELECT * FROM src.transactions WHERE index_block_hash IN ({cb})"),
-        },
-        TableCopySpec {
-            table: "nakamoto_tenure_events",
-            source_sql: format!(
-                "SELECT * FROM src.nakamoto_tenure_events WHERE block_id IN ({cb})"
-            ),
-        },
-        TableCopySpec {
-            table: "nakamoto_reward_sets",
-            source_sql: format!(
-                "SELECT * FROM src.nakamoto_reward_sets WHERE index_block_hash IN ({cb})"
-            ),
-        },
-        TableCopySpec {
-            table: "matured_rewards",
-            source_sql: format!(
-                "SELECT * FROM src.matured_rewards WHERE child_index_block_hash IN ({cb})"
-            ),
-        },
-        TableCopySpec {
-            table: "burnchain_txids",
-            source_sql: format!(
-                "SELECT * FROM src.burnchain_txids WHERE index_block_hash IN ({cb})"
-            ),
-        },
-        TableCopySpec {
-            table: "epoch_transitions",
-            source_sql: format!("SELECT * FROM src.epoch_transitions WHERE block_id IN ({cb})"),
-        },
-        TableCopySpec {
-            table: "staging_blocks",
+pub fn index_copy_specs() -> TableCopySpecs<'static, IndexBind> {
+    // `signer_stats`'s reward-cycle bound is the only runtime value, passed as
+    // the `?1` bind.
+    static SPECS: &[TableCopySpec<IndexBind>] = &[
+        TableCopySpec::sql("db_config", "SELECT * FROM src.db_config"),
+        TableCopySpec::sql(
+            "block_headers",
+            "SELECT * FROM src.block_headers \
+                 WHERE index_block_hash IN (SELECT index_block_hash FROM canonical_blocks)",
+        ),
+        TableCopySpec::sql(
+            "nakamoto_block_headers",
+            "SELECT * FROM src.nakamoto_block_headers \
+                 WHERE index_block_hash IN (SELECT index_block_hash FROM canonical_blocks)",
+        ),
+        TableCopySpec::sql(
+            "payments",
+            "SELECT * FROM src.payments \
+                 WHERE index_block_hash IN (SELECT index_block_hash FROM canonical_blocks)",
+        ),
+        TableCopySpec::sql(
+            "transactions",
+            "SELECT * FROM src.transactions \
+                 WHERE index_block_hash IN (SELECT index_block_hash FROM canonical_blocks)",
+        ),
+        TableCopySpec::sql(
+            "nakamoto_tenure_events",
+            "SELECT * FROM src.nakamoto_tenure_events \
+                 WHERE block_id IN (SELECT index_block_hash FROM canonical_blocks)",
+        ),
+        TableCopySpec::sql(
+            "nakamoto_reward_sets",
+            "SELECT * FROM src.nakamoto_reward_sets \
+                 WHERE index_block_hash IN (SELECT index_block_hash FROM canonical_blocks)",
+        ),
+        TableCopySpec::sql(
+            "matured_rewards",
+            "SELECT * FROM src.matured_rewards \
+                 WHERE child_index_block_hash IN (SELECT index_block_hash FROM canonical_blocks)",
+        ),
+        TableCopySpec::sql(
+            "burnchain_txids",
+            "SELECT * FROM src.burnchain_txids \
+                 WHERE index_block_hash IN (SELECT index_block_hash FROM canonical_blocks)",
+        ),
+        TableCopySpec::sql(
+            "epoch_transitions",
+            "SELECT * FROM src.epoch_transitions \
+                 WHERE block_id IN (SELECT index_block_hash FROM canonical_blocks)",
+        ),
+        TableCopySpec::sql(
+            "staging_blocks",
             // Only canonical, fully-processed, non-orphaned blocks.
-            source_sql: format!(
-                "SELECT s.* FROM src.staging_blocks s \
-                 WHERE s.index_block_hash IN ({cb}) \
+            "SELECT s.* FROM src.staging_blocks s \
+                 WHERE s.index_block_hash IN (SELECT index_block_hash FROM canonical_blocks) \
                    AND s.processed = 1 \
-                   AND s.orphaned = 0"
-            ),
-        },
-        TableCopySpec {
-            table: "signer_stats",
-            source_sql: format!(
-                "SELECT * FROM src.signer_stats WHERE reward_cycle <= {max_reward_cycle}"
-            ),
-        },
-    ]
+                   AND s.orphaned = 0",
+        ),
+        TableCopySpec::sql_with_bind(
+            "signer_stats",
+            "SELECT * FROM src.signer_stats WHERE reward_cycle <= ?1",
+            IndexBind::MaxRewardCycle,
+        ),
+        // Schema-only: schema cloned for fidelity, not row-copied here.
+        // `staging_microblocks`/`_data` are populated later by the
+        // block-preservation phase; the other two stay empty.
+        TableCopySpec::schema_only("staging_microblocks"),
+        TableCopySpec::schema_only("staging_microblocks_data"),
+        // Only written when orphaning epoch 2.x blocks.
+        TableCopySpec::schema_only("invalidated_microblocks_data"),
+        // Dead table: zero runtime references.
+        TableCopySpec::schema_only("user_supporters"),
+    ];
+    TableCopySpecs::new(SPECS)
 }
 
 /// Copy required non-MARF tables from the source `index.sqlite` into the
@@ -262,10 +282,17 @@ pub fn copy_index_side_tables(
     first_burn_height: u64,
     reward_cycle_len: u64,
 ) -> Result<IndexSideTableStats, Error> {
+    // Reject an unrecognized source schema before any destination work.
+    let src_conn = sqlite_open(src_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
+    assert_source_tables_classified(&src_conn)?;
+    drop(src_conn);
+
     let leaf_hashes = collect_canonical_leaf_hashes::<StacksBlockId>(dst_path)?;
 
     with_offline_write_session(dst_path, &[("src", src_path)], "", |conn| {
-        clone_schemas_from_source(conn, &all_required_tables())?;
+        // Clone only the spec tables' schemas; MARF infra tables are created by
+        // the squash engine, not cloned here.
+        clone_schemas_from_source(conn, &IndexDbSnapshotSpec::table_names())?;
         copy_tables_inner(conn, &leaf_hashes, first_burn_height, reward_cycle_len)
     })
 }
@@ -294,8 +321,7 @@ fn copy_tables_inner(
     let max_reward_cycle =
         derive_max_reward_cycle(conn, &canonical_tip, first_burn_height, reward_cycle_len)?;
 
-    let specs = index_copy_specs(max_reward_cycle);
-    let results = execute_copy_specs(conn, &specs)?;
+    let results = IndexDbSnapshotSpec { max_reward_cycle }.run_copy(conn)?;
 
     conn.execute_batch("DROP TABLE IF EXISTS canonical_blocks")
         .map_err(Error::SQLError)?;

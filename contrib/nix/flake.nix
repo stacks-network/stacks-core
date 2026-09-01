@@ -29,7 +29,9 @@
       crane,
       ...
     }:
-    flake-utils.lib.eachDefaultSystem (
+    flake-utils.lib.eachSystem (
+      builtins.filter (system: system != "x86_64-darwin") flake-utils.lib.defaultSystems
+    ) (
       system:
       let
         overlays = [ (import rust-overlay) ];
@@ -71,6 +73,10 @@
 
         name = "stacks-core";
 
+        cargoWorkspace = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace;
+        # Keep the source fileset in sync with Cargo's workspace declarations.
+        workspaceCrates = map (crate: ../.. + "/${crate}") cargoWorkspace.members;
+
         versions = builtins.fromTOML (builtins.readFile ../../versions.toml);
         version = versions.stacks_node_version;
 
@@ -106,48 +112,36 @@
           crate:
           lib.fileset.toSource {
             root = ../..;
-            fileset = lib.fileset.unions [
-              ../../Cargo.toml
-              ../../Cargo.lock
-              #
-              ../../versions.toml
-              #
-              ../../stx-genesis/name_zonefiles.txt
-              ../../stx-genesis/name_zonefiles.txt.sha256
-              ../../stx-genesis/name_zonefiles-test.txt
-              ../../stx-genesis/name_zonefiles-test.txt.sha256
-              ../../stx-genesis/chainstate.txt
-              ../../stx-genesis/chainstate.txt.sha256
-              ../../stx-genesis/chainstate-test.txt
-              ../../stx-genesis/chainstate-test.txt.sha256
-              #
-              (craneLib.fileset.commonCargoSources crate)
-              #
-              (lib.fileset.fileFilter (file: file.hasExt "clar") ../..)
-              #
-              (craneLib.fileset.commonCargoSources ../../clarity)
-              (craneLib.fileset.commonCargoSources ../../clarity-types)
-              ../../clarity-types/README.md
-              (craneLib.fileset.commonCargoSources ../../libsigner)
-              (craneLib.fileset.commonCargoSources ../../libstackerdb)
-              (craneLib.fileset.commonCargoSources ../../pox-locking)
-              (craneLib.fileset.commonCargoSources ../../stacks-codec)
-              (craneLib.fileset.commonCargoSources ../../stacks-common)
-              (craneLib.fileset.commonCargoSources ../../stackslib)
-              (craneLib.fileset.commonCargoSources ../../stx-genesis)
-              (craneLib.fileset.commonCargoSources ../../stacks-node)
-              (craneLib.fileset.commonCargoSources ../tools/config-docs-generator)
-              (craneLib.fileset.commonCargoSources ../../contrib/stacks-inspect)
-              (craneLib.fileset.commonCargoSources ../../contrib/stacks-cli)
-              (craneLib.fileset.commonCargoSources ../../contrib/clarity-cli)
-              (craneLib.fileset.commonCargoSources ../../stacks-signer)
-            ];
+            fileset = lib.fileset.unions (
+              [
+                ../../Cargo.toml
+                ../../Cargo.lock
+                #
+                ../../versions.toml
+                #
+                ../../stx-genesis/name_zonefiles.txt
+                ../../stx-genesis/name_zonefiles.txt.sha256
+                ../../stx-genesis/name_zonefiles-test.txt
+                ../../stx-genesis/name_zonefiles-test.txt.sha256
+                ../../stx-genesis/chainstate.txt
+                ../../stx-genesis/chainstate.txt.sha256
+                ../../stx-genesis/chainstate-test.txt
+                ../../stx-genesis/chainstate-test.txt.sha256
+                #
+                (craneLib.fileset.commonCargoSources crate)
+                #
+                (lib.fileset.fileFilter (file: file.hasExt "clar") ../..)
+                # clarity-types includes this file in its crate-level documentation.
+                ../../clarity-types/README.md
+              ]
+              ++ map craneLib.fileset.commonCargoSources workspaceCrates
+            );
           };
 
         stacks-signer = craneLib.buildPackage (
           individualCrateArgs
           // rec {
-            version = versions.stacks_signer_version;
+            inherit version;
             pname = "stacks-signer";
             cargoFeatures = "--features monitoring_prom";
             cargoExtraArgs = "${cargoFeatures} -p ${pname}";
@@ -199,6 +193,16 @@
           }
         );
 
+        marf-squash = craneLib.buildPackage (
+          individualCrateArgs
+          // rec {
+            inherit version;
+            pname = "marf-squash";
+            cargoExtraArgs = "-p ${pname}";
+            src = fileSetForCrate ../../contrib/marf-squash;
+          }
+        );
+
         stacks-node-app = {
           type = "app";
           program = "${stacks-core}/bin/stacks-node";
@@ -230,6 +234,7 @@
             stacks-cli
             clarity-cli
             stacks-inspect
+            marf-squash
             ;
           default = stacks-core;
         };

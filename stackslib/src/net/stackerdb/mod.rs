@@ -118,7 +118,9 @@ pub mod db;
 pub mod sync;
 
 use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
 use std::ops::Range;
+use std::sync::RwLock;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
@@ -149,6 +151,67 @@ pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
 pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
 pub const MINER_SLOT_COUNT: u32 = 2;
 
+static LOG_STACKERDB_CHUNK_SOURCES: RwLock<bool> = RwLock::new(false);
+
+/// Set whether newly stored StackerDB chunks should be logged with their origin.
+/// Call once during node startup from the run loop, with the value parsed from
+/// `NodeConfig`.
+pub fn set_log_stackerdb_chunk_sources(enabled: bool) {
+    *LOG_STACKERDB_CHUNK_SOURCES.write().unwrap() = enabled;
+}
+
+/// How a StackerDB chunk arrived at this replica.
+#[derive(Clone, PartialEq, Debug)]
+pub enum StackerDBChunkOrigin {
+    /// Downloaded after an inventory poll (`StackerDBGetChunk`)
+    Poll(NeighborAddress),
+    /// Unsolicited p2p push (`StackerDBPushChunk`)
+    Push(NeighborAddress),
+    /// HTTP POST `/v2/stackerdb/.../chunks`. `peer` is the TCP client address of the
+    /// HTTP connection
+    Http { peer: Option<SocketAddr> },
+}
+
+impl StackerDBChunkOrigin {
+    pub fn method(&self) -> &'static str {
+        match self {
+            StackerDBChunkOrigin::Poll(_) => "poll",
+            StackerDBChunkOrigin::Push(_) => "push",
+            StackerDBChunkOrigin::Http { .. } => "http",
+        }
+    }
+
+    pub fn peer_display(&self) -> String {
+        match self {
+            StackerDBChunkOrigin::Poll(peer) | StackerDBChunkOrigin::Push(peer) => peer.to_string(),
+            StackerDBChunkOrigin::Http { peer } => peer
+                .map(|addr| addr.to_string())
+                .unwrap_or_else(|| "unknown".to_string()),
+        }
+    }
+}
+
+/// Log a chunk that was newly stored in the local StackerDB replica.
+pub fn log_stored_stackerdb_chunk(
+    contract_id: &QualifiedContractIdentifier,
+    chunk: &StackerDBChunkData,
+    origin: &StackerDBChunkOrigin,
+) {
+    if !*LOG_STACKERDB_CHUNK_SOURCES.read().unwrap() {
+        return;
+    }
+
+    info!(
+        "Stored new StackerDB chunk";
+        "stackerdb_contract_id" => %contract_id,
+        "slot_id" => chunk.slot_id,
+        "slot_version" => chunk.slot_version,
+        "num_bytes" => chunk.data.len(),
+        "method" => origin.method(),
+        "peer" => origin.peer_display(),
+    );
+}
+
 /// Final result of synchronizing state with a remote set of DB replicas
 #[derive(Clone, PartialEq, Debug)]
 pub struct StackerDBSyncResult {
@@ -156,8 +219,8 @@ pub struct StackerDBSyncResult {
     pub contract_id: QualifiedContractIdentifier,
     /// slot inventory for this replica
     pub chunk_invs: HashMap<NeighborAddress, StackerDBChunkInvData>,
-    /// list of data to store
-    pub chunks_to_store: Vec<StackerDBChunkData>,
+    /// list of data to store, with where each chunk came from
+    pub chunks_to_store: Vec<(StackerDBChunkOrigin, StackerDBChunkData)>,
     /// neighbors that have stale views, but are otherwise online
     pub(crate) stale: HashSet<NeighborAddress>,
     /// number of connections made
@@ -187,7 +250,14 @@ impl StackerDBConfig {
     /// Config that does nothing
     pub fn noop() -> StackerDBConfig {
         StackerDBConfig {
-            chunk_size: u64::MAX,
+            // Cap the chunk size at the protocol-wide maximum rather than u64::MAX.
+            // `noop()` is used as a fallback whenever a replica's real config can't be
+            // loaded (see `create_or_reconfigure_stackerdbs`), and it can transiently
+            // overwrite a good in-memory config on a failed refresh. Since the DB slots
+            // persist independently of the config, writes can still land on existing
+            // slots while `noop()` is active, so its chunk-size limit must never be
+            // looser than `STACKERDB_MAX_CHUNK_SIZE`.
+            chunk_size: STACKERDB_MAX_CHUNK_SIZE as u64,
             write_freq: 0,
             max_writes: u32::MAX,
             hint_replicas: vec![],
@@ -450,11 +520,14 @@ pub struct StackerDBSync<NC: NeighborComms> {
 impl StackerDBSyncResult {
     /// The receipt of a single StackerDBPushChunk message is equivalent to performing a single
     /// sync
-    pub fn from_pushed_chunk(chunk: StackerDBPushChunkData) -> StackerDBSyncResult {
+    pub fn from_pushed_chunk(
+        chunk: StackerDBPushChunkData,
+        from: NeighborAddress,
+    ) -> StackerDBSyncResult {
         StackerDBSyncResult {
             contract_id: chunk.contract_id,
             chunk_invs: HashMap::new(),
-            chunks_to_store: vec![chunk.chunk_data],
+            chunks_to_store: vec![(StackerDBChunkOrigin::Push(from), chunk.chunk_data)],
             stale: HashSet::new(),
             num_attempted_connections: 0,
             num_connections: 0,
@@ -565,11 +638,14 @@ impl PeerNetwork {
         })
     }
 
-    /// Validate chunk data -- either pushed to us, or downloaded.
+    /// Validate chunk data either downloaded (with [`StackerDBSync::validate_downloaded_chunk`]), or
+    /// pushed to us (with [`PeerNetwork::handle_unsolicited_StackerDBPushChunk`])
+    ///
     /// NOTE: does not check write frequency, since the caller has different ways of doing this.
-    /// Returns Ok(true) if the chunk is valid
-    /// Returns Ok(false) if the chunk is invalid
-    /// Returns Err(..) on DB error
+    /// Returns:
+    /// - Ok(true) if the chunk is valid
+    /// - Ok(false) if the chunk is invalid
+    /// - Err(..) on DB error
     pub fn validate_received_chunk(
         &self,
         smart_contract_id: &QualifiedContractIdentifier,
@@ -577,6 +653,18 @@ impl PeerNetwork {
         data: &StackerDBChunkData,
         expected_versions: &[u32],
     ) -> Result<bool, net_error> {
+        // validate -- must not exceed this replica's configured chunk size.
+        if (data.data.len() as u64) > config.chunk_size {
+            info!(
+                "Received StackerDBChunk for {} ID {}, which is oversized: {} bytes (max {} bytes)",
+                smart_contract_id,
+                data.slot_id,
+                data.data.len(),
+                config.chunk_size
+            );
+            return Ok(false);
+        }
+
         // validate -- must be a valid chunk
         let Some(expected_version) = expected_versions.get(data.slot_id as usize) else {
             info!(

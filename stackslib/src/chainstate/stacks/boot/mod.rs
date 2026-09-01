@@ -61,7 +61,6 @@ pub const BOOT_CODE_COSTS: &str = std::include_str!("costs.clar");
 pub const BOOT_CODE_COSTS_2: &str = std::include_str!("costs-2.clar");
 pub const BOOT_CODE_COSTS_3: &str = std::include_str!("costs-3.clar");
 pub const BOOT_CODE_COSTS_4: &str = std::include_str!("costs-4.clar");
-pub const BOOT_CODE_COSTS_5: &str = std::include_str!("costs-5.clar");
 pub const BOOT_CODE_COSTS_2_TESTNET: &str = std::include_str!("costs-2-testnet.clar");
 pub const BOOT_CODE_COST_VOTING_MAINNET: &str = std::include_str!("cost-voting.clar");
 pub const BOOT_CODE_BNS: &str = std::include_str!("bns.clar");
@@ -74,6 +73,64 @@ pub const POX_5_NAME: &str = "pox-5";
 /// pox-5's flat minimum to participate as a stacker, mirroring
 /// `SIGNER_SET_MIN_USTX` in `pox-5.clar` (`u50000000000` = 50,000 STX).
 pub const POX_5_SIGNER_SET_MIN_USTX: u64 = 50_000_000_000;
+/// Test-only signer-manager contract used to exercise PoX-5 signer enrollment
+/// and reward handling.
+///
+/// `validate-stake!` accepts fixture stakes without additional policy,
+/// `register-self` grants and registers the signer key under the contract, and
+/// the reward entry points delegate to the PoX-5 boot contract.
+#[cfg(any(test, feature = "testing"))]
+pub const POX_5_SIGNER_MANAGER_TEST_CONTRACT_SOURCE: &str = r#"
+(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
+(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
+
+(define-public (validate-stake!
+        (staker principal)
+        (first-index uint)
+        (num-indexes uint)
+        (amount-ustx uint)
+        (amount-sats uint)
+        (is-bond bool)
+        (signer-calldata (optional (buff 500)))
+    )
+    (ok true)
+)
+
+(define-public (register-self
+    (signer-manager <signer-manager-trait>)
+    (signer-key (buff 33))
+    (auth-id uint)
+    (signer-sig (buff 65))
+  )
+  (as-contract? ()
+    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
+      signer-key current-contract auth-id signer-sig
+    ))
+    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
+      signer-manager signer-key
+    ))
+  )
+)
+
+(define-public (claim-rewards
+    (bond-periods (list 6 uint))
+    (reward-cycle uint)
+  )
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 claim-rewards
+    bond-periods reward-cycle
+  )
+)
+
+(define-read-only (get-earned-staker-rewards
+    (staker principal)
+    (reward-cycle uint)
+    (bond-index (optional uint))
+  )
+  (contract-call? 'ST000000000000000000002AMW42H.pox-5 get-earned-staker-rewards
+    current-contract reward-cycle bond-index staker
+  )
+)
+"#;
 pub const SIGNERS_NAME: &str = "signers";
 pub const SIGNERS_VOTING_NAME: &str = "signers-voting";
 pub const SIGNERS_VOTING_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
@@ -99,7 +156,6 @@ pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
 pub const COSTS_4_NAME: &str = "costs-4";
-pub const COSTS_5_NAME: &str = "costs-5";
 /// This contract name is used in testnet **only** to lookup an initial
 ///  setting for the pox-4 aggregate key. This contract should contain a `define-read-only`
 ///  function called `aggregate-key` with zero arguments which returns a (buff 33)
@@ -690,6 +746,22 @@ impl StacksChainState {
     ///
     /// This should only be called for PoX v4 cycles.
     pub fn handle_pox_cycle_start_pox_4(
+        _clarity: &mut ClarityTransactionConnection,
+        _cycle_number: u64,
+        _cycle_info: Option<PoxStartCycleInfo>,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        // PASS
+        Ok(vec![])
+    }
+
+    // TODO: add tests from mutation testing results #4854
+    #[cfg_attr(test, mutants::skip)]
+    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
+    ///
+    /// This should only be called for PoX v5 cycles. Like PoX v4, there is no
+    /// cycle-start work (missed-slot auto-unlocks ended in Epoch 2.5), so this is
+    /// intentionally a no-op.
+    pub fn handle_pox_cycle_start_pox_5(
         _clarity: &mut ClarityTransactionConnection,
         _cycle_number: u64,
         _cycle_info: Option<PoxStartCycleInfo>,

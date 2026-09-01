@@ -21,9 +21,9 @@ use std::sync::LazyLock;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use clarity::vm::contexts::AbortCallback;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::types::{ResponseData, TupleData};
 use clarity::vm::Value;
 use regex::{Captures, Regex};
@@ -38,16 +38,14 @@ use stacks_common::util::tests::TestFlag;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
-use crate::chainstate::nakamoto::miner::{
-    make_mem_abort_callback, MinerTenureInfoCause, NakamotoBlockBuilder,
-};
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxVersions;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::miner::{
-    BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
-    TransactionSkipped,
+    BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic,
+    TransactionResourceBudgets, TransactionResult, TransactionSkipped,
 };
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
 use crate::clarity_vm::clarity::ClarityError;
@@ -356,6 +354,7 @@ impl NakamotoBlockProposal {
     ) -> Result<JoinHandle<()>, std::io::Error> {
         let timeout_secs = connection_opts.block_proposal_validation_timeout_secs;
         let max_tx_execution_time_secs = connection_opts.block_proposal_max_tx_execution_time_secs;
+        let max_tx_analysis_time_secs = connection_opts.block_proposal_max_tx_analysis_time_secs;
         let max_tx_mem_bytes = connection_opts.block_proposal_max_tx_mem_bytes;
         let auth_token = connection_opts.auth_token.clone();
         thread::Builder::new()
@@ -367,6 +366,7 @@ impl NakamotoBlockProposal {
                         &mut chainstate,
                         timeout_secs,
                         max_tx_execution_time_secs,
+                        max_tx_analysis_time_secs,
                         max_tx_mem_bytes,
                         auth_token,
                     )
@@ -544,6 +544,7 @@ impl NakamotoBlockProposal {
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
         timeout_secs: u64,
         max_tx_execution_time_secs: u64,
+        max_tx_analysis_time_secs: u64,
         max_tx_mem_bytes: u64,
         auth_token: Option<String>,
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
@@ -567,15 +568,6 @@ impl NakamotoBlockProposal {
                 reason: "Wrong network/chain_id".into(),
                 failed_txid: None,
             });
-        }
-
-        // Check block version. If it's less than the compiled-in version, just emit a warning
-        // because there's a new version of the node / signer binary available that really ought to
-        // be used (hint, hint)
-        if self.block.header.version != NAKAMOTO_BLOCK_VERSION {
-            warn!("Proposed block has unexpected version. Upgrade your node and/or signer ASAP.";
-                  "block.header.version" => %self.block.header.version,
-                  "expected" => %NAKAMOTO_BLOCK_VERSION);
         }
 
         // open sortition view to the current burn view.
@@ -736,15 +728,30 @@ impl NakamotoBlockProposal {
         let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
 
-        // Even if consensus allows high-S signatures, we want to refuse to sign blocks that
-        // contain them. If they're allowed in the current epoch, we therefore have to check
-        // for them ourselves.
-        let consensus_allow_high_s_tx_sig =
-            tenure_tx.get_epoch().allows_tx_signatures_with_high_s();
-
         let block_deadline = Instant::now() + Duration::from_secs(timeout_secs);
         let per_tx_max_execution_time = Duration::from_secs(max_tx_execution_time_secs);
+        // Bound the analysis phase during proposal validation by the
+        // dedicated per-tx analysis budget, independently of the eval budget above.
+        let per_tx_max_analysis_time = Duration::from_secs(max_tx_analysis_time_secs);
         let mut receipts_total = 0u64;
+
+        let max_tx_mem_bytes_opt = if max_tx_mem_bytes > 0 {
+            Some(max_tx_mem_bytes)
+        } else {
+            None
+        };
+        let resource_budgets = TransactionResourceBudgets::new()
+            .with_analysis_budget(
+                ResourceBudget::new()
+                    .with_max_duration(Some(per_tx_max_analysis_time))
+                    .with_max_memory_use(max_tx_mem_bytes_opt),
+            )
+            .with_execution_budget(
+                ResourceBudget::new()
+                    .with_max_duration(Some(per_tx_max_execution_time))
+                    .with_max_memory_use(max_tx_mem_bytes_opt),
+            );
+
         for (i, tx) in self.block.txs.iter().enumerate() {
             // Enforce the overall block validation budget between txs. A tx
             // running over its own per-tx limit is the tx's fault and is
@@ -765,40 +772,14 @@ impl NakamotoBlockProposal {
 
             let tx_len = tx.tx_len();
 
-            if max_tx_mem_bytes > 0 {
-                tenure_tx.set_abort_callback(make_mem_abort_callback(max_tx_mem_bytes));
-            }
-
-            let tx_result = {
-                // If consensus allows high-S transaction signatures, then `try_mine_tx_with_len`
-                // would allow such a transaction, so we perform the stricter verification first,
-                // and only call `try_mine_tx_with_len` if successful. If consensus forbids it,
-                // we don't have to do this, because `try_mine_tx_with_len` will do it itself.
-                let high_s_check_result = if consensus_allow_high_s_tx_sig {
-                    match tx.verify(
-                        stacks_codec::transaction::TransactionAuthVerificationMode::EnforceLowS,
-                    ) {
-                        Ok(()) => Ok(()),
-                        Err(error) => Err(TransactionResult::error(tx, error.into())),
-                    }
-                } else {
-                    Ok(())
-                };
-
-                match high_s_check_result {
-                    Ok(()) => builder.try_mine_tx_with_len(
-                        &mut tenure_tx,
-                        tx,
-                        tx_len,
-                        &BlockLimitFunction::NO_LIMIT_HIT,
-                        Some(per_tx_max_execution_time),
-                        &mut receipts_total,
-                    ),
-                    Err(e) => e,
-                }
-            };
-
-            tenure_tx.set_abort_callback(AbortCallback::None);
+            let tx_result = builder.try_mine_tx_with_len(
+                &mut tenure_tx,
+                tx,
+                tx_len,
+                &BlockLimitFunction::NO_LIMIT_HIT,
+                &resource_budgets,
+                &mut receipts_total,
+            );
 
             let reason = match tx_result {
                 TransactionResult::Success(success_result) => {
@@ -997,7 +978,7 @@ impl NakamotoBlockProposal {
                     &replay_tx,
                     replay_tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    None,
+                    &TransactionResourceBudgets::unlimited(),
                     &mut total_receipts,
                 );
                 match tx_result {
@@ -1064,7 +1045,7 @@ impl NakamotoBlockProposal {
                 tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                None,
+                &TransactionResourceBudgets::unlimited(),
                 &mut total_receipts,
             );
         }
@@ -1079,7 +1060,7 @@ impl NakamotoBlockProposal {
                     &tx,
                     tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    None,
+                    &TransactionResourceBudgets::unlimited(),
                     &mut total_receipts,
                 );
                 match tx_result {

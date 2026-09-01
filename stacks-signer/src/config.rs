@@ -44,8 +44,8 @@ const DEFAULT_TENURE_LAST_BLOCK_PROPOSAL_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_DRY_RUN: bool = false;
 /// Default number of idle seconds before the signer will accept a
 ///  tenure extend from the miner
-const TENURE_IDLE_TIMEOUT_SECS: u64 = 60;
-const READ_COUNT_IDLE_TIMEOUT_SECS: u64 = 20;
+const TENURE_IDLE_TIMEOUT_SECS: u64 = 30;
+const READ_COUNT_IDLE_TIMEOUT_SECS: u64 = 15;
 const DEFAULT_REORG_ATTEMPTS_ACTIVITY_TIMEOUT_MS: u64 = 200_000;
 /// Default number of seconds to add to the tenure extend time, after computing the idle timeout,
 /// to allow for clock skew between the signer and the miner
@@ -61,7 +61,7 @@ pub const DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS: u64 = 2;
 /// machine view point and capitulating to other signers tenure view
 const DEFAULT_CAPITULATE_MINER_VIEW_SECS: u64 = 20;
 /// Default HTTP timeout (in seconds) for read/write operations with StackerDB.
-pub const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
+pub const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 10;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -282,6 +282,7 @@ pub struct GlobalConfig {
 /// `stacks-signer` binary. All fields with `Option` types will use their
 /// documented defaults when omitted.
 #[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 struct RawConfigFile {
     /// The Stacks node RPC endpoint that this signer will connect to.
     /// ---
@@ -393,7 +394,7 @@ struct RawConfigFile {
     /// This is one of two gates for tenure extends (the other is
     /// `block_proposal_timeout` for new-winner invalidation).
     /// ---
-    /// @default: `60`
+    /// @default: `30`
     /// @units: seconds
     /// @notes:
     ///   - WARNING: Must coordinate with miner's `tenure_timeout` (default 180s,
@@ -404,7 +405,7 @@ struct RawConfigFile {
     /// A read-count tenure extend is triggered when the read count budget is nearly
     /// exhausted.
     /// ---
-    /// @default: `20`
+    /// @default: `15`
     /// @units: seconds
     pub read_count_idle_timeout_secs: Option<u64>,
     /// Buffer time added to the tenure extend time sent to miners to account for
@@ -416,7 +417,9 @@ struct RawConfigFile {
     ///   - Increase if signer and miner clocks are poorly synchronized.
     pub tenure_idle_timeout_buffer_secs: Option<u64>,
     /// The maximum age of a block proposal that will be processed by the signer.
-    /// Proposals older than this are ignored.
+    /// Proposals older than this are rejected (without validation) with a
+    /// `ProposalTooOld` response, unless the signer has already decided on the
+    /// block, in which case it resends its prior decision.
     /// ---
     /// @default: `600`
     /// @units: seconds
@@ -462,7 +465,7 @@ struct RawConfigFile {
     pub capitulate_miner_view_timeout_secs: Option<u64>,
     /// HTTP timeout for read/write operations with StackerDB.
     /// ---
-    /// @default: `120`
+    /// @default: `10`
     /// @units: seconds
     pub stackerdb_timeout_secs: Option<u64>,
     #[cfg(any(test, feature = "testing"))]
@@ -736,8 +739,6 @@ pub fn build_signer_config_tomls(
     password: &str,
     run_stamp: u16,
     mut port_start: usize,
-    max_tx_fee_ustx: Option<u64>,
-    tx_fee_ustx: Option<u64>,
     mut metrics_port_start: Option<usize>,
     chain_id: Option<u32>,
 ) -> Vec<String> {
@@ -771,25 +772,7 @@ db_path = "{db_path}"
             signer_config_toml = format!(
                 r#"
 {signer_config_toml}
-event_timeout = {event_timeout_ms}
-"#
-            )
-        }
-
-        if let Some(max_tx_fee_ustx) = max_tx_fee_ustx {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-max_tx_fee_ustx = {max_tx_fee_ustx}
-"#
-            )
-        }
-
-        if let Some(tx_fee_ustx) = tx_fee_ustx {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-tx_fee_ustx = {tx_fee_ustx}
+event_timeout_ms = {event_timeout_ms}
 "#
             )
         }
@@ -847,6 +830,25 @@ mod tests {
     }
 
     #[test]
+    fn test_unknown_fields_rejected() {
+        let config_toml = r#"
+node_host = "127.0.0.1:20443"
+endpoint = "127.0.0.1:30000"
+network = "testnet"
+auth_password = "abcd"
+db_path = ":memory:"
+stacks_private_key = "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01"
+tenure_idle_timeout_sec = 30 # Error: missing trailing 's' in 'secs'
+"#;
+        let result = RawConfigFile::load_from_str(config_toml);
+        let err = result.expect_err("Config with a misspelled field should fail to parse");
+        assert!(
+            format!("{err:?}").contains("tenure_idle_timeout_sec"),
+            "Error should name the unknown field: {err:?}"
+        );
+    }
+
+    #[test]
     fn build_signer_config_tomls_should_produce_deserializable_strings() {
         let pk = StacksPrivateKey::from_hex(
             "eb05c83546fdd2c79f10f5ad5434a90dd28f7e3acb7c092157aa1bc3656b012c01",
@@ -865,8 +867,6 @@ mod tests {
             password,
             rand::random(),
             3000,
-            None,
-            None,
             Some(4000),
             None,
         );
@@ -986,8 +986,6 @@ capitulate_miner_view_timeout_secs = 1000
             password,
             rand::random(),
             3000,
-            None,
-            None,
             Some(4000),
             Some(0x80000100),
         );

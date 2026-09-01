@@ -52,8 +52,15 @@ impl SortitionState {
         local_address: &StacksAddress,
         timeout: Duration,
     ) -> Result<bool, SignerChainstateError> {
-        // if we've already approved/signed a block in this tenure, the miner can't have timed out.
-        let has_block = signer_db.has_approved_block_in_tenure(sortition)?;
+        // If we've already signed a block in this tenure, the miner can't have timed out: we have
+        // committed a signature to this tenure and must not help abandon it.
+        //
+        // Importantly, a block we have only pre-committed to does not count! A pre-commit carries
+        // no signature, and if it never reaches the pre-commit threshold the tenure can stall
+        // indefinitely. Treating it as signed here would suppress the inactivity timeout for
+        // exactly the signers that pre-committed, so they could never fall back to the prior
+        // miner and the tenure could never recover.
+        let has_block = signer_db.has_signed_block_in_tenure(sortition)?;
         if has_block {
             return Ok(false);
         }
@@ -331,9 +338,11 @@ impl GlobalStateView {
             return Err(RejectReason::InvalidParentBlock);
         }
         // We already confirmed in check miner activity that the current tenure is valid. So check we are not
-        // reorging the tenure blocks
+        // reorging the tenure blocks. Only blocks we have signed (locally or globally accepted) count
+        // here: a block we have merely pre-committed to carries no signature from us, so it is safe to
+        // accept a competing tenure-start block in its place if it failed to reach consensus.
         let last_in_current_tenure = signer_db
-            .get_last_accepted_block(&block.header.consensus_hash)
+            .get_last_signed_block(&block.header.consensus_hash)
             .map_err(|e| {
                 SignerChainstateError::from(ClientError::InvalidResponse(e.to_string()))
             })?;

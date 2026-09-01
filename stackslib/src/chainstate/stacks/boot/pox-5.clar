@@ -84,6 +84,9 @@
 ;; SIP18 message prefix
 (define-constant SIP018_MSG_PREFIX 0x534950303138)
 
+;; Bitcoin treats locktimes >= 500,000,000 as Unix timestamps, not block heights.
+(define-constant BITCOIN_LOCKTIME_THRESHOLD u500000000)
+
 ;; SIP018 domain
 (define-constant POX_5_SIGNER_DOMAIN {
     name: "pox-5-signer",
@@ -342,12 +345,12 @@
 ;; On non-mainnet networks `make_pox_5_body` rewrites the literal to the
 ;; configured admin before deploy.
 ;; TODO: this should be set to some predefined multisig for mainnet.
-(define-data-var bond-admin principal 'SP000000000000000000002Q6VF78)
+(define-data-var bond-admin principal 'SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX)
 
 ;; The role that can permanently pause signer reward claims.
 ;; On non-mainnet networks `make_pox_5_body` rewrites the literal to the
 ;; configured admin before deploy.
-(define-data-var pause-admin principal 'SP000000000000000000002Q6VF78)
+(define-data-var pause-admin principal 'SP72DMR3MJKS7RVBY33JVV7EEJSQ1PYDVKDP10FX)
 (define-data-var rewards-paused bool false)
 
 ;; Data vars that store a copy of the burnchain configuration.
@@ -1685,10 +1688,19 @@
             (prev-staked (get-signer-pending-staked-ustx-per-cycle signer cycle))
             (prev-total-shares-staked (get-total-shares-staked-for-cycle cycle none))
             (new-delegated (+ cur-delegated-for-signer amount))
+            (prev-staker-shares (get-staker-shares-staked-for-cycle staker cycle none signer))
         )
         ;; Crystallize STX-only rewards before mutating anything
         (settle-rewards signer cycle none)
-        (settle-staker-rewards signer cycle none staker)
+        ;; When zero, this is a no-op (`earned = shares * (rpt - rpt-paid) = 0`). In this case,
+        ;; we skip calling `settle-staker-rewards` to reduce cost.
+        (if (> prev-staker-shares u0)
+            (settle-staker-rewards signer cycle none staker)
+            {
+                earned: u0,
+                rewards-per-token: u0,
+            }
+        )
 
         (if (>= new-delegated SIGNER_SET_MIN_USTX)
             (begin
@@ -2046,10 +2058,10 @@
             (accumulator (try! accumulator-res))
             (block (try! (parse-block-header (get header lockup))))
             (unlock-burn-height (get unlock-burn-height lockup))
-            (expected-script-hash (construct-lockup-output-script (get staker accumulator)
+            (expected-script-hash (try! (construct-lockup-output-script (get staker accumulator)
                 unlock-burn-height (get staker-unlock-bytes accumulator)
                 (get early-unlock-bytes accumulator)
-            ))
+            )))
             (output (try! (get-bitcoin-tx-output? (get tx lockup) (get output-index lockup))))
             (reversed-txid (get txid output))
             (txid (reverse-buff32 reversed-txid))
@@ -2060,6 +2072,9 @@
             (seen-outpoints (get seen-outpoints accumulator))
         )
         (asserts! (>= unlock-burn-height (get minimum-unlock-height accumulator))
+            ERR_INVALID_UNLOCK_HEIGHT
+        )
+        (asserts! (< unlock-burn-height BITCOIN_LOCKTIME_THRESHOLD)
             ERR_INVALID_UNLOCK_HEIGHT
         )
         (asserts! (is-eq (get script output) expected-script-hash)
@@ -2518,8 +2533,14 @@
         (bond-index (optional uint))
     )
     (let (
-            (earned (get-earned signer reward-cycle bond-index))
+            (shares (get-signer-shares-staked-for-cycle signer reward-cycle bond-index))
             (rewards-per-token (get-rewards-per-token-for-cycle reward-cycle bond-index))
+            (earned (compute-earned-rewards
+                shares
+                rewards-per-token
+                (get-signer-rewards-per-token-settled-for-cycle signer reward-cycle bond-index)
+                (get-signer-unclaimed-rewards-for-cycle signer reward-cycle bond-index)
+            ))
         )
         (map-set signer-unclaimed-rewards-for-cycle {
             reward-cycle: reward-cycle,
@@ -2535,12 +2556,7 @@
         }
             rewards-per-token
         )
-        (if (>
-                (get-signer-shares-staked-for-cycle signer reward-cycle
-                    bond-index
-                )
-                u0
-            )
+        (if (> shares u0)
             (map-set signer-rewards-per-token-for-cycle {
                 signer: signer,
                 reward-cycle: reward-cycle,
@@ -3699,16 +3715,18 @@
         (early-unlock-bytes (buff 683))
     )
     ;; @format-ignore
-    (concat
-        0x63           ;; OP_IF
-        (push-c-script-num unlock-burn-height)
-        0xb167         ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
-        0x82012088a820 ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
-        (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))
-        0x88           ;; OP_EQUALVERIFY
-        early-unlock-bytes
-        0x6869         ;; OP_ENDIF, OP_VERIFY
-        staker-unlock-bytes
+    (ok
+        (concat
+            0x63           ;; OP_IF
+            (try! (push-c-script-num unlock-burn-height))
+            0xb167         ;; OP_CHECKLOCKTIMEVERIFY, OP_ELSE
+            0x82012088a820 ;; OP_SIZE, <32>, OP_EQUALVERIFY, OP_SHA256, OP_PUSHBYTES_32
+            (sha256 (sha256 (unwrap-panic (to-consensus-buff? staker))))
+            0x88           ;; OP_EQUALVERIFY
+            early-unlock-bytes
+            0x6869         ;; OP_ENDIF, OP_VERIFY
+            staker-unlock-bytes
+        )
     )
 )
 
@@ -3719,11 +3737,11 @@
         (staker-unlock-bytes (buff 683))
         (early-unlock-bytes (buff 683))
     )
-    (concat 0x0020
-        (sha256 (construct-lockup-script staker unlock-burn-height staker-unlock-bytes
+    (ok (concat 0x0020
+        (sha256 (try! (construct-lockup-script staker unlock-burn-height staker-unlock-bytes
             early-unlock-bytes
-        ))
-    )
+        )))
+    ))
 )
 
 ;; Convert a u8 or u16 to a little-endian byte buffer,
@@ -3768,43 +3786,60 @@
 )
 
 (define-read-only (serialize-c-script-num (n uint))
-    (unwrap-panic (as-max-len?
-        (if (is-eq n u0)
-            0x
-            (let (
-                    (bytes (unwrap-panic (to-consensus-buff? n)))
-                    (b0 (unwrap-panic (slice? bytes u16 u17)))
-                    (b1 (unwrap-panic (slice? bytes u15 u16)))
-                    (b2 (unwrap-panic (slice? bytes u14 u15)))
-                )
+    (if (>= n u549755813888)
+        ERR_INVALID_UNLOCK_HEIGHT
+        (let (
+                (bytes (unwrap-panic (to-consensus-buff? n)))
+                (b0 (unwrap-panic (slice? bytes u16 u17)))
+                (b1 (unwrap-panic (slice? bytes u15 u16)))
+                (b2 (unwrap-panic (slice? bytes u14 u15)))
+                (b3 (unwrap-panic (slice? bytes u13 u14)))
+                (b4 (unwrap-panic (slice? bytes u12 u13)))
+            )
+            (ok (unwrap-panic (as-max-len?
                 (if (< n u128)
-                    b0
+                    (if (is-eq n u0)
+                        0x
+                        b0
+                    )
                     (if (< n u256)
                         (concat b0 0x00)
                         (if (< n u32768)
                             (concat b0 b1)
                             (if (< n u65536)
                                 (concat b0 b1 0x00)
-                                (concat b0 b1 b2)
+                                (if (< n u8388608)
+                                    (concat b0 b1 b2)
+                                    (if (< n u16777216)
+                                        (concat b0 b1 b2 0x00)
+                                        (if (< n u2147483648)
+                                            (concat b0 b1 b2 b3)
+                                            (if (< n u4294967296)
+                                                (concat b0 b1 b2 b3 0x00)
+                                                (concat b0 b1 b2 b3 b4)
+                                            )
+                                        )
+                                    )
+                                )
                             )
                         )
                     )
                 )
-            )
+                u5
+            )))
         )
-        u5
-    ))
+    )
 )
 
 (define-read-only (push-c-script-num (n uint))
     (if (is-eq n u0)
-        0x00
+        (ok 0x00)
         (if (<= n u16)
-            (unwrap-panic (as-max-len?
+            (ok (unwrap-panic (as-max-len?
                 (unwrap-panic (slice? (unwrap-panic (to-consensus-buff? (+ u80 n))) u16 u17))
                 u1
-            ))
-            (push-script-bytes (serialize-c-script-num n))
+            )))
+            (ok (push-script-bytes (try! (serialize-c-script-num n))))
         )
     )
 )

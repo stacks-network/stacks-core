@@ -187,7 +187,35 @@ pub fn special_fold(
 /// positionally (e.g., the i-th call gets the i-th element of every sequence).
 ///
 /// `args[0]` is the function name (atom) and `args[1..]` are the sequence expressions.
+///
+/// # Epoch-gated dispatch
+///
+/// Dispatch keys on [`StacksEpochId::fixes_map_off_by_one`]:
+/// - [`special_map_v200`]: before the fix (legacy re-arrange logic with an
+///   off-by-one in the shortest-sequence bound)
+/// - [`special_map_v400`]: from the fix onward (iterates exactly the length of
+///   the shortest input sequence)
 pub fn special_map(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    if exec_state.epoch().fixes_map_off_by_one() {
+        special_map_v400(args, exec_state, invoke_ctx, context)
+    } else {
+        special_map_v200(args, exec_state, invoke_ctx, context)
+    }
+}
+
+/// Legacy `map` implementation for Epoch [2.0 .. 3.4].
+///
+/// This re-arranges the input sequences into per-index argument tuples before
+/// applying the function. It contains a known off-by-one in the shortest-
+/// sequence bound (`apply_index > min_args_len` instead of `>=`), which is
+/// preserved here for consensus compatibility. The fixed behavior lives in
+/// [`special_map_v400`] and is gated to Epoch 4.0+.
+pub fn special_map_v200(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
     invoke_ctx: &InvocationContext,
@@ -258,6 +286,74 @@ pub fn special_map(
     Ok(value)
 }
 
+/// Fixed `map` implementation introduced in Clarity 6 (Epoch 4.0+).
+///
+/// Evaluates each sequence argument into an iterator, records its length, and
+/// applies the function exactly `min_args_len` times — the length of the
+/// shortest input sequence — pulling one element from each iterator per call.
+/// This corrects the off-by-one in [`special_map_v200`].
+pub fn special_map_v400(
+    args: &[SymbolicExpression],
+    exec_state: &mut ExecutionState,
+    invoke_ctx: &InvocationContext,
+    context: &LocalContext,
+) -> Result<Value, VmExecutionError> {
+    check_arguments_at_least(2, args)?;
+
+    runtime_cost(ClarityCostFunction::Map, exec_state, args.len())?;
+
+    let function_name = args[0]
+        .match_atom()
+        .ok_or(RuntimeCheckErrorKind::Unreachable(
+            "Expected name".to_string(),
+        ))?;
+    let function = lookup_function(function_name, exec_state, invoke_ctx)?;
+
+    // Evaluate each sequence argument into an iterator and record its length.
+    let mut args_iterators = Vec::with_capacity(args.len() - 1);
+    let mut min_args_len = usize::MAX;
+    for map_arg in args[1..].iter() {
+        let sequence =
+            eval(map_arg, exec_state, invoke_ctx, context)?.clone_with_cost(exec_state)?;
+        let Value::Sequence(seq) = sequence else {
+            return Err(RuntimeCheckErrorKind::Unreachable(format!(
+                "Expected sequence: {}",
+                TypeSignature::type_of(&sequence)?
+            ))
+            .into());
+        };
+        let args_iter = seq.into_iter();
+        min_args_len = min_args_len.min(args_iter.len());
+        args_iterators.push(args_iter);
+    }
+
+    // Apply the function element-wise, stopping at the shortest sequence.
+    let mut mapped_results = Vec::with_capacity(min_args_len);
+    for _ in 0..min_args_len {
+        let mut call_args = Vec::with_capacity(args_iterators.len());
+        for iter in args_iterators.iter_mut() {
+            let value = iter
+                .next()
+                .ok_or_else(|| {
+                    RuntimeCheckErrorKind::Unreachable(
+                        "iterator can't be shorter than min len".into(),
+                    )
+                })?
+                .map_err(|_| {
+                    VmInternalError::Expect(
+                        "ERROR: Invalid sequence data successfully constructed".into(),
+                    )
+                })?;
+            call_args.push(value);
+        }
+        let res = apply_evaluated(&function, call_args, exec_state, invoke_ctx, context)?;
+        mapped_results.push(res);
+    }
+
+    let value = Value::cons_list(mapped_results, exec_state.epoch())?;
+    Ok(value)
+}
+
 pub fn special_append(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
@@ -309,7 +405,7 @@ pub fn special_append(
 ///
 /// - [`special_concat_v200`]: Epoch 2.0 (legacy size-based cost)
 /// - [`special_concat_v205`]: Epoch 2.05 .. 3.4 (per-element cost, exactly 2 args)
-/// - [`special_concat_v600`]: Epoch 4.0+ (Clarity 6 variadic `concat`)
+/// - [`special_concat_v400`]: Epoch 4.0+ (Clarity 6 variadic `concat`)
 pub fn special_concat(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
@@ -332,7 +428,9 @@ pub fn special_concat(
         | StacksEpochId::Epoch32
         | StacksEpochId::Epoch33
         | StacksEpochId::Epoch34 => special_concat_v205(args, exec_state, invoke_ctx, context),
-        StacksEpochId::Epoch40 => special_concat_v600(args, exec_state, invoke_ctx, context),
+        StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => {
+            special_concat_v400(args, exec_state, invoke_ctx, context)
+        }
     }
 }
 
@@ -450,7 +548,7 @@ pub fn special_concat_v205(
 /// length. Phase 2 charges cost once, takes the first arg as the accumulator,
 /// pre-reserves capacity to fit the final result, and appends the remaining
 /// args. Pre-reservation means the underlying `Vec` does not reallocate as
-/// we concat — exactly one allocation per `special_concat_v600` call.
+/// we concat — exactly one allocation per `special_concat_v400` call.
 ///
 /// Peak memory during phase 1 is bounded by the type checker's sequence-
 /// length limits: every arg is ≤ `MAX_VALUE_SIZE`, and the type checker
@@ -462,7 +560,7 @@ pub fn special_concat_v205(
 /// contract only ever reaches this function with exactly two arguments —
 /// in which case the two-pass form collapses to the same work and cost as
 /// v205.
-pub fn special_concat_v600(
+pub fn special_concat_v400(
     args: &[SymbolicExpression],
     exec_state: &mut ExecutionState,
     invoke_ctx: &InvocationContext,

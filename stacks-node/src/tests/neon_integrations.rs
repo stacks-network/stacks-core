@@ -760,6 +760,7 @@ pub mod test_observer {
             events_keys: event_keys.to_vec(),
             timeout_ms: 1000,
             disable_retries: false,
+            disable_contract_interface: false,
         });
     }
 
@@ -5447,6 +5448,7 @@ fn atlas_integration_test() {
             events_keys: vec![EventKeyType::AnyEvent],
             timeout_ms: 1000,
             disable_retries: false,
+            disable_contract_interface: false,
         });
 
     // Our 2 nodes will share the bitcoind node
@@ -5978,6 +5980,7 @@ fn antientropy_integration_test() {
             events_keys: vec![EventKeyType::AnyEvent],
             timeout_ms: 1000,
             disable_retries: false,
+            disable_contract_interface: false,
         });
 
     conf_follower_node.node.mine_microblocks = true;
@@ -8077,7 +8080,7 @@ fn run_with_custom_wallet() {
     test_observer::register_any(&mut conf);
 
     // custom wallet
-    conf.burnchain.wallet_name = "test_with_custom_wallet".to_string();
+    conf.burnchain.wallet_name = Some("test_with_custom_wallet".to_string());
 
     test_observer::spawn();
 

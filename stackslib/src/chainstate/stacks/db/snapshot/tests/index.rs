@@ -13,45 +13,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Index side-table (`index.sqlite`) copy/validate tests.
+//! Index side-table (`index.sqlite`) copy tests.
 
 use std::collections::HashSet;
 
-use clarity::vm::costs::ExecutionCost;
 use rusqlite::{params, Connection};
-use stacks_common::types::chainstate::{
-    BurnchainHeaderHash, ConsensusHash, StacksBlockId, TrieHash,
-};
 use tempfile::tempdir;
 
-use super::super::common::{unclassified_tables, MARF_INFRA_TABLES};
-use super::super::index::{copy_index_side_tables, index_copy_specs, COPIED_TABLES};
+use super::super::index::{
+    assert_source_tables_classified, copy_index_side_tables, index_copy_specs,
+};
 use super::{
     append_canonical_block, assert_corruption_containing, create_dest_db_with_canonical_blocks,
-    create_source_db, hex_id, label_block_id, FIXTURE_LEAF,
+    create_source_db, hex_id, insert_epoch2_block_header, insert_nakamoto_header, label_block_id,
+    FIXTURE_LEAF,
 };
-use crate::chainstate::nakamoto::{NakamotoBlockHeader, NakamotoChainState};
-use crate::chainstate::stacks::db::{StacksHeaderInfo, CHAINSTATE_VERSION};
-use crate::chainstate::stacks::index::MARFValue;
-
-/// Insert an epoch-2 `block_headers` row at the given height.
-fn insert_epoch2_block_header(conn: &Connection, height: u32, suffix: &str) {
-    conn.execute(
-            "INSERT INTO block_headers (version, total_burn, total_work, proof, parent_block, \
-             parent_microblock, parent_microblock_sequence, tx_merkle_root, state_index_root, \
-             microblock_pubkey_hash, block_hash, index_block_hash, block_height, index_root, \
-             consensus_hash, burn_header_hash, burn_header_height, burn_header_timestamp, \
-             parent_block_id, cost, block_size) \
-             VALUES (1,'0','0','p','par','mb',0,'mr','sr','mph',?1,?2,?3,'ir',?4,'bhh',?3,0,'pid','0','0')",
-            params![
-                format!("bh{suffix}"),
-                hex_id(&format!("ibh{suffix}")),
-                height,
-                format!("ch{suffix}"),
-            ],
-        )
-        .unwrap();
-}
+use crate::chainstate::stacks::db::CHAINSTATE_VERSION;
+use crate::chainstate::stacks::index::{Error, MARFValue};
 
 /// Insert a payment row at the given height.
 fn insert_payment(conn: &Connection, height: u32, suffix: &str) {
@@ -82,49 +60,6 @@ fn insert_transaction(conn: &Connection, id: i64, ibh_label: &str) {
         params![id, format!("tx{id}"), hex_id(ibh_label)],
     )
     .unwrap();
-}
-
-/// Insert a `nakamoto_block_headers` row at the given burn height via the
-/// production writer, so the fixture tracks the real schema. The header's
-/// consensus hash is seeded from `label`; returns the computed
-/// `index_block_hash` for [`append_canonical_block`].
-fn insert_nakamoto_header(conn: &Connection, label: &str, burn_height: u32) -> StacksBlockId {
-    let mut ch = [0u8; 20];
-    let len = label.len().min(20);
-    ch[..len].copy_from_slice(&label.as_bytes()[..len]);
-
-    let mut header = NakamotoBlockHeader::empty();
-    header.consensus_hash = ConsensusHash(ch);
-    // chain_length is irrelevant to the copy logic; reuse burn_height
-    // for fixture simplicity.
-    header.chain_length = burn_height.into();
-
-    let tip_info = StacksHeaderInfo {
-        anchored_header: header.clone().into(),
-        microblock_tail: None,
-        stacks_block_height: header.chain_length,
-        index_root: TrieHash([0u8; 32]),
-        consensus_hash: header.consensus_hash.clone(),
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-        burn_header_height: burn_height,
-        burn_header_timestamp: 0,
-        anchored_block_size: 0,
-        burn_view: Some(header.consensus_hash.clone()),
-        total_tenure_size: 0,
-    };
-    NakamotoChainState::insert_stacks_block_header(
-        conn,
-        &tip_info,
-        &header,
-        None,
-        &ExecutionCost::ZERO,
-        &ExecutionCost::ZERO,
-        true,
-        1,
-        0,
-    )
-    .unwrap();
-    tip_info.index_block_hash()
 }
 
 /// End-to-end copy of the index side-tables: only rows belonging to the
@@ -208,11 +143,17 @@ fn test_copy_index_side_tables_round_trip() {
         .unwrap();
     assert_eq!(fork_storage_keys, 1);
     assert_eq!(count("SELECT COUNT(*) FROM __fork_storage"), 1);
-    // Schema-only compatibility table is present but empty.
-    assert_eq!(
-        count("SELECT COUNT(*) FROM invalidated_microblocks_data"),
-        0
-    );
+    // Every schema-only table is cloned into the dst but receives no rows
+    // from the index copy (`staging_microblocks*` are populated later by the
+    // block-preservation phase; the rest stay empty). The COUNT query also
+    // fails if a table was never cloned.
+    for table in index_copy_specs().schema_only() {
+        assert_eq!(
+            count(&format!("SELECT COUNT(*) FROM {table}")),
+            0,
+            "schema-only table `{table}` must be present but empty after the index copy"
+        );
+    }
     // db_config is copied verbatim (values set by `create_source_db`).
     let (version, mainnet, chain_id): (String, i64, i64) = dst
         .query_row(
@@ -495,35 +436,53 @@ fn test_canonical_block_missing_from_src_is_corruption() {
     );
 }
 
-/// Copy-spec coverage guard: every table in [`COPIED_TABLES`] has exactly
-/// one copy spec, so a table can't be classified as copied yet receive no
-/// rows - or two specs' worth of duplicates.
+/// Copy-spec coverage guard: no table appears twice (which would double-clone /
+/// double-copy). Set completeness -- that the specs match the production schema
+/// -- is covered by `test_no_unclassified_source_tables`, which derives the
+/// recognized set from these specs and runs the guard against a fresh schema, so
+/// re-listing the table names here would just duplicate the spec list.
 #[test]
-fn test_copy_specs_match_copied_tables() {
-    let copied: HashSet<&str> = COPIED_TABLES.iter().copied().collect();
-
-    let specs: Vec<&str> = index_copy_specs(0).iter().map(|s| s.table).collect();
-    let spec_set: HashSet<&str> = specs.iter().copied().collect();
-    assert_eq!(specs.len(), spec_set.len(), "duplicate spec tables");
-    assert_eq!(spec_set, copied);
+fn test_index_copy_specs_well_formed() {
+    let tables = index_copy_specs().table_names();
+    let unique: HashSet<&str> = tables.iter().copied().collect();
+    assert_eq!(tables.len(), unique.len(), "duplicate spec tables");
 }
 
 /// Drift guard: every table the chainstate migrations create must be
 /// classified, so a future migration can't silently drop one from the copy.
+/// Runs the exact production guard against a freshly-migrated schema, so the
+/// test and the runtime check cannot drift apart.
 #[test]
 fn test_no_unclassified_source_tables() {
     let dir = tempdir().unwrap();
     let conn = create_source_db(&dir.path().join("src.sqlite"));
-    let known: Vec<&str> = super::super::index::COPIED_TABLES
-        .iter()
-        .chain(super::super::index::SCHEMA_ONLY_TABLES)
-        .chain(MARF_INFRA_TABLES.iter())
-        .copied()
-        .collect();
-    let extra = unclassified_tables(&conn, &known);
+    assert_source_tables_classified(&conn)
+        .expect("fresh production index schema must be fully classified");
+}
+
+/// A source table the copy lists don't classify is rejected before any
+/// destination is produced — the runtime complement to the drift test.
+#[test]
+fn test_unclassified_source_table_is_rejected() {
+    let dir = tempdir().unwrap();
+    let src_path = dir.path().join("src.sqlite");
+    let conn = create_source_db(&src_path);
+    conn.execute_batch("CREATE TABLE surprise_table (x INTEGER)")
+        .unwrap();
+    drop(conn);
+
+    let dst_path = dir.path().join("dst_index.sqlite");
+    let err = copy_index_side_tables(src_path.to_str().unwrap(), dst_path.to_str().unwrap(), 0, 1)
+        .expect_err("unclassified source table must be rejected");
+    match err {
+        Error::CorruptionError(msg) => assert!(
+            msg.contains("surprise_table"),
+            "error should name the offending table, got: {msg}"
+        ),
+        other => panic!("expected CorruptionError, got {other:?}"),
+    }
     assert!(
-        extra.is_empty(),
-        "unclassified index table(s) {extra:?}: classify each in COPIED_TABLES or \
-         SCHEMA_ONLY_TABLES (snapshot/index.rs)"
+        !dst_path.exists(),
+        "no destination should be produced when the source is rejected"
     );
 }

@@ -25,6 +25,7 @@ use crate::vm::analysis::contract_interface_builder::ContractInterface;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::LimitedCostTracker;
+use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::FunctionType;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::{ClarityVersion, SymbolicExpression};
@@ -39,6 +40,11 @@ pub trait AnalysisPass {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
+        // Resource limits (wallclock deadline and max memory allocation) for this
+        // pass. This is limited only on the non-consensus voting paths; it is unlimited
+        // on deterministic replay/commit (so consensus stays deterministic — see
+        // `check_analysis_resource_limits`).
+        resource_limiter: ResourceLimiter,
     ) -> Result<(), StaticCheckError>;
 }
 
@@ -194,30 +200,30 @@ impl ContractAnalysis {
 
     /// Canonicalize all types in the contract analysis.
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
-        for (_, function_type) in self.private_function_types.iter_mut() {
+        for function_type in self.private_function_types.values_mut() {
             *function_type = function_type.canonicalize(epoch);
         }
-        for (_, variable_type) in self.variable_types.iter_mut() {
+        for variable_type in self.variable_types.values_mut() {
             *variable_type = variable_type.canonicalize(epoch);
         }
-        for (_, function_type) in self.public_function_types.iter_mut() {
+        for function_type in self.public_function_types.values_mut() {
             *function_type = function_type.canonicalize(epoch);
         }
-        for (_, function_type) in self.read_only_function_types.iter_mut() {
+        for function_type in self.read_only_function_types.values_mut() {
             *function_type = function_type.canonicalize(epoch);
         }
-        for (_, (key_type, value_type)) in self.map_types.iter_mut() {
+        for (key_type, value_type) in self.map_types.values_mut() {
             *key_type = key_type.canonicalize(epoch);
             *value_type = value_type.canonicalize(epoch);
         }
-        for (_, var_type) in self.persisted_variable_types.iter_mut() {
+        for var_type in self.persisted_variable_types.values_mut() {
             *var_type = var_type.canonicalize(epoch);
         }
-        for (_, nft_type) in self.non_fungible_tokens.iter_mut() {
+        for nft_type in self.non_fungible_tokens.values_mut() {
             *nft_type = nft_type.canonicalize(epoch);
         }
-        for (_, trait_definition) in self.defined_traits.iter_mut() {
-            for (_, function_signature) in trait_definition.iter_mut() {
+        for trait_definition in self.defined_traits.values_mut() {
+            for function_signature in trait_definition.values_mut() {
                 *function_signature = function_signature.canonicalize(epoch);
             }
         }
@@ -265,6 +271,19 @@ impl ContractAnalysis {
             }
         }
         Ok(())
+    }
+
+    pub fn type_of_final_expression(&self) -> Result<Option<TypeSignature>, StaticCheckError> {
+        Ok(self
+            .type_map
+            .as_ref()
+            .ok_or_else(|| StaticCheckErrorKind::Unreachable("Should be non-empty".into()))?
+            .get_type_expected(
+                self.expressions.last().ok_or_else(|| {
+                    StaticCheckErrorKind::Unreachable("Should be non-empty".into())
+                })?,
+            )
+            .cloned())
     }
 }
 

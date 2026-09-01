@@ -88,7 +88,9 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # block_proposal_validation_timeout_ms = 120000
 
 # Maximum age of a block proposal that will be processed.
-# Proposals older than this are silently dropped.
+# Proposals older than this are rejected (without validation) with a
+# `ProposalTooOld` response, unless the signer has already decided on
+# the block, in which case it resends its prior decision.
 # Default: 600
 # Units: seconds
 # block_proposal_max_age_secs = 600
@@ -114,9 +116,9 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 #   - Miner `tenure_extend_wait_timeout_ms` (default 120_000ms): should
 #     be >= this + buffer so the miner doesn't extend too early
 #
-# Default: 60
+# Default: 30
 # Units: seconds
-# tenure_idle_timeout_secs = 60
+# tenure_idle_timeout_secs = 30
 
 # Buffer added to the tenure idle timeout to account for clock skew
 # between signer and miner nodes. The effective idle timeout sent to
@@ -128,9 +130,9 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 
 # How much idle time must pass before allowing a read-count tenure extend.
 # Triggered when the read-count budget is nearly exhausted.
-# Default: 20
+# Default: 15
 # Units: seconds
-# read_count_idle_timeout_secs = 20
+# read_count_idle_timeout_secs = 15
 
 # Time to wait for the last block of a tenure to be globally accepted
 # or rejected before considering a new miner's block at the same height
@@ -224,9 +226,9 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # reset_replay_set_after_fork_blocks = 2
 
 # HTTP timeout for StackerDB read/write operations.
-# Default: 120
+# Default: 10
 # Units: seconds
-# stackerdb_timeout_secs = 120
+# stackerdb_timeout_secs = 10
 
 # Timeout for receiving events from the stacks-node.
 # Default: 5_000

@@ -3,7 +3,7 @@
 # Targets tests tagged with `#[tag(t_prop)]` (see docs/property-testing.md).
 #
 # Triggers:
-#   schedule  — nightly at 05:00 UTC on NIGHTLY_BRANCH (`develop`)
+#   schedule  — nightly at 05:00 UTC on NIGHTLY_BRANCH (`main`)
 #   dispatch  — manual, on any branch, with configurable PROPTEST_CASES
 #
 # On test failure the workflow:
@@ -14,7 +14,8 @@
 #
 # Note: A Slack notification is also sent in case of unexpected workflow error.
 
-name: Tests::Proptest Nightly
+name: "Tests: Proptest Nightly"
+run-name: "Tests: Proptest Nightly [${{ github.ref_name }}]"
 
 on:
   schedule:
@@ -48,7 +49,7 @@ env:
   # Test timeout in minutes
   TEST_TIMEOUT: 120
   # Branch to check out on scheduled (nightly) runs.
-  NIGHTLY_BRANCH: develop
+  NIGHTLY_BRANCH: main
   # Default number of generated cases per proptest (used on scheduled runs).
   NIGHTLY_PROPTEST_CASES: 2500
   # Whether to send Slack notifications on nightly (scheduled) runs.
@@ -59,9 +60,32 @@ env:
   MADHOUSE: 1
 
 jobs:
+  check-ci-enabled:
+    name: "Check: CI Enabled"
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
+          echo "github.repository:   '${{ github.repository }}'"
+          echo "github.event_name:   '${{ github.event_name }}'"
+    
+          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Result: CI is ENABLED"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: CI is DISABLED"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
   proptests-nightly:
-    name: Run All Proptest Tests
-    if: github.event_name == 'workflow_dispatch' || github.event.repository.visibility == 'public'
+    name: "Tests: All Proptest Tests"
+    needs:
+      - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       # Compute env variables depending on the workflow trigger (schedule vs dispatch)
@@ -107,6 +131,9 @@ jobs:
       # Install dependencies
       - name: Install Dependencies
         id: install_dependencies
+        # Fail fast if GitHub rate-limits the download instead of retrying
+        # until the job times out
+        timeout-minutes: 5
         uses: ./.github/actions/install-tool
         with:
           tools: nextest

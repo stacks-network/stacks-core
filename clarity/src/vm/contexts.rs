@@ -15,17 +15,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fmt;
-use std::time::{Duration, Instant};
 
+pub use clarity_types::effects::{AssetMap, AssetMapEntry};
 use clarity_types::representations::ClarityName;
 use serde::Serialize;
-use serde_json::json;
-use stacks_common::alloc_tracker::{AllocationCounter, thread_allocated};
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
 
-use super::EvalHook;
+use super::hooks::{
+    CallArguments, CallHook, CallTraceFrame, EvalHook, EvalHookNotifier, ExecutionOutcome,
+};
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
@@ -43,6 +42,7 @@ use crate::vm::errors::{
 };
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
+use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     AssetIdentifier, BuffData, CallableData, PrincipalData, QualifiedContractIdentifier,
@@ -109,6 +109,59 @@ impl InvocationContext<'_> {
             sponsor: self.sponsor.clone(),
         }
     }
+
+    /// Returns a derived invocation context bound to another contract context.
+    ///
+    /// Models entering a different contract while preserving the same authority
+    /// (sender, caller, and sponsor are carried over unchanged).
+    pub fn with_contract_context<'c>(
+        &self,
+        contract_context: &'c ContractContext,
+    ) -> InvocationContext<'c> {
+        InvocationContext {
+            contract_context,
+            sender: self.sender.clone(),
+            caller: self.caller.clone(),
+            sponsor: self.sponsor.clone(),
+        }
+    }
+}
+
+/// Options for executing a defined function through a transaction boundary.
+#[derive(Clone, Copy)]
+pub struct FunctionExecutionOptions<'a> {
+    next_contract_context: Option<&'a ContractContext>,
+    allow_private: bool,
+}
+
+impl Default for FunctionExecutionOptions<'_> {
+    /// Initializes execution options with the default settings:
+    ///
+    /// * `next_contract_context`: `None` (execute in the current contract context)
+    /// * `allow_private`: `false` (enforce public-call visibility)
+    fn default() -> Self {
+        Self {
+            next_contract_context: None,
+            allow_private: false,
+        }
+    }
+}
+
+impl<'a> FunctionExecutionOptions<'a> {
+    /// Controls whether private functions are accepted when handling the transaction result.
+    pub fn allow_private(mut self, allow_private: bool) -> Self {
+        self.allow_private = allow_private;
+        self
+    }
+
+    /// Executes the function against another contract context.
+    pub fn with_next_contract(
+        mut self,
+        next_contract_context: impl Into<Option<&'a ContractContext>>,
+    ) -> Self {
+        self.next_contract_context = next_contract_context.into();
+        self
+    }
 }
 
 /// `ExecutionState` contains the parts of the VM environment that may change during
@@ -138,210 +191,13 @@ pub struct OwnedEnvironment<'a, 'hooks> {
     call_stack: CallStack,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum AssetMapEntry {
-    STX(u128),
-    Burn(u128),
-    Token(u128),
-    Asset(Vec<Value>),
-    Stacking(u128),
-}
-
-/**
-The AssetMap is used to track which assets have been transferred from whom
-during the execution of a transaction.
-*/
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AssetMap {
-    /// Sum of all STX transfers by principal
-    stx_map: HashMap<PrincipalData, u128>,
-    /// Sum of all STX burns by principal
-    burn_map: HashMap<PrincipalData, u128>,
-    /// Sum of FT transfers by principal, by asset identifier
-    token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, u128>>,
-    /// NFT transfers by principal, by asset identifier
-    asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>,
-    /// Amount of STX stacked or delegated for stacking by principal
-    stacking_map: HashMap<PrincipalData, u128>,
-    /// Principals that attempted a position-altering PoX action (`unstake`,
-    /// `unstake-sbtc`, `update-bond-registration`, `announce-l1-early-exit`)
-    /// during the transaction — recorded whether or not the call succeeded, so
-    /// a `Pox` post-condition / `with-pox` allowance can gate even a failed
-    /// attempt.
-    pox_action_set: HashSet<PrincipalData>,
-}
-
-impl AssetMap {
-    pub fn to_json(&self) -> serde_json::Value {
-        let stx: serde_json::map::Map<_, _> = self
-            .stx_map
-            .iter()
-            .map(|(principal, amount)| {
-                (
-                    format!("{principal}"),
-                    serde_json::value::Value::String(format!("{amount}")),
-                )
-            })
-            .collect();
-
-        let burns: serde_json::map::Map<_, _> = self
-            .burn_map
-            .iter()
-            .map(|(principal, amount)| {
-                (
-                    format!("{principal}"),
-                    serde_json::value::Value::String(format!("{amount}")),
-                )
-            })
-            .collect();
-
-        let tokens: serde_json::map::Map<_, _> = self
-            .token_map
-            .iter()
-            .map(|(principal, token_map)| {
-                let token_json: serde_json::map::Map<_, _> = token_map
-                    .iter()
-                    .map(|(asset_id, amount)| {
-                        (
-                            format!("{asset_id}"),
-                            serde_json::value::Value::String(format!("{amount}")),
-                        )
-                    })
-                    .collect();
-
-                (
-                    format!("{principal}"),
-                    serde_json::value::Value::Object(token_json),
-                )
-            })
-            .collect();
-
-        let assets: serde_json::map::Map<_, _> = self
-            .asset_map
-            .iter()
-            .map(|(principal, nft_map)| {
-                let nft_json: serde_json::map::Map<_, _> = nft_map
-                    .iter()
-                    .map(|(asset_id, nft_values)| {
-                        let nft_array = nft_values
-                            .iter()
-                            .map(|nft_value| {
-                                serde_json::value::Value::String(format!("{nft_value}"))
-                            })
-                            .collect();
-
-                        (
-                            format!("{asset_id}"),
-                            serde_json::value::Value::Array(nft_array),
-                        )
-                    })
-                    .collect();
-
-                (
-                    format!("{principal}"),
-                    serde_json::value::Value::Object(nft_json),
-                )
-            })
-            .collect();
-
-        let stacking: serde_json::map::Map<_, _> = self
-            .stacking_map
-            .iter()
-            .map(|(principal, amount)| {
-                (
-                    format!("{principal}"),
-                    serde_json::value::Value::String(format!("{amount}")),
-                )
-            })
-            .collect();
-
-        let pox: Vec<serde_json::value::Value> = self
-            .pox_action_set
-            .iter()
-            .map(|principal| serde_json::value::Value::String(format!("{principal}")))
-            .collect();
-
-        json!({
-            "stx": stx,
-            "burns": burns,
-            "tokens": tokens,
-            "assets": assets,
-            "stacking": stacking,
-            "pox": pox,
-        })
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct EventBatch {
     pub events: Vec<StacksTransactionEvent>,
 }
 
-/** ExecutionTimeTracker keeps track of how much time a contract call is taking.
-   It is checked at every eval call.
-*/
-pub enum ExecutionTimeTracker {
-    NoTracking,
-    MaxTime {
-        start_time: Instant,
-        max_duration: Duration,
-    },
-}
-
-/// Per-`eval` abort check. This operates alongside the execution time
-/// tracker.
-///
-/// The `None` variant is a no-op (the common case during
-/// block append/replay); other variants encode specific abort
-/// conditions and are dispatched statically via match.
-#[derive(Clone)]
-pub enum AbortCallback {
-    /// No abort check.
-    None,
-    /// Abort when net heap allocation since `baseline` exceeds
-    /// `limit_bytes` (per-thread).
-    ///
-    /// Used by miner block assembly and proposal validation.
-    MemAbort {
-        baseline: AllocationCounter,
-        limit_bytes: u64,
-    },
-    /// Test fixture: always aborts with the given reason.
-    #[cfg(test)]
-    AlwaysAbort(String),
-}
-
-impl AbortCallback {
-    /// Run the abort check.
-    ///
-    /// Returns:
-    ///   * `Ok(())` to continue
-    ///   * `Err(reason)` to abort execution with
-    ///     `RuntimeCheckErrorKind::AbortedByExecutionHook`.
-    pub fn check(&self) -> Result<(), String> {
-        match self {
-            Self::None => Ok(()),
-            Self::MemAbort {
-                baseline,
-                limit_bytes,
-            } => {
-                let net_alloc = thread_allocated().net_allocated(baseline);
-                if net_alloc > *limit_bytes {
-                    Err(format!(
-                        "Transaction heap usage ({net_alloc} bytes) exceeded limit ({limit_bytes} bytes)"
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-            #[cfg(test)]
-            Self::AlwaysAbort(reason) => Err(reason.clone()),
-        }
-    }
-}
-
 /** GlobalContext represents the outermost context for a single transaction's
-     execution. It tracks an asset changes that occurred during the
+     execution. It tracks any asset changes that occurred during the
      processing of the transaction, whether or not the current context is read_only,
      and is responsible for committing/rolling-back transactions as they error or
      abort.
@@ -358,12 +214,9 @@ pub struct GlobalContext<'a, 'hooks> {
     /// This is the chain ID of the transaction
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
-    pub execution_time_tracker: ExecutionTimeTracker,
-    /// Callback checked at every `eval` call. When `check()` returns
-    /// `Err(reason)`, execution is aborted with
-    /// `VmExecutionError::RuntimeCheck(AbortedByExecutionHook)`. The
-    /// default `AbortCallback::None` is a no-op.
-    pub abort_callback: AbortCallback,
+    /// A resource limiter that will be polled on every `eval` to check that execution
+    /// time and heap allocation don't exceed configured maximums
+    pub execution_resource_limiter: ResourceLimiter,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -415,343 +268,6 @@ pub struct CallStack {
 }
 
 pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
-
-impl Default for AssetMap {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AssetMap {
-    pub fn new() -> AssetMap {
-        AssetMap {
-            stx_map: HashMap::new(),
-            burn_map: HashMap::new(),
-            token_map: HashMap::new(),
-            asset_map: HashMap::new(),
-            stacking_map: HashMap::new(),
-            pox_action_set: HashSet::new(),
-        }
-    }
-
-    /// This will get the next amount for a (principal, stx) entry in the stx table.
-    fn get_next_stx_amount(
-        &self,
-        principal: &PrincipalData,
-        amount: u128,
-    ) -> Result<u128, VmExecutionError> {
-        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
-        // - Every `stx-transfer?` or `stx-burn?` is validated against the sender’s
-        //   **unlocked balance** before being queued in `AssetMap`.
-        // - The unlocked balance is a subset of `stx-liquid-supply`.
-        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
-        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
-        let current_amount = self.stx_map.get(principal).unwrap_or(&0);
-        current_amount
-            .checked_add(amount)
-            .ok_or(RuntimeError::ArithmeticOverflow.into())
-    }
-
-    /// This will get the next amount for a (principal, stx) entry in the burn table.
-    fn get_next_stx_burn_amount(
-        &self,
-        principal: &PrincipalData,
-        amount: u128,
-    ) -> Result<u128, VmExecutionError> {
-        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
-        // - Every `stx-burn?` is validated against the sender’s **unlocked balance** first.
-        // - Unlocked balance is a subset of `stx-liquid-supply`, which is <= `u128::MAX`.
-        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
-        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
-        let current_amount = self.burn_map.get(principal).unwrap_or(&0);
-        current_amount
-            .checked_add(amount)
-            .ok_or(RuntimeError::ArithmeticOverflow.into())
-    }
-
-    /// This will get the next amount for a (principal, asset) entry in the asset table.
-    fn get_next_amount(
-        &self,
-        principal: &PrincipalData,
-        asset: &AssetIdentifier,
-        amount: u128,
-    ) -> Result<u128, VmExecutionError> {
-        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
-        // - The inner transaction must have **partially succeeded** to log any assets.
-        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
-        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
-        let current_amount = self
-            .token_map
-            .get(principal)
-            .and_then(|x| x.get(asset))
-            .unwrap_or(&0);
-        current_amount
-            .checked_add(amount)
-            .ok_or(RuntimeError::ArithmeticOverflow.into())
-    }
-
-    pub fn add_stx_transfer(
-        &mut self,
-        principal: &PrincipalData,
-        amount: u128,
-    ) -> Result<(), VmExecutionError> {
-        let next_amount = self.get_next_stx_amount(principal, amount)?;
-        self.stx_map.insert(principal.clone(), next_amount);
-
-        Ok(())
-    }
-
-    pub fn add_stx_burn(
-        &mut self,
-        principal: &PrincipalData,
-        amount: u128,
-    ) -> Result<(), VmExecutionError> {
-        let next_amount = self.get_next_stx_burn_amount(principal, amount)?;
-        self.burn_map.insert(principal.clone(), next_amount);
-
-        Ok(())
-    }
-
-    pub fn add_asset_transfer(
-        &mut self,
-        principal: &PrincipalData,
-        asset: AssetIdentifier,
-        transferred: Value,
-    ) {
-        let principal_map = self.asset_map.entry(principal.clone()).or_default();
-
-        if let Some(map_entry) = principal_map.get_mut(&asset) {
-            map_entry.push(transferred);
-        } else {
-            principal_map.insert(asset, vec![transferred]);
-        }
-    }
-
-    pub fn add_token_transfer(
-        &mut self,
-        principal: &PrincipalData,
-        asset: AssetIdentifier,
-        amount: u128,
-    ) -> Result<(), VmExecutionError> {
-        let next_amount = self.get_next_amount(principal, &asset, amount)?;
-
-        let principal_map = self.token_map.entry(principal.clone()).or_default();
-        principal_map.insert(asset, next_amount);
-
-        Ok(())
-    }
-
-    /// Log an amount of STX to be stacked or delegated for stacking by a
-    /// principal. Since any given principal can only stack once, this will
-    /// overwrite any previous amount for the principal.
-    pub fn add_stacking(&mut self, principal: &PrincipalData, amount: u128) {
-        self.stacking_map.insert(principal.clone(), amount);
-    }
-
-    /// Record that a principal attempted a position-altering PoX action
-    /// (`unstake`, `unstake-sbtc`, `update-bond-registration`,
-    /// `announce-l1-early-exit`) during the transaction. Recorded whether or
-    /// not the call succeeded.
-    pub fn add_pox_action(&mut self, principal: &PrincipalData) {
-        self.pox_action_set.insert(principal.clone());
-    }
-
-    // This will add any asset transfer data from other to self,
-    //   aborting _all_ changes in the event of an error, leaving self unchanged
-    pub fn commit_other(&mut self, mut other: AssetMap) -> Result<(), VmExecutionError> {
-        let mut to_add = Vec::new();
-        let mut stx_to_add = Vec::with_capacity(other.stx_map.len());
-        let mut stx_burn_to_add = Vec::with_capacity(other.burn_map.len());
-
-        for (principal, mut principal_map) in other.token_map.drain() {
-            for (asset, amount) in principal_map.drain() {
-                let next_amount = self.get_next_amount(&principal, &asset, amount)?;
-                to_add.push((principal.clone(), asset, next_amount));
-            }
-        }
-
-        for (principal, stx_amount) in other.stx_map.drain() {
-            let next_amount = self.get_next_stx_amount(&principal, stx_amount)?;
-            stx_to_add.push((principal.clone(), next_amount));
-        }
-
-        for (principal, stx_burn_amount) in other.burn_map.drain() {
-            let next_amount = self.get_next_stx_burn_amount(&principal, stx_burn_amount)?;
-            stx_burn_to_add.push((principal.clone(), next_amount));
-        }
-
-        // After this point, this function will not fail.
-        for (principal, mut principal_map) in other.asset_map.drain() {
-            for (asset, mut transfers) in principal_map.drain() {
-                let landing_map = self.asset_map.entry(principal.clone()).or_default();
-                if let Some(landing_vec) = landing_map.get_mut(&asset) {
-                    landing_vec.append(&mut transfers);
-                } else {
-                    landing_map.insert(asset, transfers);
-                }
-            }
-        }
-
-        for (principal, stx_amount) in stx_to_add.into_iter() {
-            self.stx_map.insert(principal, stx_amount);
-        }
-
-        for (principal, stx_burn_amount) in stx_burn_to_add.into_iter() {
-            self.burn_map.insert(principal, stx_burn_amount);
-        }
-
-        for (principal, asset, amount) in to_add.into_iter() {
-            let principal_map = self.token_map.entry(principal).or_default();
-            principal_map.insert(asset, amount);
-        }
-
-        for (principal, stacking_amount) in other.stacking_map.drain() {
-            self.stacking_map.insert(principal, stacking_amount);
-        }
-
-        for principal in other.pox_action_set.drain() {
-            self.pox_action_set.insert(principal);
-        }
-
-        Ok(())
-    }
-
-    pub fn to_table(mut self) -> HashMap<PrincipalData, HashMap<AssetIdentifier, AssetMapEntry>> {
-        let mut map = HashMap::with_capacity(self.token_map.len());
-        for (principal, mut principal_map) in self.token_map.drain() {
-            let mut output_map = HashMap::with_capacity(principal_map.len());
-            for (asset, amount) in principal_map.drain() {
-                output_map.insert(asset, AssetMapEntry::Token(amount));
-            }
-            map.insert(principal, output_map);
-        }
-
-        for (principal, stx_amount) in self.stx_map.drain() {
-            let output_map = map.entry(principal.clone()).or_default();
-            output_map.insert(AssetIdentifier::STX(), AssetMapEntry::STX(stx_amount));
-        }
-
-        for (principal, stx_burned_amount) in self.burn_map.drain() {
-            let output_map = map.entry(principal.clone()).or_default();
-            output_map.insert(
-                AssetIdentifier::STX_burned(),
-                AssetMapEntry::Burn(stx_burned_amount),
-            );
-        }
-
-        for (principal, mut principal_map) in self.asset_map.drain() {
-            let output_map = map.entry(principal.clone()).or_default();
-            for (asset, transfers) in principal_map.drain() {
-                output_map.insert(asset, AssetMapEntry::Asset(transfers));
-            }
-        }
-
-        map
-    }
-
-    pub fn get_stx(&self, principal: &PrincipalData) -> Option<u128> {
-        self.stx_map.get(principal).copied()
-    }
-
-    pub fn get_stx_burned(&self, principal: &PrincipalData) -> Option<u128> {
-        self.burn_map.get(principal).copied()
-    }
-
-    pub fn get_stx_burned_total(&self) -> Result<u128, VmExecutionError> {
-        let mut total: u128 = 0;
-        for principal in self.burn_map.keys() {
-            total = total
-                .checked_add(*self.burn_map.get(principal).unwrap_or(&0u128))
-                .ok_or_else(|| VmInternalError::Expect("BURN OVERFLOW".into()))?;
-        }
-        Ok(total)
-    }
-
-    pub fn get_fungible_tokens(
-        &self,
-        principal: &PrincipalData,
-        asset_identifier: &AssetIdentifier,
-    ) -> Option<u128> {
-        let assets = self.token_map.get(principal)?;
-        assets.get(asset_identifier).copied()
-    }
-
-    pub fn get_all_fungible_tokens(
-        &self,
-        principal: &PrincipalData,
-    ) -> Option<&HashMap<AssetIdentifier, u128>> {
-        let assets = self.token_map.get(principal)?;
-        Some(assets)
-    }
-
-    pub fn get_nonfungible_tokens(
-        &self,
-        principal: &PrincipalData,
-        asset_identifier: &AssetIdentifier,
-    ) -> Option<&Vec<Value>> {
-        let assets = self.asset_map.get(principal)?;
-        assets.get(asset_identifier)
-    }
-
-    pub fn get_all_nonfungible_tokens(
-        &self,
-        principal: &PrincipalData,
-    ) -> Option<&HashMap<AssetIdentifier, Vec<Value>>> {
-        let assets = self.asset_map.get(principal)?;
-        Some(assets)
-    }
-
-    pub fn get_stacking(&self, principal: &PrincipalData) -> Option<u128> {
-        self.stacking_map.get(principal).copied()
-    }
-
-    /// Returns the full map of STX stacked (locked for PoX) by each principal
-    /// during the transaction. Used to enforce transaction-level `Staking`
-    /// post-conditions, since the stacking map is intentionally excluded from
-    /// `to_table`.
-    pub fn get_all_stacking(&self) -> &HashMap<PrincipalData, u128> {
-        &self.stacking_map
-    }
-
-    pub fn did_pox_action(&self, principal: &PrincipalData) -> bool {
-        self.pox_action_set.contains(principal)
-    }
-
-    /// Returns the set of principals that performed a position-altering PoX
-    /// action during the transaction. Used to enforce transaction-level `Pox`
-    /// post-conditions; like the stacking map it is intentionally excluded from
-    /// `to_table`.
-    pub fn get_all_pox_actions(&self) -> &HashSet<PrincipalData> {
-        &self.pox_action_set
-    }
-}
-
-impl fmt::Display for AssetMap {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[")?;
-        for (principal, principal_map) in self.token_map.iter() {
-            for (asset, amount) in principal_map.iter() {
-                writeln!(f, "{principal} spent {amount} {asset}")?;
-            }
-        }
-        for (principal, principal_map) in self.asset_map.iter() {
-            for (asset, transfer) in principal_map.iter() {
-                write!(f, "{principal} transferred [")?;
-                for t in transfer {
-                    write!(f, "{t}, ")?;
-                }
-                writeln!(f, "] {asset}")?;
-            }
-        }
-        for (principal, stx_amount) in self.stx_map.iter() {
-            writeln!(f, "{principal} spent {stx_amount} microSTX")?;
-        }
-        for (principal, stx_burn_amount) in self.burn_map.iter() {
-            writeln!(f, "{principal} burned {stx_burn_amount} microSTX")?;
-        }
-        write!(f, "]")
-    }
-}
 
 impl EventBatch {
     pub fn new() -> EventBatch {
@@ -842,9 +358,19 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         }
     }
 
-    /// Set an abort callback that will be checked at every `eval` call.
-    pub fn set_abort_callback(&mut self, callback: AbortCallback) {
-        self.context.abort_callback = callback;
+    /// Registers an evaluation hook for this environment.
+    pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
+        if let Some(mut hooks) = self.context.eval_hooks.take() {
+            hooks.push(hook);
+            self.context.eval_hooks = Some(hooks);
+        } else {
+            self.context.eval_hooks = Some(vec![hook]);
+        }
+    }
+
+    pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
+        self.context
+            .set_execution_resource_limiter(resource_limiter);
     }
 
     pub fn get_exec_environment<'b>(
@@ -888,7 +414,17 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
             ));
             let (mut exec_state, invoke_ctx) =
                 self.get_exec_environment(Some(sender), sponsor, &initial_context);
-            f(&mut exec_state, &invoke_ctx)
+            exec_state.global_context.notify_will_begin_execution();
+            let result = f(&mut exec_state, &invoke_ctx);
+            let outcome = if result.is_ok() {
+                ExecutionOutcome::Success
+            } else {
+                ExecutionOutcome::Failure
+            };
+            exec_state
+                .global_context
+                .notify_did_finish_execution(outcome);
+            result
         };
 
         match result {
@@ -1079,15 +615,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ///   because the database is not guaranteed to be in a sane state.
     pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
         self.context.destruct()
-    }
-
-    pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
-        if let Some(mut hooks) = self.context.eval_hooks.take() {
-            hooks.push(hook);
-            self.context.eval_hooks = Some(hooks);
-        } else {
-            self.context.eval_hooks = Some(vec![hook]);
-        }
     }
 }
 
@@ -1326,7 +853,23 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
                 return Err(RuntimeCheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
-            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, Some(&*contract), allow_private);
+            let options = FunctionExecutionOptions::default()
+                .with_next_contract(&*contract)
+                .allow_private(allow_private);
+
+            // This entry/contract-call route is not wrapped by `apply`, so it owns the
+            // user-function call frame itself. (The `apply` path emits its own frame.)
+            let callee_view = invoke_ctx.with_contract_context(&contract);
+            let call = CallTraceFrame::when(self.has_eval_hooks(), || CallHook::UserDefined {
+                contract_identifier: &callee_view.contract_context.contract_identifier,
+                function: &func,
+            });
+            call.begin(self, &callee_view, CallArguments::Values(&args));
+            call.did_evaluate_arguments(self, &callee_view, &args);
+
+            let res = self.execute_function_as_transaction(invoke_ctx, &func, &args, options);
+
+            call.finish(self, &callee_view, &res);
             self.call_stack.remove(&func_identifier, true)?;
 
             match res {
@@ -1349,13 +892,18 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
         })
     }
 
+    /// Runs `function` against a transaction boundary: begin (read-only or
+    /// writable), execute, then roll back or handle the result.
+    ///
+    /// Call-trace emission is **owned by callers** (e.g., `apply` and
+    /// `inner_execute_contract`); this method intentionally emits no eval hooks,
+    /// so a direct caller that wants tracing must open its own `CallTraceFrame`.
     pub fn execute_function_as_transaction(
         &mut self,
         invoke_ctx: &InvocationContext,
         function: &DefinedFunction,
         args: &[Value],
-        next_contract_context: Option<&ContractContext>,
-        allow_private: bool,
+        options: FunctionExecutionOptions<'_>,
     ) -> Result<Value, VmExecutionError> {
         let make_read_only = function.is_read_only();
 
@@ -1365,23 +913,20 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
             self.global_context.begin();
         }
 
-        let next_contract_context = next_contract_context.unwrap_or(invoke_ctx.contract_context);
+        let next_contract_context = options
+            .next_contract_context
+            .unwrap_or(invoke_ctx.contract_context);
 
-        let result = {
-            let nested_view = InvocationContext {
-                contract_context: next_contract_context,
-                sender: invoke_ctx.sender.clone(),
-                caller: invoke_ctx.caller.clone(),
-                sponsor: invoke_ctx.sponsor.clone(),
-            };
-            function.execute_apply(args, self, &nested_view)
-        };
+        let callee_view = invoke_ctx.with_contract_context(next_contract_context);
+
+        let result = function.execute_apply(args, self, &callee_view);
 
         if make_read_only {
             self.global_context.roll_back()?;
             result
         } else {
-            self.global_context.handle_tx_result(result, allow_private)
+            self.global_context
+                .handle_tx_result(result, options.allow_private)
         }
     }
 
@@ -1758,6 +1303,80 @@ impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
     }
 }
 
+impl ExecutionState<'_, '_, '_> {
+    /// Invokes `f` for each registered eval hook.
+    fn for_each_eval_hook(&mut self, mut f: impl FnMut(&mut dyn EvalHook, &mut Self)) {
+        let Some(mut eval_hooks) = self.global_context.eval_hooks.take() else {
+            return;
+        };
+
+        for hook in eval_hooks.iter_mut() {
+            f(&mut **hook, self);
+        }
+        self.global_context.eval_hooks = Some(eval_hooks);
+    }
+}
+
+impl EvalHookNotifier for ExecutionState<'_, '_, '_> {
+    fn has_eval_hooks(&self) -> bool {
+        self.global_context
+            .eval_hooks
+            .as_ref()
+            .is_some_and(|hooks| !hooks.is_empty())
+    }
+
+    fn notify_will_begin_eval(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        context: &LocalContext,
+        expr: &SymbolicExpression,
+    ) {
+        self.for_each_eval_hook(|hook, env| hook.will_begin_eval(env, invoke_ctx, context, expr));
+    }
+
+    fn notify_did_finish_eval<'a>(
+        &mut self,
+        invoke_ctx: &'a InvocationContext,
+        context: &'a LocalContext,
+        expr: &SymbolicExpression,
+        res: &core::result::Result<ValueRef<'a>, VmExecutionError>,
+    ) {
+        self.for_each_eval_hook(|hook, env| {
+            hook.did_finish_eval(env, invoke_ctx, context, expr, res)
+        });
+    }
+
+    fn notify_will_begin_call(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        call: &CallHook,
+        args: CallArguments,
+    ) {
+        self.for_each_eval_hook(|hook, env| hook.will_begin_call(env, invoke_ctx, call, args));
+    }
+
+    fn notify_did_evaluate_call_argument(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        call: &CallHook,
+        arg_index: usize,
+        value: &Value,
+    ) {
+        self.for_each_eval_hook(|hook, env| {
+            hook.did_evaluate_call_argument(env, invoke_ctx, call, arg_index, value)
+        });
+    }
+
+    fn notify_did_finish_call(
+        &mut self,
+        invoke_ctx: &InvocationContext,
+        call: &CallHook,
+        res: &core::result::Result<Value, VmExecutionError>,
+    ) {
+        self.for_each_eval_hook(|hook, env| hook.did_finish_call(env, invoke_ctx, call, res));
+    }
+}
+
 impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     // Instantiate a new Global Context
     pub fn new(
@@ -1777,8 +1396,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             epoch_id,
             chain_id,
             eval_hooks: None,
-            execution_time_tracker: ExecutionTimeTracker::NoTracking,
-            abort_callback: AbortCallback::None,
+            execution_resource_limiter: ResourceLimiter::unlimited(),
         }
     }
 
@@ -1786,11 +1404,8 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         self.asset_maps.is_empty()
     }
 
-    pub fn set_max_execution_time(&mut self, max_execution_time: Duration) {
-        self.execution_time_tracker = ExecutionTimeTracker::MaxTime {
-            start_time: Instant::now(),
-            max_duration: max_execution_time,
-        }
+    pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
+        self.execution_resource_limiter = resource_limiter;
     }
 
     fn get_asset_map(&mut self) -> Result<&mut AssetMap, VmExecutionError> {
@@ -1834,6 +1449,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         };
         self.get_asset_map()?
             .add_token_transfer(sender, asset_identifier, transferred)
+            .map_err(Into::into)
     }
 
     pub fn log_stx_transfer(
@@ -1841,7 +1457,9 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         sender: &PrincipalData,
         transferred: u128,
     ) -> Result<(), VmExecutionError> {
-        self.get_asset_map()?.add_stx_transfer(sender, transferred)
+        self.get_asset_map()?
+            .add_stx_transfer(sender, transferred)
+            .map_err(Into::into)
     }
 
     pub fn log_stx_burn(
@@ -1849,7 +1467,9 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         sender: &PrincipalData,
         transferred: u128,
     ) -> Result<(), VmExecutionError> {
-        self.get_asset_map()?.add_stx_burn(sender, transferred)
+        self.get_asset_map()?
+            .add_stx_burn(sender, transferred)
+            .map_err(Into::into)
     }
 
     pub fn log_stacking(
@@ -1857,13 +1477,35 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         sender: &PrincipalData,
         amount: u128,
     ) -> Result<(), VmExecutionError> {
-        self.get_asset_map()?.add_stacking(sender, amount);
-        Ok(())
+        let epoch = self.epoch_id;
+        self.get_asset_map()?
+            .add_stacking(sender, amount, epoch)
+            .map_err(Into::into)
     }
 
     pub fn log_pox_action(&mut self, sender: &PrincipalData) -> Result<(), VmExecutionError> {
         self.get_asset_map()?.add_pox_action(sender);
         Ok(())
+    }
+
+    /// Invokes `f` for each registered eval hook.
+    fn for_each_eval_hook(&mut self, mut f: impl FnMut(&mut dyn EvalHook)) {
+        let Some(mut eval_hooks) = self.eval_hooks.take() else {
+            return;
+        };
+
+        for hook in eval_hooks.iter_mut() {
+            f(&mut **hook);
+        }
+        self.eval_hooks = Some(eval_hooks);
+    }
+
+    fn notify_will_begin_execution(&mut self) {
+        self.for_each_eval_hook(|hook| hook.will_begin_execution());
+    }
+
+    fn notify_did_finish_execution(&mut self, outcome: ExecutionOutcome) {
+        self.for_each_eval_hook(|hook| hook.did_finish_execution(outcome));
     }
 
     pub fn execute<F, T>(&mut self, f: F) -> Result<T, VmExecutionError>
@@ -1961,9 +1603,9 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
 
         let out_map = match self.asset_maps.last_mut() {
             Some(tail_back) => {
-                if let Err(e) = tail_back.commit_other(asset_map) {
+                if let Err(e) = tail_back.commit_other(asset_map, self.epoch_id) {
                     self.database.roll_back()?;
-                    return Err(e);
+                    return Err(e.into());
                 }
                 None
             }
@@ -2020,6 +1662,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 self.commit()?;
                 Ok(result)
             } else {
+                self.roll_back()?;
                 Err(RuntimeCheckErrorKind::Unreachable(format!(
                     "Public function must return response: {}",
                     TypeSignature::type_of(&result)?
@@ -2102,12 +1745,12 @@ impl ContractContext {
     /// defined traits are exposed externally, so other types are not
     /// canonicalized.
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) -> Result<(), VmExecutionError> {
-        for (_, function) in self.functions.iter_mut() {
+        for function in self.functions.values_mut() {
             function.canonicalize_types(epoch);
         }
 
         for trait_def in self.defined_traits.values_mut() {
-            for (_, function) in trait_def.iter_mut() {
+            for function in trait_def.values_mut() {
                 *function = function.canonicalize(epoch);
             }
         }
@@ -2115,7 +1758,7 @@ impl ContractContext {
         // In pre-sanitized-variable epochs, sanitize all contract
         // variables at load time so lookups can borrow directly.
         if epoch.uses_pre_sanitized_variables() {
-            for (_, value) in self.variables.iter_mut() {
+            for value in self.variables.values_mut() {
                 let owned = std::mem::replace(value, Value::none());
                 let (sanitized, _) =
                     Value::sanitize_value(epoch, &TypeSignature::type_of(&owned)?, owned)
@@ -2292,158 +1935,6 @@ mod test {
     use crate::vm::types::StandardPrincipalData;
     use crate::vm::types::signatures::CallableSubtype;
 
-    #[test]
-    fn test_asset_map_abort() {
-        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
-        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
-
-        let p1 = PrincipalData::Contract(a_contract_id.clone());
-        let p2 = PrincipalData::Contract(b_contract_id.clone());
-
-        let t1 = AssetIdentifier {
-            contract_identifier: a_contract_id,
-            asset_name: ClarityName::from_literal("a"),
-        };
-        let _t2 = AssetIdentifier {
-            contract_identifier: b_contract_id,
-            asset_name: ClarityName::from_literal("a"),
-        };
-
-        let mut am1 = AssetMap::new();
-        let mut am2 = AssetMap::new();
-
-        am1.add_token_transfer(&p1, t1.clone(), 1).unwrap();
-        am1.add_token_transfer(&p2, t1.clone(), u128::MAX).unwrap();
-        am2.add_token_transfer(&p1, t1.clone(), 1).unwrap();
-        am2.add_token_transfer(&p2, t1.clone(), 1).unwrap();
-
-        am1.commit_other(am2).unwrap_err();
-
-        let table = am1.to_table();
-
-        assert_eq!(table[&p2][&t1], AssetMapEntry::Token(u128::MAX));
-        assert_eq!(table[&p1][&t1], AssetMapEntry::Token(1));
-    }
-
-    #[test]
-    fn test_asset_map_combinations() {
-        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
-        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
-        let c_contract_id = QualifiedContractIdentifier::local("c").unwrap();
-        let d_contract_id = QualifiedContractIdentifier::local("d").unwrap();
-        let e_contract_id = QualifiedContractIdentifier::local("e").unwrap();
-        let f_contract_id = QualifiedContractIdentifier::local("f").unwrap();
-        let g_contract_id = QualifiedContractIdentifier::local("g").unwrap();
-
-        let p1 = PrincipalData::Contract(a_contract_id.clone());
-        let p2 = PrincipalData::Contract(b_contract_id.clone());
-        let p3 = PrincipalData::Contract(c_contract_id.clone());
-        let _p4 = PrincipalData::Contract(d_contract_id.clone());
-        let _p5 = PrincipalData::Contract(e_contract_id.clone());
-        let _p6 = PrincipalData::Contract(f_contract_id);
-        let _p7 = PrincipalData::Contract(g_contract_id);
-
-        let t1 = AssetIdentifier {
-            contract_identifier: a_contract_id,
-            asset_name: ClarityName::from_literal("a"),
-        };
-        let t2 = AssetIdentifier {
-            contract_identifier: b_contract_id,
-            asset_name: ClarityName::from_literal("a"),
-        };
-        let t3 = AssetIdentifier {
-            contract_identifier: c_contract_id,
-            asset_name: ClarityName::from_literal("a"),
-        };
-        let t4 = AssetIdentifier {
-            contract_identifier: d_contract_id,
-            asset_name: ClarityName::from_literal("a"),
-        };
-        let t5 = AssetIdentifier {
-            contract_identifier: e_contract_id,
-            asset_name: ClarityName::from_literal("a"),
-        };
-        let t6 = AssetIdentifier::STX();
-        let t7 = AssetIdentifier::STX_burned();
-
-        let mut am1 = AssetMap::new();
-        let mut am2 = AssetMap::new();
-
-        am1.add_token_transfer(&p1, t1.clone(), 10).unwrap();
-        am2.add_token_transfer(&p1, t1.clone(), 15).unwrap();
-
-        am1.add_stx_transfer(&p1, 20).unwrap();
-        am2.add_stx_transfer(&p2, 25).unwrap();
-
-        am1.add_stx_burn(&p1, 30).unwrap();
-        am2.add_stx_burn(&p2, 35).unwrap();
-
-        // test merging in a token that _didn't_ have an entry in the parent
-        am2.add_token_transfer(&p1, t4.clone(), 1).unwrap();
-
-        // test merging in a principal that _didn't_ have an entry in the parent
-        am2.add_token_transfer(&p2, t2.clone(), 10).unwrap();
-        am2.add_token_transfer(&p2, t2.clone(), 1).unwrap();
-
-        // test merging in a principal that _didn't_ have an entry in the parent
-        am2.add_asset_transfer(&p3, t3.clone(), Value::Int(10));
-
-        // test merging in an asset that _didn't_ have an entry in the parent
-        am1.add_asset_transfer(&p1, t5.clone(), Value::Int(0));
-        am2.add_asset_transfer(&p1, t3.clone(), Value::Int(1));
-        am2.add_asset_transfer(&p1, t3.clone(), Value::Int(0));
-
-        // test merging in an asset that _does_ have an entry in the parent
-        am1.add_asset_transfer(&p2, t3.clone(), Value::Int(2));
-        am1.add_asset_transfer(&p2, t3.clone(), Value::Int(5));
-        am2.add_asset_transfer(&p2, t3.clone(), Value::Int(3));
-        am2.add_asset_transfer(&p2, t3.clone(), Value::Int(4));
-
-        // test merging in STX transfers
-        am1.add_stx_transfer(&p1, 21).unwrap();
-        am2.add_stx_transfer(&p2, 26).unwrap();
-
-        // test merging in STX burns
-        am1.add_stx_burn(&p1, 31).unwrap();
-        am2.add_stx_burn(&p2, 36).unwrap();
-
-        am1.commit_other(am2).unwrap();
-
-        let table = am1.to_table();
-
-        // 3 Principals
-        assert_eq!(table.len(), 3);
-
-        assert_eq!(table[&p1][&t1], AssetMapEntry::Token(25));
-        assert_eq!(table[&p1][&t4], AssetMapEntry::Token(1));
-
-        assert_eq!(table[&p2][&t2], AssetMapEntry::Token(11));
-
-        assert_eq!(
-            table[&p2][&t3],
-            AssetMapEntry::Asset(vec![
-                Value::Int(2),
-                Value::Int(5),
-                Value::Int(3),
-                Value::Int(4)
-            ])
-        );
-
-        assert_eq!(
-            table[&p1][&t3],
-            AssetMapEntry::Asset(vec![Value::Int(1), Value::Int(0)])
-        );
-        assert_eq!(table[&p1][&t5], AssetMapEntry::Asset(vec![Value::Int(0)]));
-
-        assert_eq!(table[&p3][&t3], AssetMapEntry::Asset(vec![Value::Int(10)]));
-
-        assert_eq!(table[&p1][&t6], AssetMapEntry::STX(20 + 21));
-        assert_eq!(table[&p2][&t6], AssetMapEntry::STX(25 + 26));
-
-        assert_eq!(table[&p1][&t7], AssetMapEntry::Burn(30 + 31));
-        assert_eq!(table[&p2][&t7], AssetMapEntry::Burn(35 + 36));
-    }
-
     /// Test the stx-transfer consolidation tx invalidation
     ///  bug from 2.4.0.1.0-rc1
     #[apply(test_epochs)]
@@ -2525,49 +2016,6 @@ mod test {
                 .args[0],
             TypeSignature::CallableType(CallableSubtype::Trait(trait_id))
         );
-    }
-
-    #[test]
-    fn asset_map_arithmetic_overflows() {
-        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
-        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
-        let p1 = PrincipalData::Contract(a_contract_id.clone());
-        let p2 = PrincipalData::Contract(b_contract_id.clone());
-        let t1 = AssetIdentifier {
-            contract_identifier: a_contract_id,
-            asset_name: ClarityName::from_literal("a"),
-        };
-
-        let mut am1 = AssetMap::new();
-        let mut am2 = AssetMap::new();
-
-        // Token transfer: add u128::MAX followed by 1 to overflow
-        am1.add_token_transfer(&p1, t1.clone(), u128::MAX).unwrap();
-        assert!(matches!(
-            am1.add_token_transfer(&p1, t1.clone(), 1).unwrap_err(),
-            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
-        ));
-
-        // STX burn: add u128::MAX followed by 1 to overflow
-        am1.add_stx_burn(&p1, u128::MAX).unwrap();
-        assert!(matches!(
-            am1.add_stx_burn(&p1, 1).unwrap_err(),
-            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
-        ));
-
-        // STX transfer: add u128::MAX followed by 1 to overflow
-        am1.add_stx_transfer(&p1, u128::MAX).unwrap();
-        assert!(matches!(
-            am1.add_stx_transfer(&p1, 1).unwrap_err(),
-            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
-        ));
-
-        // commit_other: merge two maps where sum exceeds u128::MAX
-        am2.add_token_transfer(&p1, t1.clone(), u128::MAX).unwrap();
-        assert!(matches!(
-            am1.commit_other(am2).unwrap_err(),
-            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
-        ));
     }
 
     #[test]

@@ -151,7 +151,7 @@ pub struct ClarityCostFunctionReference {
 
 impl ::std::fmt::Display for ClarityCostFunctionReference {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        write!(f, "{}.{}", &self.contract_id, &self.function_name)
+        write!(f, "{}.{}", self.contract_id, self.function_name)
     }
 }
 
@@ -221,7 +221,7 @@ impl DefaultVersion {
         } else if value.name.as_str() == COSTS_5_NAME {
             Ok(Self::Costs5)
         } else {
-            Err(format!("Unknown default contract {}", &value.name))
+            Err(format!("Unknown default contract {}", value.name))
         }
     }
 }
@@ -405,7 +405,7 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => COSTS_3_NAME.to_string(),
             StacksEpochId::Epoch33 | StacksEpochId::Epoch34 => COSTS_4_NAME.to_string(),
-            StacksEpochId::Epoch40 => COSTS_5_NAME.to_string(),
+            StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => COSTS_5_NAME.to_string(),
         };
         Ok(result)
     }
@@ -456,8 +456,8 @@ impl LimitedCostTracker {
 impl TrackerData {
     /// Load the default cost functions for this tracker's epoch.
     ///
-    /// Every Clarity cost function is evaluated against the boot cost contract
-    /// for the current epoch (`costs`, `costs-2`, `costs-3`, `costs-4`, or `costs-5`).
+    /// Before Epoch 4.0, this also loads the corresponding boot cost contract.
+    /// Epoch 4.0 and later use the native Rust cost implementation.
     fn load_costs(&mut self, clarity_db: &mut ClarityDatabase) -> Result<(), CostErrors> {
         clarity_db.begin();
         let epoch_id = clarity_db
@@ -474,19 +474,6 @@ impl TrackerData {
             ))
         })?;
 
-        let boot_cost_contract = match clarity_db.get_contract(&boot_costs_id) {
-            Ok(contract) => contract,
-            Err(e) => {
-                error!("Failed to load intended Clarity cost contract";
-                       "contract" => %boot_costs_id,
-                       "error" => ?e);
-                clarity_db
-                    .roll_back()
-                    .map_err(|e| CostErrors::Expect(e.to_string()))?;
-                return Err(CostErrors::CostContractLoadFailure);
-            }
-        };
-
         let mut m = HashMap::with_capacity(ClarityCostFunction::ALL.len());
         for f in ClarityCostFunction::ALL.iter() {
             let cost_function_ref =
@@ -498,7 +485,21 @@ impl TrackerData {
         }
 
         let mut cost_contracts = HashMap::with_capacity(1);
-        cost_contracts.insert(boot_costs_id, boot_cost_contract);
+        if epoch_id < StacksEpochId::Epoch40 {
+            let boot_cost_contract = match clarity_db.get_contract(&boot_costs_id) {
+                Ok(contract) => contract,
+                Err(e) => {
+                    error!("Failed to load intended Clarity cost contract";
+                           "contract" => %boot_costs_id,
+                           "error" => ?e);
+                    clarity_db
+                        .roll_back()
+                        .map_err(|e| CostErrors::Expect(e.to_string()))?;
+                    return Err(CostErrors::CostContractLoadFailure);
+                }
+            };
+            cost_contracts.insert(boot_costs_id, boot_cost_contract);
+        }
 
         self.cost_function_references = m;
         self.cost_contracts = cost_contracts;

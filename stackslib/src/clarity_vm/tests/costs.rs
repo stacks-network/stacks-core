@@ -17,28 +17,27 @@
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{
-    compute_cost, ClarityCostFunctionReference, CostErrors, DefaultVersion, ExecutionCost,
-    LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME, COSTS_3_NAME, COSTS_4_NAME,
+    compute_cost, ClarityCostFunctionEvaluator, ClarityCostFunctionReference, CostErrors,
+    DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME, COSTS_3_NAME,
+    COSTS_4_NAME,
 };
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{
-    execute, generate_test_burn_state_db, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
+    execute, generate_test_burn_state_db, symbols_from_values, TEST_HEADER_DB,
 };
-use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::{ClarityVersion, ContractName};
-use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity_vm::clarity::{ClarityInstance, ClarityMarfStore};
-use crate::clarity_vm::database::marf::MarfedKV;
-use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use crate::clarity_vm::clarity::ClarityMarfStore;
+use crate::clarity_vm::tests::utils::{
+    new_cost_test_clarity_instance, next_test_block_id, setup_cost_test_epochs_through,
+};
 use crate::util_lib::boot::boot_code_id;
 
 pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
@@ -204,89 +203,6 @@ fn execute_transaction(
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
-// Epochs which deploy boot contracts needed for costs tests.
-const COST_TEST_SETUP_EPOCHS: [StacksEpochId; 4] = [
-    StacksEpochId::Epoch2_05,
-    StacksEpochId::Epoch21,
-    StacksEpochId::Epoch33,
-    StacksEpochId::Epoch40,
-];
-
-fn next_test_block_id(block_id_byte: &mut u8) -> StacksBlockId {
-    let block_id = StacksBlockId([*block_id_byte; 32]);
-    *block_id_byte += 1;
-    block_id
-}
-
-fn new_cost_test_clarity_instance(use_mainnet: bool) -> (ClarityInstance, StacksBlockId, u8) {
-    let marf_kv = MarfedKV::temporary();
-    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
-    let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf_kv);
-
-    let first_block = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-    clarity_instance
-        .begin_test_genesis_block(
-            &StacksBlockId::sentinel(),
-            &first_block,
-            &TEST_HEADER_DB,
-            &TEST_BURN_STATE_DB,
-        )
-        .commit_block();
-
-    (clarity_instance, first_block, 1)
-}
-
-fn setup_cost_test_epoch(
-    clarity_instance: &mut ClarityInstance,
-    tip: &mut StacksBlockId,
-    block_id_byte: &mut u8,
-    setup_epoch: StacksEpochId,
-) {
-    let burn_state_db = generate_test_burn_state_db(setup_epoch);
-    let next_block = next_test_block_id(block_id_byte);
-    let mut clarity_conn =
-        clarity_instance.begin_block(tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
-
-    match setup_epoch {
-        StacksEpochId::Epoch2_05 => {
-            clarity_conn.initialize_epoch_2_05().unwrap();
-        }
-        StacksEpochId::Epoch21 => {
-            clarity_conn.initialize_epoch_2_1().unwrap();
-        }
-        StacksEpochId::Epoch33 => {
-            clarity_conn.initialize_epoch_3_3().unwrap();
-        }
-        StacksEpochId::Epoch40 => {
-            // `initialize_epoch_4_0()` also deploys PoX-5, which requires the chainstate
-            // test harness's sBTC stubs. Cost tests only need the costs-5 contract.
-            clarity_conn.set_epoch_for_testing(StacksEpochId::Epoch40);
-            clarity_conn.instantiate_epoch_4_0_cost_contract().unwrap();
-        }
-        _ => unreachable!(
-            "COST_TEST_SETUP_EPOCHS only contains epochs which instantiate boot contracts needed for costs tests"
-        ),
-    }
-
-    clarity_conn.commit_block();
-    *tip = next_block;
-}
-
-fn setup_cost_test_epochs_through(
-    clarity_instance: &mut ClarityInstance,
-    tip: &mut StacksBlockId,
-    block_id_byte: &mut u8,
-    epoch: StacksEpochId,
-) {
-    for setup_epoch in COST_TEST_SETUP_EPOCHS {
-        if epoch < setup_epoch {
-            break;
-        }
-
-        setup_cost_test_epoch(clarity_instance, tip, block_id_byte, setup_epoch);
-    }
-}
-
 fn with_owned_env<F, R>(epoch: StacksEpochId, use_mainnet: bool, to_do: F) -> R
 where
     F: Fn(OwnedEnvironment) -> R,
@@ -297,7 +213,6 @@ where
     setup_cost_test_epochs_through(&mut clarity_instance, &mut tip, &mut block_id_byte, epoch);
 
     let mut marf_kv = clarity_instance.destroy();
-
     let burn_state_db = generate_test_burn_state_db(epoch);
     let final_block = next_test_block_id(&mut block_id_byte);
     let mut store = marf_kv.begin(&tip, &final_block);
@@ -1246,6 +1161,26 @@ fn epoch_33_test_all_mainnet() {
 #[test]
 fn epoch_33_test_all_testnet() {
     epoch_33_test_all(false)
+}
+
+/// Epoch 4.0 uses native Rust costs without a deployed `costs-5` contract.
+#[rstest::rstest]
+#[case::mainnet(true)]
+#[case::testnet(false)]
+fn epoch_40_uses_native_costs(#[case] use_mainnet: bool) {
+    with_owned_env(StacksEpochId::Epoch40, use_mainnet, |owned_env| {
+        let (_db, tracker) = owned_env.destruct().unwrap();
+        let cost_function_references = tracker.cost_function_references();
+
+        assert_eq!(
+            cost_function_references.len(),
+            ClarityCostFunction::ALL.len()
+        );
+        assert!(cost_function_references.values().all(|evaluator| matches!(
+            evaluator,
+            ClarityCostFunctionEvaluator::Default(_, _, DefaultVersion::Costs5)
+        )));
+    });
 }
 
 #[test]

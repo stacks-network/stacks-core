@@ -29,6 +29,7 @@ use crate::vm::analysis::{
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::resource_limiter::ResourceLimiter;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
@@ -83,6 +84,7 @@ pub fn type_check_version(
         epoch,
         version,
         false,
+        ResourceLimiter::unlimited(),
     )
     .map_err(|e| e.0)
 }
@@ -2913,7 +2915,7 @@ fn clarity_trait_experiments_readonly_call_trait(
     // Can we dynamically call a trait in a read-only function?
     let err = db
         .execute(|db| {
-            load_versioned(db, "empty-trait", version, epoch)?;
+            load_versioned(db, "math-trait", version, epoch)?;
             load_versioned(db, "readonly-call-trait", version, epoch)
         })
         .unwrap_err();

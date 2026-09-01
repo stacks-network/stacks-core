@@ -10,6 +10,7 @@
 # need, and remove the rest. At minimum, you must set:
 #   - [node] seed
 #   - [burnchain] username + password (Bitcoin RPC credentials)
+#   - [burnchain] wallet_name
 #   - [connection_options] auth_token (must match signer's auth_password)
 #   - [[events_observer]] endpoint (must match signer's endpoint)
 #
@@ -136,9 +137,12 @@ max_rbf = 150
 # Units: seconds
 # poll_time_secs = 10
 
-# Bitcoin wallet name (if using multi-wallet Bitcoin Core).
-# Default: "" (default wallet)
-# wallet_name = ""
+# REQUIRED: Bitcoin wallet used for mining operations.
+# Allowed characters: ASCII letters, digits, and `. _ - /`
+# This wallet must already exist; the node loads it into the running bitcoind if
+# needed. Also set `wallet=<name>` in bitcoin.conf so it is loaded again after a
+# bitcoind restart.
+wallet_name = "<YOUR_BITCOIN_WALLET_NAME>"
 
 # Wait time before attempting to build a block after a burnchain event.
 # Default: 5_000
@@ -223,7 +227,7 @@ max_rbf = 150
 #   Signer times out new winner first, then accepts the extend -> OK
 #
 # Additionally, the signer requires `tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs`
-# (default 62s) to have passed since the last block before accepting any extend.
+# (default 32s) to have passed since the last block before accepting any extend.
 # Both conditions must be met on the signer side.
 #
 # Default: 120_000
@@ -239,7 +243,7 @@ max_rbf = 150
 # timestamp allows it.
 #
 # WARNING: Should be greater than `tenure_extend_wait_timeout_ms` and
-# greater than signer's `tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs` (default 62s).
+# greater than signer's `tenure_idle_timeout_secs + tenure_idle_timeout_buffer_secs` (default 32s).
 #
 # Default: 180
 # Units: seconds
@@ -366,9 +370,9 @@ max_rbf = 150
 # replay_transactions = false
 
 # StackerDB socket timeout for miner operations.
-# Default: 120
+# Default: 10
 # Units: seconds
-# stackerdb_timeout_secs = 120
+# stackerdb_timeout_secs = 10
 
 # Log transactions that are skipped during mempool walk.
 # Default: false

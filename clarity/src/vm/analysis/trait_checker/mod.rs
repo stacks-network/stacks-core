@@ -15,12 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::analysis::errors::{StaticCheckError, StaticCheckErrorKind};
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
+use crate::vm::analysis::{AnalysisDatabase, check_analysis_resource_limits};
+use crate::vm::resource_limiter::ResourceLimiter;
 
 pub struct TraitChecker {
     epoch: StacksEpochId,
+    resource_limiter: ResourceLimiter,
 }
 
 impl AnalysisPass for TraitChecker {
@@ -28,16 +30,20 @@ impl AnalysisPass for TraitChecker {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
+        resource_limiter: ResourceLimiter,
     ) -> Result<(), StaticCheckError> {
-        let mut command = TraitChecker::new(epoch);
+        let mut command = TraitChecker::new(epoch, resource_limiter);
         command.run(contract_analysis, analysis_db)?;
         Ok(())
     }
 }
 
 impl TraitChecker {
-    fn new(epoch: &StacksEpochId) -> Self {
-        Self { epoch: *epoch }
+    fn new(epoch: &StacksEpochId, resource_limiter: ResourceLimiter) -> Self {
+        Self {
+            epoch: *epoch,
+            resource_limiter,
+        }
     }
 
     pub fn run(
@@ -46,6 +52,9 @@ impl TraitChecker {
         analysis_db: &mut AnalysisDatabase,
     ) -> Result<(), StaticCheckError> {
         for trait_identifier in &contract_analysis.implemented_traits {
+            // per-trait analysis deadline check
+            check_analysis_resource_limits(&self.resource_limiter)?;
+
             let trait_name = trait_identifier.name.to_string();
             let contract_defining_trait = analysis_db
                 .load_contract(&trait_identifier.contract_identifier, &self.epoch)?

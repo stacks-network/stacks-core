@@ -41,7 +41,9 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
-use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
+use stacks::chainstate::stacks::boot::{
+    MINERS_NAME, POX_5_SIGNER_MANAGER_TEST_CONTRACT_SOURCE, SIGNERS_NAME,
+};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{TransactionEvent, TransactionSuccessEvent};
 use stacks::chainstate::stacks::{StacksTransaction, TenureChangeCause, TransactionPayload};
@@ -120,10 +122,13 @@ use crate::{nakamoto_node, BitcoinRegtestController, BurnchainController, Config
 
 pub mod capitulate_parent_tenure_view;
 pub mod epoch_4_0_multi_miner_distribution;
+pub mod epoch_4_0_reorg;
 pub mod epoch_4_0_waterfall;
 pub mod failed_txs;
 pub mod late_block_proposal;
 pub mod missing_burn_block_proposal;
+pub mod problematic_txs;
+pub mod proposal_replication_void;
 pub mod reorg;
 pub mod signers_consider_consensus_blocks;
 pub mod signers_consider_late_proposals;
@@ -603,57 +608,7 @@ fn contract_source_exists(http_origin: &str, addr: &StacksAddress, contract_name
 /// regtest lifecycle tests in `nakamoto_integrations`. `validate-stake!` is a no-op;
 /// `register-self` forwards a signer-key grant + `register-signer` call to pox-5 under `as-contract?`.
 pub(crate) fn pox5_signer_manager_source() -> &'static str {
-    r#"
-(impl-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-(use-trait signer-manager-trait 'ST000000000000000000002AMW42H.pox-5.signer-manager-trait)
-
-(define-public (validate-stake!
-        (staker principal)
-        (first-index uint)
-        (num-indexes uint)
-        (amount-ustx uint)
-        (amount-sats uint)
-        (is-bond bool)
-        (signer-calldata (optional (buff 500)))
-    )
-    (ok true)
-)
-
-(define-public (register-self
-    (signer-manager <signer-manager-trait>)
-    (signer-key (buff 33))
-    (auth-id uint)
-    (signer-sig (buff 65))
-  )
-  (as-contract? ()
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 grant-signer-key
-      signer-key current-contract auth-id signer-sig
-    ))
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-5 register-signer
-      signer-manager signer-key
-    ))
-  )
-)
-
-(define-public (claim-rewards
-    (bond-periods (list 6 uint))
-    (reward-cycle uint)
-  )
-  (contract-call? 'ST000000000000000000002AMW42H.pox-5 claim-rewards
-    bond-periods reward-cycle
-  )
-)
-
-(define-read-only (get-earned-staker-rewards
-    (staker principal)
-    (reward-cycle uint)
-    (bond-index (optional uint))
-  )
-  (contract-call? 'ST000000000000000000002AMW42H.pox-5 get-earned-staker-rewards
-    current-contract reward-cycle bond-index staker
-  )
-)
-"#
+    POX_5_SIGNER_MANAGER_TEST_CONTRACT_SOURCE
 }
 
 /// Source for the sBTC token stub that `boot_to_epoch_4` publishes. Provides
@@ -2527,6 +2482,7 @@ pub fn wait_for_block_rejections_from_signers(
     })?;
     Ok(result)
 }
+
 /// Waits for at least 70% of the provided signers to send an update for a block with the specificed burn block height and parent tenure stacks block height and message version
 pub fn wait_for_state_machine_update(
     timeout_secs: u64,
@@ -2724,10 +2680,7 @@ fn block_proposal_rejection() {
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     block.header.timestamp = get_epoch_time_secs();
     let block_1_consensus_hash = block.header.consensus_hash.clone();
 
@@ -3756,6 +3709,20 @@ fn empty_tenure_delayed() {
             {
                 assert_eq!(reason_code, RejectCode::SortitionViewMismatch);
                 assert!(matches!(response_data.reject_reason, RejectReason::ConsensusHashMismatch { .. }), "Unexpected reject reason: {}", response_data.reject_reason);
+
+                let proposals = signer_test.get_miner_proposal_messages();
+                let rejected_proposal = proposals.last().expect("proposal must exist since we've found a rejection");
+                let expected_message = format!(
+                    "block's consensus hash ({}) does not match the active miner's tenure id",
+                    rejected_proposal.block.header.consensus_hash
+                );
+                assert!(
+                    response_data.reject_reason.to_string().contains(expected_message.as_str()),
+                    "expected reject reason message to contain \"{}\" but got \"{}\"",
+                    expected_message,
+                    response_data.reject_reason.to_string()
+                );
+
                 assert_eq!(metadata.server_version, VERSION_STRING.to_string());
                 found_rejections.push(*slot_id);
             } else {
@@ -4059,8 +4026,6 @@ fn signer_set_rollover() {
         "12345",
         run_stamp,
         3000 + num_signers,
-        Some(100_000),
-        None,
         Some(9000 + num_signers),
         None,
     );
@@ -4099,6 +4064,7 @@ fn signer_set_rollover() {
                     ],
                     timeout_ms: 1000,
                     disable_retries: false,
+                    disable_contract_interface: false,
                 });
             }
             naka_conf.node.rpc_bind = rpc_bind.clone();
@@ -4577,8 +4543,6 @@ fn signer_multinode_rollover() {
         "12345",
         rand::random(),
         3000 + num_signers,
-        Some(100_000),
-        None,
         Some(9000 + num_signers),
         None,
     );
@@ -4619,6 +4583,7 @@ fn signer_multinode_rollover() {
                     ],
                     timeout_ms: 1000,
                     disable_retries: false,
+                    disable_contract_interface: false,
                 });
             }
         },
@@ -5600,10 +5565,7 @@ fn block_validation_response_timeout() {
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     block.header.timestamp = get_epoch_time_secs();
 
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
@@ -5892,10 +5854,7 @@ fn block_validation_pending_table() {
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     block.header.timestamp = get_epoch_time_secs();
 
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
@@ -5972,8 +5931,10 @@ fn block_validation_pending_table() {
 
 #[test]
 #[ignore]
-/// Test the block_proposal_max_age_secs signer configuration option. It should reject blocks that are
-/// invalid but within the max age window, otherwise it should simply drop the block without further processing.
+/// Test the block_proposal_max_age_secs signer configuration option. Blocks that are
+/// invalid but within the max age window are rejected after validation; blocks past the
+/// max age window are rejected immediately (without validation) with ProposalTooOld so
+/// the miner learns to re-mine instead of re-sending the same stale block forever.
 ///
 /// Test Setup:
 /// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
@@ -5983,11 +5944,12 @@ fn block_validation_pending_table() {
 /// An invalid block proposal with a recent timestamp is forcibly written to the miner's slot to simulate the miner proposing a block.
 /// The signers process the invalid block and broadcast a block response rejection to the respective .signers-XXX-YYY contract.
 /// A second block proposal with an outdated timestamp is then submitted to the miner's slot to simulate the miner proposing a very old block.
-/// The test confirms no further block rejection response is submitted to the .signers-XXX-YYY contract.
+/// The test confirms the stale proposal is also rejected (with ProposalTooOld), and never accepted.
 ///
 /// Test Assertion:
 /// - Each signer successfully rejects the recent invalid block proposal.
-/// - No signer submits a block proposal response for the outdated block proposal.
+/// - Each signer rejects the outdated block proposal with the ProposalTooOld reason.
+/// - No signer accepts either block.
 /// - The stacks tip does not advance
 fn block_proposal_max_age_rejections() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -6016,10 +5978,7 @@ fn block_proposal_max_age_rejections() {
 
     info!("------------------------- Send Block Proposal To Signers -------------------------");
     let _ = get_chain_info(&signer_test.running_nodes.conf);
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     // First propose a stale block that is older than the block_proposal_max_age_secs
     block.header.timestamp = get_epoch_time_secs().saturating_sub(
         signer_test.signer_configs[0]
@@ -6043,15 +6002,24 @@ fn block_proposal_max_age_rejections() {
     signer_test.propose_block(block, short_timeout);
 
     info!("------------------------- Test Block Proposal Rejected -------------------------");
-    // Verify the signers rejected only the SECOND block proposal. The first was not even processed.
+    // Verify the signers reject both proposals: the first (stale) with reason
+    // `ProposalTooOld` and without validation, the second after validation.
     wait_for(120, || {
         let mut status_map = HashMap::new();
         for (_chunk, message) in get_stackerdb_signer_messages() {
             match message {
                 SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                     signer_signature_hash,
+                    response_data,
                     ..
                 })) => {
+                    if signer_signature_hash == block_signer_signature_hash_1 {
+                        assert_eq!(
+                            response_data.reject_reason,
+                            RejectReason::ProposalTooOld,
+                            "Stale proposal must be rejected as ProposalTooOld"
+                        );
+                    }
                     let entry = status_map.entry(signer_signature_hash).or_insert((0, 0));
                     entry.0 += 1;
                 }
@@ -6069,7 +6037,10 @@ fn block_proposal_max_age_rejections() {
             .get(&block_signer_signature_hash_1)
             .cloned()
             .unwrap_or((0, 0));
-        assert_eq!(block_1_status, (0, 0));
+        assert_eq!(
+            block_1_status.1, 0,
+            "Block 1 (stale) must never be accepted"
+        );
 
         let block_2_status = status_map
             .get(&block_signer_signature_hash_2)
@@ -6080,7 +6051,7 @@ fn block_proposal_max_age_rejections() {
         info!("Block 2 status";
             "accepted" => %block_2_status.1, "rejected" => %block_2_status.0
         );
-        Ok(block_2_status.0 > num_signers * 7 / 10)
+        Ok(block_2_status.0 > num_signers * 7 / 10 && block_1_status.0 > num_signers * 7 / 10)
     })
     .expect("Timed out waiting for block rejections");
 
@@ -6220,10 +6191,7 @@ fn incoming_signers_ignore_block_proposals() {
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     block.header.timestamp = get_epoch_time_secs();
     block
         .header
@@ -6399,10 +6367,7 @@ fn outgoing_signers_ignore_block_proposals() {
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
-    let mut block = NakamotoBlock {
-        header: NakamotoBlockHeader::empty(),
-        txs: vec![],
-    };
+    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
     block.header.timestamp = get_epoch_time_secs();
 
     let short_timeout = Duration::from_secs(30);
@@ -6507,8 +6472,6 @@ fn injected_signatures_are_ignored_across_boundaries() {
         "12345",
         run_stamp,
         3000 + num_signers,
-        Some(100_000),
-        None,
         Some(9000 + num_signers),
         None,
     )
@@ -6540,6 +6503,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
                 ],
                 timeout_ms: 1000,
                 disable_retries: false,
+                disable_contract_interface: false,
             });
             naka_conf.node.rpc_bind = rpc_bind.clone();
         },
@@ -9109,7 +9073,7 @@ fn signers_treat_signatures_as_precommits() {
             debug!("Produced a signature: {:?}", chunk.sig);
             let result = session.put_chunk(&chunk).expect("Failed to put chunk");
             accepted = result.accepted;
-            if !accepted && result.code.unwrap() == StackerDBErrorCodes::BadSigner as u32 {
+            if !accepted && result.code.unwrap() == StackerDBErrorCodes::BadSigner.code() {
                 slot_id += 1;
                 assert!(
                     slot_id < num_signers as u32,
