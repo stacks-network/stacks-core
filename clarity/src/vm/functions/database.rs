@@ -16,6 +16,7 @@
 
 use clarity_types::ClarityName;
 use clarity_types::types::CallableData;
+use stacks_common::bounded_format;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
@@ -75,9 +76,7 @@ pub fn special_contract_call(
 
     let function_name = args[1]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
     let rest_args_slice = &args[2..];
     let rest_args_len = rest_args_slice.len();
     let mut rest_args = Vec::with_capacity(rest_args_len);
@@ -187,7 +186,7 @@ pub fn special_contract_call(
                         // Check read/write compatibility
                         if exec_state.global_context.is_read_only() {
                             return Err(RuntimeCheckErrorKind::Unreachable(
-                                "Trait based contract call in read-only".to_string(),
+                                "Trait based contract call in read-only".into(),
                             )
                             .into());
                         }
@@ -211,11 +210,11 @@ pub fn special_contract_call(
                         // Retrieve the expected method signature
                         let constraining_trait = contract_defining_trait
                             .lookup_trait_definition(&trait_name)
-                            .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+                            .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
                                 "Trait reference unknown: {trait_name}"
                             )))?;
                         let expected_sig = constraining_trait.get(function_name).ok_or(
-                            RuntimeCheckErrorKind::Unreachable(format!(
+                            RuntimeCheckErrorKind::Unreachable(bounded_format!(
                                 "Trait method unknown: {trait_name}.{function_name}"
                             )),
                         )?;
@@ -293,9 +292,7 @@ pub fn special_fetch_variable_v200(
 
     let var_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let contract = &invoke_ctx.contract_context.contract_identifier;
 
@@ -303,7 +300,7 @@ pub fn special_fetch_variable_v200(
         .contract_context
         .meta_data_var
         .get(var_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such data variable: {var_name}"
         )))?;
 
@@ -332,9 +329,7 @@ pub fn special_fetch_variable_v205(
 
     let var_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let contract = &invoke_ctx.contract_context.contract_identifier;
 
@@ -342,7 +337,7 @@ pub fn special_fetch_variable_v205(
         .contract_context
         .meta_data_var
         .get(var_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such data variable: {var_name}"
         )))?;
 
@@ -370,7 +365,7 @@ pub fn special_set_variable_v200(
 ) -> Result<Value, VmExecutionError> {
     if exec_state.global_context.is_read_only() {
         return Err(
-            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".to_string()).into(),
+            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".into()).into(),
         );
     }
 
@@ -380,9 +375,7 @@ pub fn special_set_variable_v200(
 
     let var_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let contract = &invoke_ctx.contract_context.contract_identifier;
 
@@ -390,7 +383,7 @@ pub fn special_set_variable_v200(
         .contract_context
         .meta_data_var
         .get(var_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such data variable: {var_name}"
         )))?;
 
@@ -421,7 +414,7 @@ pub fn special_set_variable_v205(
 ) -> Result<Value, VmExecutionError> {
     if exec_state.global_context.is_read_only() {
         return Err(
-            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".to_string()).into(),
+            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".into()).into(),
         );
     }
 
@@ -431,9 +424,7 @@ pub fn special_set_variable_v205(
 
     let var_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let contract = &invoke_ctx.contract_context.contract_identifier;
 
@@ -441,7 +432,7 @@ pub fn special_set_variable_v205(
         .contract_context
         .meta_data_var
         .get(var_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such data variable: {var_name}"
         )))?;
 
@@ -474,9 +465,7 @@ pub fn special_fetch_entry_v200(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let key = eval(&args[1], exec_state, invoke_ctx, context)?;
 
@@ -486,7 +475,7 @@ pub fn special_fetch_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such map: {map_name}"
         )))?;
 
@@ -518,9 +507,7 @@ pub fn special_fetch_entry_v205(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let key = eval(&args[1], exec_state, invoke_ctx, context)?;
 
@@ -530,7 +517,7 @@ pub fn special_fetch_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such map: {map_name}"
         )))?;
 
@@ -600,7 +587,7 @@ pub fn special_set_entry_v200(
 ) -> Result<Value, VmExecutionError> {
     if exec_state.global_context.is_read_only() {
         return Err(
-            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".to_string()).into(),
+            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".into()).into(),
         );
     }
 
@@ -612,9 +599,7 @@ pub fn special_set_entry_v200(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let contract = &invoke_ctx.contract_context.contract_identifier;
 
@@ -622,7 +607,7 @@ pub fn special_set_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such map: {map_name}"
         )))?;
 
@@ -655,7 +640,7 @@ pub fn special_set_entry_v205(
 ) -> Result<Value, VmExecutionError> {
     if exec_state.global_context.is_read_only() {
         return Err(
-            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".to_string()).into(),
+            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".into()).into(),
         );
     }
 
@@ -667,9 +652,7 @@ pub fn special_set_entry_v205(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let contract = &invoke_ctx.contract_context.contract_identifier;
 
@@ -677,7 +660,7 @@ pub fn special_set_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such map: {map_name}"
         )))?;
 
@@ -709,7 +692,7 @@ pub fn special_insert_entry_v200(
 ) -> Result<Value, VmExecutionError> {
     if exec_state.global_context.is_read_only() {
         return Err(
-            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".to_string()).into(),
+            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".into()).into(),
         );
     }
 
@@ -721,9 +704,7 @@ pub fn special_insert_entry_v200(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let contract = &invoke_ctx.contract_context.contract_identifier;
 
@@ -731,7 +712,7 @@ pub fn special_insert_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such map: {map_name}"
         )))?;
 
@@ -765,7 +746,7 @@ pub fn special_insert_entry_v205(
 ) -> Result<Value, VmExecutionError> {
     if exec_state.global_context.is_read_only() {
         return Err(
-            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".to_string()).into(),
+            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".into()).into(),
         );
     }
 
@@ -777,9 +758,7 @@ pub fn special_insert_entry_v205(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let contract = &invoke_ctx.contract_context.contract_identifier;
 
@@ -787,7 +766,7 @@ pub fn special_insert_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such map: {map_name}"
         )))?;
 
@@ -819,7 +798,7 @@ pub fn special_delete_entry_v200(
 ) -> Result<Value, VmExecutionError> {
     if exec_state.global_context.is_read_only() {
         return Err(
-            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".to_string()).into(),
+            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".into()).into(),
         );
     }
 
@@ -829,9 +808,7 @@ pub fn special_delete_entry_v200(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let contract = &invoke_ctx.contract_context.contract_identifier;
 
@@ -839,7 +816,7 @@ pub fn special_delete_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such map: {map_name}"
         )))?;
 
@@ -869,7 +846,7 @@ pub fn special_delete_entry_v205(
 ) -> Result<Value, VmExecutionError> {
     if exec_state.global_context.is_read_only() {
         return Err(
-            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".to_string()).into(),
+            RuntimeCheckErrorKind::Unreachable("Write attempted in read-only".into()).into(),
         );
     }
 
@@ -879,9 +856,7 @@ pub fn special_delete_entry_v205(
 
     let map_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let contract = &invoke_ctx.contract_context.contract_identifier;
 
@@ -889,7 +864,7 @@ pub fn special_delete_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(RuntimeCheckErrorKind::Unreachable(format!(
+        .ok_or(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such map: {map_name}"
         )))?;
 
@@ -949,14 +924,14 @@ pub fn special_get_block_info(
     let property_name = args[0]
         .match_atom()
         .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Get block info expect property name".to_string(),
+            "Get block info expect property name".into(),
         ))?;
 
     let version = invoke_ctx.contract_context.get_clarity_version();
 
     let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(property_name, version)
         .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Get block info expect property name".to_string(),
+            "Get block info expect property name".into(),
         ))?;
 
     // Handle the block-height input arg clause.
@@ -1114,11 +1089,11 @@ pub fn special_get_burn_block_info(
     let property_name = args[0]
         .match_atom()
         .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Get block info expect property name".to_string(),
+            "Get block info expect property name".into(),
         ))?;
 
     let block_info_prop = BurnBlockInfoProperty::lookup_by_name(property_name).ok_or(
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such burn block info property: {property_name}"
         )),
     )?;
@@ -1223,11 +1198,11 @@ pub fn special_get_stacks_block_info(
     let property_name = args[0]
         .match_atom()
         .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Get stacks block info expect property name".to_string(),
+            "Get stacks block info expect property name".into(),
         ))?;
 
     let block_info_prop = StacksBlockInfoProperty::lookup_by_name(property_name).ok_or(
-        RuntimeCheckErrorKind::Unreachable(format!(
+        RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "No such stacks block info property: {property_name}"
         )),
     )?;
@@ -1318,11 +1293,11 @@ pub fn special_get_tenure_info(
     let property_name = args[0]
         .match_atom()
         .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Get tenure info expect property name".to_string(),
+            "Get tenure info expect property name".into(),
         ))?;
 
     let block_info_prop = TenureInfoProperty::lookup_by_name(property_name).ok_or(
-        RuntimeCheckErrorKind::Unreachable("Get tenure info expect property name".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Get tenure info expect property name".into()),
     )?;
 
     // Handle the block-height input arg.

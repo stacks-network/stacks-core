@@ -1350,7 +1350,7 @@ impl Signer {
                 "signer_signature_hash" => %block_hash,
                 "block_height" => block_info.block.header.chain_length,
                 "reject_code" => %block_rejection.reason_code,
-                "reject_reason" => &block_rejection.reason,
+                "reject_reason" => %block_rejection.reason,
             );
             if let Err(e) = block_info.mark_locally_rejected() {
                 if !block_info.has_reached_consensus() {

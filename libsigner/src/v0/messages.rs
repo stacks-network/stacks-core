@@ -43,7 +43,7 @@ use clarity::types::chainstate::{
 use clarity::types::PrivateKey;
 use clarity::util::hash::Sha256Sum;
 use clarity::util::secp256k1::MessageSignature;
-use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
+use clarity::vm::types::{BoundedErrorString, QualifiedContractIdentifier, TupleData};
 use clarity::vm::{ClarityName, Value};
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
@@ -1714,7 +1714,7 @@ impl BlockAccepted {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockRejection {
     /// The reason for the rejection
-    pub reason: String,
+    pub reason: BoundedErrorString,
     /// The reason code for the rejection
     pub reason_code: RejectCode,
     /// The signer signature hash of the block that was rejected
@@ -1745,7 +1745,7 @@ impl BlockRejection {
             CHAIN_ID_TESTNET
         };
         let mut rejection = Self {
-            reason: reject_reason.to_string(),
+            reason: BoundedErrorString::from_display(&reject_reason),
             reason_code: (&reject_reason).into(),
             signer_signature_hash,
             signature: MessageSignature::empty(),
@@ -1854,6 +1854,7 @@ impl StacksMessageCodec for BlockRejection {
         let reason = String::from_utf8(reason_bytes).map_err(|e| {
             CodecError::DeserializeError(format!("Failed to decode reason string: {:?}", e))
         })?;
+        let reason = BoundedErrorString::from_display(&reason);
         let reason_code = read_next::<RejectCode, _>(fd)?;
         let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
         let chain_id = read_next::<u32, _>(fd)?;
@@ -2145,6 +2146,7 @@ mod test {
     use rand::{thread_rng, Rng, RngCore};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::StacksPrivateKey;
+    use stacks_common::util::bounded_string::MAX_ERROR_MESSAGE_LEN;
 
     use super::*;
     use crate::events::BlockProposalData;
@@ -2200,6 +2202,100 @@ mod test {
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
             .expect("Failed to deserialize BlockRejection");
         assert_eq!(rejection, deserialized_rejection);
+    }
+
+    /// An unpatched sender can put a reason of any length on the wire.
+    /// Decoding must clamp it rather than reject the message: a dropped
+    /// rejection would vanish from threshold accounting.
+    #[test]
+    fn deserialize_clamps_oversized_wire_reason() {
+        let rejection = BlockRejection::new(
+            Sha512Trunc256Sum([2u8; 32]),
+            RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
+            &StacksPrivateKey::random(),
+            false,
+            thread_rng().next_u64(),
+            thread_rng().next_u64(),
+        );
+        let expected_pubkey = rejection
+            .recover_public_key()
+            .expect("Failed to recover public key");
+
+        // Re-encode the same message the way an unpatched sender would,
+        // substituting an over-long reason.
+        let huge_reason = "x".repeat(MAX_ERROR_MESSAGE_LEN * 4);
+        let mut bytes = vec![];
+        write_next(&mut bytes, &huge_reason.as_bytes().to_vec()).unwrap();
+        write_next(&mut bytes, &rejection.reason_code).unwrap();
+        write_next(&mut bytes, &rejection.signer_signature_hash).unwrap();
+        write_next(&mut bytes, &rejection.chain_id).unwrap();
+        write_next(&mut bytes, &rejection.signature).unwrap();
+        write_next(&mut bytes, &rejection.metadata).unwrap();
+        write_next(&mut bytes, &rejection.response_data).unwrap();
+
+        let decoded = read_next::<BlockRejection, _>(&mut &bytes[..])
+            .expect("an oversized reason must clamp, not fail the decode");
+        assert!(decoded.reason.len() <= MAX_ERROR_MESSAGE_LEN);
+        assert!(decoded.reason.ends_with("..."));
+        assert!(huge_reason.starts_with(&decoded.reason[..decoded.reason.len() - 3]));
+        // Everything else survives untouched, including the signature: the
+        // signed digest does not cover the reason.
+        assert_eq!(decoded.reason_code, rejection.reason_code);
+        assert_eq!(
+            decoded.signer_signature_hash,
+            rejection.signer_signature_hash
+        );
+        assert_eq!(
+            decoded
+                .recover_public_key()
+                .expect("Failed to recover public key"),
+            expected_pubkey
+        );
+    }
+
+    /// A locally-produced rejection must never carry an unbounded reason,
+    /// however large the connectivity error it wraps.
+    #[test]
+    fn construction_clamps_huge_connectivity_reason() {
+        let huge = "e".repeat(MAX_ERROR_MESSAGE_LEN * 4);
+        let rejection = BlockRejection::new(
+            Sha512Trunc256Sum([3u8; 32]),
+            RejectReason::ConnectivityIssues(huge),
+            &StacksPrivateKey::random(),
+            false,
+            thread_rng().next_u64(),
+            thread_rng().next_u64(),
+        );
+        assert!(rejection.reason.len() <= MAX_ERROR_MESSAGE_LEN);
+        assert!(rejection.reason.ends_with("..."));
+    }
+
+    /// Reasons a patched sender can emit are at or under the bound; those
+    /// must round-trip byte-identically, including exactly at the boundary
+    /// and when a multi-byte character straddles the clamp point.
+    #[test]
+    fn boundary_reasons_round_trip_identically() {
+        let cases: [String; 4] = [
+            "a".repeat(MAX_ERROR_MESSAGE_LEN - 1),
+            "a".repeat(MAX_ERROR_MESSAGE_LEN),
+            "a".repeat(MAX_ERROR_MESSAGE_LEN + 1), // clamped at construction
+            "€".repeat(MAX_ERROR_MESSAGE_LEN / 3 + 1), // multi-byte at the clamp point
+        ];
+        for raw in cases {
+            let mut rejection = BlockRejection::new(
+                Sha512Trunc256Sum([4u8; 32]),
+                RejectReason::ValidationFailed(ValidateRejectCode::InvalidBlock),
+                &StacksPrivateKey::random(),
+                false,
+                thread_rng().next_u64(),
+                thread_rng().next_u64(),
+            );
+            rejection.reason = BoundedErrorString::from_display(&raw);
+            let serialized = rejection.serialize_to_vec();
+            let decoded = read_next::<BlockRejection, _>(&mut &serialized[..])
+                .expect("Failed to deserialize BlockRejection");
+            assert_eq!(rejection, decoded, "input length {}", raw.len());
+        }
     }
 
     #[test]
@@ -2405,7 +2501,7 @@ mod test {
             block_rejected,
             SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason_code: RejectCode::ValidationFailed(ValidateRejectCode::NoSuchTenure),
-                reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".to_string(),
+                reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".into(),
                 signer_signature_hash: Sha512Trunc256Sum::from_hex("91f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e").unwrap(),
                 chain_id: CHAIN_ID_TESTNET,
                 signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
@@ -2443,7 +2539,7 @@ mod test {
             block_rejected,
             SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                 reason_code: RejectCode::ValidationFailed(ValidateRejectCode::NoSuchTenure),
-                reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".to_string(),
+                reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".into(),
                 signer_signature_hash: Sha512Trunc256Sum::from_hex("91f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e").unwrap(),
                 chain_id: CHAIN_ID_TESTNET,
                 signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),
@@ -2977,7 +3073,7 @@ mod test {
             (
                 SignerMessage::BlockResponse(BlockResponse::Rejected(BlockRejection {
                     reason_code: RejectCode::ValidationFailed(ValidateRejectCode::NoSuchTenure),
-                    reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".to_string(),
+                    reason: "Block is not a tenure-start block, and has an unrecognized tenure consensus hash".into(),
                     signer_signature_hash: Sha512Trunc256Sum::from_hex("91f95f84b7045f7dce7757052caa986ef042cb58f7df5031a3b5b5d0e3dda63e").unwrap(),
                     chain_id: CHAIN_ID_TESTNET,
                     signature: MessageSignature::from_hex("006fb349212e1a1af1a3c712878d5159b5ec14636adb6f70be00a6da4ad4f88a9934d8a9abb229620dd8e0f225d63401e36c64817fb29e6c05591dcbe95c512df3").unwrap(),

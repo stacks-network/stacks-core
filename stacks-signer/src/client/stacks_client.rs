@@ -691,7 +691,8 @@ impl StacksClient {
                 "{function_name}: {}",
                 call_read_only_response
                     .cause
-                    .unwrap_or_else(|| "unknown".to_string())
+                    .as_deref()
+                    .unwrap_or("unknown")
             )));
         }
         let hex = call_read_only_response.result.unwrap_or_default();

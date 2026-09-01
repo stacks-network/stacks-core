@@ -28,6 +28,7 @@ use clarity::vm::types::{ResponseData, TupleData};
 use clarity::vm::Value;
 use regex::{Captures, Regex};
 use serde::Deserialize;
+use stacks_common::bounded_format;
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
@@ -43,6 +44,7 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::PoxVersions;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::events::BoundedErrorString;
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic,
     TransactionResourceBudgets, TransactionResult, TransactionSkipped,
@@ -126,7 +128,7 @@ fn hex_deser_block<'de, D: serde::Deserializer<'de>>(d: D) -> Result<NakamotoBlo
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockValidateReject {
     pub signer_signature_hash: Sha512Trunc256Sum,
-    pub reason: String,
+    pub reason: BoundedErrorString,
     pub reason_code: ValidateRejectCode,
     /// The txid of the transaction that caused the block to be rejected, if any
     #[serde(default)]
@@ -135,7 +137,7 @@ pub struct BlockValidateReject {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockValidateRejectReason {
-    pub reason: String,
+    pub reason: BoundedErrorString,
     pub reason_code: ValidateRejectCode,
     /// The txid of the transaction that caused the block to be rejected, if any
     pub failed_txid: Option<Txid>,
@@ -164,7 +166,7 @@ where
             _ => ValidateRejectCode::ChainstateError,
         };
         Self {
-            reason: format!("Chainstate Error: {ce}"),
+            reason: bounded_format!("Chainstate Error: {ce}"),
             reason_code,
             failed_txid: None,
         }
@@ -397,7 +399,7 @@ impl NakamotoBlockProposal {
         )
         .map_err(|e| BlockValidateRejectReason {
             reason_code: ValidateRejectCode::ChainstateError,
-            reason: format!("Failed to query highest block in tenure ID: {:?}", &e),
+            reason: bounded_format!("Failed to query highest block in tenure ID: {e:?}"),
             failed_txid: None,
         })?
         else {
@@ -416,7 +418,7 @@ impl NakamotoBlockProposal {
             NakamotoChainState::get_block_header(chainstate.db(), parent_block_id).map_err(
                 |e| BlockValidateRejectReason {
                     reason_code: ValidateRejectCode::ChainstateError,
-                    reason: format!("Failed to query block header by block ID: {:?}", &e),
+                    reason: bounded_format!("Failed to query block header by block ID: {e:?}"),
                     failed_txid: None,
                 },
             )?
@@ -590,7 +592,7 @@ impl NakamotoBlockProposal {
             SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &burn_view_consensus_hash)?
                 .ok_or_else(|| BlockValidateRejectReason {
                     reason_code: ValidateRejectCode::NoSuchTenure,
-                    reason: "Failed to find sortition for block tenure".to_string(),
+                    reason: "Failed to find sortition for block tenure".into(),
                     failed_txid: None,
                 })?;
 
@@ -764,7 +766,9 @@ impl NakamotoBlockProposal {
                     "next_tx_index" => i,
                 );
                 return Err(BlockValidateRejectReason {
-                    reason: format!("Block validation timed out before tx {i} could be processed"),
+                    reason: bounded_format!(
+                        "Block validation timed out before tx {i} could be processed"
+                    ),
                     reason_code: ValidateRejectCode::InvalidBlock,
                     failed_txid: None,
                 });
@@ -790,7 +794,7 @@ impl NakamotoBlockProposal {
                         .all(|event| is_event_pox_addr_valid(mainnet, event));
                     if !all_events_valid {
                         Some((
-                            format!("Problematic tx {i}: contains invalid pox address"),
+                            bounded_format!("Problematic tx {i}: contains invalid pox address"),
                             ValidateRejectCode::ProblematicTransaction,
                         ))
                     } else {
@@ -798,15 +802,15 @@ impl NakamotoBlockProposal {
                     }
                 }
                 TransactionResult::Skipped(s) => Some((
-                    format!("tx {i} skipped: {}", s.error),
+                    bounded_format!("tx {i} skipped: {}", s.error),
                     ValidateRejectCode::BadTransaction,
                 )),
                 TransactionResult::ProcessingError(e) => Some((
-                    format!("Error processing tx {i}: {}", e.error),
+                    bounded_format!("Error processing tx {i}: {}", e.error),
                     ValidateRejectCode::BadTransaction,
                 )),
                 TransactionResult::Problematic(p) => Some((
-                    format!("Problematic tx {i}: {}", p.error),
+                    bounded_format!("Problematic tx {i}: {}", p.error),
                     ValidateRejectCode::ProblematicTransaction,
                 )),
             };

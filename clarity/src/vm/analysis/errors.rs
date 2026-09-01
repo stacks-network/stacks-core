@@ -18,7 +18,10 @@ use std::{error, fmt};
 
 use clarity_types::errors::ClarityTypeError;
 use clarity_types::representations::SymbolicExpression;
-use clarity_types::types::{TraitIdentifier, TupleTypeSignature, TypeSignature};
+use clarity_types::types::{
+    BoundedErrorString, BoundedValueString, TraitIdentifier, TupleTypeSignature, TypeSignature,
+};
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::{CostErrors, ExecutionCost};
@@ -39,11 +42,11 @@ impl fmt::Display for SyntaxBindingErrorType {
 }
 
 impl DiagnosableError for SyntaxBindingErrorType {
-    fn message(&self) -> String {
+    fn write_message(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            Self::Let => "Let-binding".to_string(),
-            Self::Eval => "Function argument definition".to_string(),
-            Self::TupleCons => "Tuple constructor".to_string(),
+            Self::Let => f.write_str("Let-binding"),
+            Self::Eval => f.write_str("Function argument definition"),
+            Self::TupleCons => f.write_str("Tuple constructor"),
         }
     }
 
@@ -70,19 +73,19 @@ impl fmt::Display for SyntaxBindingError {
 }
 
 impl DiagnosableError for SyntaxBindingError {
-    fn message(&self) -> String {
+    fn write_message(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             Self::NotList(err_type, item_index) => {
                 let item_no = item_index + 1;
-                format!("{err_type} item #{item_no} is not a list",)
+                write!(f, "{err_type} item #{item_no} is not a list")
             }
             Self::InvalidLength(err_type, item_index) => {
                 let item_no = item_index + 1;
-                format!("{err_type} item #{item_no} is not a two-element list",)
+                write!(f, "{err_type} item #{item_no} is not a two-element list")
             }
             Self::NotAtom(err_type, item_index) => {
                 let item_no = item_index + 1;
-                format!("{err_type} item #{item_no}'s name is not an atom",)
+                write!(f, "{err_type} item #{item_no}'s name is not an atom")
             }
         }
     }
@@ -253,7 +256,7 @@ pub enum StaticCheckErrorKind {
     SupertypeTooLarge,
 
     /// Unexpected condition or failure in the type-checker, indicating a bug or invalid state.
-    Unreachable(String),
+    Unreachable(BoundedErrorString),
 
     // Match expression errors
     /// Invalid syntax in an `option` match expression.
@@ -339,7 +342,7 @@ pub enum StaticCheckErrorKind {
     EmptyTuplesNotAllowed,
     /// Invalid tuple construction due to malformed syntax or type mismatch.
     /// The `String` wraps the specific error description.
-    BadTupleConstruction(String),
+    BadTupleConstruction(BoundedErrorString),
 
     // Variables
     /// Referenced data variable does not exist in scope.
@@ -564,7 +567,7 @@ pub enum RuntimeCheckErrorKind {
     TypeSignatureTooDeep,
 
     /// Unexpected condition or failure in the type-checker, indicating a catastrophic bug or invalid state.
-    Unreachable(String),
+    Unreachable(BoundedErrorString),
 
     /// Block rejection: a `pox-4` call would overwrite
     /// an existing asset-map stacking entry for its sender.
@@ -579,19 +582,21 @@ pub enum RuntimeCheckErrorKind {
     /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
     TypeError(Box<TypeSignature>, Box<TypeSignature>),
     /// Value does not match the expected type during type-checking.
-    /// The `Box<TypeSignature>` wraps the expected type, and the `String` is a
-    /// truncated display representation of the invalid value.
-    TypeValueError(Box<TypeSignature>, String),
+    /// The `Box<TypeSignature>` wraps the expected type, and the
+    /// `BoundedValueString` is a truncated display representation of the
+    /// invalid value.
+    TypeValueError(Box<TypeSignature>, BoundedValueString),
 
     // Union type mismatch
     /// Value does not belong to the expected union of types during type-checking.
-    /// The `Vec<TypeSignature>` represents the expected types, and the `String` is a
-    /// truncated display representation of the invalid value.
-    UnionTypeValueError(Vec<TypeSignature>, String),
+    /// The `Vec<TypeSignature>` represents the expected types, and the
+    /// `BoundedValueString` is a truncated display representation of the
+    /// invalid value.
+    UnionTypeValueError(Vec<TypeSignature>, BoundedValueString),
 
     /// Expected a contract principal value but found a different value.
     /// The `String` is a truncated display representation of the actual value provided.
-    ExpectedContractPrincipalValue(String),
+    ExpectedContractPrincipalValue(BoundedValueString),
 
     // Match type errors
     /// Could not determine the type of an expression during analysis.
@@ -766,7 +771,7 @@ impl From<ClarityTypeError> for StaticCheckErrorKind {
             | ClarityTypeError::InvalidAsciiCharacter(_)
             | ClarityTypeError::InvalidUtf8Encoding
             | ClarityTypeError::InvariantViolation(_)
-            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::Unreachable(format!(
+            | ClarityTypeError::InvalidPrincipalVersion(_) => Self::Unreachable(bounded_format!(
                 "Unexpected error type during static analysis: {err}"
             )),
             ClarityTypeError::CouldNotDetermineSerializationType => {
@@ -774,10 +779,10 @@ impl From<ClarityTypeError> for StaticCheckErrorKind {
             }
             ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
             ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
-                Self::Unreachable(format!("{ty} should not be used in {epoch}"))
+                Self::Unreachable(bounded_format!("{ty} should not be used in {epoch}"))
             }
             ClarityTypeError::UnsupportedEpoch(epoch) => {
-                Self::Unreachable(format!("{epoch} is not supported"))
+                Self::Unreachable(bounded_format!("{epoch} is not supported"))
             }
         }
     }
@@ -840,20 +845,20 @@ impl From<ClarityTypeError> for RuntimeCheckErrorKind {
             | ClarityTypeError::InvalidTypeDescription
             | ClarityTypeError::NoSuchTupleField(_, _)
             | ClarityTypeError::EmptyTuplesNotAllowed
-            | ClarityTypeError::ResponseTypeMismatch { .. } => Self::Unreachable(format!(
+            | ClarityTypeError::ResponseTypeMismatch { .. } => Self::Unreachable(bounded_format!(
                 "Unexpected error type during runtime analysis: {err}"
             )),
             ClarityTypeError::InvariantViolation(_)
             | ClarityTypeError::InvalidPrincipalVersion(_)
-            | ClarityTypeError::SupertypeTooLarge => Self::Unreachable(format!(
+            | ClarityTypeError::SupertypeTooLarge => Self::Unreachable(bounded_format!(
                 "Unexpected error type during runtime analysis: {err}"
             )),
             ClarityTypeError::CouldNotDetermineType => Self::CouldNotDetermineType,
             ClarityTypeError::UnsupportedTypeInEpoch(ty, epoch) => {
-                Self::Unreachable(format!("{ty} should not be used in {epoch}"))
+                Self::Unreachable(bounded_format!("{ty} should not be used in {epoch}"))
             }
             ClarityTypeError::UnsupportedEpoch(epoch) => {
-                Self::Unreachable(format!("{epoch} is not supported"))
+                Self::Unreachable(bounded_format!("{epoch} is not supported"))
             }
         }
     }
@@ -918,7 +923,9 @@ impl From<CostErrors> for StaticCheckErrorKind {
             CostErrors::InterpreterFailure => StaticCheckErrorKind::Unreachable(
                 "Unexpected interpreter failure in cost computation".into(),
             ),
-            CostErrors::Expect(s) => StaticCheckErrorKind::Unreachable(s),
+            CostErrors::Expect(s) => {
+                StaticCheckErrorKind::Unreachable(BoundedErrorString::from_display(&s))
+            }
         }
     }
 }
@@ -940,7 +947,9 @@ impl From<CostErrors> for RuntimeCheckErrorKind {
             CostErrors::InterpreterFailure => RuntimeCheckErrorKind::Unreachable(
                 "Unexpected interpreter failure in cost computation".into(),
             ),
-            CostErrors::Expect(s) => RuntimeCheckErrorKind::Unreachable(s),
+            CostErrors::Expect(s) => {
+                RuntimeCheckErrorKind::Unreachable(BoundedErrorString::from_display(&s))
+            }
         }
     }
 }
@@ -990,45 +999,47 @@ impl From<CommonCheckErrorKind> for RuntimeCheckErrorKind {
                 RuntimeCheckErrorKind::IncorrectArgumentCount(expected, args)
             }
             CommonCheckErrorKind::RequiresAtLeastArguments(expected, args) => {
-                RuntimeCheckErrorKind::Unreachable(format!(
+                RuntimeCheckErrorKind::Unreachable(bounded_format!(
                     "Requires at least args: {expected} got {args}"
                 ))
             }
             CommonCheckErrorKind::RequiresAtMostArguments(expected, args) => {
-                RuntimeCheckErrorKind::Unreachable(format!(
+                RuntimeCheckErrorKind::Unreachable(bounded_format!(
                     "Requires at most args: {expected} got {args}"
                 ))
             }
             CommonCheckErrorKind::TooManyFunctionParameters(found, allowed) => {
-                RuntimeCheckErrorKind::Unreachable(format!(
+                RuntimeCheckErrorKind::Unreachable(bounded_format!(
                     "Too many function params: found {found}, allowed {allowed}"
                 ))
             }
             CommonCheckErrorKind::ExpectedName => {
-                RuntimeCheckErrorKind::Unreachable("Expected name".to_string())
+                RuntimeCheckErrorKind::Unreachable("Expected name".into())
             }
             CommonCheckErrorKind::DefineFunctionBadSignature => {
-                RuntimeCheckErrorKind::Unreachable("Define function bad signature".to_string())
+                RuntimeCheckErrorKind::Unreachable("Define function bad signature".into())
             }
             CommonCheckErrorKind::ExpectedTraitIdentifier => {
-                RuntimeCheckErrorKind::Unreachable("Expected trait identifier".to_string())
+                RuntimeCheckErrorKind::Unreachable("Expected trait identifier".into())
             }
             CommonCheckErrorKind::DefineTraitDuplicateMethod(s) => {
-                RuntimeCheckErrorKind::Unreachable(format!("Define trait duplicate method: {s}"))
+                RuntimeCheckErrorKind::Unreachable(bounded_format!(
+                    "Define trait duplicate method: {s}"
+                ))
             }
             CommonCheckErrorKind::TraitTooManyMethods(found, allowed) => {
-                RuntimeCheckErrorKind::Unreachable(format!(
+                RuntimeCheckErrorKind::Unreachable(bounded_format!(
                     "Trait too many methods: found {found}, allowed {allowed}"
                 ))
             }
             CommonCheckErrorKind::DefineTraitBadSignature => {
-                RuntimeCheckErrorKind::Unreachable("Define trait bad signature".to_string())
+                RuntimeCheckErrorKind::Unreachable("Define trait bad signature".into())
             }
             CommonCheckErrorKind::BadSyntaxBinding(e) => {
-                RuntimeCheckErrorKind::Unreachable(format!("Bad syntax binding: {e}"))
+                RuntimeCheckErrorKind::Unreachable(bounded_format!("Bad syntax binding: {e}"))
             }
             CommonCheckErrorKind::UnknownTypeName(name) => {
-                RuntimeCheckErrorKind::Unreachable(format!("Unknown type name: {name}"))
+                RuntimeCheckErrorKind::Unreachable(bounded_format!("Unknown type name: {name}"))
             }
         }
     }
@@ -1137,133 +1148,140 @@ pub fn get_arguments_at_least<T, const N: usize>(
         .ok_or_else(|| CommonCheckErrorKind::RequiresAtLeastArguments(N, args.len()))
 }
 
-fn formatted_expected_types(expected_types: &[TypeSignature]) -> String {
-    let mut expected_types_joined = format!("'{}'", expected_types[0]);
+/// Renders a type union as `'a', 'b' or 'c'`. A `Display` adapter rather than
+/// a `String`-returning function, so the types stream into the enclosing
+/// diagnostic's byte-budgeted sink instead of being materialized in full.
+struct FormattedExpectedTypes<'a>(&'a [TypeSignature]);
 
-    if expected_types.len() > 2 {
-        for expected_type in expected_types[1..expected_types.len() - 1].iter() {
-            expected_types_joined.push_str(&format!(", '{expected_type}'"));
+impl fmt::Display for FormattedExpectedTypes<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "'{}'", self.0[0])?;
+        if self.0.len() > 2 {
+            for expected_type in self.0[1..self.0.len() - 1].iter() {
+                write!(f, ", '{expected_type}'")?;
+            }
         }
+        write!(f, " or '{}'", self.0[self.0.len() - 1])
     }
-    expected_types_joined.push_str(&format!(
-        " or '{}'",
-        expected_types[expected_types.len() - 1]
-    ));
-    expected_types_joined
 }
 
 impl DiagnosableError for StaticCheckErrorKind {
-    fn message(&self) -> String {
+    fn write_message(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            StaticCheckErrorKind::SupertypeTooLarge => "supertype of two types is too large".into(),
-            StaticCheckErrorKind::Unreachable(s) => format!("unexpected and unacceptable interpreter behavior: {s}"),
-            StaticCheckErrorKind::BadMatchOptionSyntax(source) =>
-                format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
-                        source.message()),
-            StaticCheckErrorKind::BadMatchResponseSyntax(source) =>
-                format!("match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: {}",
-                        source.message()),
+            StaticCheckErrorKind::SupertypeTooLarge => f.write_str("supertype of two types is too large"),
+            StaticCheckErrorKind::Unreachable(s) => write!(f, "unexpected and unacceptable interpreter behavior: {s}"),
+            StaticCheckErrorKind::BadMatchOptionSyntax(source) => {
+                f.write_str("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: ")?;
+                source.write_message(f)
+            }
+            StaticCheckErrorKind::BadMatchResponseSyntax(source) => {
+                f.write_str("match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: ")?;
+                source.write_message(f)
+            }
             StaticCheckErrorKind::BadMatchInput(t) =>
-                format!("match requires an input of either a response or optional, found input: '{t}'"),
-            StaticCheckErrorKind::CostOverflow => "contract execution cost overflowed cost counter".into(),
-            StaticCheckErrorKind::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {a:?} > {b:?}"),
-            StaticCheckErrorKind::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
-            StaticCheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
-            StaticCheckErrorKind::AnalysisResourceBudgetExceeded(s) => format!("analysis resource budget exceeded: {s}"),
-            StaticCheckErrorKind::ReadOnlyCheckerRecursionLimitExceeded => "read-only checker exceeded maximum allowed recursion depth".into(),
-            StaticCheckErrorKind::InvalidTypeDescription => "supplied type description is invalid".into(),
-            StaticCheckErrorKind::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
-            StaticCheckErrorKind::UnknownTypeName(name) => format!("failed to parse type: '{name}'"),
-            StaticCheckErrorKind::ValueTooLarge => "created a type which was greater than maximum allowed value size".into(),
-            StaticCheckErrorKind::ValueOutOfBounds => "created a type which value size was out of defined bounds".into(),
-            StaticCheckErrorKind::TypeSignatureTooDeep => "created a type which was deeper than maximum allowed type depth".into(),
-            StaticCheckErrorKind::TraitReferenceChainTooDeep => "trait-reference chain exceeds the maximum allowed type-checker recursion depth".into(),
-            StaticCheckErrorKind::ExpectedName => "expected a name argument to this function".into(),
-            StaticCheckErrorKind::ConstructedListTooLarge => "reached limit of elements in a sequence".into(),
-            StaticCheckErrorKind::TypeError(expected_type, found_type) => format!("expecting expression of type '{expected_type}', found '{found_type}'"),
-            StaticCheckErrorKind::UnionTypeError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
-            StaticCheckErrorKind::ExpectedOptionalType(found_type) => format!("expecting expression of type 'optional', found '{found_type}'"),
-            StaticCheckErrorKind::ExpectedOptionalOrResponseType(found_type) => format!("expecting expression of type 'optional' or 'response', found '{found_type}'"),
-            StaticCheckErrorKind::ExpectedResponseType(found_type) => format!("expecting expression of type 'response', found '{found_type}'"),
-            StaticCheckErrorKind::CouldNotDetermineResponseOkType => "attempted to obtain 'ok' value from response, but 'ok' type is indeterminate".into(),
-            StaticCheckErrorKind::CouldNotDetermineResponseErrType => "attempted to obtain 'err' value from response, but 'err' type is indeterminate".into(),
-            StaticCheckErrorKind::CouldNotDetermineMatchTypes => "attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead.".into(),
-            StaticCheckErrorKind::CouldNotDetermineType => "type of expression cannot be determined".into(),
-            StaticCheckErrorKind::BadTupleFieldName => "invalid tuple field name".into(),
-            StaticCheckErrorKind::ExpectedTuple(type_signature) => format!("expecting tuple, found '{type_signature}'"),
-            StaticCheckErrorKind::NoSuchTupleField(field_name, tuple_signature) => format!("cannot find field '{field_name}' in tuple '{tuple_signature}'"),
-            StaticCheckErrorKind::BadTupleConstruction(message) => format!("invalid tuple syntax: {message}"),
-            StaticCheckErrorKind::NoSuchDataVariable(var_name) => format!("use of unresolved persisted variable '{var_name}'"),
-            StaticCheckErrorKind::BadMapName => "invalid map name".into(),
-            StaticCheckErrorKind::NoSuchMap(map_name) => format!("use of unresolved map '{map_name}'"),
-            StaticCheckErrorKind::DefineFunctionBadSignature => "invalid function definition".into(),
-            StaticCheckErrorKind::BadFunctionName => "invalid function name".into(),
-            StaticCheckErrorKind::BadMapTypeDefinition => "invalid map definition".into(),
-            StaticCheckErrorKind::PublicFunctionMustReturnResponse(found_type) => format!("public functions must return an expression of type 'response', found '{found_type}'"),
-            StaticCheckErrorKind::DefineVariableBadSignature => "invalid variable definition".into(),
-            StaticCheckErrorKind::ReturnTypesMustMatch(type_1, type_2) => format!("detected two execution paths, returning two different expression types (got '{type_1}' and '{type_2}')"),
-            StaticCheckErrorKind::NoSuchContract(contract_identifier) => format!("use of unresolved contract '{contract_identifier}'"),
-            StaticCheckErrorKind::NoSuchPublicFunction(contract_identifier, function_name) => format!("contract '{contract_identifier}' has no public function '{function_name}'"),
-            StaticCheckErrorKind::ContractAlreadyExists(contract_identifier) => format!("contract name '{contract_identifier}' conflicts with existing contract"),
-            StaticCheckErrorKind::ContractCallExpectName => "missing contract name for call".into(),
-            StaticCheckErrorKind::ExpectedCallableType(found_type) => format!("expected a callable contract, found {found_type}"),
-            StaticCheckErrorKind::NoSuchBlockInfoProperty(property_name) => format!("use of block unknown property '{property_name}'"),
-            StaticCheckErrorKind::NoSuchStacksBlockInfoProperty(property_name) => format!("use of unknown stacks block property '{property_name}'"),
-            StaticCheckErrorKind::NoSuchTenureInfoProperty(property_name) => format!("use of unknown tenure property '{property_name}'"),
-            StaticCheckErrorKind::GetBlockInfoExpectPropertyName => "missing property name for block info introspection".into(),
-            StaticCheckErrorKind::GetBurnBlockInfoExpectPropertyName => "missing property name for burn block info introspection".into(),
-            StaticCheckErrorKind::GetStacksBlockInfoExpectPropertyName => "missing property name for stacks block info introspection".into(),
-            StaticCheckErrorKind::GetTenureInfoExpectPropertyName => "missing property name for tenure info introspection".into(),
-            StaticCheckErrorKind::NameAlreadyUsed(name) => format!("defining '{name}' conflicts with previous value"),
-            StaticCheckErrorKind::ReservedWord(name) => format!("{name} is a reserved word"),
-            StaticCheckErrorKind::NonFunctionApplication => "expecting expression of type function".into(),
-            StaticCheckErrorKind::ExpectedListApplication => "expecting expression of type list".into(),
-            StaticCheckErrorKind::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{found_type}'"),
-            StaticCheckErrorKind::MaxLengthOverflow => format!("expecting a value <= {}", u32::MAX),
-            StaticCheckErrorKind::BadLetSyntax => "invalid syntax of 'let'".into(),
-            StaticCheckErrorKind::BadSyntaxBinding(binding_error) => format!("invalid syntax binding: {}", binding_error.message()),
-            StaticCheckErrorKind::MaxContextDepthReached => "reached depth limit".into(),
-            StaticCheckErrorKind::UndefinedVariable(var_name) => format!("use of unresolved variable '{var_name}'"),
-            StaticCheckErrorKind::RequiresAtLeastArguments(expected, found) => format!("expecting >= {expected} arguments, got {found}"),
-            StaticCheckErrorKind::RequiresAtMostArguments(expected, found) => format!("expecting < {expected} arguments, got {found}"),
-            StaticCheckErrorKind::IncorrectArgumentCount(expected_count, found_count) => format!("expecting {expected_count} arguments, got {found_count}"),
-            StaticCheckErrorKind::IfArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'if' must match (got '{type_1}' and '{type_2}')"),
-            StaticCheckErrorKind::MatchArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'match' must match (got '{type_1}' and '{type_2}')"),
-            StaticCheckErrorKind::DefaultTypesMustMatch(type_1, type_2) => format!("expression types passed in 'default-to' must match (got '{type_1}' and '{type_2}')"),
-            StaticCheckErrorKind::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{function_name}"),
-            StaticCheckErrorKind::UnknownFunction(function_name) => format!("use of unresolved function '{function_name}'"),
-            StaticCheckErrorKind::TooManyFunctionParameters(found, allowed) => format!("too many function parameters specified: found {found}, the maximum is {allowed}"),
-            StaticCheckErrorKind::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
-            StaticCheckErrorKind::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),
-            StaticCheckErrorKind::AtBlockUnavailable => "(at-block ...) is not available in this epoch".into(),
-            StaticCheckErrorKind::BadTokenName => "expecting an token name as an argument".into(),
-            StaticCheckErrorKind::DefineNFTBadSignature => "(define-asset ...) expects an asset name and an asset identifier type signature as arguments".into(),
-            StaticCheckErrorKind::NoSuchNFT(asset_name) => format!("tried to use asset function with a undefined asset ('{asset_name}')"),
-            StaticCheckErrorKind::NoSuchFT(asset_name) => format!("tried to use token function with a undefined token ('{asset_name}')"),
-            StaticCheckErrorKind::NoSuchTrait(contract_name, trait_name) => format!("use of unresolved trait {contract_name}.{trait_name}"),
-            StaticCheckErrorKind::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{trait_name}>"),
-            StaticCheckErrorKind::TraitMethodUnknown(trait_name, func_name) => format!("method '{func_name}' unspecified in trait <{trait_name}>"),
-            StaticCheckErrorKind::BadTraitImplementation(trait_name, func_name) => format!("invalid signature for method '{func_name}' regarding trait's specification <{trait_name}>"),
-            StaticCheckErrorKind::ExpectedTraitIdentifier => "expecting expression of type trait identifier".into(),
-            StaticCheckErrorKind::UnexpectedTraitOrFieldReference => "unexpected use of trait reference or field".into(),
-            StaticCheckErrorKind::DefineTraitBadSignature => "invalid trait definition".into(),
-            StaticCheckErrorKind::DefineTraitDuplicateMethod(method_name) => format!("duplicate method name '{method_name}' in trait definition"),
-            StaticCheckErrorKind::ContractOfExpectsTrait => "trait reference expected".into(),
-            StaticCheckErrorKind::IncompatibleTrait(expected_trait, actual_trait) => format!("trait '{actual_trait}' is not a compatible with expected trait, '{expected_trait}'"),
-            StaticCheckErrorKind::TraitTooManyMethods(found, allowed) => format!("too many trait methods specified: found {found}, the maximum is {allowed}"),
+                write!(f, "match requires an input of either a response or optional, found input: '{}'", t),
+            StaticCheckErrorKind::CostOverflow => f.write_str("contract execution cost overflowed cost counter"),
+            StaticCheckErrorKind::CostBalanceExceeded(a, b) => write!(f, "contract execution cost exceeded budget: {a:?} > {b:?}"),
+            StaticCheckErrorKind::MemoryBalanceExceeded(a, b) => write!(f, "contract execution cost exceeded memory budget: {a:?} > {b:?}"),
+            StaticCheckErrorKind::CostComputationFailed(s) => write!(f, "contract cost computation failed: {s}"),
+            StaticCheckErrorKind::AnalysisResourceBudgetExceeded(s) => write!(f, "analysis resource budget exceeded: {s}"),
+            StaticCheckErrorKind::ReadOnlyCheckerRecursionLimitExceeded => f.write_str("read-only checker exceeded maximum allowed recursion depth"),
+            StaticCheckErrorKind::InvalidTypeDescription => f.write_str("supplied type description is invalid"),
+            StaticCheckErrorKind::EmptyTuplesNotAllowed => f.write_str("tuple types may not be empty"),
+            StaticCheckErrorKind::UnknownTypeName(name) => write!(f, "failed to parse type: '{name}'"),
+            StaticCheckErrorKind::ValueTooLarge => f.write_str("created a type which was greater than maximum allowed value size"),
+            StaticCheckErrorKind::ValueOutOfBounds => f.write_str("created a type which value size was out of defined bounds"),
+            StaticCheckErrorKind::TypeSignatureTooDeep => f.write_str("created a type which was deeper than maximum allowed type depth"),
+            StaticCheckErrorKind::TraitReferenceChainTooDeep => f.write_str("trait-reference chain exceeds the maximum allowed type-checker recursion depth"),
+            StaticCheckErrorKind::ExpectedName => f.write_str("expected a name argument to this function"),
+            StaticCheckErrorKind::ConstructedListTooLarge => f.write_str("reached limit of elements in a sequence"),
+            StaticCheckErrorKind::TypeError(expected_type, found_type) => write!(f, "expecting expression of type '{}', found '{}'", expected_type, found_type),
+            StaticCheckErrorKind::UnionTypeError(expected_types, found_type) => write!(f, "expecting expression of type {}, found '{}'", FormattedExpectedTypes(expected_types), found_type),
+            StaticCheckErrorKind::ExpectedOptionalType(found_type) => write!(f, "expecting expression of type 'optional', found '{}'", found_type),
+            StaticCheckErrorKind::ExpectedOptionalOrResponseType(found_type) => write!(f, "expecting expression of type 'optional' or 'response', found '{}'", found_type),
+            StaticCheckErrorKind::ExpectedResponseType(found_type) => write!(f, "expecting expression of type 'response', found '{}'", found_type),
+            StaticCheckErrorKind::CouldNotDetermineResponseOkType => f.write_str("attempted to obtain 'ok' value from response, but 'ok' type is indeterminate"),
+            StaticCheckErrorKind::CouldNotDetermineResponseErrType => f.write_str("attempted to obtain 'err' value from response, but 'err' type is indeterminate"),
+            StaticCheckErrorKind::CouldNotDetermineMatchTypes => f.write_str("attempted to match on an (optional) or (response) type where either the some, ok, or err type is indeterminate. you may wish to use unwrap-panic or unwrap-err-panic instead."),
+            StaticCheckErrorKind::CouldNotDetermineType => f.write_str("type of expression cannot be determined"),
+            StaticCheckErrorKind::BadTupleFieldName => f.write_str("invalid tuple field name"),
+            StaticCheckErrorKind::ExpectedTuple(type_signature) => write!(f, "expecting tuple, found '{}'", type_signature),
+            StaticCheckErrorKind::NoSuchTupleField(field_name, tuple_signature) => write!(f, "cannot find field '{field_name}' in tuple '{}'", tuple_signature),
+            StaticCheckErrorKind::BadTupleConstruction(message) => write!(f, "invalid tuple syntax: {message}"),
+            StaticCheckErrorKind::NoSuchDataVariable(var_name) => write!(f, "use of unresolved persisted variable '{var_name}'"),
+            StaticCheckErrorKind::BadMapName => f.write_str("invalid map name"),
+            StaticCheckErrorKind::NoSuchMap(map_name) => write!(f, "use of unresolved map '{map_name}'"),
+            StaticCheckErrorKind::DefineFunctionBadSignature => f.write_str("invalid function definition"),
+            StaticCheckErrorKind::BadFunctionName => f.write_str("invalid function name"),
+            StaticCheckErrorKind::BadMapTypeDefinition => f.write_str("invalid map definition"),
+            StaticCheckErrorKind::PublicFunctionMustReturnResponse(found_type) => write!(f, "public functions must return an expression of type 'response', found '{}'", found_type),
+            StaticCheckErrorKind::DefineVariableBadSignature => f.write_str("invalid variable definition"),
+            StaticCheckErrorKind::ReturnTypesMustMatch(type_1, type_2) => write!(f, "detected two execution paths, returning two different expression types (got '{}' and '{}')", type_1, type_2),
+            StaticCheckErrorKind::NoSuchContract(contract_identifier) => write!(f, "use of unresolved contract '{contract_identifier}'"),
+            StaticCheckErrorKind::NoSuchPublicFunction(contract_identifier, function_name) => write!(f, "contract '{contract_identifier}' has no public function '{function_name}'"),
+            StaticCheckErrorKind::ContractAlreadyExists(contract_identifier) => write!(f, "contract name '{contract_identifier}' conflicts with existing contract"),
+            StaticCheckErrorKind::ContractCallExpectName => f.write_str("missing contract name for call"),
+            StaticCheckErrorKind::ExpectedCallableType(found_type) => write!(f, "expected a callable contract, found {}", found_type),
+            StaticCheckErrorKind::NoSuchBlockInfoProperty(property_name) => write!(f, "use of block unknown property '{property_name}'"),
+            StaticCheckErrorKind::NoSuchStacksBlockInfoProperty(property_name) => write!(f, "use of unknown stacks block property '{property_name}'"),
+            StaticCheckErrorKind::NoSuchTenureInfoProperty(property_name) => write!(f, "use of unknown tenure property '{property_name}'"),
+            StaticCheckErrorKind::GetBlockInfoExpectPropertyName => f.write_str("missing property name for block info introspection"),
+            StaticCheckErrorKind::GetBurnBlockInfoExpectPropertyName => f.write_str("missing property name for burn block info introspection"),
+            StaticCheckErrorKind::GetStacksBlockInfoExpectPropertyName => f.write_str("missing property name for stacks block info introspection"),
+            StaticCheckErrorKind::GetTenureInfoExpectPropertyName => f.write_str("missing property name for tenure info introspection"),
+            StaticCheckErrorKind::NameAlreadyUsed(name) => write!(f, "defining '{name}' conflicts with previous value"),
+            StaticCheckErrorKind::ReservedWord(name) => write!(f, "{name} is a reserved word"),
+            StaticCheckErrorKind::NonFunctionApplication => f.write_str("expecting expression of type function"),
+            StaticCheckErrorKind::ExpectedListApplication => f.write_str("expecting expression of type list"),
+            StaticCheckErrorKind::ExpectedSequence(found_type) => write!(f, "expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{}'", found_type),
+            StaticCheckErrorKind::MaxLengthOverflow => write!(f, "expecting a value <= {}", u32::MAX),
+            StaticCheckErrorKind::BadLetSyntax => f.write_str("invalid syntax of 'let'"),
+            StaticCheckErrorKind::BadSyntaxBinding(binding_error) => {
+                f.write_str("invalid syntax binding: ")?;
+                binding_error.write_message(f)
+            }
+            StaticCheckErrorKind::MaxContextDepthReached => f.write_str("reached depth limit"),
+            StaticCheckErrorKind::UndefinedVariable(var_name) => write!(f, "use of unresolved variable '{var_name}'"),
+            StaticCheckErrorKind::RequiresAtLeastArguments(expected, found) => write!(f, "expecting >= {expected} arguments, got {found}"),
+            StaticCheckErrorKind::RequiresAtMostArguments(expected, found) => write!(f, "expecting < {expected} arguments, got {found}"),
+            StaticCheckErrorKind::IncorrectArgumentCount(expected_count, found_count) => write!(f, "expecting {expected_count} arguments, got {found_count}"),
+            StaticCheckErrorKind::IfArmsMustMatch(type_1, type_2) => write!(f, "expression types returned by the arms of 'if' must match (got '{}' and '{}')", type_1, type_2),
+            StaticCheckErrorKind::MatchArmsMustMatch(type_1, type_2) => write!(f, "expression types returned by the arms of 'match' must match (got '{}' and '{}')", type_1, type_2),
+            StaticCheckErrorKind::DefaultTypesMustMatch(type_1, type_2) => write!(f, "expression types passed in 'default-to' must match (got '{}' and '{}')", type_1, type_2),
+            StaticCheckErrorKind::IllegalOrUnknownFunctionApplication(function_name) => write!(f, "use of illegal / unresolved function '{function_name}"),
+            StaticCheckErrorKind::UnknownFunction(function_name) => write!(f, "use of unresolved function '{function_name}'"),
+            StaticCheckErrorKind::TooManyFunctionParameters(found, allowed) => write!(f, "too many function parameters specified: found {found}, the maximum is {allowed}"),
+            StaticCheckErrorKind::WriteAttemptedInReadOnly => f.write_str("expecting read-only statements, detected a writing operation"),
+            StaticCheckErrorKind::AtBlockClosureMustBeReadOnly => f.write_str("(at-block ...) closures expect read-only statements, but detected a writing operation"),
+            StaticCheckErrorKind::AtBlockUnavailable => f.write_str("(at-block ...) is not available in this epoch"),
+            StaticCheckErrorKind::BadTokenName => f.write_str("expecting an token name as an argument"),
+            StaticCheckErrorKind::DefineNFTBadSignature => f.write_str("(define-asset ...) expects an asset name and an asset identifier type signature as arguments"),
+            StaticCheckErrorKind::NoSuchNFT(asset_name) => write!(f, "tried to use asset function with a undefined asset ('{asset_name}')"),
+            StaticCheckErrorKind::NoSuchFT(asset_name) => write!(f, "tried to use token function with a undefined token ('{asset_name}')"),
+            StaticCheckErrorKind::NoSuchTrait(contract_name, trait_name) => write!(f, "use of unresolved trait {contract_name}.{trait_name}"),
+            StaticCheckErrorKind::TraitReferenceUnknown(trait_name) => write!(f, "use of undeclared trait <{trait_name}>"),
+            StaticCheckErrorKind::TraitMethodUnknown(trait_name, func_name) => write!(f, "method '{func_name}' unspecified in trait <{trait_name}>"),
+            StaticCheckErrorKind::BadTraitImplementation(trait_name, func_name) => write!(f, "invalid signature for method '{func_name}' regarding trait's specification <{trait_name}>"),
+            StaticCheckErrorKind::ExpectedTraitIdentifier => f.write_str("expecting expression of type trait identifier"),
+            StaticCheckErrorKind::UnexpectedTraitOrFieldReference => f.write_str("unexpected use of trait reference or field"),
+            StaticCheckErrorKind::DefineTraitBadSignature => f.write_str("invalid trait definition"),
+            StaticCheckErrorKind::DefineTraitDuplicateMethod(method_name) => write!(f, "duplicate method name '{method_name}' in trait definition"),
+            StaticCheckErrorKind::ContractOfExpectsTrait => f.write_str("trait reference expected"),
+            StaticCheckErrorKind::IncompatibleTrait(expected_trait, actual_trait) => write!(f, "trait '{actual_trait}' is not a compatible with expected trait, '{expected_trait}'"),
+            StaticCheckErrorKind::TraitTooManyMethods(found, allowed) => write!(f, "too many trait methods specified: found {found}, the maximum is {allowed}"),
             StaticCheckErrorKind::TypeAlreadyAnnotatedFailure | StaticCheckErrorKind::CheckerImplementationFailure => {
-                "internal error - please file an issue on https://github.com/stacks-network/stacks-blockchain".into()
+                f.write_str("internal error - please file an issue on https://github.com/stacks-network/stacks-blockchain")
             },
-            StaticCheckErrorKind::UncheckedIntermediaryResponses => "intermediary responses in consecutive statements must be checked".into(),
-            StaticCheckErrorKind::CouldNotDetermineSerializationType => "could not determine the input type for the serialization function".into(),
-            StaticCheckErrorKind::ExpectedListOfAllowances(fn_name, arg_num) => format!("{fn_name} expects a list of asset allowances as argument {arg_num}"),
-            StaticCheckErrorKind::AllowanceExprNotAllowed => "allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`".into(),
-            StaticCheckErrorKind::ExpectedAllowanceExpr(got_name) => format!("expected an allowance expression, got: {got_name}"),
-            StaticCheckErrorKind::WithAllAllowanceNotAllowed => "with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`".into(),
-            StaticCheckErrorKind::WithAllAllowanceNotAlone => "with-all-assets-unsafe must not be used along with other allowances".into(),
-            StaticCheckErrorKind::WithNftExpectedListOfIdentifiers => "with-nft allowance must include a list of asset identifiers".into(),
-            StaticCheckErrorKind::MaxIdentifierLengthExceeded(max_len, len) => format!("with-nft allowance identifiers list must not exceed {max_len} elements, got {len}"),
-            StaticCheckErrorKind::TooManyAllowances(max_allowed, found) => format!("too many allowances specified, the maximum is {max_allowed}, found {found}"),
+            StaticCheckErrorKind::UncheckedIntermediaryResponses => f.write_str("intermediary responses in consecutive statements must be checked"),
+            StaticCheckErrorKind::CouldNotDetermineSerializationType => f.write_str("could not determine the input type for the serialization function"),
+            StaticCheckErrorKind::ExpectedListOfAllowances(fn_name, arg_num) => write!(f, "{fn_name} expects a list of asset allowances as argument {arg_num}"),
+            StaticCheckErrorKind::AllowanceExprNotAllowed => f.write_str("allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`"),
+            StaticCheckErrorKind::ExpectedAllowanceExpr(got_name) => write!(f, "expected an allowance expression, got: {got_name}"),
+            StaticCheckErrorKind::WithAllAllowanceNotAllowed => f.write_str("with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`"),
+            StaticCheckErrorKind::WithAllAllowanceNotAlone => f.write_str("with-all-assets-unsafe must not be used along with other allowances"),
+            StaticCheckErrorKind::WithNftExpectedListOfIdentifiers => f.write_str("with-nft allowance must include a list of asset identifiers"),
+            StaticCheckErrorKind::MaxIdentifierLengthExceeded(max_len, len) => write!(f, "with-nft allowance identifiers list must not exceed {max_len} elements, got {len}"),
+            StaticCheckErrorKind::TooManyAllowances(max_allowed, found) => write!(f, "too many allowances specified, the maximum is {max_allowed}, found {found}"),
         }
     }
 

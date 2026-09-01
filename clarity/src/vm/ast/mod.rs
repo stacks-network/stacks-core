@@ -23,6 +23,7 @@ pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use self::definition_sorter::DefinitionSorter;
@@ -166,7 +167,7 @@ fn inner_build_ast<T: CostTracker>(
             0,
             Diagnostic {
                 level: Level::Error,
-                message: format!("runtime_cost error: {e:?}"),
+                message: bounded_format!("runtime_cost error: {e:?}"),
                 spans: vec![],
                 suggestion: None,
             },

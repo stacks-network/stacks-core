@@ -23,6 +23,7 @@ use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksPublicKey};
 use clarity::util::get_epoch_time_secs;
 use clarity::util::hash::Hash160;
+use clarity::vm::types::BoundedErrorString;
 use libsigner::v0::messages::RejectReason;
 use libsigner::v0::signer_state::GlobalStateEvaluator;
 use stacks_common::types::chainstate::ConsensusHash;
@@ -63,7 +64,9 @@ pub enum SignerChainstateError {
 
 impl From<SignerChainstateError> for RejectReason {
     fn from(error: SignerChainstateError) -> Self {
-        RejectReason::ConnectivityIssues(error.to_string())
+        // Bound at the source: this string is cloned into `RejectCode` and
+        // debug-rendered into log lines, none of which clamp it themselves.
+        RejectReason::ConnectivityIssues(BoundedErrorString::from_display(&error).into())
     }
 }
 
