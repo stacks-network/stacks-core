@@ -3288,7 +3288,8 @@ impl PeerNetwork {
     ///   the inv state we synchronized from them.
     /// * Inbound peers are chosen uniformly at random to receive a full announcement, since we
     ///   don't track their inventory state.
-    ///   Return the number of inbound and outbound neighbors that have received it
+    ///
+    /// Return the number of inbound and outbound neighbors that have received it
     pub fn advertize_microblocks(
         &mut self,
         availability_data: BlocksAvailableMap,
