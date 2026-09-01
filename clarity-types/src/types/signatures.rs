@@ -1550,7 +1550,7 @@ impl TupleTypeSignature {
 
     fn max_depth(&self) -> u8 {
         let mut max = 0;
-        for (_name, type_signature) in self.type_map.iter() {
+        for type_signature in self.type_map.values() {
             max = cmp::max(max, type_signature.depth())
         }
         max

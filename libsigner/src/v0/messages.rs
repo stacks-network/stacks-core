@@ -1500,7 +1500,7 @@ impl StacksMessageCodec for SignerMessageMetadata {
                 let server_version = String::from_utf8(server_version).map_err(|e| {
                     CodecError::DeserializeError(format!(
                         "Failed to decode server version: {:?}",
-                        &e
+                        e
                     ))
                 })?;
                 Ok(Self { server_version })
@@ -1852,7 +1852,7 @@ impl StacksMessageCodec for BlockRejection {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let reason_bytes = read_next::<Vec<u8>, _>(fd)?;
         let reason = String::from_utf8(reason_bytes).map_err(|e| {
-            CodecError::DeserializeError(format!("Failed to decode reason string: {:?}", &e))
+            CodecError::DeserializeError(format!("Failed to decode reason string: {:?}", e))
         })?;
         let reason_code = read_next::<RejectCode, _>(fd)?;
         let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
@@ -1897,7 +1897,7 @@ impl StacksMessageCodec for RejectCode {
                 ValidateRejectCode::try_from(read_next::<u8, _>(fd)?).map_err(|e| {
                     CodecError::DeserializeError(format!(
                         "Failed to decode validation reject code: {:?}",
-                        &e
+                        e
                     ))
                 })?,
             ),
@@ -1958,7 +1958,7 @@ impl StacksMessageCodec for RejectReason {
                 ValidateRejectCode::try_from(read_next::<u8, _>(fd)?).map_err(|e| {
                     CodecError::DeserializeError(format!(
                         "Failed to decode validation reject code: {:?}",
-                        &e
+                        e
                     ))
                 })?,
             ),
