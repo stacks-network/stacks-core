@@ -104,27 +104,12 @@ runs:
       # This command should be kept in sync with the same command in artifacts/nextest-archive action OTHER than the excludes
       # We exclude workspace crates because we only want to cache cargo dependencies
       run: |
+        # Dynamically generate --exclude flags for all local workspace crates
+        EXCLUDES=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].name | "--exclude " + .')
+        
         cargo llvm-cov nextest archive \
           --workspace \
-          --exclude clarity \
-          --exclude clarity-cli \
-          --exclude clarity-types \
-          --exclude libsigner \
-          --exclude libstackerdb \
-          --exclude madhouse \
-          --exclude marf-squash \
-          --exclude pox-locking \
-          --exclude stacks-cli \
-          --exclude stacks-codec \
-          --exclude stacks-common \
-          --exclude stacks-inspect \
-          --exclude stacks-node \
-          --exclude stacks-profiler \
-          --exclude stacks-profiler-macros \
-          --exclude stacks-signer \
-          --exclude stacks-transactions \
-          --exclude stackslib \
-          --exclude stx-genesis \
+          $EXCLUDES \
           --tests \
           --locked \
           --features monitoring_prom \
