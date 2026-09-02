@@ -1264,6 +1264,7 @@ const MAX_WAIT: Duration = Duration::from_secs(30);
 
 /// Block until `counter` reaches `expected`, panicking if it has not done so
 /// within `timeout`.
+#[track_caller]
 fn wait_for_count(counter: &AtomicU32, expected: u32, timeout: Duration) {
     let start = Instant::now();
     loop {
