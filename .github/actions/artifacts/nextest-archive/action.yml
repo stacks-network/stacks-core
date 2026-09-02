@@ -52,15 +52,15 @@ runs:
       with:
         components: llvm-tools-preview
 
-    #  Install nextest and grcov
-    #    grcov is not needed to build the archive, but it is bundled into the
+    #  Install nextest and cargo-llvm-cov
+    #    cargo-llvm-cov is not needed to build the archive, but it is bundled into the
     #    artifact for the test jobs (see the staging step below)
-    - name: Install nextest and grcov
+    - name: Install nextest and cargo-llvm-cov
       if: |
         inputs.action == 'create'
       uses: ./.github/actions/install-tool
       with:
-        tools: nextest, grcov
+        tools: nextest, cargo-llvm-cov
 
     # Stage the tool binaries so they are uploaded with the artifact. The many
     # parallel test jobs restore them from there instead of each downloading
@@ -71,7 +71,7 @@ runs:
       shell: bash
       run: |
         mkdir -p ci-tools
-        cp "$(command -v cargo-nextest)" "$(command -v grcov)" ci-tools/
+        cp "$(command -v cargo-nextest)" "$(command -v cargo-llvm-cov)" ci-tools/
 
     # Install mold linker and clang (faster than default)      
     - name: Install mold Linker (and clang)

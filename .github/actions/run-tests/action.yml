@@ -1,7 +1,7 @@
 name: Run Tests
 description: |
-  1. Sets up the runner with grcov, nextest tooling, etc.
-  2. Runs tests using cargo nextest, either sequentially by name or in parallel via partitions.
+  1. Sets up the runner with cargo-llvm-cov, nextest tooling, etc.
+  2. Runs tests using cargo llvm-cov nextest, either sequentially by name or in parallel via partitions.
   3. Generates and uploads the code coverage artifact
 
 inputs:
@@ -148,25 +148,36 @@ runs:
         SANITIZED_FILE_NAME=$(echo "${{ inputs.codecov-test-name }}" | sed 's/[\\/:\*\?"<>|]/_/g')
         echo "file-name=$SANITIZED_FILE_NAME" >> $GITHUB_OUTPUT
 
+
     # Mode 1: Run specific test names sequentially (If partition is NOT specified)
     - name: Run Tests Sequentially
       if: inputs.partition == '' && inputs.total-partitions == ''
       shell: bash
       run: |
-        export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
-        
         # Convert CSV string to Nextest exact-match Filterset format
         # e.g., "a, b" becomes "test(=a)|test(=b)"
         FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
         FILTERSET="test(=${FILTERSET})"
 
-        # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
-        cargo nextest run \
-          --config-file ./.github/nextest/ci-nextest.toml \
-          --profile ci-sequential \
-          --run-ignored all \
-          --archive-file ${{ inputs.archive-file }} \
-          -E "$FILTERSET"
+        if [ "${{ inputs.upload-code-coverage }}" = "true" ]; then
+          cargo llvm-cov nextest \
+            --lcov \
+            --branch \
+            --ignore-filename-regex '(\.github|\.vscode|changelog\.d|contrib|benches|tests?(\.rs)?|_tests?\.rs)' \
+            --output-path lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
+            --config-file ./.github/nextest/ci-nextest.toml \
+            --profile ci-sequential \
+            --run-ignored all \
+            --archive-file ${{ inputs.archive-file }} \
+            -E "$FILTERSET"
+        else
+          cargo nextest run \
+            --config-file ./.github/nextest/ci-nextest.toml \
+            --profile ci-sequential \
+            --run-ignored all \
+            --archive-file ${{ inputs.archive-file }} \
+            -E "$FILTERSET"
+        fi
           
         # rename the resulting junit file from the toml config
         mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
@@ -176,14 +187,23 @@ runs:
       if: inputs.partition != '' && inputs.total-partitions != ''
       shell: bash
       run: |
-        export LLVM_PROFILE_FILE="test-results-%p-%m.profraw"
-        
-        # nextest settings are configured in ~/.github/nextest/ci-nextest.toml, arguments here override those settings
-        cargo nextest run \
-          --config-file ./.github/nextest/ci-nextest.toml \
-          --profile ci-parallel \
-          --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
-          --archive-file ${{ inputs.archive-file }}
+        if [ "${{ inputs.upload-code-coverage }}" = "true" ]; then
+          cargo llvm-cov nextest \
+            --lcov \
+            --branch \
+            --ignore-filename-regex '(\.github|\.vscode|changelog\.d|contrib|benches|tests?(\.rs)?|_tests?\.rs)' \
+            --output-path lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
+            --config-file ./.github/nextest/ci-nextest.toml \
+            --profile ci-parallel \
+            --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
+            --archive-file ${{ inputs.archive-file }}
+        else
+          cargo nextest run \
+            --config-file ./.github/nextest/ci-nextest.toml \
+            --profile ci-parallel \
+            --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
+            --archive-file ${{ inputs.archive-file }}
+        fi
           
         # rename the resulting junit file from the toml config
         mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
@@ -205,44 +225,10 @@ runs:
         overwrite: true
           
     ############################################################################
-    ### Generate and upload code coverage artifact
+    ### Upload the code coverage artifact
     ############################################################################
-
-    # Generate code coverage using grcov
-    # Resulting coverage filenames must be unique, so use test-name input to name the file
-    - name: Run grcov
-      if: inputs.upload-code-coverage == 'true'
-      shell: bash
-      run: |
-        grcov . \
-          -b ${{ inputs.debug-binary-path }} \
-          -s . \
-          -t lcov \
-          --branch \
-          --ignore-not-existing \
-          --ignore "../*" \
-          --ignore "/*" \
-          --ignore ".github/**" \
-          --ignore ".vscode/**" \
-          --ignore "changelog.d/**" \
-          --ignore "contrib/**" \
-          --ignore "**/.cargo/**" \
-          --ignore "**/benches/**" \
-          --ignore "**/test{,s}/**" \
-          --ignore "**/test{,s}.rs" \
-          --ignore "**/*_test{,s}.rs" \
-          --ignore "**/*.clar" \
-          --ignore "**/*.json" \
-          --ignore "**/*.md" \
-          --ignore "**/*.sha256" \
-          --ignore "**/*.snap" \
-          --ignore "**/*.toml" \
-          --ignore "**/*.txt" \
-          --ignore "**/*.yml" \
-          -o lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
-        || exit 1
-
-    # Store coverage file in GitHub CI artifacts (with SHA and "lcov" prefix)
+      
+    # Store coverage file in GitHub CI artifacts ("lcov_" prefix)
     - name: Store Code Coverage as Artifact
       if: inputs.upload-code-coverage == 'true'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
