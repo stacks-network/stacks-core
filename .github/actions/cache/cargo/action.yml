@@ -101,19 +101,33 @@ runs:
       env:
         RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         CARGO_INCREMENTAL: 0
-      # This command should be kept in sync with the same command in artifacts/nextest-archive action OTHER than the excludes
-      # We exclude workspace crates because we only want to cache cargo dependencies
+      # This command should be kept in sync with the same command in artifacts/nextest-archive action
       run: |
-        # Dynamically generate --exclude flags for all local workspace crates
-        EXCLUDES=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[].name | "--exclude " + .')
-        
         cargo llvm-cov nextest archive \
           --workspace \
-          $EXCLUDES \
           --tests \
           --locked \
           --features monitoring_prom \
           --archive-file "not_used.tar.zst"
+  
+    # Dynamic cleanup of local workspace crates right after building. We never want them to exist in the produced cache.
+    # These are things like stacks-signer, stacks-inspect, etc. built locally from our codebase.
+    # We must always compile them on-the-fly from current code, as they aren't bumped in version when they are changed.
+    - name: Clean Local Workspace Crates
+      if: |
+        inputs.action == 'create'
+      shell: bash
+      run: |
+        if [ -f Cargo.toml ]; then
+          echo "Identifying local workspace crates to exclude from restored cache..."
+          cargo metadata --format-version 1 --no-deps | jq -r '.packages[].name' | while read -r crate; do
+            echo "Wiping build artifacts for local crate: $crate"
+            cargo clean -p "$crate"
+          done
+        else
+          echo "ERROR: No Cargo.toml found in the current working directory."
+          exit 1
+        fi
   
     # Save cache data
     - name: Save Cache

@@ -53,7 +53,7 @@ runs:
         components: llvm-tools-preview
 
     #  Install nextest and cargo-llvm-cov
-    #    cargo-llvm-cov is not needed to build the archive, but it is bundled into the
+    #    cargo-llvm-cov is used to build the archive and then bundled into the
     #    artifact for the test jobs (see the staging step below)
     - name: Install nextest and cargo-llvm-cov
       if: |
