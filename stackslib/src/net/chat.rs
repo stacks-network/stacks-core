@@ -467,9 +467,10 @@ impl Neighbor {
     /// Instantiate a Neighbor from HandshakeData, merging the information we have on-disk in the
     /// PeerDB with information in the handshake.
     /// * If we already know about this neighbor, then all previously-calculated state and local
-    /// configuration state will be loaded as well.  This includes things like the calculated
-    /// in/out-degree and last-contact time, as well as the allow/deny time limits.
+    ///   configuration state will be loaded as well.  This includes things like the calculated
+    ///   in/out-degree and last-contact time, as well as the allow/deny time limits.
     /// * If we do not know about this neighbor, then the above state will not be loaded.
+    ///
     /// Returns (the neighbor, whether or not the neighbor was known)
     pub fn load_and_update(
         conn: &DBConn,
@@ -2051,6 +2052,7 @@ impl ConversationP2P {
     /// Check that a message was properly relayed.
     /// * there are no relay cycles
     /// * we didn't send this
+    ///
     /// Update relayer statistics for this conversation
     fn process_relayers(
         &mut self,
