@@ -106,7 +106,7 @@ runs:
 
         cargo llvm-cov nextest-archive \
           --workspace \
-          --tests \
+          --all-targets \
           --locked \
           --features monitoring_prom \
           --archive-file "$ARCHIVE_FILE"
