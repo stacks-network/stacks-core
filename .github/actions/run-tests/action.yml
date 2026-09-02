@@ -162,7 +162,7 @@ runs:
         if [ "${{ inputs.upload-code-coverage }}" = "true" ]; then
           cargo llvm-cov nextest \
             --lcov \
-            --ignore-filename-regex='[/\\](\.github|\.vscode|changelog\.d|contrib|benches)[/\\]'
+            --ignore-filename-regex='[/\\](\.github|\.vscode|changelog\.d|contrib|benches)[/\\]' \
             --output-path lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
             --config-file ./.github/nextest/ci-nextest.toml \
             --profile ci-sequential \
@@ -189,7 +189,7 @@ runs:
         if [ "${{ inputs.upload-code-coverage }}" = "true" ]; then
           cargo llvm-cov nextest \
             --lcov \
-            --ignore-filename-regex='[/\\](\.github|\.vscode|changelog\.d|contrib|benches)[/\\]'
+            --ignore-filename-regex='[/\\](\.github|\.vscode|changelog\.d|contrib|benches)[/\\]' \
             --output-path lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
             --config-file ./.github/nextest/ci-nextest.toml \
             --profile ci-parallel \
