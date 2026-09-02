@@ -162,7 +162,6 @@ runs:
         if [ "${{ inputs.upload-code-coverage }}" = "true" ]; then
           cargo llvm-cov nextest \
             --lcov \
-            --branch \
             --ignore-filename-regex '(\.github|\.vscode|changelog\.d|contrib|benches|tests?(\.rs)?|_tests?\.rs)' \
             --output-path lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
             --config-file ./.github/nextest/ci-nextest.toml \
