@@ -96,7 +96,7 @@ runs:
         inputs.action == 'create'
       shell: bash
       env:
-        RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
+        RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         CARGO_INCREMENTAL: 0
       # This command should be kept in sync with the same command in cache/cargo action
       run: |
@@ -104,7 +104,7 @@ runs:
         INPUT_FILE="${{ inputs.archive-file }}"
         ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
 
-        cargo nextest archive \
+        cargo llvm-cov nextest-archive \
           --workspace \
           --tests \
           --locked \

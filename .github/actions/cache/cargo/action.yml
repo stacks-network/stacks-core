@@ -76,13 +76,13 @@ runs:
       with:
         components: llvm-tools-preview
     
-    #  Install nextest
-    - name: Install nextest
+    #  Install nextest and cargo-llvm-cov
+    - name: Install nextest and cargo-llvm-cov
       if: |
         inputs.action == 'create'
       uses: ./.github/actions/install-tool
       with:
-        tools: nextest
+        tools: nextest, cargo-llvm-cov
     
     # Install mold linker and clang (faster than default)      
     - name: Install mold Linker (and clang)
@@ -99,11 +99,11 @@ runs:
         inputs.action == 'create'
       shell: bash
       env:
-        RUSTFLAGS: "-C instrument-coverage -C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
+        RUSTFLAGS: "-C linker=clang -C link-arg=-fuse-ld=mold -A warnings"
         CARGO_INCREMENTAL: 0
       # This command should be kept in sync with the same command in artifacts/nextest-archive action
       run: |
-        cargo nextest archive \
+        cargo llvm-cov nextest archive \
           --workspace \
           --tests \
           --locked \
