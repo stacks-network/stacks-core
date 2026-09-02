@@ -22,13 +22,13 @@ use crate::vm::errors::{
     CommonCheckErrorKind, RuntimeCheckErrorKind, SyntaxBindingErrorType, VmExecutionError,
     check_argument_count, check_arguments_at_least,
 };
-use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value, parse_name_type_pairs,
 };
+use crate::vm::{ClarityVersion, eval, is_reserved, is_shadowable_reserved};
 
 define_named_enum!(DefineFunctions {
     Constant("define-constant"),
@@ -130,6 +130,27 @@ fn check_legal_define(
     }
 }
 
+/// [`check_legal_define`] for functions: from Clarity 7 a public or read-only
+/// function may take a shadowable name (see [`is_shadowable_reserved`]); the
+/// trait match is verified after evaluation. Trait methods are never private.
+fn check_legal_function_define(
+    name: &str,
+    define_type: &DefineType,
+    contract_context: &ContractContext,
+) -> Result<(), RuntimeCheckErrorKind> {
+    let version = contract_context.get_clarity_version();
+    let shadowable = *version >= ClarityVersion::Clarity7
+        && matches!(define_type, DefineType::Public | DefineType::ReadOnly)
+        && is_shadowable_reserved(name, version);
+    if !shadowable {
+        return check_legal_define(name, contract_context);
+    }
+    if contract_context.is_name_defined_by_contract(name) {
+        return Err(RuntimeCheckErrorKind::NameAlreadyUsed(name.to_string()));
+    }
+    Ok(())
+}
+
 /// Handle a define-constant statement, which defines a named constant.
 fn handle_define_variable(
     variable: &ClarityName,
@@ -164,7 +185,7 @@ fn handle_define_function(
             "Expected name".to_string(),
         ))?;
 
-    check_legal_define(function_name, invoke_ctx.contract_context)?;
+    check_legal_function_define(function_name, &define_type, invoke_ctx.contract_context)?;
 
     let arguments = parse_name_type_pairs::<_, RuntimeCheckErrorKind>(
         *exec_state.epoch(),
@@ -284,12 +305,19 @@ fn handle_define_trait(
 ) -> Result<DefineResult, VmExecutionError> {
     check_legal_define(name, invoke_ctx.contract_context)?;
 
-    let trait_signature = TypeSignature::parse_trait_type_repr(
-        functions,
-        exec_state,
-        *exec_state.epoch(),
-        *invoke_ctx.contract_context.get_clarity_version(),
-    )?;
+    let version = invoke_ctx.contract_context.get_clarity_version();
+    let trait_signature =
+        TypeSignature::parse_trait_type_repr(functions, exec_state, *exec_state.epoch(), *version)?;
+
+    // Only traits that predate a reservation unlock the name (see
+    // [`is_shadowable_reserved`]), so new traits must not declare one.
+    if *version >= ClarityVersion::Clarity7 {
+        for method_name in trait_signature.keys() {
+            if is_reserved(method_name, version) {
+                return Err(RuntimeCheckErrorKind::NameAlreadyUsed(method_name.to_string()).into());
+            }
+        }
+    }
 
     Ok(DefineResult::Trait(name.clone(), trait_signature))
 }

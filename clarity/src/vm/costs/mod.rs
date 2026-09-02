@@ -883,6 +883,15 @@ impl LimitedCostTracker {
         Ok(result)
     }
 
+    /// Test-only: lowers the memory limit so accounting can be tested without
+    /// contracts anywhere near [`CLARITY_MEMORY_LIMIT`]. No-op for a free tracker.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn set_memory_limit(&mut self, memory_limit: u64) {
+        if let Self::Limited(data) = self {
+            data.memory_limit = memory_limit;
+        }
+    }
+
     /// Create a [`LimitedCostTracker`] given an epoch id and an execution cost limit for testing purpose
     ///
     /// Autoconfigure itself loading all clarity const functions without the need of passing a clarity database

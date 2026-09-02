@@ -19,18 +19,18 @@ use std::collections::{HashMap, HashSet};
 use clarity_types::representations::ClarityName;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::ClarityVersion;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::types::ContractAST;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{CostTracker, runtime_cost};
-use crate::vm::functions::NativeFunctions;
 use crate::vm::functions::define::DefineFunctions;
+use crate::vm::functions::{NativeFunctions, lookup_reserved_functions};
 use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, AtomValue, Comment, FieldIdentifier, List, Placeholder, SugaredContractIdentifier,
     SugaredFieldIdentifier, TraitReference, Tuple,
 };
+use crate::vm::{ClarityVersion, is_reserved};
 
 #[cfg(test)]
 mod tests;
@@ -122,6 +122,12 @@ impl DefinitionSorter {
     ) -> ParseResult<()> {
         match expr.pre_expr {
             Atom(ref name) => {
+                // From Clarity 7 a user function may share a native's name
+                // (see `is_shadowable_reserved`); in value position the atom
+                // means the native, never that definition.
+                if version >= ClarityVersion::Clarity7 && is_reserved(name, &version) {
+                    return Ok(());
+                }
                 if let Some(dep) = self.top_level_expressions_map.get(name)
                     && dep.atom_index != expr.id
                 {
@@ -146,9 +152,9 @@ impl DefinitionSorter {
 
                 // Avoid looking for dependencies in tuples
                 // TODO: Eliminate special handling of tuples as it is a separate presymbolic expression type
-                if let Some((function_name, rest)) = filtered_exprs.split_first() {
+                if let Some((head, rest)) = filtered_exprs.split_first() {
                     let function_args = rest.to_vec();
-                    if let Some(function_name) = function_name.match_atom() {
+                    if let Some(function_name) = head.match_atom() {
                         if let Some(define_function) =
                             DefineFunctions::lookup_by_name(function_name)
                         {
@@ -284,8 +290,35 @@ impl DefinitionSorter {
                                     )?;
                                     return Ok(());
                                 }
+                                NativeFunctions::Map
+                                | NativeFunctions::Fold
+                                | NativeFunctions::Filter
+                                    if version >= ClarityVersion::Clarity7 =>
+                                {
+                                    // Args: [function-name, ...]
+                                    if let Some((function_ref, rest)) = function_args.split_first()
+                                    {
+                                        self.probe_function_reference(
+                                            function_ref,
+                                            tle_index,
+                                            version,
+                                        )?;
+                                        for expr in rest.iter() {
+                                            self.probe_for_dependencies(expr, tle_index, version)?;
+                                        }
+                                    }
+                                    return Ok(());
+                                }
                                 _ => {}
                             }
+                        } else if version >= ClarityVersion::Clarity7 {
+                            // A user function, possibly keyword-named: head
+                            // position resolves to it from Clarity 7.
+                            self.probe_function_reference(head, tle_index, version)?;
+                            for expr in function_args.iter() {
+                                self.probe_for_dependencies(expr, tle_index, version)?;
+                            }
+                            return Ok(());
                         }
                     }
                 }
@@ -305,6 +338,29 @@ impl DefinitionSorter {
             | Comment(_)
             | Placeholder(_) => Ok(()),
         }
+    }
+
+    /// Dependency of a function-position atom (application head; function
+    /// argument of `map`/`fold`/`filter`). Unlike value position, a keyword
+    /// name counts here: a same-named user function is what it resolves to.
+    fn probe_function_reference(
+        &mut self,
+        expr: &PreSymbolicExpression,
+        tle_index: usize,
+        version: ClarityVersion,
+    ) -> ParseResult<()> {
+        let Some(name) = expr.match_atom() else {
+            return self.probe_for_dependencies(expr, tle_index, version);
+        };
+        if lookup_reserved_functions(name, &version).is_some() {
+            return Ok(());
+        }
+        if let Some(dep) = self.top_level_expressions_map.get(name)
+            && dep.atom_index != expr.id
+        {
+            self.graph.add_directed_edge(tle_index, dep.expr_index)?;
+        }
+        Ok(())
     }
 
     /// accept a slice of expected-pairs, e.g., [ (a b) (c d) (e f) ], and

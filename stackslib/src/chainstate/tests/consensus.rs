@@ -1010,7 +1010,8 @@ impl ContractConsensusTest<'_> {
     /// * `function_name` - Contract function to test
     /// * `function_args` - Arguments passed to `function_name` on every call
     /// * `clarity_versions` - List of Clarity versions to include in testing. For each epoch to test, at least one clarity version must be available.
-    /// * `setup_contracts` - Contracts that must be deployed before epoch-specific logic runs
+    /// * `setup_contracts` - Deployed before the deploy/call blocks: in the first epoch, or in the
+    ///   epoch pinned with `with_epoch` (which may predate the deploy epochs).
     ///
     /// # Panics
     ///
@@ -1055,12 +1056,6 @@ impl ContractConsensusTest<'_> {
         assert!(
             call_epochs.iter().all(|e| e >= min_deploy_epoch),
             "All call epochs must be >= the minimum deploy epoch"
-        );
-        assert!(
-            setup_contracts
-                .iter()
-                .all(|c| c.deploy_epoch.is_none() || c.deploy_epoch.unwrap() >= *min_deploy_epoch),
-            "All setup contracts must have a deploy epoch >= the minimum deploy epoch"
         );
 
         // Build epoch_blocks map based on deploy and call epochs

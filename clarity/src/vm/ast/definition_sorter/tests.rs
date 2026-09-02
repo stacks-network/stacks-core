@@ -25,9 +25,9 @@ use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check as run_analys
 use crate::vm::ast::definition_sorter::DefinitionSorter;
 use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
 use crate::vm::ast::expression_identifier::ExpressionIdentifier;
-use crate::vm::ast::parser;
 use crate::vm::ast::stack_depth_checker::StackDepthLimits;
 use crate::vm::ast::types::ContractAST;
+use crate::vm::ast::{build_ast, parser};
 use crate::vm::types::QualifiedContractIdentifier;
 
 #[template]
@@ -294,4 +294,96 @@ fn should_not_conflict_with_atoms_from_trait_definitions(#[case] version: Clarit
     "#;
 
     run_scoped_parsing_helper(contract, version).unwrap();
+}
+
+/// Full AST pipeline, including the sorter.
+fn build_ast_at(
+    contract: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> ParseResult<ContractAST> {
+    build_ast(
+        &QualifiedContractIdentifier::transient(),
+        contract,
+        &mut (),
+        version,
+        epoch,
+    )
+}
+
+/// Calling the native inside the same-named implementation is not a cycle.
+#[test]
+fn clarity7_native_application_in_same_named_function_is_not_a_cycle() {
+    let contract = "(define-read-only (slice? (a int) (b int))
+                        (len (unwrap-panic (slice? (list a b) u0 u1))))";
+    build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+
+    // Pre-7 behavior unchanged (such contracts fail at initialization anyway).
+    let err = build_ast_at(contract, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap_err();
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+}
+
+/// Same for reading a keyword inside the same-named implementation.
+#[test]
+fn clarity7_native_keyword_in_same_named_function_is_not_a_cycle() {
+    let contract = "(define-read-only (stacks-block-height) (ok stacks-block-height))";
+    build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+
+    let err = build_ast_at(contract, ClarityVersion::Clarity6, StacksEpochId::Epoch40).unwrap_err();
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+}
+
+/// Only native names are affected: user-definition cycles are still detected.
+#[test]
+fn clarity7_user_function_cycle_is_still_detected() {
+    let contract = "(define-private (a (x int)) (b x))
+                    (define-private (b (x int)) (a x))";
+    let err = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap_err();
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+
+    // A user function called from a native application is still a dependency.
+    let contract = "(define-read-only (b) (a 1))
+                    (define-read-only (a (x int)) (len (unwrap-panic (slice? (list (b)) u0 u1))))";
+    let err = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap_err();
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
+}
+
+/// The names of the top-level definitions of `ast`, in sorted order.
+fn sorted_definition_names(ast: &ContractAST) -> Vec<String> {
+    ast.expressions
+        .iter()
+        .filter_map(|expr| {
+            let define = expr.match_list()?;
+            let signature = define.get(1)?;
+            let name = signature
+                .match_atom()
+                .or_else(|| signature.match_list()?.first()?.match_atom())?;
+            Some(name.to_string())
+        })
+        .collect()
+}
+
+/// Function positions resolve to a keyword-named user function, so callers
+/// defined before it are sorted after it.
+#[test]
+fn clarity7_keyword_named_function_is_a_dependency_in_function_position() {
+    let contract = "(define-read-only (call-mine) (stacks-block-height u1))
+                    (define-read-only (map-mine) (map stacks-block-height (list u1 u2)))
+                    (define-read-only (fold-mine) (fold stacks-block-height (list u1 u2) u0))
+                    (define-read-only (filter-mine) (filter stacks-block-height (list u1 u2)))
+                    (define-read-only (stacks-block-height (x uint)) (ok x))";
+    let ast = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+    let names = sorted_definition_names(&ast);
+    assert_eq!(names[0], "stacks-block-height", "sorted: {names:?}");
+}
+
+/// A native function name in function position still means the native.
+#[test]
+fn clarity7_native_function_name_in_function_position_is_not_a_dependency() {
+    let contract =
+        "(define-read-only (use-native) (map slice? (list (list 1 2)) (list u0) (list u1)))
+                    (define-read-only (slice? (a int) (b int)) (ok (+ a b)))";
+    let ast = build_ast_at(contract, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
+    let names = sorted_definition_names(&ast);
+    assert_eq!(names, ["use-native", "slice?"], "sorted: {names:?}");
 }

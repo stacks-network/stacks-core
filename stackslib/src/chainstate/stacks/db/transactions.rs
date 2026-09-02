@@ -644,8 +644,9 @@ impl StacksChainState {
 
     /// Reject a pinned Clarity version above the epoch default (statically
     /// invalid) and, from epoch 4.1, below it: new contracts must use the
-    /// latest version. Deployed contracts keep their version; unversioned
-    /// deploys use the default.
+    /// latest version now that Clarity 7 lets legacy traits be implemented
+    /// there. Deployed contracts keep their version; unversioned deploys use
+    /// the default.
     fn validate_deploy_clarity_version(
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,

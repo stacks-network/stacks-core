@@ -25,7 +25,6 @@ use self::contexts::ContractContext;
 pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 use super::ContractAnalysis;
 use super::contexts::{TypeMap, TypingContext};
-use crate::vm::ClarityVersion;
 pub use crate::vm::analysis::errors::{
     StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType, check_argument_count,
     check_arguments_at_least, check_arguments_at_most,
@@ -54,6 +53,7 @@ use crate::vm::types::{
     TypeSignatureExt as _, Value, parse_name_type_pairs,
 };
 use crate::vm::variables::NativeVariables;
+use crate::vm::{ClarityVersion, is_reserved};
 
 #[cfg(test)]
 pub mod tests;
@@ -1856,6 +1856,16 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             self.epoch,
             self.clarity_version,
         )?;
+
+        // Only traits that predate a reservation unlock the name (see
+        // `is_shadowable_reserved`), so new traits must not declare one.
+        if self.clarity_version >= ClarityVersion::Clarity7
+            && let Some(method_name) = trait_signature
+                .keys()
+                .find(|name| is_reserved(name, &self.clarity_version))
+        {
+            return Err(StaticCheckErrorKind::NameAlreadyUsed(method_name.to_string()).into());
+        }
 
         Ok((trait_name.clone(), trait_signature))
     }

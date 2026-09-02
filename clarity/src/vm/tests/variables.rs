@@ -259,15 +259,15 @@ fn expect_contract_error(
         }
     }
 
-    // The type-checker does not report an error for the reuse of the built-in
-    // name `stacks-block-height`. It is instead caught at initialization. This
-    // matches the behavior of Clarity 1 and 2.
-    assert!(analysis.is_ok());
+    // Before Clarity 7 built-in name reuse is caught at initialization, not by
+    // the type checker (the Clarity 7 analysis case returned above).
+    assert!(
+        analysis.is_ok(),
+        "analysis of case `{name}` failed at {version} / {epoch}: {}",
+        analysis.as_ref().unwrap_err()
+    );
 
-    // Initialize the contract
-    // Note that we're ignoring the analysis failure here so that we can test
-    // the runtime behavior. In Clarity 3, if this case somehow gets past the
-    // analysis, it should fail at runtime.
+    // Initialize the contract; this exercises the initialization-time check.
     let init_result = owned_env.initialize_versioned_contract(
         contract_identifier.clone(),
         version,
@@ -275,22 +275,23 @@ fn expect_contract_error(
         None,
     );
 
+    // First matching initialization expectation wins; none means init must
+    // succeed.
     for (err_condition, expected_error) in expected_errors {
-        if let ExpectedContractError::Initialization(expected_error) = expected_error {
-            if err_condition(version, epoch) {
-                let err = init_result.unwrap_err();
-                if let ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(inner_err)) = &err {
-                    assert_eq!(expected_error, inner_err);
-                } else {
-                    panic!("Expected a RuntimeCheck error, but got a different error");
-                }
-                // Do not continue with the test if the initialization failed.
-                return;
+        if let ExpectedContractError::Initialization(expected_error) = expected_error
+            && err_condition(version, epoch)
+        {
+            let err = init_result.unwrap_err();
+            if let ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(inner_err)) = &err {
+                assert_eq!(expected_error, inner_err);
+            } else {
+                panic!("Expected a RuntimeCheck error, but got a different error");
             }
             // Do not continue with the test if the initialization failed.
             return;
         }
     }
+    init_result.unwrap();
 
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
@@ -298,20 +299,17 @@ fn expect_contract_error(
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
 
+    // Same for the call phase.
     for (err_condition, expected_error) in expected_errors {
-        if let ExpectedContractError::Runtime(expected_error) = expected_error {
-            if err_condition(version, epoch) {
-                let err = eval_result.unwrap_err();
-                if let ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(inner_err)) = &err {
-                    assert_eq!(expected_error, inner_err);
-                } else {
-                    panic!("Expected a RuntimeCheck error, but got a different error");
-                }
-
-                // Do not continue with the test if the evaluation failed.
-                return;
+        if let ExpectedContractError::Runtime(expected_error) = expected_error
+            && err_condition(version, epoch)
+        {
+            let err = eval_result.unwrap_err();
+            if let ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(inner_err)) = &err {
+                assert_eq!(expected_error, inner_err);
+            } else {
+                panic!("Expected a RuntimeCheck error, but got a different error");
             }
-
             // Do not continue with the test if the evaluation failed.
             return;
         }
@@ -548,7 +546,7 @@ fn reuse_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "ft",
         r#"
             (define-fungible-token block-height)
             (define-read-only (test-func) false)
@@ -575,7 +573,7 @@ fn reuse_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "nft",
         r#"
             (define-non-fungible-token block-height uint)
             (define-read-only (test-func) false)
@@ -602,7 +600,7 @@ fn reuse_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "public-fn",
         r#"
         (define-public (block-height) (ok true))
         (define-private (test-func) (unwrap-panic (block-height)))
@@ -629,7 +627,7 @@ fn reuse_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "read-only-fn",
         r#"
         (define-read-only (block-height) true)
         (define-private (test-func) (block-height))
@@ -757,12 +755,21 @@ fn reuse_stacks_block_height(
         (define-private (stacks-block-height) true)
         (define-private (test-func) (stacks-block-height))
         "#,
-        &[(
-            |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
-                "stacks-block-height".to_string(),
-            )),
-        )],
+        &[
+            // Clarity 7: rejected at analysis (private functions are never trait methods).
+            (
+                |version, _| version >= ClarityVersion::Clarity7,
+                ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
+                    "stacks-block-height".to_string(),
+                )),
+            ),
+            (
+                |version, _| version >= ClarityVersion::Clarity3,
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
+                    "stacks-block-height".to_string(),
+                )),
+            ),
+        ],
         Value::Bool(true),
     );
 
@@ -824,7 +831,7 @@ fn reuse_stacks_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "ft",
         r#"
             (define-fungible-token stacks-block-height)
             (define-read-only (test-func) false)
@@ -843,7 +850,7 @@ fn reuse_stacks_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "nft",
         r#"
             (define-non-fungible-token stacks-block-height uint)
             (define-read-only (test-func) false)
@@ -862,17 +869,26 @@ fn reuse_stacks_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "public-fn",
         r#"
         (define-public (stacks-block-height) (ok true))
         (define-private (test-func) (unwrap-panic (stacks-block-height)))
         "#,
-        &[(
-            |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
-                "stacks-block-height".to_string(),
-            )),
-        )],
+        &[
+            // Clarity 7: rejected at analysis (no legacy trait method).
+            (
+                |version, _| version >= ClarityVersion::Clarity7,
+                ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
+                    "stacks-block-height".to_string(),
+                )),
+            ),
+            (
+                |version, _| version >= ClarityVersion::Clarity3,
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
+                    "stacks-block-height".to_string(),
+                )),
+            ),
+        ],
         Value::Bool(true),
     );
 
@@ -881,17 +897,26 @@ fn reuse_stacks_block_height(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "read-only-fn",
         r#"
         (define-read-only (stacks-block-height) true)
         (define-private (test-func) (stacks-block-height))
         "#,
-        &[(
-            |version, _| version >= ClarityVersion::Clarity3,
-            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
-                "stacks-block-height".to_string(),
-            )),
-        )],
+        &[
+            // Clarity 7: rejected at analysis (no legacy trait method).
+            (
+                |version, _| version >= ClarityVersion::Clarity7,
+                ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
+                    "stacks-block-height".to_string(),
+                )),
+            ),
+            (
+                |version, _| version >= ClarityVersion::Clarity3,
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
+                    "stacks-block-height".to_string(),
+                )),
+            ),
+        ],
         Value::Bool(true),
     );
 }
@@ -1013,12 +1038,21 @@ fn reuse_builtin_name(
         (define-private (test-func) ({name}))
         "#
         ),
-        &[(
-            version_check,
-            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
-                name.to_string(),
-            )),
-        )],
+        &[
+            // Clarity 7: rejected at analysis (private functions are never trait methods).
+            (
+                |version, _| version >= ClarityVersion::Clarity7,
+                ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
+                    name.to_string(),
+                )),
+            ),
+            (
+                version_check,
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
+                    name.to_string(),
+                )),
+            ),
+        ],
         Value::Bool(true),
     );
 
@@ -1086,7 +1120,7 @@ fn reuse_builtin_name(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "ft",
         &format!(
             r#"
             (define-fungible-token {name})
@@ -1107,7 +1141,7 @@ fn reuse_builtin_name(
         version,
         epoch,
         &mut tl_env_factory,
-        "trait",
+        "nft",
         &format!(
             r#"
             (define-non-fungible-token {name} uint)
@@ -1128,19 +1162,28 @@ fn reuse_builtin_name(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "public-fn",
         &format!(
             r#"
         (define-public ({name}) (ok true))
         (define-private (test-func) (unwrap-panic ({name})))
         "#
         ),
-        &[(
-            version_check,
-            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
-                name.to_string(),
-            )),
-        )],
+        &[
+            // Clarity 7: rejected at analysis (no legacy trait method).
+            (
+                |version, _| version >= ClarityVersion::Clarity7,
+                ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
+                    name.to_string(),
+                )),
+            ),
+            (
+                version_check,
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
+                    name.to_string(),
+                )),
+            ),
+        ],
         Value::Bool(true),
     );
 
@@ -1149,19 +1192,28 @@ fn reuse_builtin_name(
         version,
         epoch,
         &mut tl_env_factory,
-        "function",
+        "read-only-fn",
         &format!(
             r#"
         (define-read-only ({name}) true)
         (define-private (test-func) ({name}))
         "#
         ),
-        &[(
-            version_check,
-            ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
-                name.to_string(),
-            )),
-        )],
+        &[
+            // Clarity 7: rejected at analysis (no legacy trait method).
+            (
+                |version, _| version >= ClarityVersion::Clarity7,
+                ExpectedContractError::Analysis(StaticCheckErrorKind::NameAlreadyUsed(
+                    name.to_string(),
+                )),
+            ),
+            (
+                version_check,
+                ExpectedContractError::Initialization(RuntimeCheckErrorKind::NameAlreadyUsed(
+                    name.to_string(),
+                )),
+            ),
+        ],
         Value::Bool(true),
     );
 }
