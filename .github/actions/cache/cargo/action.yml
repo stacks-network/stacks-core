@@ -103,7 +103,7 @@ runs:
         CARGO_INCREMENTAL: 0
       # This command should be kept in sync with the same command in artifacts/nextest-archive action
       run: |
-        cargo llvm-cov nextest archive \
+        cargo llvm-cov nextest-archive \
           --workspace \
           --tests \
           --locked \
