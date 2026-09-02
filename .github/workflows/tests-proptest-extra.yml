@@ -337,7 +337,7 @@ jobs:
       # (and its build output) is removed afterwards.
       #
       # This is always a full compile: the Cargo cache was built with 
-      # -C instrument-coverage so its fingerprints never match this list-only build
+      # cargo-llvm-cov so its fingerprints never match this list-only build
       # and there is nothing to reuse. RUSTFLAGS only allows warnings here — the
       # job-wide `-D warnings` would otherwise turn a benign warning into a hard
       # error and leave an empty list.
