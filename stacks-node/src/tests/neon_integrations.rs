@@ -105,6 +105,7 @@ use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::bitcoin_regtest_controller::{self, UTXO};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
+use crate::run_loop::neon::Counters;
 use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::tests::gen_random_port;
@@ -805,6 +806,36 @@ pub fn next_block_and_wait_with_timeout(
         blocks_processed.load(Ordering::SeqCst)
     );
     true
+}
+
+/// Wait up to `timeout_secs` for the miner to submit a block-commit built on
+/// the node's current burn tip. Use this before mining the next burn block so
+/// that the commit lands in it. A commit that misses its target burn block is
+/// rejected as a missed commit, producing an empty sortition.
+pub fn wait_for_tip_commit(
+    conf: &Config,
+    counters: &Counters,
+    timeout_secs: u64,
+) -> Result<(), String> {
+    let burn_height = get_chain_info(conf).burn_block_height;
+    wait_for(timeout_secs, || {
+        Ok(counters.neon_submitted_commit_last_burn_height.get() >= burn_height)
+    })
+}
+
+/// Like `next_block_and_wait`, but first waits for the miner to submit a
+/// block-commit built on the current burn tip, so the new burn block holds a
+/// winning commit instead of an empty sortition. Use this in tests that
+/// expect every burn block to elect a Stacks block.
+pub fn next_block_and_wait_for_commit(
+    btc_controller: &BitcoinRegtestController,
+    blocks_processed: &Arc<AtomicU64>,
+    conf: &Config,
+    counters: &Counters,
+) -> bool {
+    wait_for_tip_commit(conf, counters, PANIC_TIMEOUT_SECS)
+        .expect("Timed out waiting for the miner to submit a block-commit");
+    next_block_and_wait(btc_controller, blocks_processed)
 }
 
 /// Mine blocks until `check` returns `true`, up to `max_blocks` blocks.
@@ -8166,6 +8197,7 @@ fn test_problematic_blocks_are_not_mined() {
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
+    let counters = run_loop.get_counters();
     let channel = run_loop.get_coordinator_channel().unwrap();
 
     thread::spawn(move || run_loop.start(None, 0));
@@ -8193,7 +8225,12 @@ fn test_problematic_blocks_are_not_mined() {
     let mut all_new_files = vec![];
 
     for _i in 0..5 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait_for_commit(
+            &btc_regtest_controller,
+            &blocks_processed,
+            &conf,
+            &counters,
+        );
         let cur_files_old = cur_files.clone();
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
         all_new_files.append(&mut new_files);
@@ -8270,7 +8307,12 @@ fn test_problematic_blocks_are_not_mined() {
 
     // mine some blocks, and log problematic blocks
     for _i in 0..6 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+        next_block_and_wait_for_commit(
+            &btc_regtest_controller,
+            &blocks_processed,
+            &conf,
+            &counters,
+        );
         let cur_files_old = cur_files.clone();
         let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
         all_new_files.append(&mut new_files);
