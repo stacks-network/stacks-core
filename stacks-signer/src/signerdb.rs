@@ -2861,7 +2861,7 @@ pub mod tests {
     #[test]
     fn test_basic_signer_db() {
         let db_path = tmp_db_path();
-        eprintln!("db path is {}", &db_path.display());
+        eprintln!("db path is {}", db_path.display());
         test_basic_signer_db_with_path(db_path)
     }
 

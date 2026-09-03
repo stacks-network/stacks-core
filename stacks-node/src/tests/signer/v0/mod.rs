@@ -3047,10 +3047,15 @@ fn multiple_miners() {
 
         info!("Issue next block-build request\ninfo 1: {info_1:?}\ninfo 2: {info_2:?}\n");
 
+        // Right after a burn block arrives, the signers' sortition views can
+        // take a while to converge (their nodes must process the burn block
+        // and their state-machine updates must propagate between both nodes),
+        // and until then proposals are rejected with "No signer consensus
+        // reached" while the miner backs off 5-10s between attempts.
         miners.signer_test.mine_block_wait_on_processing(
             &[&conf_1, &conf_2],
             &[&rl1_counters, &rl2_counters],
-            Duration::from_secs(30),
+            Duration::from_secs(60),
         );
 
         miners.signer_test.check_signer_states_normal();
@@ -4822,10 +4827,15 @@ fn multiple_miners_with_nakamoto_blocks() {
         }
         let blocks_processed_before =
             blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
+        // Right after a burn block arrives, the signers' sortition views can
+        // take a while to converge (their nodes must process the burn block
+        // and their state-machine updates must propagate between both nodes),
+        // and until then proposals are rejected with "No signer consensus
+        // reached" while the miner backs off 5-10s between attempts.
         miners.signer_test.mine_block_wait_on_processing(
             &[&conf_1, &conf_2],
             &[&rl1_counters, &rl2_counters],
-            Duration::from_secs(30),
+            Duration::from_secs(60),
         );
         miners.signer_test.check_signer_states_normal();
         btc_blocks_mined += 1;
@@ -5297,10 +5307,15 @@ fn multiple_miners_with_custom_chain_id() {
         }
         let blocks_processed_before =
             blocks_mined1.load(Ordering::SeqCst) + blocks_mined2.load(Ordering::SeqCst);
+        // Right after a burn block arrives, the signers' sortition views can
+        // take a while to converge (their nodes must process the burn block
+        // and their state-machine updates must propagate between both nodes),
+        // and until then proposals are rejected with "No signer consensus
+        // reached" while the miner backs off 5-10s between attempts.
         miners.signer_test.mine_block_wait_on_processing(
             &[&conf_1, &conf_2],
             &[&rl1_counters, &rl2_counters],
-            Duration::from_secs(30),
+            Duration::from_secs(60),
         );
         btc_blocks_mined += 1;
 
@@ -5321,7 +5336,7 @@ fn multiple_miners_with_custom_chain_id() {
         info!("Mining interim blocks");
         for interim_block_ix in 0..inter_blocks_per_tenure {
             miners
-                .send_and_mine_transfer_tx(30)
+                .send_and_mine_transfer_tx(60)
                 .expect("Timed out waiting to mine interim block");
             info!("Mined interim block {btc_blocks_mined}:{interim_block_ix}");
         }
@@ -8732,13 +8747,13 @@ fn contract_with_undefined_variable_compat() {
 /// - Shutdown signer is restarted.
 /// - Miner B proposes block N+1 (TenureChange).
 /// - All signers sign the block without issue
-/// -> Verifies that updates are loaded from signerdb on init
+///   -> Verifies that updates are loaded from signerdb on init
 /// - Same signer is shutdown.
 /// - Shutdown signers db is cleared.
 /// - Signer is restarted.
 /// - Miner B proposes block N+2 (Transfer).
 /// - All signers including the restarted signer sign block N+2
-/// -> Verifies that updates are loaded from stackerdb on init
+///   -> Verifies that updates are loaded from stackerdb on init
 #[test]
 #[ignore]
 fn signer_loads_stackerdb_updates_on_startup() {

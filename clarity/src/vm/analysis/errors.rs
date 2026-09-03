@@ -34,7 +34,7 @@ pub enum SyntaxBindingErrorType {
 
 impl fmt::Display for SyntaxBindingErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", &self.message())
+        write!(f, "{}", self.message())
     }
 }
 
@@ -1221,7 +1221,7 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{found_type}'"),
             StaticCheckErrorKind::MaxLengthOverflow => format!("expecting a value <= {}", u32::MAX),
             StaticCheckErrorKind::BadLetSyntax => "invalid syntax of 'let'".into(),
-            StaticCheckErrorKind::BadSyntaxBinding(binding_error) => format!("invalid syntax binding: {}", &binding_error.message()),
+            StaticCheckErrorKind::BadSyntaxBinding(binding_error) => format!("invalid syntax binding: {}", binding_error.message()),
             StaticCheckErrorKind::MaxContextDepthReached => "reached depth limit".into(),
             StaticCheckErrorKind::UndefinedVariable(var_name) => format!("use of unresolved variable '{var_name}'"),
             StaticCheckErrorKind::RequiresAtLeastArguments(expected, found) => format!("expecting >= {expected} arguments, got {found}"),

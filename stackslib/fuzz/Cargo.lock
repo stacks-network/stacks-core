@@ -1455,6 +1455,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-transactions"
+version = "0.1.0"
+dependencies = [
+ "clarity-types",
+ "stacks-codec",
+ "stacks-common",
+]
+
+[[package]]
 name = "stackslib"
 version = "0.0.1"
 dependencies = [
@@ -1481,6 +1490,7 @@ dependencies = [
  "slog",
  "stacks-codec",
  "stacks-common",
+ "stacks-transactions",
  "time",
  "toml",
  "url",

@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Stacks Open Internet Foundation
+// Copyright (C) 2024-2026 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -26,7 +26,7 @@ use libsigner::v0::messages::{
     StateMachineUpdate,
 };
 use libsigner::v0::signer_state::{GlobalStateEvaluator, SignerStateMachine};
-use libsigner::{SignerEntries, SignerEvent, SignerSession, StackerDBSession};
+use libsigner::{SignerEntries, SignerEvent};
 use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::nakamoto::NakamotoBlockHeader;
@@ -35,6 +35,7 @@ use stacks::chainstate::stacks::events::StackerDBChunksEvent;
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::codec::StacksMessageCodec;
 use stacks::net::api::postblock_proposal::ValidateRejectCode;
+use stacks::net::stackerdb::StackerDBs;
 use stacks::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks::types::PublicKey;
 use stacks::util::get_epoch_time_secs;
@@ -84,6 +85,46 @@ pub struct BlockStatus {
 pub(crate) struct TimestampInfo {
     pub timestamp: u64,
     pub weight: u32,
+}
+
+/// Captures all necessary data the miner has to provide so that the [`StackerDBListener`] can
+/// load the initial state of the StackerDB. The miner creates an [`InitialChunksLoader`] and
+/// then passes it to the [`StackerDBListener`] (via the [`SignerCoordinator`]).
+pub struct InitialChunksLoader<'a> {
+    reward_cycle_id: u64,
+    signer_count: u32,
+    stacker_dbs: &'a StackerDBs,
+}
+
+impl<'a> InitialChunksLoader<'a> {
+    pub fn new(
+        reward_cycle_id: u64,
+        signer_count: u32,
+        stacker_dbs: &'a StackerDBs,
+    ) -> InitialChunksLoader<'a> {
+        InitialChunksLoader {
+            reward_cycle_id,
+            signer_count,
+            stacker_dbs,
+        }
+    }
+
+    fn load_chunks(&self, config: &Config) -> Vec<Option<Vec<u8>>> {
+        if self.signer_count == 0 {
+            return vec![];
+        }
+
+        // the contract that a StackerDBListener actually cares about: The one with
+        // the signer state machine updates
+        let signers_contract = MessageSlotID::StateMachineUpdate
+            .stacker_db_contract(config.is_mainnet(), self.reward_cycle_id);
+        let slot_ids: Vec<u32> = (0..self.signer_count).collect();
+
+        self.stacker_dbs
+            .get_latest_chunks(&signers_contract, slot_ids.as_slice())
+            .inspect_err(|e| warn!("Unable to read the latest signer state from signer db: {e}."))
+            .unwrap_or_default()
+    }
 }
 
 /// The listener for the StackerDB, which listens for messages from the
@@ -151,6 +192,7 @@ impl StackerDBListener {
         node_keep_running: Arc<AtomicBool>,
         keep_running: Arc<AtomicBool>,
         reward_set: &RewardSet,
+        initial_chunks_loader: InitialChunksLoader,
         burn_tip: &BlockSnapshot,
         burnchain: &Burnchain,
         config: &Config,
@@ -196,27 +238,14 @@ impl StackerDBListener {
             })
             .collect::<Result<HashMap<_, _>, ChainstateError>>()?;
 
-        let signers_contract_id = MessageSlotID::StateMachineUpdate
-            .stacker_db_contract(config.is_mainnet(), reward_cycle_id);
-        let rpc_socket = config
-            .node
-            .get_rpc_loopback()
-            .ok_or_else(|| ChainstateError::MinerAborted)?;
-        let mut signers_session = StackerDBSession::new(
-            &rpc_socket.to_string(),
-            signers_contract_id.clone(),
-            config.miner.stackerdb_timeout,
-        );
         let entries: Vec<_> = signer_entries.values().cloned().collect();
         let parsed_entries = SignerEntries::parse(config.is_mainnet(), &entries)
             .expect("FATAL: could not parse retrieved signer entries");
         let address_weights = parsed_entries.signer_addr_to_weight;
         let slot_ids: Vec<_> = parsed_entries.signer_id_to_addr.keys().cloned().collect();
 
-        let chunks = signers_session
-            .get_latest_chunks(&slot_ids)
-            .inspect_err(|e| warn!("Unable to read the latest signer state from signer db: {e}."))
-            .unwrap_or_default();
+        let chunks = initial_chunks_loader.load_chunks(config);
+
         let mut global_state_evaluator = GlobalStateEvaluator::new(HashMap::new(), address_weights);
         for (chunk, slot_id) in chunks.into_iter().zip(slot_ids) {
             let Some(chunk) = chunk else {
