@@ -1830,9 +1830,7 @@ impl Signer {
                         "block_id" => %proposed_block.block_id()
                     );
                     return Some(self.create_block_rejection(
-                        RejectReason::ConnectivityIssues(
-                            "error checking block proposal".into(),
-                        ),
+                        RejectReason::ConnectivityIssues("error checking block proposal".into()),
                         proposed_block,
                     ));
                 }
