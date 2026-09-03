@@ -20,7 +20,7 @@ use super::callables::{DefineType, DefinedFunction};
 use super::costs::{CostTracker, constants as cost_constants};
 use super::database::STXBalance;
 use super::events::*;
-use super::functions::bitcoin::{VERIFY_MERKLE_PROOF_MAX_DEPTH, native_verify_merkle_proof};
+use super::functions::bitcoin::{VERIFY_MERKLE_PROOF_MAX_DEPTH, native_verify_merkle_proof, native_get_bitcoin_tx_output};
 use super::functions::crypto::{pubkey_to_address_v1, pubkey_to_address_v2};
 use super::types::signatures::CallableSubtype;
 use super::types::{
@@ -2408,6 +2408,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Vm
     link_secp256r1_verify_simple_hash_fn(linker)?;
     link_verify_merkle_proof_fn(linker)?;
     link_ed25519_verify_fn(linker)?;
+    link_get_bitcoin_tx_output_fn(linker)?;
     link_principal_of_fn(linker)?;
     link_save_constant_fn(linker)?;
     link_load_constant_fn(linker)?;
@@ -8724,6 +8725,61 @@ fn link_ed25519_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
         })
 }
 
+/// Link host interface function, `get_bitcoin_tx_output`, into the Wasm module.
+/// This function is called for the Clarity expression, `get-bitcoin-tx-output?`.
+fn link_get_bitcoin_tx_output_fn(
+    linker: &mut Linker<ClarityWasmContext>,
+) -> Result<(), VmExecutionError> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_bitcoin_tx_output",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             tx_offset: i32,
+             tx_length: i32,
+             vout_lo: i64,
+             vout_hi: i64,
+             return_offset: i32,
+             _return_length: i32| {
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
+
+                let ret_ty = get_bitcoin_tx_output_result_type()?;
+                let repr_size = get_type_size(&ret_ty);
+
+                // Read the transaction bytes from the memory
+                let tx_bytes = read_bytes_from_wasm(memory, &mut caller, tx_offset, tx_length)?;
+
+                let vout = ((vout_hi as u64 as u128) << 64) | (vout_lo as u64 as u128);
+
+                let result =
+                    native_get_bitcoin_tx_output(Value::buff_from(tx_bytes)?, Value::UInt(vout))?;
+
+                // Write the result to the return buffer
+                write_to_wasm(
+                    caller,
+                    memory,
+                    &ret_ty,
+                    return_offset,
+                    return_offset + repr_size,
+                    &result,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_bitcoin_tx_output".to_string(),
+                e,
+            ))
+        })
+}
 /// Link host interface function, `principal_of`, into the Wasm module.
 /// This function is called for the Clarity expression, `principal-of?`.
 fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
