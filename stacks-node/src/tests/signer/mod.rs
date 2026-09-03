@@ -248,6 +248,10 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         naka_conf.miner.activated_vrf_key_path =
             Some(format!("{}/vrf_key", naka_conf.node.working_dir));
 
+        // Keep the block rejection timeout short for these tests, so that we
+        // can recover quickly, within test timeouts.
+        naka_conf.miner.block_rejection_timeout_steps = [(0, Duration::from_secs(20))].into();
+
         node_config_modifier(&mut naka_conf);
 
         // Add initial balances to the config

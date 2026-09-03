@@ -183,9 +183,9 @@ pub fn get_ptrs_byte_len_compressed(id: u8, ptrs: &[TriePtr]) -> usize {
 ///
 /// Where
 /// * 0xff ([`SPARSE_PTR_BITMAP_MARKER`]) is a marker bit that cannot be the first byte of a `TriePtr`, and indicates that a
-/// bitmap follows
+///   bitmap follows
 /// * `bitmap` is a bit field in which the ith bit is set if the ith `TriePtr` is not empty.  All
-/// other `TriePtr`s in `ptrs_buf` will be considered empty, and initialized as such.
+///   other `TriePtr`s in `ptrs_buf` will be considered empty, and initialized as such.
 ///
 /// The remaining bytes 1+B through 1+B+N contain the list of compressed `TriePtr`s -- one for each
 /// set bit in `bitmap`.

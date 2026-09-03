@@ -189,10 +189,10 @@ pub trait WritableMarfStore:
 /// The Stacks node commits tries for one of three purposes:
 /// * It processed a block, and needs to persist its trie in the chainstate proper.
 /// * It mined a block, and needs to persist its trie outside of the chainstate proper. The miner
-/// may build on it later.
+///   may build on it later.
 /// * It processed an unconfirmed microblock (Stacks 2.x only), and needs to persist the
-/// unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
-/// continue to build on it and the network can service RPC requests on its state.
+///   unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
+///   continue to build on it and the network can service RPC requests on its state.
 ///
 /// These needs are each captured in distinct methods for committing this transaction.
 pub trait ClarityMarfStoreTransaction {

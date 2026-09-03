@@ -302,6 +302,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Given the downloaded set of chunk inventories, identify:
     /// * which chunks we need to fetch, because they're newer than ours.
     /// * what order to fetch chunks in, in rarest-first order
+    ///
     /// Returns a list of (chunk requests, list of neighbors that can service them), which is
     /// ordered from rarest chunk to most-common chunk.
     pub fn make_chunk_request_schedule(

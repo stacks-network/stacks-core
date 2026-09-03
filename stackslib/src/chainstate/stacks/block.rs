@@ -181,9 +181,9 @@ impl StacksBlockHeader {
     /// Validate this block header against the burnchain.
     /// Used to determine whether or not we'll keep a block around (even if we don't yet have its parent).
     /// * burn_chain_tip is the BlockSnapshot encoding the sortition that selected this block for
-    /// inclusion in the Stacks blockchain chain state.
+    ///   inclusion in the Stacks blockchain chain state.
     /// * parent_stacks_chain_tip is the BlockSnapshot for the parent Stacks block this header builds on
-    /// (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
+    ///   (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
     pub fn validate_burnchain(
         &self,
         burn_chain_tip: &BlockSnapshot,

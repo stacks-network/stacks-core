@@ -285,8 +285,7 @@ impl SpvClient {
     }
 
     fn db_migrate(conn: &mut DBConn) -> Result<(), btc_error> {
-        let version = SpvClient::db_get_version(conn)?;
-        while version != SPV_DB_VERSION {
+        loop {
             let version = SpvClient::db_get_version(conn)?;
             match version.as_str() {
                 "1" => {
@@ -1091,8 +1090,9 @@ impl SpvClient {
     /// Determine the target difficult over a given difficulty adjustment interval
     /// the `interval` parameter is the difficulty interval -- a 2016-block interval.
     /// * On mainnet, `headers_in_range` can be empty. If it's not empty, then the 0th element is
-    /// treated as the parent of `current_header`.  On testnet, `headers_in_range` must be a range
-    /// of headers in the given `interval`.
+    ///   treated as the parent of `current_header`.  On testnet, `headers_in_range` must be a range
+    ///   of headers in the given `interval`.
+    ///
     /// Returns (new bits, new target)
     pub fn get_target(
         &self,
@@ -1311,6 +1311,7 @@ mod test {
 
     use super::*;
     use crate::burnchains::bitcoin::{Error as btc_error, *};
+    use crate::util_lib::db::table_exists;
 
     fn get_genesis_regtest_header() -> LoneBlockHeader {
         LoneBlockHeader {
@@ -1330,6 +1331,31 @@ mod test {
             },
             tx_count: VarInt(0),
         }
+    }
+
+    /// Exercises the complete SPV schema migration from version 1 to version 3.
+    #[test]
+    fn test_spv_db_migrate_v1_to_v3() {
+        let mut conn = DBConn::open_in_memory().unwrap();
+        for statement in SPV_INITIAL_SCHEMA {
+            conn.execute_batch(statement).unwrap();
+        }
+        conn.execute_batch("INSERT INTO db_config (version) VALUES ('1')")
+            .unwrap();
+
+        SpvClient::db_migrate(&mut conn).unwrap();
+
+        assert_eq!(SpvClient::db_get_version(&conn).unwrap(), SPV_DB_VERSION);
+        assert!(table_exists(&conn, "chain_work").unwrap());
+
+        let header_columns = conn
+            .prepare("PRAGMA table_info(headers)")
+            .unwrap()
+            .query_map(NO_PARAMS, |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(header_columns.iter().any(|column| column == "hash"));
     }
 
     #[test]

@@ -43,8 +43,8 @@ const CHECK_UNCONFIRMED_TENURES_MS: u128 = 1_000;
 
 /// The overall downloader can operate in one of two states:
 /// * it's doing IBD, in which case it's downloading tenures using neighbor inventories and
-/// the start/end block ID hashes obtained from block-commits.  This works up until the last two
-/// tenures.
+///   the start/end block ID hashes obtained from block-commits.  This works up until the last two
+///   tenures.
 /// * it's in steady-state, in which case it's downloading the last two tenures from its neighbors.
 #[derive(Debug, Clone, PartialEq)]
 pub enum NakamotoDownloadState {
@@ -706,12 +706,12 @@ impl NakamotoDownloadStateMachine {
     /// `self.prev_wanted_tenures`, and calculates the following:
     ///
     /// * The set of `TenureStartEnd`s for both `self.wanted_tenures` and
-    /// `self.prev_wanted_tenures`, given the peers' inventory vectors.
+    ///   `self.prev_wanted_tenures`, given the peers' inventory vectors.
     ///
     /// * The set of which tenures are available from which neighbors
     ///
     /// * The order in which to fetch tenure data, based on whether or not we're in IBD or
-    /// steady-state.
+    ///   steady-state.
     ///
     /// This function should be called immediately after `update_wanted_tenures()`.
     pub(crate) fn update_available_tenures(
@@ -1109,13 +1109,13 @@ impl NakamotoDownloadStateMachine {
     /// Run unconfirmed tenure download state machines.
     /// * Update the highest-processed block in each downloader to our highest-processed block
     /// * Send any HTTP requests that the downloaders indicate are needed (if they are not blocked
-    /// waiting for a response)
+    ///   waiting for a response)
     /// * Obtain any HTTP responses and pass them into the downloaders, thereby advancing their
-    /// states
+    ///   states
     /// * Obtain downloaded blocks, and create new confirmed tenure downloaders for the
-    /// highest-complete tenure downloader.
+    ///   highest-complete tenure downloader.
     /// * Clear out downloader state for peers who have disconnected or have finished processing
-    /// their machines.
+    ///   their machines.
     ///
     /// As the local node processes blocks, update each downloader's view of the highest-processed
     /// block so it can cancel itself early if it finds that we've already got the blocks, or if

@@ -512,9 +512,9 @@ impl NakamotoTenureDownloaderSet {
     /// Run all confirmed downloaders.
     /// * Identify neighbors for which we do not have an inflight request
     /// * Get each such neighbor's downloader, and generate its next HTTP reqeust. Send that
-    /// request to the neighbor and begin driving the underlying socket I/O.
+    ///   request to the neighbor and begin driving the underlying socket I/O.
     /// * Get each HTTP reply, and pass it into the corresponding downloader's handler to advance
-    /// its state.
+    ///   its state.
     /// * Identify and remove misbehaving neighbors and neighbors whose connections have broken.
     ///
     /// Returns the set of downloaded blocks obtained for completed downloaders.  These will be

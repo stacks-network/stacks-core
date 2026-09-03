@@ -14,6 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+// The doc comments on the config structs below are parsed by
+// `contrib/tools/config-docs-generator` to produce the node configuration
+// reference. That parser is whitespace-sensitive: it locates `@notes`,
+// `@units`, `@toml_example` and friends by their indentation, and collects each
+// annotation's body from the lines indented beneath it. Re-indenting a doc line
+// to satisfy rustdoc's list-continuation rules silently detaches annotations
+// from their content and mangles the generated examples, so these two lints are
+// off for this module.
+#![allow(clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)]
+
 pub mod chain_data;
 
 use std::collections::{HashMap, HashSet};

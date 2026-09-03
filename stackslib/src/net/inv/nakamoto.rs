@@ -327,7 +327,7 @@ impl InvGenerator {
     /// the newest sortition.  It is structured as follows:
     /// * Bit 0 is the sortition at the start of the given reward cycle
     /// * Bit i is 1 if there was a tenure-start for the ith sortition in the reward cycle, and 0
-    /// if not.
+    ///   if not.
     ///
     /// Populate the cached data lazily.
     ///

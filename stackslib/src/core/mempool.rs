@@ -2467,9 +2467,9 @@ impl MemPoolDB {
     /// we're in:
     /// * In epoch 2.x, these are the Stacks chain tip.
     /// * In Nakamoto, these will be resolved to the tenure-start block of the tenure in which this
-    /// Stacks block lies.  The reason for this is because of how the mempool performs
-    /// garbage collection in its DB and bloom filter -- the latter of which is used for mempool
-    /// sync.
+    ///   Stacks block lies.  The reason for this is because of how the mempool performs
+    ///   garbage collection in its DB and bloom filter -- the latter of which is used for mempool
+    ///   sync.
     ///
     /// No action is required by te caller to handle this discrepancy; the caller should just submit
     /// the canonical Stacks tip.  If the current epoch is a Nakamoto epoch, it will be resolved to

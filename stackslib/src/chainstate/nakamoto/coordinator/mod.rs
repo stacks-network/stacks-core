@@ -645,7 +645,8 @@ fn is_naka_reward_cycle_start_for_epoch(burnchain: &Burnchain, block_height: u64
 /// This is a little different than epoch 2.x:
 /// * we're guaranteed to have an anchor block
 /// * we pre-compute the reward set at the start of the prepare phase, so we only need to load it
-/// up here at the start of the reward phase.
+///   up here at the start of the reward phase.
+///
 /// `stacks_tip` is the tip that the caller is going to build a block on.
 pub fn get_nakamoto_next_recipients(
     sortition_tip: &BlockSnapshot,

@@ -4749,9 +4749,9 @@ impl PeerNetwork {
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
     /// * hint to the inventory sync state-machine to restart, since we potentially have a new
-    /// block to go fetch
+    ///   block to go fetch
     /// * hint to the download state machine to start looking for the new block at the new
-    /// stable sortition height
+    ///   stable sortition height
     /// * hint to the antientropy protocol to reset to the latest reward cycle
     pub fn refresh_burnchain_view(
         &mut self,

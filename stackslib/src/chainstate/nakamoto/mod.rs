@@ -1088,7 +1088,7 @@ impl NakamotoBlockHeader {
     /// - Any invalid signatures (eg not recoverable or not from a signer)
     /// - Any duplicate signatures
     /// - At least the minimum number of signatures (based on total signer weight
-    /// and a 70% threshold)
+    ///   and a 70% threshold)
     /// - Order of signatures vs the signer set.
     ///
     /// Returns the signing weight on success.
@@ -1384,12 +1384,12 @@ impl NakamotoBlock {
 
     /// Determine if this is a well-formed tenure-extend block.
     /// * It has exactly one TenureChange, and it does _not_ require a sortiton (it's `cause` is
-    /// `Extended`)
+    ///   `Extended`)
     /// * Its consensus hash and previous consensus hash values point to this block.
     /// * There is no coinbase
     /// * There are no other TenureChange transactions
     /// * The TenureChangeCause is _any_ Extended* variant (including new variants added in
-    /// SIP-034)
+    ///   SIP-034)
     ///
     /// Returns Ok(true) if the above are true
     /// Returns Ok(false) if it is not a tenure-extend block
@@ -1496,7 +1496,7 @@ impl NakamotoBlock {
 
     /// Determine if this is a well-formed first block in a tenure.
     /// * It has exactly one TenureChange, and it requires a sortition and points to the parent of
-    /// this block (this checks `cause` and `previous_tenure_end`)
+    ///   this block (this checks `cause` and `previous_tenure_end`)
     /// * It then has a Nakamoto coinbase
     /// * Coinbases and TenureChanges do not occur anywhere else
     ///
@@ -2612,10 +2612,10 @@ impl NakamotoChainState {
 
     /// Get the expected total burnchain tokens spent so far for a given block.
     /// * if the block has a tenure-change tx, then this is the tx's sortition consensus hash's
-    /// snapshot's burn total (since the miner will have produced this tenure-change tx in reaction
-    /// to the arrival of this new sortition)
+    ///   snapshot's burn total (since the miner will have produced this tenure-change tx in reaction
+    ///   to the arrival of this new sortition)
     /// * otherwise, it's the highest processed tenure's sortition consensus hash's snapshot's burn
-    /// total.
+    ///   total.
     ///
     /// This function will return Ok(None) if the given block's parent is not yet processed.  This
     /// by itself is not necessarily an error, because a block can be stored for subsequent
@@ -2821,8 +2821,10 @@ impl NakamotoChainState {
     /// * the public key cannot be recovered from the miner's signature
     /// * the stackers during the tenure didn't sign it
     /// * a DB error occurs
+    ///
     /// Does nothing if:
     /// * we already have the block
+    ///
     /// Returns true if we stored the block; false if not.
     pub fn accept_block(
         chainstate: &mut StacksChainState,
@@ -4526,9 +4528,9 @@ impl NakamotoChainState {
     /// * sortition_dbconn: connection to the sortition DB MARF
     /// * pox_constants: PoX parameters
     /// * parent_consensus_hash, parent_header_hash, parent_stacks_height, parent_burn_height:
-    /// pointer to the already-processed parent Stacks block
+    ///   pointer to the already-processed parent Stacks block
     /// * burn_header_hash, burn_header_height: pointer to the Bitcoin block that identifies the
-    /// tenure of this block to be processed
+    ///   tenure of this block to be processed
     /// * coinbase_height: the number of tenures that this block confirms (including epoch2 blocks)
     ///   (this is equivalent to the number of coinbases)
     /// * tenure_cause: what caused this tenure, if anything
