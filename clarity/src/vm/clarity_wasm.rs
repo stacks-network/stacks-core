@@ -5,6 +5,7 @@ use std::ops::{AddAssign, SubAssign};
 use clarity_types::types::MAX_VALUE_SIZE;
 use stacks_common::types::StacksEpochId;
 use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::ed25519::ed25519_verify;
 use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PublicKey, secp256k1_recover, secp256k1_verify};
 use stacks_common::util::secp256r1::{secp256r1_verify, secp256r1_verify_digest};
@@ -2403,6 +2404,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Vm
     link_secp256r1_verify_double_hash_fn(linker)?;
     link_secp256r1_verify_simple_hash_fn(linker)?;
     link_verify_merkle_proof_fn(linker)?;
+    link_ed25519_verify_fn(linker)?;
     link_principal_of_fn(linker)?;
     link_save_constant_fn(linker)?;
     link_load_constant_fn(linker)?;
@@ -8594,6 +8596,60 @@ fn link_verify_merkle_proof_fn(
         .map_err(|e| {
             VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "verify_merkle_proof".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `ed25519_verify`, into the Wasm module.
+/// This function is called for the Clarity expression, `ed25519-verify`.
+fn link_ed25519_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
+    linker
+        .func_wrap(
+            "clarity",
+            "ed25519_verify",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             msg_offset: i32,
+             msg_length: i32,
+             sig_offset: i32,
+             sig_length: i32,
+             pk_offset: i32,
+             pk_length: i32| {
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
+
+                let msg_bytes = read_bytes_from_wasm(memory, &mut caller, msg_offset, msg_length)?;
+
+                let sig_bytes = read_bytes_from_wasm(memory, &mut caller, sig_offset, sig_length)?;
+
+                if sig_bytes.len() != 64 {
+                    return Err(RuntimeCheckErrorKind::TypeValueError(
+                        Box::new(TypeSignature::BUFFER_64.clone()),
+                        Value::buff_from(sig_bytes)?.to_error_string(),
+                    )
+                    .into());
+                }
+
+                let pk_bytes = read_bytes_from_wasm(memory, &mut caller, pk_offset, pk_length)?;
+
+                if pk_bytes.len() != 32 {
+                    return Err(RuntimeCheckErrorKind::TypeValueError(
+                        Box::new(TypeSignature::BUFFER_32.clone()),
+                        Value::buff_from(pk_bytes)?.to_error_string(),
+                    )
+                    .into());
+                }
+
+                Ok(ed25519_verify(&msg_bytes, &sig_bytes, &pk_bytes).is_ok() as i32)
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
+                "ed25519_verify".to_string(),
                 e,
             ))
         })
