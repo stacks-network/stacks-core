@@ -27,6 +27,8 @@ use stacks_common::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, to_hex};
 
 use super::clarity_store::SpecialCaseHandler;
+#[cfg(feature = "clarity-wasm")]
+use super::clarity_store::WasmCompiler;
 use super::key_value_wrapper::ValueResult;
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contexts::ContractContext;
@@ -1570,6 +1572,40 @@ impl ClarityDatabase<'_> {
 
     pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         self.store.get_cc_special_cases_handler()
+    }
+
+    /// The Wasm compiler supplied by the embedder, used to compile contracts which were
+    /// deployed without a Wasm module. Returns [`None`] when no compiler is available.
+    #[cfg(feature = "clarity-wasm")]
+    pub fn get_wasm_compiler(&self) -> Option<WasmCompiler> {
+        self.store.get_wasm_compiler()
+    }
+
+    /// Replace the cached copy of `contract_identifier` with `contract_context`, which is how a
+    /// just-in-time compiled contract is kept for the rest of the transaction, so that it does
+    /// not have to be compiled again on every call.
+    ///
+    /// This only updates the in-memory execution cache -- the contract is never written back to
+    /// the data store, since the stored contract is consensus-critical. This is a no-op when no
+    /// cache is attached or when the contract is not already cached.
+    #[cfg(feature = "clarity-wasm")]
+    pub fn cache_contract_context(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        contract_context: ContractContext,
+    ) {
+        let Some(entry) = self.peek_cached_contract(contract_identifier) else {
+            return;
+        };
+        let load_cost_size = entry.load_cost_size;
+
+        self.cache_contract(
+            contract_identifier.clone(),
+            CachedContract {
+                contract: contract_context.into(),
+                load_cost_size,
+            },
+        );
     }
 
     #[allow(clippy::unnecessary_fallible_conversions)]

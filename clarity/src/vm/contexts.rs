@@ -28,13 +28,15 @@ use stacks_common::types::chainstate::StacksBlockId;
 use wasmtime::Engine;
 
 #[cfg(feature = "clarity-wasm")]
-use super::clarity_wasm::{CostMeter, call_function};
+use super::clarity_wasm::{CostMeter, call_function, compile_and_call_function};
 use super::hooks::{
     CallArguments, CallHook, CallTraceFrame, EvalHook, EvalHookNotifier, ExecutionOutcome,
 };
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::ast::ContractAST;
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
+#[cfg(feature = "clarity-wasm")]
+use crate::vm::callables::DefineType;
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -51,6 +53,8 @@ use crate::vm::errors::{
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::resource_limiter::ResourceLimiter;
+#[cfg(feature = "clarity-wasm")]
+use crate::vm::types::FunctionType;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     AssetIdentifier, BuffData, CallableData, PrincipalData, QualifiedContractIdentifier,
@@ -1693,7 +1697,24 @@ impl<'a, 'b> ExecutionState<'a, 'b> {
                     invoke_ctx.caller.clone(),
                     invoke_ctx.sponsor.clone(),
                 )
+            } else if self.global_context.database.get_wasm_compiler().is_some() {
+                // The contract was deployed without a Wasm module (a boot contract, or a contract
+                // deployed before Wasm compilation was enabled): compile it to Wasm now, then
+                // call the function in the Wasm module, so that execution does not silently
+                // diverge to the interpreter.
+                compile_and_call_function(
+                    function.get_name(),
+                    args,
+                    self.global_context,
+                    next_contract_context,
+                    self.call_stack,
+                    invoke_ctx.sender.clone(),
+                    invoke_ctx.caller.clone(),
+                    invoke_ctx.sponsor.clone(),
+                )
             } else {
+                // No Wasm compiler is available, which is the case for the in-crate test stores:
+                // interpret the function instead.
                 let callee_view = invoke_ctx.with_contract_context(next_contract_context);
 
                 function.execute_apply(args, self, &callee_view)
@@ -2579,6 +2600,30 @@ impl ContractContext {
     #[cfg(feature = "clarity-wasm")]
     pub fn set_wasm_module(&mut self, wasm_module: Vec<u8>) {
         self.wasm_module = Some(wasm_module);
+    }
+
+    /// Fill in the return types of this contract's functions from `contract_analysis`.
+    ///
+    /// A contract which was deployed by the interpreter has no return type recorded for any of
+    /// its functions, but the Wasm runtime needs them to read a function's result out of Wasm
+    /// memory. Functions which already have a return type are left untouched.
+    #[cfg(feature = "clarity-wasm")]
+    pub fn complete_function_return_types(&mut self, contract_analysis: &ContractAnalysis) {
+        for (name, function) in self.functions.iter_mut() {
+            if function.get_return_type().is_some() {
+                continue;
+            }
+
+            let function_type = match function.define_type {
+                DefineType::Public => contract_analysis.get_public_function_type(name),
+                DefineType::ReadOnly => contract_analysis.get_read_only_function_type(name),
+                DefineType::Private => contract_analysis.get_private_function(name),
+            };
+
+            if let Some(FunctionType::Fixed(fixed)) = function_type {
+                function.set_return_type(fixed.returns.clone());
+            }
+        }
     }
 
     #[cfg(feature = "clarity-wasm")]

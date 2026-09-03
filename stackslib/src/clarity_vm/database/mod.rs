@@ -7,6 +7,8 @@ use clarity::vm::database::sqlite::{
     sqlite_get_contract_hash, sqlite_get_metadata, sqlite_get_metadata_manual,
     sqlite_insert_metadata,
 };
+#[cfg(feature = "clarity-wasm")]
+use clarity::vm::database::WasmCompiler;
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
@@ -32,6 +34,8 @@ use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
+#[cfg(feature = "clarity-wasm")]
+use crate::clarity_vm::wasm_compiler::compile_deployed_contract;
 use crate::core::{StacksEpoch, StacksEpochId};
 use crate::util_lib::db::{DBConn, Error as DBError, FromColumn, FromRow};
 
@@ -1292,6 +1296,13 @@ impl ClarityBackingStore for MemoryBackingStore {
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         Some(&handle_contract_call_special_cases)
+    }
+
+    /// Compile contracts which were deployed without a Wasm module, so that they can still be
+    /// executed by the Wasm runtime
+    #[cfg(feature = "clarity-wasm")]
+    fn get_wasm_compiler(&self) -> Option<WasmCompiler> {
+        Some(&compile_deployed_contract)
     }
 
     fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
