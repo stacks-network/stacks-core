@@ -1090,8 +1090,9 @@ impl SpvClient {
     /// Determine the target difficult over a given difficulty adjustment interval
     /// the `interval` parameter is the difficulty interval -- a 2016-block interval.
     /// * On mainnet, `headers_in_range` can be empty. If it's not empty, then the 0th element is
-    /// treated as the parent of `current_header`.  On testnet, `headers_in_range` must be a range
-    /// of headers in the given `interval`.
+    ///   treated as the parent of `current_header`.  On testnet, `headers_in_range` must be a range
+    ///   of headers in the given `interval`.
+    ///
     /// Returns (new bits, new target)
     pub fn get_target(
         &self,

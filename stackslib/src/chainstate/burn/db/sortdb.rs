@@ -4301,7 +4301,7 @@ impl SortitionDB {
     /// * `from_tip` - tip of the "sortition chain" that is being built on
     /// * `next_pox_info` - iff this sortition is the first block in a reward cycle, this should be Some
     /// * `announce_to` - a function that will be invoked with the calculated reward set before this method
-    ///                   commits its results. This is used to post the calculated reward set to an event observer.
+    ///   commits its results. This is used to post the calculated reward set to an event observer.
     pub fn evaluate_sortition<F: FnOnce(Option<RewardSetInfo>, &ConsensusHash)>(
         &mut self,
         mainnet: bool,
@@ -4726,7 +4726,7 @@ impl SortitionDB {
     /// * burn_header_hash
     /// * 1st ancestor of burn_header_hash
     /// * 2nd ancestor of burn_header_hash
-    /// ...
+    /// * ...
     /// * Nth ancestor of burn_header_hash
     ///
     /// That is, the resulting list will have up to N+1 items.
@@ -6111,9 +6111,9 @@ impl SortitionHandleTx<'_> {
     /// Given all of a snapshot's block ops, calculate how many burnchain tokens were sent to each
     /// PoX payout.  Note that this value is *per payout*:
     /// * in a reward phase, multiply this by OUTPUTS_PER_COMMIT to get the total amount of tokens
-    /// sent across all miners.
+    ///   sent across all miners.
     /// * in a prepare phase, where there is only one output, this value is the total amount of
-    /// tokens sent across all miners.
+    ///   tokens sent across all miners.
     fn get_pox_payout_per_output(
         &self,
         block_ops: &[BlockstackOperationType],

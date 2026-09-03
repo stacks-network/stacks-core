@@ -2893,6 +2893,7 @@ impl StacksChainState {
     /// Given a microblock stream, does it connect the parent and child anchored blocks?
     /// * verify that the blocks are a contiguous sequence, with no duplicate sequence numbers
     /// * verify that each microblock is signed by the parent anchor block's key
+    ///
     /// The stream must be in order by sequence number, and there must be no duplicates.
     /// If the stream connects to the anchored block, then
     /// return the index in the given microblocks vec that corresponds to the highest valid
@@ -3104,7 +3105,7 @@ impl StacksChainState {
     /// Returns Some(commit burn, total burn) if valid
     /// Returns None if not valid
     /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
-    /// (ostensibly) selected this block for inclusion.
+    ///   (ostensibly) selected this block for inclusion.
     fn validate_anchored_block_burnchain(
         blocks_conn: &DBConn,
         db_handle: &SortitionHandleConn,
@@ -4836,14 +4837,14 @@ impl StacksChainState {
     /// The rules are different for different epochs:
     ///
     /// * In Stacks 2.0/2.05, only the operations in the burnchain block will be considered.
-    /// So if a transaction was mined in burnchain block N, it will be processed in the Stacks
-    /// block mined in burnchain block N (if there is one).
+    ///   So if a transaction was mined in burnchain block N, it will be processed in the Stacks
+    ///   block mined in burnchain block N (if there is one).
     ///
     /// * In Stacks 2.1+, the operations in the last K burnchain blocks that have not yet been
-    /// considered in this Stacks block's fork will be processed in the order in which they are
-    /// mined in the burnchain.  So if a transaction was mined in an burnchain block between N and
-    /// N-K inclusive, it will be processed in each Stacks fork that contains at least one Stacks
-    /// block mined in the same burnchain interval.
+    ///   considered in this Stacks block's fork will be processed in the order in which they are
+    ///   mined in the burnchain.  So if a transaction was mined in an burnchain block between N and
+    ///   N-K inclusive, it will be processed in each Stacks fork that contains at least one Stacks
+    ///   block mined in the same burnchain interval.
     ///
     /// The rationale for the new behavior in Stacks 2.1+ is that burnchain-hosted STX operations
     /// can get picked up in Stacks blocks that only live on short-lived forks, or get mined in

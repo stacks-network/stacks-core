@@ -557,8 +557,8 @@ impl RewardSet {
     ///
     /// * V0: one bit per reward-slot recipient.
     /// * Waterfall: always 1 => there is a single sBTC output. This treatment vec
-    ///    is no longer used in consensus, but the miner includes it for deserialization
-    ///    compatibility
+    ///   is no longer used in consensus, but the miner includes it for deserialization
+    ///   compatibility
     pub fn pox_treatment_bitvec_len(&self) -> u16 {
         match self {
             RewardSet::V0(v0) => v0.rewarded_addresses.len().try_into().unwrap_or(u16::MAX),
