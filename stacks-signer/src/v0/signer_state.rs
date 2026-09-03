@@ -627,6 +627,48 @@ impl LocalStateMachine {
                 return Err(ClientError::InvalidResponse(err_msg).into());
             }
 
+            // An event below our current burn view is either a delayed notification for a canonical
+            // ancestor or part of a burnchain reorg. Hash inequality against the tip cannot
+            // distinguish the two (an ancestor always has a different consensus hash).
+            //
+            // Once the node has reached our prior height, ask whether our view is still canonical:
+            // if it is, the event is stale regardless of which branch it came from; if not, fall
+            // through to fork handling.
+            //
+            // If the node is below our prior height, preserve the existing fork behavior and leave
+            // that ambiguous case to the broader reconciliation policy.
+            if expected_burn_block.burn_block_height < prior_state_machine.burn_block_height
+                && next_burn_block_height >= prior_state_machine.burn_block_height
+            {
+                match client.get_sortition_by_burn_height(prior_state_machine.burn_block_height) {
+                    Ok(sortition) if sortition.consensus_hash == prior_state_machine.burn_block => {
+                        info!("Signer State: got a stale burn block event while the current view is still canonical. Ignoring it.";
+                            "stale_burn_block_height" => expected_burn_block.burn_block_height,
+                            "stale_burn_block_consensus_hash" => %expected_burn_block.consensus_hash,
+                            "burn_block_height" => prior_state_machine.burn_block_height,
+                            "burn_block_consensus_hash" => %prior_state_machine.burn_block,
+                        );
+                        *self = Self::Initialized(prior_state_machine);
+                        return Ok(());
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        // Without a canonicity verdict the event is unclassifiable. Preserve the
+                        // last-known-good state and park the event for a later retry.
+                        warn!("Signer State: failed to check canonicity of the current burn view while handling a stale burn block event. Retrying later.";
+                            "err" => ?e,
+                            "stale_burn_block_height" => expected_burn_block.burn_block_height,
+                            "burn_block_height" => prior_state_machine.burn_block_height,
+                        );
+                        *self = Self::Pending {
+                            update: StateMachineUpdate::BurnBlock(expected_burn_block),
+                            prior: prior_state_machine,
+                        };
+                        return Err(e.into());
+                    }
+                }
+            }
+
             let replay_state = match ReplayState::infer_state(&tx_replay_set, tx_replay_scope) {
                 Some(valid_state) => valid_state,
                 None => {
