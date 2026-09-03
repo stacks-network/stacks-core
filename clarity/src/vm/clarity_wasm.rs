@@ -1,6 +1,7 @@
 use std::fmt::{self, Display};
 use std::io::{Cursor, Write as _};
 use std::ops::{AddAssign, SubAssign};
+use std::sync::Mutex;
 
 use clarity_types::types::MAX_VALUE_SIZE;
 use stacks_common::types::StacksEpochId;
@@ -6148,9 +6149,12 @@ fn handle_vm_execution_errors(
         .ok_or(VmExecutionError::Wasm(WasmError::GlobalNotFound(
             "runtime-error-linked".to_owned(),
         )))?;
+    // Wrapped in a `Mutex<Option<..>>` so the error mapping can take ownership:
+    // `VmExecutionError` is not `Clone`, and an `ExternRef` payload is only
+    // reachable through a shared reference.
     match linked_error.set(
         caller.as_context_mut(),
-        Val::ExternRef(Some(ExternRef::new(error))),
+        Val::ExternRef(Some(ExternRef::new(Mutex::new(Some(error))))),
     ) {
         Err(error) => Err(VmExecutionError::Wasm(WasmError::UnableToWriteMemory(
             error,
@@ -10496,18 +10500,23 @@ mod tests {
 }
 
 mod error_mapping {
+    use std::sync::Mutex;
+
     use stacks_common::types::StacksEpochId;
     use wasmtime::{AsContextMut, Instance, Trap};
 
     use super::{
-        read_bytes_from_wasm, read_from_wasm_indirect, read_identifier_from_wasm,
+        read_bytes_from_wasm, read_from_wasm, read_from_wasm_indirect, read_identifier_from_wasm,
         signature_from_string,
     };
+    use crate::vm::costs::CostErrors;
     use crate::vm::errors::{
-        CommonCheckErrorKind, EarlyReturnError, RuntimeCheckErrorKind, RuntimeError,
-        VmExecutionError, WasmError,
+        ClarityTypeError, CommonCheckErrorKind, EarlyReturnError, RuntimeCheckErrorKind,
+        RuntimeError, VmExecutionError, WasmError,
     };
-    use crate::vm::types::{OptionalData, ResponseData};
+    use crate::vm::types::{
+        BufferLength, OptionalData, ResponseData, SequenceSubtype, TypeSignature,
+    };
     use crate::vm::{ClarityVersion, Value};
 
     const LOG2_ERROR_MESSAGE: &str = "log2 must be passed a positive integer";
@@ -10580,6 +10589,38 @@ mod error_mapping {
         /// Indicates an attempt to use a function with too many arguments
         ArgumentCountAtMost = 15,
 
+        /// Indicates that the elements of a sequence have mismatched arities
+        SequenceElementArityMismatch = 16,
+
+        /// Indicates that a value should be a buffer of a different size.
+        /// Arguments:
+        ///  - expected buffer size in `runtime-error-value-offset`
+        ///  - actual buffer offset in `runtime-error-arg-offset`
+        ///  - actual buffer size in `runtime-error-arg-len`
+        IncorrectBufferSize = 17,
+
+        /// Indicates a runtime cost overrun
+        CostOverrunRuntime = 100,
+
+        /// Indicates a read count cost overrun
+        CostOverrunReadCount = 101,
+
+        /// Indicates a read length cost overrun
+        CostOverrunReadLength = 102,
+
+        /// Indicates a write count cost overrun
+        CostOverrunWriteCount = 103,
+
+        /// Indicates a write length cost overrun
+        CostOverrunWriteLength = 104,
+
+        /// Indicates that a linked host function raised an error. The error
+        /// itself is stored in the `linked-error` global as an `externref`.
+        ExternError = 105,
+
+        /// Indicates that a call to `TypeSignature::size()` failed
+        SignatureTypeSizeCheckError = 106,
+
         /// A catch-all for errors that are not mapped to specific error codes.
         /// This might be used for unexpected or unclassified errors.
         NotMapped = 99,
@@ -10605,6 +10646,15 @@ mod error_mapping {
                 13 => ErrorMap::ArgumentCountMismatch,
                 14 => ErrorMap::ArgumentCountAtLeast,
                 15 => ErrorMap::ArgumentCountAtMost,
+                16 => ErrorMap::SequenceElementArityMismatch,
+                17 => ErrorMap::IncorrectBufferSize,
+                100 => ErrorMap::CostOverrunRuntime,
+                101 => ErrorMap::CostOverrunReadCount,
+                102 => ErrorMap::CostOverrunReadLength,
+                103 => ErrorMap::CostOverrunWriteCount,
+                104 => ErrorMap::CostOverrunWriteLength,
+                105 => ErrorMap::ExternError,
+                106 => ErrorMap::SignatureTypeSizeCheckError,
                 _ => ErrorMap::NotMapped,
             }
         }
@@ -10763,6 +10813,90 @@ mod error_mapping {
                 let (expected, got) = get_runtime_error_arg_lengths(&instance, &mut store);
                 CommonCheckErrorKind::RequiresAtMostArguments(expected, got).into()
             }
+            ErrorMap::SequenceElementArityMismatch => {
+                let (expected, found) = get_runtime_error_arg_lengths(&instance, &mut store);
+                ClarityTypeError::SequenceElementArityMismatch { expected, found }.into()
+            }
+            ErrorMap::IncorrectBufferSize => {
+                let expected_size =
+                    get_global_i32(&instance, &mut store, "runtime-error-value-offset") as u32;
+                let actual_offset =
+                    get_global_i32(&instance, &mut store, "runtime-error-arg-offset");
+                let actual_length = get_global_i32(&instance, &mut store, "runtime-error-arg-len");
+
+                let memory = instance
+                    .get_memory(&mut store, "memory")
+                    .unwrap_or_else(|| panic!("Could not find wasm instance memory"));
+
+                let actual_buffer = read_from_wasm(
+                    memory,
+                    &mut store,
+                    &TypeSignature::BUFFER_MAX,
+                    actual_offset,
+                    actual_length,
+                    *epoch_id,
+                )
+                .unwrap_or_else(|e| panic!("Could not read thrown value from memory: {e}"));
+
+                let expected_length = match BufferLength::try_from(expected_size) {
+                    Ok(length) => length,
+                    Err(e) => {
+                        return VmExecutionError::Wasm(WasmError::Expect(format!(
+                            "Invalid size for an expected buffer error: {e}"
+                        )));
+                    }
+                };
+                RuntimeCheckErrorKind::TypeValueError(
+                    Box::new(TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        expected_length,
+                    ))),
+                    actual_buffer.to_error_string(),
+                )
+                .into()
+            }
+            ErrorMap::CostOverrunRuntime
+            | ErrorMap::CostOverrunReadCount
+            | ErrorMap::CostOverrunReadLength
+            | ErrorMap::CostOverrunWriteCount
+            | ErrorMap::CostOverrunWriteLength => VmExecutionError::from(CostErrors::CostOverflow),
+            ErrorMap::ExternError => {
+                // A linked host function raised a `VmExecutionError` and stashed
+                // it in the `linked-error` global (see
+                // `handle_vm_execution_errors`). Recover it so the caller sees
+                // the real Clarity error instead of an opaque Wasm failure.
+                match instance.get_global(store.as_context_mut(), "linked-error") {
+                    None => {
+                        VmExecutionError::Wasm(WasmError::GlobalNotFound("linked-error".to_owned()))
+                    }
+                    Some(global) => match global.get(store.as_context_mut()).unwrap_externref() {
+                        None => VmExecutionError::Wasm(WasmError::Expect(
+                            "linked-error should hold an error".to_owned(),
+                        )),
+                        Some(linked_error) => {
+                            match linked_error
+                                .data()
+                                .downcast_ref::<Mutex<Option<VmExecutionError>>>()
+                            {
+                                None => VmExecutionError::Wasm(WasmError::Expect(
+                                    "linked-error should hold an error type".to_owned(),
+                                )),
+                                Some(slot) => {
+                                    let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
+                                    slot.take().unwrap_or_else(|| {
+                                        VmExecutionError::Wasm(WasmError::Expect(
+                                            "linked-error had already been taken".to_owned(),
+                                        ))
+                                    })
+                                }
+                            }
+                        }
+                    },
+                }
+            }
+            ErrorMap::SignatureTypeSizeCheckError => VmExecutionError::Wasm(WasmError::Expect(
+                "FAIL: .size() overflowed on too large of a type. construction should have failed!"
+                    .into(),
+            )),
             _ => panic!("Runtime error code {} not supported", runtime_error_code),
         }
     }
