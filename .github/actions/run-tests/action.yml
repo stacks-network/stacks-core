@@ -44,14 +44,6 @@ runs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ github.event.pull_request.head.sha || github.ref }}
-        # Only check out .rs files and related Rust files for testing
-        filter: blob:none
-        sparse-checkout-cone-mode: false
-        sparse-checkout: |
-          **/Cargo.toml
-          **/Cargo.lock
-          **/*.rs
-          
 
     # Setup rust toolchain with llvm-tools-preview
     - name: Setup Rust Toolchain
@@ -166,7 +158,8 @@ runs:
         if [ "${{ inputs.upload-code-coverage }}" = "true" ]; then
           cargo llvm-cov nextest \
             --lcov \
-            --ignore-filename-regex='[/\\](\.github|\.vscode|changelog\.d|contrib|benches)[/\\]' \
+            --skip-functions \
+            --ignore-filename-regex='[/\\]test[/\\]|[/\\](test\.rs|[0-9a-zA-Z_-]+[_-]test\.rs)$' \
             --output-path lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
             --config-file ./.github/nextest/ci-nextest.toml \
             --profile ci-sequential \
@@ -193,7 +186,8 @@ runs:
         if [ "${{ inputs.upload-code-coverage }}" = "true" ]; then
           cargo llvm-cov nextest \
             --lcov \
-            --ignore-filename-regex='[/\\](\.github|\.vscode|changelog\.d|contrib|benches)[/\\]' \
+            --skip-functions \
+            --ignore-filename-regex='[/\\]test[/\\]|[/\\](test\.rs|[0-9a-zA-Z_-]+[_-]test\.rs)$' \
             --output-path lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
             --config-file ./.github/nextest/ci-nextest.toml \
             --profile ci-parallel \
