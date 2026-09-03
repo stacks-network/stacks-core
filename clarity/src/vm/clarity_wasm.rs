@@ -10617,29 +10617,20 @@ mod error_mapping {
         epoch_id: &StacksEpochId,
         clarity_version: &ClarityVersion,
     ) -> VmExecutionError {
-        if let Some(vm_error) = e.root_cause().downcast_ref::<VmExecutionError>() {
-            // SAFETY:
-            //
-            // This unsafe operation returns the value of a location pointed by `*mut T`.
-            //
-            // The purpose of this code is to take the ownership of the `vm_error` value
-            // since clarity::vm::errors::VmExecutionError is not a Clonable type.
-            //
-            // Converting a `&T` (vm_error) to a `*mut T` doesn't cause any issues here
-            // because the reference is not borrowed elsewhere.
-            //
-            // The replaced `T` value is deallocated after the operation. Therefore, the chosen `T`
-            // is a dummy value, solely to satisfy the signature of the replace function
-            // and not cause harm when it is deallocated.
-            //
-            // Specifically, VmExecutionError::Wasm(WasmError::ModuleNotFound) was selected as the placeholder value.
-            return unsafe {
-                core::ptr::replace(
-                    (vm_error as *const VmExecutionError) as *mut VmExecutionError,
-                    VmExecutionError::Wasm(WasmError::ModuleNotFound),
-                )
-            };
-        }
+        // `wasmtime::Error` is `anyhow::Error`, so `downcast` peels off any
+        // context layers and returns the original error by value. Since
+        // `VmExecutionError` reports no `source()`, a successful
+        // `root_cause()` match implies it is the payload, so `downcast`
+        // finds it too.
+        let e = match e.downcast::<VmExecutionError>() {
+            Ok(vm_error) => return vm_error,
+            Err(e) => e,
+        };
+
+        debug_assert!(
+            !e.root_cause().is::<VmExecutionError>(),
+            "VmExecutionError reachable via root_cause() but not downcast(): {e:?}"
+        );
 
         // Check if the error is caused by
         // an unreachable Wasm trap.
