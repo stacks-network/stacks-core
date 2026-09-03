@@ -1584,8 +1584,8 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
         let mut connected = false;
         let now = get_epoch_time_secs();
         while !connected && get_epoch_time_secs() < now + 60 {
-            if !comms.is_neighbor_connecting(&mut peer_client.network, &peer_addr)
-                || !comms.has_neighbor_session(&mut peer_client.network, &peer_addr)
+            if !comms.is_neighbor_connecting(&peer_client.network, &peer_addr)
+                || !comms.has_neighbor_session(&peer_client.network, &peer_addr)
             {
                 let _ = comms
                     .neighbor_session_begin(&mut peer_client.network, &peer_addr)

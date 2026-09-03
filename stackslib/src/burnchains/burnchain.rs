@@ -134,19 +134,19 @@ impl BurnchainStateTransition {
         block_total_burns.sort();
 
         if block_total_burns.is_empty() {
-            return Some(0);
+            Some(0)
         } else if block_total_burns.len() == 1 {
-            return block_total_burns.get(0).copied();
+            block_total_burns.get(0).copied()
         } else if block_total_burns.len() % 2 != 0 {
             let idx = block_total_burns.len() / 2;
-            return block_total_burns.get(idx).copied();
+            block_total_burns.get(idx).copied()
         } else {
             // NOTE: the `- 1` is safe because block_total_burns.len() >= 2
             let idx_left = block_total_burns.len() / 2 - 1;
             let idx_right = block_total_burns.len() / 2;
             let burn_left = block_total_burns.get(idx_left)?;
             let burn_right = block_total_burns.get(idx_right)?;
-            return Some((burn_left + burn_right) / 2);
+            Some((burn_left + burn_right) / 2)
         }
     }
 
@@ -400,14 +400,10 @@ impl BurnchainSigner {
 
 impl BurnchainRecipient {
     pub fn try_from_bitcoin_output(o: &BitcoinTxOutput) -> Option<BurnchainRecipient> {
-        if let Some(pox_addr) = PoxAddress::try_from_bitcoin_output(o) {
-            Some(BurnchainRecipient {
-                address: pox_addr,
-                amount: o.units,
-            })
-        } else {
-            None
-        }
+        PoxAddress::try_from_bitcoin_output(o).map(|pox_addr| BurnchainRecipient {
+            address: pox_addr,
+            amount: o.units,
+        })
     }
 }
 
@@ -658,8 +654,7 @@ impl Burnchain {
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
-        let ret = Burnchain::new(working_dir, "bitcoin", "regtest", None).unwrap();
-        ret
+        Burnchain::new(working_dir, "bitcoin", "regtest", None).unwrap()
     }
 
     #[cfg(test)]
@@ -1182,10 +1177,10 @@ impl Burnchain {
 
         if reorg_height < headers_height {
             warn!("Burnchain reorg detected: highest common ancestor at height {reorg_height}");
-            return Ok((reorg_height, true));
+            Ok((reorg_height, true))
         } else {
             // no reorg
-            return Ok((headers_height, false));
+            Ok((headers_height, false))
         }
     }
 
@@ -1433,9 +1428,7 @@ impl Burnchain {
             return Err(burnchain_error::TrySyncAgain);
         }
 
-        if let Err(e) = downloader_result {
-            return Err(e);
-        }
+        downloader_result?;
 
         Ok((block_snapshot, state_transition_opt))
     }
@@ -1833,9 +1826,7 @@ impl Burnchain {
             return Err(burnchain_error::TrySyncAgain);
         }
 
-        if let Err(e) = downloader_result {
-            return Err(e);
-        }
+        downloader_result?;
         update_burnchain_height(block_header.block_height as i64);
         Ok(block_header)
     }

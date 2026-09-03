@@ -412,7 +412,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             "{:?}: no inbound peers to talk to",
             network.get_local_peer()
         );
-        return Err(net_error::NoSuchNeighbor);
+        Err(net_error::NoSuchNeighbor)
     }
 
     /// Instantiate a neighbor walk, but go straight to the pingback logic (i.e. we don't have any

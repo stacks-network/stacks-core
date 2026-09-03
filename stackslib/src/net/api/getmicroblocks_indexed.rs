@@ -160,15 +160,13 @@ impl RPCRequestHandler for RPCMicroblocksIndexedRequestHandler {
                     &HttpNotFound::new(format!("No such microblock {:?}\n", &tail_microblock_id)),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
                 let msg = format!("Failed to load microblock: {:?}\n", &e);
                 warn!("{}", &msg);
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 
@@ -250,7 +248,7 @@ impl HttpChunkGenerator for StacksIndexedMicroblockStream {
         let buf = mblock_info.block_data;
 
         self.microblock_hash = mblock_info.parent_hash;
-        return Ok(buf);
+        Ok(buf)
     }
 }
 

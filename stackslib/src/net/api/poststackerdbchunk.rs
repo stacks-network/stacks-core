@@ -302,13 +302,13 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                     code: None,
                 };
 
-                return Ok(ack);
+                Ok(ack)
             });
 
         let ack_resp = match ack_resp {
             Ok(ack) => ack,
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -339,7 +339,7 @@ impl HttpResponse for RPCPostStackerDBChunkRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let ack: StackerDBChunkAckData = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(ack)?)
+        HttpResponsePayload::try_from_json(ack)
     }
 }
 

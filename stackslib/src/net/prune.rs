@@ -134,9 +134,9 @@ impl PeerNetwork {
         // flip a coin
         let mut rng = thread_rng();
         if rng.next_u32() % 2 == 0 {
-            return Ordering::Less;
+            Ordering::Less
         } else {
-            return Ordering::Greater;
+            Ordering::Greater
         }
         // return Ordering::Equal;
     }
@@ -178,13 +178,7 @@ impl PeerNetwork {
 
         let mut org_neighbors = self.org_neighbor_distribution(self.peerdb.conn(), preserve)?;
         let mut ret = vec![];
-        let orgs: Vec<u32> = org_neighbors
-            .keys()
-            .map(|o| {
-                let r = *o;
-                r
-            })
-            .collect();
+        let orgs: Vec<u32> = org_neighbors.keys().copied().collect();
 
         for org in orgs.iter() {
             // sort each neighbor list by uptime and health.
@@ -205,43 +199,39 @@ impl PeerNetwork {
         // don't let a single organization have more than
         // soft_max_neighbors_per_org neighbors.
         for org in orgs.iter() {
-            match org_neighbors.get_mut(org) {
-                None => {}
-                Some(ref mut neighbor_infos) => {
-                    if neighbor_infos.len() as u64 > self.connection_opts.soft_max_neighbors_per_org
+            let Some(neighbor_infos) = org_neighbors.get_mut(org) else {
+                continue;
+            };
+            if neighbor_infos.len() as u64 > self.connection_opts.soft_max_neighbors_per_org {
+                debug!(
+                    "Org {} has {} neighbors (more than {} soft limit)",
+                    org,
+                    neighbor_infos.len(),
+                    self.connection_opts.soft_max_neighbors_per_org
+                );
+                let prune_count = neighbor_infos
+                    .len()
+                    .saturating_sub(self.connection_opts.soft_max_neighbors_per_org as usize);
+                let mut removed_count = 0;
+                for neighbor_info in neighbor_infos.iter().take(prune_count) {
+                    let (neighbor_key, _) = neighbor_info.clone();
+
+                    debug!(
+                        "{:?}: Prune {:?} because its org ({}) dominates our peer table",
+                        &self.local_peer, &neighbor_key, org
+                    );
+
+                    ret.push((neighbor_key, DropReason::OrgDominatesPeerTable));
+                    removed_count += 1;
+
+                    // don't prune too many
+                    if num_outbound - (ret.len() as u64) <= self.connection_opts.soft_num_neighbors
                     {
-                        debug!(
-                            "Org {} has {} neighbors (more than {} soft limit)",
-                            org,
-                            neighbor_infos.len(),
-                            self.connection_opts.soft_max_neighbors_per_org
-                        );
-                        let prune_count = neighbor_infos.len().saturating_sub(
-                            self.connection_opts.soft_max_neighbors_per_org as usize,
-                        );
-                        let mut removed_count = 0;
-                        for neighbor_info in neighbor_infos.iter().take(prune_count) {
-                            let (neighbor_key, _) = neighbor_info.clone();
-
-                            debug!(
-                                "{:?}: Prune {:?} because its org ({}) dominates our peer table",
-                                &self.local_peer, &neighbor_key, org
-                            );
-
-                            ret.push((neighbor_key, DropReason::OrgDominatesPeerTable));
-                            removed_count += 1;
-
-                            // don't prune too many
-                            if num_outbound - (ret.len() as u64)
-                                <= self.connection_opts.soft_num_neighbors
-                            {
-                                break;
-                            }
-                        }
-                        for _ in 0..removed_count {
-                            neighbor_infos.remove(0);
-                        }
+                        break;
                     }
+                }
+                for _ in 0..removed_count {
+                    neighbor_infos.remove(0);
                 }
             }
         }

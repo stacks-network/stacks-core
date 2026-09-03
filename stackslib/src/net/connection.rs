@@ -1186,16 +1186,12 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         assert!(!self.outbox.is_empty());
 
         // wake up any receivers when (if) we get a reply
-        let mut inflight_message = self.outbox.pop_front();
-        let receiver_notify_opt = inflight_message.take();
-
-        match receiver_notify_opt {
-            None => {}
-            Some(receiver_notify) => {
-                if receiver_notify.notify.is_some() {
-                    self.inflight.push_back(receiver_notify.notify.unwrap());
-                }
-            }
+        if let Some(notify) = self
+            .outbox
+            .pop_front()
+            .and_then(|receiver_notify| receiver_notify.notify)
+        {
+            self.inflight.push_back(notify);
         }
     }
 
@@ -1452,7 +1448,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
             }
         }
 
-        return unsolicited;
+        unsolicited
     }
 
     /// Clear out timed-out requests.

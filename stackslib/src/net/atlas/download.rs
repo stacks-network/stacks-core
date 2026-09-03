@@ -67,7 +67,7 @@ impl AttachmentsDownloader {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     /// Returns the next attachments batch that is ready for processing -- i.e. after its deadline

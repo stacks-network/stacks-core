@@ -963,13 +963,13 @@ impl LeaderBlockCommitOp {
                     .iter()
                     .map(|(addr, _)| Treatment::Punish(addr.clone()))
                     .collect();
-                return Ok(punished);
+                Ok(punished)
             } else {
                 warn!(
                     "Invalid block commit: descended from PoX anchor {}, but used burn outputs",
                     &v0.anchor_block
                 );
-                return Err(op_error::BlockCommitBadOutputs);
+                Err(op_error::BlockCommitBadOutputs)
             }
         } else {
             let mut check_recipients: Vec<_> = v0
@@ -1036,7 +1036,7 @@ impl LeaderBlockCommitOp {
                 .map(|x| Treatment::Punish(x.0))
                 .collect();
             treated_outputs.extend(rewarded);
-            return Ok(treated_outputs);
+            Ok(treated_outputs)
         }
     }
 

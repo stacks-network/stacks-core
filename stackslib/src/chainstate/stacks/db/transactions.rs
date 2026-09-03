@@ -457,16 +457,12 @@ impl StacksChainState {
         tx: &StacksTransaction,
     ) -> StacksAccount {
         // who's paying the fee?
-        let payer_account = if let Some(sponsor_address) = tx.sponsor_address() {
-            let payer_account = StacksChainState::get_account(clarity_tx, &sponsor_address.into());
-            payer_account
-        } else {
-            let origin_account =
-                StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
-            origin_account
-        };
 
-        payer_account
+        if let Some(sponsor_address) = tx.sponsor_address() {
+            StacksChainState::get_account(clarity_tx, &sponsor_address.into())
+        } else {
+            StacksChainState::get_account(clarity_tx, &tx.origin_address().into())
+        }
     }
 
     /// Check the account nonces for the supplied stacks transaction,

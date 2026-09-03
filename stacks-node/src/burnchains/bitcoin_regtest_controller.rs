@@ -508,7 +508,7 @@ impl BitcoinRegtestController {
     /// If the node is **not** a miner, returns None (e.g. follower node).
     fn create_rpc_client_unchecked(config: &Config) -> Option<BitcoinRpcClient> {
         config.node.miner.then(|| {
-            BitcoinRpcClient::from_stx_config(&config)
+            BitcoinRpcClient::from_stx_config(config)
                 .expect("unable to instantiate the RPC client for miner node!")
         })
     }
@@ -2400,7 +2400,7 @@ impl BitcoinRegtestController {
         if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
             reviewed.set_compressed(true);
         }
-        return reviewed;
+        reviewed
     }
 
     /// Retrieves the set of UTXOs for a given address at a specific block height.
@@ -2442,7 +2442,7 @@ impl BitcoinRegtestController {
             Some(&[address]),
             Some(include_unsafe),
             Some(minimum_sum_amount),
-            self.config.burnchain.max_unspent_utxos.clone(),
+            self.config.burnchain.max_unspent_utxos,
         )?;
 
         let txids_to_exclude = utxos_to_exclude.as_ref().map_or_else(HashSet::new, |set| {
@@ -2693,8 +2693,8 @@ mod tests {
 
         pub fn create_keychain_with_seed(value: u8) -> Keychain {
             let seed = vec![value; 4];
-            let keychain = Keychain::default(seed);
-            keychain
+
+            Keychain::default(seed)
         }
 
         pub fn create_miner1_pubkey() -> Secp256k1PublicKey {

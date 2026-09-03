@@ -1119,7 +1119,7 @@ pub trait SortitionHandle {
     ) -> Result<bool, db_error> {
         let earliest_block_height_opt = self.sqlite().query_row(
             "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
-            &[potential_ancestor],
+            [potential_ancestor],
             |row| Ok(u64::from_row(row).expect("Expected u64 in database")))
             .optional()?;
 
@@ -1144,19 +1144,15 @@ pub trait SortitionHandle {
 
         while sn.block_height >= earliest_block_height {
             let cache_check_key = (sn.sortition_id.clone(), potential_ancestor.clone());
-            match Self::descendancy_cache_get(&mut cache, &cache_check_key) {
-                Some(result) => {
-                    if sn.sortition_id != top_sortition_id {
-                        Self::descendancy_cache_put(
-                            &mut cache,
-                            (top_sortition_id, cache_check_key.1),
-                            result,
-                        );
-                    }
-                    return Ok(result);
+            if let Some(result) = Self::descendancy_cache_get(&mut cache, &cache_check_key) {
+                if sn.sortition_id != top_sortition_id {
+                    Self::descendancy_cache_put(
+                        &mut cache,
+                        (top_sortition_id, cache_check_key.1),
+                        result,
+                    );
                 }
-                // not cached, don't need to do anything.
-                None => {}
+                return Ok(result);
             }
 
             if !sn.sortition {
@@ -1213,7 +1209,7 @@ pub trait SortitionHandle {
             (top_sortition_id, potential_ancestor.clone()),
             false,
         );
-        return Ok(false);
+        Ok(false)
     }
 
     /// Return the bitcoin block height of the first bitcoin block where
@@ -1538,7 +1534,7 @@ impl<'a> SortitionHandleTx<'a> {
             last_snapshot = ancestor_snapshot;
         }
 
-        return Ok(false);
+        Ok(false)
     }
 
     /// Find out whether or not a given consensus hash is "recent" enough to be used in this fork.
@@ -1874,7 +1870,7 @@ impl SortitionHandleTx<'_> {
     fn is_waterfall_reward_set_activated(&mut self) -> Result<bool, db_error> {
         let sortition_id = &self.context.chain_tip.clone();
         let has_entry = self
-            .get_indexed(sortition_id, &db_keys::pox_reward_set_wf_activated())?
+            .get_indexed(sortition_id, db_keys::pox_reward_set_wf_activated())?
             .is_some();
         Ok(has_entry)
     }
@@ -2004,7 +2000,7 @@ impl SortitionHandleTx<'_> {
             // than the existing tip for this sortiton (because it represents more overall signer
             // votes).
             if let Some((cur_ch, cur_bhh, cur_height)) =
-                SortitionDB::get_canonical_nakamoto_tip_hash_and_height(self, &burn_tip)?
+                SortitionDB::get_canonical_nakamoto_tip_hash_and_height(self, burn_tip)?
             {
                 let will_replace = if cur_height < stacks_block_height {
                     true
@@ -2174,7 +2170,7 @@ impl<'a> SortitionHandleConn<'a> {
         chain_tip: &SortitionId,
     ) -> Result<SortitionHandleConn<'a>, db_error> {
         Ok(SortitionHandleConn::new(
-            &connection.index,
+            connection.index,
             SortitionHandleContext {
                 chain_tip: chain_tip.clone(),
                 first_block_height: connection.context.first_block_height,
@@ -3012,7 +3008,7 @@ impl SortitionDB {
         epochs: &[StacksEpoch],
     ) -> Result<(), db_error> {
         let epochs = StacksEpoch::validate_epochs(epochs);
-        for epoch in epochs.into_iter() {
+        for epoch in epochs.iter() {
             let args = params![
                 (epoch.epoch_id as u32),
                 u64_to_sql(epoch.start_height)?,
@@ -3031,7 +3027,7 @@ impl SortitionDB {
     fn replace_epochs(db_tx: &Transaction, epochs: &[StacksEpoch]) -> Result<(), db_error> {
         info!("Replace existing epochs with new epochs");
         db_tx.execute("DELETE FROM epochs;", NO_PARAMS)?;
-        for epoch in epochs.into_iter() {
+        for epoch in epochs.iter() {
             let args = params![
                 (epoch.epoch_id as u32),
                 u64_to_sql(epoch.start_height)?,
@@ -3069,7 +3065,7 @@ impl SortitionDB {
         }
 
         let tip = SortitionDB::get_canonical_burn_chain_tip(db_tx)?;
-        let existing_epoch_idx = StacksEpoch::find_epoch(&existing_epochs, tip.block_height)
+        let existing_epoch_idx = StacksEpoch::find_epoch(existing_epochs, tip.block_height)
             .unwrap_or_else(|| {
                 panic!(
                     "FATAL: Sortition tip {} has no epoch in its existing epochs table",
@@ -3150,7 +3146,7 @@ impl SortitionDB {
         bhh: &BurnchainHeaderHash,
     ) -> Result<Vec<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE burn_header_hash = ?1";
-        query_rows(conn, qry, &[bhh])
+        query_rows(conn, qry, [bhh])
     }
 
     /// Get all snapshots for a burn block height, even if they're not on the canonical PoX fork
@@ -3184,7 +3180,7 @@ impl SortitionDB {
     #[cfg_attr(test, mutants::skip)]
     pub fn get_consensus_hash_height(&self, ch: &ConsensusHash) -> Result<Option<u64>, db_error> {
         let qry = "SELECT block_height FROM snapshots WHERE consensus_hash = ?1";
-        let mut heights: Vec<u64> = query_rows(self.conn(), qry, &[ch])?;
+        let mut heights: Vec<u64> = query_rows(self.conn(), qry, [ch])?;
         if let Some(height) = heights.pop() {
             for next_height in heights {
                 if height != next_height {
@@ -3257,7 +3253,7 @@ impl SortitionDB {
 
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["2"],
+            ["2"],
         )?;
 
         Ok(())
@@ -3269,7 +3265,7 @@ impl SortitionDB {
         }
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["3"],
+            ["3"],
         )?;
         Ok(())
     }
@@ -3280,7 +3276,7 @@ impl SortitionDB {
         }
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["4"],
+            ["4"],
         )?;
         Ok(())
     }
@@ -3298,7 +3294,7 @@ impl SortitionDB {
 
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["5"],
+            ["5"],
         )?;
 
         Ok(())
@@ -3314,7 +3310,7 @@ impl SortitionDB {
 
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["6"],
+            ["6"],
         )?;
 
         Ok(())
@@ -3330,7 +3326,7 @@ impl SortitionDB {
 
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["7"],
+            ["7"],
         )?;
 
         Ok(())
@@ -3449,7 +3445,7 @@ impl SortitionDB {
         let tx = self.tx_begin()?;
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["8"],
+            ["8"],
         )?;
         tx.commit()?;
 
@@ -3466,7 +3462,7 @@ impl SortitionDB {
 
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["9"],
+            ["9"],
         )?;
 
         Ok(())
@@ -3479,7 +3475,7 @@ impl SortitionDB {
 
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["10"],
+            ["10"],
         )?;
 
         Ok(())
@@ -3492,7 +3488,7 @@ impl SortitionDB {
 
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["11"],
+            ["11"],
         )?;
 
         Ok(())
@@ -3628,7 +3624,7 @@ impl SortitionDB {
         let exists: i64 = query_row(
             self.conn(),
             "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1",
-            &[LAST_SORTITION_DB_INDEX],
+            [LAST_SORTITION_DB_INDEX],
         )?
         .unwrap_or(0);
         if exists == 0 {
@@ -3687,11 +3683,11 @@ impl SortitionDB {
         &self,
         tip: &SortitionId,
     ) -> Result<RewardCycleInfo, db_error> {
-        Ok(self.index_conn().get_preprocessed_reward_set_of(
+        self.index_conn().get_preprocessed_reward_set_of(
             &self.pox_constants,
             self.first_block_height,
             tip,
-        )?)
+        )
     }
 
     /// Get a pre-processed reawrd set.
@@ -3719,12 +3715,11 @@ impl SortitionDB {
         let Ok(reward_info) = &self.get_preprocessed_reward_set_of(tip) else {
             return None;
         };
-        let Some(reward_set) = reward_info.known_selected_anchor_block() else {
-            return None;
-        };
+        let reward_set = reward_info.known_selected_anchor_block()?;
 
         reward_set
             .signers()
+            .as_ref()
             .map(|x| x.len())
             .unwrap_or(0)
             .try_into()
@@ -4036,7 +4031,7 @@ impl SortitionDB {
         burnchain_header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<SortitionId>, BurnchainError> {
         let qry = "SELECT sortition_id FROM snapshots WHERE burn_header_hash = ? AND pox_valid = 1";
-        query_row(self.conn(), qry, &[burnchain_header_hash]).map_err(BurnchainError::from)
+        query_row(self.conn(), qry, [burnchain_header_hash]).map_err(BurnchainError::from)
     }
 
     fn get_block_height(
@@ -4044,7 +4039,7 @@ impl SortitionDB {
         sortition_id: &SortitionId,
     ) -> Result<Option<u32>, db_error> {
         let qry = "SELECT block_height FROM snapshots WHERE sortition_id = ? LIMIT 1";
-        conn.query_row(qry, &[sortition_id], |row| row.get(0))
+        conn.query_row(qry, [sortition_id], |row| row.get(0))
             .optional()
             .map_err(db_error::from)
     }
@@ -4061,7 +4056,7 @@ impl SortitionDB {
             .get_tip_indexed(&db_keys::pox_anchor_to_prepare_end(block))?
             .map(|_| block.clone());
 
-        return Ok(expects_block_as_anchor);
+        Ok(expects_block_as_anchor)
     }
 
     fn parse_last_anchor_block_hash(s: Option<String>) -> Option<BlockHeaderHash> {
@@ -4147,7 +4142,7 @@ impl SortitionDB {
                 let mut stmt = db_tx.prepare(
                     "SELECT DISTINCT burn_header_hash FROM snapshots WHERE parent_burn_header_hash = ?",
                 )?;
-                for next_header in stmt.query_map(&[&header], |row| row.get(0))? {
+                for next_header in stmt.query_map([&header], |row| row.get(0))? {
                     queue.push(next_header?);
                 }
             }
@@ -4160,7 +4155,7 @@ impl SortitionDB {
                 let to_invalidate: Vec<BlockSnapshot> = query_rows(
                     &db_tx,
                     "SELECT * FROM snapshots WHERE parent_burn_header_hash = ?1",
-                    &[&header],
+                    [&header],
                 )?;
                 for invalid in to_invalidate {
                     debug!("Invalidate child of {}: {:?}", &header, &invalid);
@@ -4176,7 +4171,7 @@ impl SortitionDB {
                 canonical_stacks_tip_consensus_hash = "0000000000000000000000000000000000000000",
                 stacks_block_accepted = 0
                 WHERE parent_burn_header_hash = ?"#,
-                &[&header],
+                [&header],
             )?;
         }
 
@@ -4200,7 +4195,7 @@ impl SortitionDB {
         conn: &DBConn,
         canonical_stacks_height: u64,
     ) -> Result<Vec<SortitionId>, db_error> {
-        let dirty_sortitions : Vec<SortitionId> = query_rows(conn, "SELECT sortition_id FROM snapshots WHERE canonical_stacks_tip_height > ?1 AND pox_valid = 1", &[&u64_to_sql(canonical_stacks_height)?])?;
+        let dirty_sortitions : Vec<SortitionId> = query_rows(conn, "SELECT sortition_id FROM snapshots WHERE canonical_stacks_tip_height > ?1 AND pox_valid = 1", [&u64_to_sql(canonical_stacks_height)?])?;
         Ok(dirty_sortitions)
     }
 
@@ -4242,7 +4237,7 @@ impl SortitionDB {
         let sql_transition_ops = "SELECT accepted_ops, consumed_keys FROM snapshot_transition_ops WHERE sortition_id = ?";
         let transition_ops = self
             .conn()
-            .query_row(sql_transition_ops, &[id], |row| {
+            .query_row(sql_transition_ops, [id], |row| {
                 let accepted_ops: String = row.get_unwrap(0);
                 let consumed_leader_keys: String = row.get_unwrap(1);
                 Ok(BurnchainStateTransitionOps {
@@ -4286,8 +4281,8 @@ impl SortitionDB {
         next_pox_info: Option<&RewardCycleInfo>,
     ) -> SortitionId {
         let next_pox = Self::make_next_pox_id(parent_pox, next_pox_info);
-        let next_sortition_id = SortitionId::new(this_block_hash, &next_pox);
-        next_sortition_id
+
+        SortitionId::new(this_block_hash, &next_pox)
     }
 
     /// Evaluate the sortition (SIP-001 miner block election) in the burnchain block defined by
@@ -4646,7 +4641,7 @@ impl SortitionDB {
         query_rows(
             conn,
             "SELECT * FROM stack_stx WHERE burn_header_hash = ? ORDER BY vtxindex",
-            &[burn_header_hash],
+            [burn_header_hash],
         )
     }
 
@@ -4660,7 +4655,7 @@ impl SortitionDB {
         query_rows(
             conn,
             "SELECT * FROM delegate_stx WHERE burn_header_hash = ? ORDER BY vtxindex",
-            &[burn_header_hash],
+            [burn_header_hash],
         )
     }
 
@@ -4674,7 +4669,7 @@ impl SortitionDB {
         query_rows(
             conn,
             "SELECT * FROM vote_for_aggregate_key WHERE burn_header_hash = ? ORDER BY vtxindex",
-            &[burn_header_hash],
+            [burn_header_hash],
         )
     }
 
@@ -4688,7 +4683,7 @@ impl SortitionDB {
         query_rows(
             conn,
             "SELECT * FROM transfer_stx WHERE burn_header_hash = ? ORDER BY vtxindex",
-            &[burn_header_hash],
+            [burn_header_hash],
         )
     }
 
@@ -4788,7 +4783,7 @@ impl SortitionDB {
         tip: &BlockSnapshot,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
         Self::get_canonical_nakamoto_tip_hash_and_height_and_burn_view(conn, tip)
-            .and_then(|tip_opt| Ok(tip_opt.map(|(ch, _burn_ch, bhh, height)| (ch, bhh, height))))
+            .map(|tip_opt| tip_opt.map(|(ch, _burn_ch, bhh, height)| (ch, bhh, height)))
     }
 
     /// Given a starting sortition ID, go and find the canonical Nakamoto tip and its burn view
@@ -4808,7 +4803,7 @@ impl SortitionDB {
             let result_at_tip : Option<(ConsensusHash, ConsensusHash, BlockHeaderHash, u64)> = conn
                 .prepare_cached("SELECT consensus_hash,burn_view_consensus_hash, block_hash,block_height FROM stacks_chain_tips_by_burn_view WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1")?
                 .query_row(
-                    &[&cursor.sortition_id],
+                    [&cursor.sortition_id],
                     |row| Ok((row.get_unwrap(0), row.get_unwrap(1), row.get_unwrap(2), (u64::try_from(row.get_unwrap::<_, i64>(3)).expect("FATAL: block height too high"))))
                 ).optional()?;
             test_debug!(
@@ -4835,7 +4830,7 @@ impl SortitionDB {
             let result_at_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = conn
                 .prepare_cached("SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1")?
                 .query_row(
-                    &[&cursor.sortition_id],
+                    [&cursor.sortition_id],
                     |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
                 ).optional()?;
             test_debug!(
@@ -4917,7 +4912,7 @@ impl SortitionDB {
         query_row_panic(
             conn,
             "SELECT * FROM snapshots WHERE arrival_index = ?1 AND stacks_block_accepted > 0 AND pox_valid = 1",
-            &[&u64_to_sql(arrival_index)?],
+            [&u64_to_sql(arrival_index)?],
             || "BUG: multiple snapshots have the same non-zero arrival index".to_string(),
         )
     }
@@ -4928,7 +4923,7 @@ impl SortitionDB {
     ) -> Result<Option<BurnchainHeaderHash>, db_error> {
         let qry = "SELECT burn_header_hash FROM snapshots WHERE consensus_hash = ?1 AND pox_valid = 1 LIMIT 1";
         let args = [&consensus_hash];
-        query_row_panic(conn, qry, &args, || {
+        query_row_panic(conn, qry, args, || {
             format!(
                 "FATAL: multiple block snapshots for the same block with consensus hash {}",
                 consensus_hash
@@ -4942,7 +4937,7 @@ impl SortitionDB {
     ) -> Result<Option<SortitionId>, db_error> {
         let qry = "SELECT sortition_id FROM snapshots WHERE consensus_hash = ?1 AND pox_valid = 1 LIMIT 1";
         let args = [&consensus_hash];
-        query_row_panic(conn, qry, &args, || {
+        query_row_panic(conn, qry, args, || {
             format!(
                 "FATAL: multiple block snapshots for the same block with consensus hash {}",
                 consensus_hash
@@ -4958,7 +4953,7 @@ impl SortitionDB {
     ) -> Result<Option<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE consensus_hash = ?1";
         let args = [&consensus_hash];
-        query_row_panic(conn, qry, &args, || {
+        query_row_panic(conn, qry, args, || {
             format!(
                 "FATAL: multiple block snapshots for the same block with consensus hash {}",
                 consensus_hash
@@ -4973,7 +4968,7 @@ impl SortitionDB {
     ) -> Result<bool, db_error> {
         let qry = "SELECT 1 FROM snapshots WHERE consensus_hash = ?1";
         let args = [&consensus_hash];
-        let res: Option<i64> = query_row_panic(conn, qry, &args, || {
+        let res: Option<i64> = query_row_panic(conn, qry, args, || {
             format!(
                 "FATAL: multiple block snapshots for the same block with consensus hash {}",
                 consensus_hash
@@ -4990,7 +4985,7 @@ impl SortitionDB {
     ) -> Result<Option<BlockSnapshot>, db_error> {
         let qry = "SELECT * FROM snapshots WHERE sortition_id = ?1";
         let args = [&sortition_id];
-        query_row_panic(conn, qry, &args, || {
+        query_row_panic(conn, qry, args, || {
             format!("FATAL: multiple block snapshots for the same block {sortition_id}")
         })
         .inspect(|x| {
@@ -5003,7 +4998,7 @@ impl SortitionDB {
     /// Get the first snapshot
     pub fn get_first_block_snapshot(conn: &Connection) -> Result<BlockSnapshot, db_error> {
         let qry = "SELECT * FROM snapshots WHERE consensus_hash = ?1";
-        let result = query_row_panic(conn, qry, &[&ConsensusHash::empty()], || {
+        let result = query_row_panic(conn, qry, [&ConsensusHash::empty()], || {
             "FATAL: multiple first-block snapshots".into()
         })?;
         match result {
@@ -5401,7 +5396,7 @@ impl SortitionDB {
                     (cur_block_opt.clone(), prev_consensus_hash.clone()),
                 );
             }
-            prev_consensus_hash = &cur_consensus_hash;
+            prev_consensus_hash = cur_consensus_hash;
         }
 
         debug!("Block header cache has {} items", cache.len());
@@ -5430,7 +5425,7 @@ impl SortitionDB {
         query_rows(
             conn,
             "SELECT sortition_id FROM snapshots WHERE block_height = ?1",
-            &[&u64_to_sql(height)?],
+            [&u64_to_sql(height)?],
         )
     }
 
@@ -5598,7 +5593,7 @@ impl SortitionHandleTx<'_> {
                 canonical_stacks_tip_height,
             ) = SortitionDB::get_canonical_nakamoto_tip_hash_and_height_and_burn_view(
                 self,
-                &parent_snapshot,
+                parent_snapshot,
             )?
             .unwrap_or((
                 ConsensusHash([0x00; 20]),
@@ -6040,7 +6035,7 @@ impl SortitionHandleTx<'_> {
             let all_valid_sortitions: Vec<i64> = query_rows(
                 self,
                 "SELECT 1 FROM snapshots WHERE burn_header_hash = ?1 AND pox_valid = 1 LIMIT 1",
-                &[&snapshot.burn_header_hash],
+                [&snapshot.burn_header_hash],
             )?;
             if !all_valid_sortitions.is_empty() {
                 error!("FATAL: Tried to insert snapshot {:?}, but already have pox-valid sortition for {:?}", &snapshot, &snapshot.burn_header_hash);
@@ -6095,7 +6090,8 @@ impl SortitionHandleTx<'_> {
         if always_expects_one_output {
             return 1;
         }
-        let op_num_outputs = if PoxConstants::static_is_in_prepare_phase(
+
+        if PoxConstants::static_is_in_prepare_phase(
             self.context.first_block_height,
             u64::from(self.context.pox_constants.reward_cycle_length),
             u64::from(self.context.pox_constants.prepare_length),
@@ -6104,8 +6100,7 @@ impl SortitionHandleTx<'_> {
             1
         } else {
             OUTPUTS_PER_COMMIT
-        };
-        op_num_outputs
+        }
     }
 
     /// Given all of a snapshot's block ops, calculate how many burnchain tokens were sent to each
@@ -6503,9 +6498,7 @@ impl SortitionHandleTx<'_> {
             }
         }
 
-        let Some(tied_0) = tied.first() else {
-            return None;
-        };
+        let tied_0 = tied.first()?;
         if tied.len() == 1 {
             return Some(tied_0.1);
         }
@@ -6761,7 +6754,7 @@ impl SortitionHandleTx<'_> {
 
 impl ChainstateDB for SortitionDB {
     fn backup(_backup_path: &str) -> Result<(), db_error> {
-        return Err(db_error::NotImplemented);
+        Err(db_error::NotImplemented)
     }
 }
 
@@ -7127,7 +7120,7 @@ pub mod tests {
 
             db_tx.execute(
                 "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-                &[&"1"],
+                [&"1"],
             )?;
 
             db_tx.instantiate_index()?;
@@ -7228,7 +7221,7 @@ pub mod tests {
             let leader_key_sql = "SELECT * FROM leader_keys WHERE txid = ?1 LIMIT 1";
             let args = [&txid];
 
-            let leader_key_res = query_row_panic(conn, leader_key_sql, &args, || {
+            let leader_key_res = query_row_panic(conn, leader_key_sql, args, || {
                 "Multiple leader keys with same txid".to_string()
             })?;
             if let Some(leader_key) = leader_key_res {
@@ -7238,7 +7231,7 @@ pub mod tests {
             // block commit?
             let block_commit_sql = "SELECT * FROM block_commits WHERE txid = ?1 LIMIT 1";
 
-            let block_commit_res = query_row_panic(conn, block_commit_sql, &args, || {
+            let block_commit_res = query_row_panic(conn, block_commit_sql, args, || {
                 "Multiple block commits with same txid".to_string()
             })?;
             if let Some(block_commit) = block_commit_res {
@@ -11821,7 +11814,7 @@ pub mod tests {
                 tx.commit().unwrap();
             }
             let (block_consensus_hash, block_bhh, block_height) =
-                SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), &tip)
+                SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), tip)
                     .unwrap()
                     .unwrap();
             assert_eq!(block_consensus_hash, sortition_A.consensus_hash);
@@ -11872,7 +11865,7 @@ pub mod tests {
             // in both B and B', we get the same tip from A
             for tip in &[&sortition_B, &sortition_Bp] {
                 let (block_consensus_hash, block_bhh, block_height) =
-                    SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), &tip)
+                    SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), tip)
                         .unwrap()
                         .unwrap();
                 assert_eq!(block_consensus_hash, sortition_A.consensus_hash);
@@ -11931,7 +11924,7 @@ pub mod tests {
             // in B, B', and C', we get the same tip from A
             for tip in &[&sortition_B, &sortition_Bp, &sortition_Cp] {
                 let (block_consensus_hash, block_bhh, block_height) =
-                    SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), &tip)
+                    SortitionDB::get_canonical_nakamoto_tip_hash_and_height(db.conn(), tip)
                         .unwrap()
                         .unwrap();
                 assert_eq!(block_consensus_hash, sortition_A.consensus_hash);

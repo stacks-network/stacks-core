@@ -139,8 +139,7 @@ impl RPCRequestHandler for GetSignerRequestHandler {
                     &preamble,
                     &HttpNotFound::new(error.to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
         };
 
@@ -159,7 +158,7 @@ impl HttpResponse for GetSignerRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let response: GetSignerResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(response)?)
+        HttpResponsePayload::try_from_json(response)
     }
 }
 

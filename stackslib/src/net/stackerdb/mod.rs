@@ -813,6 +813,9 @@ impl PeerNetwork {
                     }
                 }
             }
+            // Not collapsible into a match guard: a Nack with any other error code must fall
+            // through to the end of this `match`, not into the `_` arm, which returns early.
+            #[allow(clippy::collapsible_match)]
             StacksMessageType::Nack(ref nack_data) => {
                 if nack_data.error_code == NackErrorCodes::FutureView {
                     // Chunk corresponds to a known DB but the view of the sender is potentially in

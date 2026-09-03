@@ -116,7 +116,7 @@ fn tx_replay_forking_test() {
         .unwrap();
 
     wait_for(30, || {
-        let new_tip = get_chain_info(&conf);
+        let new_tip = get_chain_info(conf);
         Ok(new_tip.stacks_tip_height > tip.stacks_tip_height)
     })
     .expect("Timed out waiting for transfer tx to be mined");
@@ -171,7 +171,7 @@ fn tx_replay_forking_test() {
 
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
-    let pre_fork_2_tip = get_chain_info(&conf);
+    let pre_fork_2_tip = get_chain_info(conf);
 
     let contract_code = "
     (define-public (call-fn)
@@ -344,14 +344,14 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     }
 
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     // Make a transfer tx (this will get forked)
     let (txid, _) = signer_test
         .submit_transfer_tx(&sender_sk, send_fee, send_amt)
         .unwrap();
 
     wait_for(30, || {
-        let new_tip = get_chain_info(&conf);
+        let new_tip = get_chain_info(conf);
         Ok(new_tip.stacks_tip_height > tip.stacks_tip_height)
     })
     .expect("Timed out waiting for transfer tx to be mined");
@@ -375,7 +375,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
     // We should have forked 1 tx
     assert_eq!(post_fork_1_nonce, pre_fork_1_nonce - 1);
 
-    let tip_after_fork = get_chain_info(&conf);
+    let tip_after_fork = get_chain_info(conf);
     let stacks_height_before = tip_after_fork.stacks_tip_height;
 
     // Make sure the miner skips replay transactions in its considerations
@@ -616,7 +616,7 @@ fn tx_replay_btc_on_stx_invalidation() {
 
     // we need to mine some blocks to get back to being considered a frequent miner
     for i in 0..3 {
-        let current_burn_height = get_chain_info(&conf).burn_block_height;
+        let current_burn_height = get_chain_info(conf).burn_block_height;
         info!(
             "Mining block #{i} to be considered a frequent miner";
             "current_burn_height" => current_burn_height,
@@ -677,7 +677,9 @@ fn tx_replay_btc_on_stx_invalidation() {
                         continue;
                     }
                     _ => {
-                        panic!("We should not see any transactions mined beyond tenure change or coinbase txs");
+                        panic!(
+                            "We should not see any transactions mined beyond tenure change or coinbase txs"
+                        );
                     }
                 }
             }
@@ -795,7 +797,7 @@ fn tx_replay_failsafe() {
 
     info!("---- Submitting STX transfer ----");
 
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     // Make a transfer tx (this will get forked)
     let (txid, nonce) = signer_test
         .submit_transfer_tx(&sender_sk, send_fee, send_amt)
@@ -807,12 +809,12 @@ fn tx_replay_failsafe() {
         .expect("Timed out waiting for transfer tx to be mined");
 
     wait_for(30, || {
-        let new_tip = get_chain_info(&conf);
+        let new_tip = get_chain_info(conf);
         Ok(new_tip.stacks_tip_height > tip.stacks_tip_height)
     })
     .expect("Timed out waiting for transfer tx to be mined");
 
-    let tip_before = get_chain_info(&conf);
+    let tip_before = get_chain_info(conf);
 
     info!("---- Triggering Bitcoin fork ----";
         "tip.stacks_tip_height" => tip_before.stacks_tip_height,
@@ -842,7 +844,7 @@ fn tx_replay_failsafe() {
     })
     .expect("Timed out waiting for transaction to be confirmed");
 
-    let tip_before = get_chain_info(&conf);
+    let tip_before = get_chain_info(conf);
 
     info!("---- Building next block ----";
         "tip_before.stacks_tip_height" => tip_before.stacks_tip_height,
@@ -851,7 +853,7 @@ fn tx_replay_failsafe() {
 
     btc_controller.build_next_block(1);
     wait_for(30, || {
-        let tip = get_chain_info(&conf);
+        let tip = get_chain_info(conf);
         Ok(tip.stacks_tip_height < tip_before.stacks_tip_height)
     })
     .expect("Timed out waiting for next block to be mined");
@@ -860,7 +862,7 @@ fn tx_replay_failsafe() {
 
     signer_test.wait_for_replay_set_eq(30, vec![txid.clone()]);
 
-    let tip_after_fork = get_chain_info(&conf);
+    let tip_after_fork = get_chain_info(conf);
 
     info!("---- Waiting for two tenures, without replay set cleared ----";
         "tip_after_fork.stacks_tip_height" => tip_after_fork.stacks_tip_height,
@@ -871,7 +873,7 @@ fn tx_replay_failsafe() {
     fault_injection_unstall_miner();
 
     wait_for(30, || {
-        let tip = get_chain_info(&conf);
+        let tip = get_chain_info(conf);
         Ok(tip.stacks_tip_height > tip_after_fork.stacks_tip_height)
     })
     .expect("Timed out waiting for one TenureChange block to be mined");
@@ -885,7 +887,7 @@ fn tx_replay_failsafe() {
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     wait_for(30, || {
-        let tip = get_chain_info(&conf);
+        let tip = get_chain_info(conf);
         Ok(tip.stacks_tip_height > tip_after_fork.stacks_tip_height + 1)
     })
     .expect("Timed out waiting for a TenureChange block to be mined");
@@ -898,7 +900,7 @@ fn tx_replay_failsafe() {
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
     wait_for(30, || {
-        let tip = get_chain_info(&conf);
+        let tip = get_chain_info(conf);
         Ok(tip.stacks_tip_height > tip_after_fork.stacks_tip_height + 2)
     })
     .expect("Timed out waiting for a TenureChange block to be mined");
@@ -984,7 +986,7 @@ fn tx_replay_starts_correctly() {
         .wait_for_nonce_increase(&sender_addr, nonce)
         .expect("Timed out waiting for transfer tx to be mined");
 
-    let tip_before = get_chain_info(&conf);
+    let tip_before = get_chain_info(conf);
 
     info!("---- Triggering Bitcoin fork ----";
         "tip.stacks_tip_height" => tip_before.stacks_tip_height,
@@ -998,12 +1000,12 @@ fn tx_replay_starts_correctly() {
     btc_controller.build_next_block(2);
 
     wait_for(30, || {
-        let tip = get_chain_info(&conf);
+        let tip = get_chain_info(conf);
         Ok(tip.stacks_tip_height < tip_before.stacks_tip_height)
     })
     .expect("Timed out waiting for next block to be mined");
 
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
 
     info!("---- Tip after fork ----";
         "tip.stacks_tip_height" => tip.stacks_tip_height,
@@ -1087,7 +1089,7 @@ fn tx_replay_disagreement() {
     TEST_IGNORE_BITCOIN_FORK_PUBKEYS.set(ignore_bitcoin_fork_keys);
 
     info!("------------------------- Triggering Bitcoin Fork -------------------------");
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     wait_for_state_machine_update_by_miner_tenure_id(
         30,
         &tip.pox_consensus,
@@ -1100,7 +1102,7 @@ fn tx_replay_disagreement() {
         .unwrap();
 
     wait_for(30, || {
-        let new_tip = get_chain_info(&conf);
+        let new_tip = get_chain_info(conf);
         Ok(new_tip.stacks_tip_height > tip.stacks_tip_height)
     })
     .expect("Timed out waiting for transfer tx to be mined");
@@ -1126,7 +1128,7 @@ fn tx_replay_disagreement() {
     })
     .expect("Timed out waiting for transaction to be confirmed");
 
-    let tip_before = get_chain_info(&conf);
+    let tip_before = get_chain_info(conf);
 
     info!("---- Building next block ----";
         "tip_before.stacks_tip_height" => tip_before.stacks_tip_height,
@@ -1135,7 +1137,7 @@ fn tx_replay_disagreement() {
 
     btc_controller.build_next_block(1);
     wait_for(30, || {
-        let tip = get_chain_info(&conf);
+        let tip = get_chain_info(conf);
         Ok(tip.stacks_tip_height < tip_before.stacks_tip_height)
     })
     .expect("Timed out waiting for next block to be mined");
@@ -1162,14 +1164,14 @@ fn tx_replay_disagreement() {
     })
     .expect("Timed out waiting for signer states to be updated");
 
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
 
     fault_injection_unstall_miner();
 
     // Now, wait for the tx replay set to be cleared
 
     wait_for(30, || {
-        let new_tip = get_chain_info(&conf);
+        let new_tip = get_chain_info(conf);
         Ok(new_tip.stacks_tip_height >= tip.stacks_tip_height + 2)
     })
     .expect("Timed out waiting for transfer tx to be mined");
@@ -1261,7 +1263,7 @@ fn tx_replay_solved_by_mempool_txs() {
     assert_eq!(2, sender1_nonce);
 
     info!("------------------------- Triggering Bitcoin Fork -------------------------");
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     let burn_header_hash_to_fork = btc_controller.get_block_hash(tip.burn_block_height);
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
     fault_injection_stall_miner();
@@ -1340,7 +1342,9 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
     let initial_reward_cycle = signer_test.get_current_reward_cycle();
     let rc_last_height = burn_chain.nakamoto_last_block_of_cycle(initial_reward_cycle);
 
-    info!("----- Mine to the end of reward cycle {initial_reward_cycle} height {rc_last_height} -----");
+    info!(
+        "----- Mine to the end of reward cycle {initial_reward_cycle} height {rc_last_height} -----"
+    );
     let pre_fork_tenures = rc_last_height - burn_block_height;
     for i in 1..=pre_fork_tenures {
         info!("Mining pre-fork tenure {i} of {pre_fork_tenures}");
@@ -1493,7 +1497,7 @@ fn tx_replay_with_fork_occurred_before_starting_replaying_txs() {
     assert_eq!(1, sender1_nonce);
 
     info!("------------------------- Triggering Bitcoin Fork #1 -------------------------");
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     let burn_header_hash_to_fork = btc_controller.get_block_hash(tip.burn_block_height);
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
     fault_injection_stall_miner();
@@ -1509,7 +1513,7 @@ fn tx_replay_with_fork_occurred_before_starting_replaying_txs() {
     assert_eq!(0, sender1_nonce_post_fork);
 
     info!("------------------------- Triggering Bitcoin Fork #2 -------------------------");
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     let burn_header_hash_to_fork = btc_controller.get_block_hash(tip.burn_block_height);
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
     fault_injection_stall_miner();
@@ -1604,7 +1608,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
     assert_eq!(1, sender1_nonce);
 
     info!("------------------------- Triggering Bitcoin Fork #1 -------------------------");
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     let burn_header_hash_to_fork = btc_controller.get_block_hash(tip.burn_block_height);
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
     fault_injection_stall_miner();
@@ -1621,7 +1625,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
 
     info!("------------------- Produce Empty Tenure -------------------------");
     fault_injection_unstall_miner();
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
     fault_injection_stall_miner();
 
@@ -1639,7 +1643,7 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
     info!("------------------------- Triggering Bitcoin Fork #2 -------------------------");
     test_observer::clear();
 
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     let burn_header_hash_to_fork = btc_controller.get_block_hash(tip.burn_block_height);
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
     fault_injection_stall_miner();
@@ -1719,7 +1723,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
     }
 
     // Make 2 transfer txs, each in its own tenure so that can be forked in different forks
-    let tip_at_tx1 = get_chain_info(&conf);
+    let tip_at_tx1 = get_chain_info(conf);
     assert_eq!(241, tip_at_tx1.burn_block_height);
     let (sender1_tx1, sender1_nonce) = signer_test
         .submit_transfer_tx(&sender1_sk, send_fee, send_amt)
@@ -1730,7 +1734,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
 
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
-    let tip_at_tx2 = get_chain_info(&conf);
+    let tip_at_tx2 = get_chain_info(conf);
     assert_eq!(242, tip_at_tx2.burn_block_height);
     let (sender1_tx2, sender1_nonce) = signer_test
         .submit_transfer_tx(&sender1_sk, send_fee, send_amt)
@@ -1752,7 +1756,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
     btc_controller.build_next_block(1);
 
     wait_for(10, || {
-        let tip = get_chain_info(&conf);
+        let tip = get_chain_info(conf);
         Ok(tip.burn_block_height == 243)
     })
     .expect("Timed out waiting for burn block height to be 243");
@@ -1772,7 +1776,7 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
     btc_controller.build_next_block(4);
     wait_for(10, || {
-        let tip = get_chain_info(&conf);
+        let tip = get_chain_info(conf);
         info!("Burn block height: {}", tip.burn_block_height);
         Ok(tip.burn_block_height == 244)
     })
@@ -1856,7 +1860,7 @@ fn tx_replay_with_fork_causing_replay_to_be_cleared_due_to_cycle() {
         signer_test.check_signer_states_normal();
     }
 
-    let tip_at_rc11 = get_chain_info(&conf);
+    let tip_at_rc11 = get_chain_info(conf);
     assert_eq!(239, tip_at_rc11.burn_block_height);
     assert_eq!(11, signer_test.get_current_reward_cycle());
 
@@ -1864,7 +1868,7 @@ fn tx_replay_with_fork_causing_replay_to_be_cleared_due_to_cycle() {
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
     signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
 
-    let tip_at_rc12 = get_chain_info(&conf);
+    let tip_at_rc12 = get_chain_info(conf);
     assert_eq!(242, tip_at_rc12.burn_block_height);
     assert_eq!(12, signer_test.get_current_reward_cycle());
 
@@ -2031,7 +2035,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     info!("---- Force Partial Tx Replay ----");
     // Only Tx1 is replayed, preventing Tenure Extension stalling the miner
     fault_injection_unstall_miner();
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
     _ = wait_for_block_proposal_block(30, tip.stacks_tip_height + 2, &stacks_miner_pk);
     fault_injection_stall_miner();
@@ -2041,7 +2045,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
 
     info!("------------------------- Triggering Bitcoin Fork #2 -------------------------");
     //Fork in the middle of Tx Replay
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     let burn_header_hash_to_fork = btc_controller.get_block_hash(tip.burn_block_height - 1);
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
     btc_controller.build_next_block(2);
@@ -2218,7 +2222,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     info!("---- Force Partial Tx Replay ----");
     // Only Tx1 is replayed, preventing Tenure Extension stalling the miner
     fault_injection_unstall_miner();
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     _ = wait_for_tenure_change_tx(30, TenureChangeCause::BlockFound, tip.stacks_tip_height + 1);
     _ = wait_for_block_proposal_block(30, tip.stacks_tip_height + 2, &stacks_miner_pk);
     fault_injection_stall_miner();
@@ -2234,7 +2238,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
 
     info!("------------------------- Triggering Bitcoin Fork #2 -------------------------");
     //Fork in the middle of Tx Replay
-    let tip = get_chain_info(&conf);
+    let tip = get_chain_info(conf);
     let burn_header_hash_to_fork = btc_controller.get_block_hash(tip.burn_block_height);
     btc_controller.invalidate_block(&burn_header_hash_to_fork);
     btc_controller.build_next_block(2);
@@ -2367,7 +2371,7 @@ fn tx_replay_budget_exceeded_tenure_extend() {
         .expect("Timed out waiting for nonce to increase");
 
     wait_for(30, || {
-        let new_tip = get_chain_info(&conf);
+        let new_tip = get_chain_info(conf);
         Ok(new_tip.stacks_tip_height > tip.stacks_tip_height)
     })
     .expect("Timed out waiting for transfer tx to be mined");

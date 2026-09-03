@@ -136,19 +136,17 @@ impl PeerNetwork {
                 self.get_neighbor_comms(),
                 self,
             ) {
-                Ok(w) => {
-                    return Ok(w);
-                }
+                Ok(w) => Ok(w),
                 Err(e) => {
                     info!(
                         "{:?}: failed to begin outbound walk ({:?}); trying pingback walk",
                         &self.local_peer, &e
                     );
-                    return NeighborWalk::instantiate_walk_from_pingback(
+                    NeighborWalk::instantiate_walk_from_pingback(
                         self.get_neighbor_walk_db(),
                         self.get_neighbor_comms(),
                         self,
-                    );
+                    )
                 }
             }
         } else {
@@ -161,19 +159,17 @@ impl PeerNetwork {
                 self.get_neighbor_comms(),
                 self,
             ) {
-                Ok(w) => {
-                    return Ok(w);
-                }
+                Ok(w) => Ok(w),
                 Err(e) => {
                     info!(
                         "{:?}: failed to begin pingback walk ({:?}); trying outbound walk",
                         &self.local_peer, &e
                     );
-                    return NeighborWalk::instantiate_walk(
+                    NeighborWalk::instantiate_walk(
                         self.get_neighbor_walk_db(),
                         self.get_neighbor_comms(),
                         self,
-                    );
+                    )
                 }
             }
         }
@@ -196,11 +192,11 @@ impl PeerNetwork {
                 self,
             );
         }
-        return NeighborWalk::instantiate_walk_from_inbound(
+        NeighborWalk::instantiate_walk_from_inbound(
             self.get_neighbor_walk_db(),
             self.get_neighbor_comms(),
             self,
-        );
+        )
     }
 
     /// Instantiate a neighbor walk, and update internal bookkeeping about how many times and how
@@ -356,7 +352,7 @@ impl PeerNetwork {
             self.walk = Some(new_walk);
         }
 
-        return true;
+        true
     }
 
     #[cfg(test)]

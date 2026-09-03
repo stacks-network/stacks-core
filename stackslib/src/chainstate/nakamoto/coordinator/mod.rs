@@ -353,7 +353,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         "burn_block_hash" => %anchor_block_header.burn_header_hash
     );
 
-    return Ok(Some(rc_info));
+    Ok(Some(rc_info))
 }
 
 /// Load the reward set that was active when a Nakamoto tenure was elected.
@@ -559,12 +559,12 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
                 chain_state.db(),
                 &sn.consensus_hash,
             ) {
-                Ok(Some(x)) => return Some(Ok(x)),
-                Err(e) => return Some(Err(e)),
+                Ok(Some(x)) => Some(Ok(x)),
+                Err(e) => Some(Err(e)),
                 Ok(None) => {
                     // no header for this snapshot (possibly invalid)
                     debug!("Failed to find Stacks block by consensus hash"; "consensus_hash" => %sn.consensus_hash);
-                    return None
+                    None
                 }
             }
         })
@@ -706,12 +706,9 @@ impl<
             }
         };
 
-        let first_epoch3_reward_cycle = self
-            .burnchain
+        self.burnchain
             .block_height_to_reward_cycle(epoch3.start_height)
-            .expect("FATAL: epoch3 block height has no reward cycle");
-
-        first_epoch3_reward_cycle
+            .expect("FATAL: epoch3 block height has no reward cycle")
     }
 
     /// Get the current reward cycle
@@ -725,12 +722,9 @@ impl<
                 .unwrap_or_else(|e| panic!("FATAL: failed to query sortition DB: {:?}", &e))
                 .unwrap_or_else(|| panic!("FATAL: canonical sortition tip has no sortition"));
 
-        let cur_reward_cycle = self
-            .burnchain
+        self.burnchain
             .block_height_to_reward_cycle(canonical_sn.block_height)
-            .expect("FATAL: snapshot has no reward cycle");
-
-        cur_reward_cycle
+            .expect("FATAL: snapshot has no reward cycle")
     }
 
     /// Are we in the first-ever Nakamoto reward cycle?

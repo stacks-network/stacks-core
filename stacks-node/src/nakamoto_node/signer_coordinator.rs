@@ -406,7 +406,7 @@ impl SignerCoordinator {
                         return false;
                     }
                     // enough signatures?
-                    return status.total_weight_approved < self.weight_threshold;
+                    status.total_weight_approved < self.weight_threshold
                 },
             )? {
                 Some(status) => status,
@@ -457,8 +457,8 @@ impl SignerCoordinator {
                     // Check if a new Stacks block has arrived in the parent tenure
                     let highest_in_tenure =
                         NakamotoChainState::find_highest_known_block_header_in_tenure(
-                            &chain_state,
-                            &sortdb,
+                            chain_state,
+                            sortdb,
                             &parent_tenure_header.consensus_hash,
                         )?
                         .ok_or(NakamotoNodeError::UnexpectedChainState)?;

@@ -1020,12 +1020,13 @@ mod test {
         ];
 
         for epoch_id in epoch_list.iter() {
-            if activation_epoch_id.is_none() {
-                assert!(auth.is_supported_in_epoch(*epoch_id));
-            } else if activation_epoch_id.unwrap() > *epoch_id {
-                assert!(!auth.is_supported_in_epoch(*epoch_id));
-            } else {
-                assert!(auth.is_supported_in_epoch(*epoch_id));
+            match activation_epoch_id {
+                Some(activation_epoch_id) if activation_epoch_id > *epoch_id => {
+                    assert!(!auth.is_supported_in_epoch(*epoch_id));
+                }
+                _ => {
+                    assert!(auth.is_supported_in_epoch(*epoch_id));
+                }
             }
         }
     }

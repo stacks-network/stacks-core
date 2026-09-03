@@ -156,10 +156,7 @@ pub enum BitcoinNetworkType {
 impl BitcoinNetworkType {
     /// Returns `true` if this network type is [`BitcoinNetworkType::Mainnet`].
     pub fn is_mainnet(&self) -> bool {
-        match *self {
-            BitcoinNetworkType::Mainnet => true,
-            _ => false,
-        }
+        matches!(*self, BitcoinNetworkType::Mainnet)
     }
 }
 

@@ -588,9 +588,8 @@ impl PoxConstants {
     pub fn prepare_phase_start(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         let reward_cycle_start =
             self.reward_cycle_to_block_height(first_block_height, reward_cycle);
-        let prepare_phase_start = reward_cycle_start + u64::from(self.reward_cycle_length)
-            - u64::from(self.prepare_length);
-        prepare_phase_start
+
+        reward_cycle_start + u64::from(self.reward_cycle_length) - u64::from(self.prepare_length)
     }
 
     /// Is this the first block to receive rewards in its cycle?
@@ -927,7 +926,7 @@ impl BurnchainView {
                 let data = {
                     use sha2::{Digest, Sha256};
                     let mut hasher = Sha256::new();
-                    hasher.update(&i.to_le_bytes());
+                    hasher.update(i.to_le_bytes());
                     hasher.finalize()
                 };
                 let mut data_32 = [0x00; 32];

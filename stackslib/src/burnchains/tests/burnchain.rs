@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::slice;
+
 use rand::rngs::ThreadRng;
 use rand::{thread_rng, RngCore as _};
 use stacks_common::address::AddressHashMode;
@@ -263,7 +265,7 @@ fn test_process_block_ops() {
         vec![BlockstackOperationType::LeaderKeyRegister(
             leader_key_3.clone(),
         )];
-    let block_opshash_121 = OpsHash::from_txids(&[leader_key_3.txid.clone()]);
+    let block_opshash_121 = OpsHash::from_txids(slice::from_ref(&leader_key_3.txid));
     let block_prev_chs_121 =
         vec![ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap()];
     let mut block_121_snapshot = BlockSnapshot {
@@ -308,7 +310,7 @@ fn test_process_block_ops() {
     let block_ops_122 = vec![BlockstackOperationType::LeaderKeyRegister(
         leader_key_2.clone(),
     )];
-    let block_opshash_122 = OpsHash::from_txids(&[leader_key_2.txid.clone()]);
+    let block_opshash_122 = OpsHash::from_txids(slice::from_ref(&leader_key_2.txid));
     let block_prev_chs_122 = vec![
         block_121_snapshot.consensus_hash.clone(),
         ConsensusHash::from_hex("0000000000000000000000000000000000000000").unwrap(),
@@ -357,10 +359,7 @@ fn test_process_block_ops() {
     let block_ops_123 = vec![BlockstackOperationType::LeaderKeyRegister(
         leader_key_1.clone(),
     )];
-    let block_opshash_123 = OpsHash::from_txids(&[
-        // notably, the user burns here _wont_ be included in the consensus hash
-        leader_key_1.txid.clone(),
-    ]);
+    let block_opshash_123 = OpsHash::from_txids(slice::from_ref(&leader_key_1.txid));
     let block_prev_chs_123 = vec![
         block_122_snapshot.consensus_hash.clone(),
         block_121_snapshot.consensus_hash.clone(),

@@ -495,7 +495,7 @@ pub fn readonly_call_with_sortdb(
                         |exec_state, invoke_ctx| {
                             exec_state
                                 .execute_contract_allow_private(
-                                    &invoke_ctx,
+                                    invoke_ctx,
                                     &boot_code_id(&boot_contract, false),
                                     &function_name,
                                     &symbols_from_values(args),

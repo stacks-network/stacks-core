@@ -246,7 +246,7 @@ fn test_get_new_address_for_each_address_type() {
     let client = utils::create_client_from_container(&btc_container);
 
     let wallet = "mywallet";
-    client.create_wallet(&wallet, Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false)).expect("OK");
 
     // Check Legacy p2pkh type OK
     let p2pkh = client
@@ -681,7 +681,7 @@ fn test_invalidate_block_ok() {
         .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
     let address = client
-        .get_new_address(&wallet, None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("get new address ok!");
     let block_hash = client
         .generate_block(&address, &[])

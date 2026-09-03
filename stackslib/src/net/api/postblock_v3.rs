@@ -190,7 +190,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
                 }
             }
             Err(e) => {
-                return e.try_into_contents().map_err(NetError::from);
+                return e.try_into_contents();
             }
         };
 

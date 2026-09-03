@@ -550,7 +550,7 @@ fn test_get_transaction_ok() {
 
     let client = utils::setup_client(&server);
 
-    let txid = Txid::from_hex(&txid_hex).unwrap();
+    let txid = Txid::from_hex(txid_hex).unwrap();
     let info = client
         .get_transaction("my_wallet", &txid)
         .expect("Should be ok!");
@@ -704,7 +704,7 @@ fn test_send_raw_transaction_ok_with_defaults() {
 
     let client = utils::setup_client(&server);
 
-    let raw_tx = deserialize_hex(&raw_tx_hex).unwrap();
+    let raw_tx = deserialize_hex(raw_tx_hex).unwrap();
     let txid = client
         .send_raw_transaction(&raw_tx, None, None)
         .expect("Should work!");
@@ -966,7 +966,7 @@ fn test_send_to_address_ok() {
 
     let client = utils::setup_client(&server);
 
-    let address = BitcoinAddress::from_string(&address_str).unwrap();
+    let address = BitcoinAddress::from_string(address_str).unwrap();
     let txid = client
         .send_to_address("my_wallet", &address, amount)
         .expect("Should be ok!");
@@ -1003,7 +1003,7 @@ fn test_send_to_address_fails_for_invalid_tx_id() {
 
     let client = utils::setup_client(&server);
 
-    let address = BitcoinAddress::from_string(&address_str).unwrap();
+    let address = BitcoinAddress::from_string(address_str).unwrap();
     let error = client
         .send_to_address("my_wallet", &address, amount)
         .expect_err("Should fail!");
@@ -1041,7 +1041,7 @@ fn test_invalidate_block_ok() {
 
     let client = utils::setup_client(&server);
 
-    let bhh = BurnchainHeaderHash::from_hex(&hash).unwrap();
+    let bhh = BurnchainHeaderHash::from_hex(hash).unwrap();
     client.invalidate_block(&bhh).expect("Should be ok!");
 }
 

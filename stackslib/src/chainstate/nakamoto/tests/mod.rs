@@ -2211,8 +2211,8 @@ fn test_make_miners_stackerdb_config() {
         .iter()
         .map(|miner_privkey| {
             let miner_pubkey = StacksPublicKey::from_private(miner_privkey);
-            let miner_hash160 = Hash160::from_node_public_key(&miner_pubkey);
-            miner_hash160
+
+            Hash160::from_node_public_key(&miner_pubkey)
         })
         .collect();
     let miner_addrs: Vec<_> = miner_hash160s

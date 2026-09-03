@@ -81,7 +81,7 @@ fn signer_reevaluates_proposal_with_missing_burn_view() {
     let all_signers = signer_test.signer_test_pks();
     let conf = signer_test.running_nodes.conf.clone();
     let miner_privk = signer_test.get_miner_key();
-    let miner_pubk = StacksPublicKey::from_private(&miner_privk);
+    let miner_pubk = StacksPublicKey::from_private(miner_privk);
 
     signer_test.boot_to_epoch_3();
 
@@ -99,16 +99,22 @@ fn signer_reevaluates_proposal_with_missing_burn_view() {
         Ok(get_chain_info(&conf).burn_block_height >= info_before.burn_block_height)
     })
     .expect("Failed to wait for burn block height to update after mining a block");
-    info!("------------------------- Retrieve the block proposal for later proposal -------------------------");
+    info!(
+        "------------------------- Retrieve the block proposal for later proposal -------------------------"
+    );
     let block_proposal =
         wait_for_block_proposal(30, info_before.stacks_tip_height + 1, &miner_pubk)
             .expect("Miner 2 did not propose a tenure change block");
     // Pause the proposal again for granular control
     TEST_BROADCAST_PROPOSAL_STALL.set(vec![miner_pubk.clone()]);
-    info!("------------------------- Allow signers to consider incoming block proposals -------------------------");
+    info!(
+        "------------------------- Allow signers to consider incoming block proposals -------------------------"
+    );
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![]);
 
-    info!("------------------------- Re-propose block proposal with bad burn view consensus hash -------------------------");
+    info!(
+        "------------------------- Re-propose block proposal with bad burn view consensus hash -------------------------"
+    );
     test_observer::clear();
     let mut block = block_proposal.block.clone();
     let mut tenure_change_tx = block.executed_and_skipped_txs()[0].clone();
@@ -127,7 +133,7 @@ fn signer_reevaluates_proposal_with_missing_burn_view() {
     };
     block.header.tx_merkle_root = tx_merkle_root;
 
-    block.header.sign_miner(&miner_privk).unwrap();
+    block.header.sign_miner(miner_privk).unwrap();
 
     let proposed_sighash = block.header.signer_signature_hash();
     signer_test.propose_block(block.clone(), Duration::from_secs(30));
@@ -139,7 +145,9 @@ fn signer_reevaluates_proposal_with_missing_burn_view() {
         proposed_block.block.header.signer_signature_hash(),
         proposed_sighash
     );
-    info!("------------------------- Confirm Signers Reject block N due to invalid burn view causing DBError::NotFound -------------------------");
+    info!(
+        "------------------------- Confirm Signers Reject block N due to invalid burn view causing DBError::NotFound -------------------------"
+    );
     let rejections = wait_for_block_rejections_from_signers(30, &proposed_sighash, &all_signers)
         .expect("Failed to find block rejections from all signers for the reproposed block");
     rejections.iter().for_each(|rejection| {
@@ -150,7 +158,9 @@ fn signer_reevaluates_proposal_with_missing_burn_view() {
         assert_eq!(rejection.reason, "Chainstate Error: Not found");
     });
 
-    info!("------------------------- Confirm signers reprocess the block after reproposed even though Rejected previously with NotFoundError -------------------------");
+    info!(
+        "------------------------- Confirm signers reprocess the block after reproposed even though Rejected previously with NotFoundError -------------------------"
+    );
     // This used to return "RejectedInPriorRound" but now that we allow the NotFoundError to be reprocessed it should reply with the same error again
     test_observer::clear();
     signer_test.propose_block(block, Duration::from_secs(30));

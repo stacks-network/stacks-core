@@ -448,7 +448,7 @@ impl Trie {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     /// Try to insert a leaf node into the given node, if there's space to do so and if the leaf

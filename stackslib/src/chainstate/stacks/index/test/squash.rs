@@ -890,7 +890,7 @@ fn test_walk_cow_preserves_backpointer_identity() {
     squashed.commit().unwrap();
 
     for key in ["k2", "k5", "k9"] {
-        let result = squashed.get(&b_new, &key).unwrap();
+        let result = squashed.get(&b_new, key).unwrap();
         assert!(result.is_some(), "missing key {key} after extend");
     }
 

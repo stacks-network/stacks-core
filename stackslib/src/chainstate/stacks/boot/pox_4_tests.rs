@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
+use std::slice;
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
@@ -2494,7 +2495,8 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     );
     steph_nonce += 1;
 
-    latest_block = Some(peer.tenure_with_txs(&[steph_stacking.clone()], &mut coinbase_nonce));
+    latest_block =
+        Some(peer.tenure_with_txs(slice::from_ref(&steph_stacking), &mut coinbase_nonce));
 
     let txs: HashMap<_, _> = observer
         .get_blocks()
@@ -2614,7 +2616,8 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     );
     steph_nonce += 1;
 
-    latest_block = Some(peer.tenure_with_txs(&[steph_stacking.clone()], &mut coinbase_nonce));
+    latest_block =
+        Some(peer.tenure_with_txs(slice::from_ref(&steph_stacking), &mut coinbase_nonce));
 
     let txs: HashMap<_, _> = observer
         .get_blocks()

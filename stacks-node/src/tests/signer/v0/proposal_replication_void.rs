@@ -92,7 +92,9 @@ fn proposal_void_shorter_than_max_age_recovers_with_original_block() {
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let all_signers = signer_test.signer_test_pks();
 
-    info!("------------------------- Open the Void: All Signers Ignore Proposals -------------------------");
+    info!(
+        "------------------------- Open the Void: All Signers Ignore Proposals -------------------------"
+    );
     test_observer::clear();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(all_signers);
 
@@ -222,7 +224,9 @@ fn proposal_void_longer_than_max_age_recovers_by_rejection_and_remine() {
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
     let all_signers = signer_test.signer_test_pks();
 
-    info!("------------------------- Open the Void: All Signers Ignore Proposals -------------------------");
+    info!(
+        "------------------------- Open the Void: All Signers Ignore Proposals -------------------------"
+    );
     test_observer::clear();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(all_signers.clone());
 

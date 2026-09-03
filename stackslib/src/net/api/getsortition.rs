@@ -353,7 +353,6 @@ impl RPCRequestHandler for GetSortitionHandler {
                     &HttpNotFound::new(format!("Could not find snapshot {:?}\n", &self.query)),
                 )
                 .try_into_contents()
-                .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
@@ -361,12 +360,10 @@ impl RPCRequestHandler for GetSortitionHandler {
                 warn!("{msg}");
                 if matches!(e, ChainError::DBError(DBError::BlockHeightOutOfRange)) {
                     return StacksHttpResponse::new_error(&preamble, &HttpBadRequest::new(msg))
-                        .try_into_contents()
-                        .map_err(NetError::from);
+                        .try_into_contents();
                 }
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                    .try_into_contents();
             }
         };
 
@@ -395,16 +392,13 @@ impl RPCRequestHandler for GetSortitionHandler {
                             &preamble,
                             &HttpNotFound::new(format!("Could not find snapshot for the `last_sortition_ch`({last_sortition_ch})\n")),
                         )
-                            .try_into_contents()
-                            .map_err(NetError::from)
-                    }
+                            .try_into_contents()}
                     Err(e) => {
                         // nope -- error trying to check
                         let msg = format!("Failed to load snapshot for `last_sortition_ch`({last_sortition_ch}): {:?}\n", &e);
                         warn!("{msg}");
                         return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                            .try_into_contents()
-                            .map_err(NetError::from);
+                            .try_into_contents();
                     }
                 };
                 info_list.push(last_block);
@@ -424,7 +418,7 @@ impl HttpResponse for GetSortitionHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let sortition_info: Vec<SortitionInfo> = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(sortition_info)?)
+        HttpResponsePayload::try_from_json(sortition_info)
     }
 }
 

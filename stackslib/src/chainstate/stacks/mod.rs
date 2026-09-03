@@ -892,15 +892,15 @@ pub mod test {
                 for tx_payload in tx_payloads.iter() {
                     match tx_payload {
                         // poison microblock and coinbase must be on-chain
-                        TransactionPayload::Coinbase(..) => {
-                            if *anchor_mode != TransactionAnchorMode::OnChainOnly {
-                                continue;
-                            }
+                        TransactionPayload::Coinbase(..)
+                            if *anchor_mode != TransactionAnchorMode::OnChainOnly =>
+                        {
+                            continue;
                         }
-                        TransactionPayload::PoisonMicroblock(_, _) => {
-                            if *anchor_mode != TransactionAnchorMode::OnChainOnly {
-                                continue;
-                            }
+                        TransactionPayload::PoisonMicroblock(_, _)
+                            if *anchor_mode != TransactionAnchorMode::OnChainOnly =>
+                        {
+                            continue;
                         }
                         _ => {}
                     }

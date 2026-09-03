@@ -152,7 +152,7 @@ fn inner_get_stackerdb_id(
 ) -> Result<i64, net_error> {
     let sql = "SELECT rowid FROM databases WHERE smart_contract_id = ?1";
     let args = params![smart_contract.to_string()];
-    Ok(query_row(conn, sql, args)?.ok_or(net_error::NoSuchStackerDB(smart_contract.clone()))?)
+    query_row(conn, sql, args)?.ok_or(net_error::NoSuchStackerDB(smart_contract.clone()))
 }
 
 /// Load up chunk metadata from the database, keyed by the chunk's database's smart contract and
@@ -457,7 +457,7 @@ impl StackerDBs {
                 let pparent_path = ppath
                     .parent()
                     .unwrap_or_else(|| panic!("BUG: no parent of '{}'", path));
-                fs::create_dir_all(&pparent_path).map_err(db_error::IOError)?;
+                fs::create_dir_all(pparent_path).map_err(db_error::IOError)?;
 
                 OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
             } else if readwrite {

@@ -210,7 +210,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
         let rpc_peer_info = match rpc_peer_info {
             Ok(rpc_peer_info) => rpc_peer_info,
             Err(response) => {
-                return response.try_into_contents().map_err(NetError::from);
+                return response.try_into_contents();
             }
         };
 
@@ -228,7 +228,7 @@ impl HttpResponse for RPCPeerInfoRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let peer_info: RPCPeerInfoData = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(peer_info)?)
+        HttpResponsePayload::try_from_json(peer_info)
     }
 }
 

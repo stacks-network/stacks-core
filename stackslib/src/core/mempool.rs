@@ -559,15 +559,9 @@ impl FromStr for MemPoolWalkStrategy {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "GlobalFeeRate" => {
-                return Ok(Self::GlobalFeeRate);
-            }
-            "NextNonceWithHighestFeeRate" => {
-                return Ok(Self::NextNonceWithHighestFeeRate);
-            }
-            _ => {
-                return Err("Unknown mempool walk strategy");
-            }
+            "GlobalFeeRate" => Ok(Self::GlobalFeeRate),
+            "NextNonceWithHighestFeeRate" => Ok(Self::NextNonceWithHighestFeeRate),
+            _ => Err("Unknown mempool walk strategy"),
         }
     }
 }
@@ -696,10 +690,7 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
 impl FromRow<MemPoolTxInfoPartial> for MemPoolTxInfoPartial {
     fn from_row(row: &Row) -> Result<MemPoolTxInfoPartial, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let fee_rate: Option<f64> = match row.get("fee_rate") {
-            Ok(rate) => Some(rate),
-            Err(_) => None,
-        };
+        let fee_rate: Option<f64> = row.get("fee_rate").ok();
         let origin_address = StacksAddress::from_column(row, "origin_address")?;
         let origin_nonce = u64::from_column(row, "origin_nonce")?;
         let sponsor_address = StacksAddress::from_column(row, "sponsor_address")?;
@@ -1120,9 +1111,7 @@ struct CandidateCache {
 
 impl CandidateCache {
     fn new(candidate_retry_cache_size: usize) -> Self {
-        let max_size: usize = candidate_retry_cache_size
-            .try_into()
-            .expect("Could not cast `candidate_retry_cache_size` as usize.");
+        let max_size: usize = candidate_retry_cache_size;
         Self {
             cache: VecDeque::new(),
             next: VecDeque::new(),
@@ -1395,7 +1384,7 @@ impl MemPoolDB {
         let admitter = MemPoolAdmitter::new(BlockHeaderHash([0u8; 32]), ConsensusHash([0u8; 20]));
 
         let mut create_flag = false;
-        let open_flags = if fs::metadata(&db_path).is_err() {
+        let open_flags = if fs::metadata(db_path).is_err() {
             // need to create
             create_flag = true;
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
@@ -1404,7 +1393,7 @@ impl MemPoolDB {
             OpenFlags::SQLITE_OPEN_READ_WRITE
         };
 
-        let mut conn = sqlite_open(&db_path, open_flags, true)?;
+        let mut conn = sqlite_open(db_path, open_flags, true)?;
         if create_flag {
             // instantiate!
             MemPoolDB::instantiate_mempool_db(&mut conn)?;
@@ -2705,7 +2694,7 @@ impl MemPoolDB {
     fn inner_drop_txs(tx: &DBTx<'_>, txids: &[Txid]) -> Result<(), db_error> {
         let sql = "DELETE FROM mempool WHERE txid = ?";
         for txid in txids.iter() {
-            tx.execute(sql, &[txid])?;
+            tx.execute(sql, [txid])?;
         }
         Ok(())
     }

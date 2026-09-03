@@ -451,10 +451,7 @@ impl ClarityBlockConnection<'_, '_> {
 
     /// Returns the block limit for the block being created.
     pub fn block_limit(&self) -> Option<ExecutionCost> {
-        match self.cost_track {
-            Some(ref track) => Some(track.get_limit()),
-            None => None,
-        }
+        self.cost_track.as_ref().map(|track| track.get_limit())
     }
 
     /// Load the epoch ID from the clarity DB.
@@ -606,7 +603,7 @@ impl ClarityInstance {
                 .analyze_smart_contract(
                     &boot_code_id("cost-voting", use_mainnet),
                     ClarityVersion::Clarity1,
-                    &*BOOT_CODE_COST_VOTING,
+                    &BOOT_CODE_COST_VOTING,
                     &ResourceBudget::unlimited(),
                 )
                 .unwrap();
@@ -615,7 +612,7 @@ impl ClarityInstance {
                     &boot_code_id("cost-voting", use_mainnet),
                     ClarityVersion::Clarity1,
                     &ast,
-                    &*BOOT_CODE_COST_VOTING,
+                    &BOOT_CODE_COST_VOTING,
                     None,
                     |_, _| None,
                     &ResourceBudget::unlimited(),
@@ -632,7 +629,7 @@ impl ClarityInstance {
                 .analyze_smart_contract(
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
-                    &*BOOT_CODE_POX_TESTNET,
+                    &BOOT_CODE_POX_TESTNET,
                     &ResourceBudget::unlimited(),
                 )
                 .unwrap();
@@ -641,7 +638,7 @@ impl ClarityInstance {
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
                     &ast,
-                    &*BOOT_CODE_POX_TESTNET,
+                    &BOOT_CODE_POX_TESTNET,
                     None,
                     |_, _| None,
                     &ResourceBudget::unlimited(),
@@ -728,7 +725,7 @@ impl ClarityInstance {
                 .analyze_smart_contract(
                     &boot_code_id("pox-2", use_mainnet),
                     ClarityVersion::Clarity2,
-                    &*POX_2_TESTNET_CODE,
+                    &POX_2_TESTNET_CODE,
                     &ResourceBudget::unlimited(),
                 )
                 .unwrap();
@@ -737,7 +734,7 @@ impl ClarityInstance {
                     &boot_code_id("pox-2", use_mainnet),
                     ClarityVersion::Clarity2,
                     &ast,
-                    &*POX_2_TESTNET_CODE,
+                    &POX_2_TESTNET_CODE,
                     None,
                     |_, _| None,
                     &ResourceBudget::unlimited(),
@@ -1417,15 +1414,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 // initialize with a synthetic transaction
                 debug!("Instantiate .costs-3 contract");
-                let receipt = StacksChainState::process_transaction_payload(
+
+                StacksChainState::process_transaction_payload(
                     tx_conn,
                     &costs_3_contract_tx,
                     &boot_code_account,
                     &TransactionResourceBudgets::unlimited(),
                 )
-                .expect("FATAL: Failed to process costs-3 contract initialization");
-
-                receipt
+                .expect("FATAL: Failed to process costs-3 contract initialization")
             });
 
             if costs_3_initialization_receipt.result != Value::okay_true()
@@ -1762,14 +1758,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let signers_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &signers_contract_id);
-                let receipt = StacksChainState::process_transaction_payload(
+
+                StacksChainState::process_transaction_payload(
                     tx_conn,
                     &signers_contract_tx,
                     &boot_code_account,
                     &TransactionResourceBudgets::unlimited(),
                 )
-                .expect("FATAL: Failed to process .signers contract initialization");
-                receipt
+                .expect("FATAL: Failed to process .signers contract initialization")
             });
 
             if signers_initialization_receipt.result != Value::okay_true()
@@ -1808,14 +1804,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     let signers_db_receipt = self.as_transaction(|tx_conn| {
                         // initialize with a synthetic transaction
                         debug!("Instantiate .{} contract", &signers_name);
-                        let receipt = StacksChainState::process_transaction_payload(
+
+                        StacksChainState::process_transaction_payload(
                             tx_conn,
                             &signers_contract_tx,
                             &boot_code_account,
                             &TransactionResourceBudgets::unlimited(),
                         )
-                        .expect("FATAL: Failed to process .signers DB contract initialization");
-                        receipt
+                        .expect("FATAL: Failed to process .signers DB contract initialization")
                     });
 
                     if signers_db_receipt.result != Value::okay_true()
@@ -1847,14 +1843,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let signers_voting_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &signers_voting_contract_id);
-                let receipt = StacksChainState::process_transaction_payload(
+
+                StacksChainState::process_transaction_payload(
                     tx_conn,
                     &signers_contract_tx,
                     &boot_code_account,
                     &TransactionResourceBudgets::unlimited(),
                 )
-                .expect("FATAL: Failed to process .signers-voting contract initialization");
-                receipt
+                .expect("FATAL: Failed to process .signers-voting contract initialization")
             });
 
             if signers_voting_initialization_receipt.result != Value::okay_true()
@@ -1978,14 +1974,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let mut sip_031_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 info!("Instantiate {} contract", &sip_031_contract_id);
-                let receipt = StacksChainState::process_transaction_payload(
+
+                StacksChainState::process_transaction_payload(
                     tx_conn,
                     &sip_031_contract_tx,
                     &boot_code_account,
                     &TransactionResourceBudgets::unlimited(),
                 )
-                .expect("FATAL: Failed to process .sip-031 contract initialization");
-                receipt
+                .expect("FATAL: Failed to process .sip-031 contract initialization")
             });
 
             if sip_031_initialization_receipt.result != Value::okay_true()
@@ -2092,15 +2088,14 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                 // initialize with a synthetic transaction
                 info!("Instantiate .costs-4 contract");
-                let receipt = StacksChainState::process_transaction_payload(
+
+                StacksChainState::process_transaction_payload(
                     tx_conn,
                     &costs_4_contract_tx,
                     &boot_code_account,
                     &TransactionResourceBudgets::unlimited(),
                 )
-                .expect("FATAL: Failed to process costs-4 contract initialization");
-
-                receipt
+                .expect("FATAL: Failed to process costs-4 contract initialization")
             });
 
             if costs_4_initialization_receipt.result != Value::okay_true()
@@ -2536,7 +2531,7 @@ impl ClarityTransactionConnection<'_, '_> {
     }
 
     pub fn is_mainnet(&self) -> bool {
-        return self.mainnet;
+        self.mainnet
     }
 
     /// Commit the changes from the edit log.
@@ -3592,7 +3587,7 @@ mod tests {
                 _height: u32,
                 _sortition_id: &SortitionId,
             ) -> Option<(Vec<TupleData>, u128)> {
-                return None;
+                None
             }
         }
 

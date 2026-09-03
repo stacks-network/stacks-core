@@ -885,7 +885,7 @@ impl RelayerThread {
         }
 
         info!("Relayer: No sortition, and we did not produce the last Stacks tip. Will not mine.");
-        return None;
+        None
     }
 
     /// Determine if we the current tenure winner needs to issue a BlockFound.
@@ -1262,7 +1262,7 @@ impl RelayerThread {
                 .clone();
 
             let parent_tenure_tip =
-                NakamotoChainState::get_block_header(&self.chainstate.db(), &parent_tenure_tip_id)
+                NakamotoChainState::get_block_header(self.chainstate.db(), &parent_tenure_tip_id)
                     .unwrap()
                     .unwrap();
 
@@ -1492,9 +1492,7 @@ impl RelayerThread {
 
     /// Get the public key hash for the mining key.
     fn get_mining_key_pkh(&self) -> Option<Hash160> {
-        let Some(ref mining_key) = self.config.miner.mining_key else {
-            return None;
-        };
+        let mining_key = self.config.miner.mining_key.as_ref()?;
         Some(Hash160::from_node_public_key(
             &StacksPublicKey::from_private(mining_key),
         ))
@@ -1587,13 +1585,13 @@ impl RelayerThread {
                     chain_state,
                     &canonical_stacks_tip,
                     &canonical_stacks_tip_sn,
-                    &cursor,
+                    cursor,
                 )? {
                     return Ok(FindIter::Found(()));
                 }
 
                 // nope. continue the search
-                return Ok(FindIter::Continue);
+                Ok(FindIter::Continue)
             })
             .map(|found| found.is_some())
     }
@@ -1968,10 +1966,10 @@ impl RelayerThread {
             &sort_tip.consensus_hash,
             &self.config.miner.block_commit_delay,
         ) {
-            return Ok(Some(RelayerDirective::IssueBlockCommit(
+            Ok(Some(RelayerDirective::IssueBlockCommit(
                 stacks_tip_ch,
                 stacks_tip_bh,
-            )));
+            )))
         } else {
             if let Some(deadline) = self
                 .new_tenure_timeout
@@ -1980,7 +1978,7 @@ impl RelayerThread {
                 self.next_initiative = std::cmp::min(self.next_initiative, deadline);
             }
 
-            return Ok(None);
+            Ok(None)
         }
     }
 

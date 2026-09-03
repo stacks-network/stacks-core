@@ -122,7 +122,7 @@ impl RPCRequestHandler for RPCGetConstantValRequestHandler {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {
-                return error_resp.try_into_contents().map_err(NetError::from);
+                return error_resp.try_into_contents();
             }
         };
 
@@ -154,16 +154,14 @@ impl RPCRequestHandler for RPCGetConstantValRequestHandler {
                     &preamble,
                     &HttpNotFound::new("Constant not found".to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
             Ok(None) | Err(_) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpNotFound::new("Chain tip not found".to_string()),
                 )
-                .try_into_contents()
-                .map_err(NetError::from);
+                .try_into_contents();
             }
         };
 
@@ -181,7 +179,7 @@ impl HttpResponse for RPCGetConstantValRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let constant_val: ConstantValResponse = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(constant_val)?)
+        HttpResponsePayload::try_from_json(constant_val)
     }
 }
 

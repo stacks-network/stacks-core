@@ -32,7 +32,7 @@ fn ptrs_cmp(p1: &[TriePtr], p2: &[TriePtr]) -> bool {
             return false;
         }
     }
-    return true;
+    true
 }
 
 fn node_cmp(n1: &TrieNodeType, n2: &TrieNodeType) -> bool {
@@ -126,7 +126,7 @@ fn trie_cmp<T: MarfTrieId>(
         }
     }
 
-    return true;
+    true
 }
 
 fn load_store_trie_m_n_same_with_compression(m: u64, n: u64, same: bool, compress: bool) {

@@ -948,13 +948,13 @@ impl<T: MarfTrieId> TrieCursor<T> {
                     self.index - 1,
                     &path_bytes
                 );
-                return Err(self.last_error.clone().unwrap());
+                Err(self.last_error.clone().unwrap())
             } else {
-                return Ok(ptr_opt);
+                Ok(ptr_opt)
             }
         } else {
             trace!("cursor: now out of path");
-            return Ok(None);
+            Ok(None)
         }
     }
 
@@ -1641,7 +1641,7 @@ impl TrieNodePatch {
             trace!("Cannot produce TrieNodePatch: patch has no diffs!");
             return None;
         }
-        return Some(patch);
+        Some(patch)
     }
 
     /// Apply this patch to a node4, given the node, block ID where the patch was found, and block
@@ -1832,9 +1832,7 @@ impl TrieNode for TrieNode4 {
     ) -> Option<Self> {
         let mut node = self;
         for (patch_block_id, _, patch) in patches.iter() {
-            let Some(next_node) = patch.apply_node4(node, *patch_block_id, cur_block_id) else {
-                return None;
-            };
+            let next_node = patch.apply_node4(node, *patch_block_id, cur_block_id)?;
             node = next_node;
         }
         node.patches.extend_from_slice(patches);
@@ -1929,9 +1927,7 @@ impl TrieNode for TrieNode16 {
     ) -> Option<Self> {
         let mut node = self;
         for (patch_block_id, _, patch) in patches.iter() {
-            let Some(next_node) = patch.apply_node16(node, *patch_block_id, cur_block_id) else {
-                return None;
-            };
+            let next_node = patch.apply_node16(node, *patch_block_id, cur_block_id)?;
             node = next_node;
         }
         node.patches.extend_from_slice(patches);
@@ -2104,9 +2100,7 @@ impl TrieNode for TrieNode48 {
     ) -> Option<Self> {
         let mut node = self;
         for (patch_block_id, _, patch) in patches.iter() {
-            let Some(next_node) = patch.apply_node48(node, *patch_block_id, cur_block_id) else {
-                return None;
-            };
+            let next_node = patch.apply_node48(node, *patch_block_id, cur_block_id)?;
             node = next_node;
         }
         node.patches.extend_from_slice(patches);
@@ -2199,9 +2193,7 @@ impl TrieNode for TrieNode256 {
     ) -> Option<Self> {
         let mut node = self;
         for (patch_block_id, _, patch) in patches.iter() {
-            let Some(next_node) = patch.apply_node256(node, *patch_block_id, cur_block_id) else {
-                return None;
-            };
+            let next_node = patch.apply_node256(node, *patch_block_id, cur_block_id)?;
             node = next_node;
         }
         node.patches.extend_from_slice(patches);
@@ -2441,27 +2433,19 @@ impl TrieNodeType {
     ) -> Option<Self> {
         match self {
             TrieNodeType::Node4(data) => {
-                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
-                    return None;
-                };
+                let new_data = data.apply_patches(patches, cur_block_id)?;
                 Some(TrieNodeType::Node4(new_data))
             }
             TrieNodeType::Node16(data) => {
-                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
-                    return None;
-                };
+                let new_data = data.apply_patches(patches, cur_block_id)?;
                 Some(TrieNodeType::Node16(new_data))
             }
             TrieNodeType::Node48(data) => {
-                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
-                    return None;
-                };
+                let new_data = data.apply_patches(patches, cur_block_id)?;
                 Some(TrieNodeType::Node48(Box::new(new_data)))
             }
             TrieNodeType::Node256(data) => {
-                let Some(new_data) = data.apply_patches(patches, cur_block_id) else {
-                    return None;
-                };
+                let new_data = data.apply_patches(patches, cur_block_id)?;
                 Some(TrieNodeType::Node256(Box::new(new_data)))
             }
             TrieNodeType::Leaf(data) => Some(TrieNodeType::Leaf(data)),

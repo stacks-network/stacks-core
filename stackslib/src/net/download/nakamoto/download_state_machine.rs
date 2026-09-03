@@ -1272,7 +1272,7 @@ impl NakamotoDownloadStateMachine {
                 .can_make_highest_complete_tenure_downloader(sortdb)
                 .unwrap_or(false)
             {
-                if let Some(highest_complete_tenure_downloader) = downloader
+                if let Ok(highest_complete_tenure_downloader) = downloader
                     .make_highest_complete_tenure_downloader()
                     .inspect_err(|e| {
                         warn!(
@@ -1280,7 +1280,6 @@ impl NakamotoDownloadStateMachine {
                             &downloader.unconfirmed_tenure_id()
                         )
                     })
-                    .ok()
                 {
                     // don't start this unless the downloader is actually done (this should always be
                     // the case, but don't tempt fate with an assert!)
@@ -1333,11 +1332,9 @@ impl NakamotoDownloadStateMachine {
         self.update_tenure_downloaders(max_count, &network.current_reward_sets, &network.epochs);
 
         // run all downloaders
-        let new_blocks = self
-            .tenure_downloads
-            .run(network, &mut self.neighbor_rpc, chainstate);
 
-        new_blocks
+        self.tenure_downloads
+            .run(network, &mut self.neighbor_rpc, chainstate)
     }
 
     /// Run and process all unconfirmed tenure downloads, and highest complete tenure downloads.
@@ -1414,16 +1411,14 @@ impl NakamotoDownloadStateMachine {
             }
         }
 
-        let tenure_blocks = coalesced_blocks
+        coalesced_blocks
             .into_iter()
             .map(|(consensus_hash, block_map)| {
                 let mut block_list: Vec<_> = block_map.into_values().collect();
                 block_list.sort_unstable_by_key(|blk| blk.header.chain_length);
                 (consensus_hash, block_list)
             })
-            .collect();
-
-        tenure_blocks
+            .collect()
     }
 
     /// Top-level download state machine execution.
@@ -1509,7 +1504,7 @@ impl NakamotoDownloadStateMachine {
                     self.state = NakamotoDownloadState::Unconfirmed;
                 }
 
-                return new_blocks;
+                new_blocks
             }
             NakamotoDownloadState::Unconfirmed => {
                 let highest_processed_block_id = StacksBlockId::new(
@@ -1562,7 +1557,7 @@ impl NakamotoDownloadStateMachine {
                     }
                 }
 
-                return new_blocks;
+                new_blocks
             }
         }
     }

@@ -292,7 +292,7 @@ impl MarfedKV {
         ephemeral_next: &StacksBlockId,
     ) -> Result<EphemeralMarfStore<'a>, VmExecutionError> {
         // sanity check -- `base_tip` must be mapped
-        self.marf.open_block(&base_tip).map_err(|e| {
+        self.marf.open_block(base_tip).map_err(|e| {
             debug!(
                 "Failed to open read only connection at {}: {:?}",
                 &base_tip, &e
@@ -331,7 +331,7 @@ impl MarfedKV {
         };
 
         // attach the disk-backed MARF to the ephemeral MARF
-        EphemeralMarfStore::attach_read_only_marf(&ephemeral_marf, &read_only_marf).map_err(
+        EphemeralMarfStore::attach_read_only_marf(ephemeral_marf, &read_only_marf).map_err(
             |e| {
                 VmInternalError::Expect(format!(
                     "Failed to attach read-only MARF to ephemeral MARF: {:?}",

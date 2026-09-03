@@ -1211,14 +1211,16 @@ fn test_tenure_start_end_from_inventory() {
                     j += 1;
                 }
 
-                if tenure_start_index.is_some() && tenure_end_index.is_some() {
+                if let (Some(tenure_start_index), Some(tenure_end_index)) =
+                    (tenure_start_index, tenure_end_index)
+                {
                     let tenure_start_end = tenure_start_end_opt.unwrap();
                     assert_eq!(
-                        wanted_tenures[tenure_start_index.unwrap() as usize].winning_block_id,
+                        wanted_tenures[tenure_start_index as usize].winning_block_id,
                         tenure_start_end.start_block_id
                     );
                     assert_eq!(
-                        wanted_tenures[tenure_end_index.unwrap() as usize].winning_block_id,
+                        wanted_tenures[tenure_end_index as usize].winning_block_id,
                         tenure_start_end.end_block_id
                     );
                 } else {
@@ -1289,7 +1291,9 @@ fn test_tenure_start_end_from_inventory() {
                     j += 1;
                 }
 
-                if tenure_start_index.is_some() && tenure_end_index.is_some() {
+                if let (Some(tenure_start_index), Some(tenure_end_index)) =
+                    (tenure_start_index, tenure_end_index)
+                {
                     debug!(
                         "rc = {rc}, i = {i}, tenure_start_index = {tenure_start_index:?}, tenure_end_index = {tenure_end_index:?}"
                     );
@@ -1297,11 +1301,11 @@ fn test_tenure_start_end_from_inventory() {
                         panic!("failed to get tenure_start_end_opt: i = {i}, wt = {wt:?}")
                     });
                     assert_eq!(
-                        all_tenures[tenure_start_index.unwrap() as usize].winning_block_id,
+                        all_tenures[tenure_start_index as usize].winning_block_id,
                         tenure_start_end.start_block_id
                     );
                     assert_eq!(
-                        all_tenures[tenure_end_index.unwrap() as usize].winning_block_id,
+                        all_tenures[tenure_end_index as usize].winning_block_id,
                         tenure_start_end.end_block_id
                     );
                 } else {
@@ -2154,8 +2158,8 @@ fn test_nakamoto_download_run_2_peers() {
             .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
+
+            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
         };
         test_debug!(
             "boot_peer tip height={} hash={}",
@@ -2266,8 +2270,8 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
             .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
+
+            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
         };
         test_debug!(
             "boot_peer tip height={} hash={}",
@@ -2451,8 +2455,8 @@ fn test_nakamoto_microfork_download_run_2_peers() {
             .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
+
+            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
         };
         test_debug!(
             "boot_peer tip height={} hash={}",
@@ -2631,8 +2635,8 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
             .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
+
+            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
         };
         test_debug!(
             "boot_peer tip height={} hash={}",
@@ -2838,8 +2842,8 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
             .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
+
+            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
         };
         test_debug!(
             "boot_peer tip height={} hash={}",
@@ -3048,8 +3052,8 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
             .unwrap_or_default();
         let sn = {
             let ih = peer.sortdb().index_handle(&tip.sortition_id);
-            let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
-            sn
+
+            ih.get_block_snapshot_by_height(height).unwrap().unwrap()
         };
         test_debug!(
             "boot_peer tip height={} hash={}",

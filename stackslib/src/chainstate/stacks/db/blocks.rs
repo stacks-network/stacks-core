@@ -508,7 +508,7 @@ impl StacksChainState {
         // atomically put this file in place
         // TODO: this is atomic but not crash-consistent!  need to fsync the dir as well
         trace!("Rename {:?} to {:?}", &path_tmp, &path);
-        fs::rename(&path_tmp, &path).map_err(|e| Error::DBError(db_error::IOError(e)))?;
+        fs::rename(&path_tmp, path).map_err(|e| Error::DBError(db_error::IOError(e)))?;
 
         Ok(())
     }
@@ -685,7 +685,7 @@ impl StacksChainState {
             invalid_path
                 .file_name()
                 .expect("FATAL: index block path did not have file name");
-            invalid_path.set_extension(&format!("invalid-{}", &random_bytes_str));
+            invalid_path.set_extension(format!("invalid-{}", &random_bytes_str));
 
             fs::copy(&block_path, &invalid_path).unwrap_or_else(|_| {
                 panic!(
@@ -918,7 +918,7 @@ impl StacksChainState {
     ) -> Result<Option<Vec<u8>>, Error> {
         let sql = format!("SELECT block_data FROM {table} WHERE block_hash = ?1");
         let args = [&block_hash];
-        let mut blobs = StacksChainState::load_block_data_blobs(block_conn, &sql, &args)?;
+        let mut blobs = StacksChainState::load_block_data_blobs(block_conn, &sql, args)?;
         let len = blobs.len();
         match len {
             0 => Ok(None),
@@ -1010,7 +1010,7 @@ impl StacksChainState {
     ) -> Result<Option<BlockHeaderHash>, Error> {
         let sql = "SELECT parent_microblock_hash FROM staging_blocks WHERE index_block_hash = ?1 AND orphaned = 0";
         block_conn
-            .query_row(sql, &[index_block_hash], |row| row.get(0))
+            .query_row(sql, [index_block_hash], |row| row.get(0))
             .optional()
             .map_err(|e| Error::DBError(db_error::from(e)))
     }
@@ -1451,7 +1451,7 @@ impl StacksChainState {
     pub fn get_parent(&self, stacks_block: &StacksBlockId) -> Result<StacksBlockId, Error> {
         let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?";
         self.db()
-            .query_row(sql, &[stacks_block], |row| row.get(0))
+            .query_row(sql, [stacks_block], |row| row.get(0))
             .map_err(|e| Error::from(db_error::from(e)))
     }
 
@@ -1475,7 +1475,7 @@ impl StacksChainState {
                 return Ok(Some(possible_parent.consensus_hash));
             }
         }
-        return Ok(None);
+        Ok(None)
     }
 
     /// Get an anchored block's parent block header.
@@ -1519,7 +1519,7 @@ impl StacksChainState {
                 return Ok(ret);
             }
         }
-        return Ok(None);
+        Ok(None)
     }
 
     #[cfg(test)]
@@ -1660,7 +1660,7 @@ impl StacksChainState {
             "UPDATE staging_blocks SET attachable = 0 WHERE parent_anchored_block_hash = ?1";
         let children_args = [&block_hash];
 
-        tx.execute(children_sql, &children_args)
+        tx.execute(children_sql, children_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
@@ -1776,12 +1776,12 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<bool>, Error> {
         StacksChainState::read_one_i64(blocks_conn, "SELECT processed FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", &[block_hash, consensus_hash])
-            .and_then(|processed| {
+            .map(|processed| {
                 let Some(processed_head) = processed else {
                     // if empty, return false
-                    return Ok(None)
+                    return None
                 };
-                Ok(Some(processed_head != 0))
+                Some(processed_head != 0)
             })
     }
 
@@ -1805,12 +1805,12 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<bool, Error> {
         StacksChainState::read_one_i64(blocks_conn, "SELECT orphaned FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", &[block_hash, consensus_hash])
-            .and_then(|orphaned| {
+            .map(|orphaned| {
                 let Some(orphaned_head) = orphaned else {
                     // if empty, return false
-                    return Ok(false)
+                    return false
                 };
-                Ok(orphaned_head != 0)
+                orphaned_head != 0
             })
     }
 
@@ -1825,11 +1825,9 @@ impl StacksChainState {
         microblock_hash: &BlockHeaderHash,
     ) -> Result<Option<bool>, Error> {
         StacksChainState::read_one_i64(self.db(), "SELECT processed FROM staging_microblocks WHERE anchored_block_hash = ?1 AND microblock_hash = ?2 AND consensus_hash = ?3", &[&parent_block_hash, microblock_hash, &parent_consensus_hash])
-            .and_then(|processed| {
-                let Some(processed_head) = processed else {
-                    return Ok(None)
-                };
-                Ok(Some(processed_head != 0))
+            .map(|processed| {
+                let processed_head = processed?;
+                Some(processed_head != 0)
             })
     }
 
@@ -1894,12 +1892,12 @@ impl StacksChainState {
         StacksChainState::read_one_i64(self.db(), "SELECT staging_microblocks.processed
                                                 FROM staging_blocks JOIN staging_microblocks ON staging_blocks.parent_anchored_block_hash = staging_microblocks.anchored_block_hash AND staging_blocks.parent_consensus_hash = staging_microblocks.consensus_hash
                                                 WHERE staging_blocks.index_block_hash = ?1 AND staging_microblocks.microblock_hash = ?2 AND staging_microblocks.orphaned = 0", &[child_index_block_hash, &parent_microblock_hash])
-            .and_then(|processed| {
+            .map(|processed| {
                 let Some(processed_head) = processed else {
                     // if empty, return false
-                    return Ok(false)
+                    return false
                 };
-                Ok(processed_head != 0)
+                processed_head != 0
             })
     }
 
@@ -2045,10 +2043,10 @@ impl StacksChainState {
             .query_row(sql, args, |row| {
                 let start_height_i64: i64 = row.get_unwrap(0);
                 let end_height_i64: i64 = row.get_unwrap(1);
-                return Ok((
+                Ok((
                     u64::try_from(start_height_i64).expect("FATAL: height exceeds i64::MAX"),
                     u64::try_from(end_height_i64).expect("FATAL: height exceeds i64::MAX"),
-                ));
+                ))
             })
             .optional()?
             .ok_or_else(|| Error::DBError(db_error::NotFoundError))
@@ -2190,11 +2188,11 @@ impl StacksChainState {
 
         // copy into the invalidated_microblocks_data table
         let copy_sql = "INSERT OR REPLACE INTO invalidated_microblocks_data SELECT * FROM staging_microblocks_data WHERE block_hash = ?1";
-        tx.execute(copy_sql, &args)?;
+        tx.execute(copy_sql, args)?;
 
         // clear out the block data from staging
         let clear_sql = "DELETE FROM staging_microblocks_data WHERE block_hash = ?1";
-        tx.execute(clear_sql, &args)?;
+        tx.execute(clear_sql, args)?;
 
         Ok(())
     }
@@ -2379,7 +2377,7 @@ impl StacksChainState {
                     .to_string();
             let update_children_args = [&anchored_block_hash];
 
-            tx.execute(&update_children_sql, &update_children_args)
+            tx.execute(&update_children_sql, update_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
             // mark this block as processed in the burn db too
@@ -2538,7 +2536,7 @@ impl StacksChainState {
             let update_block_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_microblock_hash = ?1".to_string();
             let update_block_children_args = [&mblock_hash];
 
-            tx.execute(&update_block_children_sql, &update_block_children_args)
+            tx.execute(&update_block_children_sql, update_block_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         }
 
@@ -2625,12 +2623,12 @@ impl StacksChainState {
         let parent_index_block_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_block_hash);
         StacksChainState::read_one_i64(self.db(), "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = ?2", &[&parent_index_block_hash, &seq])
-            .and_then(|processed| {
+            .map(|processed| {
                 let Some(processed_head) = processed else {
                     // if empty, return false
-                    return Ok(false)
+                    return false
                 };
-                Ok(processed_head == 0)
+                processed_head == 0
             })
     }
 
@@ -3075,7 +3073,7 @@ impl StacksChainState {
             return None;
         }
 
-        return Some((end, None));
+        Some((end, None))
     }
 
     /// Determine whether or not a block executed an epoch transition.  That is, did this block
@@ -3641,15 +3639,13 @@ impl StacksChainState {
             parent_anchored_block_hash,
             parent_microblock_hash,
         )? {
-            Some(microblocks) => {
-                return Ok(Some(microblocks));
-            }
+            Some(microblocks) => Ok(Some(microblocks)),
             None => {
                 // parent microblocks haven't arrived yet, or there are none
                 debug!(
                     "No parent microblock stream for {anchored_block_hash}: expected a stream with tail {parent_microblock_hash},{parent_microblock_seq}",
                 );
-                return Ok(None);
+                Ok(None)
             }
         }
     }
@@ -3703,7 +3699,7 @@ impl StacksChainState {
         let cnt = query_count(
             blocks_conn,
             &sql,
-            &[&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?],
+            [&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?],
         )
         .map_err(Error::DBError)?;
         Ok(u64::try_from(cnt).expect("more than i64::MAX rows"))
@@ -3720,7 +3716,7 @@ impl StacksChainState {
         let cnt = query_count(
             blocks_conn,
             &sql,
-            &[&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?],
+            [&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?],
         )
         .map_err(Error::DBError)?;
         Ok(u64::try_from(cnt).expect("more than i64::MAX rows"))
@@ -5001,7 +4997,7 @@ impl StacksChainState {
             }
         })?;
         debug!("check_and_handle_reward_start: handled pox cycle start");
-        return Ok(events);
+        Ok(events)
     }
 
     /// Called in both follower and miner block assembly paths.
@@ -5197,7 +5193,7 @@ impl StacksChainState {
                 &mut clarity_tx,
                 first_block_height.into(),
                 pox_constants,
-                burn_tip_height.into(),
+                burn_tip_height,
                 // this is the block height that the write occurs *during*
                 chain_tip.stacks_block_height + 1,
             )?;
@@ -5896,7 +5892,7 @@ impl StacksChainState {
             return false;
         }
 
-        return true;
+        true
     }
 
     /// Get the parent header info for a block we're processing, if it's known.
@@ -10856,7 +10852,7 @@ pub mod test {
         burn_height: u64,
         tenure_id: usize,
     ) -> TransferStxOp {
-        let transfer_op = TransferStxOp {
+        TransferStxOp {
             sender: addr.clone(),
             recipient: recipient_addr.clone(),
             transfered_ustx: ((tenure_id + 1) * 1000) as u128,
@@ -10871,8 +10867,7 @@ pub mod test {
             vtxindex: (10 + tenure_id) as u32,
             block_height: burn_height,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]),
-        };
-        transfer_op
+        }
     }
 
     fn make_delegate_op(
@@ -10881,7 +10876,7 @@ pub mod test {
         burn_height: u64,
         tenure_id: usize,
     ) -> DelegateStxOp {
-        let del_op = DelegateStxOp {
+        DelegateStxOp {
             sender: addr.clone(),
             delegate_to: delegate_addr.clone(),
             reward_addr: None,
@@ -10897,9 +10892,7 @@ pub mod test {
             vtxindex: (11 + tenure_id) as u32,
             block_height: burn_height,
             burn_header_hash: BurnchainHeaderHash([0x00; 32]),
-        };
-
-        del_op
+        }
     }
 
     /// Verify that the stacking, transfer, and delegate operations on the burnchain work as expected in

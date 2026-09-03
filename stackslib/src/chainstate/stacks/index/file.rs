@@ -219,7 +219,7 @@ impl TrieFile {
                     if e.kind() == io::ErrorKind::NotFound {
                         Ok(false)
                     } else {
-                        return Err(e.into());
+                        Err(e.into())
                     }
                 }
             }

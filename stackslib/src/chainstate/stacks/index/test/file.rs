@@ -110,11 +110,11 @@ fn test_migrate_tables_readonly_fails_when_outdated() {
 fn test_migrate_existing_trie_blobs() {
     let test_file = "/tmp/test_migrate_existing_trie_blobs.sqlite";
     let test_blobs_file = "/tmp/test_migrate_existing_trie_blobs.sqlite.blobs";
-    if fs::metadata(&test_file).is_ok() {
-        fs::remove_file(&test_file).unwrap();
+    if fs::metadata(test_file).is_ok() {
+        fs::remove_file(test_file).unwrap();
     }
-    if fs::metadata(&test_blobs_file).is_ok() {
-        fs::remove_file(&test_blobs_file).unwrap();
+    if fs::metadata(test_blobs_file).is_ok() {
+        fs::remove_file(test_blobs_file).unwrap();
     }
 
     let (data, last_block_header, root_header_map) = {
@@ -156,7 +156,7 @@ fn test_migrate_existing_trie_blobs() {
     let mut marf = MARF::from_storage(f);
 
     // blobs file exists
-    assert!(fs::metadata(&test_blobs_file).is_ok());
+    assert!(fs::metadata(test_blobs_file).is_ok());
 
     // verify that the new blob structure is well-formed
     let blob_root_header_map = {

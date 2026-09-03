@@ -584,7 +584,8 @@ impl<'a> TestRPC<'a> {
                     BlockBuilderSettings::max_value(),
                 )
                 .unwrap();
-                let microblock = microblock_builder
+
+                microblock_builder
                     .mine_next_microblock_from_txs(
                         vec![
                             (tx_cc_signed, tx_cc_len),
@@ -592,8 +593,7 @@ impl<'a> TestRPC<'a> {
                         ],
                         &microblock_privkey,
                     )
-                    .unwrap();
-                microblock
+                    .unwrap()
             };
             peer_1.chain.sortdb = Some(sortdb);
             mblock
@@ -1318,7 +1318,7 @@ impl<'a> TestRPC<'a> {
             responses.push(resp);
         }
 
-        return responses;
+        responses
     }
 }
 

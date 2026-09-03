@@ -272,7 +272,7 @@ impl HttpResponse for RPCNeighborsRequestHandler {
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
         let neighbor_info: RPCNeighborsInfo = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(neighbor_info)?)
+        HttpResponsePayload::try_from_json(neighbor_info)
     }
 }
 

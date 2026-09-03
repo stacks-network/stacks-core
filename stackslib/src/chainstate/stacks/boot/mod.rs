@@ -874,7 +874,7 @@ impl StacksChainState {
             let tx_event =
                 ExecutionState::construct_print_transaction_event(pox_contract.clone(), event_info);
             events.push(tx_event);
-            total_events.extend(events.into_iter());
+            total_events.extend(events);
         }
 
         Ok(total_events)
@@ -1204,8 +1204,8 @@ impl StacksChainState {
             0 => 0,
             remainder => POX_THRESHOLD_STEPS_USTX - remainder,
         };
-        let threshold = threshold_precise + ceil_amount;
-        return threshold;
+
+        threshold_precise + ceil_amount
     }
 
     pub fn get_reward_threshold_and_participation(
@@ -1627,7 +1627,7 @@ impl StacksChainState {
                 VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::NoSuchContract(_)),
             ))) => {
                 warn!("Reward cycle attempted to calculate rewards before the PoX contract was instantiated");
-                return Ok(vec![]);
+                Ok(vec![])
             }
             x => x,
         }
@@ -2156,7 +2156,7 @@ pub mod test {
     pub fn get_liquid_ustx(peer: &mut TestPeer) -> u128 {
         let value = eval_at_tip(peer, "pox", "stx-liquid-supply");
         if let Value::UInt(inner_uint) = value {
-            return inner_uint;
+            inner_uint
         } else {
             panic!("stx-liquid-supply isn't a uint");
         }
@@ -2165,7 +2165,7 @@ pub mod test {
     pub fn get_balance(peer: &mut TestPeer, addr: &PrincipalData) -> u128 {
         let value = eval_at_tip(peer, "pox", &format!("(stx-get-balance '{addr})"));
         if let Value::UInt(balance) = value {
-            return balance;
+            balance
         } else {
             panic!("stx-get-balance isn't a uint");
         }
@@ -3106,8 +3106,8 @@ pub mod test {
             ))
         )
         ", boot_code_test_addr());
-        let contract_tx = make_bare_contract(key, nonce, 0, name, &contract);
-        contract_tx
+
+        make_bare_contract(key, nonce, 0, name, &contract)
     }
 
     // call after make_pox_lockup_contract gets mined

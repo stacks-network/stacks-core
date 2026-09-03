@@ -90,7 +90,9 @@ fn signer_rejects_proposal_after_block_pushed() {
     info!("------------------------- Ignore all Proposals for Signer 1 -------------------------"; "signer_public_key" => ?signer_1);
     test_observer::clear();
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![signer_1.clone()]);
-    info!("------------------------- Force Miner to Send a Block Proposal To Signers -------------------------");
+    info!(
+        "------------------------- Force Miner to Send a Block Proposal To Signers -------------------------"
+    );
     let info_before = get_chain_info(&signer_test.running_nodes.conf);
     // submit a tx to force a block proposal
     let sender_nonce = 0;
@@ -113,35 +115,34 @@ fn signer_rejects_proposal_after_block_pushed() {
     })
     .expect("Failed to get BlockPushed for block N");
 
-    info!("------------------------- Verify Signer 1 did NOT respond to the Block Proposal -------------------------");
+    info!(
+        "------------------------- Verify Signer 1 did NOT respond to the Block Proposal -------------------------"
+    );
     let messages = get_stackerdb_signer_messages();
     for (_chunk, message) in messages {
         match message {
             SignerMessage::BlockResponse(BlockResponse::Rejected(rejected)) => {
-                if rejected.signer_signature_hash == signer_signature_hash {
-                    if rejected.signer_signature_hash == signer_signature_hash {
-                        if rejected
-                            .verify(&signer_1)
-                            .expect("Failed to verify signature")
-                        {
-                            panic!("Signer 1 rejected the re-proposed block when it should have ignored it");
-                        }
-                    }
+                if rejected.signer_signature_hash == signer_signature_hash
+                    && rejected.signer_signature_hash == signer_signature_hash
+                    && rejected
+                        .verify(&signer_1)
+                        .expect("Failed to verify signature")
+                {
+                    panic!(
+                        "Signer 1 rejected the re-proposed block when it should have ignored it"
+                    );
                 }
             }
             SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) => {
-                if accepted.signer_signature_hash == signer_signature_hash {
-                    if signer_1
+                if accepted.signer_signature_hash == signer_signature_hash
+                    && signer_1
                         .verify(
                             accepted.signer_signature_hash.as_bytes(),
                             &accepted.signature,
                         )
                         .expect("Failed to verify signature")
-                    {
-                        panic!(
-                            "Signer 1 accepted the block proposal when it should have ignored it"
-                        );
-                    }
+                {
+                    panic!("Signer 1 accepted the block proposal when it should have ignored it");
                 }
             }
             _ => continue,

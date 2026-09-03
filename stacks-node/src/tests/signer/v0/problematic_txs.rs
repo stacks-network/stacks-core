@@ -106,7 +106,7 @@ fn signers_reject_blocks_with_problematic_txs() {
     let conf = signer_test.running_nodes.conf.clone();
     let all_signers = signer_test.signer_test_pks();
     let miner_privk = signer_test.get_miner_key();
-    let miner_pubk = StacksPublicKey::from_private(&miner_privk);
+    let miner_pubk = StacksPublicKey::from_private(miner_privk);
 
     signer_test.boot_to_epoch_4_with_pox5_lockups(
         &spender_sk,
@@ -145,7 +145,9 @@ fn signers_reject_blocks_with_problematic_txs() {
     // Allow signers to consider incoming proposals again.
     TEST_IGNORE_ALL_BLOCK_PROPOSALS.set(vec![]);
 
-    info!("------------------------- Propose a block marking a transaction problematic -------------------------");
+    info!(
+        "------------------------- Propose a block marking a transaction problematic -------------------------"
+    );
     test_observer::clear();
     let mut block = block_proposal.block.clone();
     // The signer gate rejects any non-empty `problematic_txs` list outright,
@@ -157,12 +159,14 @@ fn signers_reject_blocks_with_problematic_txs() {
     }];
     // `problematic_txs` is part of the (version-1) signature hash but not the
     // transaction Merkle root, so only the miner signature needs recomputing.
-    block.header.sign_miner(&miner_privk).unwrap();
+    block.header.sign_miner(miner_privk).unwrap();
 
     let proposed_sighash = block.header.signer_signature_hash();
     signer_test.propose_block(block, Duration::from_secs(30));
 
-    info!("------------------------- Confirm all signers reject with ProblematicTransactions -------------------------");
+    info!(
+        "------------------------- Confirm all signers reject with ProblematicTransactions -------------------------"
+    );
     let rejections = wait_for_block_rejections_from_signers(30, &proposed_sighash, &all_signers)
         .expect("Failed to find block rejections from all signers");
     rejections.iter().for_each(|rejection| {

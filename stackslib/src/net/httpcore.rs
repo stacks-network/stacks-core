@@ -1112,10 +1112,10 @@ impl StacksHttp {
         let mut allowed_methods = Vec::new();
         for (verb, regex, permissive_regex, _) in self.request_handlers.iter() {
             // Check if either the strict or permissive regex matches
-            if regex.is_match(request_path) || permissive_regex.is_match(request_path) {
-                if !allowed_methods.contains(verb) {
-                    allowed_methods.push(verb.clone());
-                }
+            if (regex.is_match(request_path) || permissive_regex.is_match(request_path))
+                && !allowed_methods.contains(verb)
+            {
+                allowed_methods.push(verb.clone());
             }
         }
         allowed_methods
@@ -1292,7 +1292,7 @@ impl StacksHttp {
             .expect("FATAL: tried to use nonexistent response handler");
         let payload = parser.try_parse_response(preamble, body)?;
         let response = StacksHttpResponse::new(preamble.clone(), payload);
-        return Ok(response);
+        Ok(response)
     }
 
     /// Handle an HTTP request by generating an HTTP response.
@@ -1432,7 +1432,7 @@ impl StacksHttp {
                 res => Ok(res),
             }
         } else {
-            return Err(NetError::InvalidState);
+            Err(NetError::InvalidState)
         }
     }
 
@@ -1449,7 +1449,7 @@ impl StacksHttp {
     /// `buf`.  Otherwise, we just check `buf[i-4..i]`.
     #[allow(clippy::indexing_slicing)]
     fn body_start_search_window(&self, i: usize, buf: &[u8]) -> [u8; 4] {
-        let window = match i {
+        match i {
             0 => [
                 self.last_four_preamble_bytes[0],
                 self.last_four_preamble_bytes[1],
@@ -1470,8 +1470,7 @@ impl StacksHttp {
             ],
             3 => [self.last_four_preamble_bytes[3], buf[0], buf[1], buf[2]],
             _ => [buf[i - 4], buf[i - 3], buf[i - 2], buf[i - 1]],
-        };
-        window
+        }
     }
 
     /// Get a unique `&str` identifier for each request type
@@ -1619,7 +1618,7 @@ impl ProtocolFamily for StacksHttp {
         match preamble {
             StacksHttpPreamble::Request(_) => {
                 // HTTP requests can't be chunk-encoded, so this should never be reached
-                return Err(NetError::InvalidState);
+                Err(NetError::InvalidState)
             }
             StacksHttpPreamble::Response(ref http_response_preamble) => {
                 if !http_response_preamble.is_chunked() {
@@ -1745,13 +1744,13 @@ impl ProtocolFamily for StacksHttp {
                             extra_headers,
                         );
                         self.reset();
-                        return Ok((
+                        Ok((
                             StacksHttpMessage::Error(
                                 http_request_preamble.path_and_query_str.clone(),
                                 resp,
                             ),
                             len,
-                        ));
+                        ))
                     }
                     Err(e) => {
                         info!("Failed to parse HTTP request: {:?}", &e);

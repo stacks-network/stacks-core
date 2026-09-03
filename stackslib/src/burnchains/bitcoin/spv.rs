@@ -252,7 +252,7 @@ impl SpvClient {
 
         tx.execute(
             "INSERT INTO db_config (version) VALUES (?1)",
-            &[&SPV_DB_VERSION],
+            [&SPV_DB_VERSION],
         )
         .map_err(db_error::SqliteError)?;
 
@@ -273,7 +273,7 @@ impl SpvClient {
     }
 
     fn db_set_version(tx: &Transaction, version: &str) -> Result<(), btc_error> {
-        tx.execute("UPDATE db_config SET version = ?1", &[version])
+        tx.execute("UPDATE db_config SET version = ?1", [version])
             .map_err(db_error::SqliteError)
             .map_err(|e| e.into())
             .map(|_| ())
@@ -400,7 +400,7 @@ impl SpvClient {
             .conn()
             .query_row(
                 "SELECT work FROM chain_work WHERE interval = ?1",
-                &[&u64_to_sql(interval)?],
+                [&u64_to_sql(interval)?],
                 |row| row.get(0),
             )
             .optional()
@@ -561,7 +561,7 @@ impl SpvClient {
             prev_header = Some(cur_header.header.bitcoin_hash());
         }
 
-        return Ok(());
+        Ok(())
     }
 
     /// Verify that the given headers have the correct amount of work to be appended to our
@@ -641,7 +641,7 @@ impl SpvClient {
                 headers.push_front(header_i);
             }
         }
-        return Ok(());
+        Ok(())
     }
 
     /// Report how many block headers (+ 1) we have downloaded to the given path.
@@ -676,7 +676,7 @@ impl SpvClient {
         let header_opt: Option<BlockHeader> = query_row(
             &self.headers_db,
             "SELECT * FROM headers WHERE height = ?1",
-            &[&u64_to_sql(block_height)?],
+            [&u64_to_sql(block_height)?],
         )?;
         Ok(header_opt.map(|h| LoneBlockHeader {
             header: h,
@@ -692,7 +692,7 @@ impl SpvClient {
         query_row(
             &self.headers_db,
             "SELECT height FROM headers WHERE hash = ?1",
-            &[burn_header_hash],
+            [burn_header_hash],
         )
         .map_err(|e| e.into())
     }
@@ -809,7 +809,7 @@ impl SpvClient {
         if migrate {
             self.update_chain_work()?;
         }
-        return Ok(());
+        Ok(())
     }
 
     /// Handle a Headers message
@@ -887,7 +887,7 @@ impl SpvClient {
             debug!("Handled empty header reply");
         }
 
-        return Ok(());
+        Ok(())
     }
 
     /// Write a run of continuous headers to a particular location.
@@ -1046,7 +1046,7 @@ impl SpvClient {
         let tx = self.tx_begin()?;
         tx.execute(
             "DELETE FROM headers WHERE height > ?1",
-            &[&u64_to_sql(new_max_height)?],
+            [&u64_to_sql(new_max_height)?],
         )
         .map_err(db_error::SqliteError)?;
         tx.commit()
@@ -1314,7 +1314,7 @@ mod test {
     use crate::util_lib::db::table_exists;
 
     fn get_genesis_regtest_header() -> LoneBlockHeader {
-        let genesis_regtest_header = LoneBlockHeader {
+        LoneBlockHeader {
             header: BlockHeader {
                 bits: 545259519,
                 merkle_root: Sha256dHash::from_hex(
@@ -1330,8 +1330,7 @@ mod test {
                 version: 1,
             },
             tx_count: VarInt(0),
-        };
-        genesis_regtest_header
+        }
     }
 
     /// Exercises the complete SPV schema migration from version 1 to version 3.

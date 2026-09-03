@@ -623,7 +623,11 @@ fn stx_transfers_dont_effect_idle_timeout() {
         assert_eq!(latest_acceptance.signer_signature_hash, last_block_hash);
 
         if first_global_acceptance.is_none() {
-            assert!(latest_acceptance.response_data.tenure_extend_timestamp < initial_acceptance.response_data.tenure_extend_timestamp, "First global acceptance should be less than initial guesstimated acceptance as its based on block proposal time rather than epoch time at time of response.");
+            assert!(
+                latest_acceptance.response_data.tenure_extend_timestamp
+                    < initial_acceptance.response_data.tenure_extend_timestamp,
+                "First global acceptance should be less than initial guesstimated acceptance as its based on block proposal time rather than epoch time at time of response."
+            );
             first_global_acceptance = Some(latest_acceptance);
         } else {
             // Because the block only contains transfers, the idle timeout should not have changed between blocks post the tenure change
@@ -1108,7 +1112,7 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
                 None,
                 None,
                 None,
-                u64::from(DEFAULT_MAX_TENURE_BYTES),
+                DEFAULT_MAX_TENURE_BYTES,
             )
             .expect("Failed to build Nakamoto block");
 
@@ -1149,7 +1153,10 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
             &block_signer_signature_hash_tenure_extend, &block
         );
 
-        info!("------------------------- Send SIP-034 Tenure Extend for {:?} Block Proposal To Signers -------------------------", extend_cause);
+        info!(
+            "------------------------- Send SIP-034 Tenure Extend for {:?} Block Proposal To Signers -------------------------",
+            extend_cause
+        );
         signer_test.propose_block(block.clone(), short_timeout);
 
         if allow {
@@ -1261,7 +1268,9 @@ fn tenure_extend_after_stale_commit_different_miner() {
     let tip_b_height = miners.get_peer_stacks_tip_height();
     let tenure_b_ch = miners.get_peer_stacks_tip_ch();
 
-    info!("------------------------- Miner 1 Wins Tenure C with stale commit -------------------------");
+    info!(
+        "------------------------- Miner 1 Wins Tenure C with stale commit -------------------------"
+    );
 
     // We can't use `ensure_commit_miner_1` here because we are using the stale view
     {
@@ -1808,7 +1817,9 @@ fn tenure_extend_after_failed_miner() {
     fault_injection_stall_miner();
     miners.ensure_commit_miner_2(&sortdb);
 
-    info!("------------------------- Miner 2 Wins Tenure B, Mines No Blocks -------------------------");
+    info!(
+        "------------------------- Miner 2 Wins Tenure B, Mines No Blocks -------------------------"
+    );
     let stacks_height_before = miners.get_peer_stacks_tip_height();
     test_observer::clear();
     miners
@@ -2408,7 +2419,9 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
         .cause
         .is_eq(&TenureChangeCause::Extended));
 
-    info!("------------------------- Verify that Miner 1's Block N+1' was Rejected ------------------------");
+    info!(
+        "------------------------- Verify that Miner 1's Block N+1' was Rejected ------------------------"
+    );
     // Miner 1's proposed block should get rejected by the signers
     wait_for_block_global_rejection(
         30,
@@ -2739,7 +2752,7 @@ fn burn_block_height_behavior() {
         deploy_fee,
         signer_test.running_nodes.conf.burnchain.chain_id,
         "foo",
-        &contract_src,
+        contract_src,
     );
     submit_tx(&http_origin, &contract_tx);
     deployer_nonce += 1;
@@ -2863,20 +2876,17 @@ fn burn_block_height_behavior() {
     assert_eq!(txs.len(), 2, "Expected 2 txs in the tenure extend block");
     let _tenure_extend_tx = txs.first().unwrap();
     let call_tx = txs.last().unwrap();
-    match call_tx {
-        TransactionEvent::Success(tx) => {
-            if tx.txid.to_string() == txid {
-                let result_height = tx
-                    .result
-                    .clone()
-                    .expect_result_ok()
-                    .unwrap()
-                    .expect_u128()
-                    .unwrap();
-                assert_eq!(result_height, burn_height_before as u128 + 1);
-            }
+    if let TransactionEvent::Success(tx) = call_tx {
+        if tx.txid.to_string() == txid {
+            let result_height = tx
+                .result
+                .clone()
+                .expect_result_ok()
+                .unwrap()
+                .expect_u128()
+                .unwrap();
+            assert_eq!(result_height, burn_height_before as u128 + 1);
         }
-        _ => {}
     }
 
     info!("------------------------- shutdown -------------------------");
@@ -3638,7 +3648,9 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
             .cause
             .is_eq(&TenureChangeCause::BlockFound));
 
-        info!("------------------------- Verify that Miner 2's Block N+1' was Rejected ------------------------");
+        info!(
+            "------------------------- Verify that Miner 2's Block N+1' was Rejected ------------------------"
+        );
         wait_for_block_global_rejection(
             30,
             &miner_2_block_n_1.header.signer_signature_hash(),
@@ -3682,7 +3694,9 @@ fn non_blocking_minority_configured_to_favour_test(variant: NonBlockingMinorityV
             .cause
             .is_eq(&TenureChangeCause::Extended));
 
-        info!("------------------------- Verify that Miner 1's Block N+1' was Rejected ------------------------");
+        info!(
+            "------------------------- Verify that Miner 1's Block N+1' was Rejected ------------------------"
+        );
         if matches!(variant, NonBlockingMinorityVariant::FavourPrevMiner) {
             wait_for_block_rejections_from_signers(
                 30,
@@ -4282,7 +4296,9 @@ fn continue_after_fast_block_no_sortition() {
     // assure we have a successful sortition that miner 1 won
     verify_sortition_winner(&sortdb, &miner_pkh_1);
 
-    info!("------------------------- Make Signers Reject All Subsequent Proposals -------------------------");
+    info!(
+        "------------------------- Make Signers Reject All Subsequent Proposals -------------------------"
+    );
 
     let stacks_height_before = miners.get_peer_stacks_tip_height();
 
@@ -4318,7 +4334,9 @@ fn continue_after_fast_block_no_sortition() {
     .expect("Failed to get expected block rejections for Miner 2's block proposal");
 
     // Mine another couple burn blocks and ensure there is _no_ sortition
-    info!("------------------------- Mine Two Burn Block(s) with No Sortitions -------------------------");
+    info!(
+        "------------------------- Mine Two Burn Block(s) with No Sortitions -------------------------"
+    );
     for _ in 0..2 {
         let blocks_processed_before_1 = blocks_mined1.load(Ordering::SeqCst);
         let blocks_processed_before_2 = blocks_mined2.load(Ordering::SeqCst);
@@ -4849,7 +4867,9 @@ fn read_count_extend_after_burn_view_change() {
     let tip_b_height = miners.get_peer_stacks_tip_height();
     let tenure_b_ch = miners.get_peer_stacks_tip_ch();
 
-    info!("------------------------- Miner 1 Wins Tenure C with stale commit -------------------------");
+    info!(
+        "------------------------- Miner 1 Wins Tenure C with stale commit -------------------------"
+    );
 
     miners.unpause_commits_miner_1();
     // We can't use `ensure_commit_miner_1` here because we are using the stale view

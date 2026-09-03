@@ -2182,7 +2182,7 @@ fn test_cost_change() {
             .initialize_versioned_contract(
                 contract_id.clone(),
                 ClarityVersion::Clarity4,
-                &contract,
+                contract,
                 None,
             )
             .unwrap();
@@ -2214,7 +2214,7 @@ fn test_cost_change() {
             .initialize_versioned_contract(
                 contract_id.clone(),
                 ClarityVersion::Clarity4,
-                &contract,
+                contract,
                 None,
             )
             .unwrap();
@@ -2248,7 +2248,7 @@ fn test_cost_change() {
             .initialize_versioned_contract(
                 contract_id.clone(),
                 ClarityVersion::Clarity4,
-                &contract,
+                contract,
                 None,
             )
             .unwrap();
@@ -2280,7 +2280,7 @@ fn test_cost_change() {
             .initialize_versioned_contract(
                 contract_id.clone(),
                 ClarityVersion::Clarity4,
-                &contract,
+                contract,
                 None,
             )
             .unwrap();

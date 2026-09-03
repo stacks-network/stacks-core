@@ -53,7 +53,7 @@ fn is_close(left: FeeRateEstimate, right: FeeRateEstimate) -> bool {
 fn instantiate_test_db<CM: CostMetric>(m: CM) -> WeightedMedianFeeRateEstimator<CM> {
     let mut path = env::temp_dir();
     let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
-    path.push(&format!("fee_db_{}.sqlite", &to_hex(&random_bytes)[0..8]));
+    path.push(format!("fee_db_{}.sqlite", &to_hex(&random_bytes)[0..8]));
 
     let window_size = 5;
     WeightedMedianFeeRateEstimator::open(&path, m, window_size)

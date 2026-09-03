@@ -359,7 +359,7 @@ impl Node {
         )
         .expect("FATAL: failed to initiate mempool");
 
-        let mut event_dispatcher = EventDispatcher::from_config(&config);
+        let event_dispatcher = EventDispatcher::from_config(&config);
 
         let burnchain_config = config.get_burnchain();
 
@@ -372,7 +372,7 @@ impl Node {
         .expect("FATAL: failed to connect to burnchain DB");
 
         run_loop::announce_boot_receipts(
-            &mut event_dispatcher,
+            &event_dispatcher,
             &chain_state,
             &burnchain_config.pox_constants,
             &receipts,
@@ -608,12 +608,12 @@ impl Node {
                         });
                     }
                 }
-                BlockstackOperationType::LeaderBlockCommit(ref op) => {
-                    if op.txid == burnchain_tip.block_snapshot.winning_block_txid {
-                        last_sortitioned_block = Some(burnchain_tip.clone());
-                        if self.block_commits.contains(&op.txid) {
-                            won_sortition = true;
-                        }
+                BlockstackOperationType::LeaderBlockCommit(ref op)
+                    if op.txid == burnchain_tip.block_snapshot.winning_block_txid =>
+                {
+                    last_sortitioned_block = Some(burnchain_tip.clone());
+                    if self.block_commits.contains(&op.txid) {
+                        won_sortition = true;
                     }
                 }
                 _ => {

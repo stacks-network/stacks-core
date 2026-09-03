@@ -198,7 +198,7 @@ impl CoordinatorChannels {
             }
             ctr += 1;
         }
-        return true;
+        true
     }
 
     pub fn wait_for_stacks_blocks_processed(&self, current: u64, timeout_millis: u64) -> bool {
@@ -219,7 +219,7 @@ impl CoordinatorChannels {
             }
             ctr += 1;
         }
-        return true;
+        true
     }
 }
 

@@ -140,7 +140,6 @@ impl NakamotoTenureDownloaderSet {
                 *downloader_slot = Some(downloader);
             } else {
                 error!("TenureDownloader had a mistaken peer pointer while setting the downloader");
-                return;
             }
         } else {
             self.downloaders.push(Some(downloader));
@@ -271,7 +270,7 @@ impl NakamotoTenureDownloaderSet {
             self.peers.insert(naddr, i);
             return true;
         }
-        return false;
+        false
     }
 
     /// Deschedule peers that are bound to downloader slots that are either vacant or correspond to
