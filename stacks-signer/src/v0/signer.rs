@@ -1831,7 +1831,7 @@ impl Signer {
                     );
                     return Some(self.create_block_rejection(
                         RejectReason::ConnectivityIssues(
-                            "error checking block proposal".to_string(),
+                            "error checking block proposal".into(),
                         ),
                         proposed_block,
                     ));
@@ -1871,7 +1871,7 @@ impl Signer {
                 );
                 Some(self.create_block_rejection(
                     RejectReason::ConnectivityIssues(
-                        "failed to check block against signer db".to_string(),
+                        "failed to check block against signer db".into(),
                     ),
                     proposed_block,
                 ))
@@ -2155,7 +2155,7 @@ impl Signer {
         );
         let rejection = self.create_block_rejection(
             RejectReason::ConnectivityIssues(
-                "failed to receive block validation response in time".to_string(),
+                "failed to receive block validation response in time".into(),
             ),
             &block_info.block,
         );

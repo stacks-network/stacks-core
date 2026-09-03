@@ -1087,7 +1087,7 @@ pub enum RejectCode {
     /// No Sortition View to verify against
     NoSortitionView,
     /// The block was rejected due to connectivity issues with the signer
-    ConnectivityIssues(String),
+    ConnectivityIssues(BoundedErrorString),
     /// The block was rejected in a prior round
     RejectedInPriorRound,
     /// The block was rejected due to a mismatch with expected sortition view
@@ -1121,7 +1121,7 @@ pub enum RejectReason {
     /// No Sortition View to verify against
     NoSortitionView,
     /// The block was rejected due to connectivity issues with the signer
-    ConnectivityIssues(String),
+    ConnectivityIssues(BoundedErrorString),
     /// The block was rejected in a prior round
     RejectedInPriorRound,
     /// The block was rejected due to a mismatch with expected sortition view
@@ -1903,7 +1903,7 @@ impl StacksMessageCodec for RejectCode {
                 })?,
             ),
             RejectCodeTypePrefix::ConnectivityIssues => {
-                RejectCode::ConnectivityIssues("unspecified".to_string())
+                RejectCode::ConnectivityIssues("unspecified".into())
             }
             RejectCodeTypePrefix::RejectedInPriorRound => RejectCode::RejectedInPriorRound,
             RejectCodeTypePrefix::NoSortitionView => RejectCode::NoSortitionView,
@@ -1964,7 +1964,7 @@ impl StacksMessageCodec for RejectReason {
                 })?,
             ),
             RejectReasonPrefix::ConnectivityIssues => {
-                RejectReason::ConnectivityIssues("unspecified".to_string())
+                RejectReason::ConnectivityIssues("unspecified".into())
             }
             RejectReasonPrefix::RejectedInPriorRound => RejectReason::RejectedInPriorRound,
             RejectReasonPrefix::NoSortitionView => RejectReason::NoSortitionView,
@@ -2167,7 +2167,7 @@ mod test {
             .expect("Failed to deserialize RejectCode");
         assert_eq!(code, deserialized_code);
 
-        let code = RejectCode::ConnectivityIssues("unspecified".to_string());
+        let code = RejectCode::ConnectivityIssues("unspecified".into());
         let serialized_code = code.serialize_to_vec();
         let deserialized_code = read_next::<RejectCode, _>(&mut &serialized_code[..])
             .expect("Failed to deserialize RejectCode");
@@ -2191,7 +2191,7 @@ mod test {
 
         let rejection = BlockRejection::new(
             Sha512Trunc256Sum([1u8; 32]),
-            RejectReason::ConnectivityIssues("unspecified".to_string()),
+            RejectReason::ConnectivityIssues("unspecified".into()),
             &StacksPrivateKey::random(),
             thread_rng().gen_bool(0.5),
             thread_rng().next_u64(),
