@@ -9,9 +9,11 @@ inputs:
   archive-file:
     description: "The nextest archive file"
     required: true
-  debug-binary-path:
-    description: "Debug binary path"
-    required: true
+
+env:
+  # Location of where to place all `cargo llvm-cov` generated artifacts, relative to the current working directory.
+  # See: https://github.com/taiki-e/cargo-llvm-cov#environment-variables
+  CARGO_LLVM_COV_TARGET_DIR: "./target/nextest-archive"
 
 runs:
   using: "composite"
@@ -120,14 +122,14 @@ runs:
         path: |
           ${{ inputs.archive-file }}
           ci-tools/
-          ${{ inputs.debug-binary-path }}
-          !${{ inputs.debug-binary-path }}/examples/**
-          !${{ inputs.debug-binary-path }}/incremental/**
-          !${{ inputs.debug-binary-path }}/.fingerprint/**
-          !${{ inputs.debug-binary-path }}/build/**
-          !${{ inputs.debug-binary-path }}/deps/**/*.d
-          !${{ inputs.debug-binary-path }}/deps/**/*.rlib
-          !${{ inputs.debug-binary-path }}/deps/**/*.rmeta
+          ${{ CARGO_LLVM_COV_TARGET_DIR }}
+          !${{ CARGO_LLVM_COV_TARGET_DIR }}/examples/**
+          !${{ CARGO_LLVM_COV_TARGET_DIR }}/incremental/**
+          !${{ CARGO_LLVM_COV_TARGET_DIR }}/.fingerprint/**
+          !${{ CARGO_LLVM_COV_TARGET_DIR }}/build/**
+          !${{ CARGO_LLVM_COV_TARGET_DIR }}/deps/**/*.d
+          !${{ CARGO_LLVM_COV_TARGET_DIR }}/deps/**/*.rlib
+          !${{ CARGO_LLVM_COV_TARGET_DIR }}/deps/**/*.rmeta
         if-no-files-found: error
         retention-days: 1
         compression-level: 9 # 0 (none) - 9 (most)
