@@ -215,7 +215,6 @@ impl GlobalStateView {
             // in full tenure extends, we need to check:
             // (1) if this is the most recent sortition, an extend is allowed if it changes the burnchain view
             // (2) if this is the most recent sortition, an extend is allowed if enough time has passed to refresh the block limit
-            // (3) if we are in replay, an extend is allowed
             let tenure_tip = client.get_tenure_tip(tenure_id)
                 .map_err(|e| {
                     warn!("Could not load current tenure tip while evaluating a tenure-extend; cannot approve."; "err" => %e);
@@ -233,15 +232,13 @@ impl GlobalStateView {
             );
             let epoch_time = get_epoch_time_secs();
             let enough_time_passed = epoch_time >= extend_timestamp;
-            let is_in_replay = self.signer_state.tx_replay_set.is_some();
-            if !changed_burn_view && !enough_time_passed && !is_in_replay {
+            if !changed_burn_view && !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a tenure extend, but the conditions for allowing a tenure extend are not met. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "extend_timestamp" => extend_timestamp,
                     "epoch_time" => epoch_time,
-                    "is_in_replay" => is_in_replay,
                     "changed_burn_view" => changed_burn_view,
                     "enough_time_passed" => enough_time_passed,
                 );
@@ -281,15 +278,13 @@ impl GlobalStateView {
             );
             let epoch_time = get_epoch_time_secs();
             let enough_time_passed = epoch_time >= extend_timestamp;
-            let is_in_replay = self.signer_state.tx_replay_set.is_some();
-            if !enough_time_passed && !is_in_replay {
+            if !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a read-count extend, but the conditions for allowing a tenure extend are not met. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "extend_timestamp" => extend_timestamp,
                     "epoch_time" => epoch_time,
-                    "is_in_replay" => is_in_replay,
                     "changed_burn_view" => changed_burn_view,
                     "enough_time_passed" => enough_time_passed,
                 );
