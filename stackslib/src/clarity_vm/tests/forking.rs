@@ -52,6 +52,15 @@ fn test_forking_simple(#[case] version: ClarityVersion, #[case] epoch: StacksEpo
 
 #[apply(test_clarity_versions)]
 fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    // `at-block` was removed in Epoch 3.4. Analysis now runs as part of
+    // contract initialization, so the contract this test forks over cannot be
+    // deployed in those epochs at all and the scenarios below are unreachable.
+    // The rejection itself is covered by
+    // `clarity::vm::tests::contracts::test_at_unknown_block`.
+    if !epoch.supports_at_block() {
+        return;
+    }
+
     // test how at-block works when a mutation has occurred
     fn initialize(owned_env: &mut OwnedEnvironment) {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
@@ -147,6 +156,15 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
 
 #[apply(test_clarity_versions)]
 fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    // `at-block` was removed in Epoch 3.4. Analysis now runs as part of
+    // contract initialization, so the contract this test forks over cannot be
+    // deployed in those epochs at all and the scenarios below are unreachable.
+    // The rejection itself is covered by
+    // `clarity::vm::tests::contracts::test_at_unknown_block`.
+    if !epoch.supports_at_block() {
+        return;
+    }
+
     fn initialize(owned_env: &mut OwnedEnvironment) {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let contract =

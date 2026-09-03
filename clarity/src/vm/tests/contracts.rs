@@ -239,17 +239,19 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
         let (mut exec_state, invoke_ctx) =
             owned_env.get_exec_environment(None, None, &placeholder_context);
         exec_state
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-a").unwrap(),
                 contract_a,
+                &mut analysis_db,
             )
             .unwrap();
         exec_state
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-b").unwrap(),
                 contract_b,
+                &mut analysis_db,
             )
             .unwrap();
     }
@@ -1194,12 +1196,12 @@ fn test_at_unknown_block(
             e => panic!("Unexpected error: {e}"),
         }
     } else {
-        match err {
-            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(x)) => {
-                assert_eq!(x, RuntimeCheckErrorKind::AtBlockUnavailable)
-            }
-            e => panic!("Unexpected error: {e}"),
-        }
+        // From Epoch 3.4 on, `at-block` no longer exists, so the contract is
+        // rejected by analysis during initialization rather than at runtime.
+        assert!(
+            err.to_string().contains("AtBlockUnavailable"),
+            "expected analysis to reject `at-block`, got: {err}"
+        );
     }
 }
 
@@ -1290,18 +1292,33 @@ fn test_cc_stack_depth(
     let contract_two = "(unwrap-panic (contract-call? .c-foo foo))";
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
 
     let contract_identifier = QualifiedContractIdentifier::local("c-foo").unwrap();
     exec_state
-        .initialize_contract(&invoke_ctx, contract_identifier, &contract_one)
+        .initialize_contract_with_db(
+            &invoke_ctx,
+            contract_identifier,
+            &contract_one,
+            &mut analysis_db,
+        )
         .unwrap();
 
     let contract_identifier = QualifiedContractIdentifier::local("c-bar").unwrap();
     assert_eq!(
         exec_state
-            .initialize_contract(&invoke_ctx, contract_identifier, contract_two)
+            .initialize_contract_with_db(
+                &invoke_ctx,
+                contract_identifier,
+                contract_two,
+                &mut analysis_db
+            )
             .unwrap_err(),
         RuntimeError::MaxStackDepthReached.into()
     );
@@ -1581,27 +1598,34 @@ fn test_contract_hash_type_check(
     let mut owned_env = env_factory.get_env(epoch);
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
 
-    // Deploy a contract with a type-check error in the `contract-hash?` expression
-    // Note that this would usually fail in analysis, but we've skipped it here.
+    // Deploy a contract with a type-check error in the `contract-hash?`
+    // expression. Analysis now runs as part of contract initialization, so the
+    // type error is caught there and the contract is never deployed; the
+    // equivalent runtime check (`ExpectedContractPrincipalValue`) is
+    // unreachable from here.
     let test_contract = QualifiedContractIdentifier::local("test-contract").unwrap();
     let test_program = "(define-read-only (get-hash) (contract-hash? u123))";
 
-    exec_state
-        .initialize_contract(&invoke_ctx, test_contract.clone(), test_program)
-        .unwrap();
-
-    // Attempt to execute the contract, expecting a type-check error
     let err = exec_state
-        .execute_contract(&invoke_ctx, &test_contract, "get-hash", &[], true)
+        .initialize_contract_with_db(
+            &invoke_ctx,
+            test_contract.clone(),
+            test_program,
+            &mut analysis_db,
+        )
         .unwrap_err();
-    assert_eq!(
-        err,
-        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::ExpectedContractPrincipalValue(
-            Value::UInt(123).to_error_string()
-        ))
+
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("TypeError") && err_msg.contains("PrincipalType"),
+        "expected analysis to reject a uint argument to `contract-hash?`, got: {err}"
     );
 }
 
@@ -1619,6 +1643,10 @@ fn test_contract_hash_pre_clarity4(
     let mut owned_env = env_factory.get_env(epoch);
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
 
@@ -1628,7 +1656,12 @@ fn test_contract_hash_pre_clarity4(
     let expected_hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
 
     exec_state
-        .initialize_contract(&invoke_ctx, other_contract.clone(), contract_content)
+        .initialize_contract_with_db(
+            &invoke_ctx,
+            other_contract.clone(),
+            contract_content,
+            &mut analysis_db,
+        )
         .unwrap();
 
     // Test successful contract hash retrieval
@@ -1636,30 +1669,23 @@ fn test_contract_hash_pre_clarity4(
     let test_program =
         "(define-read-only (get-hash (contract principal)) (contract-hash? contract))";
 
-    exec_state
-        .initialize_contract(&invoke_ctx, test_contract.clone(), test_program)
-        .unwrap();
-
-    // Attempt to get the hash of the other contract and expect it to be
-    // successful and for the returned hash to match the expected hash.
-    let standard_principal = QualifiedContractIdentifier::local("standard-principal").unwrap();
+    // Analysis runs as part of contract initialization, so a contract using
+    // `contract-hash?` before Clarity 4 cannot be deployed at all: the function
+    // is rejected by the type checker and the old runtime rejection (an
+    // `UndefinedFunction` runtime check) is unreachable.
     let err = exec_state
-        .execute_contract(
+        .initialize_contract_with_db(
             &invoke_ctx,
-            &test_contract,
-            "get-hash",
-            &symbols_from_values(vec![Value::Principal(PrincipalData::Contract(
-                other_contract.clone(),
-            ))]),
-            true,
+            test_contract.clone(),
+            test_program,
+            &mut analysis_db,
         )
         .unwrap_err();
 
-    assert_eq!(
-        err,
-        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::UndefinedFunction(
-            "contract-hash?".to_string()
-        ))
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("UnknownFunction") && err_msg.contains("contract-hash?"),
+        "expected analysis to reject `contract-hash?` before Clarity 4, got: {err}"
     );
 }
 
@@ -1682,23 +1708,37 @@ fn test_contract_call_with_constant(
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let (mut exec_env, invoke_ctx) =
             owned_env.get_exec_environment(None, None, &placeholder_context);
         exec_env
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-a").unwrap(),
                 contract_a,
+                &mut analysis_db,
             )
             .unwrap();
-        exec_env
-            .initialize_contract(
-                &invoke_ctx,
-                QualifiedContractIdentifier::local("contract-b").unwrap(),
-                contract_b,
-            )
-            .unwrap();
+        let deploy_result = exec_env.initialize_contract_with_db(
+            &invoke_ctx,
+            QualifiedContractIdentifier::local("contract-b").unwrap(),
+            contract_b,
+            &mut analysis_db,
+        );
+
+        if !version.supports_callables() {
+            let err = deploy_result.unwrap_err();
+            assert!(
+                err.to_string().contains("TraitReferenceUnknown"),
+                "expected analysis to reject a callable constant in Clarity 1, got: {err}"
+            );
+            return;
+        }
+        deploy_result.unwrap();
     }
 
     let (mut exec_env, invoke_ctx) = owned_env.get_exec_environment(
@@ -1745,27 +1785,45 @@ fn test_contract_call_with_constant_at_deploy(
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     let (mut exec_env, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
     exec_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             &invoke_ctx,
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
+            &mut analysis_db,
         )
         .unwrap();
-    let call_result = exec_env.initialize_contract(
+    let call_result = exec_env.initialize_contract_with_db(
         &invoke_ctx,
         QualifiedContractIdentifier::local("contract-b").unwrap(),
         contract_b,
+        &mut analysis_db,
     );
 
-    assert_eq!(
-        call_result.unwrap_err(),
-        ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-            RuntimeCheckErrorKind::ContractCallExpectName
-        )),
-    );
+    let err = call_result.unwrap_err();
+    if version.supports_callables() {
+        // The constant type-checks from Clarity 2 on, so the contract is
+        // deployed and the call at deploy time is what gets rejected.
+        assert_eq!(
+            err,
+            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
+                RuntimeCheckErrorKind::ContractCallExpectName
+            )),
+        );
+    } else {
+        // Clarity 1 has no callable constants, so analysis (which now runs as
+        // part of contract initialization) rejects the contract first.
+        assert!(
+            err.to_string().contains("TraitReferenceUnknown"),
+            "expected analysis to reject a callable constant in Clarity 1, got: {err}"
+        );
+    }
 }
 
 /// Calling from a deploying contract into a contract which uses contract-calls via define-constant
@@ -1793,26 +1851,45 @@ fn test_nested_cc_with_constant_at_deploy(
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     let (mut exec_env, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
     exec_env
-        .initialize_contract(
+        .initialize_contract_with_db(
             &invoke_ctx,
             QualifiedContractIdentifier::local("contract-a").unwrap(),
             contract_a,
+            &mut analysis_db,
         )
         .unwrap();
-    exec_env
-        .initialize_contract(
-            &invoke_ctx,
-            QualifiedContractIdentifier::local("contract-b").unwrap(),
-            contract_b,
-        )
-        .unwrap();
-    let call_result = exec_env.initialize_contract(
+    let contract_b_result = exec_env.initialize_contract_with_db(
+        &invoke_ctx,
+        QualifiedContractIdentifier::local("contract-b").unwrap(),
+        contract_b,
+        &mut analysis_db,
+    );
+
+    // Clarity 1 has no callable constants, so `contract-b` itself is rejected
+    // by analysis (which now runs as part of contract initialization) and
+    // `contract-c` never gets a contract to call into.
+    if !version.supports_callables() {
+        let err = contract_b_result.unwrap_err();
+        assert!(
+            err.to_string().contains("TraitReferenceUnknown"),
+            "expected analysis to reject a callable constant in Clarity 1, got: {err}"
+        );
+        return;
+    }
+    contract_b_result.unwrap();
+
+    let call_result = exec_env.initialize_contract_with_db(
         &invoke_ctx,
         QualifiedContractIdentifier::local("contract-c").unwrap(),
         contract_c,
+        &mut analysis_db,
     );
 
     if epoch.supports_call_with_constant() && version.supports_callables() {
@@ -1850,23 +1927,41 @@ fn test_constant_to_trait(
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let (mut exec_env, invoke_ctx) =
             owned_env.get_exec_environment(None, None, &placeholder_context);
         exec_env
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-a").unwrap(),
                 contract_a,
+                &mut analysis_db,
             )
             .unwrap();
-        exec_env
-            .initialize_contract(
-                &invoke_ctx,
-                QualifiedContractIdentifier::local("contract-b").unwrap(),
-                contract_b,
-            )
-            .unwrap();
+        let deploy_result = exec_env.initialize_contract_with_db(
+            &invoke_ctx,
+            QualifiedContractIdentifier::local("contract-b").unwrap(),
+            contract_b,
+            &mut analysis_db,
+        );
+
+        // Passing a contract principal held in a constant to a trait parameter
+        // requires callable types, which only exist from Clarity 2 on. Before
+        // that, analysis (which now runs as part of contract initialization)
+        // rejects the contract.
+        if !version.supports_callables() {
+            let err = deploy_result.unwrap_err();
+            assert!(
+                err.to_string().contains("TypeError"),
+                "expected analysis to reject a constant used as a trait in Clarity 1, got: {err}"
+            );
+            return;
+        }
+        deploy_result.unwrap();
     }
 
     let (mut exec_env, invoke_ctx) = owned_env.get_exec_environment(
@@ -2028,21 +2123,27 @@ fn test_constant_contract_principal_dual_use(
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     {
         let (mut exec_env, invoke_ctx) =
             owned_env.get_exec_environment(None, None, &placeholder_context);
         exec_env
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-a").unwrap(),
                 contract_a,
+                &mut analysis_db,
             )
             .unwrap();
         exec_env
-            .initialize_contract(
+            .initialize_contract_with_db(
                 &invoke_ctx,
                 QualifiedContractIdentifier::local("contract-b").unwrap(),
                 contract_b,
+                &mut analysis_db,
             )
             .unwrap();
     }
