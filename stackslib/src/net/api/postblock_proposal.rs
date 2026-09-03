@@ -473,7 +473,7 @@ impl NakamotoBlockProposal {
 
     /// Verify that the block we received builds on the highest block in its tenure.
     /// * For tenure-start blocks, the parent must be as high as the highest block in the parent
-    /// block's tenure.
+    ///   block's tenure.
     /// * For all other blocks, the parent must be as high as the highest block in the tenure.
     ///
     /// Implemented as a static function to facilitate testing

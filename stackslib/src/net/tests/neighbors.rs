@@ -1592,12 +1592,15 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
                     .unwrap();
             }
             let _ = peer_client.step();
-            for (_, reply) in comms.collect_replies(&mut peer_client.network) {
+            if let Some((_, reply)) = comms
+                .collect_replies(&mut peer_client.network)
+                .into_iter()
+                .next()
+            {
                 match reply.payload {
                     StacksMessageType::HandshakeAccept(..)
                     | StacksMessageType::StackerDBHandshakeAccept(..) => {
                         connected = true;
-                        break;
                     }
                     _ => {
                         panic!("Did not get handshake accept, but got {:?}", &reply);

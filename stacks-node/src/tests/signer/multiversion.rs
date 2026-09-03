@@ -295,13 +295,7 @@ fn old_version_parses_new_messages() {
         metadata: SignerMessageMetadata {
             server_version: "latest-version_signer".into(),
         },
-        response_data: BlockResponseData {
-            version: 4,
-            tenure_extend_timestamp: 2049,
-            reject_reason: RejectReason::NotRejected,
-            tenure_extend_read_count_timestamp: 5058,
-            unknown_bytes: vec![],
-        },
+        response_data: BlockResponseData::new(2049, RejectReason::NotRejected, 5058, None),
     };
 
     let serialized_new_msg =
@@ -333,10 +327,9 @@ fn old_version_parses_new_messages() {
         as_block_accepted.response_data.reject_reason.to_string(),
         new_msg.response_data.reject_reason.to_string()
     );
-    let empty_vec: Vec<u8> = vec![];
     assert_eq!(
-        as_block_accepted.response_data.unknown_bytes, // No difference between versions at the moment
-        empty_vec
+        as_block_accepted.response_data.unknown_bytes,
+        vec![0], // The old signer preserves the new `failed_txid: None` marker.
     );
 
     let serialized_old_msg = old_msg.serialize_to_vec();
