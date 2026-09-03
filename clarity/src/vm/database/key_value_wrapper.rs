@@ -22,6 +22,8 @@ use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::clarity_store::SpecialCaseHandler;
+#[cfg(feature = "clarity-wasm")]
+use super::clarity_store::WasmCompiler;
 use super::{ClarityBackingStore, ClarityDeserializable};
 use crate::vm::Value;
 use crate::vm::database::clarity_store::{ContractCommitment, make_contract_hash_key};
@@ -228,6 +230,11 @@ impl<'a> RollbackWrapper<'a> {
 
     pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         self.store.get_cc_special_cases_handler()
+    }
+
+    #[cfg(feature = "clarity-wasm")]
+    pub fn get_wasm_compiler(&self) -> Option<WasmCompiler> {
+        self.store.get_wasm_compiler()
     }
 
     pub fn nest(&mut self) {
