@@ -10,11 +10,6 @@ inputs:
     description: "The nextest archive file"
     required: true
 
-env:
-  # Location of where to place all `cargo llvm-cov` generated artifacts, relative to the current working directory.
-  # See: https://github.com/taiki-e/cargo-llvm-cov#environment-variables
-  CARGO_LLVM_COV_TARGET_DIR: "./target/nextest-archive"
-
 runs:
   using: "composite"
   steps:
@@ -92,6 +87,15 @@ runs:
       with:
         action: restore
 
+    # Set llvm-cov target dir
+    - name: Set llvm-cov Target Dir
+      if: inputs.action == 'create'
+      shell: bash
+      run: |
+        # Location of where to place all `cargo llvm-cov` generated artifacts, relative to the current working directory.
+        # See: https://github.com/taiki-e/cargo-llvm-cov#environment-variables
+        echo "CARGO_LLVM_COV_TARGET_DIR=./target/nextest-archive" >> $GITHUB_ENV
+
     # Build the nextest archive
     - name: Build Nextest Archive
       if: |
@@ -122,14 +126,14 @@ runs:
         path: |
           ${{ inputs.archive-file }}
           ci-tools/
-          ${{ CARGO_LLVM_COV_TARGET_DIR }}
-          !${{ CARGO_LLVM_COV_TARGET_DIR }}/examples/**
-          !${{ CARGO_LLVM_COV_TARGET_DIR }}/incremental/**
-          !${{ CARGO_LLVM_COV_TARGET_DIR }}/.fingerprint/**
-          !${{ CARGO_LLVM_COV_TARGET_DIR }}/build/**
-          !${{ CARGO_LLVM_COV_TARGET_DIR }}/deps/**/*.d
-          !${{ CARGO_LLVM_COV_TARGET_DIR }}/deps/**/*.rlib
-          !${{ CARGO_LLVM_COV_TARGET_DIR }}/deps/**/*.rmeta
+          ${{ env.CARGO_LLVM_COV_TARGET_DIR }}
+          !${{ env.CARGO_LLVM_COV_TARGET_DIR }}/examples/**
+          !${{ env.CARGO_LLVM_COV_TARGET_DIR }}/incremental/**
+          !${{ env.CARGO_LLVM_COV_TARGET_DIR }}/.fingerprint/**
+          !${{ env.CARGO_LLVM_COV_TARGET_DIR }}/build/**
+          !${{ env.CARGO_LLVM_COV_TARGET_DIR }}/deps/**/*.d
+          !${{ env.CARGO_LLVM_COV_TARGET_DIR }}/deps/**/*.rlib
+          !${{ env.CARGO_LLVM_COV_TARGET_DIR }}/deps/**/*.rmeta
         if-no-files-found: error
         retention-days: 1
         compression-level: 9 # 0 (none) - 9 (most)
