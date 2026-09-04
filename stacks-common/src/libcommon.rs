@@ -111,6 +111,8 @@ pub mod consts {
 }
 
 pub mod versions {
+    pub const STACKS_NODE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
     include!(concat!(env!("OUT_DIR"), "/versions.rs"));
 }
 

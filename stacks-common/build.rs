@@ -47,12 +47,7 @@ fn is_working_tree_clean() -> bool {
 }
 
 fn main() {
-    let version = env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION must be set by Cargo");
-
-    let mut rust_code = String::from("// Auto-generated code from Cargo.toml\n\n");
-    rust_code.push_str(&format!(
-        "pub const STACKS_NODE_VERSION: &str = {version:?};\n"
-    ));
+    let mut rust_code = String::from("// Auto-generated Git metadata.\n\n");
 
     let git_commit = current_git_hash();
     rust_code.push_str(&format!(
