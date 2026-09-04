@@ -67,7 +67,7 @@ if [[ ! -f "${manifest_file}" ]]; then
     exit 1
 fi
 
-version=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["workspace"]["package"]["version"])' "${manifest_file}")
+version=$(yq -r '.workspace.package.version' "${manifest_file}")
 
 if [[ -z "${version}" ]]; then
     error "$(hl "workspace.package.version") not found in $(hl "${manifest_file}")"
