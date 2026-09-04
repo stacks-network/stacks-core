@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod analysis_db;
-pub mod arithmetic_checker;
 pub mod contract_interface_builder;
 pub mod errors;
 pub mod read_only_checker;
@@ -28,7 +27,6 @@ use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 pub use self::analysis_db::AnalysisDatabase;
-use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
 pub use self::errors::{
     CommonCheckErrorKind, RuntimeCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
@@ -139,8 +137,8 @@ pub fn type_check(
     .map_err(|e| e.0)
 }
 
-/// Run the full static-analysis pipeline (read-only, type, trait and arithmetic
-/// passes) over a parsed contract, optionally persisting the result.
+/// Run the full static-analysis pipeline (read-only, type, and trait passes)
+/// over a parsed contract, optionally persisting the result.
 ///
 /// # Arguments
 ///
@@ -212,7 +210,6 @@ pub fn run_analysis(
             ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
         }
         TraitChecker::run_pass(&epoch, &mut contract_analysis, db, resource_limiter)?;
-        ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 
         // Final boundary check on the analysis passes
         check_analysis_resource_limits(&resource_limiter)?;

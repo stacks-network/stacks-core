@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::mem::replace;
 
 pub use clarity_types::effects::{AssetMap, AssetMapEntry};
 use clarity_types::representations::ClarityName;
@@ -642,16 +641,6 @@ impl CostTracker for ExecutionState<'_, '_, '_> {
     fn reset_memory(&mut self) {
         self.global_context.cost_track.reset_memory()
     }
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> std::result::Result<bool, CostErrors> {
-        self.global_context
-            .cost_track
-            .short_circuit_contract_call(contract, function, input)
-    }
 }
 
 impl CostTracker for GlobalContext<'_, '_> {
@@ -675,35 +664,9 @@ impl CostTracker for GlobalContext<'_, '_> {
     fn reset_memory(&mut self) {
         self.cost_track.reset_memory()
     }
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> std::result::Result<bool, CostErrors> {
-        self.cost_track
-            .short_circuit_contract_call(contract, function, input)
-    }
 }
 
 impl<'a, 'b, 'hooks> ExecutionState<'a, 'b, 'hooks> {
-    /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
-    ///  has been evaluated and assessed, the contract-call! itself is executed "for free".
-    pub fn run_free<F, A>(&mut self, invoke_ctx: &InvocationContext, to_run: F) -> A
-    where
-        F: FnOnce(&mut ExecutionState, &InvocationContext) -> A,
-    {
-        let original_tracker = replace(
-            &mut self.global_context.cost_track,
-            LimitedCostTracker::new_free(),
-        );
-        // note: it is important that this method not return until original_tracker has been
-        //  restored. DO NOT use the try syntax (?).
-        let result = to_run(self, invoke_ctx);
-        self.global_context.cost_track = original_tracker;
-        result
-    }
-
     pub fn eval_read_only(
         &mut self,
         invoke_ctx: &InvocationContext,

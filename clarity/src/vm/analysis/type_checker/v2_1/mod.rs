@@ -118,15 +118,6 @@ impl CostTracker for TypeChecker<'_, '_> {
     fn reset_memory(&mut self) {
         self.cost_track.reset_memory()
     }
-    fn short_circuit_contract_call(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        function: &ClarityName,
-        input: &[u64],
-    ) -> std::result::Result<bool, CostErrors> {
-        self.cost_track
-            .short_circuit_contract_call(contract, function, input)
-    }
 }
 
 impl TypeChecker<'_, '_> {
