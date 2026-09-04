@@ -78,40 +78,6 @@ fn fault_injection_stall_tx() {
 #[cfg(not(any(test, feature = "testing")))]
 fn fault_injection_stall_tx() {}
 
-#[cfg(any(test, feature = "testing"))]
-/// Test flag to exclude replay txs from the next block
-pub static TEST_EXCLUDE_REPLAY_TXS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
-
-#[cfg(any(test, feature = "testing"))]
-/// Test flag to mine specific txs belonging to the replay set
-pub static TEST_MINE_ALLOWED_REPLAY_TXS: LazyLock<TestFlag<Vec<String>>> =
-    LazyLock::new(TestFlag::default);
-
-#[cfg(any(test, feature = "testing"))]
-/// Given a tx id, check if it is should be skipped
-/// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
-/// If flag is empty means no tx should be skipped
-fn fault_injection_should_skip_replay_tx(tx_id: Txid) -> bool {
-    let minable_txs = TEST_MINE_ALLOWED_REPLAY_TXS.get();
-    let allowed =
-        minable_txs.len() == 0 || minable_txs.iter().any(|tx_ids| *tx_ids == tx_id.to_hex());
-    if !allowed {
-        info!(
-            "Tx skipped due to test flag TEST_MINE_ALLOWED_REPLAY_TXS: {}",
-            tx_id.to_hex()
-        );
-    }
-    !allowed
-}
-
-#[cfg(not(any(test, feature = "testing")))]
-/// Given a tx id, check if it is should be skipped
-/// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
-/// If flag is empty means no tx should be skipped
-fn fault_injection_should_skip_replay_tx(_tx_id: Txid) -> bool {
-    false
-}
-
 /// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
 /// linked to the burnchain and what view(s) the miner had of the burnchain before and after
 /// completing the block.
@@ -2291,7 +2257,6 @@ impl StacksBlockBuilder {
         initial_txs: &[StacksTransaction],
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        replay_transactions: &[StacksTransaction],
     ) -> Result<(bool, Vec<TransactionEvent>), Error> {
         let mut tx_events = Vec::new();
 
@@ -2325,32 +2290,15 @@ impl StacksBlockBuilder {
             }
         }
 
-        #[cfg(any(test, feature = "testing"))]
-        let use_mempool_txs = replay_transactions.is_empty() || TEST_EXCLUDE_REPLAY_TXS.get();
-        #[cfg(not(any(test, feature = "testing")))]
-        let use_mempool_txs = replay_transactions.is_empty();
-
-        let result = if use_mempool_txs {
-            select_and_apply_transactions_from_mempool(
-                epoch_tx,
-                builder,
-                mempool,
-                tip_height,
-                settings,
-                event_observer,
-                receipts_total,
-            )
-        } else {
-            info!("Miner: constructing block with replay transactions");
-            let txs = select_and_apply_transactions_from_vec(
-                epoch_tx,
-                builder,
-                tip_height,
-                replay_transactions,
-                receipts_total,
-            );
-            Ok((txs, false))
-        };
+        let result = select_and_apply_transactions_from_mempool(
+            epoch_tx,
+            builder,
+            mempool,
+            tip_height,
+            settings,
+            event_observer,
+            receipts_total,
+        );
 
         match result {
             Ok((events, blocked)) => {
@@ -2439,7 +2387,6 @@ impl StacksBlockBuilder {
             &[coinbase_tx.clone()],
             settings,
             event_observer,
-            &vec![],
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -2925,65 +2872,4 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
     }
     loop_result?;
     Ok((tx_events, blocked))
-}
-
-fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
-    epoch_tx: &mut ClarityTx,
-    builder: &mut B,
-    tip_height: u64,
-    replay_transactions: &[StacksTransaction],
-    initial_receipts_total: u64,
-) -> Vec<TransactionEvent> {
-    let mut tx_events = vec![];
-
-    let mut num_txs = 0;
-    let mut num_considered = 0;
-
-    debug!("Replay block transaction selection begins (parent height = {tip_height})");
-    let mut receipts_total = initial_receipts_total;
-    for replay_tx in replay_transactions {
-        fault_injection_stall_tx();
-        if fault_injection_should_skip_replay_tx(replay_tx.txid()) {
-            continue;
-        }
-
-        let txid = replay_tx.txid();
-        let tx_result = builder.try_mine_tx_with_len(
-            epoch_tx,
-            replay_tx,
-            replay_tx.tx_len(),
-            &BlockLimitFunction::NO_LIMIT_HIT,
-            &TransactionResourceBudgets::unlimited(),
-            &mut receipts_total,
-        );
-        let tx_event = tx_result.convert_to_event();
-        match tx_result {
-            TransactionResult::Success(TransactionSuccess { .. }) => {
-                num_txs += 1;
-            }
-            TransactionResult::Skipped(TransactionSkipped { error, .. })
-            | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
-                match &error {
-                    Error::BlockTooBigError | Error::BlockCostLimitError => {
-                        // done mining -- our execution budget is exceeded.
-                        // Make the block from the transactions we did manage
-                        // (We cannot simply skip as this would put the replay txs out of order)
-                        debug!("Block budget exceeded on tx {txid}");
-                        info!("Miner stopping due to limit reached");
-                        break;
-                    }
-                    e => {
-                        info!("Failed to apply tx {txid}: {e:?}");
-                    }
-                }
-            }
-            TransactionResult::Problematic(TransactionProblematic { .. }) => {
-                info!("Failed to apply problematic tx {txid}");
-            }
-        }
-        tx_events.push(tx_event);
-        num_considered += 1;
-    }
-    debug!("Replay block transaction selection finished (parent height {tip_height}): {num_txs} transactions selected ({num_considered} considered)");
-    tx_events
 }

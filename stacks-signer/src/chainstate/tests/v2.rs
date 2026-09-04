@@ -27,16 +27,12 @@ use blockstack_lib::chainstate::stacks::{
     TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
     TransactionSpendingCondition, TransactionVersion,
 };
-use blockstack_lib::core::test_util::make_stacks_transfer_tx;
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
 use clarity::types::PrivateKey;
-use clarity::util::secp256k1::Secp256k1PublicKey;
 use clarity::util::vrf::VRFProof;
 use libsigner::v0::messages::RejectReason;
-use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
-};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
 use libsigner::{BlockProposal, BlockProposalData};
 use stacks_common::bitvec::BitVec;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -53,7 +49,6 @@ use crate::chainstate::v2::{GlobalStateView, SortitionState};
 use crate::chainstate::{ProposalEvalConfig, SignerChainstateError, SortitionData};
 use crate::client::tests::MockServerClient;
 use crate::client::StacksClient;
-use crate::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use crate::signerdb::tests::tmp_db_path;
 use crate::signerdb::{BlockInfo, SignerDb};
 
@@ -101,7 +96,6 @@ fn setup_test_environment(
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
 
@@ -151,7 +145,6 @@ fn setup_test_environment(
             parent_tenure_last_block_height: 1,
         },
         active_signer_protocol_version: 0,
-        tx_replay_set: ReplayTransactionSet::none(),
     };
 
     let sortitions_view = GlobalStateView {
@@ -583,53 +576,6 @@ fn check_tenure_extend_read_count() {
         extend_payload
     })
     .expect("Proposal should validate");
-}
-
-#[test]
-fn check_proposal_with_extend_during_replay() {
-    let MockServerClient {
-        server,
-        client: stacks_client,
-        config: _,
-    } = MockServerClient::new();
-
-    let rand_int = server.local_addr().unwrap().port();
-
-    let (_, mut signer_db, block_sk, mut block, cur_sortition, _, mut sortitions_view) =
-        setup_test_environment(&format!("{}_{rand_int}", function_name!()));
-
-    let parent_block_header = make_parent_header_meta(&block_sk, &mut block);
-    let response = crate::client::tests::build_get_tenure_tip_response(&parent_block_header);
-
-    block.header.consensus_hash = cur_sortition.data.consensus_hash.clone();
-    let mut extend_payload = make_tenure_change_payload();
-    extend_payload.burn_view_consensus_hash = cur_sortition.data.consensus_hash.clone();
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
-    let tx = make_tenure_change_tx(extend_payload);
-    *block.executed_and_skipped_txs_mut() = vec![tx];
-    block.header.sign_miner(&block_sk).unwrap();
-
-    let replay_tx = make_stacks_transfer_tx(
-        &block_sk,
-        0,
-        0,
-        1,
-        &StacksAddress::p2pkh(true, &Secp256k1PublicKey::new()).into(),
-        1000000,
-    );
-    let replay_set = ReplayTransactionSet::new(vec![replay_tx]);
-
-    sortitions_view.signer_state.tx_replay_set = replay_set;
-
-    let j = std::thread::spawn(move || {
-        sortitions_view
-            .check_proposal(&stacks_client, &mut signer_db, &block)
-            .expect("Proposal should validate");
-    });
-
-    crate::client::tests::write_response(server, response.as_bytes());
-    j.join().unwrap();
 }
 
 #[test]
