@@ -8,7 +8,7 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4.13"
+libfuzzer-sys = "0.4"
 # clarity_2_1 = { git = "https://github.com/stacks-network/stacks-blockchain.git", tag = "2.1.0.0.0", package="clarity"}
 
 [dependencies.clarity]
