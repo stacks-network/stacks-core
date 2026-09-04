@@ -118,6 +118,12 @@ pub struct InvGenerator {
     no_cache: bool,
 }
 
+impl Default for InvGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InvGenerator {
     pub fn new() -> Self {
         Self {

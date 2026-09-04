@@ -29,7 +29,7 @@ use crate::net::{Error as NetError, HttpServerError, StacksNodeState};
 
 pub(crate) const SINGLESIG_TX_TRANSFER_LEN: u64 = 180;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetStxTransferCostRequestHandler {}
 
 impl RPCGetStxTransferCostRequestHandler {

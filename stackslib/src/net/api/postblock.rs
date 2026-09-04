@@ -36,7 +36,7 @@ pub struct StacksBlockAcceptedData {
     pub accepted: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCPostBlockRequestHandler {
     pub block: Option<StacksBlock>,
     pub consensus_hash: Option<ConsensusHash>,
