@@ -822,7 +822,7 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
 ]
 
 [[package]]
@@ -842,7 +842,7 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
 ]
 
 [[package]]
@@ -858,7 +858,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
  "stackslib 0.0.1",
 ]
 
@@ -875,7 +875,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
  "variant_count",
 ]
 
@@ -891,7 +891,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
 ]
 
 [[package]]
@@ -2444,7 +2444,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
  "stackslib 0.0.1",
  "thiserror 1.0.65",
  "tiny_http",
@@ -2464,7 +2464,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "thiserror 1.0.65",
  "tiny_http",
@@ -2488,7 +2488,7 @@ dependencies = [
  "clarity 0.0.1",
  "serde",
  "sha2 0.10.8",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
 ]
 
 [[package]]
@@ -2499,7 +2499,7 @@ dependencies = [
  "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "serde",
  "sha2 0.10.8",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
 ]
 
 [[package]]
@@ -2562,7 +2562,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "sha2 0.10.8",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
  "stackslib 0.0.1",
  "tempfile",
  "toml 0.5.11",
@@ -3168,7 +3168,7 @@ dependencies = [
  "pinny",
  "proptest",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
 ]
 
 [[package]]
@@ -3178,7 +3178,7 @@ source = "git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397
 dependencies = [
  "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
 ]
 
 [[package]]
@@ -4408,7 +4408,7 @@ dependencies = [
  "clarity-cli",
  "serde_json",
  "stacks-codec",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
  "stackslib 0.0.1",
  "tempfile",
  "thiserror 1.0.65",
@@ -4420,40 +4420,8 @@ version = "0.1.0"
 dependencies = [
  "clarity-types 0.0.1",
  "serde",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
  "variant_count",
-]
-
-[[package]]
-name = "stacks-common"
-version = "0.0.1"
-dependencies = [
- "chrono",
- "curve25519-dalek",
- "ed25519-dalek",
- "getrandom 0.2.12",
- "hashbrown 0.15.2",
- "lazy_static",
- "libsecp256k1",
- "nix",
- "p256",
- "pinny",
- "proptest",
- "rand 0.8.5",
- "ripemd",
- "rusqlite",
- "secp256k1",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2 0.10.8",
- "sha3",
- "slog",
- "slog-json",
- "slog-term",
- "thiserror 1.0.65",
- "toml 0.5.11",
- "winapi 0.3.9",
 ]
 
 [[package]]
@@ -4486,6 +4454,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-common"
+version = "4.0.2"
+dependencies = [
+ "chrono",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "getrandom 0.2.12",
+ "hashbrown 0.15.2",
+ "lazy_static",
+ "libsecp256k1",
+ "nix",
+ "p256",
+ "pinny",
+ "proptest",
+ "rand 0.8.5",
+ "ripemd",
+ "rusqlite",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2 0.10.8",
+ "sha3",
+ "slog",
+ "slog-json",
+ "slog-term",
+ "thiserror 1.0.65",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "stacks-inspect"
 version = "0.1.0"
 dependencies = [
@@ -4498,14 +4497,14 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "slog",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
  "stackslib 0.0.1",
  "tikv-jemallocator",
 ]
 
 [[package]]
 name = "stacks-node"
-version = "0.1.0"
+version = "4.0.2"
 dependencies = [
  "async-h1",
  "async-std",
@@ -4536,10 +4535,10 @@ dependencies = [
  "slog",
  "stacks-codec",
  "stacks-common 0.0.1",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 4.0.2",
  "stacks-inspect",
  "stacks-signer 0.0.1",
- "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-signer 4.0.2",
  "stackslib 0.0.1",
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "stdext",
@@ -4580,6 +4579,35 @@ dependencies = [
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd#ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd"
+dependencies = [
+ "backoff",
+ "clap",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "hashbrown 0.15.2",
+ "lazy_static",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "slog",
+ "slog-term",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "thiserror 1.0.65",
+ "toml 0.5.11",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "stacks-signer"
+version = "4.0.2"
 dependencies = [
  "backoff",
  "clap",
@@ -4599,40 +4627,11 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
  "stackslib 0.0.1",
  "stdext",
  "thiserror 1.0.65",
  "tiny_http",
- "toml 0.5.11",
- "tracing",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
-name = "stacks-signer"
-version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd#ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd"
-dependencies = [
- "backoff",
- "clap",
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
- "hashbrown 0.15.2",
- "lazy_static",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
- "rand 0.8.5",
- "rand_core 0.6.4",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "slog",
- "slog-term",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
- "thiserror 1.0.65",
  "toml 0.5.11",
  "tracing",
  "tracing-subscriber",
@@ -4647,7 +4646,7 @@ dependencies = [
  "pinny",
  "proptest",
  "stacks-codec",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
 ]
 
 [[package]]
@@ -4688,7 +4687,7 @@ dependencies = [
  "siphasher",
  "slog",
  "stacks-codec",
- "stacks-common 0.0.1",
+ "stacks-common 4.0.2",
  "stacks-transactions",
  "stdext",
  "stx-genesis",
@@ -4725,7 +4724,7 @@ dependencies = [
  "sha2 0.10.8",
  "siphasher",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
+ "stacks-common 0.0.1",
  "time",
  "toml 0.5.11",
  "url",

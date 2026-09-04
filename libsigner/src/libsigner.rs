@@ -79,7 +79,7 @@ pub trait SignerMessage<T: MessageSlotID>: StacksMessageCodec {
 }
 
 /// The version string for the signer with package name.
-/// The signer shares the node's version (see `versions.toml`).
+/// The signer shares the node's workspace package version (see `Cargo.toml`).
 pub static VERSION_STRING: LazyLock<String> = LazyLock::new(|| {
     let pkg_version = option_env!("STACKS_NODE_VERSION").or(Some(STACKS_NODE_VERSION));
     version_string("stacks-signer", pkg_version)

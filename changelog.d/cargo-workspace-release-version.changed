@@ -1,0 +1,2 @@
+Cargo, Nix, and the release tooling now use `workspace.package.version` in `Cargo.toml` as the single node and signer release version.
+Removed `versions.toml`; external tooling should read the workspace package version from `Cargo.toml`, and the `stacks-node` and `stacks-signer` Cargo package versions, including `stacks-signer -V`, now report the release version instead of placeholder values.

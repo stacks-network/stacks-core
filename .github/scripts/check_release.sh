@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
 # Checks whether the current branch name matches the release pattern and, if so,
-# derives the release tag and validates it against versions.toml.
+# derives the release tag and validates it against Cargo.toml.
 #
-# The node and signer share a single version (see versions.toml) and are
+# The node and signer share the workspace package version in Cargo.toml and are
 # released together: a single `release/x.x.x` branch produces one combined
 # GitHub release containing both the stacks-core and stacks-signer
 # artifacts/images at that version.
@@ -12,7 +12,7 @@
 #   BRANCH  - branch name from github.ref_name (e.g. release/4.0.0)
 #
 # Exit behaviour:
-#   - Branch matches the release pattern → validates versions.toml, writes outputs, exits 0
+#   - Branch matches the release pattern → validates Cargo.toml, writes outputs, exits 0
 #   - Branch does not match              → exits 0 (all outputs empty/false; downstream
 #                                          jobs guard themselves with is_release checks)
 # Outputs:
@@ -30,8 +30,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
 
 ## ── Release branch pattern ──────────────────────────────────────────────────
 # Release: release/x.x.x   (3-part version, major.minor.revision, optional -rcN suffix)
-versions_file="versions.toml"
-version_key="stacks_node_version"
+manifest_file="Cargo.toml"
 
 version_regex="([0-9]+\.){2}[0-9]+(-rc[0-9]+)?"
 
@@ -62,21 +61,21 @@ else
     exit 0
 fi
 
-## ── Validate versions.toml ──────────────────────────────────────────────────
-if [[ ! -f "${versions_file}" ]]; then
-    error "$(hl "${versions_file}") not found"
+## ── Validate Cargo.toml ──────────────────────────────────────────────────
+if [[ ! -f "${manifest_file}" ]]; then
+    error "$(hl "${manifest_file}") not found"
     exit 1
 fi
 
-version=$(grep "^${version_key}" "${versions_file}" | sed -E 's/.*=[[:space:]]*"([^"]+)"/\1/')
+version=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["workspace"]["package"]["version"])' "${manifest_file}")
 
 if [[ -z "${version}" ]]; then
-    error "$(hl "${version_key}") not found in $(hl "${versions_file}")"
+    error "$(hl "workspace.package.version") not found in $(hl "${manifest_file}")"
     exit 1
 fi
 
 if [[ "${version}" != "${tag}" ]]; then
-    error "version in $(hl "${versions_file}") ($(hl "${version}")) does not match branch tag ($(hl "${tag}"))"
+    error "version in $(hl "${manifest_file}") ($(hl "${version}")) does not match branch tag ($(hl "${tag}"))"
     exit 1
 fi
 
