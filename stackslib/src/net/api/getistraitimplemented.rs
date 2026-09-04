@@ -38,7 +38,7 @@ pub struct GetIsTraitImplementedResponse {
     pub is_implemented: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetIsTraitImplementedRequestHandler {
     pub contract_identifier: Option<QualifiedContractIdentifier>,
     pub trait_contract_identifier: Option<QualifiedContractIdentifier>,

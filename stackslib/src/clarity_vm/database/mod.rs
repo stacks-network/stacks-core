@@ -1206,6 +1206,8 @@ pub struct MemoryBackingStore {
     side_store: Connection,
 }
 
+// A default would hide SQLite connection and schema initialization that can panic.
+#[allow(clippy::new_without_default)]
 impl MemoryBackingStore {
     pub fn new() -> MemoryBackingStore {
         let side_store = SqliteConnection::memory().unwrap();

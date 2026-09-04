@@ -64,6 +64,12 @@ pub struct MempoolSync {
     api_endpoint: String,
 }
 
+impl Default for MempoolSync {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MempoolSync {
     pub fn new() -> Self {
         Self {

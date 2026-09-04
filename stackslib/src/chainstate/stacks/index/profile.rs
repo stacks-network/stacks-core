@@ -92,6 +92,8 @@ pub struct TrieBenchmark {
     time_errors: u64,
 }
 
+// A default would misleadingly capture the current time for each benchmark timer.
+#[allow(clippy::new_without_default)]
 #[cfg(test)]
 impl TrieBenchmark {
     pub fn new() -> TrieBenchmark {
@@ -410,6 +412,8 @@ impl TrieBenchmark {
     }
 }
 
+// A default would misleadingly capture the current time for each benchmark timer.
+#[allow(clippy::new_without_default)]
 #[cfg(not(test))]
 impl TrieBenchmark {
     pub fn new() -> TrieBenchmark {
