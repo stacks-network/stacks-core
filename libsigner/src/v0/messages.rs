@@ -53,7 +53,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 
 use crate::stacks_common::types::PublicKey;
-use crate::v0::signer_state::{ReplayTransactionSet, SignerStateMachine};
+use crate::v0::signer_state::SignerStateMachine;
 use crate::{
     BlockProposal, MessageSlotID as MessageSlotIDTrait, SignerMessage as SignerMessageTrait,
     VERSION_STRING,
@@ -586,7 +586,13 @@ pub enum StateMachineUpdateContent {
         burn_block_height: u64,
         /// The signer's view of who the current miner should be (and their tenure building info)
         current_miner: StateMachineUpdateMinerState,
-        /// The replay transactions
+        /// Legacy wire field, always empty.
+        ///
+        /// Transaction replay was removed, but `V1`/`V2` are defined wire versions and a signer
+        /// running an older binary still reads this vector off the wire — omitting it would make
+        /// it fail to decode the whole update. Retained so the variant matches the format it
+        /// declares. **Do not carry this field into a future content version**; a `V3` without it
+        /// is the proper way to retire it.
         replay_transactions: Vec<StacksTransaction>,
     },
     /// Version 2 is exactly the same as Version 1, but is used to indicate this signer is
@@ -598,7 +604,13 @@ pub enum StateMachineUpdateContent {
         burn_block_height: u64,
         /// The signer's view of who the current miner should be (and their tenure building info)
         current_miner: StateMachineUpdateMinerState,
-        /// The replay transactions
+        /// Legacy wire field, always empty.
+        ///
+        /// Transaction replay was removed, but `V1`/`V2` are defined wire versions and a signer
+        /// running an older binary still reads this vector off the wire — omitting it would make
+        /// it fail to decode the whole update. Retained so the variant matches the format it
+        /// declares. **Do not carry this field into a future content version**; a `V3` without it
+        /// is the proper way to retire it.
         replay_transactions: Vec<StacksTransaction>,
     },
 }
@@ -796,24 +808,6 @@ impl StacksMessageCodec for StateMachineUpdateMinerState {
 }
 
 impl StateMachineUpdateContent {
-    /// Get the replay transaction txids
-    pub fn replay_txids(&self) -> Vec<String> {
-        match self {
-            Self::V0 { .. } => Vec::new(),
-            Self::V1 {
-                replay_transactions,
-                ..
-            }
-            | Self::V2 {
-                replay_transactions,
-                ..
-            } => replay_transactions
-                .iter()
-                .map(|tx| tx.txid().to_string())
-                .collect(),
-        }
-    }
-
     /// Attempt to create a new state machine update content with the specified version
     pub fn new(
         version: u64,
@@ -830,13 +824,13 @@ impl StateMachineUpdateContent {
                 burn_block: state_machine.burn_block.clone(),
                 burn_block_height: state_machine.burn_block_height,
                 current_miner,
-                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
+                replay_transactions: vec![],
             },
             2 => StateMachineUpdateContent::V2 {
                 burn_block: state_machine.burn_block.clone(),
                 burn_block_height: state_machine.burn_block_height,
                 current_miner,
-                replay_transactions: state_machine.tx_replay_set.clone().unwrap_or_default(),
+                replay_transactions: vec![],
             },
             other => {
                 return Err(CodecError::DeserializeError(format!(
@@ -883,21 +877,6 @@ impl StateMachineUpdateContent {
             Self::V0 { current_miner, .. }
             | Self::V1 { current_miner, .. }
             | Self::V2 { current_miner, .. } => current_miner,
-        }
-    }
-
-    /// Get the tx replay set
-    pub fn tx_replay_set(&self) -> ReplayTransactionSet {
-        match self {
-            Self::V0 { .. } => ReplayTransactionSet::none(),
-            Self::V1 {
-                replay_transactions,
-                ..
-            }
-            | Self::V2 {
-                replay_transactions,
-                ..
-            } => ReplayTransactionSet::new(replay_transactions.clone()),
         }
     }
 
@@ -1072,6 +1051,7 @@ impl From<&RejectReason> for RejectReasonPrefix {
             RejectReason::NoSignerConsensus => RejectReasonPrefix::NoSignerConsensus,
             RejectReason::ConsensusHashMismatch { .. } => RejectReasonPrefix::ConsensusHashMismatch,
             RejectReason::ProblematicTransactions => RejectReasonPrefix::ProblematicTransactions,
+            RejectReason::ProposalTooOld => RejectReasonPrefix::ProposalTooOld,
             RejectReason::Unknown(_) => RejectReasonPrefix::Unknown,
             RejectReason::NotRejected => RejectReasonPrefix::NotRejected,
         }
@@ -1160,6 +1140,9 @@ pub enum RejectReason {
     /// The block marks one or more transactions as problematic, which signers
     /// do not yet allow
     ProblematicTransactions,
+    /// The block proposal's header timestamp is older than the signer's
+    /// configured `block_proposal_max_age_secs`
+    ProposalTooOld,
     /// The block was approved, no rejection details needed
     NotRejected,
     /// Handle unknown codes gracefully
@@ -1210,6 +1193,9 @@ pub enum RejectReasonPrefix {
     /// The block marks one or more transactions as problematic, which signers
     /// do not yet allow
     ProblematicTransactions = 17,
+    /// The block proposal's header timestamp is older than the signer's
+    /// configured `block_proposal_max_age_secs`
+    ProposalTooOld = 18,
     /// Unknown reject code, for forward compatibility
     Unknown = 254,
     /// The block was approved, no rejection details needed
@@ -1238,6 +1224,7 @@ impl RejectReasonPrefix {
             Self::NoSignerConsensus => 15,
             Self::ConsensusHashMismatch => 16,
             Self::ProblematicTransactions => 17,
+            Self::ProposalTooOld => 18,
             Self::Unknown => 254,
             Self::NotRejected => 255,
         }
@@ -1265,6 +1252,7 @@ impl From<u8> for RejectReasonPrefix {
             15 => Self::NoSignerConsensus,
             16 => Self::ConsensusHashMismatch,
             17 => Self::ProblematicTransactions,
+            18 => Self::ProposalTooOld,
             255 => Self::NotRejected,
             // For forward compatibility, all other values are unknown
             _ => Self::Unknown,
@@ -1491,7 +1479,7 @@ impl StacksMessageCodec for SignerMessageMetadata {
                 let server_version = String::from_utf8(server_version).map_err(|e| {
                     CodecError::DeserializeError(format!(
                         "Failed to decode server version: {:?}",
-                        &e
+                        e
                     ))
                 })?;
                 Ok(Self { server_version })
@@ -1843,7 +1831,7 @@ impl StacksMessageCodec for BlockRejection {
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let reason_bytes = read_next::<Vec<u8>, _>(fd)?;
         let reason = String::from_utf8(reason_bytes).map_err(|e| {
-            CodecError::DeserializeError(format!("Failed to decode reason string: {:?}", &e))
+            CodecError::DeserializeError(format!("Failed to decode reason string: {:?}", e))
         })?;
         let reason_code = read_next::<RejectCode, _>(fd)?;
         let signer_signature_hash = read_next::<Sha512Trunc256Sum, _>(fd)?;
@@ -1888,7 +1876,7 @@ impl StacksMessageCodec for RejectCode {
                 ValidateRejectCode::try_from(read_next::<u8, _>(fd)?).map_err(|e| {
                     CodecError::DeserializeError(format!(
                         "Failed to decode validation reject code: {:?}",
-                        &e
+                        e
                     ))
                 })?,
             ),
@@ -1930,6 +1918,7 @@ impl StacksMessageCodec for RejectReason {
             | RejectReason::IrrecoverablePubkeyHash
             | RejectReason::NoSignerConsensus
             | RejectReason::ProblematicTransactions
+            | RejectReason::ProposalTooOld
             | RejectReason::Unknown(_)
             | RejectReason::NotRejected => {
                 // No additional data to serialize / deserialize
@@ -1948,7 +1937,7 @@ impl StacksMessageCodec for RejectReason {
                 ValidateRejectCode::try_from(read_next::<u8, _>(fd)?).map_err(|e| {
                     CodecError::DeserializeError(format!(
                         "Failed to decode validation reject code: {:?}",
-                        &e
+                        e
                     ))
                 })?,
             ),
@@ -1975,6 +1964,7 @@ impl StacksMessageCodec for RejectReason {
                 RejectReason::ConsensusHashMismatch { expected, actual }
             }
             RejectReasonPrefix::ProblematicTransactions => RejectReason::ProblematicTransactions,
+            RejectReasonPrefix::ProposalTooOld => RejectReason::ProposalTooOld,
             RejectReasonPrefix::Unknown => RejectReason::Unknown(type_prefix_byte),
             RejectReasonPrefix::NotRejected => RejectReason::NotRejected,
         };
@@ -2079,6 +2069,12 @@ impl std::fmt::Display for RejectReason {
                 write!(
                     f,
                     "The block has an irrecoverable associated miner public key hash."
+                )
+            }
+            RejectReason::ProposalTooOld => {
+                write!(
+                    f,
+                    "The block proposal's header timestamp is older than the maximum proposal age."
                 )
             }
             RejectReason::NoSignerConsensus => {

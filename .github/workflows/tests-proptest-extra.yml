@@ -58,19 +58,40 @@ env:
   # Number of generated cases to run per selected proptest.
   PROPTEST_CASES: 2500
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
-  DEBUG_BINARY_PATH: "./target/debug/"
   BTC_VERSION: "25.0"
 
 jobs:
+  check-ci-enabled:
+    name: "Check: CI Enabled"
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
+          echo "github.repository:   '${{ github.repository }}'"
+          echo "github.event_name:   '${{ github.event_name }}'"
+    
+          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Result: CI is ENABLED"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: CI is DISABLED"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Gate 1: on manual dispatch, always proceed.
   # On pull_request_review, proceed only when the triggering review is an
   # approval targeting the `main` base branch and check approvals
   # from users with write+ permission to be at least `REQUIRED_APPROVALS`.
   check-approvals:
-    name: Check Approval Count
-    if: >
-      (github.event_name == 'workflow_dispatch') ||
-      (github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main')
+    name: "Check: Approval Count"
+    needs:
+      - check-ci-enabled
+    # Only run this if a PR review is approved targeting the main branch
+    if: needs.check-ci-enabled.outputs.enabled == 'true' && github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.count.outputs.ready }}
@@ -129,8 +150,10 @@ jobs:
   # Skips the expensive test listing/filtering job when a PR does not
   # introduce any new proptest tests.
   check-changes:
-    name: Detect New Proptest Tests
-    needs: check-approvals
+    name: "Detect: New Proptest Tests"
+    needs:
+      - check-ci-enabled
+      - check-approvals
     if: needs.check-approvals.outputs.ready == 'true'
     runs-on: ubuntu-latest
     outputs:
@@ -185,7 +208,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
-      debug-binary-path: ${{ steps.set-env.outputs.debug_binary_path }}
       btc-version: ${{ steps.set-env.outputs.btc_version }}
     steps:
       - name: Export Env Variables
@@ -195,7 +217,6 @@ jobs:
           FILE="${{ env.TEST_ARCHIVE_FILE }}"
   
           echo "test_archive_file=${FILE/#\~/$HOME}" >> $GITHUB_OUTPUT
-          echo "debug_binary_path=${{ env.DEBUG_BINARY_PATH }}" >> $GITHUB_OUTPUT
           echo "btc_version=${{ env.BTC_VERSION }}" >> $GITHUB_OUTPUT
 
   ############################################################################
@@ -250,7 +271,6 @@ jobs:
         with:
           action: create
           archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-          debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
      
       # Setup rust toolchain with llvm-tools-preview
       - name: Setup Rust Toolchain
@@ -283,7 +303,6 @@ jobs:
         with:
           action: restore
           archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-          debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
       ############################################################################
       ### Run proptests
@@ -313,7 +332,7 @@ jobs:
       # (and its build output) is removed afterwards.
       #
       # This is always a full compile: the Cargo cache was built with 
-      # -C instrument-coverage so its fingerprints never match this list-only build
+      # cargo-llvm-cov so its fingerprints never match this list-only build
       # and there is nothing to reuse. RUSTFLAGS only allows warnings here — the
       # job-wide `-D warnings` would otherwise turn a benign warning into a hard
       # error and leave an empty list.

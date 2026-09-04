@@ -610,3 +610,130 @@ fn test_order_of_readonly_check_and_type_check() {
         err
     );
 }
+
+/// Checks that the analysis succeeds in 4.0 but fails in 4.1 with an error that
+/// contains the given substring. Helper for [`test_definition_sorting_of_contract_call`]`.
+fn assert_contract_starts_failing_in_epoch_41(snippet: &str, expected_error_41: &str) {
+    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch40);
+    assert!(
+        result.is_ok(),
+        "expected to pass in Epoch 4.0 but got {}; contract: {snippet}",
+        result.unwrap_err()
+    );
+
+    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch41);
+    match result {
+        Err(e) => assert!(
+            e.to_string().contains(expected_error_41),
+            "expected error to contain \"{expected_error_41}\" in Epoch 4.1 but got {e}; contract: {snippet}"
+        ),
+        Ok(_) => panic!("should not succeed in Epoch 4.1"),
+    };
+}
+
+/// Checks that the analysis fails in both 4.0 and 4.1 with an error that
+/// contains the given substring. Helper for [`test_definition_sorting_of_contract_call`]`.
+fn assert_contract_fails_even_before_epoch_41(snippet: &str, expected_error: &str) {
+    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch40);
+    match result {
+        Err(e) => assert!(
+            e.to_string().contains(expected_error),
+            "expected error to contain \"{expected_error}\" in Epoch 4.0 but got {e}; contract: {snippet}"
+        ),
+        Ok(_) => panic!("should not succeed in Epoch 4.0"),
+    };
+
+    let result = mem_run_analysis(snippet, ClarityVersion::latest(), StacksEpochId::Epoch41);
+    match result {
+        Err(e) => assert!(
+            e.to_string().contains(expected_error),
+            "expected error to contain \"{expected_error}\" Epoch 4.1 but got {e}; contract: {snippet}"
+        ),
+        Ok(_) => panic!("should not succeed in Epoch 4.1"),
+    };
+}
+
+#[test]
+/// Until Epoch 4.0, the definition sorter ignored the first argument to `contract-call?`,
+/// which means it didn't prevent a local binding (e.g. function parameter) and a global
+/// object (e.g. a data-var) from having the same name, if the global was defined after
+/// the function. This is inconsistent (this shouldn't depend on the order), and it can
+/// cause cryptic failures at runtime, and was therefore fixed in Epoch 4.1.
+/// Even for non-broken contracts, this fix can change cost, which is why we
+/// have to preserve the legacy behavior for all earlier epochs. That is what this test
+/// ensures: Until 4.0, such contracts pass analysis, but from 4.1 on, they fail. It also
+/// ensures that the cases that have previously been rejected still are.
+fn test_definition_sorting_of_contract_call() {
+    // Function name matches parameter name. Even though that works as expected by
+    // accident, it is invalid.
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-public (stuff (stuff <my-trait>)) (contract-call? stuff trait-func))",
+        "CircularReference",
+    );
+
+    // These contracts define a global `thing` *after* a function with a parameter
+    // called `thing` that was passed to `contract-call?`. This passed analysis until
+    // epoch 4.0, but should be rejected starting in 4.1
+
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))
+         (define-constant thing (unwrap-panic (as-contract? () tx-sender)))",
+        "NameAlreadyUsed",
+    );
+
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))
+         (define-data-var thing principal (unwrap-panic (as-contract? () tx-sender)))",
+        "NameAlreadyUsed",
+    );
+
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))
+         (define-private (thing) 42)",
+        "NameAlreadyUsed",
+    );
+
+    // same as above, except that the function parameter is fine -- it's the
+    // `let` binding that uses the duplicate name
+    assert_contract_starts_failing_in_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-public (stuff (target <my-trait>)) (let ((thing target)) (contract-call? thing trait-func)))
+         (define-private (thing) 42)",
+        "NameAlreadyUsed",
+    );
+
+    // These contracts are identical to the previous four, except that the global
+    // `thing` is defined *before* the function. This was always prevented.
+
+    assert_contract_fails_even_before_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-constant thing (unwrap-panic (as-contract? () tx-sender)))
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))",
+        "NameAlreadyUsed",
+    );
+
+    assert_contract_fails_even_before_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-data-var thing principal (unwrap-panic (as-contract? () tx-sender)))
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))",
+        "NameAlreadyUsed",
+    );
+
+    assert_contract_fails_even_before_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+        (define-private (thing) 42)
+         (define-public (stuff (thing <my-trait>)) (contract-call? thing trait-func))",
+        "NameAlreadyUsed",
+    );
+
+    assert_contract_fails_even_before_epoch_41(
+        "(define-trait my-trait ((trait-func () (response uint uint))))
+         (define-private (thing) 42)
+         (define-public (stuff (target <my-trait>)) (let ((thing target)) (contract-call? thing trait-func)))",
+        "NameAlreadyUsed",
+    );
+}

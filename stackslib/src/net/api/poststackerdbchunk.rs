@@ -30,7 +30,7 @@ use crate::net::http::{
 use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StackerDBPushChunkData, StacksMessageType, StacksNodeState};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCPostStackerDBChunkRequestHandler {
     pub contract_identifier: Option<QualifiedContractIdentifier>,
     pub chunk: Option<StackerDBChunkData>,
@@ -174,6 +174,7 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
             .chunk
             .take()
             .ok_or(NetError::SendError("`chunk` not set".into()))?;
+        let http_peer = node.http_peer_addr();
 
         let ack_resp =
             node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {
@@ -287,12 +288,10 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                     ));
                 }
 
-                debug!(
-                    "Wrote {}-byte chunk to {} slot {} version {}",
-                    &stackerdb_chunk.data.len(),
+                crate::net::stackerdb::log_stored_stackerdb_chunk(
                     &contract_identifier,
-                    stackerdb_chunk.slot_id,
-                    stackerdb_chunk.slot_version
+                    &stackerdb_chunk,
+                    &crate::net::stackerdb::StackerDBChunkOrigin::Http { peer: http_peer },
                 );
 
                 // success!

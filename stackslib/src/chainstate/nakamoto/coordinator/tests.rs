@@ -66,7 +66,7 @@ use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::{EpochList, StacksEpochExtension};
 use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
-use crate::net::tests::NakamotoBootPlan;
+use crate::net::tests::{test_pox_constants, NakamotoBootPlan};
 use crate::stacks_common::codec::StacksMessageCodec;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{query_rows, u64_to_sql};
@@ -151,6 +151,37 @@ fn advance_to_nakamoto(
     // peer is at the start of cycle 8
 }
 
+fn configured_target_epoch(epochs: &EpochList) -> StacksEpochId {
+    epochs
+        .iter()
+        .filter(|epoch| epoch.start_height < epoch.end_height)
+        .map(|epoch| epoch.epoch_id)
+        .max()
+        .expect("Coordinator test peer must configure a non-empty epoch")
+}
+
+/// Bootstrap to the configured Nakamoto epoch.
+fn advance_to_configured_epoch(
+    peer: &mut TestPeer,
+    test_signers: &mut TestSigners,
+    test_stackers: &[TestStacker],
+) {
+    let target_epoch = configured_target_epoch(
+        peer.config
+            .chain_config
+            .epochs
+            .as_ref()
+            .expect("Coordinator test peer must configure epochs"),
+    );
+    if target_epoch >= StacksEpochId::Epoch40 {
+        let private_key = peer.config.private_key.clone();
+        peer.chain.advance_into_epoch(&private_key, target_epoch);
+        peer.refresh_burnchain_view();
+    } else {
+        advance_to_nakamoto(peer, test_signers, test_stackers);
+    }
+}
+
 /// Make a peer and transition it into the Nakamoto epoch.
 /// The node needs to be stacking.
 /// otherwise, Nakamoto can't activate.
@@ -162,6 +193,7 @@ fn boot_nakamoto_with_epochs<'a>(
     observer: Option<&'a TestEventObserver>,
     epochs: EpochList,
 ) -> TestPeer<'a> {
+    let target_epoch = configured_target_epoch(&epochs);
     let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
     let private_key = peer_config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
@@ -172,10 +204,9 @@ fn boot_nakamoto_with_epochs<'a>(
     )
     .unwrap();
 
-    // reward cycles are 5 blocks long
-    // first 25 blocks are boot-up
-    // reward cycle 6 instantiates pox-3
-    // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    // In the pre-4.0 fixture, reward cycles are 5 blocks long, the
+    // first 25 blocks are boot-up, reward cycle 6 instantiates pox-3, and we
+    // stack in cycle 7 so pox-3 is evaluated for reward-set participation.
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
@@ -217,31 +248,39 @@ fn boot_nakamoto_with_epochs<'a>(
         .chain_config
         .initial_balances
         .append(&mut initial_balances);
-    peer_config
-        .chain_config
-        .burnchain
-        .pox_constants
-        .v2_unlock_height = 21;
-    peer_config
-        .chain_config
-        .burnchain
-        .pox_constants
-        .pox_3_activation_height = 26;
-    peer_config
-        .chain_config
-        .burnchain
-        .pox_constants
-        .v3_unlock_height = 27;
-    peer_config
-        .chain_config
-        .burnchain
-        .pox_constants
-        .pox_4_activation_height = 31;
+    if target_epoch >= StacksEpochId::Epoch40 {
+        // The legacy coordinator fixture's 5-block reward cycles with 3-block
+        // prepare phases leave no height where both the Epoch 4.0 activation
+        // block and the block after it stay out of the prepare phase, so no
+        // activation height is PoX-5-safe. Use 7-block cycles for Epoch 4.0 instead.
+        peer_config.chain_config.burnchain.pox_constants = test_pox_constants(7, 3);
+    } else {
+        peer_config
+            .chain_config
+            .burnchain
+            .pox_constants
+            .v2_unlock_height = 21;
+        peer_config
+            .chain_config
+            .burnchain
+            .pox_constants
+            .pox_3_activation_height = 26;
+        peer_config
+            .chain_config
+            .burnchain
+            .pox_constants
+            .v3_unlock_height = 27;
+        peer_config
+            .chain_config
+            .burnchain
+            .pox_constants
+            .pox_4_activation_height = 31;
+    }
     peer_config.chain_config.test_stackers = Some(test_stackers.to_vec());
     peer_config.chain_config.test_signers = Some(test_signers.clone());
     let mut peer = TestPeer::new_with_observer(peer_config, observer);
 
-    advance_to_nakamoto(&mut peer, test_signers, test_stackers);
+    advance_to_configured_epoch(&mut peer, test_signers, test_stackers);
 
     peer
 }
@@ -306,6 +345,25 @@ pub fn boot_nakamoto_3_3<'a>(
     )
 }
 
+/// Make a peer and transition it into Epoch 4.0 with a populated PoX-5
+/// signer set.
+pub fn boot_nakamoto_4_0<'a>(
+    test_name: &str,
+    initial_balances: Vec<(PrincipalData, u64)>,
+    test_signers: &mut TestSigners,
+    test_stackers: &[TestStacker],
+    observer: Option<&'a TestEventObserver>,
+) -> TestPeer<'a> {
+    boot_nakamoto_with_epochs(
+        test_name,
+        initial_balances,
+        test_signers,
+        test_stackers,
+        observer,
+        StacksEpoch::unit_test_epoch_only(37, StacksEpochId::Epoch40),
+    )
+}
+
 /// Make a replay peer, used for replaying the blockchain
 pub fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
     let mut replay_config = peer.config.clone();
@@ -322,8 +380,7 @@ pub fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
         .unwrap_or_default();
     let mut test_signers = replay_config.chain_config.test_signers.clone().unwrap();
     let mut replay_peer = TestPeer::new(replay_config);
-    let observer = TestEventObserver::new();
-    advance_to_nakamoto(
+    advance_to_configured_epoch(
         &mut replay_peer,
         &mut test_signers,
         test_stackers.as_slice(),
@@ -531,6 +588,224 @@ fn test_simple_nakamoto_coordinator_bootup() {
     );
 
     peer.check_nakamoto_migration();
+}
+
+#[test]
+fn test_simple_nakamoto_coordinator_bootup_epoch_4() {
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto_4_0(
+        function_name!(),
+        vec![],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+
+    let burn_height = peer.get_burn_block_height();
+    let current_epoch = SortitionDB::get_stacks_epoch(peer.sortdb_ref().conn(), burn_height)
+        .unwrap()
+        .unwrap()
+        .epoch_id;
+    assert_eq!(current_epoch, StacksEpochId::Epoch40);
+
+    // The coordinator harness must be able to cross into the first Waterfall
+    // cycle using the PoX-5 signer set installed by TestChainstate.
+    let waterfall_height = peer.chain.advance_to_first_pox_5_waterfall();
+    assert_eq!(peer.get_burn_block_height(), waterfall_height);
+
+    let mut replay_peer = make_replay_peer(&mut peer);
+    let replay_height = replay_peer.get_burn_block_height();
+    let replay_epoch =
+        SortitionDB::get_stacks_epoch(replay_peer.sortdb_ref().conn(), replay_height)
+            .unwrap()
+            .unwrap()
+            .epoch_id;
+    assert_eq!(replay_epoch, StacksEpochId::Epoch40);
+}
+
+#[test]
+fn test_pox_treatment_follows_tenure_across_waterfall_boundary() {
+    let transfer_key = StacksPrivateKey::from_seed(&[0x42]);
+    let transfer_addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&transfer_key));
+    let recipient_addr =
+        StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto_4_0(
+        function_name!(),
+        vec![(transfer_addr.clone().into(), 1_000_000)],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+    peer.chain.mine_malleablized_blocks = false;
+    let make_probe_tx = |peer: &mut TestPeer<'_>| {
+        let sortdb = peer.chain.sortdb.as_ref().unwrap();
+        let stacks_node = peer.chain.stacks_node.as_mut().unwrap();
+        let account = get_account(&mut stacks_node.chainstate, sortdb, &transfer_addr);
+        make_token_transfer(
+            &mut stacks_node.chainstate,
+            sortdb,
+            &transfer_key,
+            account.nonce,
+            1,
+            1,
+            &recipient_addr,
+        )
+    };
+
+    let burnchain = peer.config.chain_config.burnchain.clone();
+    let waterfall_height = burnchain
+        .pox_constants
+        .first_pox_waterfall_block(burnchain.first_block_height)
+        .expect("PoX-5 activation must map to a Waterfall cycle");
+    let pre_waterfall_height = waterfall_height
+        .checked_sub(1)
+        .expect("Waterfall cannot begin at burn height zero");
+    assert!(
+        peer.get_burn_block_height() < pre_waterfall_height,
+        "Epoch 4.0 boot must leave room to elect a final V0 tenure"
+    );
+    while peer.get_burn_block_height() < pre_waterfall_height - 1 {
+        peer.chain.mine_nakamoto_tenure();
+    }
+
+    // Elect the final PoX-4 tenure immediately before Waterfall.
+    let (burn_ops, mut tenure_change, miner_key) =
+        peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+    let (_, _, tenure_consensus_hash) = peer.next_burnchain_block(burn_ops);
+    assert_eq!(peer.get_burn_block_height(), pre_waterfall_height);
+    let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+    tenure_change.tenure_consensus_hash = tenure_consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = tenure_consensus_hash.clone();
+    let original_tenure_change = tenure_change.clone();
+    let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+    let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
+    let tenure_start_blocks = peer
+        .chain
+        .make_nakamoto_tenure(tenure_change_tx, coinbase_tx, None)
+        .unwrap();
+    assert_eq!(tenure_start_blocks.len(), 1);
+    let v0_treatment_len = tenure_start_blocks[0].0.header.pox_treatment.len();
+    assert!(
+        v0_treatment_len > 1,
+        "The final V0 tenure must exercise more than treatment index 0"
+    );
+
+    // The direct consensus-test path must use the same V0 reward set.
+    let direct_v0_tx = make_probe_tx(&mut peer);
+    let direct_v0 = peer.chain.append_nakamoto_block_with_txs(&[direct_v0_tx]);
+    direct_v0
+        .execution
+        .expect("Direct V0 extension block must process");
+    assert_eq!(direct_v0.block.header.pox_treatment.len(), v0_treatment_len);
+    assert!(direct_v0
+        .block
+        .header
+        .pox_treatment
+        .iter()
+        .all(|treated| treated));
+
+    // Advance the burn view into Waterfall while extending the existing
+    // tenure. Its election remains in the preceding V0 cycle.
+    let (burn_ops, _, _) = peer.begin_nakamoto_tenure(TenureChangeCause::Extended);
+    let (_, _, waterfall_consensus_hash) = peer.next_burnchain_block(burn_ops);
+    assert_eq!(peer.get_burn_block_height(), waterfall_height);
+    let extension_payload = original_tenure_change.extend(
+        waterfall_consensus_hash,
+        direct_v0.block.block_id(),
+        u32::try_from(tenure_start_blocks.len() + 1).unwrap(),
+    );
+    let extension_tx = peer
+        .chain
+        .miner
+        .make_nakamoto_tenure_change(extension_payload);
+    let extension_blocks =
+        peer.make_nakamoto_tenure_extension(extension_tx, &mut test_signers, |_, _, _, _| vec![]);
+    assert_eq!(extension_blocks.len(), 1);
+    assert_eq!(
+        extension_blocks[0].0.header.consensus_hash, tenure_consensus_hash,
+        "A tenure extension must retain its original election"
+    );
+    assert_eq!(
+        extension_blocks[0].0.header.pox_treatment.len(),
+        v0_treatment_len,
+        "Cross-cycle extension must retain the tenure-elected V0 treatment"
+    );
+    assert!(extension_blocks[0]
+        .0
+        .header
+        .pox_treatment
+        .iter()
+        .all(|treated| treated));
+
+    let direct_cross_cycle_tx = make_probe_tx(&mut peer);
+    let direct_cross_cycle = peer
+        .chain
+        .append_nakamoto_block_with_txs(&[direct_cross_cycle_tx]);
+    direct_cross_cycle
+        .execution
+        .expect("Direct cross-cycle extension block must process");
+    assert_eq!(
+        direct_cross_cycle.block.header.pox_treatment.len(),
+        v0_treatment_len,
+        "Direct append must also retain the tenure-elected V0 treatment"
+    );
+    assert!(direct_cross_cycle
+        .block
+        .header
+        .pox_treatment
+        .iter()
+        .all(|treated| treated));
+
+    // A newly-elected tenure in Waterfall switches to the length-1
+    // compatibility `pox_treatment`, as does the direct append path
+    // thereafter.
+    peer.chain.mine_nakamoto_tenure();
+    let waterfall_tip = NakamotoChainState::get_canonical_block_header(
+        peer.chain.stacks_node.as_ref().unwrap().chainstate.db(),
+        peer.chain.sortdb.as_ref().unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    let waterfall_header = waterfall_tip
+        .anchored_header
+        .as_stacks_nakamoto()
+        .expect("Waterfall tip must be a Nakamoto block");
+    assert_eq!(waterfall_header.pox_treatment.len(), 1);
+    assert!(waterfall_header.pox_treatment.iter().all(|treated| treated));
+
+    let direct_waterfall_tx = make_probe_tx(&mut peer);
+    let direct_waterfall = peer
+        .chain
+        .append_nakamoto_block_with_txs(&[direct_waterfall_tx]);
+    direct_waterfall
+        .execution
+        .expect("Direct Waterfall extension block must process");
+    assert_eq!(direct_waterfall.block.header.pox_treatment.len(), 1);
+    assert!(direct_waterfall
+        .block
+        .header
+        .pox_treatment
+        .iter()
+        .all(|treated| treated));
+
+    // A block that continues the current tenure still carries its election
+    // sortition's `burn_spent`, even after a newer sortition becomes canonical.
+    let parent_burn_spent = direct_waterfall.block.header.burn_spent;
+    let (burn_ops, _, _) = peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+    peer.next_burnchain_block(burn_ops);
+    let canonical_burn_tip =
+        SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb_ref().conn()).unwrap();
+    assert!(canonical_burn_tip.total_burn > parent_burn_spent);
+
+    let late_waterfall_tx = make_probe_tx(&mut peer);
+    let late_waterfall = peer
+        .chain
+        .append_nakamoto_block_with_txs(&[late_waterfall_tx]);
+    late_waterfall
+        .execution
+        .expect("Late Waterfall tenure block must process");
+    assert_eq!(late_waterfall.block.header.burn_spent, parent_burn_spent);
 }
 
 /// Mine a single Nakamoto tenure with 10 Nakamoto blocks
@@ -812,10 +1087,10 @@ impl TestPeer<'_> {
     /// Produce a single-block tenure, containing a stx-transfer sent from `sender_key`.
     ///
     /// * `after_burn_ops` is called right after `self.begin_nakamoto_tenure` to modify any burn ops
-    /// for this tenure
+    ///   for this tenure
     ///
-    /// * `miner_setup` is called right after the Nakamoto block builder is constructed, but before
-    /// any txs are mined
+    /// * `miner_setup` is called after tenure information and reward-set-dependent header defaults
+    ///   are initialized, but before tenure execution begins or any transactions are mined
     ///
     /// * `after_block` is called right after the block is assembled, but before it is signed.
     pub fn single_block_tenure_fallible<S, F, G>(
@@ -1503,6 +1778,15 @@ fn pox_treatment() {
             });
         },
         |block| {
+            assert_eq!(
+                block.header.pox_treatment.len(),
+                u16::try_from(expected_reward_set.len()).unwrap(),
+                "The test miner must initialize one treatment bit per V0 reward slot"
+            );
+            assert!(
+                block.header.pox_treatment.iter().all(|treated| treated),
+                "The test miner must reward every slot by default"
+            );
             let pox_recipients = pox_recipients.lock().unwrap();
             assert_eq!(pox_recipients.len(), 2);
             info!(
@@ -1602,15 +1886,22 @@ fn pox_treatment() {
                     .map(|x| x.to_burnchain_repr())
                     .collect::<Vec<_>>()
             );
-            let target_indexes = pox_recipients.iter().map(|pox_addr| {
-                expected_reward_set
-                    .iter()
-                    .enumerate()
-                    .find_map(|(ix, rs_addr)| if rs_addr == pox_addr { Some(ix) } else { None })
-                    .unwrap()
-            });
+            let target_indexes = pox_recipients
+                .iter()
+                .map(|pox_addr| {
+                    expected_reward_set
+                        .iter()
+                        .enumerate()
+                        .find_map(|(ix, rs_addr)| if rs_addr == pox_addr { Some(ix) } else { None })
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+            assert!(
+                target_indexes.iter().all(|index| *index > 0),
+                "This regression must punish a reward address beyond treatment index 0"
+            );
             let mut bitvec = BitVec::zeros(12).unwrap();
-            target_indexes.for_each(|ix| {
+            target_indexes.into_iter().for_each(|ix| {
                 let ix: u16 = ix.try_into().unwrap();
                 bitvec.set(ix, true).unwrap();
                 bitvec.set(1 + ix, true).unwrap();

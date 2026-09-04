@@ -34,9 +34,32 @@ concurrency:
 # Env vars
 env:
   TEST_ARCHIVE_FILE: "./test_archive.tar.zst"
-  DEBUG_BINARY_PATH: "./target/debug/"
+  # Whether or not to create the slow and failed tests summary
+  CREATE_SLOW_FAILED_TESTS_SUMMARY: ${{ (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && github.event_name != 'merge_group' }}
+  # Whether or not to create the code coverage report
+  CREATE_CODE_COVERAGE_REPORT: ${{ github.repository == 'stacks-network/stacks-core' }}
 
 jobs:
+  check-ci-enabled:
+    name: "Check: CI Enabled"
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
+          echo "github.repository:   '${{ github.repository }}'"
+    
+          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" ]]; then
+            echo "Result: CI is ENABLED"
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: CI is DISABLED"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
   ############################################################################
   ### Global Variables Setup
   ###
@@ -46,10 +69,14 @@ jobs:
   ############################################################################
   setup-env:
     name: "Setup: Global Variables"
+    needs:
+      - check-ci-enabled
+    if: needs.check-ci-enabled.outputs.enabled == 'true'
     runs-on: &shared_config ubuntu-latest
     outputs:
       test-archive-file: ${{ steps.set-env.outputs.test_archive_file }}
-      debug-binary-path: ${{ steps.set-env.outputs.debug_binary_path }}
+      create-slow-failed-tests-summary: ${{ steps.set-env.outputs.create_slow_failed_tests_summary }}
+      create-code-coverage-report: ${{ steps.set-env.outputs.create_code_coverage_report }}
     steps:
       - name: Export Env Variables
         id: set-env
@@ -59,7 +86,8 @@ jobs:
           ARCHIVE_FILE="${INPUT_FILE/#\~/$HOME}"
 
           echo "test_archive_file=$ARCHIVE_FILE" >> $GITHUB_OUTPUT
-          echo "debug_binary_path=${{ env.DEBUG_BINARY_PATH }}" >> $GITHUB_OUTPUT
+          echo "create_slow_failed_tests_summary=$CREATE_SLOW_FAILED_TESTS_SUMMARY" >> $GITHUB_OUTPUT
+          echo "create_code_coverage_report=$CREATE_CODE_COVERAGE_REPORT" >> $GITHUB_OUTPUT
 
   ############################################################################
   ### Changelog Check
@@ -69,6 +97,8 @@ jobs:
   ############################################################################
   check-changelog:
     name: "Check: Changelog"
+    needs:
+      - setup-env
     runs-on: *shared_config
     permissions:
       contents: read
@@ -135,8 +165,8 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-    if: >-
-      github.event.repository.visibility == 'public'
+    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
+    if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
     runs-on: *shared_config
     outputs:
       tag: ${{ steps.check-release.outputs.tag }}
@@ -224,7 +254,6 @@ jobs:
         with:
           action: create
           archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-          debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
   ############################################################################
   ### Run Stacks Core Tests
@@ -240,7 +269,8 @@ jobs:
     uses: ./.github/workflows/_tests-stacks-core.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
   ### Run Bitcoin Tests
@@ -256,7 +286,8 @@ jobs:
     uses: ./.github/workflows/_tests-bitcoin.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
   ### Run Bitcoin RPC Tests
@@ -272,7 +303,6 @@ jobs:
     uses: ./.github/workflows/_tests-bitcoin-rpc.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
 
   ############################################################################
   ### Run P2P Tests
@@ -288,7 +318,8 @@ jobs:
     uses: ./.github/workflows/_tests-p2p.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
   ### Run Epoch Tests (Release Only)
@@ -308,7 +339,8 @@ jobs:
     uses: ./.github/workflows/_tests-epoch.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      debug-binary-path: ${{ needs.setup-env.outputs.debug-binary-path }}
+      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
+      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
   ### Create Release
@@ -324,14 +356,15 @@ jobs:
       - check-release
       - check-rustfmt
     if: >-
-      github.event.repository.visibility == 'public' &&
       needs.check-release.outputs.is_release == 'true' &&
       github.event_name != 'merge_group'
     permissions:
-      contents: write      # required for github release
-      id-token: write      # required for attestation
-      attestations: write  # required for attestation
-      packages: write      # required for image push to ghcr
+      contents: write        # required for github release
+      id-token: write        # required for attestation
+      attestations: write    # required for attestation
+      packages: write        # required for image push to ghcr
+      issues: read           # required for release blocker check
+      pull-requests: read    # required for release blocker check
     uses: ./.github/workflows/_release-github.yml
     with:
       tag: ${{ needs.check-release.outputs.tag }} # 3-part version shared by the node and signer, like 4.0.0
@@ -340,9 +373,7 @@ jobs:
   ### Create Job Summary: Slow & Failed Tests
   ############################################################################
   create-slow-failed-tests-summary:
-    if: >-
-      always() &&
-      github.event_name != 'merge_group'
+    if: always() && needs.setup-env.outputs.create-slow-failed-tests-summary == 'true'
     name: "Create: Slow & Failed Tests Report"
     runs-on: *shared_config
     needs:
@@ -350,6 +381,7 @@ jobs:
       - check-rustfmt
       - check-release
       - check-test-caches
+      - setup-env
       - tests-bitcoin
       - tests-epoch
       - tests-p2p
@@ -366,7 +398,7 @@ jobs:
       - name: Download nextest JUnit artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
         with:
-          pattern: nextest-*
+          pattern: junit-*
           path: ${{ env.NEXTEST_FILES_DIR }}
           merge-multiple: true
 
@@ -495,9 +527,7 @@ jobs:
   ### Create Code Coverage Report
   ############################################################################
   create-code-coverage-report:
-    if: >-
-      always() &&
-      github.event.repository.visibility == 'public'
+    if: always() && needs.setup-env.outputs.create-code-coverage-report == 'true'
     name: "Create: Code Coverage Report"
     runs-on: *shared_config
     needs:
@@ -505,6 +535,7 @@ jobs:
       - check-rustfmt
       - check-release
       - check-test-caches
+      - setup-env
       - tests-bitcoin
       - tests-epoch
       - tests-p2p

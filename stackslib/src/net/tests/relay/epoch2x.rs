@@ -26,7 +26,7 @@ use rand::{thread_rng, Rng};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::Address;
-use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::tests::TestMiner;
@@ -2344,23 +2344,16 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                         - 1
                         == *i as u64
                     {
-                        let event_id = {
-                            let mut ret = 0;
-                            for (nk, event_id) in peers[1].network.events.iter() {
-                                ret = *event_id;
-                                break;
-                            }
-                            if ret == 0 {
-                                return;
-                            }
-                            ret
+                        let event_id = match peers[1].network.events.values().next().copied() {
+                            Some(0) | None => return,
+                            Some(event_id) => event_id,
                         };
                         let mut update_sortition = false;
                         for ((event_id, _neighbor_key), pending) in
                             peers[1].network.pending_messages.iter()
                         {
-                            debug!("Pending at {i} is ({event_id}, {})", pending.len());
-                            if !pending.is_empty() {
+                            debug!("Pending at {i} is ({event_id}, {})", pending.messages.len());
+                            if !pending.messages.is_empty() {
                                 update_sortition = true;
                             }
                         }
@@ -2841,7 +2834,13 @@ fn process_new_blocks_rejects_problematic_asts() {
         },
     ];
     let mut unsolicited = HashMap::new();
-    unsolicited.insert((1, nk), bad_msgs.clone());
+    unsolicited.insert(
+        (1, nk.clone()),
+        PendingMessagesFrom::new(
+            NeighborAddress::from_neighbor_key(nk, Hash160([0u8; 20])),
+            bad_msgs.clone(),
+        ),
+    );
 
     let mut network_result = NetworkResult::new(
         peer.network.stacks_tip.block_id(),

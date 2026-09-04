@@ -648,6 +648,8 @@ pub struct StacksNodeState<'a> {
     inner_mempool: Option<&'a mut MemPoolDB>,
     inner_rpc_args: Option<&'a RPCHandlerArgs<'a>>,
     relay_message: Option<StacksMessageType>,
+    /// TCP peer address of the HTTP conversation currently being handled, if any.
+    http_peer_addr: Option<SocketAddr>,
     /// Are we in Initial Block Download (IBD) phase?
     ibd: bool,
     /// Are we indexing transactions?
@@ -671,6 +673,7 @@ impl<'a> StacksNodeState<'a> {
             inner_mempool: Some(inner_mempool),
             inner_rpc_args: Some(inner_rpc_args),
             relay_message: None,
+            http_peer_addr: None,
             ibd,
             txindex,
         }
@@ -731,21 +734,29 @@ impl<'a> StacksNodeState<'a> {
         self.relay_message.take()
     }
 
+    pub fn set_http_peer_addr(&mut self, addr: SocketAddr) {
+        self.http_peer_addr = Some(addr);
+    }
+
+    pub fn http_peer_addr(&self) -> Option<SocketAddr> {
+        self.http_peer_addr
+    }
+
     /// Load up the canonical Stacks chain tip.  Note that this is subject to both burn chain block
     /// Stacks block availability -- different nodes with different partial replicas of the Stacks chain state
     /// will return different values here.
     ///
     /// # Warn
     /// - There is a potential race condition. If this function is loading the latest unconfirmed
-    /// tip, that tip may get invalidated by the time it is used in `maybe_read_only_clarity_tx`,
-    /// which is used to load clarity state at a particular tip (which would lead to a 404 error).
-    /// If this race condition occurs frequently, we can modify `maybe_read_only_clarity_tx` to
-    /// re-load the unconfirmed chain tip. Refer to issue #2997.
+    ///   tip, that tip may get invalidated by the time it is used in `maybe_read_only_clarity_tx`,
+    ///   which is used to load clarity state at a particular tip (which would lead to a 404 error).
+    ///   If this race condition occurs frequently, we can modify `maybe_read_only_clarity_tx` to
+    ///   re-load the unconfirmed chain tip. Refer to issue #2997.
     ///
     /// # Inputs
     /// - `tip_req` is given by the HTTP request as the optional query parameter for the chain tip
-    /// hash.  It will be UseLatestAnchoredTip if there was no parameter given. If it is set to
-    /// `latest`, the parameter will be set to UseLatestUnconfirmedTip.
+    ///   hash.  It will be UseLatestAnchoredTip if there was no parameter given. If it is set to
+    ///   `latest`, the parameter will be set to UseLatestUnconfirmedTip.
     ///
     /// Returns the requested chain tip on success.
     /// If the chain tip could not be found, then it returns Err(HttpNotFound)
@@ -938,7 +949,7 @@ pub struct PoxInvData {
 pub struct BlocksDatum(pub ConsensusHash, pub StacksBlock);
 
 /// Stacks epoch 2.x blocks pushed
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct BlocksData {
     pub blocks: Vec<BlocksDatum>,
 }
@@ -959,7 +970,7 @@ pub struct MicroblocksData {
 }
 
 /// Block available hint
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct BlocksAvailableData {
     pub available: Vec<(ConsensusHash, BurnchainHeaderHash)>,
 }
@@ -1149,6 +1160,14 @@ pub struct StackerDBPushChunkData {
     pub chunk_data: StackerDBChunkData,
 }
 
+/// A StackerDB chunk received via p2p push, with the sending peer's identifier.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PushedStackerDBChunk {
+    /// Authenticated peer that sent the push (IP + node public-key hash)
+    pub peer: NeighborAddress,
+    pub chunk: StackerDBPushChunkData,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RelayData {
     pub peer: NeighborAddress,
@@ -1292,7 +1311,7 @@ pub trait ProtocolFamily {
 }
 
 // these implement the ProtocolFamily trait
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct StacksP2P {}
 
 // an array in our protocol can't exceed this many items
@@ -1536,7 +1555,7 @@ pub struct NetworkResult {
     /// chunks we received from the HTTP server
     pub uploaded_stackerdb_chunks: Vec<StackerDBPushChunkData>,
     /// chunks we received from p2p push
-    pub pushed_stackerdb_chunks: Vec<StackerDBPushChunkData>,
+    pub pushed_stackerdb_chunks: Vec<PushedStackerDBChunk>,
     /// Atlas attachments we obtained
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     /// transactions we downloaded via a mempool sync
@@ -1987,24 +2006,92 @@ impl NetworkResult {
             .uploaded_nakamoto_blocks
             .append(&mut self.uploaded_nakamoto_blocks);
 
-        // merge uploaded/pushed stackerdb, but drop stale versions
-        let newer_stackerdb_chunk_versions: HashMap<_, _> = newer
-            .uploaded_stackerdb_chunks
-            .iter()
-            .chain(newer.pushed_stackerdb_chunks.iter())
-            .map(|chunk| {
-                (
-                    (
-                        chunk.contract_id.clone(),
-                        chunk.rc_consensus_hash.clone(),
-                        chunk.chunk_data.slot_id,
-                    ),
-                    chunk.chunk_data.slot_version,
-                )
-            })
-            .collect();
+        // Merge uploaded/pushed stackerdb chunks, dropping ones the newer result supersedes.
+        //
+        // Uploaded chunks must only be deduped against other uploaded chunks. An uploaded
+        // chunk is already stored in our replica, and this record is the only thing that
+        // will ever emit an event for it. If a peer echoes the same chunk back to us and
+        // the echo wins here, the relayer later rejects the echo as a stale chunk (we
+        // already have the data) and no event is ever emitted. The chunk ends up stored
+        // and acknowledged but invisible to local signers, e.g. a lost block pre-commit
+        // that stalls consensus which was identified as a source of integration test
+        // flakiness that triggered this investigation.
+        fn max_versions<'a>(
+            chunks: impl Iterator<
+                Item = (
+                    &'a QualifiedContractIdentifier,
+                    &'a ConsensusHash,
+                    &'a StackerDBChunkData,
+                ),
+            >,
+        ) -> HashMap<(QualifiedContractIdentifier, ConsensusHash, u32), u32> {
+            let mut versions = HashMap::new();
+            for (contract_id, rc_consensus_hash, chunk_data) in chunks {
+                let key = (
+                    contract_id.clone(),
+                    rc_consensus_hash.clone(),
+                    chunk_data.slot_id,
+                );
+                let version = versions.entry(key).or_insert(chunk_data.slot_version);
+                *version = (*version).max(chunk_data.slot_version);
+            }
+            versions
+        }
 
-        self.uploaded_stackerdb_chunks.retain(|push_chunk| {
+        let newer_uploaded_versions =
+            max_versions(newer.uploaded_stackerdb_chunks.iter().map(|chunk| {
+                (
+                    &chunk.contract_id,
+                    &chunk.rc_consensus_hash,
+                    &chunk.chunk_data,
+                )
+            }));
+        let newer_any_versions = max_versions(
+            newer
+                .uploaded_stackerdb_chunks
+                .iter()
+                .map(|chunk| {
+                    (
+                        &chunk.contract_id,
+                        &chunk.rc_consensus_hash,
+                        &chunk.chunk_data,
+                    )
+                })
+                .chain(newer.pushed_stackerdb_chunks.iter().map(|pushed| {
+                    (
+                        &pushed.chunk.contract_id,
+                        &pushed.chunk.rc_consensus_hash,
+                        &pushed.chunk.chunk_data,
+                    )
+                })),
+        );
+
+        // NB: no stale-view check for uploaded chunks. Their `rc_consensus_hash` was stamped by
+        // *this* node when it accepted and stored the upload, so a mismatch only means our own
+        // view moved on afterwards and says nothing about the chunk's validity, and the data is
+        // already in our replica. `process_uploaded_stackerdb_chunks` still declines to
+        // *rebroadcast* a stale-view chunk; it just no longer withholds the event as well.
+        self.uploaded_stackerdb_chunks.retain(|uploaded_chunk| {
+            if let Some(version) = newer_uploaded_versions.get(&(
+                uploaded_chunk.contract_id.clone(),
+                uploaded_chunk.rc_consensus_hash.clone(),
+                uploaded_chunk.chunk_data.slot_id,
+            )) {
+                let retain = uploaded_chunk.chunk_data.slot_version > *version;
+                if !retain {
+                    debug!(
+                        "Drop uploaded StackerDB chunk for {} due to stale version: {:?}",
+                        &uploaded_chunk.contract_id, &uploaded_chunk.chunk_data
+                    );
+                }
+                retain
+            } else {
+                true
+            }
+        });
+
+        self.pushed_stackerdb_chunks.retain(|pushed| {
+            let push_chunk = &pushed.chunk;
             if push_chunk.rc_consensus_hash != newer.rc_consensus_hash {
                 debug!(
                     "Drop pushed StackerDB chunk for {} due to stale view ({} != {}): {:?}",
@@ -2015,7 +2102,7 @@ impl NetworkResult {
                 );
                 return false;
             }
-            if let Some(version) = newer_stackerdb_chunk_versions.get(&(
+            if let Some(version) = newer_any_versions.get(&(
                 push_chunk.contract_id.clone(),
                 push_chunk.rc_consensus_hash.clone(),
                 push_chunk.chunk_data.slot_id,
@@ -2024,35 +2111,6 @@ impl NetworkResult {
                 if !retain {
                     debug!(
                         "Drop pushed StackerDB chunk for {} due to stale version: {:?}",
-                        &push_chunk.contract_id, &push_chunk.chunk_data
-                    );
-                }
-                retain
-            } else {
-                true
-            }
-        });
-
-        self.pushed_stackerdb_chunks.retain(|push_chunk| {
-            if push_chunk.rc_consensus_hash != newer.rc_consensus_hash {
-                debug!(
-                    "Drop uploaded StackerDB chunk for {} due to stale view ({} != {}): {:?}",
-                    &push_chunk.contract_id,
-                    &push_chunk.rc_consensus_hash,
-                    &newer.rc_consensus_hash,
-                    &push_chunk.chunk_data
-                );
-                return false;
-            }
-            if let Some(version) = newer_stackerdb_chunk_versions.get(&(
-                push_chunk.contract_id.clone(),
-                push_chunk.rc_consensus_hash.clone(),
-                push_chunk.chunk_data.slot_id,
-            )) {
-                let retain = push_chunk.chunk_data.slot_version > *version;
-                if !retain {
-                    debug!(
-                        "Drop uploaded StackerDB chunk for {} due to stale version: {:?}",
                         &push_chunk.contract_id, &push_chunk.chunk_data
                     );
                 }
@@ -2148,8 +2206,9 @@ impl NetworkResult {
     }
 
     pub fn consume_unsolicited(&mut self, unhandled_messages: PendingMessages) {
-        for ((_event_id, neighbor_key), messages) in unhandled_messages.into_iter() {
-            for message in messages.into_iter() {
+        for ((_event_id, neighbor_key), inbox) in unhandled_messages.into_iter() {
+            let neighbor_addr = inbox.neighbor_addr;
+            for message in inbox.messages.into_iter() {
                 match message.payload {
                     StacksMessageType::Blocks(block_data) => {
                         if let Some(blocks_msgs) = self.pushed_blocks.get_mut(&neighbor_key) {
@@ -2188,7 +2247,10 @@ impl NetworkResult {
                         }
                     }
                     StacksMessageType::StackerDBPushChunk(chunk_data) => {
-                        self.pushed_stackerdb_chunks.push(chunk_data)
+                        self.pushed_stackerdb_chunks.push(PushedStackerDBChunk {
+                            peer: neighbor_addr.clone(),
+                            chunk: chunk_data,
+                        })
                     }
                     _ => {
                         // forward along
@@ -3582,9 +3644,9 @@ pub mod test {
 
         /// Generate and commit the next burnchain block with the given block operations.
         /// * if `set_consensus_hash` is true, then each op's consensus_hash field will be set to
-        /// that of the resulting block snapshot.
+        ///   that of the resulting block snapshot.
         /// * if `set_burn_hash` is true, then each op's burnchain header hash field will be set to
-        /// that of the resulting block snapshot.
+        ///   that of the resulting block snapshot.
         ///
         /// Returns (
         ///     burnchain tip block height,

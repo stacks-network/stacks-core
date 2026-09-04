@@ -70,15 +70,15 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
 
    - Create a chore branch from `release/X.Y.Z`, ex: `chore/X.Y.Z-changelog`.
    - Update the `stacks_node_version` string in [versions.toml](../versions.toml) to match this release version.
-   - Assemble changelog fragments into `CHANGELOG.md` and `stacks-signer/CHANGELOG.md`:
+   - Assemble changelog fragments into `CHANGELOG.md`:
 
      ```bash
      ./contrib/tools/assemble-changelog.sh X.Y.Z
      ```
 
-     This will collect all fragment files from `changelog.d/` and `stacks-signer/changelog.d/`,
-     group them by category (⚠️ Breaking Changes/Added/Changed/Fixed/Removed), insert them as a
-     new `## [X.Y.Z]` section in the respective `CHANGELOG.md`, and delete the assembled fragments.
+     This will collect all fragment files from `changelog.d/`, group them by category
+     (⚠️ Breaking Changes/Added/Changed/Fixed/Removed), insert them as a new `## [X.Y.Z]`
+     section in `CHANGELOG.md`, and delete the assembled fragments.
 
      Review the assembled changelog for accuracy and make any manual adjustments if needed.
 

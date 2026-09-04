@@ -95,6 +95,12 @@ impl NetworkHandle {
         NetworkHandle { chan_in }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_channel(bufsz: usize) -> (Receiver<NetworkRequest>, NetworkHandle) {
+        let (msg_send, msg_recv) = sync_channel(bufsz);
+        (msg_recv, NetworkHandle::new(msg_send))
+    }
+
     /// Send out a command to the p2p thread.  Do not bother waiting for the response.
     /// Error out if the channel buffer is out of space
     fn send_request(&mut self, req: NetworkRequest) -> Result<(), net_error> {
@@ -183,7 +189,25 @@ pub enum PeerNetworkWorkState {
 }
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
-pub type PendingMessages = HashMap<(usize, NeighborKey), Vec<StacksMessage>>;
+
+/// Unsolicited messages from one authenticated peer, plus that peer's address
+/// (IP + node public-key hash).
+#[derive(Clone, Debug)]
+pub struct PendingMessagesFrom {
+    pub neighbor_addr: NeighborAddress,
+    pub messages: Vec<StacksMessage>,
+}
+
+impl PendingMessagesFrom {
+    pub fn new(neighbor_addr: NeighborAddress, messages: Vec<StacksMessage>) -> Self {
+        Self {
+            neighbor_addr,
+            messages,
+        }
+    }
+}
+
+pub type PendingMessages = HashMap<(usize, NeighborKey), PendingMessagesFrom>;
 
 pub struct ConnectingPeer {
     socket: mio_net::TcpStream,
@@ -4726,9 +4750,9 @@ impl PeerNetwork {
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
     /// * hint to the inventory sync state-machine to restart, since we potentially have a new
-    /// block to go fetch
+    ///   block to go fetch
     /// * hint to the download state machine to start looking for the new block at the new
-    /// stable sortition height
+    ///   stable sortition height
     /// * hint to the antientropy protocol to reset to the latest reward cycle
     pub fn refresh_burnchain_view(
         &mut self,
@@ -4921,7 +4945,7 @@ impl PeerNetwork {
                 &canonical_sn.consensus_hash,
                 self.pending_messages
                     .iter()
-                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+                    .fold(0, |acc, (_, inbox)| acc + inbox.messages.len())
             );
             let buffered_messages = mem::replace(&mut self.pending_messages, HashMap::new());
             let unhandled = self.handle_unsolicited_sortition_messages(
@@ -4942,7 +4966,7 @@ impl PeerNetwork {
                 &canonical_sn.consensus_hash,
                 self.pending_stacks_messages
                     .iter()
-                    .fold(0, |acc, (_, msgs)| acc + msgs.len())
+                    .fold(0, |acc, (_, inbox)| acc + inbox.messages.len())
             );
             let buffered_stacks_messages =
                 mem::replace(&mut self.pending_stacks_messages, HashMap::new());

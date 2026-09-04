@@ -9,11 +9,6 @@ on:
 permissions:
   contents: read
 
-# Set default env vars
-env:
-  RUSTFLAGS: "-C instrument-coverage -A warnings"
-  LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
-
 jobs:
   # Check existing caches
   check-existing-caches:
@@ -63,7 +58,7 @@ jobs:
           # Fail the build gracefully if any cache is missing
           if [ -z "$BITCOIN_MATCHED_KEY" ] || [ -z "$CARGO_MATCHED_KEY" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "❌ **Required Cache Missing:** A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER manually creating the caches from main branch: https://github.com/stacks-network/stacks-core/actions/workflows/create-test-caches.yml" >> $GITHUB_STEP_SUMMARY
-            echo "::error title=Required Cache Missing::A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER manually creating the caches from main branch: https://github.com/stacks-network/stacks-core/actions/workflows/create-test-caches.yml"
+            echo "❌ **Required Cache Missing:** A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER manually creating the caches from main branch: [actions/workflows/create-test-caches.yml](/${{ github.repository }}/actions/workflows/create-test-caches.yml)" >> $GITHUB_STEP_SUMMARY
+            echo "::error title=Required Cache Missing::A required cache (Bitcoin or Cargo) was not found. This state should be rare. Re-run this action AFTER manually creating the caches from main branch: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/create-test-caches.yml"
             exit 1
           fi

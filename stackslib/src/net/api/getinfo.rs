@@ -36,7 +36,7 @@ use crate::net::{Error as NetError, StacksNodeState};
 use crate::version_string;
 
 /// The request to GET /v2/info
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCPeerInfoRequestHandler {}
 impl RPCPeerInfoRequestHandler {
     pub fn new() -> Self {

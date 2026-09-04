@@ -1175,12 +1175,12 @@ fn invalid_characters_detected_invalid_utf8() {
     );
 }
 
-/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (before epoch 3.4)
+/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (pre-Costs5, Clarity 2–4)
 /// Caused by: calling nlogn with n = 0
 /// Outcome: block accepted at deploy time.
-/// Note: Before epoch 3.4, this returns a `CostComputationFailed` error which wraps the underlying
-///       [`RuntimeError::Arithmetic`] error. After 3.4, this executes successfully (`none` is
-///       stored in the constant).
+/// Note: This error is reachable only with the pre-Costs5 schedule and Clarity 2–4. Clarity 5+
+///       clamps the empty buffer before cost evaluation, while Epoch 4.0's Costs5 schedule accepts
+///       zero directly. Those combinations are excluded because they cannot exercise this error.
 #[test]
 fn arithmetic_zero_n_log_n_cdeploy() {
     contract_deploy_consensus_snap_test!(
@@ -1191,12 +1191,12 @@ fn arithmetic_zero_n_log_n_cdeploy() {
     );
 }
 
-/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (before epoch 3.4)
+/// Error: [`RuntimeCheckErrorKind::CostComputationFailed`] (pre-Costs5, Clarity 2–4)
 /// Caused by: calling nlogn with n = 0
 /// Outcome: block accepted at call time.
-/// Note: Before epoch 3.4, this returns a `CostComputationFailed` error which wraps the underlying
-///       [`RuntimeError::Arithmetic`] error. After 3.4, this executes successfully and returns
-///       `none`.
+/// Note: This error is reachable only with the pre-Costs5 schedule and Clarity 2–4. Clarity 5+
+///       clamps the empty buffer before cost evaluation, while Epoch 4.0's Costs5 schedule accepts
+///       zero directly. Those combinations are excluded because they cannot exercise this error.
 #[test]
 fn arithmetic_zero_n_log_n_ccall() {
     contract_call_consensus_snap_test!(
@@ -1296,15 +1296,15 @@ fn trait_reference_unknown_transitive_use_trait_ccall() {
 /// Scenario:
 ///   - `foo`        — `(define-trait foo ((do-it () (response bool uint))))`
 ///   - `transitive` — `(define-trait foo ((other-method () ...)))` comes first, then
-///                    `(use-trait alias .foo.foo)` (remote name also "foo").
-///                    Analysis: use-trait overwrites `defined_traits["foo"]` → `{do-it}`.
-///                    Runtime:  `defined_traits["foo"]` = `{other-method}` (define-trait only).
+///     `(use-trait alias .foo.foo)` (remote name also "foo").
+///     Analysis: use-trait overwrites `defined_traits["foo"]` → `{do-it}`.
+///     Runtime:  `defined_traits["foo"]` = `{other-method}` (define-trait only).
 ///   - `foo-impl`   — `(impl-trait .foo.foo)` + `(define-public (do-it) ...)`.
-///                    Does NOT impl-trait `.transitive.foo`, so the short-circuit is bypassed.
+///     Does NOT impl-trait `.transitive.foo`, so the short-circuit is bypassed.
 ///   - `call-foo`   — `(use-trait foo .transitive.foo)`.
-///                    Analysis sees `do-it` in `.transitive.foo` and accepts the call.
-///                    Runtime: `lookup_trait_definition("foo")` finds `{other-method}`;
-///                    `get("do-it")` returns `None` → `TraitMethodUnknown`.
+///     Analysis sees `do-it` in `.transitive.foo` and accepts the call.
+///     Runtime: `lookup_trait_definition("foo")` finds `{other-method}`;
+///     `get("do-it")` returns `None` → `TraitMethodUnknown`.
 ///
 /// Outcome: block accepted.
 #[test]

@@ -238,7 +238,7 @@ fn handle_stack_lockup_pox_v3(
         Err(e) => {
             panic!(
                 "FATAL: failed to lock {} from {} until {}: '{:?}'",
-                locked_amount, stacker, unlock_height, &e
+                locked_amount, stacker, unlock_height, e
             );
         }
     }
@@ -302,7 +302,7 @@ fn handle_stack_lockup_extension_pox_v3(
             //  getting to this code path.
             panic!(
                 "FATAL: failed to extend lock from {} until {}: '{:?}'",
-                stacker, unlock_height, &e
+                stacker, unlock_height, e
             );
         }
     }
@@ -362,10 +362,7 @@ fn handle_stack_lockup_increase_pox_v3(
             // Error results *other* than a DefunctPoxContract panic, because
             //  those errors should have been caught by the PoX contract before
             //  getting to this code path.
-            panic!(
-                "FATAL: failed to increase lock from {}: '{:?}'",
-                stacker, &e
-            );
+            panic!("FATAL: failed to increase lock from {}: '{:?}'", stacker, e);
         }
     }
 }

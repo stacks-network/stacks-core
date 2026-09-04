@@ -32,16 +32,16 @@ use libsigner::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
     StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
-};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
 use stacks_common::bitvec::BitVec;
 use stacks_common::function_name;
 
 use crate::chainstate::{ProposalEvalConfig, SortitionData};
-use crate::client::tests::{build_get_tenure_tip_response, MockServerClient};
+use crate::client::tests::{
+    build_get_peer_info_response, build_get_tenure_tip_response, MockServerClient,
+};
 use crate::client::StacksClient;
-use crate::config::{GlobalConfig, DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS};
+use crate::config::GlobalConfig;
 use crate::signerdb::tests::{create_block_override, tmp_db_path};
 use crate::signerdb::SignerDb;
 use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
@@ -180,7 +180,6 @@ fn check_capitulate_miner_view() {
         burn_block,
         burn_block_height,
         current_miner: new_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -442,7 +441,6 @@ fn check_capitulate_with_local_timeout() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -633,7 +631,6 @@ fn check_capitulate_split_view_node_at_lower_height() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
     let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
@@ -820,7 +817,6 @@ fn check_capitulate_split_view_node_at_higher_height() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
     let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
@@ -938,7 +934,6 @@ fn check_capitulate_viewpoint_time_guards() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -1009,7 +1004,6 @@ fn check_capitulate_viewpoint_time_guards() {
             burn_block,
             burn_block_height,
             current_miner: local_miner.into(),
-            tx_replay_set: ReplayTransactionSet::none(),
             active_signer_protocol_version,
         }),
         "Recent globally accepted block should prevent capitulation"
@@ -1035,7 +1029,6 @@ fn check_miner_inactivity_timeout() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
 
@@ -1133,7 +1126,7 @@ fn check_miner_inactivity_timeout() {
     // This local state machine should not change as an uninitialized local state cannot be modified
     let mut local_state_machine = LocalStateMachine::Uninitialized;
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(local_state_machine, LocalStateMachine::Uninitialized);
 
@@ -1143,11 +1136,10 @@ fn check_miner_inactivity_timeout() {
         burn_block_height: 1,
         current_miner: inactive_miner,
         active_signer_protocol_version: 0,
-        tx_replay_set: ReplayTransactionSet::none(),
     };
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -1164,7 +1156,7 @@ fn check_miner_inactivity_timeout() {
         update: update.clone(),
     };
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -1178,7 +1170,7 @@ fn check_miner_inactivity_timeout() {
     signer_state.current_miner = active_miner;
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
     local_state_machine
-        .check_miner_inactivity(&signer_db, &stacks_client, &proposal_config, &eval)
+        .check_miner_inactivity(&mut signer_db, &stacks_client, &proposal_config, &eval)
         .unwrap();
     assert_eq!(
         local_state_machine,
@@ -1193,6 +1185,41 @@ fn check_miner_inactivity_timeout() {
     let expected_result = vec![cur, last];
     let json_payload = serde_json::to_string(&expected_result).unwrap();
     let to_send_1 = format!("HTTP/1.1 200 OK\n\n{json_payload}");
+
+    // If the canonical stacks tip is NOT in the prior sortition's tenure (e.g. a
+    // Bitcoin reorg orphaned it), the prior miner's node has already stopped mining,
+    // so the current miner must NOT be demoted.
+    let (_, mut peer_info) = build_get_peer_info_response(None, None);
+    peer_info.stacks_tip_consensus_hash = ConsensusHash([0x77; 20]);
+    let json_payload = serde_json::to_string(&peer_info).unwrap();
+    let to_send_tip_mismatch = format!("HTTP/1.1 200 OK\n\n{json_payload}");
+
+    let MockServerClient {
+        mut server,
+        client,
+        config,
+    } = MockServerClient::new();
+    let expected_state = local_state_machine.clone();
+    let h = std::thread::spawn(move || {
+        local_state_machine
+            .check_miner_inactivity(&mut signer_db, &client, &proposal_config, &eval)
+            .unwrap();
+        // The timed out miner must remain the current miner: the prior miner cannot
+        // continue a tenure it does not own.
+        assert_eq!(local_state_machine, expected_state);
+        (local_state_machine, signer_db, proposal_config, eval)
+    });
+    crate::client::tests::write_response(server, to_send_1.as_bytes());
+    server = crate::client::tests::mock_server_from_config(&config);
+    crate::client::tests::write_response(server, to_send_tip_mismatch.as_bytes());
+    let (mut local_state_machine, mut signer_db, proposal_config, eval) = h.join().unwrap();
+
+    // Now the canonical stacks tip IS in the prior sortition's tenure, so the prior
+    // miner can continue it and the demotion should proceed.
+    let (_, mut peer_info) = build_get_peer_info_response(None, None);
+    peer_info.stacks_tip_consensus_hash = last_sortition.consensus_hash.clone();
+    let json_payload = serde_json::to_string(&peer_info).unwrap();
+    let to_send_tip_match = format!("HTTP/1.1 200 OK\n\n{json_payload}");
 
     // Next it will check if the prior sortition is both valid
     // and that it has chosen a good parent
@@ -1235,7 +1262,7 @@ fn check_miner_inactivity_timeout() {
     } = MockServerClient::new();
     let h = std::thread::spawn(move || {
         local_state_machine
-            .check_miner_inactivity(&signer_db, &client, &proposal_config, &eval)
+            .check_miner_inactivity(&mut signer_db, &client, &proposal_config, &eval)
             .unwrap();
         // The new miner will have the reassigned miner
         signer_state.current_miner = reassigned_miner;
@@ -1246,6 +1273,9 @@ fn check_miner_inactivity_timeout() {
     });
 
     crate::client::tests::write_response(server, to_send_1.as_bytes());
+
+    server = crate::client::tests::mock_server_from_config(&config);
+    crate::client::tests::write_response(server, to_send_tip_match.as_bytes());
 
     server = crate::client::tests::mock_server_from_config(&config);
     crate::client::tests::write_response(server, to_send_2.as_bytes());

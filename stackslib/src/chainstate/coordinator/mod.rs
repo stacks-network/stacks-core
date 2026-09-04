@@ -184,6 +184,7 @@ pub trait BlockEventDispatcher {
     );
 }
 
+#[derive(Default)]
 pub struct ChainsCoordinatorConfig {
     /// true: enable transactions indexing
     /// false: no transactions indexing
@@ -292,6 +293,12 @@ pub trait RewardSetProvider {
 }
 
 pub struct OnChainRewardSetProvider<'a, T: BlockEventDispatcher>(pub Option<&'a T>);
+
+impl Default for OnChainRewardSetProvider<'static, DummyEventDispatcher> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl OnChainRewardSetProvider<'static, DummyEventDispatcher> {
     pub fn new() -> Self {

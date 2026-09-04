@@ -23,7 +23,6 @@ use std::thread::ThreadId;
 use std::time::Instant;
 
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::VmExecutionError;
 use clarity::vm::resource_limiter::ResourceBudget;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
@@ -35,7 +34,6 @@ use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 #[cfg(any(test, feature = "testing"))]
 use stacks_common::util::tests::TestFlag;
-use stacks_common::util::vrf::*;
 
 use crate::burnchains::{Burnchain, Txid};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
@@ -44,6 +42,7 @@ use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
     finalize_failed_transaction, handle_clarity_runtime_error, ClarityRuntimeTxError,
+    RejectedRuntimeTxError,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
@@ -78,40 +77,6 @@ fn fault_injection_stall_tx() {
 
 #[cfg(not(any(test, feature = "testing")))]
 fn fault_injection_stall_tx() {}
-
-#[cfg(any(test, feature = "testing"))]
-/// Test flag to exclude replay txs from the next block
-pub static TEST_EXCLUDE_REPLAY_TXS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
-
-#[cfg(any(test, feature = "testing"))]
-/// Test flag to mine specific txs belonging to the replay set
-pub static TEST_MINE_ALLOWED_REPLAY_TXS: LazyLock<TestFlag<Vec<String>>> =
-    LazyLock::new(TestFlag::default);
-
-#[cfg(any(test, feature = "testing"))]
-/// Given a tx id, check if it is should be skipped
-/// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
-/// If flag is empty means no tx should be skipped
-fn fault_injection_should_skip_replay_tx(tx_id: Txid) -> bool {
-    let minable_txs = TEST_MINE_ALLOWED_REPLAY_TXS.get();
-    let allowed =
-        minable_txs.len() == 0 || minable_txs.iter().any(|tx_ids| *tx_ids == tx_id.to_hex());
-    if !allowed {
-        info!(
-            "Tx skipped due to test flag TEST_MINE_ALLOWED_REPLAY_TXS: {}",
-            tx_id.to_hex()
-        );
-    }
-    !allowed
-}
-
-#[cfg(not(any(test, feature = "testing")))]
-/// Given a tx id, check if it is should be skipped
-/// if not listed in `TEST_MINE_ALLOWED_REPLAY_TXS` flag.
-/// If flag is empty means no tx should be skipped
-fn fault_injection_should_skip_replay_tx(_tx_id: Txid) -> bool {
-    false
-}
 
 /// Fully-assembled Stacks anchored, block as well as some extra metadata pertaining to how it was
 /// linked to the burnchain and what view(s) the miner had of the burnchain before and after
@@ -665,50 +630,25 @@ impl TransactionResult {
         epoch_id: StacksEpochId,
     ) -> (bool, Error) {
         let error = match error {
-            Error::ClarityError(e) => match handle_clarity_runtime_error(e) {
-                ClarityRuntimeTxError::Rejectable(e) => {
+            Error::ClarityError(e) => match handle_clarity_runtime_error(e, epoch_id) {
+                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
+                    error: e,
+                    ..
+                }) => {
                     // this transaction would invalidate the whole block, so don't re-consider it
                     info!("Problematic transaction would invalidate the block, so dropping from mempool"; "txid" => %tx.txid(), "error" => %e);
                     return (true, Error::ClarityError(e));
                 }
-                // recover original ClarityError
-                ClarityRuntimeTxError::Acceptable { error, .. } => {
-                    if let ClarityError::Parse(ref parse_err) = error {
-                        info!("Parse error: {}", parse_err; "txid" => %tx.txid());
-                        if parse_err.rejectable_in_epoch(epoch_id) {
-                            info!("Problematic transaction failed parse checks"; "txid" => %tx.txid());
-                            return (true, Error::ClarityError(error));
-                        }
-                    }
-                    Error::ClarityError(error)
-                }
-                ClarityRuntimeTxError::CostError(cost, budget) => {
-                    Error::ClarityError(ClarityError::CostError(cost, budget))
-                }
-                ClarityRuntimeTxError::AnalysisError(e) => {
-                    let clarity_err = Error::ClarityError(ClarityError::Interpreter(
-                        VmExecutionError::RuntimeCheck(e),
-                    ));
-                    if epoch_id < StacksEpochId::Epoch21 {
-                        // this would invalidate the block, so it's problematic
-                        return (true, clarity_err);
-                    } else {
-                        // in 2.1 and later, this can be mined
-                        clarity_err
-                    }
-                }
-                ClarityRuntimeTxError::AbortedByCallback {
-                    output,
-                    assets_modified,
-                    tx_events,
-                    reason,
-                } => Error::ClarityError(ClarityError::AbortedByCallback {
-                    output: output.map(Box::new),
-                    assets_modified: Box::new(assets_modified),
-                    tx_events,
-                    reason,
-                }),
-                ClarityRuntimeTxError::ExecutionResourceBudgetExceeded(s) => {
+                // An included failure is still mineable: recover the original `ClarityError`.
+                ClarityRuntimeTxError::Included(included) => Error::ClarityError(included.into()),
+                ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Cost {
+                    cost,
+                    budget,
+                    ..
+                }) => Error::ClarityError(ClarityError::CostError(cost, budget)),
+                ClarityRuntimeTxError::Rejected(
+                    RejectedRuntimeTxError::ExecutionResourceBudgetExceeded { message: s, .. },
+                ) => {
                     // This transaction took too long to execute or used too much heap memory. Consider it problematic.
                     info!("Problematic transaction caused ExecutionResourceBudgetExceeded";
                           "error" => s.clone(),
@@ -2317,7 +2257,6 @@ impl StacksBlockBuilder {
         initial_txs: &[StacksTransaction],
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-        replay_transactions: &[StacksTransaction],
     ) -> Result<(bool, Vec<TransactionEvent>), Error> {
         let mut tx_events = Vec::new();
 
@@ -2351,32 +2290,15 @@ impl StacksBlockBuilder {
             }
         }
 
-        #[cfg(any(test, feature = "testing"))]
-        let use_mempool_txs = replay_transactions.is_empty() || TEST_EXCLUDE_REPLAY_TXS.get();
-        #[cfg(not(any(test, feature = "testing")))]
-        let use_mempool_txs = replay_transactions.is_empty();
-
-        let result = if use_mempool_txs {
-            select_and_apply_transactions_from_mempool(
-                epoch_tx,
-                builder,
-                mempool,
-                tip_height,
-                settings,
-                event_observer,
-                receipts_total,
-            )
-        } else {
-            info!("Miner: constructing block with replay transactions");
-            let txs = select_and_apply_transactions_from_vec(
-                epoch_tx,
-                builder,
-                tip_height,
-                replay_transactions,
-                receipts_total,
-            );
-            Ok((txs, false))
-        };
+        let result = select_and_apply_transactions_from_mempool(
+            epoch_tx,
+            builder,
+            mempool,
+            tip_height,
+            settings,
+            event_observer,
+            receipts_total,
+        );
 
         match result {
             Ok((events, blocked)) => {
@@ -2465,7 +2387,6 @@ impl StacksBlockBuilder {
             &[coinbase_tx.clone()],
             settings,
             event_observer,
-            &vec![],
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -2951,65 +2872,4 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
     }
     loop_result?;
     Ok((tx_events, blocked))
-}
-
-fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
-    epoch_tx: &mut ClarityTx,
-    builder: &mut B,
-    tip_height: u64,
-    replay_transactions: &[StacksTransaction],
-    initial_receipts_total: u64,
-) -> Vec<TransactionEvent> {
-    let mut tx_events = vec![];
-
-    let mut num_txs = 0;
-    let mut num_considered = 0;
-
-    debug!("Replay block transaction selection begins (parent height = {tip_height})");
-    let mut receipts_total = initial_receipts_total;
-    for replay_tx in replay_transactions {
-        fault_injection_stall_tx();
-        if fault_injection_should_skip_replay_tx(replay_tx.txid()) {
-            continue;
-        }
-
-        let txid = replay_tx.txid();
-        let tx_result = builder.try_mine_tx_with_len(
-            epoch_tx,
-            replay_tx,
-            replay_tx.tx_len(),
-            &BlockLimitFunction::NO_LIMIT_HIT,
-            &TransactionResourceBudgets::unlimited(),
-            &mut receipts_total,
-        );
-        let tx_event = tx_result.convert_to_event();
-        match tx_result {
-            TransactionResult::Success(TransactionSuccess { .. }) => {
-                num_txs += 1;
-            }
-            TransactionResult::Skipped(TransactionSkipped { error, .. })
-            | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
-                match &error {
-                    Error::BlockTooBigError | Error::BlockCostLimitError => {
-                        // done mining -- our execution budget is exceeded.
-                        // Make the block from the transactions we did manage
-                        // (We cannot simply skip as this would put the replay txs out of order)
-                        debug!("Block budget exceeded on tx {txid}");
-                        info!("Miner stopping due to limit reached");
-                        break;
-                    }
-                    e => {
-                        info!("Failed to apply tx {txid}: {e:?}");
-                    }
-                }
-            }
-            TransactionResult::Problematic(TransactionProblematic { .. }) => {
-                info!("Failed to apply problematic tx {txid}");
-            }
-        }
-        tx_events.push(tx_event);
-        num_considered += 1;
-    }
-    debug!("Replay block transaction selection finished (parent height {tip_height}): {num_txs} transactions selected ({num_considered} considered)");
-    tx_events
 }

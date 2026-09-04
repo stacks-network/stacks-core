@@ -17,7 +17,7 @@ use std::collections::{HashMap, VecDeque};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
-use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionVersion};
+use blockstack_lib::chainstate::stacks::TransactionVersion;
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
 use blockstack_lib::net::api::get_tenures_fork_info::{
@@ -40,7 +40,7 @@ use serde_json::json;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::StacksEpochId;
 use stacks_common::{debug, warn};
@@ -278,11 +278,7 @@ impl StacksClient {
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
-    pub fn submit_block_for_validation(
-        &self,
-        block: NakamotoBlock,
-        replay_txs: Option<Vec<StacksTransaction>>,
-    ) -> Result<(), ClientError> {
+    pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
         debug!("StacksClient: Submitting block for validation";
             "signer_signature_hash" => %block.header.signer_signature_hash(),
             "block_id" => %block.header.block_id(),
@@ -291,7 +287,6 @@ impl StacksClient {
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
-            replay_txs,
         };
         let timer = crate::monitoring::actions::new_rpc_call_timer(
             &self.block_proposal_path(),
@@ -443,6 +438,29 @@ impl StacksClient {
         let sortition_info = response.json::<Vec<SortitionInfo>>()?;
         sortition_info.first().cloned().ok_or_else(|| {
             ClientError::InvalidResponse("No sortition info found for given consensus hash".into())
+        })
+    }
+
+    /// Get the sortition info for a given burnchain block hash.
+    ///
+    /// The node resolves the burn block hash against its *canonical* burnchain fork, so a
+    /// [`ClientError::RequestFailure`] with [`reqwest::StatusCode::NOT_FOUND`] means the burn
+    /// block is not on the canonical chain: it was orphaned by a burnchain fork.
+    pub fn get_sortition_by_burn_hash(
+        &self,
+        burn_hash: &BurnchainHeaderHash,
+    ) -> Result<SortitionInfo, ClientError> {
+        debug!("StacksClient: Getting sortition info by burn hash";
+            "burn_hash" => %burn_hash,
+        );
+        let path = self.sortition_by_burn_hash_path(burn_hash);
+        let response = self.stacks_node_client.get(&path).send()?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let sortition_info = response.json::<Vec<SortitionInfo>>()?;
+        sortition_info.first().cloned().ok_or_else(|| {
+            ClientError::InvalidResponse("No sortition info found for given burn hash".into())
         })
     }
 
@@ -705,6 +723,14 @@ impl StacksClient {
             "{}{RPC_SORTITION_INFO_PATH}/consensus/{}",
             self.http_origin,
             consensus_hash.to_hex()
+        )
+    }
+
+    fn sortition_by_burn_hash_path(&self, burn_hash: &BurnchainHeaderHash) -> String {
+        format!(
+            "{}{RPC_SORTITION_INFO_PATH}/burn/{}",
+            self.http_origin,
+            burn_hash.to_hex()
         )
     }
 
@@ -1023,7 +1049,7 @@ mod tests {
         let mock = MockServerClient::new();
         let header = NakamotoBlockHeader::empty();
         let block = NakamotoBlock::new(header, vec![]);
-        let h = spawn(move || mock.client.submit_block_for_validation(block, None));
+        let h = spawn(move || mock.client.submit_block_for_validation(block));
         write_response(mock.server, b"HTTP/1.1 200 OK\n\n");
         assert!(h.join().unwrap().is_ok());
     }
@@ -1033,7 +1059,7 @@ mod tests {
         let mock = MockServerClient::new();
         let header = NakamotoBlockHeader::empty();
         let block = NakamotoBlock::new(header, vec![]);
-        let h = spawn(move || mock.client.submit_block_for_validation(block, None));
+        let h = spawn(move || mock.client.submit_block_for_validation(block));
         write_response(mock.server, b"HTTP/1.1 404 Not Found\n\n");
         assert!(h.join().unwrap().is_err());
     }
@@ -1116,6 +1142,21 @@ mod tests {
         let h = spawn(move || mock.client.get_tenure_tip(&consensus_hash));
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), with_metadata);
+    }
+
+    #[test]
+    fn get_sortition_by_burn_hash_reports_not_found_for_orphaned_burn_block() {
+        // The node resolves a burn block hash against its canonical burnchain fork, so a 404
+        // is how it reports that the burn block was orphaned. Callers key off exactly this
+        // error to decide that a tenure is void, so hold the mapping in place.
+        let mock = MockServerClient::new();
+        let burn_hash = BurnchainHeaderHash([3; 32]);
+        let h = spawn(move || mock.client.get_sortition_by_burn_hash(&burn_hash));
+        write_response(mock.server, b"HTTP/1.1 404 Not Found\n\n");
+        assert!(matches!(
+            h.join().unwrap(),
+            Err(ClientError::RequestFailure(reqwest::StatusCode::NOT_FOUND))
+        ));
     }
 
     #[test]

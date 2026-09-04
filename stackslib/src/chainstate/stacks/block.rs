@@ -181,9 +181,9 @@ impl StacksBlockHeader {
     /// Validate this block header against the burnchain.
     /// Used to determine whether or not we'll keep a block around (even if we don't yet have its parent).
     /// * burn_chain_tip is the BlockSnapshot encoding the sortition that selected this block for
-    /// inclusion in the Stacks blockchain chain state.
+    ///   inclusion in the Stacks blockchain chain state.
     /// * parent_stacks_chain_tip is the BlockSnapshot for the parent Stacks block this header builds on
-    /// (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
+    ///   (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
     pub fn validate_burnchain(
         &self,
         burn_chain_tip: &BlockSnapshot,
@@ -572,34 +572,13 @@ impl StacksBlock {
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
     ) -> bool {
-        if tx.post_condition_mode == TransactionPostConditionMode::Originator
-            && !epoch_id.supports_sip040_post_conditions()
-        {
-            error!("Originator post-condition mode is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
+        if let Err(reason) = stacks_transactions::check_post_conditions_supported_in_epoch(
+            &tx.post_conditions,
+            &tx.post_condition_mode,
+            epoch_id,
+        ) {
+            error!("{reason}"; "txid" => %tx.txid(), "epoch_id" => %epoch_id);
             return false;
-        }
-        if !epoch_id.supports_sip040_post_conditions() {
-            for post_condition in tx.post_conditions.iter() {
-                if let TransactionPostCondition::Nonfungible(_, _, _, condition_code) =
-                    post_condition
-                {
-                    if *condition_code == NonfungibleConditionCode::MaybeSent {
-                        error!("NFT MaybeSent post-condition is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
-                        return false;
-                    }
-                }
-            }
-        }
-        if !epoch_id.supports_staking_post_conditions() {
-            for post_condition in tx.post_conditions.iter() {
-                if matches!(
-                    post_condition,
-                    TransactionPostCondition::Staking(..) | TransactionPostCondition::Pox(..)
-                ) {
-                    error!("Staking/Pox post-condition is not supported in epoch {epoch_id}"; "txid" => %tx.txid());
-                    return false;
-                }
-            }
         }
         if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
             if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
