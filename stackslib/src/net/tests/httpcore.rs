@@ -1156,7 +1156,8 @@ fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> Stri
 
     // Start the server in a new thread
     thread::spawn(move || {
-        for stream in listener.incoming() {
+        // Serve exactly one request, then close.
+        if let Some(stream) = listener.incoming().next() {
             debug!("Mock server accepted connection");
             let mut stream = stream.expect("Failed to accept connection");
 
@@ -1183,8 +1184,6 @@ fn start_mock_server(response: String, client_done_signal: Receiver<()>) -> Stri
             drop(stream);
 
             debug!("Mock server closing connection");
-
-            break; // Close after the first request
         }
     });
 

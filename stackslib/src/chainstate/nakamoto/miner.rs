@@ -248,12 +248,12 @@ impl NakamotoBlockBuilder {
     /// * `parent_stacker_header` - the stacks header this builder's block will build off
     ///
     /// * `tenure_id_consensus_hash` - consensus hash of this tenure's burnchain block.
-    ///    This is the consensus hash that goes into the block header.
+    ///   This is the consensus hash that goes into the block header.
     ///
     /// * `total_burn` - total BTC burnt so far in this fork.
     ///
     /// * `tenure_change` - the TenureChange tx if this is going to start or
-    ///    extend a tenure
+    ///   extend a tenure
     ///
     /// * `coinbase` - the coinbase tx if this is going to start a new tenure
     ///
@@ -660,7 +660,6 @@ impl NakamotoBlockBuilder {
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         signer_bitvec_len: u16,
-        replay_transactions: &[StacksTransaction],
     ) -> Result<BlockMetadata, Error> {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
@@ -745,7 +744,6 @@ impl NakamotoBlockBuilder {
             &initial_txs,
             settings,
             event_observer,
-            replay_transactions,
         ) {
             Ok(x) => x,
             Err(e) => {

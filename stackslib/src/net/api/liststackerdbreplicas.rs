@@ -32,7 +32,7 @@ use crate::net::{Error as NetError, NeighborAddress, StacksNodeState};
 /// Largest number of replicas returned
 pub const MAX_LIST_REPLICAS: usize = 64;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCListStackerDBReplicasRequestHandler {
     pub contract_identifier: Option<QualifiedContractIdentifier>,
 }

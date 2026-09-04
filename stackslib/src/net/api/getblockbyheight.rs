@@ -31,7 +31,7 @@ use crate::net::httpcore::{
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 use crate::util_lib::db::Error as DBError;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCNakamotoBlockByHeightRequestHandler {
     pub block_height: Option<u64>,
 }

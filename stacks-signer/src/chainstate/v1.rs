@@ -19,7 +19,6 @@ use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TenureChangePayload;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use libsigner::v0::messages::RejectReason;
-use libsigner::v0::signer_state::ReplayTransactionSet;
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
@@ -139,7 +138,6 @@ impl SortitionsView {
         signer_db: &mut SignerDb,
         block: &NakamotoBlock,
         reset_view_if_wrong_consensus_hash: bool,
-        replay_set: ReplayTransactionSet,
     ) -> Result<(), RejectReason> {
         if self.cur_sortition.miner_status == SortitionMinerStatus::Valid
             && SortitionState::is_timed_out(
@@ -261,7 +259,7 @@ impl SortitionsView {
                 );
                 self.reset_view(client)
                     .map_err(SignerChainstateError::from)?;
-                return self.check_proposal(client, signer_db, block, false, replay_set);
+                return self.check_proposal(client, signer_db, block, false);
             }
             warn!(
                 "Miner block proposal has consensus hash that is neither the current or last sortition. Considering invalid.";
@@ -375,15 +373,13 @@ impl SortitionsView {
             );
             let epoch_time = get_epoch_time_secs();
             let enough_time_passed = epoch_time >= extend_timestamp;
-            let is_in_replay = replay_set.is_some();
-            if !changed_burn_view && !enough_time_passed && !is_in_replay {
+            if !changed_burn_view && !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a tenure extend, but the conditions for allowing a tenure extend are not met. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "extend_timestamp" => extend_timestamp,
                     "epoch_time" => epoch_time,
-                    "is_in_replay" => is_in_replay,
                     "changed_burn_view" => changed_burn_view,
                     "enough_time_passed" => enough_time_passed,
                 );
@@ -396,7 +392,6 @@ impl SortitionsView {
                 "signer_signature_hash" => %block.header.signer_signature_hash(),
                 "extend_timestamp" => extend_timestamp,
                 "epoch_time" => epoch_time,
-                "is_in_replay" => is_in_replay,
                 "changed_burn_view" => changed_burn_view,
                 "enough_time_passed" => enough_time_passed,
             );
@@ -435,15 +430,13 @@ impl SortitionsView {
             );
             let epoch_time = get_epoch_time_secs();
             let enough_time_passed = epoch_time >= extend_timestamp;
-            let is_in_replay = replay_set.is_some();
-            if !enough_time_passed && !is_in_replay {
+            if !enough_time_passed {
                 warn!(
                     "Miner block proposal contains a read-count extend, but the conditions for allowing a tenure extend are not met. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "extend_timestamp" => extend_timestamp,
                     "epoch_time" => epoch_time,
-                    "is_in_replay" => is_in_replay,
                     "changed_burn_view" => changed_burn_view,
                     "enough_time_passed" => enough_time_passed,
                 );

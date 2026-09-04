@@ -44,7 +44,7 @@ pub struct UnconfirmedTransactionResponse {
     pub status: UnconfirmedTransactionStatus,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetTransactionUnconfirmedRequestHandler {
     pub txid: Option<Txid>,
 }

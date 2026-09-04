@@ -16,7 +16,6 @@
 
 use std::collections::HashSet;
 use std::io;
-use std::io::prelude::*;
 use std::io::Read;
 
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -714,6 +713,8 @@ impl StacksMessageCodec for NackData {
     }
 }
 
+// A default would misleadingly consume randomness to generate a fresh nonce.
+#[allow(clippy::new_without_default)]
 impl PingData {
     pub fn new() -> PingData {
         let mut rng = rand::thread_rng();

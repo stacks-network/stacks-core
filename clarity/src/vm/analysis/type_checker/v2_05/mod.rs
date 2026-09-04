@@ -322,7 +322,7 @@ fn trait_type_size(
     trait_sig: &BTreeMap<ClarityName, FunctionSignature>,
 ) -> Result<u64, StaticCheckError> {
     let mut total_size = 0;
-    for (_func_name, value) in trait_sig.iter() {
+    for value in trait_sig.values() {
         total_size = total_size.cost_overflow_add(value.total_type_size()?)?;
     }
     Ok(total_size)
