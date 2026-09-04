@@ -462,6 +462,7 @@ fn secp256k1_privkey_deserialize<'de, D: serde::Deserializer<'de>>(
     LibSecp256k1PrivateKey::from_slice(&key_bytes[..]).map_err(de_Error::custom)
 }
 
+/// Recover a public key from a 32-byte message hash and a 65-byte RSV signature.
 pub fn secp256k1_recover(
     message_arr: &[u8],
     serialized_signature_arr: &[u8],
