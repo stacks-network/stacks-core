@@ -1638,7 +1638,7 @@ const SECP256K1DECOMPRESS_API: SpecialAPI = SpecialAPI {
     Returns the uncompressed public key as a 65-byte buffer on success. This function may fail with the error code:
     - `(err u1)` — invalid compressed public-key.
     ",
-    example: "(secp256k1-decompress? 0x0250863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b2352) 
+    example: "(secp256k1-decompress? 0x0250863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b2352)
     ;; Returns (ok 0x0450863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b23522cd470243453a299fa9e77237716103abc11a1df38855ed6f2ee187e9c582ba6)",
     notices: &[],
 };
@@ -2812,7 +2812,7 @@ and returns a new sequence with the data at the index position replaced with the
 The given element's type must match the type of the sequence, and must correspond to a single
 index of the input sequence. The return type on success is the same type as the input sequence.
 
-If the provided index is out of bounds, this functions returns `none`.
+If the provided index is out of bounds, this function returns `none`.
 ",
     example: r#"
 (replace-at? u"ab" u1 u"c") ;; Returns (some u"ac")
