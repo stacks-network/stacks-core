@@ -877,6 +877,7 @@ impl LocalStateMachine {
 
         let mut miners = HashMap::new();
         let mut potential_matches = HashSet::new();
+        let mut stacks_block_delayed = false;
 
         for (address, update) in &eval.address_updates {
             let Some(weight) = eval.address_weights.get(address) else {
@@ -938,8 +939,9 @@ impl LocalStateMachine {
                     };
                     if local_parent_tenure_last_block_height < *parent_tenure_last_block_height {
                         // We haven't processed this stacks block yet.
+                        stacks_block_delayed = true;
                         debug!(
-                            "Signer State: A threshold number of signers have a longer active miner parent tenure view. Signer may have an oudated view.";
+                            "Signer State: A threshold number of signers have a longer active miner parent tenure view. Signer may have an outdated view.";
                             "parent_tenure_id" => %parent_tenure_id,
                             "local_parent_tenure_last_block_height" => local_parent_tenure_last_block_height,
                             "parent_tenure_last_block_height" => parent_tenure_last_block_height,
@@ -959,6 +961,12 @@ impl LocalStateMachine {
                     warn!("Signer State: Error retrieving burn block for consensus_hash {tenure_id} from signerdb: {e}");
                 }
             }
+        }
+
+        if stacks_block_delayed {
+            crate::monitoring::actions::increment_signer_agreement_state_conflict(
+                crate::monitoring::SignerAgreementStateConflict::StacksBlockDelay,
+            );
         }
 
         let mut potential_matches: Vec<_> = potential_matches.into_iter().collect();
