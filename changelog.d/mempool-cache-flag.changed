@@ -1,1 +1,0 @@
-The miner now ties mempool nonce-cache validity to the specific parent block it builds on, automatically resetting the caches whenever the parent changes (e.g. across mining retries), instead of relying on a manually-maintained flag.

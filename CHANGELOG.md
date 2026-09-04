@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [4.0.3]
+
+### Added
+
+* Adds opt-in logging to help observe where StackerDB chunks come from. Set `node.log_stackerdb_chunk_sources = true` to enable it.
+* Added a new authenticated RPC endpoint `POST /v3/transactions/simulate` which simulates a single transaction on top of a chain tip (the canonical tip by default, or the one selected with the `tip` query parameter), discarding all state changes, and reports its result, events, and execution cost.
+
+### Changed
+
+* Moved Clarity transaction-error classification from `stackslib` to `clarity`, with authoritative included/rejected dispositions that can be shared with WASM consumers
+* The miner now ties mempool nonce-cache validity to the specific parent block it builds on, automatically resetting the caches whenever the parent changes (e.g. across mining retries), instead of relying on a manually-maintained flag.
+* `read_only_call_max_mem_bytes` now caps each read-only RPC request end to end: parsing the body's Clarity values (call arguments and map keys) counts toward the same per-request limit as execution, and requests whose parsing exceeds it are rejected with HTTP 400.
+* Read-only call RPC endpoints now cap the `arguments` array at 262,144 entries, even when `read_only_call_max_mem_bytes` is `0`.
+* Lower the default StackerDB timeouts to retry HTTP RPC sooner.
+* Moved transaction post-condition verification out of `stackslib` into a new `stacks-transactions` crate, so that it can be used in WASM environments and is no longer coupled to the Clarity VM
+* Signer database schema updated to version 20, adding a `superseded_tenures` table.
+* Instead of silently ignoring old block proposals, reject them with the new `ProposalTooOld` reason. This allows the miner to break out of its `propose_block` loop and mine a new block instead of being stuck in a livelock until the next Bitcoin block arrives. Proposals for blocks that we have already decided on are unaffected: the signer retains its prior decision, resending it when appropriate rather than flipping it.
+
+
+### Fixed
+
+* Fix a bug that prevented duplicate name detection in some cases during contract analysis. This change applies starting in epoch 4.1.
+* Prevent one potential cause for miner stalls by moving signer state machine retrieval from HTTP requests to DB lookup.
+* Fixed a block-commit timing race that made the release-only Epoch CI job fail deterministically on `tests::epoch_21::transition_fixes_bitcoin_rigidity`.
+* Fixed Prometheus execution-cost write-count utilization metrics to use the write-count block limit, and fixed RPC response bytes being counted as inbound instead of outbound bandwidth.
+* Fixed the miner thread exiting (and stalling for the remainder of the tenure) on transient errors. The miner now retries when it hits DB contention, a parent block that has not been processed yet, a new parent block discovered mid-mining, or a mempool cache reset failure, instead of giving up on the tenure.
+* When a StackerDB chunk push fails, remove the receiver and immediately try the next receiver for the same chunk. This prevents an unavailable receiver from delaying the push.
+* Broadcast HTTP-uploaded StackerDB chunks even when no event observer is attached. This allows uploaded chunks to reach peers in configurations that do not use an event observer.
+* Fixed a StackerDB chunk uploaded over HTTP being stored and acknowledged but never announced to the node's event observers, which could stall consensus indefinitely when the lost chunk was a signer's block pre-commit. The chunk's pending event notification was discarded whenever the relayer fell behind and a peer echoed the same chunk back, or whenever the node's own view advanced before the relayer processed the upload.
+* Do not revert to the prior sortition's miner on inactivity timeout unless the canonical Stacks tip is in that miner's tenure. A miner only extends a tenure it won, so after a Bitcoin reorg orphaned the prior tenure, signers could demote a slow-but-live sortition winner to a miner that had already stopped mining, rejecting all of the winner's proposals until the next burn block.
+* Do not let a block that was only pre-committed suppress the miner inactivity timeout. A pre-commit was treated as a signed block, so signers that pre-committed to a tenure-start block which never reached the pre-commit threshold could never time the miner out and fall back to the prior tenure, stalling the chain until the next burn block.
+
+
+### Removed
+
+* Removed the special-casing of transactions with high-S signatures from mempool admittance and block validation. Now that we've transitioned into Epoch 4.0, those signatures are forbidden by consensus and no longer need to be special-cased.
+
 ## [4.0.2]
 
 ### ⚠️ Breaking Changes

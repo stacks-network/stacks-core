@@ -1,1 +1,0 @@
-Fixed Prometheus execution-cost write-count utilization metrics to use the write-count block limit, and fixed RPC response bytes being counted as inbound instead of outbound bandwidth.

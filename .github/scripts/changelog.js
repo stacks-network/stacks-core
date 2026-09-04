@@ -52,6 +52,23 @@ module.exports = async ({ github, context, core }) => {
     return;
   }
 
+  // stacks-signer/changelog.d/ is retired; all fragments go in the root changelog.d/
+  const signerFragments = files.filter(
+    (f) =>
+      f.filename.startsWith("stacks-signer/changelog.d/") &&
+      f.status !== "removed"
+  );
+
+  if (signerFragments.length > 0) {
+    const names = signerFragments.map((f) => f.filename).join(", ");
+    core.setFailed(
+      `Changelog fragment(s) found in the retired stacks-signer/changelog.d/ directory: ${names}. ` +
+        "Signer changes now use the root changelog.d/ directory " +
+        "(see changelog.d/README.md for instructions)."
+    );
+    return;
+  }
+
   const validExtensions = [
     "breaking",
     "added",
