@@ -133,7 +133,7 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity4,
             ClarityVersion::Clarity5,
         ],
-        StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => &[
+        StacksEpochId::Epoch40 => &[
             ClarityVersion::Clarity1,
             ClarityVersion::Clarity2,
             ClarityVersion::Clarity3,
@@ -141,6 +141,8 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity5,
             ClarityVersion::Clarity6,
         ],
+        // From Epoch 4.1 precheck rejects anything below the epoch default.
+        StacksEpochId::Epoch41 => &[ClarityVersion::Clarity7],
     }
 }
 

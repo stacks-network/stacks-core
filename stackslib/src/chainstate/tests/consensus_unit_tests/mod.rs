@@ -17,4 +17,5 @@
 //! consensus-critical behavior of a specific change across epochs and Clarity
 //! versions.
 mod epoch_40_read_budget;
+mod epoch_41_force_latest;
 mod special_map;
