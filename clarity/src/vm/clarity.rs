@@ -14,6 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::fmt;
 
+use clarity_types::types::BoundedErrorString;
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{
@@ -60,7 +62,7 @@ pub enum ClarityError {
         /// The events from the transaction processing
         tx_events: Vec<StacksTransactionEvent>,
         /// A human-readable explanation for aborting the transaction
-        reason: String,
+        reason: BoundedErrorString,
     },
     /// Transaction exceeded the maximum execution time or heap usage allowed.
     ExecutionResourceBudgetExceeded(String),
@@ -129,7 +131,7 @@ pub enum IncludedRuntimeTxError {
         /// Events emitted while processing the transaction.
         tx_events: Vec<StacksTransactionEvent>,
         /// A human-readable explanation for aborting the transaction.
-        reason: String,
+        reason: BoundedErrorString,
     },
     /// A non-rejectable runtime analysis error in Epoch 2.1 or later.
     #[non_exhaustive]
@@ -443,9 +445,17 @@ pub trait TransactionConnection: ClarityConnection {
         &'hooks mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
+    ) -> Result<
+        (
+            R,
+            AssetMap,
+            Vec<StacksTransactionEvent>,
+            Option<BoundedErrorString>,
+        ),
+        E,
+    >
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
         F: FnOnce(
             &mut OwnedEnvironment<'_, 'hooks>,
         ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
@@ -534,15 +544,15 @@ pub trait TransactionConnection: ClarityConnection {
             let result = db.insert_contract(identifier, contract_analysis);
             match result {
                 Ok(_) => {
-                    let result = db
-                        .commit()
-                        .map_err(|e| StaticCheckErrorKind::Unreachable(format!("{e:?}")).into());
+                    let result = db.commit().map_err(|e| {
+                        StaticCheckErrorKind::Unreachable(bounded_format!("{e:?}")).into()
+                    });
                     (cost_tracker, result)
                 }
                 Err(e) => {
-                    let result = db
-                        .roll_back()
-                        .map_err(|e| StaticCheckErrorKind::Unreachable(format!("{e:?}")).into());
+                    let result = db.roll_back().map_err(|e| {
+                        StaticCheckErrorKind::Unreachable(bounded_format!("{e:?}")).into()
+                    });
                     if result.is_err() {
                         (cost_tracker, result)
                     } else {
@@ -590,7 +600,7 @@ pub trait TransactionConnection: ClarityConnection {
         resource_budget: &ResourceBudget,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
     {
         let expr_args: Vec<_> = args
             .iter()
@@ -645,7 +655,7 @@ pub trait TransactionConnection: ClarityConnection {
         execution_resource_budget: &ResourceBudget,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
     {
         let (_, assets_modified, tx_events, reason) = self.with_abort_callback(
             |vm_env| {

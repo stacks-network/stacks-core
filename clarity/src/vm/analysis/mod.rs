@@ -23,6 +23,8 @@ pub mod trait_checker;
 pub mod type_checker;
 pub mod types;
 
+#[cfg(feature = "rusqlite")]
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 pub use self::analysis_db::AnalysisDatabase;
@@ -86,7 +88,9 @@ pub fn mem_type_check(
 ) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticCheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
-        .map_err(|e| StaticCheckErrorKind::Unreachable(format!("Failed to build AST: {e}")))?
+        .map_err(|e| {
+            StaticCheckErrorKind::Unreachable(bounded_format!("Failed to build AST: {e}"))
+        })?
         .expressions;
 
     let mut marf = MemoryBackingStore::new();

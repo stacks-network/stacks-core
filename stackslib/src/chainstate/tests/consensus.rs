@@ -39,7 +39,7 @@ use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt};
-use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::events::{BoundedErrorString, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, TransactionResourceBudgets};
 use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
 use crate::chainstate::stacks::{
@@ -190,7 +190,10 @@ where
 }
 
 /// Serialize an optional string field appending a non-consensus breaking info message.
-fn serialize_opt_string_ncb<S>(value: &Option<String>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_opt_string_ncb<S>(
+    value: &Option<BoundedErrorString>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -211,7 +214,7 @@ pub struct ExpectedTransactionOutput {
     pub tx: Option<TransactionPayload>,
     /// The possible Clarity VM error message associated to the transaction (non-consensus breaking)
     #[serde(serialize_with = "serialize_opt_string_ncb")]
-    pub vm_error: Option<String>,
+    pub vm_error: Option<BoundedErrorString>,
     /// The expected return value of the transaction.
     pub return_type: ClarityValue,
     /// The expected execution cost of the transaction.

@@ -285,126 +285,156 @@ impl From<CostErrors> for ParseError {
 }
 
 impl DiagnosableError for ParseErrorKind {
-    fn message(&self) -> String {
+    fn write_message(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            ParseErrorKind::CostOverflow => "Used up cost budget during the parse".into(),
+            ParseErrorKind::CostOverflow => f.write_str("Used up cost budget during the parse"),
             ParseErrorKind::CostBalanceExceeded(bal, used) => {
-                format!("Used up cost budget during the parse: {bal} balance, {used} used")
+                write!(
+                    f,
+                    "Used up cost budget during the parse: {bal} balance, {used} used"
+                )
             }
             ParseErrorKind::MemoryBalanceExceeded(bal, used) => {
-                format!("Used up memory budget during the parse: {bal} balance, {used} used")
+                write!(
+                    f,
+                    "Used up memory budget during the parse: {bal} balance, {used} used"
+                )
             }
-            ParseErrorKind::TooManyExpressions => "Too many expressions".into(),
-            ParseErrorKind::FailedCapturingInput => "Failed to capture value from input".into(),
+            ParseErrorKind::TooManyExpressions => f.write_str("Too many expressions"),
+            ParseErrorKind::FailedCapturingInput => {
+                f.write_str("Failed to capture value from input")
+            }
             ParseErrorKind::SeparatorExpected(found) => {
-                format!("Expected whitespace or a close parens. Found: '{found}'")
+                write!(f, "Expected whitespace or a close parens. Found: '{found}'")
             }
             ParseErrorKind::SeparatorExpectedAfterColon(found) => {
-                format!("Whitespace expected after colon (:), Found: '{found}'")
+                write!(f, "Whitespace expected after colon (:), Found: '{found}'")
             }
-            ParseErrorKind::ProgramTooLarge => "Program too large to parse".into(),
+            ParseErrorKind::ProgramTooLarge => f.write_str("Program too large to parse"),
             ParseErrorKind::IllegalContractName(contract_name) => {
-                format!("Illegal contract name: '{contract_name}'")
+                write!(f, "Illegal contract name: '{contract_name}'")
             }
             ParseErrorKind::IllegalVariableName(var_name) => {
-                format!("Illegal variable name: '{var_name}'")
+                write!(f, "Illegal variable name: '{var_name}'")
             }
             ParseErrorKind::FailedParsingIntValue(value) => {
-                format!("Failed to parse int literal '{value}'")
+                write!(f, "Failed to parse int literal '{value}'")
             }
             ParseErrorKind::FailedParsingUIntValue(value) => {
-                format!("Failed to parse uint literal 'u{value}'")
+                write!(f, "Failed to parse uint literal 'u{value}'")
             }
             ParseErrorKind::FailedParsingHexValue(value, x) => {
-                format!("Invalid hex-string literal {value}: {x}")
+                write!(f, "Invalid hex-string literal {value}: {x}")
             }
             ParseErrorKind::FailedParsingPrincipal(value) => {
-                format!("Invalid principal literal: {value}")
+                write!(f, "Invalid principal literal: {value}")
             }
             ParseErrorKind::FailedParsingBuffer(value) => {
-                format!("Invalid buffer literal: {value}")
+                write!(f, "Invalid buffer literal: {value}")
             }
-            ParseErrorKind::FailedParsingField(value) => format!("Invalid field literal: {value}"),
+            ParseErrorKind::FailedParsingField(value) => {
+                write!(f, "Invalid field literal: {value}")
+            }
             ParseErrorKind::FailedParsingRemainder(remainder) => {
-                format!("Failed to lex input remainder: '{remainder}'")
+                write!(f, "Failed to lex input remainder: '{remainder}'")
             }
             ParseErrorKind::ClosingParenthesisUnexpected => {
-                "Tried to close list which isn't open.".into()
+                f.write_str("Tried to close list which isn't open.")
             }
             ParseErrorKind::ClosingParenthesisExpected => {
-                "List expressions (..) left opened.".into()
+                f.write_str("List expressions (..) left opened.")
             }
             ParseErrorKind::ClosingTupleLiteralUnexpected => {
-                "Tried to close tuple literal which isn't open.".into()
+                f.write_str("Tried to close tuple literal which isn't open.")
             }
             ParseErrorKind::ClosingTupleLiteralExpected => {
-                "Tuple literal {{..}} left opened.".into()
+                f.write_str("Tuple literal {{..}} left opened.")
             }
-            ParseErrorKind::ColonSeparatorUnexpected => "Misplaced colon.".into(),
-            ParseErrorKind::CommaSeparatorUnexpected => "Misplaced comma.".into(),
+            ParseErrorKind::ColonSeparatorUnexpected => f.write_str("Misplaced colon."),
+            ParseErrorKind::CommaSeparatorUnexpected => f.write_str("Misplaced comma."),
             ParseErrorKind::TupleColonExpected(i) => {
-                format!("Tuple literal construction expects a colon at index {i}")
+                write!(f, "Tuple literal construction expects a colon at index {i}")
             }
             ParseErrorKind::TupleCommaExpected(i) => {
-                format!("Tuple literal construction expects a comma at index {i}")
+                write!(f, "Tuple literal construction expects a comma at index {i}")
             }
             ParseErrorKind::TupleItemExpected(i) => {
-                format!("Tuple literal construction expects a key or value at index {i}")
+                write!(
+                    f,
+                    "Tuple literal construction expects a key or value at index {i}"
+                )
             }
-            ParseErrorKind::CircularReference(function_names) => format!(
-                "detected interdependent functions ({})",
-                function_names.join(", ")
-            ),
+            ParseErrorKind::CircularReference(function_names) => {
+                f.write_str("detected interdependent functions (")?;
+                for (i, name) in function_names.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    f.write_str(name)?;
+                }
+                f.write_str(")")
+            }
             ParseErrorKind::NameAlreadyUsed(name) => {
-                format!("defining '{name}' conflicts with previous value")
+                write!(f, "defining '{name}' conflicts with previous value")
             }
             ParseErrorKind::ImportTraitBadSignature => {
-                "(use-trait ...) expects a trait name and a trait identifier".into()
+                f.write_str("(use-trait ...) expects a trait name and a trait identifier")
             }
             ParseErrorKind::DefineTraitBadSignature => {
-                "(define-trait ...) expects a trait name and a trait definition".into()
+                f.write_str("(define-trait ...) expects a trait name and a trait definition")
             }
             ParseErrorKind::ImplTraitBadSignature => {
-                "(impl-trait ...) expects a trait identifier".into()
+                f.write_str("(impl-trait ...) expects a trait identifier")
             }
-            ParseErrorKind::TraitReferenceNotAllowed => "trait references can not be stored".into(),
+            ParseErrorKind::TraitReferenceNotAllowed => {
+                f.write_str("trait references can not be stored")
+            }
             ParseErrorKind::TraitReferenceUnknown(trait_name) => {
-                format!("use of undeclared trait <{trait_name}>")
+                write!(f, "use of undeclared trait <{trait_name}>")
             }
             ParseErrorKind::ExpressionStackDepthTooDeep { max_depth }
-            | ParseErrorKind::VaryExpressionStackDepthTooDeep { max_depth } => format!(
-                "AST has too deep of an expression nesting. The maximum stack depth is {max_depth}"
-            ),
-            ParseErrorKind::InvalidCharactersDetected => "invalid characters detected".into(),
-            ParseErrorKind::InvalidEscaping => "invalid escaping detected in string".into(),
-            ParseErrorKind::CostComputationFailed(s) => format!("Cost computation failed: {s}"),
+            | ParseErrorKind::VaryExpressionStackDepthTooDeep { max_depth } => {
+                write!(
+                    f,
+                    "AST has too deep of an expression nesting. The maximum stack depth is {max_depth}"
+                )
+            }
+            ParseErrorKind::InvalidCharactersDetected => f.write_str("invalid characters detected"),
+            ParseErrorKind::InvalidEscaping => f.write_str("invalid escaping detected in string"),
+            ParseErrorKind::CostComputationFailed(s) => write!(f, "Cost computation failed: {s}"),
 
             // Parser v2 errors
-            ParseErrorKind::Lexer(le) => le.message(),
+            ParseErrorKind::Lexer(le) => le.write_message(f),
             ParseErrorKind::ContractNameTooLong(name) => {
-                format!("contract name '{name}' is too long")
+                write!(f, "contract name '{name}' is too long")
             }
-            ParseErrorKind::ExpectedContractIdentifier => "expected contract identifier".into(),
-            ParseErrorKind::ExpectedTraitIdentifier => "expected trait identifier".into(),
-            ParseErrorKind::IllegalTraitName(name) => format!("illegal trait name, '{name}'"),
-            ParseErrorKind::InvalidPrincipalLiteral => "invalid principal literal".into(),
-            ParseErrorKind::InvalidBuffer => "invalid hex-string literal".into(),
-            ParseErrorKind::NameTooLong(name) => format!("illegal name (too long), '{name}'"),
-            ParseErrorKind::UnexpectedToken(token) => format!("unexpected '{token}'"),
-            ParseErrorKind::ExpectedClosing(token) => format!("expected closing '{token}'"),
-            ParseErrorKind::TupleColonExpectedv2 => "expected ':' after key in tuple".into(),
+            ParseErrorKind::ExpectedContractIdentifier => {
+                f.write_str("expected contract identifier")
+            }
+            ParseErrorKind::ExpectedTraitIdentifier => f.write_str("expected trait identifier"),
+            ParseErrorKind::IllegalTraitName(name) => write!(f, "illegal trait name, '{name}'"),
+            ParseErrorKind::InvalidPrincipalLiteral => f.write_str("invalid principal literal"),
+            ParseErrorKind::InvalidBuffer => f.write_str("invalid hex-string literal"),
+            ParseErrorKind::NameTooLong(name) => write!(f, "illegal name (too long), '{name}'"),
+            ParseErrorKind::UnexpectedToken(token) => write!(f, "unexpected '{token}'"),
+            ParseErrorKind::ExpectedClosing(token) => write!(f, "expected closing '{token}'"),
+            ParseErrorKind::TupleColonExpectedv2 => f.write_str("expected ':' after key in tuple"),
             ParseErrorKind::TupleCommaExpectedv2 => {
-                "expected ',' separating key-value pairs in tuple".into()
+                f.write_str("expected ',' separating key-value pairs in tuple")
             }
-            ParseErrorKind::TupleValueExpected => "expected value expression for tuple".into(),
-            ParseErrorKind::IllegalClarityName(name) => format!("illegal clarity name, '{name}'"),
-            ParseErrorKind::IllegalASCIIString(s) => format!("illegal ascii string \"{s}\""),
-            ParseErrorKind::ExpectedWhitespace => "expected whitespace before expression".into(),
-            ParseErrorKind::NoteToMatchThis(token) => format!("to match this '{token}'"),
+            ParseErrorKind::TupleValueExpected => {
+                f.write_str("expected value expression for tuple")
+            }
+            ParseErrorKind::IllegalClarityName(name) => write!(f, "illegal clarity name, '{name}'"),
+            ParseErrorKind::IllegalASCIIString(s) => write!(f, "illegal ascii string \"{s}\""),
+            ParseErrorKind::ExpectedWhitespace => {
+                f.write_str("expected whitespace before expression")
+            }
+            ParseErrorKind::NoteToMatchThis(token) => write!(f, "to match this '{token}'"),
             ParseErrorKind::UnexpectedParserFailure => {
-                "unexpected failure while parsing".to_string()
+                f.write_str("unexpected failure while parsing")
             }
-            ParseErrorKind::InterpreterFailure => "unexpected failure while parsing".to_string(),
+            ParseErrorKind::InterpreterFailure => f.write_str("unexpected failure while parsing"),
         }
     }
 
