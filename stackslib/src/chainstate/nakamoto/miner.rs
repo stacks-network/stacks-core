@@ -956,18 +956,19 @@ fn parse_process_transaction_error(
         TransactionResult::problematic(tx, e)
     } else {
         match e {
-            Error::CostOverflowError(cost_before, cost_after, total_budget) => {
-                clarity_tx.reset_cost(cost_before.clone());
+            Error::CostOverflowError(context) => {
+                clarity_tx.reset_cost(context.before.clone());
                 let cost_so_far_percentage =
-                    total_budget.proportion_largest_dimension(&cost_before);
+                    context.budget.proportion_largest_dimension(&context.before);
                 if cost_so_far_percentage < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC {
                     warn!(
-                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {total_budget}",
+                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
                             tx.txid(),
-                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                            context.budget,
                     );
-                    let mut measured_cost = cost_after;
-                    let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
+                    let mut measured_cost = context.after;
+                    let measured_cost = if measured_cost.sub(&context.before).is_ok() {
                         Some(measured_cost)
                     } else {
                         warn!("Failed to compute measured cost of a too big transaction");
@@ -978,13 +979,15 @@ fn parse_process_transaction_error(
                     warn!(
                         "Transaction {} would exceed the tenure budget, but only {cost_so_far_percentage}% of total budget currently consumed. Skipping tx for this block.", tx.txid();
                         "contract_limit_percentage" => contract_limit_percentage,
-                        "total_budget" => %total_budget
+                        "total_budget" => %context.budget
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockCostLimitError)
                 } else {
                     warn!(
-                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
+                        "Transaction {} reached block cost {}; budget was {}",
                         tx.txid(),
+                        context.after,
+                        context.budget,
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError)
                 }

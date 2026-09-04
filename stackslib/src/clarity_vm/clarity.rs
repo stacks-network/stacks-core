@@ -292,8 +292,8 @@ impl From<ChainstateError> for ClarityError {
     fn from(e: ChainstateError) -> Self {
         match e {
             ChainstateError::InvalidStacksTransaction(msg, _) => ClarityError::BadTransaction(msg),
-            ChainstateError::CostOverflowError(_, after, budget) => {
-                ClarityError::CostError(after, budget)
+            ChainstateError::CostOverflowError(context) => {
+                ClarityError::CostError(context.after, context.budget)
             }
             ChainstateError::ClarityError(x) => x,
             x => ClarityError::BadTransaction(x.to_string()),

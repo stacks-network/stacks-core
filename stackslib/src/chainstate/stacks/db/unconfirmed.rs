@@ -295,9 +295,9 @@ impl UnconfirmedState {
                         &[mblock.clone()],
                     ) {
                         Ok(x) => x,
-                        Err((e, _)) => {
+                        Err(error) => {
                             // absorb the error
-                            warn!("Encountered invalid stacks microblock: {}", &e);
+                            warn!("Encountered invalid stacks microblock: {}", error.source);
                             break;
                         }
                     };

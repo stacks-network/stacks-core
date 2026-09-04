@@ -1,0 +1,1 @@
+Shrinked a number of root error types through `Box`ing of large variants to satisfy the `clippy::result_large_err` lint.

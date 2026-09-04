@@ -973,7 +973,9 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
             if network.is_proposal_thread_running() {
                 return Err((
                     TOO_MANY_REQUESTS_STATUS,
-                    NetError::SendError("Proposal currently being evaluated".into()),
+                    Box::new(NetError::SendError(
+                        "Proposal currently being evaluated".into(),
+                    )),
                 ));
             }
 
@@ -986,21 +988,27 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
             {
                 return Err((
                     422,
-                    NetError::SendError("Block proposal is too old to process.".into()),
+                    Box::new(NetError::SendError(
+                        "Block proposal is too old to process.".into(),
+                    )),
                 ));
             }
 
-            let (chainstate, _) = chainstate.reopen().map_err(|e| (400, NetError::from(e)))?;
-            let sortdb = sortdb.reopen().map_err(|e| (400, NetError::from(e)))?;
+            let (chainstate, _) = chainstate
+                .reopen()
+                .map_err(|e| (400, Box::new(NetError::from(e))))?;
+            let sortdb = sortdb
+                .reopen()
+                .map_err(|e| (400, Box::new(NetError::from(e))))?;
             let receiver = rpc_args
                 .event_observer
                 .and_then(|observer| observer.get_proposal_callback_receiver())
                 .ok_or_else(|| {
                     (
                         400,
-                        NetError::SendError(
+                        Box::new(NetError::SendError(
                             "No `observer` registered for receiving proposal callbacks".into(),
-                        ),
+                        )),
                     )
                 })?;
             let thread_info = block_proposal
@@ -1013,9 +1021,9 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                 .map_err(|_e| {
                     (
                         TOO_MANY_REQUESTS_STATUS,
-                        NetError::SendError(
+                        Box::new(NetError::SendError(
                             "IO error while spawning proposal callback thread".into(),
-                        ),
+                        )),
                     )
                 })?;
             network.set_proposal_thread(thread_info);

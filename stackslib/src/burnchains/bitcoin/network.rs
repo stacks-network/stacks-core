@@ -139,7 +139,7 @@ impl BitcoinIndexer {
             }
             _ => match handler {
                 Some(custom_handler) => custom_handler.handle_message(self, message),
-                None => Err(btc_error::UnhandledMessage(message)),
+                None => Err(btc_error::UnhandledMessage(message.into())),
             },
         }
     }
@@ -275,7 +275,7 @@ impl BitcoinIndexer {
                 error!("Did not receive version, but got {:?}", version_message);
             }
         };
-        return Err(btc_error::InvalidMessage(version_message));
+        return Err(btc_error::InvalidMessage(version_message.into()));
     }
 
     /// Send a verack
@@ -298,7 +298,7 @@ impl BitcoinIndexer {
                 error!("Did not receive verack, but got {:?}", verack_message);
             }
         };
-        Err(btc_error::InvalidMessage(verack_message))
+        Err(btc_error::InvalidMessage(verack_message.into()))
     }
 
     /// Respond to a Ping message by sending a Pong message
@@ -315,7 +315,7 @@ impl BitcoinIndexer {
                 error!("Did not receive ping, but got {:?}", ping_message);
             }
         };
-        Err(btc_error::InvalidMessage(ping_message))
+        Err(btc_error::InvalidMessage(ping_message.into()))
     }
 
     /// Respond to a Pong message.

@@ -37,10 +37,10 @@ use crate::vm::{ClarityVersion, ContractContext, SymbolicExpression, Value, anal
 pub enum ClarityError {
     /// Error during static type-checking or semantic analysis.
     /// The `StaticCheckError` wraps the specific type-checking error, including diagnostic details.
-    StaticCheck(StaticCheckError),
+    StaticCheck(Box<StaticCheckError>),
     /// Error during lexical or syntactic parsing.
     /// The `ParseError` wraps the specific parsing error, such as invalid syntax or tokens.
-    Parse(ParseError),
+    Parse(Box<ParseError>),
     /// Error during runtime evaluation in the virtual machine.
     /// The `VmExecutionError` wraps the specific error, such as runtime errors or dynamic type-checking errors.
     Interpreter(VmExecutionError),
@@ -303,7 +303,7 @@ impl From<StaticCheckError> for ClarityError {
             StaticCheckErrorKind::AnalysisResourceBudgetExceeded(s) => {
                 ClarityError::AnalysisResourceBudgetExceeded(s)
             }
-            _ => ClarityError::StaticCheck(e),
+            _ => ClarityError::StaticCheck(e.into()),
         }
     }
 }
@@ -366,7 +366,7 @@ impl From<ParseError> for ClarityError {
             ParseErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            _ => ClarityError::Parse(e),
+            _ => ClarityError::Parse(e.into()),
         }
     }
 }
@@ -680,6 +680,8 @@ pub trait TransactionConnection: ClarityConnection {
 
 #[cfg(test)]
 mod unit_tests {
+    use std::assert_matches;
+
     use super::*;
     use crate::vm::analysis::errors::StaticCheckErrorKind;
     use crate::vm::ast::errors::ParseErrorKind;
@@ -726,11 +728,11 @@ mod unit_tests {
                 ..
             }) => {
                 assert_eq!(err_type, "short return/panic");
-                assert!(matches!(
+                assert_matches!(
                     error,
                     VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(value))
                         if *value == Value::Int(42)
-                ));
+                );
             }
             _ => panic!("early returns must be included as acceptable runtime errors"),
         }
@@ -859,15 +861,15 @@ mod unit_tests {
         // Rejectable in every epoch.
         assert!(
             !handle_clarity_analysis_error(
-                ClarityError::Parse(ParseError::new(ParseErrorKind::InterpreterFailure)),
+                ClarityError::Parse(Box::new(ParseErrorKind::InterpreterFailure.into())),
                 epoch
             )
             .is_included_in_block()
         );
         assert!(
             !handle_clarity_analysis_error(
-                ClarityError::StaticCheck(StaticCheckError::new(
-                    StaticCheckErrorKind::TraitReferenceChainTooDeep
+                ClarityError::StaticCheck(Box::new(
+                    StaticCheckErrorKind::TraitReferenceChainTooDeep.into()
                 )),
                 epoch
             )
@@ -881,8 +883,8 @@ mod unit_tests {
 
         assert!(
             handle_clarity_analysis_error(
-                ClarityError::StaticCheck(StaticCheckError::new(
-                    StaticCheckErrorKind::UnknownFunction("no-such-fn".into())
+                ClarityError::StaticCheck(Box::new(
+                    StaticCheckErrorKind::UnknownFunction("no-such-fn".into()).into(),
                 )),
                 epoch
             )
@@ -893,17 +895,17 @@ mod unit_tests {
     #[test]
     fn analysis_failure_includes_ordinary_parse_errors() {
         let epoch = StacksEpochId::latest();
-        let parse_error = ParseError::new(ParseErrorKind::SeparatorExpected("token".into()));
+        let parse_error: ParseError = ParseErrorKind::SeparatorExpected("token".into()).into();
         assert!(!parse_error.rejectable_in_epoch(epoch));
 
-        match handle_clarity_analysis_error(ClarityError::Parse(parse_error), epoch) {
+        match handle_clarity_analysis_error(ClarityError::Parse(parse_error.into()), epoch) {
             ClarityAnalysisTxError::Included {
                 error: ClarityError::Parse(error),
                 ..
-            } => assert!(matches!(
+            } => assert_matches!(
                 *error.err,
                 ParseErrorKind::SeparatorExpected(ref token) if token == "token"
-            )),
+            ),
             _ => panic!("ordinary parse errors must produce included analysis failures"),
         }
     }
@@ -911,11 +913,8 @@ mod unit_tests {
     /// `SupertypeTooLarge` stops being rejectable at 3.4.
     #[test]
     fn analysis_failure_rejectability_can_change_with_epoch() {
-        let err = || {
-            ClarityError::StaticCheck(StaticCheckError::new(
-                StaticCheckErrorKind::SupertypeTooLarge,
-            ))
-        };
+        let err =
+            || ClarityError::StaticCheck(Box::new(StaticCheckErrorKind::SupertypeTooLarge.into()));
 
         assert!(
             !handle_clarity_analysis_error(err(), StacksEpochId::Epoch33).is_included_in_block()
