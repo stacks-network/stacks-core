@@ -9,10 +9,6 @@ on:
         description: "The test archive file"
         required: true
         type: string
-      debug-binary-path:
-        description: "Debug binary path"
-        required: true
-        type: string
 
 # Set default permissions
 permissions:
@@ -105,7 +101,6 @@ jobs:
         with:
           action: restore
           archive-file: ${{ inputs.archive-file }}
-          debug-binary-path: ${{ inputs.debug-binary-path }}
 
       # Pull bitcoin docker image
       - name: Pull bitcoind image (${{ matrix.bitcoin_version }})

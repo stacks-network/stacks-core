@@ -32,9 +32,7 @@ use libsigner::v0::messages::{
     StateMachineUpdate as StateMachineUpdateMessage, StateMachineUpdateContent,
     StateMachineUpdateMinerState,
 };
-use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
-};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
 use stacks_common::bitvec::BitVec;
 use stacks_common::function_name;
 
@@ -43,7 +41,7 @@ use crate::client::tests::{
     build_get_peer_info_response, build_get_tenure_tip_response, MockServerClient,
 };
 use crate::client::StacksClient;
-use crate::config::{GlobalConfig, DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS};
+use crate::config::GlobalConfig;
 use crate::signerdb::tests::{create_block_override, tmp_db_path};
 use crate::signerdb::SignerDb;
 use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
@@ -182,7 +180,6 @@ fn check_capitulate_miner_view() {
         burn_block,
         burn_block_height,
         current_miner: new_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -444,7 +441,6 @@ fn check_capitulate_with_local_timeout() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -635,7 +631,6 @@ fn check_capitulate_split_view_node_at_lower_height() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
     let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
@@ -822,7 +817,6 @@ fn check_capitulate_split_view_node_at_higher_height() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
     let mut local_state_machine = LocalStateMachine::Initialized(signer_state_machine);
@@ -940,7 +934,6 @@ fn check_capitulate_viewpoint_time_guards() {
         burn_block: burn_block.clone(),
         burn_block_height,
         current_miner: local_miner.clone().into(),
-        tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
 
@@ -1011,7 +1004,6 @@ fn check_capitulate_viewpoint_time_guards() {
             burn_block,
             burn_block_height,
             current_miner: local_miner.into(),
-            tx_replay_set: ReplayTransactionSet::none(),
             active_signer_protocol_version,
         }),
         "Recent globally accepted block should prevent capitulation"
@@ -1037,7 +1029,6 @@ fn check_miner_inactivity_timeout() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
 
@@ -1145,7 +1136,6 @@ fn check_miner_inactivity_timeout() {
         burn_block_height: 1,
         current_miner: inactive_miner,
         active_signer_protocol_version: 0,
-        tx_replay_set: ReplayTransactionSet::none(),
     };
     local_state_machine = LocalStateMachine::Initialized(signer_state.clone());
     local_state_machine

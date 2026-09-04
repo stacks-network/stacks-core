@@ -254,7 +254,7 @@ pub fn encode_tenure_reply(
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCNakamotoTenureBlocksRequestHandler {
     pub(crate) consensus_hash: Option<ConsensusHash>,
 }

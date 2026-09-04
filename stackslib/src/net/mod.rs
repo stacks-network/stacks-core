@@ -949,7 +949,7 @@ pub struct PoxInvData {
 pub struct BlocksDatum(pub ConsensusHash, pub StacksBlock);
 
 /// Stacks epoch 2.x blocks pushed
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct BlocksData {
     pub blocks: Vec<BlocksDatum>,
 }
@@ -970,7 +970,7 @@ pub struct MicroblocksData {
 }
 
 /// Block available hint
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct BlocksAvailableData {
     pub available: Vec<(ConsensusHash, BurnchainHeaderHash)>,
 }
@@ -1311,7 +1311,7 @@ pub trait ProtocolFamily {
 }
 
 // these implement the ProtocolFamily trait
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct StacksP2P {}
 
 // an array in our protocol can't exceed this many items

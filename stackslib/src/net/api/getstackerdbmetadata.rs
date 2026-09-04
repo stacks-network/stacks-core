@@ -28,7 +28,7 @@ use crate::net::http::{
 use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCGetStackerDBMetadataRequestHandler {
     pub contract_identifier: Option<QualifiedContractIdentifier>,
 }

@@ -9,11 +9,6 @@ on:
 permissions:
   contents: read
 
-# Set default env vars
-env:
-  RUSTFLAGS: "-C instrument-coverage -A warnings"
-  LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
-
 jobs:
   # Check existing caches
   check-existing-caches:

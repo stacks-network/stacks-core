@@ -33,7 +33,7 @@ use crate::net::httpcore::{
 use crate::net::{Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS};
 use crate::util_lib::db::{DBConn, Error as DBError};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCHeadersRequestHandler {
     pub quantity: Option<u32>,
 }
