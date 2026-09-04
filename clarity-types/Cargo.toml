@@ -18,10 +18,12 @@ serde_json = { version = "1.0", default-features = false, optional = true }
 serde_derive = { workspace = true }
 slog = { workspace = true }
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
+thiserror = { workspace = true }
 variant_count = { workspace = true }
 
 [dev-dependencies]
 mutants = "0.0.3"
+proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rstest = "0.17.0"
 
 [features]

@@ -12,6 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::assert_matches;
 use std::io::Write;
 
 use rstest::rstest;
@@ -520,6 +521,32 @@ fn try_deserialize_hex_at_epoch_selects_tuple_field_handling(
     assert_deserialization_outcome(
         Value::try_deserialize_hex_at_epoch(DUPLICATE_FIELDS, &expected_type, &epoch),
         expect,
+    );
+}
+
+#[test]
+fn epoch_deserialization_accepts_borrowed_slices() {
+    let value = well_formed_tuple();
+    let expected_type = TypeSignature::type_of(&value).unwrap();
+    let bytes = value.serialize_to_vec().unwrap();
+    let epoch = StacksEpochId::Epoch40;
+    let borrowed = bytes.as_slice();
+
+    assert_eq!(
+        Value::try_deserialize_bytes_at_epoch(borrowed, &expected_type, &epoch),
+        Value::try_deserialize_bytes_at_epoch(&bytes, &expected_type, &epoch),
+    );
+    assert_eq!(
+        Value::try_deserialize_bytes_exact_at_epoch(borrowed, &expected_type, &epoch),
+        Value::try_deserialize_bytes_exact_at_epoch(&bytes, &expected_type, &epoch),
+    );
+
+    let mut trailing = bytes;
+    trailing.push(0);
+    assert!(Value::try_deserialize_bytes_at_epoch(&trailing, &expected_type, &epoch).is_ok());
+    assert_matches!(
+        Value::try_deserialize_bytes_exact_at_epoch(&trailing, &expected_type, &epoch),
+        Err(SerializationError::LeftoverBytesInDeserialization)
     );
 }
 

@@ -8,7 +8,7 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = "0.4.13"
 # clarity_2_1 = { git = "https://github.com/stacks-network/stacks-blockchain.git", tag = "2.1.0.0.0", package="clarity"}
 
 [dependencies.clarity]
@@ -25,6 +25,7 @@ members = ["."]
 
 [profile.release]
 debug = 1
+debug-assertions = true
 
 [[bin]]
 name = "fuzz_sanitize"
@@ -41,6 +42,13 @@ doc = false
 [[bin]]
 name = "execute_v2_raw"
 path = "fuzz_targets/execute_v2_raw.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "packed_value_codec"
+path = "fuzz_targets/packed_value_codec.rs"
 test = false
 doc = false
 bench = false

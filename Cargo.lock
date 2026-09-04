@@ -868,6 +868,7 @@ version = "0.0.1"
 dependencies = [
  "lazy_static",
  "mutants",
+ "proptest",
  "regex",
  "rstest",
  "rusqlite",
@@ -876,6 +877,7 @@ dependencies = [
  "serde_json",
  "slog",
  "stacks-common 0.0.1",
+ "thiserror 1.0.65",
  "variant_count",
 ]
 
