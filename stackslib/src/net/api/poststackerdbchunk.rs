@@ -30,7 +30,7 @@ use crate::net::http::{
 use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StackerDBPushChunkData, StacksMessageType, StacksNodeState};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCPostStackerDBChunkRequestHandler {
     pub contract_identifier: Option<QualifiedContractIdentifier>,
     pub chunk: Option<StackerDBChunkData>,

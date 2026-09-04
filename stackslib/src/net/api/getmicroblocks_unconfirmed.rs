@@ -33,7 +33,7 @@ use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, Stacks
 use crate::net::{Error as NetError, StacksNodeState, MAX_MICROBLOCKS_UNCONFIRMED};
 use crate::util_lib::db::DBConn;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCMicroblocksUnconfirmedRequestHandler {
     pub parent_block_id: Option<StacksBlockId>,
     pub start_sequence: Option<u16>,

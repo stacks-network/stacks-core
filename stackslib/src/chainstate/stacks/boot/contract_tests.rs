@@ -118,6 +118,8 @@ pub struct TestSimBurnStateDB {
     height: u32,
 }
 
+// A default would hide temporary MARF setup, database writes, and a commit.
+#[allow(clippy::new_without_default)]
 impl ClarityTestSim {
     pub fn new() -> ClarityTestSim {
         let mut marf = MarfedKV::temporary();

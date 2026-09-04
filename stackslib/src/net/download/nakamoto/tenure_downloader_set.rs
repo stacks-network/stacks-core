@@ -66,6 +66,7 @@ pub const PEER_DEPRIORITIZATION_TIME_SECS: u64 = 60;
 /// can make progress even if there is only one available peer (in which case, that peer will get
 /// scheduled across multiple machines to drive their progress in the right sequence such that
 /// tenures will be incrementally fetched and yielded by the p2p state machine to the relayer).
+#[derive(Default)]
 pub struct NakamotoTenureDownloaderSet {
     /// A list of instantiated downloaders that are in progress
     pub(crate) downloaders: Vec<Option<NakamotoTenureDownloader>>,
@@ -513,9 +514,9 @@ impl NakamotoTenureDownloaderSet {
     /// Run all confirmed downloaders.
     /// * Identify neighbors for which we do not have an inflight request
     /// * Get each such neighbor's downloader, and generate its next HTTP reqeust. Send that
-    /// request to the neighbor and begin driving the underlying socket I/O.
+    ///   request to the neighbor and begin driving the underlying socket I/O.
     /// * Get each HTTP reply, and pass it into the corresponding downloader's handler to advance
-    /// its state.
+    ///   its state.
     /// * Identify and remove misbehaving neighbors and neighbors whose connections have broken.
     ///
     /// Returns the set of downloaded blocks obtained for completed downloaders.  These will be

@@ -311,6 +311,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
 /// This command waits for a block that contains:
 /// 1. A TenureChange transaction with cause BlockFound
 /// 2. A Coinbase transaction
+///
 /// This verifies that a proper tenure change has occurred.
 pub struct ChainExpectStacksTenureChange {
     ctx: Arc<SignerTestContext>,

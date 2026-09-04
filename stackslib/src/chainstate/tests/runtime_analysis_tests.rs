@@ -1340,15 +1340,15 @@ fn trait_reference_unknown_transitive_use_trait_ccall() {
 /// Scenario:
 ///   - `foo`        — `(define-trait foo ((do-it () (response bool uint))))`
 ///   - `transitive` — `(define-trait foo ((other-method () ...)))` comes first, then
-///                    `(use-trait alias .foo.foo)` (remote name also "foo").
-///                    Analysis: use-trait overwrites `defined_traits["foo"]` → `{do-it}`.
-///                    Runtime:  `defined_traits["foo"]` = `{other-method}` (define-trait only).
+///     `(use-trait alias .foo.foo)` (remote name also "foo").
+///     Analysis: use-trait overwrites `defined_traits["foo"]` → `{do-it}`.
+///     Runtime:  `defined_traits["foo"]` = `{other-method}` (define-trait only).
 ///   - `foo-impl`   — `(impl-trait .foo.foo)` + `(define-public (do-it) ...)`.
-///                    Does NOT impl-trait `.transitive.foo`, so the short-circuit is bypassed.
+///     Does NOT impl-trait `.transitive.foo`, so the short-circuit is bypassed.
 ///   - `call-foo`   — `(use-trait foo .transitive.foo)`.
-///                    Analysis sees `do-it` in `.transitive.foo` and accepts the call.
-///                    Runtime: `lookup_trait_definition("foo")` finds `{other-method}`;
-///                    `get("do-it")` returns `None` → `TraitMethodUnknown`.
+///     Analysis sees `do-it` in `.transitive.foo` and accepts the call.
+///     Runtime: `lookup_trait_definition("foo")` finds `{other-method}`;
+///     `get("do-it")` returns `None` → `TraitMethodUnknown`.
 ///
 /// Outcome: block accepted.
 #[test]
