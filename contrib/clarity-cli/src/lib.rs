@@ -130,6 +130,7 @@ pub fn read_file_or_stdin_bytes(path: &str) -> Vec<u8> {
     )
 }
 
+/// Build the error message shown when a read of `path` fails.
 fn read_error_message(path: &str) -> String {
     if path == "-" {
         "Error reading from stdin".to_string()
@@ -138,6 +139,7 @@ fn read_error_message(path: &str) -> String {
     }
 }
 
+/// Read UTF-8 content from `path`, or from stdin if `path` is "-".
 fn try_read_file_or_stdin(path: &str) -> io::Result<String> {
     if path == "-" {
         let mut buffer = String::new();
@@ -148,6 +150,7 @@ fn try_read_file_or_stdin(path: &str) -> io::Result<String> {
     }
 }
 
+/// Read raw bytes from `path`, or from stdin if `path` is "-".
 fn try_read_file_or_stdin_bytes(path: &str) -> io::Result<Vec<u8>> {
     if path == "-" {
         let mut buffer = vec![];
@@ -161,10 +164,7 @@ fn try_read_file_or_stdin_bytes(path: &str) -> io::Result<Vec<u8>> {
 /// Read content from an optional file path, defaulting to stdin if None or "-"
 pub fn read_optional_file_or_stdin(path: Option<&PathBuf>) -> String {
     match path {
-        Some(p) => read_file_or_stdin(friendly_expect_opt(
-            p.to_str(),
-            &format!("Invalid UTF-8 in path {}", p.display()),
-        )),
+        Some(p) => read_file_or_stdin(p.to_str().expect("Invalid UTF-8 in path")),
         None => read_file_or_stdin("-"),
     }
 }
@@ -2513,21 +2513,24 @@ mod test {
 
     #[test]
     fn read_missing_file_is_an_error() {
-        let missing = format!("/tmp/missing_{}.clar", rand::thread_rng().r#gen::<i32>());
+        let missing = "path/to/unexistent_contract.clar";
 
         assert_eq!(
-            try_read_file_or_stdin(&missing).unwrap_err().kind(),
+            try_read_file_or_stdin(missing).unwrap_err().kind(),
             io::ErrorKind::NotFound
         );
         assert_eq!(
-            try_read_file_or_stdin_bytes(&missing).unwrap_err().kind(),
+            try_read_file_or_stdin_bytes(missing).unwrap_err().kind(),
             io::ErrorKind::NotFound
         );
     }
 
     #[test]
     fn read_file_returns_its_contents() {
-        let path = format!("/tmp/read_{}.clar", rand::thread_rng().r#gen::<i32>());
+        let path = std::env::temp_dir()
+            .join("clarity_cli_read_file_returns_its_contents.clar")
+            .to_string_lossy()
+            .into_owned();
         fs::write(&path, "(ok u1)").unwrap();
 
         assert_eq!(try_read_file_or_stdin(&path).unwrap(), "(ok u1)");
