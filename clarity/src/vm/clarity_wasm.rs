@@ -18,9 +18,11 @@ use wasmtime::{
 
 use super::callables::{DefineType, DefinedFunction};
 use super::costs::{CostTracker, constants as cost_constants};
-use super::database::STXBalance;
+use super::database::{ClarityDatabase, STXBalance};
 use super::events::*;
-use super::functions::bitcoin::{VERIFY_MERKLE_PROOF_MAX_DEPTH, native_verify_merkle_proof, native_get_bitcoin_tx_output};
+use super::functions::bitcoin::{
+    VERIFY_MERKLE_PROOF_MAX_DEPTH, native_get_bitcoin_tx_output, native_verify_merkle_proof,
+};
 use super::functions::crypto::{pubkey_to_address_v1, pubkey_to_address_v2};
 use super::types::signatures::CallableSubtype;
 use super::types::{
@@ -484,9 +486,155 @@ pub fn initialize_contract(
     }
 }
 
-/// Call a function in the contract.
+/// The return type of `function`, needed to read the function's result out of Wasm memory.
+///
+/// Contracts published by the interpreter store `None` for the return type of every function in
+/// their `ContractContext`, only the Wasm publish path records it, so for those the declared
+/// return type is read from the stored contract analysis instead.
+fn function_return_type(
+    function: &DefinedFunction,
+    contract_identifier: &QualifiedContractIdentifier,
+    database: &mut ClarityDatabase,
+) -> Result<TypeSignature, VmExecutionError> {
+    if let Some(return_type) = function.get_return_type() {
+        return Ok(return_type.clone());
+    }
+
+    let analysis = database.load_contract_analysis(contract_identifier)?;
+    let function_type = analysis.as_ref().and_then(|analysis| {
+        let function_name = function.get_name();
+        match function.define_type {
+            DefineType::Public => analysis.get_public_function_type(function_name),
+            DefineType::ReadOnly => analysis.get_read_only_function_type(function_name),
+            DefineType::Private => analysis.get_private_function(function_name),
+        }
+    });
+
+    match function_type {
+        Some(FunctionType::Fixed(fixed)) => Ok(fixed.returns.clone()),
+        _ => Err(VmExecutionError::Wasm(WasmError::ExpectedReturnValue)),
+    }
+}
+
+/// Call a function in the contract, using the Wasm module which was compiled when the contract
+/// was deployed.
 #[allow(clippy::too_many_arguments)]
 pub fn call_function<'a>(
+    function_name: &str,
+    args: &[Value],
+    global_context: &'a mut GlobalContext,
+    contract_context: &'a ContractContext,
+    call_stack: &'a mut CallStack,
+    sender: Option<PrincipalData>,
+    caller: Option<PrincipalData>,
+    sponsor: Option<PrincipalData>,
+) -> Result<Value, VmExecutionError> {
+    let engine = global_context.engine.clone();
+    let module = contract_context.with_wasm_module(|wasm_module| unsafe {
+        Module::deserialize(&engine, wasm_module)
+            .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))
+    })?;
+
+    call_function_with_module(
+        module,
+        function_name,
+        args,
+        global_context,
+        contract_context,
+        call_stack,
+        sender,
+        caller,
+        sponsor,
+    )
+}
+
+/// Compile a contract which was deployed without a Wasm module -- a boot contract, or any
+/// contract deployed before Wasm compilation was enabled -- then call `function_name` on the
+/// freshly compiled module. The compiled module is kept in the contract cache, so that later
+/// calls in this transaction do not have to compile the contract again.
+///
+/// The compilation is not charged to the caller: the contract's analysis was already paid for
+/// when it was deployed, and charging for it here would make the cost of a contract-call depend
+/// on which runtime happens to hold the contract.
+#[allow(clippy::too_many_arguments)]
+pub fn compile_and_call_function<'a>(
+    function_name: &str,
+    args: &[Value],
+    global_context: &'a mut GlobalContext,
+    contract_context: &'a ContractContext,
+    call_stack: &'a mut CallStack,
+    sender: Option<PrincipalData>,
+    caller: Option<PrincipalData>,
+    sponsor: Option<PrincipalData>,
+) -> Result<Value, VmExecutionError> {
+    let contract_identifier = contract_context.contract_identifier.clone();
+    let clarity_version = *contract_context.get_clarity_version();
+
+    let compiler = global_context.database.get_wasm_compiler().ok_or_else(|| {
+        VmExecutionError::Wasm(WasmError::WasmGeneratorError(
+            "no Wasm compiler is available for contracts deployed without a Wasm module".into(),
+        ))
+    })?;
+
+    // Compile the contract in the epoch it was deployed in, so that the generated code matches
+    // the analysis it was deployed with. Contracts which were never analyzed (some unit tests)
+    // fall back to the current epoch.
+    let epoch = global_context
+        .database
+        .load_contract_analysis(&contract_identifier)?
+        .map_or(global_context.epoch_id, |analysis| analysis.epoch);
+
+    debug!("Compiling {contract_identifier} to Wasm for a contract-call";
+           "function" => %function_name,
+           "clarity_version" => %clarity_version,
+           "epoch" => %epoch);
+
+    let compilation = compiler(
+        &mut global_context.database,
+        &contract_identifier,
+        clarity_version,
+        epoch,
+    )
+    .map_err(|e| VmExecutionError::Wasm(WasmError::WasmGeneratorError(e)))?;
+
+    let engine = global_context.engine.clone();
+    let module = Module::from_binary(&engine, &compilation.module)
+        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
+
+    // Complete the contract context for the Wasm runtime: attach the compiled module, in the
+    // serialized form `call_function` expects, and fill in the function return types which the
+    // interpreter's deploy path does not record.
+    let mut contract_context = contract_context.clone();
+    contract_context.set_wasm_module(
+        module
+            .serialize()
+            .map_err(|e| VmExecutionError::Wasm(WasmError::WasmCompileFailed(e)))?,
+    );
+    contract_context.complete_function_return_types(&compilation.analysis);
+
+    // Keep the completed contract context in the cache, so that the rest of this transaction
+    // calls this contract through the ordinary path.
+    global_context
+        .database
+        .cache_contract_context(&contract_identifier, contract_context.clone());
+
+    call_function_with_module(
+        module,
+        function_name,
+        args,
+        global_context,
+        &contract_context,
+        call_stack,
+        sender,
+        caller,
+        sponsor,
+    )
+}
+
+/// Call a function in the contract, using an already loaded Wasm `module`.
+#[allow(clippy::too_many_arguments)]
+fn call_function_with_module<'a>(
+    module: Module,
     function_name: &str,
     args: &[Value],
     global_context: &'a mut GlobalContext,
@@ -515,12 +663,6 @@ pub fn call_function<'a>(
         .ok_or(RuntimeCheckErrorKind::UndefinedFunction(
             function_name.to_string(),
         ))?;
-    let module = context
-        .contract_context()
-        .with_wasm_module(|wasm_module| unsafe {
-            Module::deserialize(&engine, wasm_module)
-                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))
-        })?;
     let mut store = Store::new(&engine, context);
     let mut linker = Linker::new(&engine);
 
@@ -685,11 +827,11 @@ pub fn call_function<'a>(
         .set(&mut store, Val::I32(offset))
         .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e)))?;
 
-    let return_type = func_types
-        .get_return_type()
-        .as_ref()
-        .ok_or(VmExecutionError::Wasm(WasmError::ExpectedReturnValue))?
-        .clone();
+    let return_type = function_return_type(
+        &func_types,
+        &contract_context.contract_identifier,
+        &mut store.data_mut().global_context.database,
+    )?;
 
     // Call the function
     let mut results: Vec<_> = clar2wasm_ty(&return_type)

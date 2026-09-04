@@ -479,6 +479,14 @@ impl DefinedFunction {
         &self.return_type
     }
 
+    /// Record the function's return type. The interpreter's deploy path leaves it unset, so it
+    /// has to be filled in from the contract's analysis before the function can be executed by
+    /// the Wasm runtime.
+    #[cfg(feature = "clarity-wasm")]
+    pub fn set_return_type(&mut self, return_type: TypeSignature) {
+        self.return_type = Some(return_type);
+    }
+
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
         for i in 0..self.arguments.len() {
             self.arg_types[i] = self.arg_types[i].canonicalize(epoch);
