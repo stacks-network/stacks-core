@@ -28,7 +28,10 @@ use stacks_signer::v0::SpawnedSigner;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use super::{SignerTest, *};
-use crate::nakamoto_node::miner::TEST_BLOCK_ANNOUNCE_STALL;
+use crate::nakamoto_node::miner::{
+    fault_injection_try_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
+    TEST_P2P_BROADCAST_STALL,
+};
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{get_chain_info, submit_tx, test_observer};
 
@@ -577,17 +580,19 @@ fn deadlock_50_50_split_capitulates_to_node_tip() {
 /// 2. The node mines 1 stacks block N (all signers sign it).
 /// 3. 20% of the signers are configured to to auto reject any block proposals and ignore incoming block responses, broadcast of new blocks are skipped.
 /// 4. The miner proposes block N+1.
-/// 5. The 20% reject block N+1. The 80% are over the pre-commit threshold on their own, so they pre-commit and then sign it.
+/// 5. The 20% reject block N+1. The 80% are over the pre-commit threshold on their own, so they pre-commit and then sign it. Block N+1 is held out of the node's chainstate, so the node's tenure tip stays at block N.
 /// 6. A new tenure starts.
-/// 7. The 80% of signers that signed block N+1, view the last block of the parent tenure as block N+1. The 20% of signers that rejected block N+1, view the last block of the parent tenure as block N.
-/// 8. The 20% of signers that rejected block N+1 eventually capitulate their view of the parent tenure last block to block N+1 after the timeout period.
-/// 9. The node mines block N+2 successfully with all signers signing it.
+/// 7. The 80% of signers that signed block N+1, view the last block of the parent tenure as block N+1, which they read from their own signerdb. The 20% of signers that rejected block N+1 have only the node's tenure tip to go on, so they view the last block of the parent tenure as block N. This split view is stable for as long as the node is held at block N.
+/// 8. The miner is held before it can propose the next tenure's block, and block N+1 is released to the node. The 20% stay deaf to block announcements, block responses and pre-commits, so the node's tenure tip is the only place N+1 is visible to them.
+/// 9. The 20% of signers that rejected block N+1 eventually capitulate their view of the parent tenure last block to block N+1 after the timeout period. Because every other route to N+1 is blocked, this can only happen through `LocalStateMachine::capitulate_viewpoint`.
+/// 10. The 20% are allowed to take part again, the miner is released, and the node mines block N+2 successfully with all signers signing it.
 ///
 /// Test Assertion:
 /// - All signers accepted block N.
 /// - 80% of signers pre-commit/sign block N+1, while the other 20% reject it.
-/// - After the timeout period, all signers see the parent tenure last block as block N+1.
-/// - All signers accept block N+2 as valid.
+/// - The 20% still report block N as the parent tenure last block while the supermajority reports N+1.
+/// - After the timeout period, and only by capitulating, all signers see the parent tenure last block as block N+1.
+/// - All signers accept block N+2, which is built on N+1, as valid.
 fn minority_signers_capitulate_to_supermajority_consensus() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -680,6 +685,7 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT.set(rejecting_signers.clone());
     TEST_SKIP_BLOCK_BROADCAST.set(true);
     TEST_BLOCK_ANNOUNCE_STALL.set(true);
+    TEST_P2P_BROADCAST_STALL.set(true);
     test_observer::clear();
 
     // submit a tx so that the miner will mine a stacks block N+1
@@ -717,8 +723,8 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
 
     info!("------------------------- Start Next Tenure -------------------------");
     TEST_REJECT_ALL_BLOCK_PROPOSAL.set(Vec::new());
-    TEST_SIGNERS_IGNORE_PRE_COMMITS.set(vec![]);
-    TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
+    // Keep TEST_SIGNERS_IGNORE_PRE_COMMITS and TEST_SIGNERS_IGNORE_BLOCK_RESPONSES set for the
+    // rejecting signers until the split view below has been observed.
     test_observer::clear();
     signer_test.mine_bitcoin_block();
     let now = std::time::Instant::now();
@@ -795,9 +801,27 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     })
     .expect("Signers did not update state machine with split view of parent tenure last block");
 
-    TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT.set(vec![]);
+    // Hold the miner before it can propose the next tenure's block. The rejecting signers stay
+    // deaf to their peers for the whole capitulation window below, so they could not take part in
+    // signing that block, and the supermajority would globally accept it on its own before they
+    // ever capitulate.
+    fault_injection_try_stall_miner();
+
+    // Let the node process block N+1, so that the node's tenure tip, and nothing else the
+    // rejecting signers can see, carries N+1. TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT,
+    // TEST_SIGNERS_IGNORE_BLOCK_RESPONSES and TEST_SIGNERS_IGNORE_PRE_COMMITS all stay set for the
+    // rejecting signers, which closes off every other route by which they could pick up N+1 as the
+    // parent tenure's last block.
+    TEST_P2P_BROADCAST_STALL.set(false);
     TEST_SKIP_BLOCK_BROADCAST.set(false);
     TEST_BLOCK_ANNOUNCE_STALL.set(false);
+
+    // Capitulation reads the parent tenure's last block from the node, so the node must have
+    // processed N+1 before the wait below means anything.
+    wait_for(30, || {
+        Ok(signer_test.get_peer_info().stacks_tip_height == info_before.stacks_tip_height + 1)
+    })
+    .expect("Node did not process block N+1");
 
     // capitulate_viewpoint has TWO guards that must both be satisfied:
     // 1. last_capitulate_miner_view must be older than capitulate_miner_view_timeout
@@ -843,6 +867,14 @@ fn minority_signers_capitulate_to_supermajority_consensus() {
     .expect("Originally approving signers did not update state machine to capitulated parent tenure last block N+1");
 
     info!("------------------------- Waiting for block N+2 approval from capitulated signer -------------------------");
+    // The minority has capitulated, so let it take part again and release the miner. Block N+2 is
+    // built on N+1, so the capitulated signers can only sign it if they really did move their view
+    // of the parent tenure's last block to N+1.
+    TEST_SIGNERS_IGNORE_BLOCK_ANNOUNCEMENT.set(vec![]);
+    TEST_SIGNERS_IGNORE_PRE_COMMITS.set(vec![]);
+    TEST_SIGNERS_IGNORE_BLOCK_RESPONSES.set(vec![]);
+    fault_injection_unstall_miner();
+
     let transfer_tx = make_stacks_transfer_serialized(
         &sender_sk,
         sender_nonce,
