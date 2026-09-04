@@ -1236,8 +1236,12 @@ fn test_http_delivery_non_blocking() {
         vec![],
     );
 
+    // a blocking dispatcher would have waited out the server's 2s delay, so
+    // this bound only has to be comfortably below that -- the send itself has
+    // to serialize the payload and commit it to SQLite, which is not free on a
+    // loaded machine
     assert!(
-        start.elapsed() < Duration::from_millis(100),
+        start.elapsed() < Duration::from_millis(500),
         "dispatcher blocked while sending event"
     );
 
@@ -1252,6 +1256,28 @@ fn test_http_delivery_non_blocking() {
     assert!(end_count.load(Ordering::SeqCst) == 1);
 
     mock.assert();
+}
+
+/// Upper bound on how long the HTTP delivery tests wait for the event
+/// dispatcher's worker to make progress.
+const MAX_WAIT: Duration = Duration::from_secs(30);
+
+/// Block until `counter` reaches `expected`, panicking if it has not done so
+/// within `timeout`.
+#[track_caller]
+fn wait_for_count(counter: &AtomicU32, expected: u32, timeout: Duration) {
+    let start = Instant::now();
+    loop {
+        let observed = counter.load(Ordering::SeqCst);
+        if observed >= expected {
+            return;
+        }
+        assert!(
+            start.elapsed() < timeout,
+            "timed out waiting for count to reach {expected}, got {observed}"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
 }
 
 #[test]
@@ -1341,28 +1367,29 @@ fn test_http_delivery_blocks_once_queue_is_full() {
         "dispatcher did not block when sending fourth event"
     );
 
+    // if the queue were smaller than three, we would have had to wait for the
+    // *second* request as well, i.e. on the order of 3.5s
     assert!(
-        start.elapsed() < Duration::from_millis(2000),
+        start.elapsed() < Duration::from_millis(2500),
         "dispatcher blocked unexpectedly long after sending fourth event"
     );
 
+    // The worker delivers the remaining requests strictly one at a time: each
+    // one only starts once its predecessor has completed.
+    for completed in 1..=3 {
+        wait_for_count(&end_count, completed, MAX_WAIT);
+        wait_for_count(&start_count, completed + 1, MAX_WAIT);
+
+        // give the worker a chance to (incorrectly) run ahead, then confirm
+        // that it did not -- only one request is ever in flight
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(start_count.load(Ordering::SeqCst), completed + 1);
+        assert_eq!(end_count.load(Ordering::SeqCst), completed);
+    }
+
+    // the fourth request completes with nothing left to start
+    wait_for_count(&end_count, 4, MAX_WAIT);
     thread::sleep(Duration::from_millis(100));
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 2);
-    assert_eq!(end_count.load(Ordering::SeqCst), 1);
-
-    thread::sleep(Duration::from_secs(2));
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 3);
-    assert_eq!(end_count.load(Ordering::SeqCst), 2);
-
-    thread::sleep(Duration::from_secs(2));
-
-    assert_eq!(start_count.load(Ordering::SeqCst), 4);
-    assert_eq!(end_count.load(Ordering::SeqCst), 3);
-
-    thread::sleep(Duration::from_secs(2));
-
     assert_eq!(start_count.load(Ordering::SeqCst), 4);
     assert_eq!(end_count.load(Ordering::SeqCst), 4);
 
