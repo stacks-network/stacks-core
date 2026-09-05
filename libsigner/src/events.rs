@@ -697,8 +697,9 @@ pub struct StacksBlockEvent {
     signer_signature_hash: Option<Sha512Trunc256Sum>,
     #[serde(with = "prefix_hex")]
     consensus_hash: ConsensusHash,
-    #[serde(with = "prefix_hex")]
-    block_hash: BlockHeaderHash,
+    /// Validates the required node-supplied hash; signer events use the index block hash.
+    #[serde(rename = "block_hash", with = "prefix_hex")]
+    _block_hash: BlockHeaderHash,
     block_height: u64,
     /// The transactions included in the block
     #[serde(deserialize_with = "deserialize_raw_tx_hex")]
@@ -752,9 +753,78 @@ fn signer_message_payload_matches_lane(
 mod tests {
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
     use clarity::types::MiningReason;
+    use serde_json::{json, Value};
 
     use super::*;
-    use crate::v0::messages::MessageSlotID;
+    use crate::v0::messages::{MessageSlotID, SignerMessage};
+
+    /// A minimal node block event with distinct hashes to check field mapping.
+    fn new_block_event_json() -> Value {
+        json!({
+            "index_block_hash": format!("0x{}", "11".repeat(32)),
+            "consensus_hash": format!("0x{}", "22".repeat(20)),
+            "block_hash": format!("0x{}", "33".repeat(32)),
+            "block_height": 42,
+            "transactions": [],
+        })
+    }
+
+    /// Block events retain their field mapping with or without a signer signature hash.
+    #[test]
+    fn test_stacks_block_event_conversion() {
+        for signer_sighash in [None, Some(Sha512Trunc256Sum([0x44; 32]))] {
+            let mut value = new_block_event_json();
+            if let Some(hash) = &signer_sighash {
+                value["signer_signature_hash"] = json!(format!("0x{hash:x}"));
+            }
+            let block_event: StacksBlockEvent = serde_json::from_value(value).unwrap();
+            let event = SignerEvent::<SignerMessage>::try_from(block_event).unwrap();
+            assert_eq!(
+                event,
+                SignerEvent::NewBlock {
+                    block_id: StacksBlockId([0x11; 32]),
+                    consensus_hash: ConsensusHash([0x22; 20]),
+                    signer_sighash,
+                    block_height: 42,
+                    transactions: vec![],
+                }
+            );
+        }
+    }
+
+    /// The unused block hash remains a required, validated field of incoming block events.
+    #[test]
+    fn test_stacks_block_event_requires_valid_block_hash() {
+        let invalid_hashes = [
+            None,
+            Some(Value::Null),
+            Some(json!(0)),
+            Some(json!("")),
+            Some(json!("0x")),
+            Some(json!("33".repeat(32))),
+            Some(json!(format!("0X{}", "33".repeat(32)))),
+            Some(json!(format!("0x{}", "gg".repeat(32)))),
+            Some(json!(format!("0x{}", "33".repeat(31)))),
+            Some(json!(format!("0x{}", "33".repeat(33)))),
+        ];
+        for hash in invalid_hashes {
+            let mut value = new_block_event_json();
+            if let Some(hash) = hash {
+                value["block_hash"] = hash;
+            } else {
+                value.as_object_mut().unwrap().remove("block_hash");
+            }
+            assert!(
+                serde_json::from_value::<StacksBlockEvent>(value.clone()).is_err(),
+                "invalid block hash accepted: {value}"
+            );
+        }
+
+        let mut value = new_block_event_json();
+        let hash = value.as_object_mut().unwrap().remove("block_hash").unwrap();
+        value["_block_hash"] = hash;
+        assert!(serde_json::from_value::<StacksBlockEvent>(value).is_err());
+    }
 
     #[test]
     fn test_get_signers_db_signer_set_message_id() {

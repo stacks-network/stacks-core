@@ -55,10 +55,6 @@ impl<T: SignerEventTrait> SimpleRunLoop<T> {
     }
 }
 
-enum Command {
-    Empty,
-}
-
 impl<T: SignerEventTrait> SignerRunLoop<Vec<SignerEvent<T>>, T> for SimpleRunLoop<T> {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.poll_timeout = timeout;
