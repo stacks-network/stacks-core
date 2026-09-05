@@ -20,7 +20,9 @@ use super::callables::{DefineType, DefinedFunction};
 use super::costs::{CostTracker, constants as cost_constants};
 use super::database::STXBalance;
 use super::events::*;
-use super::functions::bitcoin::{VERIFY_MERKLE_PROOF_MAX_DEPTH, native_verify_merkle_proof, native_get_bitcoin_tx_output};
+use super::functions::bitcoin::{
+    VERIFY_MERKLE_PROOF_MAX_DEPTH, native_get_bitcoin_tx_output, native_verify_merkle_proof,
+};
 use super::functions::crypto::{pubkey_to_address_v1, pubkey_to_address_v2};
 use super::types::signatures::CallableSubtype;
 use super::types::{
@@ -383,6 +385,21 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
     }
 }
 
+/// Roll back every nested context above `depth`, which a trapped Wasm module left open.
+///
+/// A rollback failure is an internal error and takes precedence over the trap: it means the
+/// context stacks are inconsistent, so the caller must not report the trap as an ordinary
+/// runtime error (which would let the transaction be accepted on top of a corrupt state).
+fn unwind_nested_contexts(
+    global_context: &mut GlobalContext,
+    depth: usize,
+) -> Result<(), VmExecutionError> {
+    while global_context.nesting_depth() > depth {
+        global_context.roll_back()?;
+    }
+    Ok(())
+}
+
 /// Push a placeholder value for Wasm type `ty` onto the data stack.
 fn placeholder_for_type(ty: ValType) -> Val {
     match ty {
@@ -451,11 +468,18 @@ pub fn initialize_contract(
         results.push(placeholder_for_type(result_ty));
     }
 
-    top_level
-        .call(&mut store, &[], results.as_mut_slice())
-        .map_err(|e| {
-            error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
-        })?;
+    let nesting_depth = store.data().global_context.nesting_depth();
+    if let Err(e) = top_level.call(&mut store, &[], results.as_mut_slice()) {
+        // See `call_function_with_module`: a trap skips the module's own `roll_back_call`s.
+        unwind_nested_contexts(store.data_mut().global_context, nesting_depth)?;
+        return Err(error_mapping::resolve_error(
+            e,
+            instance,
+            &mut store,
+            &epoch,
+            &clarity_version,
+        ));
+    }
 
     // Save the compiled Wasm module into the contract context
     store.data_mut().contract_context_mut()?.set_wasm_module(
@@ -696,10 +720,20 @@ pub fn call_function<'a>(
         .into_iter()
         .map(placeholder_for_type)
         .collect();
-    func.call(&mut store, &wasm_args, &mut results)
-        .map_err(|e| {
-            error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
-        })?;
+    let nesting_depth = store.data().global_context.nesting_depth();
+    if let Err(e) = func.call(&mut store, &wasm_args, &mut results) {
+        // The module opens a nested context (`begin_public_call`) for every local call to a
+        // public function and closes it with `commit_call`/`roll_back_call`. A trap skips the
+        // close, so unwind whatever the module left open.
+        unwind_nested_contexts(store.data_mut().global_context, nesting_depth)?;
+        return Err(error_mapping::resolve_error(
+            e,
+            instance,
+            &mut store,
+            &epoch,
+            &clarity_version,
+        ));
+    }
 
     let updated_cost = cost_globals
         .to_cost_meter(&mut store.as_context_mut())
