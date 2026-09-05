@@ -940,12 +940,6 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
     }
 }
 
-struct ProposalThreadInfo {
-    sortdb: SortitionDB,
-    chainstate: StacksChainState,
-    receiver: Box<dyn ProposalCallbackReceiver>,
-}
-
 impl RPCRequestHandler for RPCBlockProposalRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {

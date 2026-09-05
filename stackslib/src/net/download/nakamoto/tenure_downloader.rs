@@ -49,8 +49,6 @@ pub enum NakamotoTenureDownloadState {
     Done,
 }
 
-pub const WAIT_FOR_TENURE_END_BLOCK_TIMEOUT: u64 = 1;
-
 impl fmt::Display for NakamotoTenureDownloadState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)

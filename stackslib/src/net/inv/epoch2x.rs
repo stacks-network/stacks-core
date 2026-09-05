@@ -1674,37 +1674,6 @@ impl PeerNetwork {
         }))
     }
 
-    /// Is a peer worth talking to?
-    fn is_peer_target(&self, nk: &NeighborKey) -> bool {
-        // don't talk to inbound peers; only outbound (and only ones we have the key for)
-        // (we make this check each time we begin a round of requests, since the set of
-        // available peers can change during this time).
-        match self.events.get(nk) {
-            Some(event_id) => match self.peers.get(event_id) {
-                Some(convo) => {
-                    if !convo.is_outbound() {
-                        debug!("{:?}: skip {:?}: not outbound", &self.local_peer, convo);
-                        return false;
-                    }
-                    if !convo.is_authenticated() {
-                        debug!(
-                            "{:?}: skip {:?}: not authenticated",
-                            &self.local_peer, convo
-                        );
-                        return false;
-                    }
-                    return true;
-                }
-                None => {
-                    return false;
-                }
-            },
-            None => {
-                return false;
-            }
-        }
-    }
-
     /// Make a possible GetPoxInv request for this neighbor.
     /// Returns Some((target-reward-cycle, getpoxinv-request)) if we are to request a PoX
     /// inventory for this node.
