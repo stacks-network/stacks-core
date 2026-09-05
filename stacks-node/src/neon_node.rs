@@ -1810,7 +1810,10 @@ impl BlockMinerThread {
                 u16::MAX,
             ) {
                 Ok(x) => {
-                    let num_mblocks = x.as_ref().map(|(mblocks, ..)| mblocks.len()).unwrap_or(0);
+                    let num_mblocks = x
+                        .as_ref()
+                        .map(|stream| stream.microblocks.len())
+                        .unwrap_or(0);
                     debug!(
                         "Loaded {num_mblocks} microblocks descending from {parent_consensus_hash}/{} (data: {})",
                         &stacks_parent_header.anchored_header.block_hash(),
@@ -1827,7 +1830,9 @@ impl BlockMinerThread {
                 }
             };
 
-        if let Some((ref microblocks, ref poison_opt)) = &microblock_info_opt {
+        if let Some(stream) = &microblock_info_opt {
+            let microblocks = &stream.microblocks;
+            let poison_opt = &stream.poison_payload;
             if let Some(tail) = microblocks.last() {
                 debug!(
                     "Confirm microblock stream tailed at {} (seq {})",
@@ -1871,7 +1876,7 @@ impl BlockMinerThread {
             }
         }
 
-        microblock_info_opt.map(|(stream, _)| stream)
+        microblock_info_opt.map(|stream| stream.microblocks)
     }
 
     /// Get the list of possible burn addresses this miner is using

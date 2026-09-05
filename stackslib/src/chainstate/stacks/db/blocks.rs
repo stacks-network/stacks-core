@@ -49,7 +49,7 @@ use crate::chainstate::coordinator::BlockEventDispatcher;
 use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation};
 use crate::chainstate::nakamoto::{NakamotoChainState, TxToProcess};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::db::accounts::MinerReward;
+use crate::chainstate::stacks::db::accounts::{MaturedMinerPayouts, MinerReward};
 use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::StacksBlockEventData;
@@ -136,6 +136,23 @@ pub enum MemPoolRejection {
     Other(String),
 }
 
+/// A loaded descendant microblock stream and evidence of a fork, if found.
+pub struct StagingMicroblockStream {
+    /// Non-forked prefix of the descendant stream.
+    pub microblocks: Vec<StacksMicroblock>,
+    /// Poison transaction payload identifying conflicting microblocks.
+    pub poison_payload: Option<TransactionPayload>,
+}
+
+/// Receipt and optional fork evidence from processing one staging block.
+#[derive(Debug, Clone, Default)]
+pub struct StagingBlockOutcome {
+    /// Processed block receipt; absent for invalid blocks or when no block was processed.
+    pub receipt: Option<StacksEpochReceipt>,
+    /// Poison transaction payload for a discovered microblock fork.
+    pub poison_payload: Option<TransactionPayload>,
+}
+
 pub struct SetupBlockResult<'a, 'b> {
     pub clarity_tx: ClarityTx<'a, 'b>,
     pub tx_receipts: Vec<StacksTransactionReceipt>,
@@ -143,8 +160,7 @@ pub struct SetupBlockResult<'a, 'b> {
     pub microblock_fees: u128,
     pub microblock_burns: u128,
     pub microblock_txs_receipts: Vec<StacksTransactionReceipt>,
-    pub matured_miner_rewards_opt:
-        Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
+    pub matured_miner_rewards_opt: Option<MaturedMinerPayouts>,
     pub evaluated_epoch: StacksEpochId,
     pub applied_epoch_transition: bool,
     pub burn_stack_stx_ops: Vec<StackStxOp>,
@@ -1297,7 +1313,7 @@ impl StacksChainState {
             start_seq,
             last_seq,
         )?;
-        Ok(res.map(|(microblocks, _)| microblocks))
+        Ok(res.map(|stream| stream.microblocks))
     }
 
     /// Load up a block's longest non-forked descendant microblock stream, given its block hash and burn header hash.
@@ -1310,7 +1326,7 @@ impl StacksChainState {
         parent_index_block_hash: &StacksBlockId,
         start_seq: u16,
         last_seq: u16,
-    ) -> Result<Option<(Vec<StacksMicroblock>, Option<TransactionPayload>)>, Error> {
+    ) -> Result<Option<StagingMicroblockStream>, Error> {
         assert!(last_seq >= start_seq);
 
         let sql = if start_seq == last_seq {
@@ -1422,7 +1438,10 @@ impl StacksChainState {
             // just as if there were no blocks loaded
             Ok(None)
         } else {
-            Ok(Some((ret, fork_poison)))
+            Ok(Some(StagingMicroblockStream {
+                microblocks: ret,
+                poison_payload: fork_poison,
+            }))
         }
     }
 
@@ -4743,15 +4762,7 @@ impl StacksChainState {
         burn_tip: &BurnchainHeaderHash,
         burn_tip_height: u64,
         epoch_start_height: u64,
-    ) -> Result<
-        (
-            Vec<StackStxOp>,
-            Vec<TransferStxOp>,
-            Vec<DelegateStxOp>,
-            Vec<VoteForAggregateKeyOp>,
-        ),
-        Error,
-    > {
+    ) -> Result<StacksOnBurnchainOperations, Error> {
         // only consider transactions in Stacks 2.1
         let search_window: u8 =
             if epoch_start_height + u64::from(BURNCHAIN_TX_SEARCH_WINDOW) > burn_tip_height {
@@ -4824,12 +4835,12 @@ impl StacksChainState {
                 }
             }
         }
-        Ok((
-            all_stacking_burn_ops,
-            all_transfer_burn_ops,
-            all_delegate_burn_ops,
-            all_vote_for_aggregate_key_ops,
-        ))
+        Ok(StacksOnBurnchainOperations {
+            stack: all_stacking_burn_ops,
+            transfer: all_transfer_burn_ops,
+            delegate: all_delegate_burn_ops,
+            vote_for_aggregate_key: all_vote_for_aggregate_key_ops,
+        })
     }
 
     /// Get the list of burnchain-hosted stacking and transfer operations to apply when evaluating
@@ -4864,15 +4875,7 @@ impl StacksChainState {
         sortdb_conn: &Connection,
         burn_tip: &BurnchainHeaderHash,
         burn_tip_height: u64,
-    ) -> Result<
-        (
-            Vec<StackStxOp>,
-            Vec<TransferStxOp>,
-            Vec<DelegateStxOp>,
-            Vec<VoteForAggregateKeyOp>,
-        ),
-        Error,
-    > {
+    ) -> Result<StacksOnBurnchainOperations, Error> {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
             .expect("FATAL: no epoch defined for current burnchain tip height");
 
@@ -4886,21 +4889,34 @@ impl StacksChainState {
                 cur_epoch.start_height,
             )
         } else if cur_epoch.epoch_id >= StacksEpochId::Epoch21 {
-            let (stack_ops, transfer_ops, delegate_ops, _) =
-                StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                    chainstate_tx,
-                    parent_index_hash,
-                    sortdb_conn,
-                    burn_tip,
-                    burn_tip_height,
-                    cur_epoch.start_height,
-                )?;
-            Ok((stack_ops, transfer_ops, delegate_ops, vec![]))
+            let StacksOnBurnchainOperations {
+                stack: stack_ops,
+                transfer: transfer_ops,
+                delegate: delegate_ops,
+                ..
+            } = StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
+                chainstate_tx,
+                parent_index_hash,
+                sortdb_conn,
+                burn_tip,
+                burn_tip_height,
+                cur_epoch.start_height,
+            )?;
+            Ok(StacksOnBurnchainOperations {
+                stack: stack_ops,
+                transfer: transfer_ops,
+                delegate: delegate_ops,
+                vote_for_aggregate_key: vec![],
+            })
         } else {
             let (stack_ops, transfer_ops) =
                 StacksChainState::get_stacking_and_transfer_burn_ops_v205(sortdb_conn, burn_tip)?;
             // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
-            Ok((stack_ops, transfer_ops, vec![], vec![]))
+            Ok(StacksOnBurnchainOperations {
+                stack: stack_ops,
+                transfer: transfer_ops,
+                ..StacksOnBurnchainOperations::default()
+            })
         }
     }
 
@@ -5053,14 +5069,18 @@ impl StacksChainState {
             (latest_miners, parent_miner)
         };
 
-        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops, vote_for_agg_key_burn_ops) =
-            StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
-                chainstate_tx,
-                &parent_index_hash,
-                conn,
-                burn_tip,
-                burn_tip_height.into(),
-            )?;
+        let StacksOnBurnchainOperations {
+            stack: stacking_burn_ops,
+            transfer: transfer_burn_ops,
+            delegate: delegate_burn_ops,
+            vote_for_aggregate_key: vote_for_agg_key_burn_ops,
+        } = StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
+            chainstate_tx,
+            &parent_index_hash,
+            conn,
+            burn_tip,
+            burn_tip_height.into(),
+        )?;
 
         // load the execution cost of the parent block if the executor is the follower.
         // otherwise, if the executor is the miner, only load the parent cost if the parent
@@ -5298,12 +5318,18 @@ impl StacksChainState {
     /// Returns stx lockup events.
     pub fn finish_block(
         clarity_tx: &mut ClarityTx,
-        miner_payouts: Option<&(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
+        miner_payouts: Option<&MaturedMinerPayouts>,
         block_height: u32,
         mblock_pubkey_hash: &Hash160,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         // add miner payments
-        if let Some((ref miner_reward, ref user_rewards, ref parent_reward, _)) = miner_payouts {
+        if let Some(MaturedMinerPayouts {
+            miner: miner_reward,
+            users: user_rewards,
+            parent: parent_reward,
+            ..
+        }) = miner_payouts
+        {
             // grant in order by miner, then users
             let matured_ustx = StacksChainState::process_matured_miner_rewards(
                 clarity_tx,
@@ -5616,22 +5642,30 @@ impl StacksChainState {
             let block_cost = clarity_tx.cost_so_far();
 
             // obtain reward info for receipt -- consolidate miner, user, and parent rewards into a
-            // single list, but keep the miner/user/parent/info tuple for advancing the chain tip
-            let (matured_rewards, miner_payouts_opt) =
-                if let Some((miner_reward, mut user_rewards, parent_reward, reward_ptr)) =
-                    matured_miner_rewards_opt
-                {
-                    let mut ret = vec![];
-                    ret.push(miner_reward.clone());
-                    ret.append(&mut user_rewards);
-                    ret.push(parent_reward.clone());
-                    (
-                        ret,
-                        Some((miner_reward, user_rewards, parent_reward, reward_ptr)),
-                    )
-                } else {
-                    (vec![], None)
-                };
+            // single list, but keep the separate reward components for advancing the chain tip
+            let (matured_rewards, miner_payouts_opt) = if let Some(MaturedMinerPayouts {
+                miner: miner_reward,
+                users: mut user_rewards,
+                parent: parent_reward,
+                info: reward_ptr,
+            }) = matured_miner_rewards_opt
+            {
+                let mut ret = vec![];
+                ret.push(miner_reward.clone());
+                ret.append(&mut user_rewards);
+                ret.push(parent_reward.clone());
+                (
+                    ret,
+                    Some(MaturedMinerPayouts {
+                        miner: miner_reward,
+                        users: user_rewards,
+                        parent: parent_reward,
+                        info: reward_ptr,
+                    }),
+                )
+            } else {
+                (vec![], None)
+            };
 
             // total burns
             let total_burnt = block_burns
@@ -5757,7 +5791,7 @@ impl StacksChainState {
 
         let matured_rewards_info = miner_payouts_opt
             .as_ref()
-            .map(|(_, _, _, info)| info.clone());
+            .map(|rewards| rewards.info.clone());
 
         if do_not_advance {
             let regtest_genesis_header = StacksHeaderInfo::regtest_genesis();
@@ -6017,7 +6051,7 @@ impl StacksChainState {
         &mut self,
         sort_tx: &mut SortitionHandleTx,
         dispatcher_opt: Option<&T>,
-    ) -> Result<(Option<StacksEpochReceipt>, Option<TransactionPayload>), Error> {
+    ) -> Result<StagingBlockOutcome, Error> {
         let blocks_path = self.blocks_path.clone();
         let (mut chainstate_tx, clarity_instance) = self.chainstate_tx_begin();
 
@@ -6037,7 +6071,7 @@ impl StacksChainState {
 
                     // save any orphaning we did
                     chainstate_tx.commit().map_err(Error::DBError)?;
-                    return Ok((None, None));
+                    return Ok(StagingBlockOutcome::default());
                 }
             };
 
@@ -6105,7 +6139,7 @@ impl StacksChainState {
         let parent_header_info =
             match StacksChainState::get_parent_header_info(&chainstate_tx, &next_staging_block)? {
                 Some(hinfo) => hinfo,
-                None => return Ok((None, None)),
+                None => return Ok(StagingBlockOutcome::default()),
             };
 
         let block = StacksChainState::extract_stacks_block(&next_staging_block)?;
@@ -6141,7 +6175,7 @@ impl StacksChainState {
             )?;
             chainstate_tx.commit().map_err(Error::DBError)?;
 
-            return Ok((None, None));
+            return Ok(StagingBlockOutcome::default());
         }
 
         // validation check -- the block must attach to its accepted parent
@@ -6364,7 +6398,10 @@ impl StacksChainState {
                 panic!()
             });
 
-        Ok((Some(epoch_receipt), None))
+        Ok(StagingBlockOutcome {
+            receipt: Some(epoch_receipt),
+            poison_payload: None,
+        })
     }
 
     /// Process staging blocks at the canonical chain tip,
@@ -6377,7 +6414,7 @@ impl StacksChainState {
         &mut self,
         sort_db: &mut SortitionDB,
         max_blocks: usize,
-    ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
+    ) -> Result<Vec<StagingBlockOutcome>, Error> {
         let tx = sort_db.tx_begin_at_tip();
         let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
         self.process_blocks(tx, max_blocks, null_event_dispatcher)
@@ -6393,7 +6430,7 @@ impl StacksChainState {
         mut sort_tx: SortitionHandleTx,
         max_blocks: usize,
         dispatcher_opt: Option<&T>,
-    ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
+    ) -> Result<Vec<StagingBlockOutcome>, Error> {
         // first, clear out orphans
         let blocks_path = self.blocks_path.clone();
         let mut block_tx = self.db_tx_begin()?;
@@ -6423,13 +6460,22 @@ impl StacksChainState {
         for i in 0..max_blocks {
             // process up to max_blocks pending blocks
             match self.process_next_staging_block(&mut sort_tx, dispatcher_opt) {
-                Ok((next_tip_opt, next_microblock_poison_opt)) => match next_tip_opt {
+                Ok(StagingBlockOutcome {
+                    receipt: next_tip_opt,
+                    poison_payload: next_microblock_poison_opt,
+                }) => match next_tip_opt {
                     Some(next_tip) => {
-                        ret.push((Some(next_tip), next_microblock_poison_opt));
+                        ret.push(StagingBlockOutcome {
+                            receipt: Some(next_tip),
+                            poison_payload: next_microblock_poison_opt,
+                        });
                     }
                     None => match next_microblock_poison_opt {
                         Some(poison) => {
-                            ret.push((None, Some(poison)));
+                            ret.push(StagingBlockOutcome {
+                                receipt: None,
+                                poison_payload: Some(poison),
+                            });
                         }
                         None => {
                             debug!("No more staging blocks -- processed {} in total", i);
@@ -6439,18 +6485,18 @@ impl StacksChainState {
                 },
                 Err(Error::InvalidStacksBlock(msg)) => {
                     warn!("Encountered invalid block: {}", &msg);
-                    ret.push((None, None));
+                    ret.push(StagingBlockOutcome::default());
                     continue;
                 }
                 Err(Error::InvalidStacksMicroblock(msg, hash)) => {
                     warn!("Encountered invalid microblock {}: {}", hash, &msg);
-                    ret.push((None, None));
+                    ret.push(StagingBlockOutcome::default());
                     continue;
                 }
                 Err(Error::NetError(net_error::DeserializeError(msg))) => {
                     // happens if we load a zero-sized block (i.e. an invalid block)
                     warn!("Encountered invalid block: {}", &msg);
-                    ret.push((None, None));
+                    ret.push(StagingBlockOutcome::default());
                     continue;
                 }
                 Err(e) => {
@@ -11146,16 +11192,20 @@ pub mod test {
             {
                 let chainstate = peer.chainstate();
                 let (mut chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
-                let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops, vote_for_aggregate_key_ops) =
-                    StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                        &mut chainstate_tx,
-                        &last_block_id,
-                        sortdb.conn(),
-                        &tip.burn_header_hash,
-                        tip.block_height,
-                        0,
-                    )
-                    .unwrap();
+                let StacksOnBurnchainOperations {
+                    stack: stack_stx_ops,
+                    transfer: transfer_stx_ops,
+                    delegate: delegate_stx_ops,
+                    vote_for_aggregate_key: vote_for_aggregate_key_ops,
+                } = StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
+                    &mut chainstate_tx,
+                    &last_block_id,
+                    sortdb.conn(),
+                    &tip.burn_header_hash,
+                    tip.block_height,
+                    0,
+                )
+                .unwrap();
 
                 assert_eq!(transfer_stx_ops.len(), expected_transfer_ops.len());
                 assert_eq!(delegate_stx_ops.len(), expected_del_ops.len());
@@ -11832,16 +11882,20 @@ pub mod test {
             {
                 let chainstate = peer.chainstate();
                 let (mut chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
-                let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops, _) =
-                    StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
-                        &mut chainstate_tx,
-                        &last_block_id,
-                        sortdb.conn(),
-                        &tip.burn_header_hash,
-                        tip.block_height,
-                        0,
-                    )
-                    .unwrap();
+                let StacksOnBurnchainOperations {
+                    stack: stack_stx_ops,
+                    transfer: transfer_stx_ops,
+                    delegate: delegate_stx_ops,
+                    ..
+                } = StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
+                    &mut chainstate_tx,
+                    &last_block_id,
+                    sortdb.conn(),
+                    &tip.burn_header_hash,
+                    tip.block_height,
+                    0,
+                )
+                .unwrap();
 
                 assert_eq!(transfer_stx_ops.len(), expected_transfer_ops.len());
                 assert_eq!(delegate_stx_ops.len(), expected_delegate_ops.len());

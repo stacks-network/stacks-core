@@ -499,7 +499,6 @@ impl EventDispatcher {
     /// - dispatch_matrix: a vector where each index corresponds to the hashset of event indexes
     ///   that each respective event observer is subscribed to
     /// - events: a vector of all events from all the tx receipts
-    #[allow(clippy::type_complexity)]
     fn create_dispatch_matrix_and_event_vector<'a>(
         &self,
         receipts: &'a [StacksTransactionReceipt],
