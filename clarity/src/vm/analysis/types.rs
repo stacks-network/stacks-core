@@ -62,7 +62,6 @@ pub struct ContractAnalysis {
     pub defined_traits: BTreeMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
     pub implemented_traits: BTreeSet<TraitIdentifier>,
     pub contract_interface: Option<ContractInterface>,
-    pub is_cost_contract_eligible: bool,
     pub epoch: StacksEpochId,
     pub clarity_version: ClarityVersion,
     #[serde(skip)]
@@ -97,7 +96,6 @@ impl ContractAnalysis {
             fungible_tokens: BTreeSet::new(),
             non_fungible_tokens: BTreeMap::new(),
             cost_track: Some(cost_track),
-            is_cost_contract_eligible: false,
             epoch,
             clarity_version,
         }

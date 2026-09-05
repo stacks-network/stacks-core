@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::bounded_format;
+
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -60,9 +62,7 @@ pub fn tuple_get(
 
     let arg_name = args[0]
         .match_atom()
-        .ok_or(RuntimeCheckErrorKind::Unreachable(
-            "Expected name".to_string(),
-        ))?;
+        .ok_or(RuntimeCheckErrorKind::Unreachable("Expected name".into()))?;
 
     let value = eval(&args[1], exec_state, invoke_ctx, context)?;
 
@@ -78,7 +78,7 @@ pub fn tuple_get(
                             )
                         })?)
                     } else {
-                        Err(RuntimeCheckErrorKind::Unreachable(format!(
+                        Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
                             "Expected tuple: {}",
                             TypeSignature::type_of(&data)?
                         ))
@@ -92,7 +92,7 @@ pub fn tuple_get(
             runtime_cost(ClarityCostFunction::TupleGet, exec_state, tuple_data.len())?;
             Ok(tuple_data.get_owned(arg_name)?)
         }
-        other_value => Err(RuntimeCheckErrorKind::Unreachable(format!(
+        other_value => Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected tuple: {}",
             TypeSignature::type_of(&other_value)?
         ))
@@ -116,7 +116,7 @@ pub fn tuple_merge(
 
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
-        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected tuple: {}",
             TypeSignature::type_of(&base)?
         ))),
@@ -124,7 +124,7 @@ pub fn tuple_merge(
 
     let new_values = match update {
         Value::Tuple(new_values) => Ok(new_values),
-        _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
+        _ => Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Expected tuple: {}",
             TypeSignature::type_of(&update)?
         ))),

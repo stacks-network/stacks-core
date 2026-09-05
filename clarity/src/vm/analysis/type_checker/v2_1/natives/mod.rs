@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use super::{
@@ -274,7 +275,7 @@ pub fn check_special_tuple_cons(
                         .saturating_add(var_type.size()?);
                     tuple_type_data.push((var_name.clone(), var_type));
                 } else {
-                    cons_error = Err(StaticCheckErrorKind::BadTupleConstruction(format!(
+                    cons_error = Err(StaticCheckErrorKind::BadTupleConstruction(bounded_format!(
                         "type size of {type_size} bytes exceeds maximum of {MAX_VALUE_SIZE} bytes"
                     )));
                 }
