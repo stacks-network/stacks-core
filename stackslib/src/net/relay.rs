@@ -54,6 +54,29 @@ use crate::net::stackerdb::{
 };
 use crate::net::{Error as net_error, *};
 
+/// A microblock message paired with its prior relay hints.
+pub type RelayedMicroblocks = (Vec<RelayData>, MicroblocksData);
+
+/// Unconfirmed microblocks to relay and neighbors that supplied invalid data.
+struct PreprocessedMicroblocks {
+    /// Messages with their prior relay hints.
+    to_relay: Vec<RelayedMicroblocks>,
+    /// Neighbors to ban for invalid microblocks.
+    bad_neighbors: Vec<NeighborKey>,
+}
+
+/// Newly processed epoch-2 blocks and streams, with invalid-data sources.
+pub struct ProcessedBlocks {
+    /// Newly discovered anchored blocks keyed by their sortition consensus hash.
+    pub blocks: HashMap<ConsensusHash, StacksBlock>,
+    /// Confirmed streams with their anchor IDs, keyed by consensus hash.
+    pub confirmed_microblocks: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
+    /// Unconfirmed microblock messages to relay with their prior relay hints.
+    pub unconfirmed_microblocks: Vec<RelayedMicroblocks>,
+    /// Neighbors to ban for supplying invalid data.
+    pub bad_neighbors: Vec<NeighborKey>,
+}
+
 pub type BlocksAvailableMap = HashMap<BurnchainHeaderHash, (u64, ConsensusHash)>;
 
 pub const MAX_RELAYER_STATS: usize = 4096;
@@ -1106,9 +1129,8 @@ impl Relayer {
             StacksBlockId,
             (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>),
         >,
-    ) -> Vec<(Vec<RelayData>, MicroblocksData)> {
-        let mut mblocks_data: HashMap<StacksBlockId, Vec<(Vec<RelayData>, MicroblocksData)>> =
-            HashMap::new();
+    ) -> Vec<RelayedMicroblocks> {
+        let mut mblocks_data: HashMap<StacksBlockId, Vec<RelayedMicroblocks>> = HashMap::new();
         let mut mblocks_sizes: HashMap<StacksBlockId, usize> = HashMap::new();
 
         for (anchored_block_hash, (relayers, mblocks_map)) in new_microblocks.into_iter() {
@@ -1481,7 +1503,7 @@ impl Relayer {
         sort_ic: &SortitionDBConn,
         network_result: &mut NetworkResult,
         chainstate: &mut StacksChainState,
-    ) -> Result<(Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>), net_error> {
+    ) -> Result<PreprocessedMicroblocks, net_error> {
         let mut new_microblocks: HashMap<
             StacksBlockId,
             (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>),
@@ -1638,7 +1660,10 @@ impl Relayer {
         }
 
         let mblock_datas = Relayer::make_microblocksdata_messages(new_microblocks);
-        Ok((mblock_datas, bad_neighbors))
+        Ok(PreprocessedMicroblocks {
+            to_relay: mblock_datas,
+            bad_neighbors,
+        })
     }
 
     #[cfg_attr(test, mutants::skip)]
@@ -1904,15 +1929,7 @@ impl Relayer {
         sortdb: &mut SortitionDB,
         chainstate: &mut StacksChainState,
         coord_comms: Option<&CoordinatorChannels>,
-    ) -> Result<
-        (
-            HashMap<ConsensusHash, StacksBlock>,
-            HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
-            Vec<(Vec<RelayData>, MicroblocksData)>,
-            Vec<NeighborKey>,
-        ),
-        net_error,
-    > {
+    ) -> Result<ProcessedBlocks, net_error> {
         let mut new_blocks = HashMap::new();
         let mut bad_neighbors = vec![];
 
@@ -1979,8 +1996,10 @@ impl Relayer {
         // process microblocks pushed to us, as well as identify which ones were uploaded via http
         // (these ones will have already been processed, but we need to report them as
         // newly-available to the caller nevertheless)
-        let (new_microblocks, mut new_bad_neighbors) =
-            Relayer::preprocess_pushed_microblocks(&sort_ic, network_result, chainstate)?;
+        let PreprocessedMicroblocks {
+            to_relay: new_microblocks,
+            bad_neighbors: mut new_bad_neighbors,
+        } = Relayer::preprocess_pushed_microblocks(&sort_ic, network_result, chainstate)?;
         bad_neighbors.append(&mut new_bad_neighbors);
 
         if !new_blocks.is_empty()
@@ -2000,12 +2019,12 @@ impl Relayer {
             }
         }
 
-        Ok((
-            new_blocks,
-            new_confirmed_microblocks,
-            new_microblocks,
+        Ok(ProcessedBlocks {
+            blocks: new_blocks,
+            confirmed_microblocks: new_confirmed_microblocks,
+            unconfirmed_microblocks: new_microblocks,
             bad_neighbors,
-        ))
+        })
     }
 
     #[cfg_attr(test, mutants::skip)]
@@ -2499,7 +2518,7 @@ impl Relayer {
         sortdb: &SortitionDB,
         new_blocks: HashMap<ConsensusHash, StacksBlock>,
         new_confirmed_microblocks: HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)>,
-        new_microblocks: Vec<(Vec<RelayData>, MicroblocksData)>,
+        new_microblocks: Vec<RelayedMicroblocks>,
     ) {
         // have the p2p thread tell our neighbors about newly-discovered blocks
         let new_block_chs = new_blocks.keys().cloned().collect();
@@ -2571,7 +2590,12 @@ impl Relayer {
 
         // Process epoch2 data
         match Self::process_new_blocks(network_result, sortdb, chainstate, coord_comms) {
-            Ok((new_blocks, new_confirmed_microblocks, new_microblocks, bad_block_neighbors)) => {
+            Ok(ProcessedBlocks {
+                blocks: new_blocks,
+                confirmed_microblocks: new_confirmed_microblocks,
+                unconfirmed_microblocks: new_microblocks,
+                bad_neighbors: bad_block_neighbors,
+            }) => {
                 // report quantities of new data in the receipts
                 num_new_blocks = new_blocks.len() as u64;
                 num_new_confirmed_microblocks = new_confirmed_microblocks.len() as u64;
