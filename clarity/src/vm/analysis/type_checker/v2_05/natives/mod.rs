@@ -39,14 +39,14 @@ pub enum TypedNativeFunction {
     Simple(SimpleNativeFunction),
 }
 
-#[allow(clippy::type_complexity)]
-pub struct SpecialNativeFunction(
-    &'static dyn Fn(
-        &mut TypeChecker,
-        &[SymbolicExpression],
-        &TypingContext,
-    ) -> Result<TypeSignature, StaticCheckError>,
-);
+/// Type-checks a special native function in this epoch's checker.
+type SpecialNativeFn = dyn Fn(
+    &mut TypeChecker,
+    &[SymbolicExpression],
+    &TypingContext,
+) -> Result<TypeSignature, StaticCheckError>;
+
+pub struct SpecialNativeFunction(&'static SpecialNativeFn);
 pub struct SimpleNativeFunction(pub FunctionType);
 
 fn check_special_list_cons(

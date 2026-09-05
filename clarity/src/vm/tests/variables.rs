@@ -220,18 +220,18 @@ enum ExpectedContractError {
     Runtime(RuntimeCheckErrorKind),
 }
 
+/// Selects the Clarity versions and epochs in which an expected error applies.
 #[cfg(test)]
-#[allow(clippy::type_complexity)]
+type VersionEpochPredicate = fn(ClarityVersion, StacksEpochId) -> bool;
+
+#[cfg(test)]
 fn expect_contract_error(
     version: ClarityVersion,
     epoch: StacksEpochId,
     tl_env_factory: &mut TopLevelMemoryEnvironmentGenerator,
     name: &str,
     contract: &str,
-    expected_errors: &[(
-        fn(ClarityVersion, StacksEpochId) -> bool,
-        ExpectedContractError,
-    )],
+    expected_errors: &[(VersionEpochPredicate, ExpectedContractError)],
     expected_success: Value,
 ) {
     let placeholder_context =

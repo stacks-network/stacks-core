@@ -168,37 +168,50 @@ pub fn compute_typecheck_cost<T: CostTracker>(
     )
 }
 
+/// Cost computation and type-check result for one function argument.
+pub struct ArgumentCheckOutcome {
+    /// Deferred cost result, retained even when argument checking fails.
+    pub cost: Option<Result<ExecutionCost, CostErrors>>,
+    /// Updated accumulated type, no update, or the argument's type error.
+    pub result: Result<Option<TypeSignature>, StaticCheckError>,
+}
+
 impl FunctionType {
-    #[allow(clippy::type_complexity)]
+    /// Checks one argument while preserving cost and type errors independently.
     pub fn check_args_visitor_2_1<T: CostTracker>(
         &self,
         accounting: &mut T,
         arg_type: &TypeSignature,
         arg_index: usize,
         accumulated_type: Option<&TypeSignature>,
-    ) -> (
-        Option<Result<ExecutionCost, CostErrors>>,
-        Result<Option<TypeSignature>, StaticCheckError>,
-    ) {
+    ) -> ArgumentCheckOutcome {
         match self {
             // variadic stops checking cost at the first error...
             FunctionType::Variadic(expected_type, _) => {
                 let cost = Some(compute_typecheck_cost(accounting, expected_type, arg_type));
                 let admitted = match expected_type.admits_type(&StacksEpochId::Epoch21, arg_type) {
                     Ok(admitted) => admitted,
-                    Err(e) => return (cost, Err(StaticCheckError::from(e))),
+                    Err(e) => {
+                        return ArgumentCheckOutcome {
+                            cost,
+                            result: Err(StaticCheckError::from(e)),
+                        };
+                    }
                 };
                 if !admitted {
-                    return (
+                    return ArgumentCheckOutcome {
                         cost,
-                        Err(StaticCheckErrorKind::TypeError(
+                        result: Err(StaticCheckErrorKind::TypeError(
                             Box::new(expected_type.clone()),
                             Box::new(arg_type.clone()),
                         )
                         .into()),
-                    );
+                    };
                 }
-                (cost, Ok(None))
+                ArgumentCheckOutcome {
+                    cost,
+                    result: Ok(None),
+                }
             }
             FunctionType::ArithmeticVariadic => {
                 let cost = Some(compute_typecheck_cost(
@@ -216,7 +229,10 @@ impl FunctionType {
                         )
                         .into()),
                     };
-                    (cost, return_type)
+                    ArgumentCheckOutcome {
+                        cost,
+                        result: return_type,
+                    }
                 } else {
                     let return_type = accumulated_type
                         .ok_or_else(|| StaticCheckErrorKind::Unreachable("Failed to set accumulated type for arg indices >= 1 in variadic arithmetic".into()).into());
@@ -231,7 +247,10 @@ impl FunctionType {
                             Ok(None)
                         }
                     });
-                    (cost, check_result)
+                    ArgumentCheckOutcome {
+                        cost,
+                        result: check_result,
+                    }
                 }
             }
             // For the fixed function types, the visitor will just
@@ -243,16 +262,19 @@ impl FunctionType {
             }) => {
                 if arg_index >= arg_types.len() {
                     // note: argument count will be wrong?
-                    return (
-                        None,
-                        Err(StaticCheckErrorKind::IncorrectArgumentCount(
+                    return ArgumentCheckOutcome {
+                        cost: None,
+                        result: Err(StaticCheckErrorKind::IncorrectArgumentCount(
                             arg_types.len(),
                             arg_index,
                         )
                         .into()),
-                    );
+                    };
                 }
-                (None, Ok(None))
+                ArgumentCheckOutcome {
+                    cost: None,
+                    result: Ok(None),
+                }
             }
             // For the following function types, the visitor will just
             //  tell the processor that any results greater than len 1 or 2
@@ -260,23 +282,33 @@ impl FunctionType {
             //  further checking anyways
             FunctionType::ArithmeticUnary | FunctionType::UnionArgs(..) => {
                 if arg_index >= 1 {
-                    return (
-                        None,
-                        Err(StaticCheckErrorKind::IncorrectArgumentCount(1, arg_index).into()),
-                    );
+                    return ArgumentCheckOutcome {
+                        cost: None,
+                        result: Err(
+                            StaticCheckErrorKind::IncorrectArgumentCount(1, arg_index).into()
+                        ),
+                    };
                 }
-                (None, Ok(None))
+                ArgumentCheckOutcome {
+                    cost: None,
+                    result: Ok(None),
+                }
             }
             FunctionType::ArithmeticBinary
             | FunctionType::ArithmeticComparison
             | FunctionType::Binary(..) => {
                 if arg_index >= 2 {
-                    return (
-                        None,
-                        Err(StaticCheckErrorKind::IncorrectArgumentCount(2, arg_index).into()),
-                    );
+                    return ArgumentCheckOutcome {
+                        cost: None,
+                        result: Err(
+                            StaticCheckErrorKind::IncorrectArgumentCount(2, arg_index).into()
+                        ),
+                    };
                 }
-                (None, Ok(None))
+                ArgumentCheckOutcome {
+                    cost: None,
+                    result: Ok(None),
+                }
             }
         }
     }
@@ -1384,7 +1416,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         for (arg_ix, arg_expr) in args.iter().enumerate() {
             let arg_type = self.type_check(arg_expr, context)?;
             if check_result.is_ok() {
-                let (costs, result) = func_type.check_args_visitor_2_1(
+                let ArgumentCheckOutcome {
+                    cost: costs,
+                    result,
+                } = func_type.check_args_visitor_2_1(
                     self,
                     &arg_type,
                     arg_ix,

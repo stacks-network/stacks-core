@@ -107,6 +107,10 @@ pub struct DefinedFunction {
     body: SymbolicExpression,
 }
 
+/// Native callable that also receives execution state and invocation context.
+pub type EnvNativeFn =
+    dyn Fn(Vec<Value>, &mut ExecutionState, &InvocationContext) -> Result<Value, VmExecutionError>;
+
 /// This enum handles the actual invocation of the method
 /// implementing a native function. Each variant handles
 /// different expected number of arguments.
@@ -114,14 +118,7 @@ pub enum NativeHandle {
     SingleArg(&'static dyn Fn(Value) -> Result<Value, VmExecutionError>),
     DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value, VmExecutionError>),
     MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value, VmExecutionError>),
-    #[allow(clippy::type_complexity)]
-    MoreArgEnv(
-        &'static dyn Fn(
-            Vec<Value>,
-            &mut ExecutionState,
-            &InvocationContext,
-        ) -> Result<Value, VmExecutionError>,
-    ),
+    MoreArgEnv(&'static EnvNativeFn),
 }
 
 impl NativeHandle {
