@@ -37,7 +37,7 @@ use stacks_common::bounded_format;
 use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::{TransactionResourceBudgets, TransactionResult};
-use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
+use crate::chainstate::stacks::{CostOverflowContext, Error, StacksMicroblockHeader};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityError, ClarityTransactionConnection};
 use crate::monitoring::increment_unreachable_errors_counter;
 use crate::util_lib::strings::VecDisplay;
@@ -340,6 +340,17 @@ pub struct TransactionNonceMismatch {
     pub quiet: bool,
 }
 
+/// A nonce mismatch together with the account states used to validate it.
+#[derive(Debug)]
+pub struct NonceCheckFailure {
+    /// Details of the invalid origin or sponsor nonce.
+    pub mismatch: TransactionNonceMismatch,
+    /// Origin account state at validation time.
+    pub origin_account: StacksAccount,
+    /// Payer account state at validation time.
+    pub payer_account: StacksAccount,
+}
+
 impl std::fmt::Display for TransactionNonceMismatch {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let acct_type = if self.is_origin { "origin" } else { "sponsor" };
@@ -355,9 +366,9 @@ impl std::fmt::Display for TransactionNonceMismatch {
     }
 }
 
-impl<T> From<(TransactionNonceMismatch, T)> for Error {
-    fn from(e: (TransactionNonceMismatch, T)) -> Error {
-        Error::InvalidStacksTransaction(e.0.to_string(), e.0.quiet)
+impl From<Box<NonceCheckFailure>> for Error {
+    fn from(failure: Box<NonceCheckFailure>) -> Error {
+        Error::InvalidStacksTransaction(failure.mismatch.to_string(), failure.mismatch.quiet)
     }
 }
 
@@ -422,20 +433,21 @@ pub fn finalize_failed_transaction(
         TransactionResult::problematic(tx, error)
     } else {
         match &error {
-            Error::CostOverflowError(overflow_cost_before, cost_after, total_budget) => {
+            Error::CostOverflowError(context) => {
                 // note: this path _does_ not perform the tx block budget % heuristic,
                 //  because this code path is not directly called with a mempool handle.
                 clarity_tx.reset_cost(cost_before.clone());
-                if total_budget.proportion_largest_dimension(overflow_cost_before)
+                if context.budget.proportion_largest_dimension(&context.before)
                     < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                 {
                     warn!(
-                        "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {total_budget}",
+                        "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
                         tx.txid(),
-                        100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                        100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                        context.budget,
                     );
-                    let mut measured_cost = cost_after.clone();
-                    let measured_cost = if measured_cost.sub(overflow_cost_before).is_ok() {
+                    let mut measured_cost = context.after.clone();
+                    let measured_cost = if measured_cost.sub(&context.before).is_ok() {
                         Some(measured_cost)
                     } else {
                         warn!("Failed to compute measured cost of a too big transaction");
@@ -444,8 +456,10 @@ pub fn finalize_failed_transaction(
                     TransactionResult::error(tx, Error::TransactionTooBigError(measured_cost))
                 } else {
                     warn!(
-                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
-                        tx.txid()
+                        "Transaction {} reached block cost {}; budget was {}",
+                        tx.txid(),
+                        context.after,
+                        context.budget
                     );
                     TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError)
                 }
@@ -480,10 +494,7 @@ impl StacksChainState {
         clarity_tx: &mut T,
         tx: &StacksTransaction,
         quiet: bool,
-    ) -> Result<
-        (StacksAccount, StacksAccount),
-        (TransactionNonceMismatch, (StacksAccount, StacksAccount)),
-    > {
+    ) -> Result<(StacksAccount, StacksAccount), Box<NonceCheckFailure>> {
         // who's sending it?
         let origin = tx.get_origin();
         let origin_account = StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
@@ -505,7 +516,11 @@ impl StacksChainState {
                 if !quiet {
                     warn!("{e}");
                 }
-                return Err((e, (origin_account, payer_account)));
+                return Err(Box::new(NonceCheckFailure {
+                    mismatch: e,
+                    origin_account,
+                    payer_account,
+                }));
             }
 
             payer_account
@@ -526,7 +541,11 @@ impl StacksChainState {
             if !quiet {
                 warn!("{e}");
             }
-            return Err((e, (origin_account, payer_account)));
+            return Err(Box::new(NonceCheckFailure {
+                mismatch: e,
+                origin_account,
+                payer_account,
+            }));
         }
 
         Ok((origin_account, payer_account))
@@ -1046,9 +1065,12 @@ impl StacksChainState {
                             }) => {
                                 warn!("Block compute budget exceeded: if included, this will invalidate a block"; "txid" => %tx.txid(), "cost" => %cost_after, "budget" => %budget);
                                 return Err(Error::CostOverflowError(
-                                    cost_before,
-                                    cost_after,
-                                    budget,
+                                    CostOverflowContext {
+                                        before: cost_before,
+                                        after: cost_after,
+                                        budget,
+                                    }
+                                    .into(),
                                 ));
                             }
                             ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Analysis {
@@ -1176,9 +1198,12 @@ impl StacksChainState {
                                             &budget
                                         );
                                     return Err(Error::CostOverflowError(
-                                        cost_before,
-                                        cost_after,
-                                        budget,
+                                        CostOverflowContext {
+                                            before: cost_before,
+                                            after: cost_after,
+                                            budget,
+                                        }
+                                        .into(),
                                     ));
                                 }
                                 ClarityError::AnalysisResourceBudgetExceeded(s) => {
@@ -1328,9 +1353,12 @@ impl StacksChainState {
                                           "cost" => %cost_after,
                                           "budget" => %budget);
                                 return Err(Error::CostOverflowError(
-                                    cost_before,
-                                    cost_after,
-                                    budget,
+                                    CostOverflowContext {
+                                        before: cost_before,
+                                        after: cost_after,
+                                        budget,
+                                    }
+                                    .into(),
                                 ));
                             }
                             ClarityRuntimeTxError::Included(IncludedRuntimeTxError::Analysis {
@@ -1678,6 +1706,16 @@ pub mod test {
     use super::*;
     use crate::chainstate::stacks::db::testing::*;
     use crate::chainstate::stacks::{Error, *};
+
+    fn expect_runtime_check_error(error: Error) -> RuntimeCheckErrorKind {
+        let Error::ClarityError(ClarityError::Interpreter(error)) = error else {
+            panic!("Did not get unchecked interpreter error");
+        };
+        let VmExecutionError::RuntimeCheck(error) = error else {
+            panic!("Did not get runtime check error");
+        };
+        error
+    }
 
     pub const TestBurnStateDB_20: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch20,
@@ -6927,13 +6965,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            _runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
@@ -6980,13 +7012,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            _runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
         let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
@@ -7031,13 +7057,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            _runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
@@ -7083,13 +7103,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            _runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
         let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
@@ -7588,13 +7602,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
@@ -8048,13 +8056,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            runtime_check_err,
-        ))) = err
-        {
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        }
+        expect_runtime_check_error(err);
         assert_eq!(fee, 1);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
@@ -8154,17 +8156,11 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
-            runtime_check_err,
-        ))) = err
-        {
-            assert!(
-                matches!(runtime_check_err, RuntimeCheckErrorKind::TraitReferenceUnknown(ref name) if name == "foo"),
-                "Expected TraitReferenceUnknown(\"foo\") runtime check error"
-            );
-        } else {
-            panic!("Did not get unchecked interpreter error");
-        };
+        let runtime_check_err = expect_runtime_check_error(err);
+        assert!(
+            matches!(runtime_check_err, RuntimeCheckErrorKind::TraitReferenceUnknown(ref name) if name == "foo"),
+            "Expected TraitReferenceUnknown(\"foo\") runtime check error"
+        );
 
         let err = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
