@@ -4701,3 +4701,31 @@ fn test_in_contract_trait_entry_metered_from_epoch40() {
     assert_eq!(post_cost.write_count, pre_cost.write_count);
     assert_eq!(post_cost.write_length, pre_cost.write_length);
 }
+
+/// Argument errors retain any computed cost, while arity-only checks omit costs.
+#[test]
+fn test_argument_visitor_retains_cost_on_type_error() {
+    let first = FunctionType::ArithmeticVariadic.check_args_visitor_2_1(&mut (), &IntType, 0, None);
+    assert!(matches!(first.cost, Some(Ok(_))));
+    assert_eq!(first.result.unwrap(), Some(IntType));
+
+    let mismatch = FunctionType::ArithmeticVariadic.check_args_visitor_2_1(
+        &mut (),
+        &UIntType,
+        1,
+        Some(&IntType),
+    );
+    assert!(matches!(mismatch.cost, Some(Ok(_))));
+    assert!(matches!(
+        *mismatch.result.unwrap_err().err,
+        StaticCheckErrorKind::TypeError(expected, actual) if *expected == IntType && *actual == UIntType
+    ));
+
+    let extra_argument =
+        FunctionType::ArithmeticUnary.check_args_visitor_2_1(&mut (), &IntType, 1, None);
+    assert!(extra_argument.cost.is_none());
+    assert!(matches!(
+        *extra_argument.result.unwrap_err().err,
+        StaticCheckErrorKind::IncorrectArgumentCount(1, 1)
+    ));
+}
