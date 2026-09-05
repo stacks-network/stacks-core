@@ -38,6 +38,15 @@ use crate::net::{Error as net_error, PeerHost, Requestable};
 use crate::util_lib::db::Error as DBError;
 use crate::util_lib::strings::UrlString;
 
+/// Resolved attachments and HTTP events to clean up after one downloader step.
+#[derive(Default)]
+pub struct AttachmentDownloadProgress {
+    /// Attachment instances paired with their resolved content.
+    pub resolved_attachments: Vec<(AttachmentInstance, Attachment)>,
+    /// HTTP event IDs whose requests have finished.
+    pub events_to_deregister: Vec<usize>,
+}
+
 #[derive(Debug)]
 pub struct AttachmentsDownloader {
     priority_queue: BinaryHeap<AttachmentsBatch>,
@@ -94,7 +103,7 @@ impl AttachmentsDownloader {
         &mut self,
         dns_client: &mut DNSClient,
         network: &mut PeerNetwork,
-    ) -> Result<(Vec<(AttachmentInstance, Attachment)>, Vec<usize>), net_error> {
+    ) -> Result<AttachmentDownloadProgress, net_error> {
         let mut resolved_attachments = vec![];
         let mut events_to_deregister = vec![];
 
@@ -109,7 +118,7 @@ impl AttachmentsDownloader {
             None => {
                 if self.priority_queue.is_empty() || !self.has_ready_batches() {
                     // Nothing to do!
-                    return Ok((vec![], vec![]));
+                    return Ok(AttachmentDownloadProgress::default());
                 }
 
                 let mut peers = HashMap::new();
@@ -125,7 +134,7 @@ impl AttachmentsDownloader {
                 if peers.is_empty() {
                     warn!("Atlas: could not get a peer to sync with");
                     // Nothing can be done!
-                    return Ok((vec![], vec![]));
+                    return Ok(AttachmentDownloadProgress::default());
                 }
 
                 let attachments_batch = match self.pop_next_ready_batch() {
@@ -133,7 +142,7 @@ impl AttachmentsDownloader {
                     None => {
                         // unreachable
                         warn!("BUG: Atlas; no batch ready although logic checking for ready batches found one");
-                        return Ok((vec![], vec![]));
+                        return Ok(AttachmentDownloadProgress::default());
                     }
                 };
 
@@ -209,7 +218,10 @@ impl AttachmentsDownloader {
             }
         };
 
-        Ok((resolved_attachments, events_to_deregister))
+        Ok(AttachmentDownloadProgress {
+            resolved_attachments,
+            events_to_deregister,
+        })
     }
 
     /// Given a list of `AttachmentInstance`, check if the content corresponding to that

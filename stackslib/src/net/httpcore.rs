@@ -52,7 +52,10 @@ use crate::net::http::{
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
-use crate::net::{Error as NetError, MessageSequence, ProtocolFamily, StacksNodeState, UrlString};
+use crate::net::{
+    CompletedPayload, Error as NetError, MessageSequence, ProtocolFamily, StacksNodeState,
+    StreamRead, UrlString,
+};
 
 const CHUNK_BUF_LEN: usize = 32768;
 
@@ -862,12 +865,9 @@ impl StacksHttpRecvStream {
     }
 
     /// Feed data into our chunked transfer reader state.  If we finish reading a stream, return
-    /// the decoded bytes (as Some(Vec<u8>) and the total number of encoded bytes consumed).
-    /// Always returns the number of bytes consumed.
-    pub fn consume_data<R: Read>(
-        &mut self,
-        fd: &mut R,
-    ) -> Result<(Option<(Vec<u8>, usize)>, usize), NetError> {
+    /// the decoded bytes and total encoded size in `completed`.
+    /// Always reports the encoded bytes consumed during this call in `consumed`.
+    pub fn consume_data<R: Read>(&mut self, fd: &mut R) -> Result<StreamRead<Vec<u8>>, NetError> {
         let mut consumed = 0;
         let mut blocked = false;
         while !blocked {
@@ -921,9 +921,18 @@ impl StacksHttpRecvStream {
             self.state = HttpChunkedTransferReaderState::new(self.state.max_size);
             self.total_consumed = 0;
 
-            Ok((Some((message_data, total_consumed)), consumed))
+            Ok(StreamRead {
+                completed: Some(CompletedPayload {
+                    payload: message_data,
+                    total_encoded_bytes: total_consumed,
+                }),
+                consumed,
+            })
         } else {
-            Ok((None, consumed))
+            Ok(StreamRead {
+                completed: None,
+                consumed,
+            })
         }
     }
 }
@@ -1410,13 +1419,13 @@ impl StacksHttp {
     /// Used for processing chunk-encoded streams.
     /// Given the preamble and a Read, stream the bytes into a chunk-decoder.  Return the decoded
     /// bytes if we decode an entire stream.  Always return the number of bytes consumed.
-    /// Returns Ok((Some(decoded bytes we got, total number of encoded bytes), number of bytes gotten in this call)) if we're done decoding.
-    /// Returns Ok((None, number of bytes gotten in this call)) if there's more to decode.
+    /// `completed` contains the decoded bytes and total encoded size once the stream ends.
+    /// `consumed` counts encoded bytes read during this call, including incomplete reads.
     pub fn consume_data<R: Read>(
         &mut self,
         preamble: &HttpResponsePreamble,
         fd: &mut R,
-    ) -> Result<(Option<(Vec<u8>, usize)>, usize), NetError> {
+    ) -> Result<StreamRead<Vec<u8>>, NetError> {
         if !preamble.is_chunked() {
             return Err(NetError::InvalidState);
         }
@@ -1424,10 +1433,12 @@ impl StacksHttp {
             match reply.stream.consume_data(fd).inspect_err(|_e| {
                 self.reset();
             })? {
-                (Some((byte_vec, bytes_total)), sz) => {
+                progress @ StreamRead {
+                    completed: Some(_), ..
+                } => {
                     // done receiving
                     self.reply = None;
-                    Ok((Some((byte_vec, bytes_total)), sz))
+                    Ok(progress)
                 }
                 res => Ok(res),
             }
@@ -1525,8 +1536,16 @@ impl StacksHttp {
 
         if is_chunked {
             match http.stream_payload(&preamble, &mut message_bytes)? {
-                (Some((message, _)), _) => Ok(message),
-                (None, _) => Err(NetError::UnderflowError(
+                StreamRead {
+                    completed:
+                        Some(CompletedPayload {
+                            payload: message, ..
+                        }),
+                    ..
+                } => Ok(message),
+                StreamRead {
+                    completed: None, ..
+                } => Err(NetError::UnderflowError(
                     "Not enough bytes to form a streamed HTTP response".to_string(),
                 )),
             }
@@ -1612,7 +1631,7 @@ impl ProtocolFamily for StacksHttp {
         &mut self,
         preamble: &StacksHttpPreamble,
         fd: &mut R,
-    ) -> Result<(Option<(StacksHttpMessage, usize)>, usize), NetError> {
+    ) -> Result<StreamRead<StacksHttpMessage>, NetError> {
         if self.payload_len(preamble).is_some() {
             return Err(NetError::InvalidState);
         }
@@ -1637,14 +1656,20 @@ impl ProtocolFamily for StacksHttp {
                 }
 
                 // message of unknown length.  Buffer up and maybe we can parse it.
-                let (message_bytes_opt, num_read) = self
+                let StreamRead {
+                    completed: message_bytes_opt,
+                    consumed: num_read,
+                } = self
                     .consume_data(http_response_preamble, fd)
                     .inspect_err(|_e| {
-                    self.reset();
-                })?;
+                        self.reset();
+                    })?;
 
                 match message_bytes_opt {
-                    Some((message_bytes, total_bytes_consumed)) => {
+                    Some(CompletedPayload {
+                        payload: message_bytes,
+                        total_encoded_bytes: total_bytes_consumed,
+                    }) => {
                         // can parse!
                         test_debug!(
                             "read http response payload of {} bytes (just buffered {})",
@@ -1680,13 +1705,13 @@ impl ProtocolFamily for StacksHttp {
                         // done parsing
                         self.reset();
                         match parse_res {
-                            Ok(data_response) => Ok((
-                                Some((
-                                    StacksHttpMessage::Response(data_response),
-                                    total_bytes_consumed,
-                                )),
-                                num_read,
-                            )),
+                            Ok(data_response) => Ok(StreamRead {
+                                completed: Some(CompletedPayload {
+                                    payload: StacksHttpMessage::Response(data_response),
+                                    total_encoded_bytes: total_bytes_consumed,
+                                }),
+                                consumed: num_read,
+                            }),
                             Err(e) => {
                                 info!("Failed to parse HTTP response: {:?}", &e);
                                 Err(e)
@@ -1699,7 +1724,10 @@ impl ProtocolFamily for StacksHttp {
                             "did not read http response payload, but buffered {}",
                             num_read
                         );
-                        Ok((None, num_read))
+                        Ok(StreamRead {
+                            completed: None,
+                            consumed: num_read,
+                        })
                     }
                 }
             }
