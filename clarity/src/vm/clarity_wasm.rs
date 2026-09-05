@@ -3330,11 +3330,14 @@ fn link_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), V
             "clarity",
             "block_height",
             |mut caller: Caller<'_, ClarityWasmContext>| {
-                let height = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .get_current_block_height();
+                // In Epoch 2.x `block-height` is the Stacks block height, but for Clarity 1 and 2
+                // contracts executing in Epoch 3.0 and later it's the tenure height.
+                let global_context = &mut caller.data_mut().global_context;
+                let height = if global_context.epoch_id < StacksEpochId::Epoch30 {
+                    global_context.database.get_current_block_height()
+                } else {
+                    global_context.database.get_tenure_height()?
+                };
                 Ok((height as i64, 0i64))
             },
         )
