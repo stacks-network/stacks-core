@@ -577,6 +577,9 @@ pub enum RuntimeCheckErrorKind {
     /// List elements have mismatched types, violating type consistency.
     ListTypesMustMatch,
 
+    /// A sequence element whose length differs from what the operation requires
+    SequenceElementArityMismatch { expected: usize, found: usize },
+
     // Type mismatch errors
     /// Expected type does not match the actual type during analysis.
     /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
@@ -675,14 +678,17 @@ pub struct StaticCheckError {
 }
 
 impl RuntimeCheckErrorKind {
-    /// This check indicates that the transaction should be rejected.
-    pub fn rejectable(&self) -> bool {
-        matches!(
-            self,
+    /// This check indicates that the transaction should be rejected in the given epoch.
+    pub fn rejectable_in_epoch(&self, epoch: StacksEpochId) -> bool {
+        match self {
             RuntimeCheckErrorKind::Unreachable(_)
-                | RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(_, _)
-                | RuntimeCheckErrorKind::PoxStxAssetMapOverwrite
-        )
+            | RuntimeCheckErrorKind::RestrictAssetsMemoryExceeded(_, _)
+            | RuntimeCheckErrorKind::PoxStxAssetMapOverwrite => true,
+            RuntimeCheckErrorKind::SequenceElementArityMismatch { .. } => {
+                !epoch.fixes_replace_at_element_arity()
+            }
+            _ => false,
+        }
     }
 
     /// Returns true if this error is an unreachable error, indicating a potential bug.
@@ -832,8 +838,10 @@ impl From<ClarityTypeError> for RuntimeCheckErrorKind {
             ClarityTypeError::ListTypeMismatch => Self::ListTypesMustMatch,
             ClarityTypeError::InvalidAsciiCharacter(_) => Self::InvalidCharactersDetected,
             ClarityTypeError::InvalidUtf8Encoding => Self::InvalidUTF8Encoding,
+            ClarityTypeError::SequenceElementArityMismatch { expected, found } => {
+                Self::SequenceElementArityMismatch { expected, found }
+            }
             ClarityTypeError::ExpectedSequenceValue
-            | ClarityTypeError::SequenceElementArityMismatch { .. }
             | ClarityTypeError::CouldNotDetermineSerializationType
             | ClarityTypeError::InvalidUrlString(_)
             | ClarityTypeError::InvalidClarityName(_)

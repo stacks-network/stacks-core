@@ -1,0 +1,1 @@
+Fixed `replace-at?` with a zero-length buffer or string element making the transaction rejectable. Starting in epoch 4.1, a statically empty element is rejected at type-check time and a runtime-empty element fails with an includable error.

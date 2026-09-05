@@ -191,7 +191,8 @@ pub fn handle_clarity_runtime_error(
             }
         }
         ClarityError::Interpreter(VmExecutionError::RuntimeCheck(runtime_check_err)) => {
-            if runtime_check_err.rejectable() || epoch_id < StacksEpochId::Epoch21 {
+            if runtime_check_err.rejectable_in_epoch(epoch_id) || epoch_id < StacksEpochId::Epoch21
+            {
                 return ClarityRuntimeTxError::Rejected(RejectedRuntimeTxError::Clarity {
                     error: ClarityError::Interpreter(VmExecutionError::RuntimeCheck(
                         runtime_check_err,
@@ -804,9 +805,9 @@ mod unit_tests {
         );
     }
 
-    /// Runtime-check errors are classified by `rejectable() || epoch_id < Epoch21`. The test
-    /// above pins the epoch half; this pins the `rejectable()` half. Every epoch used here is
-    /// >= 2.1, so the epoch half is false and only `rejectable()` can reject.
+    /// Runtime-check errors are classified by `rejectable_in_epoch(epoch) || epoch_id < Epoch21`.
+    /// The test above pins the epoch half; this pins the rejectable half. Every epoch used here
+    /// is >= 2.1, so the epoch half is false and only `rejectable_in_epoch` can reject.
     #[test]
     fn rejectable_runtime_checks_are_rejected_in_every_epoch() {
         for epoch in [
@@ -823,7 +824,10 @@ mod unit_tests {
 
             for kind in rejectable {
                 // Pin the premise: if a kind stops being rejectable, fail here rather than below.
-                assert!(kind.rejectable(), "{kind:?} is expected to be rejectable");
+                assert!(
+                    kind.rejectable_in_epoch(epoch),
+                    "{kind:?} is expected to be rejectable"
+                );
 
                 let label = format!("{kind:?}");
                 let error = ClarityError::Interpreter(VmExecutionError::RuntimeCheck(kind));
@@ -832,6 +836,33 @@ mod unit_tests {
                     "{label} must never be included in a block, even in {epoch}"
                 );
             }
+        }
+    }
+
+    /// `SequenceElementArityMismatch` is the one epoch-dependent runtime check:
+    /// rejectable before 4.1, but includable after.
+    #[test]
+    fn sequence_element_arity_mismatch_becomes_includable_at_epoch_41() {
+        for epoch in StacksEpochId::ALL {
+            let kind = RuntimeCheckErrorKind::SequenceElementArityMismatch {
+                expected: 1,
+                found: 0,
+            };
+            let expect_rejectable = *epoch < StacksEpochId::Epoch41;
+            assert_eq!(
+                kind.rejectable_in_epoch(*epoch),
+                expect_rejectable,
+                "wrong rejectability in {epoch}"
+            );
+
+            // Pre-2.1 epochs reject every runtime-check error, so inclusion still
+            // begins exactly at 4.1.
+            let error = ClarityError::Interpreter(VmExecutionError::RuntimeCheck(kind));
+            assert_eq!(
+                handle_clarity_runtime_error(error, *epoch).is_included_in_block(),
+                !expect_rejectable,
+                "wrong disposition in {epoch}"
+            );
         }
     }
 
