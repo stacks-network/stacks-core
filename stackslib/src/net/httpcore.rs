@@ -1617,16 +1617,17 @@ impl ProtocolFamily for StacksHttp {
         Ok((preamble, preamble_len))
     }
 
-    /// Stream a payload of unknown length.  Only gets called if payload_len() returns None.
+    /// Stream a payload of unknown length. Only called if `payload_len()` returns `None`.
     ///
-    /// Returns Ok((Some((message, num-bytes-consumed)), num-bytes-read)) if we read enough data to
-    /// form a message.  `num-bytes-consumed` is the number of bytes required to parse the message,
-    /// and `num-bytes-read` is the number of bytes read in this call.
+    /// On success, `completed` contains the decoded message in `payload` and the total encoded
+    /// payload bytes consumed across all calls in `total_encoded_bytes`, including chunk framing
+    /// but excluding the HTTP preamble. If more input is required, `completed` is `None` and the
+    /// caller should try again.
     ///
-    /// Returns Ok((None, num-bytes-read)) if we consumed data (i.e. `num-bytes-read` bytes), but
-    /// did not yet have enough of the message to parse it.  The caller should try again.
+    /// `consumed` counts encoded bytes read during this call only, including incomplete reads,
+    /// and may be zero.
     ///
-    /// Returns Error on irrecoverable error.
+    /// Returns `Err` on an irrecoverable error.
     fn stream_payload<R: Read>(
         &mut self,
         preamble: &StacksHttpPreamble,
