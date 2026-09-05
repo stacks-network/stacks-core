@@ -522,7 +522,7 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
         format!(
             "(define-trait trait-1 ((method ({}) (response uint uint))))",
             (0..(MAX_FUNCTION_PARAMETERS + 1))
-                .map(|i| "uint".to_string())
+                .map(|_| "uint".to_string())
                 .collect::<Vec<String>>()
                 .join(" ")
         ),

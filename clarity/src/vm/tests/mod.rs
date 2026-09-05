@@ -24,9 +24,11 @@ use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
 
+#[cfg(test)]
 mod assets;
 #[cfg(test)]
 mod bitcoin;
+#[cfg(test)]
 mod contracts;
 #[cfg(test)]
 mod conversions;
@@ -34,6 +36,7 @@ mod conversions;
 mod crypto;
 #[cfg(test)]
 mod datamaps;
+#[cfg(test)]
 mod defines;
 #[cfg(test)]
 mod epoch_gating;
@@ -41,6 +44,7 @@ mod epoch_gating;
 mod hooks;
 #[cfg(test)]
 mod post_conditions;
+#[cfg(test)]
 mod principals;
 #[cfg(test)]
 pub(crate) mod proptest_strategies;
@@ -52,7 +56,9 @@ mod representations;
 mod sequences;
 #[cfg(test)]
 mod simple_apply_eval;
+#[cfg(test)]
 mod traits;
+#[cfg(test)]
 mod variables;
 
 #[cfg(any(test, feature = "testing"))]
@@ -237,6 +243,8 @@ clarity_template! {
     Epoch41_Clarity6: (Epoch41, Clarity6),
 }
 
+/// Creates the transaction-scoped environment fixture for this crate's unit tests.
+#[cfg(test)]
 #[fixture]
 pub fn env_factory() -> MemoryEnvironmentGenerator {
     MemoryEnvironmentGenerator(MemoryBackingStore::new())
@@ -247,7 +255,10 @@ pub fn tl_env_factory() -> TopLevelMemoryEnvironmentGenerator {
     TopLevelMemoryEnvironmentGenerator(MemoryBackingStore::new())
 }
 
+/// Owns the backing store for transaction-scoped unit-test environments.
+#[cfg(test)]
 pub struct MemoryEnvironmentGenerator(MemoryBackingStore);
+#[cfg(test)]
 impl MemoryEnvironmentGenerator {
     fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment<'_, '_> {
         let mut db = self.0.as_clarity_db();

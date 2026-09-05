@@ -523,7 +523,7 @@ mod test {
     use crate::vm::errors::VmExecutionError;
     use crate::vm::functions::define::{handle_define_function, handle_define_trait};
     use crate::vm::tests::test_clarity_versions;
-    use crate::vm::{CallStack, ClarityVersion, ContractContext, LocalContext};
+    use crate::vm::{CallStack, ClarityVersion, ContractContext};
 
     #[apply(test_clarity_versions)]
     fn bad_syntax_binding_define_function(
@@ -553,7 +553,6 @@ mod test {
         let contract_context =
             ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
-        let context = LocalContext::new();
         let mut call_stack = CallStack::new();
 
         let mut exec_state = ExecutionState {

@@ -1584,7 +1584,7 @@ mod tests {
             }
         );
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics(
+        let (_, diagnostics, success) = parse_collect_diagnostics(
             "veryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryveryverylong",
         );
         assert!(!success);
@@ -2808,6 +2808,7 @@ mod tests {
         let (stmts, diagnostics, success) =
             parse_collect_diagnostics("'ST000000000000000000002AMW42H");
         assert!(success);
+        assert!(diagnostics.is_empty());
         assert_eq!(stmts.len(), 1);
         assert_eq!(
             stmts[0].span,
@@ -3573,6 +3574,7 @@ mod tests {
             parse_collect_diagnostics(" # here is a python comment\n\n    # and another\n(foo)");
         assert!(!success);
         assert_eq!(stmts.len(), 10);
+        assert!(!diagnostics.is_empty());
     }
 
     #[test]
@@ -3683,7 +3685,7 @@ mod tests {
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_list);
+        let (_, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_list);
         assert!(!success);
         assert!(!diagnostics.is_empty());
         assert_eq!(
@@ -3709,7 +3711,7 @@ mod tests {
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
 
-        let (stmts, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_tuple);
+        let (_, diagnostics, success) = parse_collect_diagnostics(&exceeds_stack_depth_tuple);
         assert!(!success);
         assert!(!diagnostics.is_empty());
         assert_eq!(

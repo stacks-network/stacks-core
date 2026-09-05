@@ -1,0 +1,1 @@
+Remove broad dead-code and test-only unused-code allowances, obsolete helpers, unused imports, and unused state from Clarity, restrict internal fixtures to test builds while retaining downstream test utilities, and strengthen principal, trait, parser, and contract-initialization test coverage.

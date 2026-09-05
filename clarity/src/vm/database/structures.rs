@@ -112,17 +112,6 @@ pub struct DataVariableMetadata {
 
 clarity_serializable!(DataVariableMetadata);
 
-#[derive(Serialize, Deserialize)]
-pub struct SimmedBlock {
-    pub block_height: u64,
-    pub block_time: u64,
-    pub block_header_hash: [u8; 32],
-    pub burn_chain_header_hash: [u8; 32],
-    pub vrf_seed: [u8; 32],
-}
-
-clarity_serializable!(SimmedBlock);
-
 clarity_serializable!(PrincipalData);
 clarity_serializable!(i128);
 clarity_serializable!(u128);
