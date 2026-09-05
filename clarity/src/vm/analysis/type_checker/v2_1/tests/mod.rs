@@ -2255,6 +2255,7 @@ fn test_variadic_concat_pre_clarity_6_rejected() {
             ClarityVersion::Clarity4 => StacksEpochId::Epoch33,
             ClarityVersion::Clarity5 => StacksEpochId::Epoch34,
             ClarityVersion::Clarity6 => unreachable!(),
+            ClarityVersion::Clarity7 => unreachable!(),
         };
         for (snippet, expected) in &snippets_and_expected {
             let err = type_check_helper_version(snippet, version, epoch).unwrap_err();

@@ -27,6 +27,7 @@ pub enum ClarityVersion {
     Clarity4,
     Clarity5,
     Clarity6,
+    Clarity7,
 }
 
 // Compile-time guard: if a new variant is added to the enum above without
@@ -49,13 +50,14 @@ impl fmt::Display for ClarityVersion {
             ClarityVersion::Clarity4 => write!(f, "Clarity 4"),
             ClarityVersion::Clarity5 => write!(f, "Clarity 5"),
             ClarityVersion::Clarity6 => write!(f, "Clarity 6"),
+            ClarityVersion::Clarity7 => write!(f, "Clarity 7"),
         }
     }
 }
 
 impl ClarityVersion {
     pub const fn latest() -> ClarityVersion {
-        ClarityVersion::Clarity6
+        ClarityVersion::Clarity7
     }
 
     pub const ALL: &'static [ClarityVersion] = &[
@@ -65,6 +67,7 @@ impl ClarityVersion {
         ClarityVersion::Clarity4,
         ClarityVersion::Clarity5,
         ClarityVersion::Clarity6,
+        ClarityVersion::Clarity7,
     ];
 
     /// Returns all [`ClarityVersion`] starting from the given `version` (inclusive)
@@ -110,7 +113,7 @@ impl ClarityVersion {
             StacksEpochId::Epoch33 => ClarityVersion::Clarity4,
             StacksEpochId::Epoch34 => ClarityVersion::Clarity5,
             StacksEpochId::Epoch40 => ClarityVersion::Clarity6,
-            StacksEpochId::Epoch41 => ClarityVersion::Clarity6,
+            StacksEpochId::Epoch41 => ClarityVersion::Clarity7,
         }
     }
 
@@ -155,9 +158,11 @@ impl FromStr for ClarityVersion {
             Ok(ClarityVersion::Clarity5)
         } else if s == "clarity6" {
             Ok(ClarityVersion::Clarity6)
+        } else if s == "clarity7" {
+            Ok(ClarityVersion::Clarity7)
         } else {
             Err(
-                "Invalid clarity version. Valid versions are: Clarity1, Clarity2, Clarity3, Clarity4, Clarity5, Clarity6.",
+                "Invalid clarity version. Valid versions are: Clarity1, Clarity2, Clarity3, Clarity4, Clarity5, Clarity6, Clarity7.",
             )
         }
     }

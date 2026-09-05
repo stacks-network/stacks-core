@@ -16,5 +16,7 @@
 //! Consensus unit tests: small, targeted tests that pin the observable,
 //! consensus-critical behavior of a specific change across epochs and Clarity
 //! versions.
+mod clarity7_reserved_names;
 mod epoch_40_read_budget;
+mod epoch_41_force_latest;
 mod special_map;

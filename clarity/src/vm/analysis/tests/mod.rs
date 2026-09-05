@@ -27,13 +27,13 @@ use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use crate::vm::analysis::{
     ContractAnalysis, StaticCheckError, StaticCheckErrorKind, mem_type_check as mem_run_analysis,
-    run_analysis,
+    run_analysis, type_check,
 };
-use crate::vm::ast::build_ast;
+use crate::vm::ast::{build_ast, parse};
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::resource_limiter::{ResourceBudget, ResourceLimiter};
-use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 
 pub mod utils {
     use super::*;
@@ -738,4 +738,223 @@ fn test_definition_sorting_of_contract_call() {
          (define-public (stuff (target <my-trait>)) (let ((thing target)) (contract-call? thing trait-func)))",
         "NameAlreadyUsed",
     );
+}
+
+// Clarity 7 reserved-name defines at analysis: the rule is documented on
+// `is_shadowable_reserved`.
+
+/// A Clarity 1 trait whose method name is a native since Clarity 2.
+const LEGACY_OPS: (&str, ClarityVersion, StacksEpochId, &str) = (
+    "ops-def",
+    ClarityVersion::Clarity1,
+    StacksEpochId::Epoch34,
+    "(define-trait ops ((slice? (int int) (response int int))))",
+);
+
+/// Analyzes and stores `contracts` (name, version, epoch, source) in order;
+/// returns the last analysis.
+fn run_analyses(
+    contracts: &[(&str, ClarityVersion, StacksEpochId, &str)],
+) -> Result<ContractAnalysis, StaticCheckError> {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    db.execute(|db| {
+        let mut last = None;
+        for &(name, version, epoch, source) in contracts {
+            let contract_id = QualifiedContractIdentifier::local(name).unwrap();
+            let mut exprs =
+                parse(&contract_id, source, version, epoch).expect("test contract should parse");
+            last = Some(type_check(
+                &contract_id,
+                &mut exprs,
+                db,
+                true,
+                &epoch,
+                &version,
+            )?);
+        }
+        Ok(last.expect("at least one contract"))
+    })
+}
+
+/// Analyzes a single Clarity 7 contract at Epoch 4.1 after `setup`.
+fn run_clarity7_analysis(
+    setup: &[(&str, ClarityVersion, StacksEpochId, &str)],
+    contract: &str,
+) -> Result<ContractAnalysis, StaticCheckError> {
+    let mut contracts = setup.to_vec();
+    contracts.push((
+        "subject",
+        ClarityVersion::Clarity7,
+        StacksEpochId::Epoch41,
+        contract,
+    ));
+    run_analyses(&contracts)
+}
+
+fn assert_name_already_used(result: Result<ContractAnalysis, StaticCheckError>, name: &str) {
+    let err = result.expect_err("expected the analysis to fail");
+    assert_eq!(
+        StaticCheckErrorKind::NameAlreadyUsed(name.to_string()),
+        *err.err
+    );
+}
+
+#[test]
+fn clarity7_shadowable_define_requires_legacy_trait_method() {
+    let implementation = "(impl-trait .ops-def.ops)
+                          (define-public (slice? (a int) (b int)) (ok (+ a b)))";
+
+    // No trait: rejected as in every earlier version.
+    assert_name_already_used(
+        run_clarity7_analysis(&[], "(define-public (slice? (a int) (b int)) (ok (+ a b)))"),
+        "slice?",
+    );
+
+    // A legacy trait unlocks the name; the signature is recorded under it.
+    let analysis = run_clarity7_analysis(&[LEGACY_OPS], implementation).unwrap();
+    assert!(analysis.public_function_types.contains_key("slice?"));
+
+    // A trait that already had the name reserved does not unlock it.
+    let later_ops = (
+        "ops-def",
+        ClarityVersion::Clarity5,
+        StacksEpochId::Epoch34,
+        "(define-trait ops ((slice? (int int) (response int int))))",
+    );
+    assert_name_already_used(
+        run_clarity7_analysis(&[later_ops], implementation),
+        "slice?",
+    );
+
+    // An implemented trait that does not declare the name does not either.
+    let other = (
+        "other-def",
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch34,
+        "(define-trait other ((foo (int) (response int int))))",
+    );
+    assert_name_already_used(
+        run_clarity7_analysis(
+            &[other],
+            "(impl-trait .other-def.other)
+             (define-public (foo (x int)) (ok x))
+             (define-public (slice? (a int) (b int)) (ok (+ a b)))",
+        ),
+        "slice?",
+    );
+
+    // Private functions are never trait methods.
+    assert_name_already_used(
+        run_clarity7_analysis(
+            &[LEGACY_OPS],
+            "(impl-trait .ops-def.ops)
+             (define-private (slice? (a int) (b int)) (ok (+ a b)))",
+        ),
+        "slice?",
+    );
+}
+
+/// The reported name is the lexicographically first, not the first defined.
+#[test]
+fn clarity7_multiple_unmatched_names_report_deterministically() {
+    assert_name_already_used(
+        run_clarity7_analysis(
+            &[],
+            "(define-public (slice? (a int) (b int)) (ok (+ a b)))
+             (define-public (element-at? (a int)) (ok a))",
+        ),
+        "element-at?",
+    );
+}
+
+#[test]
+fn clarity7_trait_cannot_declare_reserved_method_name() {
+    let trait_def = "(define-trait t ((slice? (int int) (response int int))))";
+    assert_name_already_used(run_clarity7_analysis(&[], trait_def), "slice?");
+
+    // Unchecked before Clarity 7.
+    run_analyses(&[(
+        "t-c6",
+        ClarityVersion::Clarity6,
+        StacksEpochId::Epoch40,
+        trait_def,
+    )])
+    .unwrap();
+}
+
+#[test]
+fn clarity7_shadowable_define_keeps_native_for_bare_references() {
+    // Uses the native `slice?` both elsewhere and inside the implementation.
+    let analysis = run_clarity7_analysis(
+        &[LEGACY_OPS],
+        "(impl-trait .ops-def.ops)
+         (define-read-only (slice? (a int) (b int))
+            (ok (to-int (len (unwrap-panic (slice? (list a b) u0 u1))))))
+         (define-read-only (use-native) (slice? (list 1 2 3) u0 u2))",
+    )
+    .unwrap();
+    assert!(analysis.read_only_function_types.contains_key("slice?"));
+
+    // A bare call still types against the native: a type error, not a name
+    // conflict.
+    let err = run_clarity7_analysis(
+        &[LEGACY_OPS],
+        "(impl-trait .ops-def.ops)
+         (define-read-only (slice? (a int) (b int)) (ok (+ a b)))
+         (define-read-only (use-mine) (slice? 2 3))",
+    )
+    .unwrap_err();
+    assert!(
+        !matches!(*err.err, StaticCheckErrorKind::NameAlreadyUsed(_)),
+        "expected a type error against the native, got {err}"
+    );
+}
+
+/// Callers defined before a keyword-named implementation still resolve: the
+/// sorter orders them after it. The bare atom stays the keyword.
+#[test]
+fn clarity7_keyword_named_function_callable_regardless_of_definition_order() {
+    let heights = (
+        "heights-def",
+        ClarityVersion::Clarity1,
+        StacksEpochId::Epoch34,
+        "(define-trait heights ((stacks-block-height (uint) (response uint uint))))",
+    );
+    let analysis = run_clarity7_analysis(
+        &[heights],
+        "(impl-trait .heights-def.heights)
+         (define-read-only (call-mine) (stacks-block-height u7))
+         (define-read-only (map-mine) (map stacks-block-height (list u1 u2)))
+         (define-read-only (read-keyword) stacks-block-height)
+         (define-read-only (stacks-block-height (x uint)) (ok x))",
+    )
+    .unwrap();
+    assert!(
+        analysis
+            .read_only_function_types
+            .contains_key("stacks-block-height")
+    );
+}
+
+#[test]
+fn clarity7_native_keyword_still_wins_at_analysis() {
+    // Keyword references resolve to the native in every version.
+    let snippet = "(define-read-only (get-it) stacks-block-height)
+                   (get-it)";
+    for (version, epoch) in [
+        (ClarityVersion::Clarity5, StacksEpochId::Epoch34),
+        (ClarityVersion::Clarity6, StacksEpochId::Epoch40),
+        (ClarityVersion::Clarity7, StacksEpochId::Epoch41),
+    ] {
+        let (ty, _) = mem_run_analysis(snippet, version, epoch).unwrap();
+        assert_eq!(ty, Some(TypeSignature::UIntType));
+    }
+}
+
+#[test]
+fn clarity7_native_available_when_not_shadowed() {
+    let snippet = "(define-read-only (use-native) (element-at? (list 1 2 3) u0))
+                   (use-native)";
+    mem_run_analysis(snippet, ClarityVersion::Clarity7, StacksEpochId::Epoch41).unwrap();
 }
