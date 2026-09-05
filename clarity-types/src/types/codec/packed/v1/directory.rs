@@ -115,6 +115,11 @@ pub fn directory_total_len(count: usize, data_len: usize) -> Result<usize, Packe
         .ok_or(PackedValueError::SizeOverflow)
 }
 
+/// Return the temporary directory length before offset compaction.
+pub fn wide_directory_header_len(count: usize) -> Result<usize, PackedValueError> {
+    directory_header_len(count, OffsetWidth::U32)
+}
+
 /// Return the bytes required by the `count + 1` directory offsets.
 fn offset_table_len(count: usize, width: OffsetWidth) -> Result<usize, PackedValueError> {
     count
@@ -151,7 +156,7 @@ pub fn reserve_wide_directory(
     output: &mut Vec<u8>,
 ) -> Result<WideDirectory, PackedValueError> {
     let start = output.len();
-    let directory_len = directory_header_len(count, OffsetWidth::U32)?;
+    let directory_len = wide_directory_header_len(count)?;
     let data_start = start
         .checked_add(directory_len)
         .ok_or(PackedValueError::SizeOverflow)?;
