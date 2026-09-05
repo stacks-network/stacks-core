@@ -17,6 +17,7 @@
 use std::cmp;
 
 use integer_sqrt::IntegerSquareRoot;
+use stacks_common::bounded_format;
 
 use crate::vm::contexts::{ExecutionState, InvocationContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -622,7 +623,7 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> Result<Value, VmEx
                 let result = input.wrapping_shl(shamt);
                 Ok(Value::UInt(result))
             }
-            _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
+            _ => Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
                 "Union type error {}",
                 TypeSignature::type_of(&input)?
             ))
@@ -652,7 +653,7 @@ pub fn native_bitwise_right_shift(input: Value, pos: Value) -> Result<Value, VmE
                 let result = input.wrapping_shr(shamt);
                 Ok(Value::UInt(result))
             }
-            _ => Err(RuntimeCheckErrorKind::Unreachable(format!(
+            _ => Err(RuntimeCheckErrorKind::Unreachable(bounded_format!(
                 "Union type error {}",
                 TypeSignature::type_of(&input)?
             ))

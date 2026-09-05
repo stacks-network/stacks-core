@@ -81,7 +81,7 @@ fn test_block_height(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::Unreachable("Undefined variable: block-height".to_string())
+                RuntimeCheckErrorKind::Unreachable("Undefined variable: block-height".into())
             )),
             err
         );
@@ -142,7 +142,7 @@ fn test_stacks_block_height(
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
                 RuntimeCheckErrorKind::Unreachable(
-                    "Undefined variable: stacks-block-height".to_string()
+                    "Undefined variable: stacks-block-height".into()
                 )
             )),
             err
@@ -203,7 +203,7 @@ fn test_tenure_height(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::Unreachable("Undefined variable: tenure-height".to_string())
+                RuntimeCheckErrorKind::Unreachable("Undefined variable: tenure-height".into())
             )),
             err
         );
@@ -1220,9 +1220,7 @@ fn test_block_time(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::Unreachable(
-                    "Undefined variable: stacks-block-time".to_string()
-                )
+                RuntimeCheckErrorKind::Unreachable("Undefined variable: stacks-block-time".into())
             )),
             err
         );
@@ -1353,9 +1351,7 @@ fn test_current_contract(
         let err = eval_result.unwrap_err();
         assert_eq!(
             ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::Unreachable(
-                    "Undefined variable: current-contract".to_string()
-                )
+                RuntimeCheckErrorKind::Unreachable("Undefined variable: current-contract".into())
             )),
             err
         );

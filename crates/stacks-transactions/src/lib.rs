@@ -39,11 +39,13 @@ use clarity_types::Value;
 use clarity_types::effects::{AssetMap, AssetMapEntry};
 use clarity_types::types::serialization::SerializationError;
 use clarity_types::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+    AssetIdentifier, BoundedErrorString, PrincipalData, QualifiedContractIdentifier,
+    StandardPrincipalData,
 };
 use stacks_codec::transaction::{
     NonfungibleConditionCode, TransactionPostCondition, TransactionPostConditionMode,
 };
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 #[cfg(test)]
@@ -142,7 +144,7 @@ pub fn check_post_conditions_supported_in_epoch(
 /// Return `Err` if a non-fungible asset value cannot be serialized, which is
 /// required in order to hash it for comparison.
 ///
-/// TODO: return a typed reason rather than a `String`. It becomes
+/// TODO: return a typed reason rather than a formatted message. It becomes
 /// `StacksTransactionReceipt::vm_error`, which reaches the `new_block` event
 /// payload and the `/v3/blocks/{replay,simulate}` RPC, so changing it is an
 /// observable API change.
@@ -152,7 +154,7 @@ pub fn check_transaction_postconditions(
     origin_principal: &PrincipalData,
     asset_map: &AssetMap,
     epoch_id: StacksEpochId,
-) -> Result<Option<String>, SerializationError> {
+) -> Result<Option<BoundedErrorString>, SerializationError> {
     let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
         HashMap::new();
     let mut checked_nonfungible_assets: HashMap<
@@ -187,7 +189,7 @@ pub fn check_transaction_postconditions(
                     .expect("FATAL: sent waaaaay too much STX");
 
                 if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
-                    let reason = format!(
+                    let reason = bounded_format!(
                         "Post-condition check failure on STX owned by {account_principal}: {amount_sent_condition:?} {condition_code:?} {amount_sent}",
                     );
                     return Ok(Some(reason));
@@ -231,7 +233,7 @@ pub fn check_transaction_postconditions(
                     .get_fungible_tokens(&account_principal, &asset_id)
                     .unwrap_or(0);
                 if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
-                    let reason = format!(
+                    let reason = bounded_format!(
                         "Post-condition check failure on fungible asset {asset_id} owned by {account_principal}: {amount_sent_condition} {condition_code:?} {amount_sent}"
                     );
                     return Ok(Some(reason));
@@ -266,8 +268,10 @@ pub fn check_transaction_postconditions(
                     .get_nonfungible_tokens(&account_principal, &asset_id)
                     .unwrap_or(&empty_assets);
                 if !condition_code.check(asset_value, assets_sent) {
-                    let reason = format!(
-                        "Post-condition check failure on non-fungible asset {asset_id} owned by {account_principal}: {asset_value:?} {condition_code:?} {assets_sent:?}"
+                    let reason = bounded_format!(
+                        "Post-condition check failure on non-fungible asset {asset_id} owned by {account_principal}: {} {condition_code:?} (sent {} value(s))",
+                        asset_value.to_error_string(),
+                        assets_sent.len(),
                     );
                     return Ok(Some(reason));
                 }
@@ -300,7 +304,7 @@ pub fn check_transaction_postconditions(
                 let amount_staked = asset_map.get_stacking(&account_principal).unwrap_or(0);
 
                 if !condition_code.check(u128::from(*amount_staked_condition), amount_staked) {
-                    let reason = format!(
+                    let reason = bounded_format!(
                         "Post-condition check failure on STX staked by {account_principal}: {amount_staked_condition:?} {condition_code:?} {amount_staked}",
                     );
                     return Ok(Some(reason));
@@ -314,7 +318,7 @@ pub fn check_transaction_postconditions(
                 let performed = asset_map.did_pox_action(&account_principal);
 
                 if !condition_code.check(performed) {
-                    let reason = format!(
+                    let reason = bounded_format!(
                         "Post-condition check failure on PoX action by {account_principal}: {condition_code:?} performed={performed}",
                     );
                     return Ok(Some(reason));
@@ -343,22 +347,23 @@ pub fn check_transaction_postconditions(
                             // each value must be covered
                             for v in values {
                                 if !nfts.contains(&v.clone().try_into()?) {
-                                    let reason = format!(
-                                        "Post-condition check failure: Non-fungible asset {asset_identifier} value {v:?} was moved by {principal} but not checked"
+                                    let reason = bounded_format!(
+                                        "Post-condition check failure: Non-fungible asset {asset_identifier} value {} was moved by {principal} but not checked",
+                                        v.to_error_string(),
                                     );
                                     return Ok(Some(reason));
                                 }
                             }
                         } else {
                             // no values covered
-                            let reason = format!(
+                            let reason = bounded_format!(
                                 "Post-condition check failure: Non-fungible asset {asset_identifier} was moved by {principal} but not checked"
                             );
                             return Ok(Some(reason));
                         }
                     } else {
                         // no NFT for this principal
-                        let reason = format!(
+                        let reason = bounded_format!(
                             "Post-condition check failure: No checks for non-fungible asset {asset_identifier} moved by {principal}"
                         );
                         return Ok(Some(reason));
@@ -368,13 +373,13 @@ pub fn check_transaction_postconditions(
                     // This is STX or a fungible token
                     if let Some(checked_ft_asset_ids) = checked_fungible_assets.get(&principal) {
                         if !checked_ft_asset_ids.contains(&asset_identifier) {
-                            let reason = format!(
+                            let reason = bounded_format!(
                                 "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
                             );
                             return Ok(Some(reason));
                         }
                     } else {
-                        let reason = format!(
+                        let reason = bounded_format!(
                             "Post-condition check failure: Fungible asset {asset_identifier} was moved by {principal} but not checked"
                         );
                         return Ok(Some(reason));
@@ -399,7 +404,7 @@ pub fn check_transaction_postconditions(
                 continue;
             }
             if !checked_staking.contains(principal) {
-                let reason = format!(
+                let reason = bounded_format!(
                     "Post-condition check failure: {amount_staked} STX was staked by {principal} but not checked"
                 );
                 return Ok(Some(reason));
@@ -411,7 +416,7 @@ pub fn check_transaction_postconditions(
                 continue;
             }
             if !checked_pox.contains(principal) {
-                let reason = format!(
+                let reason = bounded_format!(
                     "Post-condition check failure: {principal} performed a PoX action but it was not checked"
                 );
                 return Ok(Some(reason));
