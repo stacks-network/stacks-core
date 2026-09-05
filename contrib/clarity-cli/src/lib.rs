@@ -119,27 +119,45 @@ pub fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
 
 /// Read text content from a file path or stdin if path is "-"
 pub fn read_file_or_stdin(path: &str) -> String {
-    if path == "-" {
-        let mut buffer = String::new();
-        io::stdin()
-            .read_to_string(&mut buffer)
-            .expect("Error reading from stdin");
-        buffer
-    } else {
-        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
-    }
+    friendly_expect(try_read_file_or_stdin(path), &read_error_message(path))
 }
 
 /// Read binary content from a file path or stdin if path is "-"
 pub fn read_file_or_stdin_bytes(path: &str) -> Vec<u8> {
+    friendly_expect(
+        try_read_file_or_stdin_bytes(path),
+        &read_error_message(path),
+    )
+}
+
+/// Build the error message shown when a read of `path` fails.
+fn read_error_message(path: &str) -> String {
+    if path == "-" {
+        "Error reading from stdin".to_string()
+    } else {
+        format!("Error reading file {path}")
+    }
+}
+
+/// Read UTF-8 content from `path`, or from stdin if `path` is "-".
+fn try_read_file_or_stdin(path: &str) -> io::Result<String> {
+    if path == "-" {
+        let mut buffer = String::new();
+        io::stdin().read_to_string(&mut buffer)?;
+        Ok(buffer)
+    } else {
+        fs::read_to_string(path)
+    }
+}
+
+/// Read raw bytes from `path`, or from stdin if `path` is "-".
+fn try_read_file_or_stdin_bytes(path: &str) -> io::Result<Vec<u8>> {
     if path == "-" {
         let mut buffer = vec![];
-        io::stdin()
-            .read_to_end(&mut buffer)
-            .expect("Error reading from stdin");
-        buffer
+        io::stdin().read_to_end(&mut buffer)?;
+        Ok(buffer)
     } else {
-        fs::read(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
+        fs::read(path)
     }
 }
 
@@ -2491,5 +2509,33 @@ mod test {
             result_json
         );
         assert!(result_json["error"]["runtime"] != json!(null));
+    }
+
+    #[test]
+    fn read_missing_file_is_an_error() {
+        let missing = "path/to/unexistent_contract.clar";
+
+        assert_eq!(
+            try_read_file_or_stdin(missing).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            try_read_file_or_stdin_bytes(missing).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+    }
+
+    #[test]
+    fn read_file_returns_its_contents() {
+        let path = std::env::temp_dir()
+            .join("clarity_cli_read_file_returns_its_contents.clar")
+            .to_string_lossy()
+            .into_owned();
+        fs::write(&path, "(ok u1)").unwrap();
+
+        assert_eq!(try_read_file_or_stdin(&path).unwrap(), "(ok u1)");
+        assert_eq!(try_read_file_or_stdin_bytes(&path).unwrap(), b"(ok u1)");
+
+        fs::remove_file(&path).unwrap();
     }
 }
