@@ -554,14 +554,6 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct VRF_Verify_Fixture {
-        pubkey: Vec<u8>,
-        proof: Vec<u8>,
-        message: &'static str,
-        result: bool,
-    }
-
-    #[derive(Debug)]
     struct VRF_Proof_Codec_Fixture {
         proof: Vec<u8>,
         result: bool,

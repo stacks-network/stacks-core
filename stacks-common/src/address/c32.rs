@@ -226,6 +226,8 @@ fn c32_encode(input_bytes: &[u8]) -> String {
     String::from_utf8(result).unwrap()
 }
 
+/// Decode raw C32 text for encoder round-trip tests.
+#[cfg(test)]
 fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
     // must be ASCII
     if !input_str.is_ascii() {
