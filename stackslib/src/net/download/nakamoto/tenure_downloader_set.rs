@@ -318,22 +318,6 @@ impl NakamotoTenureDownloaderSet {
         }
     }
 
-    /// Find the downloaders that have obtained their tenure-start blocks, and extract them.  These
-    /// will be fed into other downloaders which are blocked on needing their tenure-end blocks.
-    pub(crate) fn find_new_tenure_start_blocks(&self) -> HashMap<StacksBlockId, NakamotoBlock> {
-        let mut ret = HashMap::new();
-        for downloader_opt in self.downloaders.iter() {
-            let Some(downloader) = downloader_opt else {
-                continue;
-            };
-            let Some(block) = downloader.tenure_start_block.as_ref() else {
-                continue;
-            };
-            ret.insert(block.block_id(), block.clone());
-        }
-        ret
-    }
-
     /// Does there exist a downloader (possibly unscheduled) for the given tenure?
     pub(crate) fn has_downloader_for_tenure(&self, tenure_id: &ConsensusHash) -> bool {
         for downloader_opt in self.downloaders.iter() {
