@@ -413,25 +413,36 @@ fn encode_varuint(mut value: usize, output: &mut Vec<u8>) -> Result<(), PackedVa
 mod tests {
     use super::*;
     use crate::types::BOUND_VALUE_SERIALIZATION_BYTES;
+    use crate::types::codec::packed::{PackedValue, PackedValueVersion};
 
+    /// Preserve the complete historical payload when its descriptor exceeds the runtime size bound.
     #[test]
     fn structurally_valid_shape_uses_its_own_stream_bound() {
         const LIST_ELEMENTS: u8 = 0x0f;
         const TUPLE: u8 = 0x0c;
         const BOOL: u8 = 0x02;
         const ELEMENT_COUNT: usize = 131_070;
-        const NARROW_CONSENSUS_LEN: usize = 8;
-        const WIDE_CONSENSUS_LEN: usize = 14;
+        const NARROW_CONSENSUS: [u8; 8] = [0x0c, 0, 0, 0, 1, 1, b'a', 0x03];
+        const WIDE_CONSENSUS: [u8; 14] = [
+            0x0c, 0, 0, 0, 3, 1, b'a', 0x03, 1, b'b', 0x03, 1, b'c', 0x03,
+        ];
         const ELEMENT_COUNT_VARUINT: [u8; 3] = [0xfe, 0xff, 0x07];
         const NARROW_SHAPE: [u8; 5] = [TUPLE, 1, 1, b'a', BOOL];
         const WIDE_SHAPE: [u8; 11] = [TUPLE, 3, 1, b'a', BOOL, 1, b'b', BOOL, 1, b'c', BOOL];
 
-        // This structurally valid descriptor and its corresponding consensus stream fit the
-        // storage-format bounds even though the widened list type would exceed Clarity's smaller
-        // runtime-value bound. The parser therefore applies the descriptor stream's own resource
-        // limit instead of borrowing a limit from an unrelated representation.
-        let consensus_len = 5 + NARROW_CONSENSUS_LEN + (ELEMENT_COUNT - 1) * WIDE_CONSENSUS_LEN;
+        // The historical left-to-right type fold retains the first tuple's narrow field set.
+        // Its full active data and descriptor still need the larger storage-format bounds.
+        let consensus_len = 5 + NARROW_CONSENSUS.len() + (ELEMENT_COUNT - 1) * WIDE_CONSENSUS.len();
+        assert_eq!(consensus_len, 1_834_979);
         assert!(consensus_len <= BOUND_VALUE_SERIALIZATION_BYTES as usize);
+        let mut consensus = Vec::with_capacity(consensus_len);
+        consensus.push(0x0b);
+        consensus.extend(u32::try_from(ELEMENT_COUNT).unwrap().to_be_bytes());
+        consensus.extend(NARROW_CONSENSUS);
+        for _ in 1..ELEMENT_COUNT {
+            consensus.extend(WIDE_CONSENSUS);
+        }
+        assert_eq!(consensus.len(), consensus_len);
 
         let mut descriptor = Vec::with_capacity(
             2 + ELEMENT_COUNT_VARUINT.len()
@@ -454,6 +465,22 @@ mod tests {
         assert_eq!(
             ValueShape::from_bytes(&descriptor).unwrap().as_bytes(),
             descriptor
+        );
+
+        let (packed, transcoded_shape) = PackedValue::transcode_consensus_with_shape(
+            PackedValueVersion::V1,
+            ValueShapeVersion::V1,
+            &consensus,
+        )
+        .unwrap();
+        assert_eq!(packed.consensus_byte_len() as usize, consensus_len);
+        assert_eq!(transcoded_shape.as_bytes(), descriptor);
+        assert_eq!(
+            packed
+                .as_packed_ref()
+                .audit_reconstruction(transcoded_shape.as_bytes())
+                .unwrap(),
+            consensus
         );
     }
 }
