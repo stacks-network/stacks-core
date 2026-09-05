@@ -17,6 +17,8 @@
 use rstest::rstest;
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
+#[cfg(test)]
+use stacks_common::util::hash::hex_bytes;
 
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
@@ -24,11 +26,82 @@ use crate::vm::{
     ClarityVersion, ContractContext,
     analysis::type_checker::v2_1::tests::contracts::type_check_version,
     ast::parse,
-    database::MemoryBackingStore,
+    database::{ClarityDatabase, MemoryBackingStore, StoreType},
     errors::{ClarityEvalError, RuntimeCheckErrorKind, StaticCheckErrorKind, VmExecutionError},
     tests::{TopLevelMemoryEnvironmentGenerator, tl_env_factory},
+    types::codec::packed::{PackedValue, PackedValueVersion, ValueShapeVersion},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
 };
+
+/// Epoch 2.05 persists active tuple fields omitted by a list's cached type; migration preserves them.
+#[cfg(test)]
+#[rstest]
+fn packed_codec_preserves_epoch_205_unsanitized_variable(
+    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    let epoch = StacksEpochId::Epoch2_05;
+    let version = ClarityVersion::Clarity1;
+    let contract_identifier = QualifiedContractIdentifier::local("packed-history").unwrap();
+    let contract = "
+        (define-data-var saved (list 2 (tuple (a bool))) (list))
+        (define-public (save)
+            (ok (var-set saved (list {a: true} {a: true, b: false}))))";
+
+    let mut expressions = parse(&contract_identifier, contract, version, epoch).unwrap();
+    let mut analysis_store = MemoryBackingStore::new();
+    analysis_store
+        .as_analysis_db()
+        .execute(|db| {
+            type_check_version(
+                &contract_identifier,
+                &mut expressions,
+                db,
+                true,
+                epoch,
+                version,
+            )
+        })
+        .unwrap();
+
+    let mut env = tl_env_factory.get_env(epoch);
+    env.initialize_versioned_contract(contract_identifier.clone(), version, contract, None)
+        .unwrap();
+    let (result, _, _) = env
+        .execute_transaction(
+            contract_identifier.issuer.clone().into(),
+            None,
+            contract_identifier.clone(),
+            "save",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(result, Value::okay_true());
+
+    // Read the committed raw payload: a typed read could sanitize away the field being tested.
+    let key =
+        ClarityDatabase::make_key_for_trip(&contract_identifier, StoreType::Variable, "saved");
+    let db = &mut env.context.database;
+    db.begin();
+    let stored: String = db.get_data(&key).unwrap().unwrap();
+    db.roll_back().unwrap();
+    assert_eq!(stored, "0b000000020c000000010161030c00000002016103016204");
+    let consensus = hex_bytes(&stored).unwrap();
+
+    let (packed, shape) = PackedValue::transcode_consensus_with_shape(
+        PackedValueVersion::V1,
+        ValueShapeVersion::V1,
+        &consensus,
+    )
+    .unwrap();
+    assert_eq!(&shape.as_bytes()[..2], &[1, 0x0f]);
+    assert_eq!(
+        packed
+            .as_packed_ref()
+            .audit_reconstruction(shape.as_bytes())
+            .unwrap(),
+        consensus
+    );
+}
 
 #[apply(test_clarity_versions)]
 fn test_block_height(
