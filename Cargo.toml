@@ -23,6 +23,11 @@ members = [
 
 exclude = ["contrib/tools/config-docs-generator"]
 
+[workspace.package]
+# Update this value when a new release is created. The node and signer are
+# released together and share this version.
+version = "4.0.2"
+
 [workspace.dependencies]
 # Local dependencies
 stacks-profiler = { path = "stacks-profiler" }

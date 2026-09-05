@@ -69,7 +69,12 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
 5. Open a PR to assemble the changelog and update the version in the `release/X.Y.Z` branch.
 
    - Create a chore branch from `release/X.Y.Z`, ex: `chore/X.Y.Z-changelog`.
-   - Update the `stacks_node_version` string in [versions.toml](../versions.toml) to match this release version.
+   - Update `workspace.package.version` in [Cargo.toml](../Cargo.toml) to match this release version.
+   - Refresh all affected Cargo lockfiles, then commit them:
+
+     ```bash
+     ./contrib/tools/update-release-lockfiles.sh
+     ```
    - Assemble changelog fragments into `CHANGELOG.md`:
 
      ```bash
