@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
-
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
@@ -23,18 +21,12 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use stacks_common::deps_common::ctrlc as termination;
-use stacks_common::deps_common::ctrlc::SignalId;
-
 use crate::error::EventError;
 use crate::events::{EventReceiver, EventStopSignaler, SignerEvent, SignerEventTrait};
 
 /// Some libcs, like musl, have a very small stack size.
 /// Make sure it's big enough.
 const THREAD_STACK_SIZE: usize = 128 * 1024 * 1024; // 128 MB
-
-/// stderr fileno
-const STDERR: i32 = 2;
 
 /// Trait describing the needful components of a top-level runloop.
 /// This is where the signer business logic would go.
@@ -51,9 +43,9 @@ pub trait SignerRunLoop<R: Send, T: SignerEventTrait> {
 
     /// This is the main loop body for the signer. It continuously receives events from
     /// `event_recv`, polling for up to `self.get_event_timeout()` units of time.  Once it has
-    /// polled for events, they are fed into `run_one_pass()`.  This continues until either
-    /// `run_one_pass()` returns `false`, or the event receiver hangs up.  At this point, this
-    /// method calls the `event_stop_signaler.send()` to terminate the receiver.
+    /// polled for events, they are fed into `run_one_pass()`. A `Some` result signals the event
+    /// receiver to stop and is returned to the caller. If the event channel disconnects, this
+    /// method returns `None`.
     ///
     /// This would run in a separate thread from the event receiver.
     fn main_loop<EVST: EventStopSignaler>(
@@ -136,45 +128,6 @@ impl<EV: EventReceiver<T>, R, T: SignerEventTrait> RunningSigner<EV, R, T> {
         info!("Signer thread joined");
         result_opt
     }
-}
-
-/// Write to stderr in an async-safe manner.
-/// See signal-safety(7)
-#[warn(unused)]
-fn async_safe_write_stderr(msg: &str) {
-    #[cfg(windows)]
-    unsafe {
-        // write(2) inexplicably has a different ABI only on Windows.
-        libc::write(
-            STDERR,
-            msg.as_ptr() as *const libc::c_void,
-            msg.len() as u32,
-        );
-    }
-    #[cfg(not(windows))]
-    unsafe {
-        libc::write(STDERR, msg.as_ptr() as *const libc::c_void, msg.len());
-    }
-}
-
-/// This is a termination handler for handling receipt of a terminating UNIX signal, like SIGINT,
-/// SIGQUIT, SIGTERM, or SIGBUS.  You'd call this as part of the startup code for the signer daemon.
-/// DO NOT call this from within the library!
-pub fn set_runloop_signal_handler<ST: EventStopSignaler + Send + 'static>(mut stop_signaler: ST) {
-    termination::set_handler(move |sig_id| match sig_id {
-        SignalId::Bus => {
-            let msg = "Caught SIGBUS; crashing immediately and dumping core\n";
-            async_safe_write_stderr(msg);
-            unsafe {
-                libc::abort();
-            }
-        }
-        _ => {
-            let msg = format!("Graceful termination request received (signal `{sig_id}`), will complete the ongoing runloop cycles and terminate\n");
-            async_safe_write_stderr(&msg);
-            stop_signaler.send();
-        }
-    }).expect("FATAL: failed to set signal handler");
 }
 
 impl<R, SL, EV, T> Signer<R, SL, EV, T> {
