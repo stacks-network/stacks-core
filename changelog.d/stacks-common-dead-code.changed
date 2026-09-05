@@ -1,0 +1,1 @@
+Remove the crate-wide dead-code allowance from stacks-common, retain C32 decoding coverage through a test-only helper, and expand named-enum macro tests to cover variant and name enumeration.
