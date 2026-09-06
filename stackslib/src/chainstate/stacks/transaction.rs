@@ -194,9 +194,8 @@ mod test {
     use stacks_common::util::retry::LogReader;
 
     use crate::burnchains::Txid;
-    use crate::chainstate::stacks::*;
-
     use crate::chainstate::stacks::test::codec_all_transactions;
+    use crate::chainstate::stacks::*;
     use crate::core::EMPTY_MICROBLOCK_PARENT_HASH;
     use crate::net::codec::test::check_codec_and_corruption;
 
