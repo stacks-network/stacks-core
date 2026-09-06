@@ -801,10 +801,11 @@ impl TestStacksNode {
                     u64::from(DEFAULT_MAX_TENURE_BYTES),
                 )?
             } else {
-                NakamotoBlockBuilder::new_first_block(
-                    &tenure_change.clone().unwrap(),
-                    &coinbase.clone().unwrap(),
-                )
+                assert!(
+                    tenure_change.is_some(),
+                    "Genesis tenure requires a tenure-change transaction"
+                );
+                NakamotoBlockBuilder::new_first_block(&coinbase.clone().unwrap())
             };
             // Optionally overwrite the timestamp to enable predictable blocks.
             if let Some(timestamp) = timestamp {

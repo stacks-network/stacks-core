@@ -1866,13 +1866,11 @@ pub fn check_chainstate_db_versions(
 pub struct SortitionDBMigrator {
     chainstate: Option<StacksChainState>,
     burnchain: Burnchain,
-    /// Burnchain database connection held for the migrator's lifetime.
-    _burnchain_db: BurnchainDB,
 }
 
 impl SortitionDBMigrator {
     /// Instantiate the migrator.
-    /// The chainstate must already exist
+    /// The chainstate must already exist.
     pub fn new(
         burnchain: Burnchain,
         chainstate_path: &str,
@@ -1885,12 +1883,10 @@ impl SortitionDBMigrator {
             chainstate_path,
             marf_opts,
         )?;
-        let burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false)?;
 
         Ok(Self {
             chainstate: Some(chainstate),
             burnchain,
-            _burnchain_db: burnchain_db,
         })
     }
 

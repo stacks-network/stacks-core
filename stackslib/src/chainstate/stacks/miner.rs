@@ -820,8 +820,6 @@ pub trait BlockBuilder {
 pub struct StacksMicroblockBuilder<'a> {
     anchor_block: BlockHeaderHash,
     anchor_block_consensus_hash: ConsensusHash,
-    /// Reopened chainstate held until the builder and its Clarity transaction are dropped.
-    _header_reader: StacksChainState,
     clarity_tx: Option<ClarityTx<'a, 'a>>,
     runtime: MicroblockMinerRuntime,
     settings: BlockBuilderSettings,
@@ -856,6 +854,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
             Error::NoSuchBlockError
         })?;
 
+        drop(header_reader);
+
         // when we drop the miner, the underlying clarity instance will be rolled back
         chainstate.set_unconfirmed_dirty(true);
 
@@ -889,7 +889,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
             anchor_block_consensus_hash,
             runtime,
             clarity_tx: Some(clarity_tx),
-            _header_reader: header_reader,
             settings,
         })
     }
@@ -909,7 +908,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
             return Err(Error::NoSuchBlockError);
         };
 
-        let (header_reader, _) = chainstate.reopen()?;
         let (anchored_consensus_hash, anchored_block_hash) = if let Some(unconfirmed) =
             chainstate.unconfirmed_state.as_ref()
         {
@@ -957,7 +955,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
             anchor_block_consensus_hash: anchored_consensus_hash,
             runtime,
             clarity_tx: Some(clarity_tx),
-            _header_reader: header_reader,
             settings,
         })
     }

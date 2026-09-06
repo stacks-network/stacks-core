@@ -220,10 +220,7 @@ pub struct BlockMetadata {
 
 impl NakamotoBlockBuilder {
     /// Make a block builder from genesis (testing only)
-    pub fn new_first_block(
-        _tenure_change: &StacksTransaction,
-        coinbase: &StacksTransaction,
-    ) -> NakamotoBlockBuilder {
+    pub fn new_first_block(coinbase: &StacksTransaction) -> NakamotoBlockBuilder {
         NakamotoBlockBuilder {
             parent_header: None,
             coinbase_tx: Some(coinbase.clone()),

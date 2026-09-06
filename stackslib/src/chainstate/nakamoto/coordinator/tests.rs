@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use clarity::consts::CHAIN_ID_TESTNET;
@@ -535,6 +536,36 @@ fn replay_reward_cycle(
     peer.chain.stacks_node = Some(node);
 
     peer.check_nakamoto_migration();
+}
+
+/// Rebuild populated epoch-2 reward sets without a burnchain blocks database.
+#[test]
+fn test_sortition_migration_without_burnchain_db() {
+    let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+
+    let reward_sets =
+        SortitionDB::get_all_preprocessed_reward_sets(peer.sortdb_ref().conn()).unwrap();
+    assert!(reward_sets
+        .iter()
+        .filter_map(|(_, info)| info.known_selected_anchor_block())
+        .filter_map(|rewards| rewards.rewarded_addresses())
+        .any(|addresses| !addresses.is_empty()));
+
+    let missing_dir = PathBuf::from(&peer.config.chain_config.burnchain.working_dir)
+        .join("absent-migration-burnchain");
+    assert!(!missing_dir.exists());
+    peer.config.chain_config.burnchain.working_dir = missing_dir.to_str().unwrap().to_owned();
+
+    peer.check_nakamoto_migration();
+
+    assert!(!missing_dir.exists());
 }
 
 /// Mine a single Nakamoto tenure with a single Nakamoto block
