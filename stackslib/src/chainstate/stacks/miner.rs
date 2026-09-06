@@ -820,10 +820,9 @@ pub trait BlockBuilder {
 pub struct StacksMicroblockBuilder<'a> {
     anchor_block: BlockHeaderHash,
     anchor_block_consensus_hash: ConsensusHash,
-    anchor_block_height: u64,
-    header_reader: StacksChainState,
+    /// Reopened chainstate held until the builder and its Clarity transaction are dropped.
+    _header_reader: StacksChainState,
     clarity_tx: Option<ClarityTx<'a, 'a>>,
-    unconfirmed: bool,
     runtime: MicroblockMinerRuntime,
     settings: BlockBuilderSettings,
 }
@@ -844,7 +843,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         };
 
         let (header_reader, _) = chainstate.reopen()?;
-        let anchor_block_header = StacksChainState::get_anchored_block_header_info(
+        StacksChainState::get_anchored_block_header_info(
             header_reader.db(),
             &anchor_block_consensus_hash,
             &anchor_block,
@@ -856,7 +855,6 @@ impl<'a> StacksMicroblockBuilder<'a> {
             );
             Error::NoSuchBlockError
         })?;
-        let anchor_block_height = anchor_block_header.stacks_block_height;
 
         // when we drop the miner, the underlying clarity instance will be rolled back
         chainstate.set_unconfirmed_dirty(true);
@@ -889,11 +887,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         Ok(StacksMicroblockBuilder {
             anchor_block,
             anchor_block_consensus_hash,
-            anchor_block_height,
             runtime,
             clarity_tx: Some(clarity_tx),
-            header_reader,
-            unconfirmed: false,
+            _header_reader: header_reader,
             settings,
         })
     }
@@ -914,30 +910,29 @@ impl<'a> StacksMicroblockBuilder<'a> {
         };
 
         let (header_reader, _) = chainstate.reopen()?;
-        let (anchored_consensus_hash, anchored_block_hash, anchored_block_height) =
-            if let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() {
-                let header_info =
-                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                        chainstate.db(),
-                        &unconfirmed.confirmed_chain_tip,
-                    )?
-                    .ok_or_else(|| {
-                        warn!(
-                            "No such confirmed block {}",
-                            &unconfirmed.confirmed_chain_tip
-                        );
-                        Error::NoSuchBlockError
-                    })?;
-                (
-                    header_info.consensus_hash,
-                    header_info.anchored_header.block_hash(),
-                    header_info.stacks_block_height,
-                )
-            } else {
-                // unconfirmed state needs to be initialized
-                debug!("Unconfirmed chainstate not initialized");
-                return Err(Error::NoSuchBlockError)?;
-            };
+        let (anchored_consensus_hash, anchored_block_hash) = if let Some(unconfirmed) =
+            chainstate.unconfirmed_state.as_ref()
+        {
+            let header_info = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                chainstate.db(),
+                &unconfirmed.confirmed_chain_tip,
+            )?
+            .ok_or_else(|| {
+                warn!(
+                    "No such confirmed block {}",
+                    &unconfirmed.confirmed_chain_tip
+                );
+                Error::NoSuchBlockError
+            })?;
+            (
+                header_info.consensus_hash,
+                header_info.anchored_header.block_hash(),
+            )
+        } else {
+            // unconfirmed state needs to be initialized
+            debug!("Unconfirmed chainstate not initialized");
+            return Err(Error::NoSuchBlockError)?;
+        };
 
         let mut clarity_tx = chainstate.begin_unconfirmed(burn_dbconn).ok_or_else(|| {
             warn!(
@@ -960,11 +955,9 @@ impl<'a> StacksMicroblockBuilder<'a> {
         Ok(StacksMicroblockBuilder {
             anchor_block: anchored_block_hash,
             anchor_block_consensus_hash: anchored_consensus_hash,
-            anchor_block_height: anchored_block_height,
             runtime,
             clarity_tx: Some(clarity_tx),
-            header_reader,
-            unconfirmed: true,
+            _header_reader: header_reader,
             settings,
         })
     }

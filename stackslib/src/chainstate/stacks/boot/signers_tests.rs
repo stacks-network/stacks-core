@@ -21,18 +21,17 @@ use clarity::vm::tests::symbols_from_values;
 use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use super::{RawRewardSetEntry, SIGNERS_PK_LEN};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::coordinator::tests::{boot_nakamoto, make_token_transfer};
+use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
-use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::pox_4_tests::prepare_pox4_test;
-use crate::chainstate::stacks::boot::test::{key_to_stacks_addr, with_sortdb};
+use crate::chainstate::stacks::boot::test::with_sortdb;
 use crate::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_NAME};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::TenureChangeCause;
@@ -408,56 +407,6 @@ pub fn prepare_signers_test<'a>(
     assert_eq!(last_set_cycle, 7);
 
     (peer, test_signers, latest_block_id, current_reward_cycle)
-}
-
-fn advance_blocks(
-    peer: &mut TestPeer,
-    test_signers: &mut TestSigners,
-    stacker_private_key: &StacksPrivateKey,
-    num_blocks: u64,
-) -> StacksBlockId {
-    let current_height = peer.get_burnchain_view().unwrap().burn_block_height;
-
-    //let key = peer.config.private_key;
-
-    let (burn_ops, mut tenure_change, miner_key) =
-        peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
-
-    let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
-
-    let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
-
-    tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-    let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
-    let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
-    let recipient_addr = boot_code_addr(false);
-    let blocks_and_sizes = peer.make_nakamoto_tenure(
-        tenure_change_tx,
-        coinbase_tx,
-        test_signers,
-        |miner, chainstate, sortdb, blocks| {
-            if blocks.len() < num_blocks as usize {
-                let addr = key_to_stacks_addr(stacker_private_key);
-                let account = get_account(chainstate, sortdb, &addr);
-                let stx_transfer = make_token_transfer(
-                    chainstate,
-                    sortdb,
-                    stacker_private_key,
-                    account.nonce,
-                    1,
-                    1,
-                    &recipient_addr,
-                );
-                vec![stx_transfer]
-            } else {
-                vec![]
-            }
-        },
-    );
-    info!("tenure length {}", blocks_and_sizes.len());
-    let latest_block_id = blocks_and_sizes.last().unwrap().0.block_id();
-    latest_block_id
 }
 
 pub fn readonly_call(

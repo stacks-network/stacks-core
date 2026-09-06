@@ -81,10 +81,6 @@ pub struct NakamotoBlockBuilder {
     parent_header: Option<StacksHeaderInfo>,
     /// Signed coinbase tx, if starting a new tenure
     coinbase_tx: Option<StacksTransaction>,
-    /// Tenure change tx, if starting or extending a tenure
-    tenure_tx: Option<StacksTransaction>,
-    /// Total burn this block represents
-    total_burn: u64,
     /// Matured miner rewards to process, if any.
     pub(crate) matured_miner_rewards_opt: Option<MaturedMinerRewards>,
     /// bytes of space consumed so far
@@ -225,14 +221,12 @@ pub struct BlockMetadata {
 impl NakamotoBlockBuilder {
     /// Make a block builder from genesis (testing only)
     pub fn new_first_block(
-        tenure_change: &StacksTransaction,
+        _tenure_change: &StacksTransaction,
         coinbase: &StacksTransaction,
     ) -> NakamotoBlockBuilder {
         NakamotoBlockBuilder {
             parent_header: None,
-            total_burn: 0,
             coinbase_tx: Some(coinbase.clone()),
-            tenure_tx: Some(tenure_change.clone()),
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
@@ -293,9 +287,7 @@ impl NakamotoBlockBuilder {
 
         Ok(NakamotoBlockBuilder {
             parent_header: Some(parent_stacks_header.clone()),
-            total_burn,
             coinbase_tx: coinbase.cloned(),
-            tenure_tx: tenure_change.cloned(),
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],

@@ -53,10 +53,6 @@ use crate::net::tests::NakamotoBootPlan;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 
-const USTX_PER_HOLDER: u128 = 1_000_000;
-
-const ERR_REUSED_SIGNER_KEY: i128 = 33;
-
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
 pub fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {

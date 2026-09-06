@@ -424,10 +424,7 @@ mod tests {
     use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG};
     use stacks_common::deps_common::bitcoin::blockdata::opcodes;
     use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
     use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::util::hash::*;
 
     use super::*;
     use crate::burnchains::bitcoin::address::*;
@@ -437,23 +434,6 @@ mod tests {
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
     use crate::core::StacksEpochId;
-
-    struct OpFixture {
-        txstr: String,
-        opstr: String,
-        result: Option<StackStxOp>,
-    }
-
-    struct CheckFixture {
-        op: StackStxOp,
-        res: Result<(), op_error>,
-    }
-
-    fn make_tx(hex_str: &str) -> Result<Transaction, &'static str> {
-        let tx_bin = hex_bytes(hex_str).map_err(|_e| "failed to decode hex string")?;
-        let tx = deserialize(&tx_bin.to_vec()).map_err(|_e| "failed to deserialize")?;
-        Ok(tx)
-    }
 
     #[test]
     fn test_parse_pre_stack_stx() {

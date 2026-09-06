@@ -20,13 +20,8 @@ use clarity::codec::StacksMessageCodec;
 /// are appropriately distributed.
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::types::*;
-use stacks_common::address::*;
 
-use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use crate::core::*;

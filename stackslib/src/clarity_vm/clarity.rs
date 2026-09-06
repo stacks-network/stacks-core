@@ -1142,42 +1142,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         ))
     }
 
-    /// Instantiates a boot contract by:
-    ///
-    /// 1. Preparing a [`StacksTransaction`] with the appropriate version, payload and auth,
-    /// 2. Executing it using the boot account within a cost-free transaction, and
-    /// 3. Asserting the receipt for success.
-    ///
-    /// Panics if any of the above steps fail.
-    fn instantiate_boot_contract(
-        &mut self,
-        contract_name: &str,
-        code_body: &str,
-        clarity_version: Option<ClarityVersion>,
-    ) -> Result<StacksTransactionReceipt, ClarityError> {
-        let contract_id = boot_code_id(contract_name, self.mainnet);
-
-        let (boot_code_account, contract_tx) =
-            self.make_boot_code_smart_contract_tx(contract_name, code_body, clarity_version)?;
-
-        let receipt = self.as_free_transaction(|tx_conn| {
-            info!("Instantiate {} contract", &contract_id);
-            StacksChainState::process_transaction_payload(
-                tx_conn,
-                &contract_tx,
-                &boot_code_account,
-                &TransactionResourceBudgets::unlimited(),
-            )
-            .expect("FATAL: Failed to process boot contract initialization")
-        });
-
-        if receipt.result != Value::okay_true() || receipt.post_condition_aborted {
-            panic!("FATAL: Failure processing {contract_id} contract initialization: {receipt:#?}");
-        }
-
-        Ok(receipt)
-    }
-
     pub fn initialize_epoch_2_05(&mut self) -> Result<StacksTransactionReceipt, ClarityError> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization

@@ -176,14 +176,10 @@ impl SortitionHash {
 impl Opcodes {
     const HTTP_BLOCK_COMMIT: &str = "block_commit";
     const HTTP_KEY_REGISTER: &str = "key_register";
-    const HTTP_BURN_SUPPORT: &str = "burn_support";
     const HTTP_STACK_STX: &str = "stack_stx";
     const HTTP_PRE_STX: &str = "pre_stx";
     const HTTP_TRANSFER_STX: &str = "transfer_stx";
     const HTTP_DELEGATE_STX: &str = "delegate_stx";
-    const HTTP_PEG_IN: &str = "peg_in";
-    const HTTP_PEG_OUT_REQUEST: &str = "peg_out_request";
-    const HTTP_PEG_OUT_FULFILL: &str = "peg_out_fulfill";
     const HTTP_VOTE_FOR_AGGREGATE_KEY: &str = "vote_for_aggregate_key";
 
     pub fn to_http_str(&self) -> &'static str {

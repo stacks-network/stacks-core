@@ -122,6 +122,7 @@ impl<'a, B> TableCopySpecs<'a, B> {
 
     /// The subset whose schema is cloned but no rows are copied
     /// ([`TableCopySource::SchemaOnly`]).
+    #[cfg(test)]
     pub fn schema_only(&self) -> Vec<&'static str> {
         self.iter()
             .filter(|s| matches!(s.source, TableCopySource::SchemaOnly))
