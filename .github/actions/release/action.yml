@@ -93,9 +93,8 @@ runs:
         # Also pre-populates the release body text
         - name: Create Release
           uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-          env:
-            GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
           with:
+              token: ${{ steps.generate-token.outputs.token }}
               name: "Release ${{ inputs.tag }}"
               tag_name: ${{ inputs.tag }}
               body: ${{ steps.draft.outputs.release_body }}
