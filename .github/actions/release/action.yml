@@ -103,7 +103,8 @@ runs:
                   sha: context.sha
                 });
               } catch (error) {
-                if (error.status === 422) {
+                const apiMessage = error.response?.data?.message || error.message || '';
+                if (error.status === 422 && apiMessage.includes('Reference already exists')) {
                   core.info('Tag ${{ inputs.tag }} already exists. Skipping creation.');
                 } else {
                   throw error;
