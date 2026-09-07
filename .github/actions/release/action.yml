@@ -86,9 +86,29 @@ runs:
           with:
             client-id: ${{ inputs.release-app-client-id }}
             private-key: ${{ inputs.release-app-private-key }}
-            
+
+        # Create draft the release with attached archives, checksums file, and attestations
+        # Also pre-populates the release body text
+        - name: Create Release
+          uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+          env:
+            GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          with:
+              name: "Release ${{ inputs.tag }}"
+              tag_name: ${{ inputs.tag }}
+              body: ${{ steps.draft.outputs.release_body }}
+              draft: true
+              prerelease: true
+              fail_on_unmatched_files: true
+              target_commitish: ${{ github.sha }}
+              generate_release_notes: false
+              files: |
+                  release/*.zip
+                  release/${{ inputs.hashfile_name }}
+                  
         # Manually create tag using GitHub App token before creating the draft release
         # This is required because a user publishes the draft release, and they don't have permission to create the tag
+        # This is also done last so that if any step fails, we don't create an immutable tag that's out of date
         - name: Create Git Tag
           uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
           with:
@@ -109,22 +129,3 @@ runs:
                   throw error;
                 }
               }
-
-        # Create draft the release with attached archives, checksums file, and attestations
-        # Also pre-populates the release body text
-        - name: Create Release
-          uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-          env:
-            GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
-          with:
-              name: "Release ${{ inputs.tag }}"
-              tag_name: ${{ inputs.tag }}
-              body: ${{ steps.draft.outputs.release_body }}
-              draft: true
-              prerelease: true
-              fail_on_unmatched_files: true
-              target_commitish: ${{ github.sha }}
-              generate_release_notes: false
-              files: |
-                  release/*.zip
-                  release/${{ inputs.hashfile_name }}
