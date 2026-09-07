@@ -48,7 +48,7 @@ use stacks_common::{debug, error, info, warn};
 use super::signer_state::LocalStateMachine;
 use crate::chainstate::v1::{SortitionMinerStatus, SortitionsView};
 use crate::chainstate::v2::GlobalStateView;
-use crate::chainstate::{ProposalEvalConfig, SortitionData, SortitionStateVersion};
+use crate::chainstate::{ProposalEvalConfig, SelfAsTip, SortitionData, SortitionStateVersion};
 use crate::client::{ClientError, SignerSlotID, StackerDB, StacksClient};
 use crate::config::{SignerConfig, SignerConfigMode};
 use crate::runloop::SignerResult;
@@ -56,6 +56,8 @@ use crate::signerdb::{BlockInfo, BlockState, PendingBlockResponses, SignedConfli
 use crate::v0::signer_state::NewBurnBlock;
 #[cfg(not(any(test, feature = "testing")))]
 use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
+#[cfg(test)]
+use crate::v0::tests::BlockMessageRecorder;
 use crate::Signer as SignerTrait;
 
 /// How far below the burnchain tip the signer keeps a record that it sanctioned the reorg of
@@ -137,6 +139,9 @@ pub struct Signer {
     /// The signer supported protocol version. used only in testing
     #[cfg(any(test, feature = "testing"))]
     pub supported_signer_protocol_version: u64,
+    /// Optional capture for one block during a unit-test assertion window.
+    #[cfg(test)]
+    pub test_block_messages: Option<BlockMessageRecorder>,
 }
 
 impl std::fmt::Display for SignerMode {
@@ -312,6 +317,8 @@ impl SignerTrait<SignerMessage> for Signer {
             last_capitulate_miner_view: SystemTime::now(),
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version: signer_config.supported_signer_protocol_version,
+            #[cfg(test)]
+            test_block_messages: None,
         }
     }
 
@@ -1022,7 +1029,10 @@ impl Signer {
 
     #[cfg(any(test, feature = "testing"))]
     fn send_block_response(&mut self, block: &NakamotoBlock, block_response: BlockResponse) {
-        self.test_record_block_response(&block_response);
+        #[cfg(test)]
+        if let Some(recorder) = self.test_block_messages.as_mut() {
+            recorder.record_response(&block_response);
+        }
         if self.test_skip_block_response_broadcast(&block_response) {
             return;
         }
@@ -1052,8 +1062,10 @@ impl Signer {
 
     /// Send a pre block commit message to signers to indicate that we will be signing the proposed block
     fn send_block_pre_commit(&mut self, signer_signature_hash: Sha512Trunc256Sum) {
-        #[cfg(any(test, feature = "testing"))]
-        self.test_record_pre_commit(&signer_signature_hash);
+        #[cfg(test)]
+        if let Some(recorder) = self.test_block_messages.as_mut() {
+            recorder.record_pre_commit(&signer_signature_hash);
+        }
         info!(
             "{self}: Broadcasting block pre-commit to stacks node for {signer_signature_hash}";
         );
@@ -1546,35 +1558,21 @@ impl Signer {
         block_proposal: &BlockProposal,
     ) {
         let signer_signature_hash = block_info.block.header.signer_signature_hash();
-        if block_info.signed_group.is_some() {
-            if block_info.state == BlockState::GloballyAccepted {
-                info!(
-                    "{self}: received a block proposal for a globally accepted block we validated but never signed. Nothing to add. Ignoring.";
-                    "signer_signature_hash" => %signer_signature_hash,
-                    "block_id" => %block_info.block.block_id(),
-                    "block_height" => block_info.block.header.chain_length,
-                    "burn_height" => block_proposal.burn_height,
-                    "consensus_hash" => %block_info.block.header.consensus_hash
-                );
-                return;
-            }
-            // The block already carries a threshold signature set, so our signature
-            // would add nothing while skipping the conflict checks. Re-broadcast the
-            // pre-commit so the response stays visible, but do not sign: the chainstate
-            // re-check in `handle_block_pre_commit` would compare this block against
-            // itself as the tenure's signed tip and reject it.
+        if block_info.state == BlockState::GloballyAccepted {
+            // Canonical and already threshold-signed: nothing left to add.
             info!(
-                "{self}: received a block proposal for a group-signed block we validated but never signed. Re-broadcasting the pre-commit only.";
+                "{self}: received a block proposal for a globally accepted block we validated but never signed. Nothing to add. Ignoring.";
                 "signer_signature_hash" => %signer_signature_hash,
                 "block_id" => %block_info.block.block_id(),
                 "block_height" => block_info.block.header.chain_length,
                 "burn_height" => block_proposal.burn_height,
-                "consensus_hash" => %block_info.block.header.consensus_hash,
-                "state" => %block_info.state
+                "consensus_hash" => %block_info.block.header.consensus_hash
             );
-            self.send_block_pre_commit(signer_signature_hash.clone());
             return;
         }
+        // This also covers a block the group already signed without us: our late
+        // acceptance is the visible response a late signer owes, and it still has to
+        // earn its way through the checks below.
         info!(
             "{self}: received a block proposal for a block we validated but have not signed. Re-evaluating the pre-commit.";
             "signer_signature_hash" => %signer_signature_hash,
@@ -1895,7 +1893,8 @@ impl Signer {
             }
         }
 
-        // Ensure that the block is the last block in the chain of its current tenure.
+        // Ensure that the block is the last block in the chain of its current tenure. The block
+        // itself may already be that tip if the group signed it before our validation returned.
         match SortitionData::check_latest_block_in_tenure(
             &proposed_block.header.consensus_hash,
             proposed_block,
@@ -1903,6 +1902,7 @@ impl Signer {
             stacks_client,
             self.proposal_config.tenure_last_block_proposal_timeout,
             self.proposal_config.reorg_attempts_activity_timeout,
+            SelfAsTip::Ignored,
         ) {
             Ok(is_latest) => {
                 if !is_latest {

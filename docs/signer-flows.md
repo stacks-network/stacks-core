@@ -181,9 +181,10 @@ for a block we already signed (`signed_self`); a block we validated but never
 signed is routed back through the pre-commit evaluation whatever state it is in
 (`PreCommitted`, or `GloballyRejected` on peers' rejections), so a re-proposal
 can never shortcut to a first signature; a validated block the group signed
-without us gets its pre-commit re-broadcast instead, and one that is already
-globally accepted is ignored (a group-signed block we never validated waits for
-its validation or is freshly evaluated like any other). `determine_response` refuses to build an acceptance for an
+without us takes that same path, so its late acceptance is still earned through
+the checks, and one that is already globally accepted is ignored (a group-signed
+block we never validated waits for its validation or is freshly evaluated like
+any other). `determine_response` refuses to build an acceptance for an
 unsigned block as a backstop. A fresh proposal is checked against our view of
 the world _before_ spending a node validation on it, and a proposal older than
 `block_proposal_max_age_secs` is rejected outright as `ProposalTooOld`.
@@ -203,7 +204,7 @@ flowchart TB
     SIGNED -- "no, no group signature" --> RESEND["re-send pre-commit, re-run<br/>handle_block_pre_commit → section 5"]
     SIGNED -- "no, group signed" --> GA{"globally accepted?"}
     GA -- yes --> IGN3(["ignore"])
-    GA -- no --> PCONLY["re-send pre-commit only<br/>(no signature)"]
+    GA -- no --> RESEND
     VERDICT -- false --> REJPREV["re-send rejection<br/>RejectedInPriorRound"]:::bad
     VERDICT -- "not yet validated" --> PEND{"validation pending?"}
     PEND -- yes --> WAITV(["wait"]):::hold
@@ -388,7 +389,9 @@ and was then re-proposed and cleared every check: `mark_locally_accepted`
 records `signed_self` before the state move fails, so the row keeps
 `GloballyRejected` _with_ a signature. That is why the conflict queries key on
 the signature columns rather than on state: a signature binds whatever the
-state says.
+state says. A block the group signed before our own validation returned is
+signed here too, late: the re-check does not treat a block as a reorg of itself
+(section 7).
 
 > Anchors: `handle_block_pre_commit`, `conflict_still_blocks`,
 > `reorg_permit_stands`, `check_block_against_signer_db_state` (signer.rs);
@@ -456,16 +459,24 @@ globally _accepted_ blocks (`get_last_signed_block` filters on state, not on the
 signature columns): a pre-commit never vetoes anything, it only counts as miner
 activity, and a signed block that later fell to `GloballyRejected` is not a tip
 candidate here even though `has_signed_block_in_tenure` still counts it as a
-commitment (section 5).
+commitment (section 5). In the validate-ok and signing-time re-checks the block
+under check is never its own tip (`check_latest_block_in_tenure` with `SelfAsTip::Ignored`):
+when the group signed it before our validation returned, the comparison skips it
+and the node-tip check decides, so a late signer signs rather than rejecting a
+block for "reorging" itself. The proposal-time check keeps the plain comparison,
+so a duplicate proposal of the tenure's fresh accepted tip is still rejected
+rather than freshly evaluated, which would overwrite the signature evidence on
+that row (the protection covers the fresh tip the query returns, not every row
+that carries a signature).
 
 ```mermaid
 flowchart TB
     IN["check_block_against_signer_db_state<br/>(validate-ok and signing paths)"] --> TC{"tenure-change block?"}
-    TC -- yes --> PARENT["check_tenure_change_confirms_parent =<br/>check_latest_block_in_tenure(PARENT tenure)"]
-    TC -- no --> SAME["confirms_latest_block_in_same_tenure =<br/>check_latest_block_in_tenure(OWN tenure)"]
+    TC -- yes --> PARENT["check_tenure_change_confirms_parent =<br/>check_latest_block_in_tenure(PARENT tenure, SelfAsTip::Counts)"]
+    TC -- no --> SAME["check_latest_block_in_tenure(OWN tenure, SelfAsTip::Ignored)<br/>(proposal-time check_proposal reaches the same check<br/>through confirms_latest_block_in_same_tenure, Counts)"]
     PARENT --> CLB
     SAME --> CLB["check_latest_block_in_tenure(tenure_id)"]
-    CLB --> LSB{"fresh SIGNED tip in that tenure?<br/>get_tenure_last_block_info =<br/>get_last_signed_block + freshness from<br/>the last signature time<br/>(tenure_last_block_proposal_timeout)"}
+    CLB --> LSB{"fresh SIGNED tip in that tenure?<br/>(with SelfAsTip::Ignored the block<br/>under check is skipped)<br/>get_tenure_last_block_info =<br/>get_last_signed_block + freshness from<br/>the last signature time<br/>(tenure_last_block_proposal_timeout)"}
     LSB -- "yes, and proposal not higher" --> RA["fails the check<br/>(a reorg attempt within<br/>reorg_attempts_activity_timeout still<br/>counts as miner activity:<br/>update_last_activity_time)"]:::bad
     LSB -- "no signed tip, or proposal higher" --> CARVE{"fresh PRE-COMMITTED block<br/>at ≥ this height?<br/>get_last_accepted_block"}
     CARVE -- yes --> ACT["count miner activity only —<br/>a pre-commit never vetoes<br/>update_last_activity_time"]
@@ -486,8 +497,8 @@ A failed check becomes a different rejection depending on who asked.
 The check also writes: when the node's tenure tip is a block in the signer DB
 that is not yet `GloballyAccepted`, it is marked so (where the state transition
 is permitted; a `GloballyRejected` row stays as it is) and `signed_group` is
-stamped with the current time, which both refreshes that block's freshness
-window and pins the tenure for the state machine (section 8).
+filled with the current time if it was still empty (an existing timestamp is
+kept), which pins the tenure for the state machine (section 8).
 
 Two things belong to the proposal path only and are **not** re-run at validate-ok
 or at signing:

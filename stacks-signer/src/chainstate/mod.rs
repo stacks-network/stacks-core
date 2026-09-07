@@ -153,6 +153,21 @@ impl TryFrom<SortitionInfo> for SortitionData {
     }
 }
 
+/// Whether the block under check may itself count as its tenure's signed tip in
+/// [`SortitionData::check_latest_block_in_tenure`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelfAsTip {
+    /// The block counts. At proposal time a duplicate proposal of the tenure's fresh accepted
+    /// tip fails the strict height comparison and is rejected before any fresh evaluation, which
+    /// would overwrite the signature evidence on that row.
+    Counts,
+    /// The block is skipped. After our own validation returns the group may already have
+    /// signed this very block, and a block is never a reorg of itself; for an ordinary block
+    /// the node-tip check still decides once the node has processed it, and a tenure-change
+    /// block is checked against its parent tenure and can never be its own tip here.
+    Ignored,
+}
+
 impl SortitionData {
     /// Check if the tenure defined by `sortition_state` is building off of an
     ///  appropriate tenure.
@@ -369,7 +384,8 @@ impl SortitionData {
     /// height check here, we are relying on the `stacks-node` proposal endpoint
     /// to do the validation on the chainstate data that it has.
     ///
-    /// This updates the activity timer for the miner of `block`.
+    /// This updates the activity timer for the miner of `block`. `self_as_tip` says whether
+    /// `block` itself may be the signed tip it is compared against, see [`SelfAsTip`].
     pub fn check_latest_block_in_tenure(
         tenure_id: &ConsensusHash,
         block: &NakamotoBlock,
@@ -377,12 +393,18 @@ impl SortitionData {
         client: &StacksClient,
         tenure_last_block_proposal_timeout: Duration,
         reorg_attempts_activity_timeout: Duration,
+        self_as_tip: SelfAsTip,
     ) -> Result<bool, ClientError> {
         let last_block_info = SortitionData::get_tenure_last_block_info(
             tenure_id,
             signer_db,
             tenure_last_block_proposal_timeout,
         )?;
+
+        let last_block_info = last_block_info.filter(|info| {
+            self_as_tip == SelfAsTip::Counts
+                || info.signer_signature_hash() != block.header.signer_signature_hash()
+        });
 
         if let Some(info) = last_block_info {
             // N.B. this block might not be the last globally accepted block across the network;
@@ -497,6 +519,7 @@ impl SortitionData {
             client,
             tenure_last_block_proposal_timeout,
             reorg_attempts_activity_timeout,
+            SelfAsTip::Counts,
         )
     }
 
@@ -513,6 +536,7 @@ impl SortitionData {
             client,
             proposal_config.tenure_last_block_proposal_timeout,
             proposal_config.reorg_attempts_activity_timeout,
+            SelfAsTip::Counts,
         )
     }
 }
