@@ -9,6 +9,11 @@ on:
         description: "Release Tag (shared by the node and signer)"
         required: true
         type: string
+    secrets:
+      RELEASE_APP_ID:
+        required: true
+      RELEASE_APP_PRIVATE_KEY:
+        required: true
 
 # Set default permissions
 permissions:
@@ -143,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: "Build Release" # Required to access secrets relating to Release Bot GitHub App
     permissions:
-      contents: write
+      contents: read
     steps:
       # Checkout the code
       #   - only .github is required for this job
