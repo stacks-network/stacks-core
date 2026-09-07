@@ -86,7 +86,6 @@ runs:
           with:
             client-id: ${{ inputs.release-app-client-id }}
             private-key: ${{ inputs.release-app-private-key }}
-            permission-contents: write # needed to create release tag
             
         # Manually create tag using GitHub App token before creating the draft release
         # This is required because a user publishes the draft release, and they don't have permission to create the tag
