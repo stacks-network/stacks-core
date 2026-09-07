@@ -26,6 +26,7 @@ use clarity_types::{ClarityName, ContractName, Value};
 use pinny::tag;
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestCaseResult};
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ClarityVersion;
@@ -1686,7 +1687,7 @@ fn restrict_assets_too_many_allowances() {
             .join(" ")
     );
     let max_allowances_err: ClarityEvalError =
-        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(format!(
+        VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(bounded_format!(
             "Too many allowances: got {}, allowed {MAX_ALLOWANCES}",
             MAX_ALLOWANCES + 1
         )))
@@ -1704,7 +1705,7 @@ fn expected_allowance_expr_error() {
     let snippet = "(restrict-assets? tx-sender ((bad-fn u1)) true)";
 
     let expected_error: ClarityEvalError = VmExecutionError::RuntimeCheck(
-        RuntimeCheckErrorKind::Unreachable("Expected allowance expr: bad-fn".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Expected allowance expr: bad-fn".into()),
     )
     .into();
 
@@ -1723,7 +1724,7 @@ fn expected_allowance_expr_error_unhandled_native() {
     let snippet = "(restrict-assets? tx-sender ((tx-sender u1)) true)";
 
     let expected_error: ClarityEvalError = VmExecutionError::RuntimeCheck(
-        RuntimeCheckErrorKind::Unreachable("Expected allowance expr: tx-sender".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Expected allowance expr: tx-sender".into()),
     )
     .into();
 
@@ -1739,7 +1740,7 @@ fn allowance_expr_not_allowed() {
     let snippet = "(with-stx u1)";
 
     let expected: ClarityEvalError = VmExecutionError::RuntimeCheck(
-        RuntimeCheckErrorKind::Unreachable("Allowance expr not allowed".to_string()),
+        RuntimeCheckErrorKind::Unreachable("Allowance expr not allowed".into()),
     )
     .into();
 
@@ -1761,7 +1762,7 @@ fn restrict_assets_expected_list_of_allowances() {
     "#;
     let expected_error: ClarityEvalError =
         VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-            "Expected list of allowances: for restrict-assets? as argument 2".to_string(),
+            "Expected list of allowances: for restrict-assets? as argument 2".into(),
         ))
         .into();
 
@@ -1784,7 +1785,7 @@ fn as_contract_expected_list_of_allowances() {
     // The argument is `u42` (not a list), so we expect this error
     let expected_error: ClarityEvalError =
         VmExecutionError::RuntimeCheck(RuntimeCheckErrorKind::Unreachable(
-            "Expected list of allowances: for as-contract? as argument 1".to_string(),
+            "Expected list of allowances: for as-contract? as argument 1".into(),
         ))
         .into();
 

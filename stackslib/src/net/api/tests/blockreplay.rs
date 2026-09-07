@@ -406,7 +406,7 @@ fn test_try_make_response_with_unsuccessful_transaction() {
     }
 
     assert_eq!(
-        resp.transactions.last().unwrap().vm_error.clone().unwrap(),
-        ":0:0: use of unresolved function 'broken'"
+        resp.transactions.last().unwrap().vm_error.as_deref(),
+        Some(":0:0: use of unresolved function 'broken'")
     );
 }

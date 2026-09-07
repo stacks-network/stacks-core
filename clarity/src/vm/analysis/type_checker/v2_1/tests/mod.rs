@@ -2104,6 +2104,90 @@ fn test_replace_at_utf8() {
     }
 }
 
+/// From epoch 4.1, `replace-at?` rejects a statically empty buff/string element,
+/// which earlier epochs admit only to fail at runtime.
+#[test]
+fn test_replace_at_empty_element() {
+    let empty_elem = [
+        "(replace-at? 0x0011 u0 0x)",
+        "(replace-at? \"ab\" u0 \"\")",
+        "(replace-at? u\"ab\" u0 u\"\")",
+    ];
+
+    let buff_len = BufferLength::try_from(1u32).unwrap();
+    let buff_len_zero = BufferLength::try_from(0u32).unwrap();
+    let str_len = StringUTF8Length::try_from(1u32).unwrap();
+    let str_len_zero = StringUTF8Length::try_from(0u32).unwrap();
+    let expected_err = [
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(BufferType(buff_len.clone()))),
+            Box::new(SequenceType(BufferType(buff_len_zero.clone()))),
+        ),
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(StringType(ASCII(buff_len)))),
+            Box::new(SequenceType(StringType(ASCII(buff_len_zero)))),
+        ),
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(StringType(UTF8(str_len)))),
+            Box::new(SequenceType(StringType(UTF8(str_len_zero)))),
+        ),
+    ];
+    for (test, expected) in empty_elem.iter().zip(expected_err.iter()) {
+        assert_eq!(*expected, *type_check_helper(test).unwrap_err().err);
+    }
+
+    // Pre-4.1 epochs accept the same expressions unchanged.
+    let expected_pre41 = [
+        "(optional (buff 2))",
+        "(optional (string-ascii 2))",
+        "(optional (string-utf8 2))",
+    ];
+    for (test, expected) in empty_elem.iter().zip(expected_pre41.iter()) {
+        assert_eq!(
+            expected,
+            &format!(
+                "{}",
+                type_check_helper_version(test, ClarityVersion::latest(), StacksEpochId::Epoch40)
+                    .unwrap()
+            )
+        );
+    }
+
+    // A `(buff 1)`-typed element passes even if its runtime value is empty; that
+    // case is caught at runtime (see `vm::tests::sequences`).
+    assert_eq!(
+        "(optional (buff 2))",
+        &format!(
+            "{}",
+            type_check_helper("(replace-at? 0x0011 u0 (unwrap-panic (as-max-len? 0x u1)))")
+                .unwrap()
+        )
+    );
+
+    // Rejected even when the input is statically empty too (runtime would return
+    // `none` for the always out-of-bounds index).
+    assert_eq!(
+        StaticCheckErrorKind::TypeError(
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(1u32).unwrap()
+            ))),
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(0u32).unwrap()
+            ))),
+        ),
+        *type_check_helper("(replace-at? 0x u0 0x)").unwrap_err().err
+    );
+
+    // Lists are exempt, matching the runtime arity check.
+    assert_eq!(
+        "(optional (list 2 (list 1 int)))",
+        &format!(
+            "{}",
+            type_check_helper("(replace-at? (list (list 1) (list 2)) u0 (list))").unwrap()
+        )
+    );
+}
+
 #[test]
 fn test_native_concat() {
     let good = ["(concat (list 2 3) (list 4 5))"];
