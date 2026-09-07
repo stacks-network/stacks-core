@@ -21,11 +21,12 @@ use std::str;
 
 use clarity_types::ClarityName;
 pub use clarity_types::types::{
-    ASCIIData, BOUND_VALUE_SERIALIZATION_BYTES, BOUND_VALUE_SERIALIZATION_HEX, BuffData,
-    CallableData, CharType, ContractIdentifier, ListData, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, NONE,
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
-    SequencedValue, StacksAddressExtensions, TraitIdentifier, TupleData, UTF8Data, Value,
-    WRAPPER_VALUE_SIZE, byte_len_of_serialization,
+    ASCIIData, BOUND_VALUE_SERIALIZATION_BYTES, BOUND_VALUE_SERIALIZATION_HEX, BoundedErrorString,
+    BoundedString, BoundedValueString, BuffData, CallableData, CharType, ContractIdentifier,
+    ListData, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, NONE, OptionalData, PrincipalData,
+    QualifiedContractIdentifier, ResponseData, SequenceData, SequencedValue,
+    StacksAddressExtensions, TraitIdentifier, TupleData, UTF8Data, Value, WRAPPER_VALUE_SIZE,
+    byte_len_of_serialization,
 };
 
 pub use self::std_principals::StandardPrincipalData;
