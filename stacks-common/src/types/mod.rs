@@ -828,6 +828,11 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether `replace-at?` handles a zero-length element at type-checking time.
+    pub fn fixes_replace_at_element_arity(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     pub fn supports_call_with_constant(&self) -> bool {
         self >= &StacksEpochId::Epoch34
     }
