@@ -23,7 +23,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::StacksEpochId;
 
-use crate::burnchains::db::{BurnchainBlockData, BurnchainDB};
+use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{self, Burnchain};
 use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, SortitionDB, SortitionHandle, SortitionHandleConn,
@@ -689,7 +689,8 @@ impl<
         U: RewardSetProvider,
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
-    > ChainsCoordinator<'_, T, N, U, CE, FE>
+        B: BurnchainHeaderReader,
+    > ChainsCoordinator<'_, T, N, U, CE, FE, B>
 {
     /// Get the first nakamoto reward cycle
     fn get_first_nakamoto_reward_cycle(&self) -> u64 {

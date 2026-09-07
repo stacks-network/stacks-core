@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::{assert_matches, cmp, fs};
 
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
@@ -432,39 +432,18 @@ pub fn make_coordinator<'a>(
     OnChainRewardSetProvider<'a, NullEventDispatcher>,
     (),
     (),
+    BitcoinIndexer,
 > {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
+    let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new(
         &burnchain,
         0x80000000,
         path,
         OnChainRewardSetProvider(None),
+        indexer,
         false,
     )
-}
-
-/// The coordinator processes stored burn blocks without opening the SPV headers database.
-#[test]
-fn test_coordinator_without_spv_headers() {
-    let path = test_path("coordinator-without-spv-headers");
-    let _ = fs::remove_dir_all(&path);
-    setup_states(&[&path], &[], &[], None, None, StacksEpochId::Epoch2_05);
-
-    let burnchain = get_burnchain(&path, None);
-    let headers_path = PathBuf::from(&burnchain.working_dir).join("headers.sqlite");
-    fs::remove_file(&headers_path).unwrap();
-
-    let mut coord = make_coordinator(&path, Some(burnchain));
-    assert_matches!(
-        coord
-            .handle_new_burnchain_block()
-            .unwrap()
-            .into_missing_block_hash(),
-        None
-    );
-    let tip = SortitionDB::get_canonical_burn_chain_tip(coord.sortition_db.conn()).unwrap();
-    assert_eq!(tip.block_height, 1);
-    assert!(!headers_path.exists());
 }
 
 pub fn make_coordinator_atlas<'a>(
@@ -479,14 +458,17 @@ pub fn make_coordinator_atlas<'a>(
     OnChainRewardSetProvider<'a, NullEventDispatcher>,
     (),
     (),
+    BitcoinIndexer,
 > {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
+    let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new_full(
         &burnchain,
         0x80000000,
         path,
         OnChainRewardSetProvider(None),
         None,
+        indexer,
         atlas_config,
         txindex,
     )
@@ -528,12 +510,16 @@ fn make_reward_set_coordinator<'a>(
     path: &str,
     addrs: Vec<PoxAddress>,
     pox_consts: Option<PoxConstants>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider, (), ()> {
+) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider, (), (), BitcoinIndexer>
+{
+    let burnchain = get_burnchain(path, None);
+    let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new(
         &get_burnchain(path, pox_consts),
         0x80000000,
         path,
         StubbedRewardSetProvider(addrs),
+        indexer,
         false,
     )
 }
@@ -6439,7 +6425,7 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
 fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>(
     chainstate_path: &str,
     sort_db: &SortitionDB,
-    coord: &mut ChainsCoordinator<T, N, U, (), ()>,
+    coord: &mut ChainsCoordinator<T, N, U, (), (), BitcoinIndexer>,
     my_sortition: &SortitionId,
     block: &StacksBlock,
 ) {
