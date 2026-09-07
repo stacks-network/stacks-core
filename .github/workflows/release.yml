@@ -19,7 +19,7 @@ defaults:
 
 # Configure concurrency
 concurrency:
-  group: release-${{ github.head_ref || github.ref || github.run_id }}
+  group: release
   # Never cancel duplicate jobs since we don't want to have orphaned GHCR docker entries etc.
   cancel-in-progress: false
 
