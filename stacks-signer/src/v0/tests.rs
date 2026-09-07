@@ -1001,9 +1001,6 @@ mod async_sibling_validation {
             .signer_db
             .insert_block(&BlockInfo::from(proposal_of(&block_a)))
             .unwrap();
-        let mut info_c = BlockInfo::from(proposal_of(&block_c));
-        shape_c(&mut info_c);
-        node.signer.signer_db.insert_block(&info_c).unwrap();
         let (result_tx, _result_rx) = mpsc::channel();
         let mut sortition = None;
         if sign_a {
@@ -1023,6 +1020,11 @@ mod async_sibling_validation {
                     .unwrap(),
             );
         }
+        // Shape C's row only now: a C that already carried a group signature would (correctly)
+        // stop A from being signed above.
+        let mut info_c = BlockInfo::from(proposal_of(&block_c));
+        shape_c(&mut info_c);
+        node.signer.signer_db.insert_block(&info_c).unwrap();
         node.signer.test_block_messages = Some(BlockMessageRecorder::new(hash_c.clone()));
         node.signer.process_event(
             &node.client,
@@ -1151,8 +1153,9 @@ mod async_sibling_validation {
 
     #[test]
     fn reproposal_of_group_signed_unsigned_block_refused_while_sibling_is_fresh() {
-        // Same row, but we hold a fresh signature on sibling A: the conflict guard must still
-        // refuse B even though the group signed it.
+        // Same row, but we hold a fresh signature on sibling A. A and B are tenure-start
+        // blocks, whose chainstate re-check looks at the parent tenure, so it passes; the
+        // conflict guard then sees A and holds silently, without signing B.
         let outcome = run_reproposal_case(get_epoch_time_secs(), true, |b| {
             b.mark_pre_committed().unwrap();
             b.mark_locally_accepted(true).unwrap();
@@ -1222,6 +1225,28 @@ mod async_sibling_validation {
         // single weight-1 signer our own rejection also crosses the rejection threshold, so the
         // row ends globally rather than locally rejected.
         let outcome = run_late_validation_case(get_epoch_time_secs(), false, true, |_| {});
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Rejected(RejectReason::SortitionViewMismatch),
+                pre_commits: 0,
+                own_pre_commit_persisted: false,
+                signed_self: false,
+                valid: Some(false),
+                reject_reason: Some(RejectReason::SortitionViewMismatch),
+                state: BlockState::GloballyRejected,
+            }
+        );
+    }
+
+    #[test]
+    fn late_validation_of_group_signed_block_rejected_when_we_hold_a_fresh_sibling() {
+        // The group signed C before our validation returned, but we hold a fresh signature on
+        // sibling A at the same height. Leaving C out of the tip query must still surface A, so
+        // C is rejected explicitly rather than pre-committed and silently held.
+        let outcome = run_late_validation_case(get_epoch_time_secs(), false, true, |c| {
+            c.mark_locally_accepted(true).unwrap();
+        });
         assert_eq!(
             outcome.summary(),
             Outcome {

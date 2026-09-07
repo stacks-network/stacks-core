@@ -925,6 +925,7 @@ fn pre_committed_block_does_not_veto_replacement() {
         &tenure_id,
         &signer_db,
         Duration::from_secs(30),
+        None,
     )
     .unwrap()
     .is_none());
@@ -971,6 +972,7 @@ fn pre_committed_block_does_not_veto_replacement() {
         &tenure_id,
         &signer_db,
         Duration::from_secs(30),
+        None,
     )
     .unwrap()
     .is_some());

@@ -23,6 +23,7 @@ use blockstack_lib::util_lib::db::Error as DBError;
 use clarity::types::chainstate::{BurnchainHeaderHash, StacksAddress, StacksPublicKey};
 use clarity::util::get_epoch_time_secs;
 use clarity::util::hash::Hash160;
+use clarity::util::hash::Sha512Trunc256Sum;
 use clarity::vm::types::BoundedErrorString;
 use libsigner::v0::messages::RejectReason;
 use libsigner::v0::signer_state::GlobalStateEvaluator;
@@ -153,18 +154,17 @@ impl TryFrom<SortitionInfo> for SortitionData {
     }
 }
 
-/// Whether the block under check may itself count as its tenure's signed tip in
-/// [`SortitionData::check_latest_block_in_tenure`].
+/// Whether the block under check may itself be the signed tip that
+/// [`SortitionData::check_latest_block_in_tenure`] compares it against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelfAsTip {
-    /// The block counts. At proposal time a duplicate proposal of the tenure's fresh accepted
-    /// tip fails the strict height comparison and is rejected before any fresh evaluation, which
-    /// would overwrite the signature evidence on that row.
+    /// The block can be the tip. Used at proposal time, where a duplicate proposal of the
+    /// tenure's fresh accepted tip fails the height comparison and is rejected rather than freshly
+    /// evaluated, which would overwrite that row.
     Counts,
-    /// The block is skipped. After our own validation returns the group may already have
-    /// signed this very block, and a block is never a reorg of itself; for an ordinary block
-    /// the node-tip check still decides once the node has processed it, and a tenure-change
-    /// block is checked against its parent tenure and can never be its own tip here.
+    /// The block is left out of the tip query, so another accepted sibling at the same height,
+    /// if there is one, is the block compared against. Used by the checks that run after our own
+    /// validation, when the group may already have signed this very block.
     Ignored,
 }
 
@@ -343,10 +343,11 @@ impl SortitionData {
         consensus_hash: &ConsensusHash,
         signer_db: &SignerDb,
         tenure_last_block_proposal_timeout: Duration,
+        excluded_signer_signature_hash: Option<&Sha512Trunc256Sum>,
     ) -> Result<Option<BlockInfo>, ClientError> {
-        // Get the last signed block in the tenure
+        // Get the last signed block in the tenure, leaving out the excluded block (if any)
         let last_signed_block = signer_db
-            .get_last_signed_block(consensus_hash)
+            .get_last_signed_block(consensus_hash, excluded_signer_signature_hash)
             .map_err(|e| ClientError::InvalidResponse(e.to_string()))?;
 
         let Some(block_info) = last_signed_block else {
@@ -395,16 +396,17 @@ impl SortitionData {
         reorg_attempts_activity_timeout: Duration,
         self_as_tip: SelfAsTip,
     ) -> Result<bool, ClientError> {
+        let own_hash = block.header.signer_signature_hash();
+        let excluded = match self_as_tip {
+            SelfAsTip::Counts => None,
+            SelfAsTip::Ignored => Some(&own_hash),
+        };
         let last_block_info = SortitionData::get_tenure_last_block_info(
             tenure_id,
             signer_db,
             tenure_last_block_proposal_timeout,
+            excluded,
         )?;
-
-        let last_block_info = last_block_info.filter(|info| {
-            self_as_tip == SelfAsTip::Counts
-                || info.signer_signature_hash() != block.header.signer_signature_hash()
-        });
 
         if let Some(info) = last_block_info {
             // N.B. this block might not be the last globally accepted block across the network;
