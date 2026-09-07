@@ -3469,10 +3469,10 @@ mod tests {
         }
     }
 
-    /// Sortition handle reporting descent from any queried anchor.
-    pub struct DescendencyStubbedSortitionHandle;
+    /// Sortition handle keeping PoX waterfall inactive and reporting descent from any anchor.
+    pub struct PreWaterfallSortitionStub;
 
-    impl SortitionHandle for DescendencyStubbedSortitionHandle {
+    impl SortitionHandle for PreWaterfallSortitionStub {
         fn sqlite(&self) -> &Connection {
             panic!("Cannot evaluate");
         }
@@ -3753,7 +3753,7 @@ mod tests {
                     reward_set_info.clone()
                 };
                 eprintln!("Processing {}", ix);
-                let mut ic = DescendencyStubbedSortitionHandle;
+                let mut ic = PreWaterfallSortitionStub;
                 let output = op.check_pox(
                     StacksEpochId::Epoch30,
                     &burnchain,
