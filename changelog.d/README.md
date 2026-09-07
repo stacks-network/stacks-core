@@ -45,8 +45,8 @@ for example:
 - changed defaults that alter node or signer behavior in a way operators must
   notice
 
-Breaking changes in public Rust APIs do not constitute breaking changes in the
-context of the changelog.
+Public Rust API changes alone do not warrant `breaking` entries in the context
+of this changelog.
 
 `breaking` entries are assembled into a dedicated **⚠️ Breaking Changes**
 section placed _first_ in the release's changelog section, ahead of Added /
