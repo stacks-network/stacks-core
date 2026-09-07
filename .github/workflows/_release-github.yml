@@ -146,7 +146,7 @@ jobs:
     # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository AND tag is not empty
     if: (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && inputs.tag != ''
     runs-on: ubuntu-latest
-    environment: "Build Release" # Required to access secrets relating to Release Bot GitHub App
+    environment: release # Required to access secrets relating to Release Bot GitHub App
     permissions:
       contents: read
     steps:
