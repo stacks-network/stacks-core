@@ -637,39 +637,20 @@ impl StacksChainState {
             Error::InvalidStacksTransaction(msg, false)
         })?;
 
-        Self::validate_deploy_clarity_version(tx, epoch_id)?;
-
-        Ok(())
-    }
-
-    /// Reject a pinned Clarity version above the epoch default (statically
-    /// invalid) and, from epoch 4.1, below it: new contracts must use the
-    /// latest version. Deployed contracts keep their version; unversioned
-    /// deploys use the default.
-    fn validate_deploy_clarity_version(
-        tx: &StacksTransaction,
-        epoch_id: StacksEpochId,
-    ) -> Result<(), Error> {
-        let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload else {
-            return Ok(());
-        };
-        let epoch_default = ClarityVersion::default_for_epoch(epoch_id);
-        if *clarity_version > epoch_default {
-            let msg = format!(
-                "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch_id} only supports up to {epoch_default}",
-                tx.txid()
-            );
-            info!("{msg}");
-            return Err(Error::InvalidStacksTransaction(msg, false));
+        // Same rule as static block validation, so a block that would fail
+        // here is never staged.
+        if let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload {
+            stacks_transactions::check_versioned_deploy_supported_in_epoch(
+                *clarity_version,
+                epoch_id,
+            )
+            .map_err(|reason| {
+                let msg = format!("Invalid transaction {}: {reason}", tx.txid());
+                info!("{msg}");
+                Error::InvalidStacksTransaction(msg, false)
+            })?;
         }
-        if epoch_id >= StacksEpochId::Epoch41 && *clarity_version < epoch_default {
-            let msg = format!(
-                "Invalid transaction {}: asks for {clarity_version}, but epoch {epoch_id} requires contracts to use {epoch_default}",
-                tx.txid()
-            );
-            info!("{msg}");
-            return Err(Error::InvalidStacksTransaction(msg, false));
-        }
+
         Ok(())
     }
 
@@ -1958,14 +1939,15 @@ pub mod test {
     }
 
     #[rstest]
-    // Before epoch 4.1, pinning an older Clarity version is allowed.
+    // Through epoch 4.0 a deploy may pin any version up to the epoch default.
     #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity5), true)]
-    // From epoch 4.1, only the epoch default (also what unversioned deploys
-    // get) is accepted.
+    #[case(StacksEpochId::Epoch40, Some(ClarityVersion::Clarity6), true)]
+    // From epoch 4.1 no pin is accepted; unversioned deploys get the epoch
+    // default, which is the latest version.
     #[case(StacksEpochId::Epoch41, Some(ClarityVersion::Clarity6), false)]
-    #[case(StacksEpochId::Epoch41, Some(ClarityVersion::Clarity7), true)]
+    #[case(StacksEpochId::Epoch41, Some(ClarityVersion::Clarity7), false)]
     #[case(StacksEpochId::Epoch41, None, true)]
-    fn precheck_deploy_version_enforcement(
+    fn precheck_rejects_versioned_deploys_from_epoch41(
         #[case] epoch_id: StacksEpochId,
         #[case] version_opt: Option<ClarityVersion>,
         #[case] should_succeed: bool,
@@ -2001,17 +1983,17 @@ pub mod test {
         let result = StacksChainState::process_transaction_precheck(&config, &tx, epoch_id);
         if should_succeed {
             result.unwrap();
-            // The epoch default is the latest version from 4.1 on.
+            // From 4.1 the epoch default is the newest version there is.
             if version_opt.is_none() {
                 assert_eq!(
-                    ClarityVersion::default_for_epoch(epoch_id),
-                    ClarityVersion::latest()
+                    Some(&ClarityVersion::default_for_epoch(epoch_id)),
+                    ClarityVersion::ALL.last()
                 );
             }
         } else {
             match result.unwrap_err() {
                 Error::InvalidStacksTransaction(msg, false) => {
-                    assert!(msg.contains("requires contracts to use"), "{msg}");
+                    assert!(msg.contains("not accepted since Stacks 4.1"), "{msg}");
                 }
                 e => panic!("Expected InvalidStacksTransaction for epoch {epoch_id:?}, got {e:?}"),
             }

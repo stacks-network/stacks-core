@@ -815,6 +815,13 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch40
     }
 
+    /// Whether or not this epoch rejects smart-contract deploys that pin a
+    /// Clarity version (the `VersionedSmartContract` payload), so that new
+    /// contracts always use the epoch default.
+    pub fn rejects_versioned_smart_contracts(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
+    }
+
     /// Does this epoch sum stacking entries in the assetmap or just replace
     ///  and error-on-replace?
     pub fn sums_stacking_assetmap(&self) -> bool {
