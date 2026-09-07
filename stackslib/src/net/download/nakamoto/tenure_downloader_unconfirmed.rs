@@ -138,16 +138,16 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// Try and accept the tenure info.  It will be validated against the sortition DB and its tip.
     ///
     /// * tenure_tip.consensus_hash
-    ///     This is the consensus hash of the remote node's ongoing tenure. It may not be the
-    ///     sortition tip, e.g. if the tenure spans multiple sortitions.
+    ///   This is the consensus hash of the remote node's ongoing tenure. It may not be the
+    ///   sortition tip, e.g. if the tenure spans multiple sortitions.
     /// * tenure_tip.tenure_start_block_id
-    ///     This is the first block ID of the ongoing unconfirmed tenure.
+    ///   This is the first block ID of the ongoing unconfirmed tenure.
     /// * tenure_tip.parent_consensus_hash
-    ///     This is the consensus hash of the parent of the ongoing tenure. It's the node's highest
-    ///     complete tenure, for which we know the start and end block IDs.
+    ///   This is the consensus hash of the parent of the ongoing tenure. It's the node's highest
+    ///   complete tenure, for which we know the start and end block IDs.
     /// * tenure_tip.parent_tenure_start_block_id
-    ///     This is the tenure start block for the highest complete tenure.  It should be equal to
-    ///     the winning Stacks block hash of the snapshot for the ongoing tenure.
+    ///   This is the tenure start block for the highest complete tenure.  It should be equal to
+    ///   the winning Stacks block hash of the snapshot for the ongoing tenure.
     ///
     /// We may already have the tenure-start block for the unconfirmed tenure. If so, then don't go
     /// fetch it again; just get the new unconfirmed blocks.

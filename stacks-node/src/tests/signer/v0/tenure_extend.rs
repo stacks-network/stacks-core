@@ -45,7 +45,6 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
-use stacks_signer::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use stacks_signer::v0::SpawnedSigner;
 use stdext::prelude::DurationExt;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -1055,7 +1054,6 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
 

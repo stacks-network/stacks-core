@@ -98,6 +98,7 @@ pub fn copy_dir(src_dir: &str, dest_dir: &str) -> Result<(), io::Error> {
 }
 
 // one point per round
+#[derive(Default)]
 pub struct TestMinerTracePoint {
     pub fork_snapshots: HashMap<usize, BlockSnapshot>, // map miner ID to snapshot
     pub stacks_blocks: HashMap<usize, StacksBlock>,    // map miner ID to stacks block

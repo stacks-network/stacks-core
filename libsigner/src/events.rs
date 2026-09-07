@@ -184,7 +184,7 @@ impl StacksMessageCodec for BlockProposalData {
         let mut inner_reader = inner_bytes.as_slice();
         let server_version: Vec<u8> = read_next(&mut inner_reader)?;
         let server_version = String::from_utf8(server_version).map_err(|e| {
-            CodecError::DeserializeError(format!("Failed to decode server version: {:?}", &e))
+            CodecError::DeserializeError(format!("Failed to decode server version: {:?}", e))
         })?;
         let miner_diagnostic_data = if version >= 3 {
             Some(MinerDiagnosticData::consensus_deserialize(
@@ -430,7 +430,7 @@ impl<T: SignerEventTrait> EventReceiver<T> for SignerEventReceiver<T> {
             if request.method() != &HttpMethod::Post {
                 return Err(EventError::MalformedRequest(format!(
                     "Unrecognized method '{}'",
-                    &request.method(),
+                    request.method(),
                 )));
             }
             debug!("Processing {} event", request.url());
@@ -528,13 +528,13 @@ where
         ack_dispatcher(request);
         return Err(EventError::MalformedRequest(format!(
             "Failed to read body: {:?}",
-            &e
+            e
         )));
     }
     // Regardless of whether we successfully deserialize, we should ack the dispatcher so they don't keep resending it
     ack_dispatcher(request);
     let json_event: E = serde_json::from_slice(body.as_bytes())
-        .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
+        .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", e)))?;
 
     let signer_event: SignerEvent<T> = json_event.try_into()?;
 

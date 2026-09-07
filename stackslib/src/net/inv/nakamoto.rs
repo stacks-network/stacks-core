@@ -118,6 +118,12 @@ pub struct InvGenerator {
     no_cache: bool,
 }
 
+impl Default for InvGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InvGenerator {
     pub fn new() -> Self {
         Self {
@@ -327,7 +333,7 @@ impl InvGenerator {
     /// the newest sortition.  It is structured as follows:
     /// * Bit 0 is the sortition at the start of the given reward cycle
     /// * Bit i is 1 if there was a tenure-start for the ith sortition in the reward cycle, and 0
-    /// if not.
+    ///   if not.
     ///
     /// Populate the cached data lazily.
     ///

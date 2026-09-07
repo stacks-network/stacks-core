@@ -9,10 +9,6 @@ on:
         description: "The test archive file"
         required: true
         type: string
-      debug-binary-path:
-        description: "Debug binary path"
-        required: true
-        type: string
       upload-junit-xml:
         description: "Whether or not to upload the nextest JUnit XML artifact"
         required: true
@@ -71,7 +67,6 @@ jobs:
         with:
           action: restore
           archive-file: ${{ inputs.archive-file }}
-          debug-binary-path: ${{ inputs.debug-binary-path }}
 
       # Generate the bitcoin test matrices json used for running tests
       - name: Generate Test Matrices
@@ -101,7 +96,6 @@ jobs:
         with:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
-          debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
@@ -129,7 +123,6 @@ jobs:
         with:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
-          debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
@@ -157,7 +150,6 @@ jobs:
         with:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
-          debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}
@@ -185,7 +177,6 @@ jobs:
         with:
           test-names: ${{ matrix.batch.csv }}
           archive-file: ${{ inputs.archive-file }}
-          debug-binary-path: ${{ inputs.debug-binary-path }}
           codecov-test-name: isolated-test-${{ matrix.batch.index }}
           upload-junit-xml: ${{ inputs.upload-junit-xml }}
           upload-code-coverage: ${{ inputs.upload-code-coverage }}

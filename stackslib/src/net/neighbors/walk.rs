@@ -1478,11 +1478,11 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     ///
     /// This is a slightly modified MHRWDA algorithm.  The following differences are described:
     /// * The Stacks peer network is a _directed_ graph, whereas MHRWDA is desigend to operate
-    /// on _undirected_ graphs.  As such, we calculate a separate peer graph with undirected edges
-    /// with the same peers.  We estimate a peer's undirected degree with Neighbor::degree().
+    ///   on _undirected_ graphs.  As such, we calculate a separate peer graph with undirected edges
+    ///   with the same peers.  We estimate a peer's undirected degree with Neighbor::degree().
     /// * The probability of transitioning to a new peer is proportional not only to the ratio of
-    /// the current peer's degree to the new peer's degree, but also to the ratio of the new
-    /// peer's AS's node count to the current peer's AS's node count.
+    ///   the current peer's degree to the new peer's degree, but also to the ratio of the new
+    ///   peer's AS's node count to the current peer's AS's node count.
     ///
     /// This method updates self.next_neighbor with a new neighbor to step to, or None to restart.
     pub fn step(&mut self, network: &PeerNetwork) {

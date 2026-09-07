@@ -67,6 +67,7 @@ use super::miner_db::MinerDB;
 use super::relayer::{MinerStopHandle, RelayerThread};
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
 use crate::nakamoto_node::signer_coordinator::SignerCoordinator;
+use crate::nakamoto_node::stackerdb_listener::InitialChunksLoader;
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::neon_node;
 use crate::run_loop::nakamoto::Globals;
@@ -288,9 +289,9 @@ pub struct BlockMinerThread {
     burn_election_block: BlockSnapshot,
     /// Current burnchain tip as of the last TenureChange
     /// * if the last tenure-change was a BlockFound, then this is the same as the
-    /// `burn_election_block` (and it is also the `burn_view`)
+    ///   `burn_election_block` (and it is also the `burn_view`)
     /// * otherwise, if the last tenure-change is an Extend, then this is the sortition of the burn
-    /// view consensus hash in the TenureChange
+    ///   view consensus hash in the TenureChange
     burn_block: BlockSnapshot,
     /// The start of the parent tenure for this tenure
     parent_tenure_id: StacksBlockId,
@@ -573,6 +574,8 @@ impl BlockMinerThread {
         let mut last_block_rejected = false;
 
         let reward_set = self.load_signer_set()?;
+        let initial_chunks_loader = self.build_initial_chunks_loader(&stackerdbs, &reward_set);
+
         let Some(miner_privkey) = self.config.miner.mining_key.clone() else {
             return Err(NakamotoNodeError::MinerConfigurationFailed(
                 "No mining key configured, cannot mine",
@@ -591,6 +594,7 @@ impl BlockMinerThread {
             self.event_dispatcher.stackerdb_channel.clone(),
             self.globals.should_keep_running.clone(),
             &reward_set,
+            initial_chunks_loader,
             &self.burn_election_block,
             &self.burnchain,
             miner_privkey,
@@ -1763,14 +1767,6 @@ impl BlockMinerThread {
         // it is signed and broadcast.
         self.mempool_caches_valid_for = None;
 
-        let replay_transactions = if self.config.miner.replay_transactions {
-            coordinator
-                .get_signer_global_state()
-                .map(|state| state.tx_replay_set.unwrap_or_default())
-                .unwrap_or_default()
-        } else {
-            vec![]
-        };
         // build the block itself
         let mining_burn_handle = burn_db.index_handle_at_ch(&self.burn_block.consensus_hash)?;
         if let Some(parent_burn_view) = &parent_block_info.stacks_parent_header.burn_view {
@@ -1808,7 +1804,6 @@ impl BlockMinerThread {
             //  correct signer_signature_hash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
             signer_bitvec_len,
-            &replay_transactions,
         )
         .map_err(|e| {
             match e {
@@ -1893,17 +1888,6 @@ impl BlockMinerThread {
             // if we haven't mined blocks yet, no tenure extends needed
             return Ok(false);
         }
-        let is_replay = self.config.miner.replay_transactions
-            && coordinator
-                .get_signer_global_state()
-                .map(|state| state.tx_replay_set.is_some())
-                .unwrap_or(false);
-        if is_replay {
-            // we're in replay, we should always TenureExtend
-            info!("Tenure extend: In replay, always extending tenure");
-            return Ok(true);
-        }
-
         // Do not extend if we have spent a threshold amount of the
         // budget, since it is not necessary.
         let usage = self
@@ -2127,6 +2111,27 @@ impl BlockMinerThread {
             burn_view_consensus_hash: self.burn_block.consensus_hash.clone(),
         };
         self.mined_blocks = 0;
+    }
+
+    /// Collect whatever we need to inject into the [`StackerDBListener`] (via the
+    /// [`SignerCoordinator`]) so that it can load its initial state upon which to apply
+    /// any updates it receives.
+    fn build_initial_chunks_loader<'a>(
+        &self,
+        stackerdbs: &'a StackerDBs,
+        reward_set: &RewardSet,
+    ) -> InitialChunksLoader<'a> {
+        let reward_cycle_id = self
+            .burnchain
+            .block_height_to_reward_cycle(self.burn_election_block.block_height)
+            .expect("FATAL: tried to initialize miner before first burn block height");
+
+        let signer_count = reward_set
+            .signers()
+            .map(|s| u32::try_from(s.len()).unwrap_or_default())
+            .unwrap_or_default();
+
+        InitialChunksLoader::new(reward_cycle_id, signer_count, stackerdbs)
     }
 }
 

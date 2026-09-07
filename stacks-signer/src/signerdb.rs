@@ -675,6 +675,8 @@ static ADD_PARENT_BURN_BLOCK_HASH_INDEX: &str = r#"
 CREATE INDEX IF NOT EXISTS burn_blocks_parent_burn_block_hash_idx on burn_blocks (parent_burn_block_hash);
 "#;
 
+/// Dead schema: transaction replay was removed and nothing reads or writes this table.
+/// To be dropped with a proper bump of `SCHEMA_VERSION`.
 static ADD_BLOCK_VALIDATED_BY_REPLAY_TXS_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS block_validated_by_replay_txs (
     signer_signature_hash TEXT NOT NULL,
@@ -2348,38 +2350,6 @@ impl SignerDb {
         Ok(result)
     }
 
-    /// Insert a block validated by a replay tx
-    pub fn insert_block_validated_by_replay_tx(
-        &self,
-        signer_signature_hash: &Sha512Trunc256Sum,
-        replay_tx_hash: u64,
-        replay_tx_exhausted: bool,
-    ) -> Result<(), DBError> {
-        self.db.execute(
-            "INSERT INTO block_validated_by_replay_txs (signer_signature_hash, replay_tx_hash, replay_tx_exhausted) VALUES (?1, ?2, ?3)",
-            params![
-                signer_signature_hash.to_string(),
-                format!("{replay_tx_hash}"),
-                replay_tx_exhausted
-            ],
-        )?;
-        Ok(())
-    }
-
-    /// Get the replay tx hash for a block validation
-    pub fn get_was_block_validated_by_replay_tx(
-        &self,
-        signer_signature_hash: &Sha512Trunc256Sum,
-        replay_tx_hash: u64,
-    ) -> Result<Option<BlockValidatedByReplaySet>, DBError> {
-        let query = "SELECT replay_tx_hash, replay_tx_exhausted FROM block_validated_by_replay_txs WHERE signer_signature_hash = ? AND replay_tx_hash = ?";
-        let args = params![
-            signer_signature_hash.to_string(),
-            format!("{replay_tx_hash}")
-        ];
-        query_row(&self.db, query, args)
-    }
-
     /// Get the earliest received time at which the signer state update achieved
     /// a global burn view identified by the provided ConsensusHash
     pub fn get_burn_block_received_time_from_signers(
@@ -2730,25 +2700,6 @@ impl FromRow<PendingBlockValidation> for PendingBlockValidation {
     }
 }
 
-/// A struct used to represent whether a block was validated by a transaction replay set
-pub struct BlockValidatedByReplaySet {
-    /// The hash of the transaction replay set that validated the block
-    pub replay_tx_hash: String,
-    /// Whether the transaction replay set exhausted the set of transactions
-    pub replay_tx_exhausted: bool,
-}
-
-impl FromRow<BlockValidatedByReplaySet> for BlockValidatedByReplaySet {
-    fn from_row(row: &rusqlite::Row) -> Result<Self, DBError> {
-        let replay_tx_hash = row.get_unwrap(0);
-        let replay_tx_exhausted = row.get_unwrap(1);
-        Ok(BlockValidatedByReplaySet {
-            replay_tx_hash,
-            replay_tx_exhausted,
-        })
-    }
-}
-
 #[cfg(any(test, feature = "testing"))]
 impl SignerDb {
     /// For tests, fetch all pending block validations
@@ -2910,7 +2861,7 @@ pub mod tests {
     #[test]
     fn test_basic_signer_db() {
         let db_path = tmp_db_path();
-        eprintln!("db path is {}", &db_path.display());
+        eprintln!("db path is {}", db_path.display());
         test_basic_signer_db_with_path(db_path)
     }
 
@@ -4411,47 +4362,6 @@ pub mod tests {
             consensus_hash.to_hex(),
             "Expected the surviving row to have the correct consensus_hash"
         );
-    }
-
-    #[test]
-    fn insert_block_validated_by_replay_tx() {
-        let db_path = tmp_db_path();
-        let db = SignerDb::new(db_path).expect("Failed to create signer db");
-
-        let signer_signature_hash = Sha512Trunc256Sum([0; 32]);
-        let replay_tx_hash = 15559610262907183370_u64;
-        let replay_tx_exhausted = true;
-
-        db.insert_block_validated_by_replay_tx(
-            &signer_signature_hash,
-            replay_tx_hash,
-            replay_tx_exhausted,
-        )
-        .expect("Failed to insert block validated by replay tx");
-
-        let result = db
-            .get_was_block_validated_by_replay_tx(&signer_signature_hash, replay_tx_hash)
-            .expect("Failed to get block validated by replay tx")
-            .expect("Expected block validation result to be stored");
-        assert_eq!(result.replay_tx_hash, format!("{replay_tx_hash}"));
-        assert!(result.replay_tx_exhausted);
-
-        let replay_tx_hash = 15559610262907183369_u64;
-        let replay_tx_exhausted = false;
-
-        db.insert_block_validated_by_replay_tx(
-            &signer_signature_hash,
-            replay_tx_hash,
-            replay_tx_exhausted,
-        )
-        .expect("Failed to insert block validated by replay tx");
-
-        let result = db
-            .get_was_block_validated_by_replay_tx(&signer_signature_hash, replay_tx_hash)
-            .expect("Failed to get block validated by replay tx")
-            .expect("Expected block validation result to be stored");
-        assert_eq!(result.replay_tx_hash, format!("{replay_tx_hash}"));
-        assert!(!result.replay_tx_exhausted);
     }
 
     #[test]

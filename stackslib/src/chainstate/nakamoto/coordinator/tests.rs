@@ -1087,10 +1087,10 @@ impl TestPeer<'_> {
     /// Produce a single-block tenure, containing a stx-transfer sent from `sender_key`.
     ///
     /// * `after_burn_ops` is called right after `self.begin_nakamoto_tenure` to modify any burn ops
-    /// for this tenure
+    ///   for this tenure
     ///
     /// * `miner_setup` is called after tenure information and reward-set-dependent header defaults
-    /// are initialized, but before tenure execution begins or any transactions are mined
+    ///   are initialized, but before tenure execution begins or any transactions are mined
     ///
     /// * `after_block` is called right after the block is assembled, but before it is signed.
     pub fn single_block_tenure_fallible<S, F, G>(

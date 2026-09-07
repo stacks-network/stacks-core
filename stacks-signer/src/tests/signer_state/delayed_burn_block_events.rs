@@ -29,37 +29,27 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
 use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
-use blockstack_lib::chainstate::stacks::StacksTransaction;
-use blockstack_lib::core::test_util::make_stacks_transfer_tx;
 use blockstack_lib::net::api::get_tenure_tip_meta::BlockHeaderWithMetadata;
-use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
 use clarity::types::chainstate::{
-    BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
-    StacksPrivateKey, TrieHash,
+    BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId, TrieHash,
 };
-use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
+use clarity::util::hash::{Hash160, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
-use libsigner::v0::signer_state::{
-    GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
-};
+use libsigner::v0::signer_state::{GlobalStateEvaluator, MinerState, SignerStateMachine};
 use stacks_common::bitvec::BitVec;
-use stacks_common::consts::CHAIN_ID_TESTNET;
 
 use super::test_proposal_eval_config;
 use crate::chainstate::{ProposalEvalConfig, SignerChainstateError};
 use crate::client::tests::{
-    build_get_peer_info_response, build_get_pox_data_response, build_get_tenure_tip_response,
-    MockServerClient,
+    build_get_peer_info_response, build_get_tenure_tip_response, MockServerClient,
 };
 use crate::client::StacksClient;
 use crate::signerdb::tests::tmp_db_path;
 use crate::signerdb::SignerDb;
-use crate::v0::signer_state::{
-    LocalStateMachine, NewBurnBlock, ReplayScopeOpt, ReplayState, StateMachineUpdate,
-};
+use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
 
 fn test_ch(i: u8) -> ConsensusHash {
     ConsensusHash([i; 20])
@@ -92,7 +82,6 @@ fn signer_state_at(height: u8) -> SignerStateMachine {
         burn_block_height: height.into(),
         current_miner: MinerState::NoValidMiner,
         active_signer_protocol_version: 0,
-        tx_replay_set: ReplayTransactionSet::none(),
     }
 }
 
@@ -101,20 +90,6 @@ fn canonical_event_at(height: u8) -> NewBurnBlock {
     NewBurnBlock {
         burn_block_height: height.into(),
         consensus_hash: test_ch(height),
-    }
-}
-
-/// Fork info reporting the canonical tenure at `height` as forked away.
-fn fork_info_entry(height: u8, nakamoto_blocks: Option<Vec<NakamotoBlock>>) -> TenureForkingInfo {
-    TenureForkingInfo {
-        burn_block_hash: test_bhh(height),
-        burn_block_height: height.into(),
-        sortition_id: SortitionId([height; 32]),
-        parent_sortition_id: SortitionId([height - 1; 32]),
-        consensus_hash: test_ch(height),
-        was_sortition: true,
-        first_block_mined: Some(StacksBlockId([1; 32])),
-        nakamoto_blocks,
     }
 }
 
@@ -141,24 +116,6 @@ fn http_ok_json<T: serde::Serialize>(value: &T) -> String {
         "HTTP/1.1 200 OK\n\n{}",
         serde_json::to_string(value).unwrap()
     )
-}
-
-/// A token-transfer transaction and a Nakamoto block containing it, mined in
-/// the tenure with the given consensus hash.
-fn make_replay_tx_and_block(consensus_hash: ConsensusHash) -> (StacksTransaction, NakamotoBlock) {
-    let replay_tx = make_stacks_transfer_tx(
-        &StacksPrivateKey::random(),
-        0,
-        0,
-        CHAIN_ID_TESTNET,
-        &StacksAddress::burn_address(false).into(),
-        100,
-    );
-    let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![replay_tx.clone()]);
-    block.header.consensus_hash = consensus_hash;
-    let txid_vecs: Vec<_> = vec![replay_tx.txid().as_bytes().to_vec()];
-    block.header.tx_merkle_root = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root();
-    (replay_tx, block)
 }
 
 /// Serve canned HTTP responses by request-path prefix until stopped. Routes
@@ -268,7 +225,6 @@ fn tenure_tip_route(consensus_hash: ConsensusHash) -> (&'static str, String) {
 struct BurnBlockArrivalOutcome {
     result: Result<(), SignerChainstateError>,
     state: LocalStateMachine,
-    replay_scope: ReplayScopeOpt,
 }
 
 /// Mutable state shared across each step of a burn-block arrival scenario.
@@ -283,8 +239,6 @@ struct BurnBlockArrivalDriver {
     eval: GlobalStateEvaluator,
     /// Local state machine driven by the scenario.
     state: LocalStateMachine,
-    /// Replay scope produced if the scenario detects a fork.
-    replay_scope: ReplayScopeOpt,
 }
 
 impl BurnBlockArrivalDriver {
@@ -303,7 +257,6 @@ impl BurnBlockArrivalDriver {
             proposal_config,
             eval,
             state: LocalStateMachine::Initialized(signer_state_at(110)),
-            replay_scope: None,
         }
     }
 
@@ -314,7 +267,6 @@ impl BurnBlockArrivalDriver {
             &self.client,
             &self.proposal_config,
             Some(event),
-            &mut self.replay_scope,
             &self.eval,
             0,
         )
@@ -326,7 +278,6 @@ impl BurnBlockArrivalDriver {
             &mut self.db,
             &self.client,
             &self.proposal_config,
-            &mut self.replay_scope,
             &self.eval,
             0,
         )
@@ -337,7 +288,6 @@ impl BurnBlockArrivalDriver {
         BurnBlockArrivalOutcome {
             result,
             state: self.state,
-            replay_scope: self.replay_scope,
         }
     }
 }
@@ -370,8 +320,7 @@ fn drive_burn_block_arrival(
     })
 }
 
-/// Assert the outcome retained the initialized view at height 110 with no
-/// replay state.
+/// Assert the outcome retained the initialized view at height 110.
 #[track_caller]
 fn assert_live_view_retained(outcome: &BurnBlockArrivalOutcome) {
     match &outcome.state {
@@ -385,19 +334,11 @@ fn assert_live_view_retained(outcome: &BurnBlockArrivalOutcome) {
                 test_ch(110),
                 "State machine moved off the live burn block"
             );
-            assert!(
-                machine.tx_replay_set.is_empty(),
-                "Stale canonical event triggered a tx replay set"
-            );
         }
         other => panic!(
             "Stale queued burn-block event left the state machine as {other:?} instead of Initialized"
         ),
     }
-    assert!(
-        outcome.replay_scope.is_none(),
-        "Stale canonical event set a fork replay scope"
-    );
 }
 
 /// Assert that an unclassified event is parked with the prior live view.
@@ -418,97 +359,54 @@ fn assert_event_pending(driver: &BurnBlockArrivalDriver, expected_event: &NewBur
         }
         other => panic!("Unclassified burn-block event left the state machine as {other:?}"),
     }
-    assert!(
-        driver.replay_scope.is_none(),
-        "Failed canonicity check started fork replay"
-    );
 }
 
-/// Assert that fork handling completed with the expected origin and replay transaction.
+/// Assert that a competing view was adopted with its active miner.
 #[track_caller]
-fn assert_successful_fork_replay(
-    outcome: &BurnBlockArrivalOutcome,
-    expected_origin: &NewBurnBlock,
-    replay_tx: &StacksTransaction,
-) {
+fn assert_successful_fork_update(outcome: &BurnBlockArrivalOutcome, expected_tip: &NewBurnBlock) {
     assert!(
         outcome.result.is_ok(),
         "Fork handling failed: {:?}",
         outcome.result.as_ref().err()
     );
-    let scope = outcome
-        .replay_scope
-        .as_ref()
-        .expect("Burn-block event did not enter fork handling");
-    assert_eq!(&scope.fork_origin, expected_origin);
-    assert_eq!(scope.past_tip.burn_block_height, 110);
-    assert_eq!(scope.past_tip.consensus_hash, test_ch(110));
     let LocalStateMachine::Initialized(machine) = &outcome.state else {
         panic!(
             "Successful fork handling left the state machine as {:?}",
             outcome.state
         );
     };
-    assert_eq!(
-        machine.tx_replay_set.clone_as_optional(),
-        Some(vec![replay_tx.clone()]),
-        "Reorged-away transaction missing from the replay set"
-    );
+    assert_eq!(machine.burn_block_height, expected_tip.burn_block_height);
+    assert_eq!(machine.burn_block, expected_tip.consensus_hash);
+    let MinerState::ActiveMiner { tenure_id, .. } = &machine.current_miner else {
+        panic!("Competing view did not select an active miner");
+    };
+    assert_eq!(tenure_id, &expected_tip.consensus_hash);
 }
 
-/// A burn-block event at the same height as the state-machine tip but with a
-/// different consensus hash is a genuine competing branch and must still be
-/// detected as a fork. This is the boundary case a naive "ignore events at or
-/// below the prior height" fix would silently break.
+/// A competing branch at the prior tip's height must update the local view.
+/// Ignoring all events at or below the prior height would break this boundary.
 #[test]
 fn conflicting_burn_block_at_same_height_is_a_bitcoin_fork() {
-    let MockServerClient {
-        mut server,
-        client,
-        config,
-    } = MockServerClient::new();
-    let mut db = SignerDb::new(tmp_db_path()).expect("Failed to create signer db");
-    insert_canonical_burn_blocks(&mut db, 100..=110);
-
-    // A Nakamoto block mined in the forked-away canonical tenure at height 110.
-    let (replay_tx, forked_block) = make_replay_tx_and_block(test_ch(110));
-
     let fork_event = NewBurnBlock {
         burn_block_height: 110,
         consensus_hash: ConsensusHash([0xfe; 20]),
     };
-    let prior = signer_state_at(110);
-
-    let expected_tx = replay_tx;
-    let expected_fork_event = fork_event.clone();
-    let h = std::thread::spawn(move || {
-        let state = LocalStateMachine::Initialized(prior.clone());
-        let result = state
-            .handle_possible_bitcoin_fork(&db, &client, &fork_event, &prior, &ReplayState::Unset)
-            .expect("Fork handling should not error");
-        match result {
-            Some(ReplayState::InProgress(replay_set, scope)) => {
-                assert_eq!(replay_set.clone_as_optional(), Some(vec![expected_tx]));
-                assert_eq!(scope.fork_origin, expected_fork_event);
-                assert_eq!(scope.past_tip.burn_block_height, 110);
-                assert_eq!(scope.past_tip.consensus_hash, test_ch(110));
-            }
-            Some(ReplayState::Unset) => {
-                panic!("Same-height competing branch produced an unset replay state")
-            }
-            None => panic!("Same-height competing branch was not detected as a fork"),
-        }
-    });
-
-    // The forked-away range is the single tenure at the prior tip.
-    let to_send = http_ok_json(&vec![fork_info_entry(110, Some(vec![forked_block]))]);
-    crate::client::tests::write_response(server, to_send.as_bytes());
-
-    server = crate::client::tests::mock_server_from_config(&config);
-    let (pox_response, _) = build_get_pox_data_response(None, None, None, None);
-    crate::client::tests::write_response(server, pox_response.as_bytes());
-
-    h.join().unwrap();
+    let mut cur_sortition = sortition_info_at(110, Hash160([0xab; 20]));
+    cur_sortition.consensus_hash = fork_event.consensus_hash.clone();
+    let last_sortition = sortition_info_at(109, Hash160([0xab; 20]));
+    let outcome = drive_burn_block_scenario(
+        100..=110,
+        vec![
+            peer_info_route(110, fork_event.consensus_hash.clone()),
+            (
+                "GET /v3/sortitions/latest_and_last",
+                http_ok_json(&vec![cur_sortition, last_sortition]),
+            ),
+            tenure_tip_route(test_ch(109)),
+        ],
+        |driver| driver.process(fork_event.clone()),
+    );
+    assert_successful_fork_update(&outcome, &fork_event);
 }
 
 /// Cold-start ordering: the state machine was initialized from the node's
@@ -594,7 +492,6 @@ fn canonicity_check_failure_retries_non_canonical_event() {
     // The node reorged: its canonical chain at height 110 is now a competing
     // branch, orphaning the prior view.
     let fork_ch = ConsensusHash([0xfe; 20]);
-    let (replay_tx, forked_block) = make_replay_tx_and_block(test_ch(110));
     // The node's post-reorg sortition view: the fork branch won at 110.
     let mut cur_sortition = sortition_info_at(110, Hash160([0xab; 20]));
     cur_sortition.consensus_hash = fork_ch.clone();
@@ -606,23 +503,12 @@ fn canonicity_check_failure_retries_non_canonical_event() {
             peer_info_route(110, fork_ch.clone()),
             burn_height_failure_route(),
             peer_info_route(110, fork_ch.clone()),
-            burn_height_route(110, fork_ch),
+            burn_height_route(110, fork_ch.clone()),
             (
                 "GET /v3/sortitions/latest_and_last",
                 http_ok_json(&vec![cur_sortition, last_sortition]),
             ),
-            (
-                "GET /v3/tenures/fork_info",
-                http_ok_json(&vec![
-                    fork_info_entry(110, Some(vec![forked_block])),
-                    fork_info_entry(105, None),
-                ]),
-            ),
             tenure_tip_route(test_ch(109)),
-            (
-                "GET /v2/pox",
-                build_get_pox_data_response(None, None, None, None).0,
-            ),
         ],
         |driver| {
             assert!(
@@ -634,7 +520,13 @@ fn canonicity_check_failure_retries_non_canonical_event() {
         },
     );
 
-    assert_successful_fork_replay(&outcome, &canonical_event_at(105), &replay_tx);
+    assert_successful_fork_update(
+        &outcome,
+        &NewBurnBlock {
+            burn_block_height: 110,
+            consensus_hash: fork_ch,
+        },
+    );
 }
 
 /// A newer event supersedes a parked lower-height event. Once the incoming
@@ -647,7 +539,6 @@ fn newer_event_supersedes_failed_canonicity_check() {
         burn_block_height: 110,
         consensus_hash: fork_ch.clone(),
     };
-    let (replay_tx, forked_block) = make_replay_tx_and_block(test_ch(110));
     let mut cur_sortition = sortition_info_at(110, Hash160([0xab; 20]));
     cur_sortition.consensus_hash = fork_ch.clone();
     let last_sortition = sortition_info_at(109, Hash160([0xab; 20]));
@@ -659,18 +550,10 @@ fn newer_event_supersedes_failed_canonicity_check() {
             burn_height_failure_route(),
             peer_info_route(110, fork_ch),
             (
-                "GET /v3/tenures/fork_info",
-                http_ok_json(&vec![fork_info_entry(110, Some(vec![forked_block]))]),
-            ),
-            (
                 "GET /v3/sortitions/latest_and_last",
                 http_ok_json(&vec![cur_sortition, last_sortition]),
             ),
             tenure_tip_route(test_ch(109)),
-            (
-                "GET /v2/pox",
-                build_get_pox_data_response(None, None, None, None).0,
-            ),
         ],
         |driver| {
             assert!(
@@ -682,7 +565,7 @@ fn newer_event_supersedes_failed_canonicity_check() {
         },
     );
 
-    assert_successful_fork_replay(&outcome, &fork_event, &replay_tx);
+    assert_successful_fork_update(&outcome, &fork_event);
 }
 
 /// When the node's live tip is below the prior state-machine height, the
@@ -691,7 +574,6 @@ fn newer_event_supersedes_failed_canonicity_check() {
 /// fork path until the broader shorter-tip reconciliation policy is defined.
 #[test]
 fn shorter_node_tip_bypasses_canonicity_guard_and_triggers_fork_handling() {
-    let (replay_tx, forked_block) = make_replay_tx_and_block(test_ch(110));
     let cur_sortition = sortition_info_at(105, Hash160([0xab; 20]));
     let last_sortition = sortition_info_at(104, Hash160([0xab; 20]));
     let outcome = drive_burn_block_arrival(
@@ -703,20 +585,9 @@ fn shorter_node_tip_bypasses_canonicity_guard_and_triggers_fork_handling() {
                 "GET /v3/sortitions/latest_and_last",
                 http_ok_json(&vec![cur_sortition, last_sortition]),
             ),
-            (
-                "GET /v3/tenures/fork_info",
-                http_ok_json(&vec![
-                    fork_info_entry(110, Some(vec![forked_block])),
-                    fork_info_entry(105, None),
-                ]),
-            ),
             tenure_tip_route(test_ch(104)),
-            (
-                "GET /v2/pox",
-                build_get_pox_data_response(None, None, None, None).0,
-            ),
         ],
     );
 
-    assert_successful_fork_replay(&outcome, &canonical_event_at(105), &replay_tx);
+    assert_successful_fork_update(&outcome, &canonical_event_at(105));
 }

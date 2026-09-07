@@ -962,7 +962,7 @@ pub fn execute_generate_address() -> (i32, Option<serde_json::Value>) {
     // Version = 22
     let addr = friendly_expect(c32_address(22, &random_bytes), "Failed to generate address");
 
-    (0, Some(json!({ "address": format!("{addr}") })))
+    (0, Some(json!({ "address": addr.to_string() })))
 }
 
 /// Typecheck a potential contract definition

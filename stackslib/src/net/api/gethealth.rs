@@ -41,7 +41,7 @@ pub struct RPCGetHealthResponse {
     pub node_stacks_tip_height: u64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 /// Empty request handler for the GET /v3/health endpoint
 pub struct RPCGetHealthRequestHandler {}
 

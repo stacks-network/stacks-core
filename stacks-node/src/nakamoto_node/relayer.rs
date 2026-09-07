@@ -626,7 +626,7 @@ impl RelayerThread {
     /// * whether or not we won the _given_ sortition (`sn`)
     /// * whether or not we won the sortition that started the ongoing Stacks tenure
     /// * whether or not the ongoing Stacks tenure is at or descended from the last-winning
-    /// sortition
+    ///   sortition
     ///
     /// Specifically:
     ///
@@ -748,7 +748,7 @@ impl RelayerThread {
     /// * whether or not we won the last sortition with a winner
     /// * whether or not the last sortition winner has produced a Stacks block
     /// * whether or not the ongoing Stacks tenure is at or descended from the last-winning
-    /// sortition
+    ///   sortition
     ///
     /// Find out who won the last sortition with a winner.  If it was us, and if we haven't yet
     /// submitted a `BlockFound` tenure-change for it (which can happen if this given sortition is
@@ -1848,7 +1848,7 @@ impl RelayerThread {
     /// * Otherwise, if we haven't done so already, go register a VRF public key
     /// * If the stacks chain tip or burnchain tip has changed, then issue a block-commit
     /// * If the last burn view we started a miner for is not the canonical burn view, then
-    /// try and start a new tenure (or continue an existing one).
+    ///   try and start a new tenure (or continue an existing one).
     fn initiative(&mut self) -> Result<Option<RelayerDirective>, NakamotoNodeError> {
         if !self.is_miner {
             return Ok(None);

@@ -1293,7 +1293,7 @@ impl SinglesigSpendingCondition {
             return Err(AuthError::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
                 addr.bytes(),
-                &self.signer
+                self.signer
             )));
         }
 
@@ -2799,7 +2799,7 @@ fn clarity_version_consensus_deserialize<R: Read>(
         6u8 => Ok(ClarityVersion::Clarity6),
         _ => Err(codec_error::DeserializeError(format!(
             "Unrecognized ClarityVersion byte {}",
-            &version_byte
+            version_byte
         ))),
     }
 }
