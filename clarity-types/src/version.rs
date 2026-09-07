@@ -96,7 +96,7 @@ impl ClarityVersion {
 
     pub const fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
         match epoch_id {
-            // Epoch 1.0 predates Clarity; Clarity1 keeps the mapping total.
+            // Unreachable for any Stacks block: Clarity does not exist yet.
             StacksEpochId::Epoch10 => {
                 panic!("Epoch 1.0 predates Clarity; no default Clarity version")
             }
