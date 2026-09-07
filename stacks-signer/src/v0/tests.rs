@@ -360,9 +360,7 @@ mod async_sibling_validation {
     use stacks_common::util::secp256k1::MessageSignature;
 
     use crate::client::{SignerSlotID, StacksClient};
-    use crate::config::{
-        SignerConfig, SignerConfigMode, DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-    };
+    use crate::config::{SignerConfig, SignerConfigMode};
     use crate::signerdb::{BlockInfo, BlockState};
     use crate::v0::signer::Signer;
     use crate::Signer as SignerTrait;
@@ -549,8 +547,6 @@ mod async_sibling_validation {
                 reorg_attempts_activity_timeout: Duration::from_secs(3),
                 signer_mode: SignerConfigMode::DryRun,
                 proposal_wait_for_parent_time: Duration::ZERO,
-                validate_with_replay_tx: false,
-                reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
                 capitulate_miner_view_timeout: Duration::from_secs(30),
                 stackerdb_timeout: Duration::from_secs(2),
             };

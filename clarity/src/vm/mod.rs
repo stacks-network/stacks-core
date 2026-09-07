@@ -54,6 +54,7 @@ pub mod clarity;
 use std::collections::BTreeMap;
 
 pub use clarity_types::max_call_stack_depth_for_epoch;
+use stacks_common::bounded_format;
 use stacks_common::types::StacksEpochId;
 
 use self::analysis::ContractAnalysis;
@@ -225,7 +226,7 @@ fn lookup_variable<'a>(
         };
         return Ok(ValueRef::Owned(value));
     }
-    Err(RuntimeCheckErrorKind::Unreachable(format!("Undefined variable: {name}")).into())
+    Err(RuntimeCheckErrorKind::Unreachable(bounded_format!("Undefined variable: {name}")).into())
 }
 
 pub fn lookup_function(
@@ -593,14 +594,14 @@ pub fn eval<'a>(
                 children
                     .split_first()
                     .ok_or(RuntimeCheckErrorKind::Unreachable(
-                        "Non functional application".to_string(),
+                        "Non functional application".into(),
                     ))?;
 
             let function_name =
                 function_variable
                     .match_atom()
                     .ok_or(RuntimeCheckErrorKind::Unreachable(
-                        "Bad function name".to_string(),
+                        "Bad function name".into(),
                     ))?;
             let f = lookup_function(function_name, exec_state, invoke_ctx)?;
             apply(&f, rest, exec_state, invoke_ctx, context).map(ValueRef::Owned)

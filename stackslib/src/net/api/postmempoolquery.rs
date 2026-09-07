@@ -32,7 +32,7 @@ use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpRespo
 use crate::net::{Error as NetError, StacksNodeState};
 use crate::util_lib::db::DBConn;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCMempoolQueryRequestHandler {
     pub page_id: Option<Txid>,
     pub mempool_query: Option<MemPoolSyncData>,

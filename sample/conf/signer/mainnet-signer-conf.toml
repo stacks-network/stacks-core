@@ -212,19 +212,6 @@ db_path = "/var/lib/stacks-signer/signerdb.sqlite"
 # Default: false
 # dry_run = false
 
-# Enforce transaction replay during stacks block validation following a
-# bitcoin block reorg (experimental). Ensures that a miner includes the
-# expected transactions from reorged stacks blocks that can be replayed.
-# Default: false
-# validate_with_replay_tx = false
-
-# Number of bitcoin blocks after a bitcoin fork to reset the replay set.
-# Acts as a failsafe to ensure that signers do not permanently prevent
-# valid stacks block production based solely on transaction replay.
-# Default: 2
-# Units: bitcoin blocks
-# reset_replay_set_after_fork_blocks = 2
-
 # HTTP timeout for StackerDB read/write operations.
 # Default: 10
 # Units: seconds

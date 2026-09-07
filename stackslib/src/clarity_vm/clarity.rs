@@ -31,7 +31,7 @@ use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::resource_limiter::ResourceBudget;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
+use clarity::vm::types::{BoundedErrorString, PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::{ClarityVersion, ContractName};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
@@ -189,10 +189,10 @@ pub trait WritableMarfStore:
 /// The Stacks node commits tries for one of three purposes:
 /// * It processed a block, and needs to persist its trie in the chainstate proper.
 /// * It mined a block, and needs to persist its trie outside of the chainstate proper. The miner
-/// may build on it later.
+///   may build on it later.
 /// * It processed an unconfirmed microblock (Stacks 2.x only), and needs to persist the
-/// unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
-/// continue to build on it and the network can service RPC requests on its state.
+///   unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
+///   continue to build on it and the network can service RPC requests on its state.
 ///
 /// These needs are each captured in distinct methods for committing this transaction.
 pub trait ClarityMarfStoreTransaction {
@@ -2391,9 +2391,17 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
         &'hooks mut self,
         to_do: F,
         abort_call_back: A,
-    ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, Option<String>), E>
+    ) -> Result<
+        (
+            R,
+            AssetMap,
+            Vec<StacksTransactionEvent>,
+            Option<BoundedErrorString>,
+        ),
+        E,
+    >
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
+        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<BoundedErrorString>,
         F: FnOnce(
             &mut OwnedEnvironment<'_, 'hooks>,
         ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
@@ -2590,7 +2598,7 @@ impl ClarityTransactionConnection<'_, '_> {
                     )
                     .map_err(ClarityError::from)
             },
-            |_, _| Some("read-only".to_string()),
+            |_, _| Some("read-only".into()),
         )?;
         Ok(result)
     }
@@ -3294,7 +3302,7 @@ mod tests {
                         &contract_identifier,
                         "set-bar",
                         &[Value::Int(10), Value::Int(1)],
-                        |_, _| Some("testing rollback".to_string()),
+                        |_, _| Some("testing rollback".into()),
                         &ResourceBudget::unlimited(),
                     )
                 })
@@ -3331,7 +3339,7 @@ mod tests {
                     &contract_identifier,
                     "set-bar",
                     &[Value::Int(10), Value::Int(0)],
-                    |_, _| Some("testing rollback".to_string()),
+                    |_, _| Some("testing rollback".into()),
                     &ResourceBudget::unlimited()
                 ))
                 .unwrap_err()

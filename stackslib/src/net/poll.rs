@@ -28,6 +28,7 @@ use crate::net::Error as net_error;
 
 const SERVER: Token = mio::Token(0);
 
+#[derive(Default)]
 pub struct NetworkPollState {
     pub new: HashMap<usize, mio_net::TcpStream>,
     pub ready: Vec<usize>,

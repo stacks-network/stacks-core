@@ -22,7 +22,7 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::errors::ClarityEvalError;
 use clarity::vm::errors::VmExecutionError::RuntimeCheck;
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{BoundedErrorString, PrincipalData};
 use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksAddress;
@@ -259,7 +259,7 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                 ))) if actual_cost.write_count > 0 => CallReadOnlyResponse {
                     okay: false,
                     result: None,
-                    cause: Some("NotReadOnly".to_string()),
+                    cause: Some("NotReadOnly".into()),
                 },
                 ClarityEvalError::Vm(RuntimeCheck(
                     RuntimeCheckErrorKind::ExecutionResourceBudgetExceeded(_),
@@ -274,7 +274,7 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                 _ => CallReadOnlyResponse {
                     okay: false,
                     result: None,
-                    cause: Some(e.to_string()),
+                    cause: Some(BoundedErrorString::from_display(&e)),
                 },
             },
             Ok(None) | Err(_) => {

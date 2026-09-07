@@ -32,7 +32,7 @@ use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpRespo
 use crate::net::{Error as NetError, StacksNodeState};
 use crate::util_lib::db::DBConn;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCNakamotoTenureRequestHandler {
     /// Block to start streaming from. It and its ancestors will be incrementally streamed until one of
     /// hte following happens:

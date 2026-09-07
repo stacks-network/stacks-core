@@ -748,15 +748,15 @@ impl<'a> StacksNodeState<'a> {
     ///
     /// # Warn
     /// - There is a potential race condition. If this function is loading the latest unconfirmed
-    /// tip, that tip may get invalidated by the time it is used in `maybe_read_only_clarity_tx`,
-    /// which is used to load clarity state at a particular tip (which would lead to a 404 error).
-    /// If this race condition occurs frequently, we can modify `maybe_read_only_clarity_tx` to
-    /// re-load the unconfirmed chain tip. Refer to issue #2997.
+    ///   tip, that tip may get invalidated by the time it is used in `maybe_read_only_clarity_tx`,
+    ///   which is used to load clarity state at a particular tip (which would lead to a 404 error).
+    ///   If this race condition occurs frequently, we can modify `maybe_read_only_clarity_tx` to
+    ///   re-load the unconfirmed chain tip. Refer to issue #2997.
     ///
     /// # Inputs
     /// - `tip_req` is given by the HTTP request as the optional query parameter for the chain tip
-    /// hash.  It will be UseLatestAnchoredTip if there was no parameter given. If it is set to
-    /// `latest`, the parameter will be set to UseLatestUnconfirmedTip.
+    ///   hash.  It will be UseLatestAnchoredTip if there was no parameter given. If it is set to
+    ///   `latest`, the parameter will be set to UseLatestUnconfirmedTip.
     ///
     /// Returns the requested chain tip on success.
     /// If the chain tip could not be found, then it returns Err(HttpNotFound)
@@ -949,7 +949,7 @@ pub struct PoxInvData {
 pub struct BlocksDatum(pub ConsensusHash, pub StacksBlock);
 
 /// Stacks epoch 2.x blocks pushed
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct BlocksData {
     pub blocks: Vec<BlocksDatum>,
 }
@@ -970,7 +970,7 @@ pub struct MicroblocksData {
 }
 
 /// Block available hint
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct BlocksAvailableData {
     pub available: Vec<(ConsensusHash, BurnchainHeaderHash)>,
 }
@@ -1311,7 +1311,7 @@ pub trait ProtocolFamily {
 }
 
 // these implement the ProtocolFamily trait
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct StacksP2P {}
 
 // an array in our protocol can't exceed this many items
@@ -3644,9 +3644,9 @@ pub mod test {
 
         /// Generate and commit the next burnchain block with the given block operations.
         /// * if `set_consensus_hash` is true, then each op's consensus_hash field will be set to
-        /// that of the resulting block snapshot.
+        ///   that of the resulting block snapshot.
         /// * if `set_burn_hash` is true, then each op's burnchain header hash field will be set to
-        /// that of the resulting block snapshot.
+        ///   that of the resulting block snapshot.
         ///
         /// Returns (
         ///     burnchain tip block height,

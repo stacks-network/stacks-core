@@ -56,9 +56,9 @@ use crate::util_lib::strings::StacksString;
 /// MARF.
 /// * Verify that keys inserted into the ephemeral MARF land in the RAM-backed MARF
 /// * Verify that the ephemeral MARF store can read all keys inserted into the RAM-backed MARF, as
-/// well as all keys in the disk-backed MARF.
+///   well as all keys in the disk-backed MARF.
 /// * Verify that discarding the ephemeral MARF store leaves the disk-backed MARF unaltered (no new
-/// keys)
+///   keys)
 #[test]
 fn test_ephemeral_marf_store() {
     let path = format!("/tmp/{}.marf", function_name!());
