@@ -56,8 +56,10 @@ impl fmt::Display for ClarityVersion {
 }
 
 impl ClarityVersion {
+    /// The default version of the latest epoch, so it tracks
+    /// `StacksEpochId::latest()` in both test and release builds.
     pub const fn latest() -> ClarityVersion {
-        ClarityVersion::Clarity7
+        Self::default_for_epoch(StacksEpochId::latest())
     }
 
     pub const ALL: &'static [ClarityVersion] = &[
