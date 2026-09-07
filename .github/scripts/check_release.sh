@@ -107,7 +107,7 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     } >> "${GITHUB_OUTPUT}"
 else
     info "tag=${tag}"
-    info "is_release=${info:-${tag}}"
+    info "is_release=${is_release}"
 fi
 
 write_summary "## Release Detection Summary\n* **Release Detected:** \`true\`\n* **Tag:** \`${tag}\`\n* **Reason:** Branch \`${BRANCH}\` matches release pattern and verified against \`${versions_file}\`."

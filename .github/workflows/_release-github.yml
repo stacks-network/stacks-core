@@ -141,14 +141,14 @@ jobs:
     # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository AND tag is not empty
     if: (vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core') && inputs.tag != ''
     runs-on: ubuntu-latest
-    environment: release # Required to access secrets relating to Release Bot GitHub App
+    environment: "Build Release" # Required to access secrets relating to Release Bot GitHub App
     permissions:
       contents: write
     steps:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |

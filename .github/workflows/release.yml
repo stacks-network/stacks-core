@@ -20,8 +20,8 @@ defaults:
 # Configure concurrency
 concurrency:
   group: release-${{ github.head_ref || github.ref || github.run_id }}
-  # Always cancel duplicate jobs
-  cancel-in-progress: true
+  # Never cancel duplicate jobs since we don't want to have orphaned GHCR docker entries etc.
+  cancel-in-progress: false
 
 # Env vars
 env:
@@ -207,6 +207,7 @@ jobs:
     name: Andon Cord
     needs:
       - check-do-not-release
+      - check-release
       - check-release-blockers
     if: >-
       needs.check-release.outputs.tag != '' &&
@@ -269,8 +270,8 @@ jobs:
     uses: ./.github/workflows/_tests-epoch.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
-      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
+      upload-junit-xml: "false"
+      upload-code-coverage: "false"
 
   ############################################################################
   ### Create Release
@@ -295,6 +296,8 @@ jobs:
       issues: read           # required for release blocker check
       pull-requests: read    # required for release blocker check
     uses: ./.github/workflows/_release-github.yml
-    secrets: inherit         # required for secrets to be available to this workflow
+    secrets:                 # required for secrets to be available to this workflow
+      RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
     with:
       tag: ${{ needs.check-release.outputs.tag }} # 3-part version shared by the node and signer, like 4.0.0
