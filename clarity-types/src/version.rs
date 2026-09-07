@@ -94,13 +94,11 @@ impl ClarityVersion {
         &Self::ALL[..=idx]
     }
 
-    pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
+    pub const fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
         match epoch_id {
+            // Epoch 1.0 predates Clarity; Clarity1 keeps the mapping total.
             StacksEpochId::Epoch10 => {
-                warn!(
-                    "Attempted to get default Clarity version for Epoch 1.0 where Clarity does not exist"
-                );
-                ClarityVersion::Clarity1
+                panic!("Epoch 1.0 predates Clarity; no default Clarity version")
             }
             StacksEpochId::Epoch20 => ClarityVersion::Clarity1,
             StacksEpochId::Epoch2_05 => ClarityVersion::Clarity1,
