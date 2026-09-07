@@ -3366,6 +3366,19 @@ pub mod tests {
     }
 
     #[test]
+    fn pre_committed_then_globally_rejected_keeps_valid_without_signature() {
+        // The row shape the re-proposal guard must not trust: validated, never signed, and
+        // terminal. `valid` is a local verdict and survives the global rejection.
+        let (mut block, _) = create_block();
+        block.mark_pre_committed().unwrap();
+        block.mark_globally_rejected().unwrap();
+        assert_eq!(block.state, BlockState::GloballyRejected);
+        assert_eq!(block.valid, Some(true));
+        assert!(block.signed_self.is_none());
+        assert!(block.signed_group.is_none());
+    }
+
+    #[test]
     fn state_machine() {
         let (mut block, _) = create_block();
         assert_eq!(block.state, BlockState::Unprocessed);

@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
@@ -81,7 +81,35 @@ pub static TEST_SIGNERS_INSERT_BLOCK_PROPOSAL_WITHOUT_PROCESSING: LazyLock<
     TestFlag<Vec<StacksPublicKey>>,
 > = LazyLock::new(TestFlag::default);
 
+/// Every block response the signer decided to send, in order. Recorded before any test
+/// directive can suppress the broadcast, so unit tests can assert on outbound messages even
+/// though a dry-run StackerDB only logs them. Unit tests only: nothing drains it in
+/// integration binaries, which enable the `testing` feature.
+pub static TEST_RECORDED_BLOCK_RESPONSES: LazyLock<Mutex<Vec<BlockResponse>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// Every block pre-commit the signer decided to send, by signer signature hash. Unit tests
+/// only, like [`TEST_RECORDED_BLOCK_RESPONSES`].
+pub static TEST_RECORDED_PRE_COMMITS: LazyLock<Mutex<Vec<Sha512Trunc256Sum>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+
 impl Signer {
+    /// Record an outbound block response; see [`TEST_RECORDED_BLOCK_RESPONSES`].
+    pub fn test_record_block_response(&self, block_response: &BlockResponse) {
+        TEST_RECORDED_BLOCK_RESPONSES
+            .lock()
+            .unwrap()
+            .push(block_response.clone());
+    }
+
+    /// Record an outbound block pre-commit; see [`TEST_RECORDED_PRE_COMMITS`].
+    pub fn test_record_pre_commit(&self, signer_signature_hash: &Sha512Trunc256Sum) {
+        TEST_RECORDED_PRE_COMMITS
+            .lock()
+            .unwrap()
+            .push(signer_signature_hash.clone());
+    }
+
     /// Skip the block broadcast if the TEST_SKIP_BLOCK_BROADCAST flag is set
     pub fn test_skip_block_broadcast(&self, block: &NakamotoBlock) -> bool {
         if TEST_SKIP_BLOCK_BROADCAST.get() {
@@ -347,7 +375,7 @@ mod async_sibling_validation {
     use clarity::util::hash::{Hash160, Sha512Trunc256Sum};
     use clarity::util::vrf::VRFProof;
     use clarity::vm::costs::ExecutionCost;
-    use libsigner::v0::messages::{PeerInfo, SignerMessage};
+    use libsigner::v0::messages::{BlockResponse, PeerInfo, RejectReason, SignerMessage};
     use libsigner::{BlockProposal, BlockProposalData, SignerEntries, SignerEvent};
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -584,24 +612,20 @@ mod async_sibling_validation {
         }))
     }
 
-    /// Drive the sibling race: two conflicting tenure-start blocks A and B are both tracked
-    /// (as they would be after screening two proposals within the async-validation window),
-    /// A's validation returns first and is signed, then B's validation returns. Returns the
-    /// resulting `BlockInfo` for A (captured right after its own validation), for B (captured
-    /// right after its validation), and for B after an optional re-proposal.
-    ///
-    /// `tenure_last_block_proposal_timeout` controls whether A's signature is still fresh when
-    /// B crosses the pre-commit threshold. `serve_sibling_as_tip` controls whether the mock
-    /// node reports A (height 10) or the parent (height 9) as the canonical tenure tip, which
-    /// is what the signer consults once the signature has timed out. If `re_propose_b_after` is
-    /// set, the miner re-submits B's proposal after that delay (as it does after a signature
-    /// timeout) and B's `BlockInfo` is captured again as the third element.
-    fn run_sibling_scenario(
-        tenure_last_block_proposal_timeout: Duration,
+    /// The miner key every fixture block is signed with.
+    fn fixture_miner() -> StacksPrivateKey {
+        StacksPrivateKey::from_seed(&[0, 1])
+    }
+
+    /// Two conflicting sibling tenure-start blocks A and B (same tenure, parent and height,
+    /// hashes differing by `timestamp`) plus the mock node's responses: the parent tenure's tip
+    /// is the parent block, the current tenure's tip is A if `serve_sibling_as_tip` else the
+    /// parent.
+    fn sibling_fixture(
+        timestamp: u64,
         serve_sibling_as_tip: bool,
-        re_propose_b_after: Option<Duration>,
-    ) -> (BlockInfo, BlockInfo, Option<BlockInfo>) {
-        let miner = StacksPrivateKey::from_seed(&[0, 1]);
+    ) -> (NakamotoBlock, NakamotoBlock, Vec<(String, String)>) {
+        let miner = fixture_miner();
         let tenure = ConsensusHash([1; 20]);
         let parent_tenure = ConsensusHash([0; 20]);
 
@@ -626,9 +650,8 @@ mod async_sibling_validation {
         // Two conflicting sibling tenure-start blocks: same tenure, parent, and height; the only
         // difference is the timestamp (hence the hash). The timestamps are current so that a
         // re-proposal of B passes the proposal age check.
-        let now = get_epoch_time_secs();
-        let block_a = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, now);
-        let block_b = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, now + 1);
+        let block_a = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, timestamp);
+        let block_b = tenure_start(&miner, &tenure, &parent_tenure, &parent_id, timestamp + 1);
         let hash_a = block_a.header.signer_signature_hash();
         let hash_b = block_b.header.signer_signature_hash();
         assert_ne!(hash_a, hash_b);
@@ -671,6 +694,31 @@ mod async_sibling_validation {
                 format!(r#"{{"stacks_block_id":"{parent_id}","accepted":true}}"#),
             ),
         ];
+
+        (block_a, block_b, tips)
+    }
+
+    /// Drive the sibling race: two conflicting tenure-start blocks A and B are both tracked
+    /// (as they would be after screening two proposals within the async-validation window),
+    /// A's validation returns first and is signed, then B's validation returns. Returns the
+    /// resulting `BlockInfo` for A (captured right after its own validation), for B (captured
+    /// right after its validation), and for B after an optional re-proposal.
+    ///
+    /// `tenure_last_block_proposal_timeout` controls whether A's signature is still fresh when
+    /// B crosses the pre-commit threshold. `serve_sibling_as_tip` controls whether the mock
+    /// node reports A (height 10) or the parent (height 9) as the canonical tenure tip, which
+    /// is what the signer consults once the signature has timed out. If `re_propose_b_after` is
+    /// set, the miner re-submits B's proposal after that delay (as it does after a signature
+    /// timeout) and B's `BlockInfo` is captured again as the third element.
+    fn run_sibling_scenario(
+        tenure_last_block_proposal_timeout: Duration,
+        serve_sibling_as_tip: bool,
+        re_propose_b_after: Option<Duration>,
+    ) -> (BlockInfo, BlockInfo, Option<BlockInfo>) {
+        let now = get_epoch_time_secs();
+        let (block_a, block_b, tips) = sibling_fixture(now, serve_sibling_as_tip);
+        let hash_a = block_a.header.signer_signature_hash();
+        let hash_b = block_b.header.signer_signature_hash();
 
         let mut node = MockNode::new(tips, tenure_last_block_proposal_timeout);
 
@@ -748,6 +796,398 @@ mod async_sibling_validation {
         node.shutdown();
 
         (info_a, info_b, info_b_reproposed)
+    }
+
+    /// Remove and return the outbound messages recorded for `hash`: the block responses and
+    /// the number of pre-commits. Entries for other hashes stay for their own tests.
+    fn take_recorded(hash: &Sha512Trunc256Sum) -> (Vec<BlockResponse>, usize) {
+        let mut responses = super::TEST_RECORDED_BLOCK_RESPONSES.lock().unwrap();
+        let (mine, others): (Vec<_>, Vec<_>) = responses
+            .drain(..)
+            .partition(|response| response.get_signer_signature_hash() == hash);
+        *responses = others;
+        let mut pre_commits = super::TEST_RECORDED_PRE_COMMITS.lock().unwrap();
+        let before = pre_commits.len();
+        pre_commits.retain(|recorded| recorded != hash);
+        (mine, before - pre_commits.len())
+    }
+
+    /// An ordinary (non tenure-change) block in `tenure` at height 10 on `parent`, so the
+    /// signing-time re-check consults the block's own tenure rather than its parent's.
+    fn plain_block(
+        tenure: &ConsensusHash,
+        parent: &StacksBlockId,
+        timestamp: u64,
+    ) -> NakamotoBlock {
+        let header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 10,
+            burn_spent: 10,
+            consensus_hash: tenure.clone(),
+            parent_block_id: parent.clone(),
+            tx_merkle_root: Sha512Trunc256Sum([0; 32]),
+            state_index_root: TrieHash([0; 32]),
+            timestamp,
+            miner_signature: MessageSignature::empty(),
+            signer_signature: vec![],
+            pox_treatment: BitVec::ones(1).unwrap(),
+            problematic_txs: vec![],
+        };
+        let mut block = NakamotoBlock::new(header, vec![]);
+        block.header.sign_miner(&fixture_miner()).unwrap();
+        block
+    }
+
+    fn proposal_of(block: &NakamotoBlock) -> BlockProposal {
+        BlockProposal {
+            block: block.clone(),
+            burn_height: 1,
+            reward_cycle: 1,
+            block_proposal_data: BlockProposalData::empty(),
+        }
+    }
+
+    /// What the signer did for one block: the messages it sent, whether its own pre-commit was
+    /// persisted (which only `handle_block_pre_commit` does), and the row it left behind.
+    struct RecordedOutcome {
+        info: BlockInfo,
+        responses: Vec<BlockResponse>,
+        pre_commits: usize,
+        own_pre_commit_persisted: bool,
+    }
+
+    /// The block responses recorded for one block, reduced to what the tests care about.
+    #[derive(Debug, PartialEq)]
+    enum Responses {
+        None,
+        Accepted,
+        Rejected(RejectReason),
+        Several(usize),
+    }
+
+    /// The observable outcome for one block, comparable in a single assertion.
+    #[derive(Debug, PartialEq)]
+    struct Outcome {
+        responses: Responses,
+        pre_commits: usize,
+        own_pre_commit_persisted: bool,
+        signed_self: bool,
+        valid: Option<bool>,
+        reject_reason: Option<RejectReason>,
+        state: BlockState,
+    }
+
+    impl RecordedOutcome {
+        /// Collect what the signer did for `hash`: its row, the responses and pre-commits
+        /// recorded since the last `take_recorded`, and whether our pre-commit was persisted.
+        fn collect(node: &MockNode, hash: &Sha512Trunc256Sum) -> Self {
+            let info = node.signer.signer_db.block_lookup(hash).unwrap().unwrap();
+            let (responses, pre_commits) = take_recorded(hash);
+            let own_pre_commit_persisted = node
+                .signer
+                .signer_db
+                .get_block_pre_committers(hash)
+                .unwrap()
+                .contains(&node.signer.stacks_address);
+            Self {
+                info,
+                responses,
+                pre_commits,
+                own_pre_commit_persisted,
+            }
+        }
+
+        fn summary(&self) -> Outcome {
+            let responses = match self.responses.as_slice() {
+                [] => Responses::None,
+                [one] => match one.as_block_rejection() {
+                    Some(rejection) => {
+                        Responses::Rejected(rejection.response_data.reject_reason.clone())
+                    }
+                    None => Responses::Accepted,
+                },
+                several => Responses::Several(several.len()),
+            };
+            Outcome {
+                responses,
+                pre_commits: self.pre_commits,
+                own_pre_commit_persisted: self.own_pre_commit_persisted,
+                signed_self: self.info.signed_self.is_some(),
+                valid: self.info.valid,
+                reject_reason: self.info.reject_reason.clone(),
+                state: self.info.state,
+            }
+        }
+    }
+
+    /// Track siblings A and B, optionally sign A, shape B's stored row, then re-propose B and
+    /// report what the signer did for B.
+    fn run_reproposal_case(
+        timestamp: u64,
+        sign_a: bool,
+        shape_b: impl FnOnce(&mut BlockInfo),
+    ) -> RecordedOutcome {
+        let (block_a, block_b, tips) = sibling_fixture(timestamp, false);
+        let hash_a = block_a.header.signer_signature_hash();
+        let hash_b = block_b.header.signer_signature_hash();
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+        for block in [&block_a, &block_b] {
+            node.signer
+                .signer_db
+                .insert_block(&BlockInfo::from(proposal_of(block)))
+                .unwrap();
+        }
+
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        if sign_a {
+            node.signer.process_event(
+                &node.client,
+                &mut sortition,
+                Some(&validate_ok(&hash_a)),
+                &result_tx,
+                1,
+            );
+            let info_a = node
+                .signer
+                .signer_db
+                .block_lookup(&hash_a)
+                .unwrap()
+                .unwrap();
+            assert_a_signed(&info_a);
+        }
+        // Shape B's row only now: a B that already carried a signature would (correctly) stop
+        // A from being signed above.
+        let mut info_b = BlockInfo::from(proposal_of(&block_b));
+        shape_b(&mut info_b);
+        node.signer.signer_db.insert_block(&info_b).unwrap();
+        // Only what the re-proposal of B produces is under test.
+        take_recorded(&hash_b);
+        let reproposal =
+            SignerEvent::MinerMessages(vec![SignerMessage::BlockProposal(proposal_of(&block_b))]);
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&reproposal),
+            &result_tx,
+            1,
+        );
+        let outcome = RecordedOutcome::collect(&node, &hash_b);
+        node.shutdown();
+        outcome
+    }
+
+    /// Validate an ordinary block C (same tenure and height as A) whose row was shaped by
+    /// `shape_c`, after optionally signing A first, and report what the signer did for C.
+    fn run_late_validation_case(
+        timestamp: u64,
+        serve_sibling_as_tip: bool,
+        sign_a: bool,
+        shape_c: impl FnOnce(&mut BlockInfo),
+    ) -> RecordedOutcome {
+        let (block_a, _block_b, tips) = sibling_fixture(timestamp, serve_sibling_as_tip);
+        let block_c = plain_block(
+            &block_a.header.consensus_hash,
+            &block_a.header.parent_block_id,
+            timestamp + 2,
+        );
+        let hash_a = block_a.header.signer_signature_hash();
+        let hash_c = block_c.header.signer_signature_hash();
+        let mut node = MockNode::new(tips, Duration::from_secs(100_000));
+        node.signer
+            .signer_db
+            .insert_block(&BlockInfo::from(proposal_of(&block_a)))
+            .unwrap();
+        let mut info_c = BlockInfo::from(proposal_of(&block_c));
+        shape_c(&mut info_c);
+        node.signer.signer_db.insert_block(&info_c).unwrap();
+        let (result_tx, _result_rx) = mpsc::channel();
+        let mut sortition = None;
+        if sign_a {
+            node.signer.process_event(
+                &node.client,
+                &mut sortition,
+                Some(&validate_ok(&hash_a)),
+                &result_tx,
+                1,
+            );
+            assert_a_signed(
+                &node
+                    .signer
+                    .signer_db
+                    .block_lookup(&hash_a)
+                    .unwrap()
+                    .unwrap(),
+            );
+        }
+        take_recorded(&hash_c);
+        node.signer.process_event(
+            &node.client,
+            &mut sortition,
+            Some(&validate_ok(&hash_c)),
+            &result_tx,
+            1,
+        );
+        let outcome = RecordedOutcome::collect(&node, &hash_c);
+        node.shutdown();
+        outcome
+    }
+
+    #[test]
+    fn reproposal_of_globally_rejected_validated_block_is_not_signed_directly() {
+        // B was validated (pre-committed) and then driven to GloballyRejected by peers, leaving
+        // valid = true with no signature. A is signed and fresh. Re-proposing B must go back
+        // through the pre-commit evaluation, where the fresh conflict refuses it, rather than
+        // being signed off the cached verdict.
+        let outcome = run_reproposal_case(get_epoch_time_secs() + 3600, true, |b| {
+            b.mark_pre_committed().unwrap();
+            b.mark_globally_rejected().unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::None,
+                pre_commits: 1,
+                own_pre_commit_persisted: true,
+                signed_self: false,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::GloballyRejected,
+            }
+        );
+    }
+
+    #[test]
+    fn reproposal_of_globally_rejected_validated_block_signs_when_unconflicted() {
+        // Same row, but nothing else is signed: the pre-commit path signs it and records the
+        // signature even though the terminal state cannot change.
+        let outcome = run_reproposal_case(get_epoch_time_secs() + 2 * 3600, false, |b| {
+            b.mark_pre_committed().unwrap();
+            b.mark_globally_rejected().unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Accepted,
+                pre_commits: 1,
+                own_pre_commit_persisted: true,
+                signed_self: true,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::GloballyRejected,
+            }
+        );
+    }
+
+    #[test]
+    fn reproposal_of_permanently_rejected_block_reissues_rejection() {
+        let outcome = run_reproposal_case(get_epoch_time_secs() + 3 * 3600, false, |b| {
+            b.mark_locally_rejected().unwrap();
+            b.reject_reason = Some(RejectReason::SortitionViewMismatch);
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Rejected(RejectReason::RejectedInPriorRound),
+                pre_commits: 0,
+                own_pre_commit_persisted: false,
+                signed_self: false,
+                valid: Some(false),
+                reject_reason: Some(RejectReason::SortitionViewMismatch),
+                state: BlockState::LocallyRejected,
+            }
+        );
+    }
+
+    #[test]
+    fn reproposal_of_signed_block_recreates_acceptance() {
+        let outcome = run_reproposal_case(get_epoch_time_secs() + 4 * 3600, false, |b| {
+            b.mark_locally_accepted(false).unwrap();
+            b.signed_self = Some(1_000);
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Accepted,
+                pre_commits: 0,
+                own_pre_commit_persisted: false,
+                signed_self: true,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::LocallyAccepted,
+            }
+        );
+        assert_eq!(
+            outcome.info.signed_self,
+            Some(1_000),
+            "recreating the acceptance must not refresh the signature timestamp"
+        );
+    }
+
+    #[test]
+    fn reproposal_of_group_signed_unsigned_block_only_reissues_pre_commit() {
+        // The group reached the threshold without us. Our late signature would add nothing and
+        // would skip the conflict checks, so only the pre-commit is re-broadcast.
+        let outcome = run_reproposal_case(get_epoch_time_secs() + 5 * 3600, false, |b| {
+            b.mark_pre_committed().unwrap();
+            b.mark_locally_accepted(true).unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::None,
+                pre_commits: 1,
+                own_pre_commit_persisted: false,
+                signed_self: false,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::LocallyAccepted,
+            }
+        );
+    }
+
+    #[test]
+    fn reproposal_of_globally_accepted_unsigned_block_is_ignored() {
+        let outcome = run_reproposal_case(get_epoch_time_secs() + 6 * 3600, false, |b| {
+            b.mark_pre_committed().unwrap();
+            b.mark_locally_accepted(true).unwrap();
+            b.mark_globally_accepted().unwrap();
+        });
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::None,
+                pre_commits: 0,
+                own_pre_commit_persisted: false,
+                signed_self: false,
+                valid: Some(true),
+                reject_reason: None,
+                state: BlockState::GloballyAccepted,
+            }
+        );
+    }
+
+    #[test]
+    fn chainstate_recheck_rejection_records_reject_reason() {
+        // A is signed at height 10. An ordinary block C at the same height in the same tenure
+        // is validated afterwards: the re-check finds A as the tenure's fresh signed tip and
+        // rejects C. The reason must be persisted like the other rejection paths do. With a
+        // single weight-1 signer our own rejection also crosses the rejection threshold, so the
+        // row ends globally rather than locally rejected.
+        let outcome =
+            run_late_validation_case(get_epoch_time_secs() + 7 * 3600, false, true, |_| {});
+        assert_eq!(
+            outcome.summary(),
+            Outcome {
+                responses: Responses::Rejected(RejectReason::SortitionViewMismatch),
+                pre_commits: 0,
+                own_pre_commit_persisted: false,
+                signed_self: false,
+                valid: Some(false),
+                reject_reason: Some(RejectReason::SortitionViewMismatch),
+                state: BlockState::GloballyRejected,
+            }
+        );
     }
 
     /// Assert that A was signed as soon as its validation returned.
