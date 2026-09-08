@@ -2427,7 +2427,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                     to_do,
                     abort_call_back,
                 );
-                // DO NOT reset memory usage yet -- that should happen only when the TX commits.
+                // Memory is reset when the surrounding transaction commits.
 
                 (cost_track, (db.destroy().into(), result))
             })

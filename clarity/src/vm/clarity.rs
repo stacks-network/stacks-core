@@ -431,6 +431,10 @@ pub trait ClarityConnection {
 
 /// Execute a nested Clarity transaction and let a callback decide whether its
 /// database changes should be committed.
+///
+/// Successful execution commits unless `abort_callback` returns a reason; errors and
+/// callback aborts roll back. The returned cost tracker retains its memory usage for the
+/// surrounding transaction to reset. Evaluation hooks must not run on consensus paths.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn execute_with_abort_callback<'db, 'hooks, F, A, R, E>(
     mut db: ClarityDatabase<'db>,
@@ -760,7 +764,8 @@ mod unit_tests {
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::errors::{EarlyReturnError, RuntimeError};
     use crate::vm::events::{STXBurnEventData, STXEventType};
-    use crate::vm::hooks::testing::ExecutionLifecycleHook;
+    use crate::vm::hooks::ExecutionOutcome;
+    use crate::vm::hooks::testing::{ExecutionLifecycleEvent, ExecutionLifecycleHook};
     use crate::vm::types::StandardPrincipalData;
 
     #[test]
@@ -793,11 +798,18 @@ mod unit_tests {
             |_, _| None,
         );
 
-        assert!(result.is_ok());
+        let (_, _, _, abort_reason) = result.unwrap();
+        assert!(abort_reason.is_none());
         db.begin();
         assert_eq!(db.get_data::<u64>("shared-frame").unwrap(), Some(1));
         db.roll_back().unwrap();
-        assert_eq!(hook.events.len(), 2);
+        assert_eq!(
+            hook.events,
+            vec![
+                ExecutionLifecycleEvent::Begin,
+                ExecutionLifecycleEvent::Finish(ExecutionOutcome::Success),
+            ]
+        );
     }
 
     #[test]
@@ -819,7 +831,8 @@ mod unit_tests {
             |_, _| Some("abort".into()),
         );
 
-        assert!(result.unwrap().3.is_some());
+        let (_, _, _, abort_reason) = result.unwrap();
+        assert_eq!(abort_reason, Some("abort".into()));
         db.begin();
         assert_eq!(db.get_data::<u64>("shared-frame").unwrap(), None);
         db.roll_back().unwrap();
