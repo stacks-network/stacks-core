@@ -37,12 +37,14 @@ macro_rules! info_green {
     })
 }
 
-#[allow(clippy::type_complexity)]
+/// Invoked when the run loop observes a new Stacks chain state.
+type NewStacksChainStateCallback =
+    fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState, &dyn BurnStateDB);
+
 pub struct RunLoopCallbacks {
     on_burn_chain_initialized: Option<fn(&mut Box<dyn BurnchainController>)>,
     on_new_burn_chain_state: Option<fn(u64, &BurnchainTip, &ChainTip)>,
-    on_new_stacks_chain_state:
-        Option<fn(u64, &BurnchainTip, &ChainTip, &mut StacksChainState, &dyn BurnStateDB)>,
+    on_new_stacks_chain_state: Option<NewStacksChainStateCallback>,
     on_new_tenure: Option<fn(u64, &BurnchainTip, &ChainTip, &mut Tenure)>,
 }
 

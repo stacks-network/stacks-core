@@ -75,8 +75,47 @@ pub const STACKS_TIPS_BY_BURN_VIEW_SEARCH_DEPTH: usize = 4200;
 pub type BlockHeaderCache = HashMap<ConsensusHash, (Option<BlockHeaderHash>, ConsensusHash)>;
 
 const DESCENDANCY_CACHE_SIZE: usize = 2000;
-static DESCENDANCY_CACHE: LazyLock<Arc<Mutex<LruCache<(SortitionId, BlockHeaderHash), bool>>>> =
+
+/// Cached ancestry checks keyed by the winning sortition and potential ancestor block.
+pub type DescendancyCache = LruCache<(SortitionId, BlockHeaderHash), bool>;
+
+static DESCENDANCY_CACHE: LazyLock<Arc<Mutex<DescendancyCache>>> =
     LazyLock::new(|| Arc::new(Mutex::new(LruCache::new(DESCENDANCY_CACHE_SIZE))));
+
+/// Anchor selection and the confirmation count used to decide the reward cycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PoxAnchorSelection {
+    /// A candidate reached the anchor threshold.
+    Selected {
+        /// Consensus hash of the sortition that elected the anchor.
+        consensus_hash: ConsensusHash,
+        /// Elected Stacks block.
+        block_hash: BlockHeaderHash,
+        /// Winning block-commit transaction.
+        txid: Txid,
+        /// Number of prepare-phase confirmations for the anchor.
+        confirmations: u32,
+    },
+    /// No candidate reached the anchor threshold.
+    NotSelected {
+        /// Largest candidate confirmation count, or zero if no candidate exists.
+        max_confirmations: u32,
+    },
+}
+
+/// Newly arrived blocks and the best Stacks tip they establish for a sortition.
+struct NewBlockArrivals {
+    /// Consensus hash of the best tip's sortition.
+    best_tip_consensus_hash: ConsensusHash,
+    /// Best Stacks tip discovered among the arrivals and current tip.
+    best_tip_block_bhh: BlockHeaderHash,
+    /// Height of the best Stacks tip.
+    best_tip_height: u64,
+    /// Highest arrival index examined.
+    max_arrival_index: u64,
+    /// Arriving Stacks blocks paired with their heights.
+    arrivals: Vec<(BlockHeaderHash, u64)>,
+}
 
 pub enum FindIter<R> {
     Found(R),
@@ -1082,7 +1121,7 @@ pub trait SortitionHandle {
     ///
     /// If it does, return the cached entry
     fn descendancy_cache_get(
-        cache: &mut MutexGuard<'_, LruCache<(SortitionId, BlockHeaderHash), bool>>,
+        cache: &mut MutexGuard<'_, DescendancyCache>,
         key: &(SortitionId, BlockHeaderHash),
     ) -> Option<bool> {
         match cache.get(key) {
@@ -1099,7 +1138,7 @@ pub trait SortitionHandle {
     /// Cache the result of the descendancy check on whether or not the winning block in `key.0`
     ///  descends from `key.1`
     fn descendancy_cache_put(
-        cache: &mut MutexGuard<'_, LruCache<(SortitionId, BlockHeaderHash), bool>>,
+        cache: &mut MutexGuard<'_, DescendancyCache>,
         key: (SortitionId, BlockHeaderHash),
         is_descended: bool,
     ) {
@@ -2513,20 +2552,25 @@ impl<'a> SortitionHandleConn<'a> {
         pox_consts: &PoxConstants,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash, Txid)>, CoordinatorError> {
         match self.get_chosen_pox_anchor_check_position(prepare_end_bhh, pox_consts, true) {
-            Ok(Ok((c_hash, bh_hash, txid, _))) => Ok(Some((c_hash, bh_hash, txid))),
-            Ok(Err(_)) => Ok(None),
+            Ok(PoxAnchorSelection::Selected {
+                consensus_hash,
+                block_hash,
+                txid,
+                ..
+            }) => Ok(Some((consensus_hash, block_hash, txid))),
+            Ok(PoxAnchorSelection::NotSelected { .. }) => Ok(None),
             Err(e) => Err(e),
         }
     }
 
     /// This is the method for calculating the PoX anchor block for a reward cycle
-    /// If no PoX anchor block is found, it returns Ok(Err(maximum confirmations of all candidates))
+    /// If no anchor is selected, returns the maximum confirmation count among candidates.
     pub fn get_chosen_pox_anchor_check_position(
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
         check_position: bool,
-    ) -> Result<Result<(ConsensusHash, BlockHeaderHash, Txid, u32), u32>, CoordinatorError> {
+    ) -> Result<PoxAnchorSelection, CoordinatorError> {
         let (effective_height, block_height) = match self.get_heights_for_prepare_phase_end_block(
             prepare_end_bhh,
             pox_consts,
@@ -2535,7 +2579,9 @@ impl<'a> SortitionHandleConn<'a> {
             Some(x) => x,
             None => {
                 // effective height was 0
-                return Ok(Err(0));
+                return Ok(PoxAnchorSelection::NotSelected {
+                    max_confirmations: 0,
+                });
             }
         };
 
@@ -2632,11 +2678,18 @@ impl<'a> SortitionHandleConn<'a> {
                 info!(
                     "Reward cycle #{reward_cycle_id} ({block_height}): (F*w) not reached, expecting consensus over proof of burn"
                 );
-                Ok(Err(max_confirmed_by))
+                Ok(PoxAnchorSelection::NotSelected {
+                    max_confirmations: max_confirmed_by,
+                })
             }
             Some(response) => {
                 info!("Reward cycle #{reward_cycle_id} ({block_height}): {result:?} reached (F*w), expecting consensus over proof of transfer");
-                Ok(Ok(response.clone()))
+                Ok(PoxAnchorSelection::Selected {
+                    consensus_hash: response.0.clone(),
+                    block_hash: response.1.clone(),
+                    txid: response.2.clone(),
+                    confirmations: response.3,
+                })
             }
         }
     }
@@ -6540,26 +6593,10 @@ impl SortitionHandleTx<'_> {
     /// the highest Stacks chain tip and maximum arrival index.
     /// Used for both discovering the new arrivals and processing them with new snapshots.
     ///
-    /// Returns Ok((
-    ///     stacks tip consensus hash,
-    ///     stacks tip block header hash,
-    ///     stacks tip height,
-    ///     max arrival index,
-    ///     list of all blocks that have arrived since this parent_tip
-    /// ))
     fn inner_find_new_block_arrivals(
         &mut self,
         parent_tip: &BlockSnapshot,
-    ) -> Result<
-        (
-            ConsensusHash,
-            BlockHeaderHash,
-            u64,
-            u64,
-            Vec<(BlockHeaderHash, u64)>,
-        ),
-        db_error,
-    > {
+    ) -> Result<NewBlockArrivals, db_error> {
         let mut new_block_arrivals = vec![];
 
         let old_max_arrival_index = self
@@ -6665,13 +6702,13 @@ impl SortitionHandleTx<'_> {
             "Max arrival for child of {best_tip_consensus_hash} is {max_arrival_index} (hash {best_tip_block_bhh} height {best_tip_height})"
         );
 
-        Ok((
+        Ok(NewBlockArrivals {
             best_tip_consensus_hash,
             best_tip_block_bhh,
             best_tip_height,
             max_arrival_index,
-            ret,
-        ))
+            arrivals: ret,
+        })
     }
 
     /// Find the new Stacks block arrivals as of the given tip `tip`, and return the highest chain
@@ -6688,8 +6725,13 @@ impl SortitionHandleTx<'_> {
         &mut self,
         tip: &BlockSnapshot,
     ) -> Result<(ConsensusHash, BlockHeaderHash, u64), db_error> {
-        self.inner_find_new_block_arrivals(tip)
-            .map(|(ch, bhh, height, _, _)| (ch, bhh, height))
+        self.inner_find_new_block_arrivals(tip).map(|arrivals| {
+            (
+                arrivals.best_tip_consensus_hash,
+                arrivals.best_tip_block_bhh,
+                arrivals.best_tip_height,
+            )
+        })
     }
 
     /// Update the given tip's canonical Stacks block pointer.
@@ -6730,13 +6772,13 @@ impl SortitionHandleTx<'_> {
         let mut keys = vec![];
         let mut values = vec![];
 
-        let (
+        let NewBlockArrivals {
             best_tip_consensus_hash,
             best_tip_block_bhh,
             best_tip_height,
             max_arrival_index,
-            new_arrivals,
-        ) = self.inner_find_new_block_arrivals(parent_tip)?;
+            arrivals: new_arrivals,
+        } = self.inner_find_new_block_arrivals(parent_tip)?;
 
         // generate MARF key/value pairs for new arrivals
         for (block_bhh, height) in new_arrivals.into_iter() {
@@ -11231,6 +11273,34 @@ pub mod tests {
                 .get_chosen_pox_anchor(&tip.burn_header_hash, &pox_consts)
                 .unwrap()
                 .unwrap();
+
+            assert_eq!(
+                ic.get_chosen_pox_anchor_check_position(&tip.burn_header_hash, &pox_consts, true)
+                    .unwrap(),
+                PoxAnchorSelection::Selected {
+                    consensus_hash: anchor.0.clone(),
+                    block_hash: anchor.1.clone(),
+                    txid: anchor.2.clone(),
+                    confirmations: 3,
+                }
+            );
+            let mut higher_threshold = pox_consts.clone();
+            higher_threshold.anchor_threshold = 4;
+            assert_eq!(
+                ic.get_chosen_pox_anchor_check_position(
+                    &tip.burn_header_hash,
+                    &higher_threshold,
+                    true
+                )
+                .unwrap(),
+                PoxAnchorSelection::NotSelected {
+                    max_confirmations: 3
+                }
+            );
+            assert!(ic
+                .get_chosen_pox_anchor(&tip.burn_header_hash, &higher_threshold)
+                .unwrap()
+                .is_none());
 
             let ic = db.index_conn();
             let expected_anchor_ch = SortitionDB::get_ancestor_snapshot(&ic, 7, &tip.sortition_id)

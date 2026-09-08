@@ -1658,12 +1658,12 @@ impl<
                 .process_blocks(sortdb_handle, 1, self.dispatcher)?;
 
         while let Some(block_result) = processed_blocks.pop() {
-            if block_result.0.is_none() && block_result.1.is_none() {
+            if block_result.receipt.is_none() && block_result.poison_payload.is_none() {
                 // this block was invalid
                 debug!("Bump blocks processed (invalid)");
                 self.notifier.notify_stacks_block_processed();
                 increment_stx_blocks_processed_counter();
-            } else if let (Some(block_receipt), _) = block_result {
+            } else if let Some(block_receipt) = block_result.receipt {
                 // only bump the coordinator's state if the processed block
                 //   is in our sortition fork
                 //  TODO: we should update the staging block logic to prevent
