@@ -32,7 +32,6 @@ pub mod cache;
 pub mod file;
 pub mod marf;
 pub mod node;
-pub mod profile;
 pub mod proofs;
 pub mod squash;
 pub mod storage;
