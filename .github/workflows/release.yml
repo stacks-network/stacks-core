@@ -294,8 +294,6 @@ jobs:
       attestations: write    # required for attestation
       packages: write        # required for image push to ghcr
     uses: ./.github/workflows/_release-github.yml
-    secrets:                 # required for secrets to be available to this workflow
-      RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
-      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+    secrets: inherit         # required for secrets from "release" env to be available to this workflow
     with:
       tag: ${{ needs.check-release.outputs.tag }} # 3-part version shared by the node and signer, like 4.0.0
