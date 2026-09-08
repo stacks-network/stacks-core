@@ -202,7 +202,7 @@ jobs:
 
           echo "No open issues or pull requests labeled '${LABEL}'. Proceeding with release."
 
-  # Wait for someone to pull the andon cord (as configured in the "Builds Release" GitHub Actions environment)
+  # Wait for someone to pull the andon cord (as configured in the "release" GitHub Actions environment)
   andon-cord:
     name: Andon Cord
     needs:
