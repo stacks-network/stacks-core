@@ -359,6 +359,24 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         }
     }
 
+    /// Construct a cost-limited environment with evaluation hooks already installed.
+    pub fn new_cost_limited_with_hooks(
+        mainnet: bool,
+        chain_id: u32,
+        database: ClarityDatabase<'a>,
+        cost_tracker: LimitedCostTracker,
+        epoch_id: StacksEpochId,
+        eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
+    ) -> OwnedEnvironment<'a, 'hooks> {
+        OwnedEnvironment {
+            context: GlobalContext {
+                eval_hooks,
+                ..GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id)
+            },
+            call_stack: CallStack::new(),
+        }
+    }
+
     /// Registers an evaluation hook for this environment.
     pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
         if let Some(mut hooks) = self.context.eval_hooks.take() {
