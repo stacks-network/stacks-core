@@ -567,10 +567,25 @@ pub fn check_special_replace_at(
         _ => return Err(StaticCheckErrorKind::ExpectedSequence(Box::new(input_type)).into()),
     };
     let unit_seq = seq_type.unit_type();
+    let seq_is_list = seq_type.is_list_type();
     // Check index argument
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
     // Check element argument
-    checker.type_check_expects(&args[2], context, &unit_seq)?;
+    if checker.epoch.fixes_replace_at_element_arity() && !seq_is_list {
+        // 4.1+: require exactly the unit type — `type_check_expects` admits by max
+        // length, so it would accept a statically empty element (e.g. `0x`) that
+        // fails the runtime arity check. Lists are exempt, as at runtime.
+        let elem_type = checker.type_check(&args[2], context)?;
+        analysis_typecheck_cost(checker, &unit_seq, &elem_type)?;
+        if elem_type != TypeSignature::NoType && elem_type != unit_seq {
+            let mut err: StaticCheckError =
+                StaticCheckErrorKind::TypeError(Box::new(unit_seq), Box::new(elem_type)).into();
+            err.set_expression(&args[2]);
+            return Err(err);
+        }
+    } else {
+        checker.type_check_expects(&args[2], context, &unit_seq)?;
+    }
 
     let final_type = TypeSignature::new_option(input_type)?;
     Ok(final_type)
