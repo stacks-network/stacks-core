@@ -62,12 +62,18 @@ else
 fi
 
 ## ── Validate Cargo.toml ──────────────────────────────────────────────────
+if ! command -v yq >/dev/null 2>&1; then
+    error "$(hl "yq") is required to read $(hl "${manifest_file}") but was not found"
+    exit 1
+fi
+
 if [[ ! -f "${manifest_file}" ]]; then
     error "$(hl "${manifest_file}") not found"
     exit 1
 fi
 
-version=$(yq -r '.workspace.package.version' "${manifest_file}")
+# `// ""` turns a missing key into an empty string instead of the literal "null".
+version=$(yq -r '.workspace.package.version // ""' "${manifest_file}")
 
 if [[ -z "${version}" ]]; then
     error "$(hl "workspace.package.version") not found in $(hl "${manifest_file}")"
