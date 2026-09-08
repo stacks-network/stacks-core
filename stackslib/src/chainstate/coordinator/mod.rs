@@ -530,7 +530,7 @@ impl<
         inst.comms_loop(miner_status)
     }
 
-    /// Continously polls the [`CoordinatorReceiver`] and handles any incoming signals.
+    /// Continuously polls the [`CoordinatorReceivers`] and handles any incoming signals.
     /// Returns when any of the handlers has indicated that the coordinator should stop.
     fn comms_loop(&mut self, miner_status: Arc<Mutex<MinerStatus>>) {
         loop {

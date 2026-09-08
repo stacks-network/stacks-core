@@ -838,7 +838,7 @@ impl<
     /// If we process a PoX anchor block, then kick off processing the next sortition to unblock
     /// processing the next reward cycle's burnchain blocks.
     /// Return if there are no more blocks in the staging DB, or if the coordinator has received
-    /// as signal to shut down.
+    /// a signal to shut down.
     pub fn handle_new_nakamoto_stacks_block(&mut self) -> Result<(), Error> {
         debug!("Handle new Nakamoto block");
         let canonical_sortition_tip = self.canonical_sortition_tip.clone().ok_or_else(|| {
