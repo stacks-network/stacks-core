@@ -1570,7 +1570,7 @@ impl StacksBlockBuilder {
             proof,
             &pubkh,
         );
-        builder.miner_privkey = microblock_privkey.clone();
+        builder.miner_privkey = *microblock_privkey;
         builder
     }
 
@@ -1630,7 +1630,7 @@ impl StacksBlockBuilder {
             proof,
             &pubkh,
         );
-        builder.miner_privkey = microblock_privkey.clone();
+        builder.miner_privkey = *microblock_privkey;
         builder
     }
 

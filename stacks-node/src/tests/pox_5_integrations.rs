@@ -2291,17 +2291,11 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
         // Secp256k1PrivateKey and produces compact recoverable signatures;
         // we convert to a standard DER signature for OP_CHECKSIG.
         let mut signer = BurnchainOpSigner::new(signer_sk.clone());
-        let sig_der_serialized = signer
+        let mut sig_with_sighash_flag: Vec<u8> = signer
             .sign_message(sig_hash.as_bytes())
             .expect("sign sweep sighash")
-            .to_secp256k1_recoverable()
-            .expect("recoverable sig")
-            .to_standard()
-            .serialize_der();
-        // `serialize_der()` returns `SerializedSignature`, which is a
-        // fixed-capacity buffer view over the DER bytes; expand it into
-        // an owned Vec so we can append the SIGHASH_ALL byte.
-        let mut sig_with_sighash_flag: Vec<u8> = sig_der_serialized.to_vec();
+            .to_der_signature()
+            .expect("DER-encodable signature");
         sig_with_sighash_flag.push(sig_hash_all as u8);
 
         tx.input[0].witness = vec![
@@ -3150,14 +3144,11 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
 
             let sign_with = |sk: &Secp256k1PrivateKey| -> Vec<u8> {
                 let mut signer = BurnchainOpSigner::new(sk.clone());
-                let sig_der_serialized = signer
+                let mut v: Vec<u8> = signer
                     .sign_message(sig_hash.as_bytes())
                     .expect("sign sweep sighash")
-                    .to_secp256k1_recoverable()
-                    .expect("recoverable sig")
-                    .to_standard()
-                    .serialize_der();
-                let mut v: Vec<u8> = sig_der_serialized.to_vec();
+                    .to_der_signature()
+                    .expect("DER-encodable signature");
                 v.push(sig_hash_all as u8);
                 v
             };
