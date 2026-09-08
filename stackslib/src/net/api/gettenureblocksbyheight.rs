@@ -45,7 +45,7 @@ pub fn get_block_snapshot_by_burnchain_block_height(
         )
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RPCNakamotoTenureBlocksByHeightRequestHandler {
     pub(crate) burnchain_block_height: Option<u64>,
 }

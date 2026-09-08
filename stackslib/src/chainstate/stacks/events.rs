@@ -1,6 +1,7 @@
 use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::costs::ExecutionCost;
 pub use clarity::vm::events::StacksTransactionEvent;
+pub use clarity::vm::types::BoundedErrorString;
 use clarity::vm::types::{QualifiedContractIdentifier, Value};
 use libstackerdb::StackerDBChunkData;
 use serde::{Deserialize, Serialize};
@@ -58,7 +59,7 @@ pub struct StacksTransactionReceipt {
     pub tx_index: u32,
     /// This is really a string-formatted RuntimeCheckErrorKind or VmExecutionError (which can't be clone()'ed),
     /// and is not consensus critical.
-    pub vm_error: Option<String>,
+    pub vm_error: Option<BoundedErrorString>,
     /// Set when the transaction was marked as problematic by the block's
     /// `NakamotoBlockHeader::problematic_txs`. The value is the opaque marker
     /// `category` byte. When this is `Some`, the transaction's payload was

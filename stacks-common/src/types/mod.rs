@@ -622,12 +622,6 @@ impl StacksEpochId {
         }
     }
 
-    /// Whether or not this epoch supports the cost-voting contract (SIP-006), which is
-    /// disabled from Epoch 4.0 (SIP-044).
-    pub fn supports_cost_voting_contract(&self) -> bool {
-        self < &StacksEpochId::Epoch40
-    }
-
     /// Returns true for epochs which use Nakamoto blocks. These blocks use a
     /// different header format than the previous Stacks blocks, which among
     /// other changes includes a Stacks-specific timestamp.
@@ -832,6 +826,11 @@ impl StacksEpochId {
     /// behavior changes atomically at the epoch boundary. See PR #6946.
     pub fn fixes_tuple_merge_size_check(&self) -> bool {
         self >= &StacksEpochId::Epoch40
+    }
+
+    /// Whether `replace-at?` handles a zero-length element at type-checking time.
+    pub fn fixes_replace_at_element_arity(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
     }
 
     pub fn supports_call_with_constant(&self) -> bool {

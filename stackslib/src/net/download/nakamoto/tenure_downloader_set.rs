@@ -66,6 +66,7 @@ pub const PEER_DEPRIORITIZATION_TIME_SECS: u64 = 60;
 /// can make progress even if there is only one available peer (in which case, that peer will get
 /// scheduled across multiple machines to drive their progress in the right sequence such that
 /// tenures will be incrementally fetched and yielded by the p2p state machine to the relayer).
+#[derive(Default)]
 pub struct NakamotoTenureDownloaderSet {
     /// A list of instantiated downloaders that are in progress
     pub(crate) downloaders: Vec<Option<NakamotoTenureDownloader>>,

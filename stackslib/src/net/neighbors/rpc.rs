@@ -28,7 +28,7 @@ use crate::net::{
 
 /// This struct represents a batch of in-flight RPCs to a set of peers, identified by a
 /// neighbor key (or something that converts to it)
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct NeighborRPC {
     state: HashMap<NeighborAddress, (usize, Option<StacksHttpRequest>)>,
     dead: HashSet<DropNeighbor>,

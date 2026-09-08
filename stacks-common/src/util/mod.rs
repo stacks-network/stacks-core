@@ -18,6 +18,7 @@
 pub mod log;
 #[macro_use]
 pub mod macros;
+pub mod bounded_string;
 pub mod chunked_encoding;
 #[cfg(feature = "rusqlite")]
 pub mod db;

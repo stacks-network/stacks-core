@@ -119,7 +119,7 @@ pub struct Relayer {
     recently_sent_nakamoto_blocks: HashMap<StacksBlockId, (ConsensusHash, u128)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RelayerStats {
     /// Relayer statistics for the p2p network's ongoing conversations.
     /// Note that we key on (addr, port), not the full NeighborAddress.

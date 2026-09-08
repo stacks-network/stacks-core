@@ -1767,14 +1767,6 @@ impl BlockMinerThread {
         // it is signed and broadcast.
         self.mempool_caches_valid_for = None;
 
-        let replay_transactions = if self.config.miner.replay_transactions {
-            coordinator
-                .get_signer_global_state()
-                .map(|state| state.tx_replay_set.unwrap_or_default())
-                .unwrap_or_default()
-        } else {
-            vec![]
-        };
         // build the block itself
         let mining_burn_handle = burn_db.index_handle_at_ch(&self.burn_block.consensus_hash)?;
         if let Some(parent_burn_view) = &parent_block_info.stacks_parent_header.burn_view {
@@ -1812,7 +1804,6 @@ impl BlockMinerThread {
             //  correct signer_signature_hash for `process_mined_nakamoto_block_event`
             Some(&self.event_dispatcher),
             signer_bitvec_len,
-            &replay_transactions,
         )
         .map_err(|e| {
             match e {
@@ -1897,17 +1888,6 @@ impl BlockMinerThread {
             // if we haven't mined blocks yet, no tenure extends needed
             return Ok(false);
         }
-        let is_replay = self.config.miner.replay_transactions
-            && coordinator
-                .get_signer_global_state()
-                .map(|state| state.tx_replay_set.is_some())
-                .unwrap_or(false);
-        if is_replay {
-            // we're in replay, we should always TenureExtend
-            info!("Tenure extend: In replay, always extending tenure");
-            return Ok(true);
-        }
-
         // Do not extend if we have spent a threshold amount of the
         // budget, since it is not necessary.
         let usage = self

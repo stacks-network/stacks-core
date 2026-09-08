@@ -79,10 +79,7 @@ use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
 use stacks_signer::client::StackerDB;
-use stacks_signer::config::{
-    build_signer_config_tomls, GlobalConfig as SignerConfig, Network,
-    DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-};
+use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::signerdb::SignerDb;
 use stacks_signer::v0::signer::TEST_REPEAT_PROPOSAL_RESPONSE;
 use stacks_signer::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
@@ -134,7 +131,6 @@ pub mod signers_consider_consensus_blocks;
 pub mod signers_consider_late_proposals;
 pub mod signers_wait_for_validation;
 pub mod tenure_extend;
-pub mod tx_replay;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     /// Poll until the reward set for the next reward cycle is available.
@@ -2677,7 +2673,6 @@ fn block_proposal_rejection() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -5577,7 +5572,6 @@ fn block_validation_response_timeout() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -5866,7 +5860,6 @@ fn block_validation_pending_table() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -6203,7 +6196,6 @@ fn incoming_signers_ignore_block_proposals() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -6379,7 +6371,6 @@ fn outgoing_signers_ignore_block_proposals() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
-        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -8588,7 +8579,6 @@ fn multiversioned_signer_protocol_version_calculation() {
         },
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
-            node_config.miner.replay_transactions = true;
         },
         None,
         None,
@@ -8686,12 +8676,9 @@ fn contract_with_undefined_variable_compat() {
                 sender_addr.clone(),
                 (send_amt + send_fee) * 10 + deploy_fee + call_fee,
             )],
-            |c| {
-                c.validate_with_replay_tx = true;
-            },
+            |_| {},
             |node_config| {
                 node_config.miner.block_commit_delay = Duration::from_secs(1);
-                node_config.miner.replay_transactions = true;
                 node_config.miner.activated_vrf_key_path =
                     Some(format!("{}/vrf_key", node_config.node.working_dir));
             },

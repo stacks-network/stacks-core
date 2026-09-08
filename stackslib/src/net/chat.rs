@@ -65,7 +65,7 @@ pub const BANDWIDTH_POINT_LIFETIME: u64 = 600;
 pub const MAX_PEER_HEARTBEAT_INTERVAL: usize = 3600 * 6; // 6 hours
 
 /// Statistics on relayer hints in Stacks messages.  Used to deduce network choke points.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RelayStats {
     pub num_messages: u64, // how many messages a relayer has pushed to this neighbor
     pub num_bytes: u64,    // how many bytes a relayer has pushed to this neighbor

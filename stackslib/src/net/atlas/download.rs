@@ -1135,6 +1135,12 @@ pub struct AttachmentsBatch {
     pub retry_deadline: u64,
 }
 
+impl Default for AttachmentsBatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AttachmentsBatch {
     pub fn new() -> AttachmentsBatch {
         AttachmentsBatch {
