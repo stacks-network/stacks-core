@@ -2278,6 +2278,11 @@ impl<'a> GlobalContext<'a> {
         self.asset_maps.is_empty()
     }
 
+    /// Number of nested `begin`/`begin_read_only` contexts currently open.
+    pub fn nesting_depth(&self) -> usize {
+        self.asset_maps.len()
+    }
+
     pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {
         self.execution_resource_limiter = resource_limiter;
     }
