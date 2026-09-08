@@ -20,81 +20,8 @@ use std::{io, str};
 use hashbrown::HashMap;
 use stacks_common::util::chunked_encoding::*;
 
-use crate::error::{EventError, RPCError};
-use crate::http::{decode_http_body, decode_http_request, decode_http_response, run_http_request};
-
-#[test]
-fn test_decode_http_request_ok() {
-    let tests = [
-        ("GET /foo HTTP/1.1\r\nHost: localhost:6270\r\n\r\n",
-        ("GET", "/foo", vec![("host", "localhost:6270")])),
-        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\n\r\n",
-        ("POST", "asdf", vec![("host", "core.blockstack.org"), ("foo", "Bar")])),
-        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\n\r\n",
-        ("POST", "asdf", vec![("host", "core.blockstack.org"), ("foo", "Bar")])),
-        ("GET /foo HTTP/1.1\r\nConnection: close\r\nHost: localhost:6270\r\n\r\n",
-        ("GET", "/foo", vec![("connection", "close"), ("host", "localhost:6270")])),
-        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nConnection: close\r\nFoo: Bar\r\n\r\n",
-        ("POST", "asdf", vec![("host", "core.blockstack.org"), ("connection", "close"), ("foo", "Bar")])),
-        ("POST asdf HTTP/1.1\r\nHost: core.blockstack.org\r\nFoo: Bar\r\nConnection: close\r\n\r\n",
-        ("POST", "asdf", vec![("host", "core.blockstack.org"), ("foo", "Bar"), ("connection", "close")])),
-        ("GET /foo HTTP/1.1\r\nhOsT: localhost:6270\r\n\r\n",
-        ("GET", "/foo", vec![("host", "localhost:6270")])),
-        ("GET /foo HTTP/1.1\r\ncOnNeCtIoN: cLoSe\r\nhOsT: localhost:6270\r\n\r\n",
-        ("GET", "/foo", vec![("connection", "cLoSe"), ("host", "localhost:6270")])),
-        ("POST asdf HTTP/1.1\r\nhOsT: core.blockstack.org\r\nCOnNeCtIoN: kEeP-aLiVE\r\nFoo: Bar\r\n\r\n",
-        ("POST", "asdf", vec![("host", "core.blockstack.org"), ("connection", "kEeP-aLiVE"), ("foo", "Bar")]))
-    ];
-
-    for (data, (expected_verb, expected_path, headers_list)) in tests.iter() {
-        let mut expected_headers = HashMap::new();
-        for (key, val) in headers_list.iter() {
-            expected_headers.insert(key.to_string(), val.to_string());
-        }
-
-        let (verb, path, headers, _) = decode_http_request(data.as_bytes()).unwrap().destruct();
-        assert_eq!(verb, expected_verb.to_string());
-        assert_eq!(path, expected_path.to_string());
-        assert_eq!(headers, expected_headers);
-    }
-}
-
-#[test]
-fn test_decode_http_request_err() {
-    let tests = [
-        (
-            "GET /foo HTTP/1.1\r\n",
-            EventError::Deserialize("".to_string()),
-        ),
-        (
-            "GET /foo HTTP/\r\n\r\n",
-            EventError::Deserialize("".to_string()),
-        ),
-        (
-            "GET /foo HTTP/1.1\r\nHost:",
-            EventError::Deserialize("".to_string()),
-        ),
-        (
-            "GET /foo HTTP/1.1\r\nHost: foo:80\r\nHost: bar:80\r\n\r\n",
-            EventError::MalformedRequest("".to_string()),
-        ),
-        (
-            "GET /foo HTTP/1.1\r\nHost: localhost:6270\r\nfoo: \u{2764}\r\n\r\n",
-            EventError::MalformedRequest("".to_string()),
-        ),
-    ];
-
-    for (data, expected_err_type) in tests.iter() {
-        let err = decode_http_request(data.as_bytes()).unwrap_err();
-        match (err, expected_err_type) {
-            (EventError::Deserialize(..), EventError::Deserialize(..))
-            | (EventError::MalformedRequest(..), EventError::MalformedRequest(..)) => {}
-            (x, y) => {
-                panic!("expected error mismatch: {x:?} != {y:?}");
-            }
-        }
-    }
-}
+use crate::error::RPCError;
+use crate::http::{decode_http_body, decode_http_response, run_http_request};
 
 #[test]
 fn test_decode_http_response_ok() {

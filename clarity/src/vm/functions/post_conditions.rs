@@ -400,7 +400,7 @@ fn evaluate_body_with_allowance_check(
         })();
 
     // A block-rejecting error raised inside the body must abort the transaction.
-    if matches!(&eval_result, Err(err) if err.rejectable()) {
+    if matches!(&eval_result, Err(err) if err.rejectable_in_epoch(epoch)) {
         exec_state.global_context.roll_back()?;
         return Err(eval_result.unwrap_err());
     }
