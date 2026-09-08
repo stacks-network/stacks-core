@@ -524,7 +524,7 @@ impl<
             burnchain_indexer,
             refresh_stacker_db: comms.refresh_stacker_db.clone(),
             in_nakamoto_epoch: false,
-            comms: comms,
+            comms,
         };
 
         inst.comms_loop(miner_status)
