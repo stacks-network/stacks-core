@@ -1,0 +1,20 @@
+# Bitcoin signet follower template. Supply your Stacks network's launch parameters
+# and bootstrap peers; this file alone does not join an existing Stacks network.
+# See docs/bitcoin-signet.md before launching on an existing Bitcoin signet.
+
+[node]
+working_dir = "/tmp/stacks-signet-follower"
+rpc_bind = "127.0.0.1:20443"
+p2p_bind = "127.0.0.1:20444"
+miner = false
+stacker = false
+
+[burnchain]
+mode = "signet"
+peer_host = "127.0.0.1"
+peer_port = 38333
+rpc_port = 38332
+username = "stacks-signet"
+password = "replace-with-a-local-password"
+# Omit for public signet. Custom signet must match Core's signetchallenge:
+# signet_challenge = "51"

@@ -1,0 +1,1 @@
+Added public and custom Bitcoin signet support with challenge-specific chain and event storage. See [Bitcoin signet](docs/bitcoin-signet.md).

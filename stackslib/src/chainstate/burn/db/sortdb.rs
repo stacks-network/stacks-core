@@ -31,6 +31,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
 
+use crate::burnchains::bitcoin::indexer::BITCOIN_SIGNET;
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, BurnchainStateTransitionOps,
     BurnchainView, Error as BurnchainError, PoxConstants, Txid,
@@ -4480,7 +4481,10 @@ impl SortitionDB {
             return Err(db_error::Corruption);
         }
 
-        if chain_tip.block_height < burnchain.stable_confirmations as u64 {
+        // Signet starts at Bitcoin genesis, before seven confirmations can exist.
+        let signet_bootstrap = burnchain.network_id == BITCOIN_SIGNET
+            && chain_tip.block_height < burnchain.stable_confirmations as u64;
+        if !signet_bootstrap && chain_tip.block_height < burnchain.stable_confirmations as u64 {
             // should never happen, but don't panic since this is network-callable code
             error!(
                 "Invalid block height from DB: {}: expected at least {}",
@@ -4489,10 +4493,14 @@ impl SortitionDB {
             return Err(db_error::Corruption);
         }
 
-        let stable_block_height = cmp::max(
-            burnchain.first_block_height,
-            chain_tip.block_height - (burnchain.stable_confirmations as u64),
-        );
+        let stable_block_height = if signet_bootstrap {
+            burnchain.first_block_height
+        } else {
+            cmp::max(
+                burnchain.first_block_height,
+                chain_tip.block_height - (burnchain.stable_confirmations as u64),
+            )
+        };
 
         // get all burn block hashes between the chain tip, and the stable height back
         // MAX_NEIGHBOR_BLOCK_DELAY

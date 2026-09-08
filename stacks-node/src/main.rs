@@ -294,7 +294,7 @@ fn send_pending_event_payloads(conf: &Config) {
     // This dispatcher gets a queue size of 0 to ensure that it blocks. Technically
     // process_pending_payloads() always blocks; this is just an additional safeguard.
     let mut event_dispatcher =
-        EventDispatcher::new_with_custom_queue_size(conf.get_working_dir(), 0);
+        EventDispatcher::new_with_custom_queue_size(conf.get_event_observer_dir(), 0);
     for observer in &conf.events_observers {
         event_dispatcher.register_observer(observer);
     }
@@ -475,6 +475,7 @@ fn main() {
     } else if conf.burnchain.mode == "neon"
         || conf.burnchain.mode == "nakamoto-neon"
         || conf.burnchain.mode == "xenon"
+        || conf.burnchain.mode == "signet"
         || conf.burnchain.mode == "krypton"
         || conf.burnchain.mode == "mainnet"
     {

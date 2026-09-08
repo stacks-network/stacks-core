@@ -33,7 +33,7 @@ use stacks_common::deps_common::bitcoin::network::{
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::util::get_epoch_time_secs;
 
-use crate::burnchains::bitcoin::indexer::{network_id_to_bytes, BitcoinIndexer};
+use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
 use crate::burnchains::bitcoin::{Error as btc_error, PeerMessage};
 use crate::burnchains::indexer::BurnchainIndexer;
@@ -43,7 +43,7 @@ impl BitcoinIndexer {
     /// Send a Bitcoin protocol message on the wire
     pub fn send_message(&mut self, payload: btc_message::NetworkMessage) -> Result<(), btc_error> {
         let message = btc_message::RawNetworkMessage {
-            magic: network_id_to_bytes(self.runtime.network_id),
+            magic: self.network_magic(),
             payload,
         };
 
@@ -59,7 +59,7 @@ impl BitcoinIndexer {
     /// Receive a Bitcoin protocol message on the wire
     /// If this method returns Err(ConnectionBroken), then the caller should attempt to re-connect.
     pub fn recv_message(&mut self) -> Result<PeerMessage, btc_error> {
-        let magic = network_id_to_bytes(self.runtime.network_id);
+        let magic = self.network_magic();
 
         self.with_socket(|ref mut sock| {
             // read the message off the wire

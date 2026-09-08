@@ -411,7 +411,7 @@ impl EventDispatcher {
     /// registered observers, and event payload options.
     pub fn from_config(config: &Config) -> EventDispatcher {
         let mut dispatcher = Self::new_with_custom_queue_size(
-            config.get_working_dir(),
+            config.get_event_observer_dir(),
             config.node.effective_event_dispatcher_queue_size(),
         );
         for observer in &config.events_observers {

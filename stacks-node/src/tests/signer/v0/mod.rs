@@ -36,6 +36,8 @@ use proptest::prelude::Strategy;
 use rand::{thread_rng, Rng};
 use rusqlite::Connection;
 use stacks::address::AddressHashMode;
+use stacks::burnchains::bitcoin::{signet, BitcoinNetworkType};
+use stacks::burnchains::MagicBytes;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -130,6 +132,7 @@ pub mod reorg;
 pub mod signers_consider_consensus_blocks;
 pub mod signers_consider_late_proposals;
 pub mod signers_wait_for_validation;
+mod signet_qualification;
 pub mod tenure_extend;
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
@@ -9403,4 +9406,70 @@ fn test_vtxindex_zero_two_miners() {
 
     info!("Chain continued successfully via tenure extend after bad miner was rejected");
     miners.shutdown();
+}
+
+/// Qualify burn operations, Nakamoto signer activation, and an STX transfer on custom signet.
+#[tag(bitcoind)]
+#[test]
+#[ignore = "requires Bitcoin Core on PATH and several minutes of actual signet PoW"]
+fn signet_miner_signers_and_transfer() {
+    assert_eq!(env::var("BITCOIND_TEST").as_deref(), Ok("1"));
+    let sender_sk = Secp256k1PrivateKey::from_seed(b"signet-qualification-sender");
+    let sender_addr = tests::to_addr(&sender_sk);
+    let rpc_port = gen_random_port();
+    let peer_port = gen_random_port();
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
+        5,
+        vec![(sender_addr.clone(), 1_000_000)],
+        |_| {},
+        |config| {
+            config.burnchain.mode = "signet".into();
+            config.burnchain.signet_challenge = Some(vec![0x51]);
+            config.burnchain.magic_bytes = MagicBytes::from(b"S2".as_ref());
+            config.burnchain.timeout = 600;
+            config.burnchain.rpc_port = rpc_port;
+            config.burnchain.peer_port = peer_port;
+            config.burnchain.epochs = Some(signet::default_epochs());
+            config.burnchain.pox_reward_length = None;
+            config.burnchain.pox_prepare_length = None;
+        },
+        None,
+        None,
+    );
+    assert_eq!(
+        signer_test
+            .running_nodes
+            .conf
+            .burnchain
+            .get_bitcoin_network()
+            .1,
+        BitcoinNetworkType::Signet
+    );
+    signer_test.boot_to_epoch_3();
+    let http_origin = format!("http://{}", signer_test.running_nodes.conf.node.rpc_bind);
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let transfer = make_stacks_transfer_serialized(
+        &sender_sk,
+        0,
+        180,
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &recipient,
+        100,
+    );
+    submit_tx(&http_origin, &transfer);
+    signer_test.mine_nakamoto_block(Duration::from_secs(90), true);
+    wait_for(
+        60,
+        || Ok(get_account(&http_origin, &sender_addr).nonce == 1),
+    )
+    .expect("STX transfer must execute in a signer-approved block on signet");
+    assert!(
+        signer_test
+            .running_nodes
+            .counters
+            .naka_mined_blocks
+            .load(Ordering::SeqCst)
+            > 0
+    );
+    signer_test.shutdown();
 }
