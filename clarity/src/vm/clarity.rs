@@ -462,14 +462,10 @@ where
     E: From<VmExecutionError>,
 {
     db.begin();
-    let mut vm_env = OwnedEnvironment::new_cost_limited_with_hooks(
-        mainnet,
-        chain_id,
-        db,
-        cost_tracker,
-        epoch,
-        eval_hooks,
-    );
+    let mut vm_env = OwnedEnvironment::new_cost_limited(mainnet, chain_id, db, cost_tracker, epoch);
+    for hook in eval_hooks.into_iter().flatten() {
+        vm_env.add_eval_hook(hook);
+    }
 
     let execution_result = to_do(&mut vm_env);
     let (mut db, cost_tracker) = vm_env
