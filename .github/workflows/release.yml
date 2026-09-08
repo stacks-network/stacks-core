@@ -293,8 +293,6 @@ jobs:
       id-token: write        # required for attestation
       attestations: write    # required for attestation
       packages: write        # required for image push to ghcr
-      issues: read           # required for release blocker check
-      pull-requests: read    # required for release blocker check
     uses: ./.github/workflows/_release-github.yml
     secrets:                 # required for secrets to be available to this workflow
       RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
