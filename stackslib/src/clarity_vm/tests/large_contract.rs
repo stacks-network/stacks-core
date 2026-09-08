@@ -1054,7 +1054,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                     &ct_ast,
                     &contract_ok,
                     None,
-                    |_, _| Some("abort".to_string()),
+                    |_, _| Some("abort".into()),
                     &ResourceBudget::unlimited()
                 )
                 .unwrap_err()
@@ -1518,7 +1518,7 @@ fn test_memory_balance_exceeded_multiple_calls() {
     }
     if let ExpectedResult::Success(expected_block_output) = &result[1] {
         assert_eq!(expected_block_output.transactions.len(), 21);
-        let expected_vm_error = Some("MemoryBalanceExceeded(100665664, 100000000)".to_string());
+        let expected_vm_error = Some("MemoryBalanceExceeded(100665664, 100000000)");
         let expected_failure_return_type = ClarityValue::Response(ResponseData {
             committed: false,
             data: Box::new(ClarityValue::Optional(OptionalData { data: None })),
@@ -1526,7 +1526,7 @@ fn test_memory_balance_exceeded_multiple_calls() {
 
         for transaction in &expected_block_output.transactions[..20] {
             assert_eq!(transaction.return_type, expected_failure_return_type);
-            assert_eq!(transaction.vm_error, expected_vm_error);
+            assert_eq!(transaction.vm_error.as_deref(), expected_vm_error);
         }
         assert_eq!(
             expected_block_output.transactions[20].return_type,

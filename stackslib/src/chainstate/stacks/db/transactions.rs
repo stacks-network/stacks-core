@@ -32,6 +32,7 @@ use clarity::vm::types::{
     BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExt, TupleData, TypeSignature, Value,
 };
+use stacks_common::bounded_format;
 
 use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::*;
@@ -69,7 +70,7 @@ impl StacksTransactionReceipt {
         result: Value,
         burned: u128,
         cost: ExecutionCost,
-        vm_error: Option<String>,
+        vm_error: Option<BoundedErrorString>,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -92,7 +93,7 @@ impl StacksTransactionReceipt {
         result: Value,
         burned: u128,
         cost: ExecutionCost,
-        reason: String,
+        reason: BoundedErrorString,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -137,7 +138,7 @@ impl StacksTransactionReceipt {
         burned: u128,
         analysis: ContractAnalysis,
         cost: ExecutionCost,
-        reason: String,
+        reason: BoundedErrorString,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -175,28 +176,32 @@ impl StacksTransactionReceipt {
         analysis_cost: ExecutionCost,
         error: ClarityError,
     ) -> StacksTransactionReceipt {
-        let error_string = match error {
+        let vm_error = match error {
             ClarityError::StaticCheck(ref static_check_error) => {
                 if let Some(span) = static_check_error.diagnostic.spans.first() {
-                    format!(
+                    bounded_format!(
                         ":{}:{}: {}",
-                        span.start_line, span.start_column, static_check_error.diagnostic.message
+                        span.start_line,
+                        span.start_column,
+                        static_check_error.diagnostic.message
                     )
                 } else {
-                    static_check_error.diagnostic.message.to_string()
+                    static_check_error.diagnostic.message.clone()
                 }
             }
             ClarityError::Parse(ref parse_error) => {
                 if let Some(span) = parse_error.diagnostic.spans.first() {
-                    format!(
+                    bounded_format!(
                         ":{}:{}: {}",
-                        span.start_line, span.start_column, parse_error.diagnostic.message
+                        span.start_line,
+                        span.start_column,
+                        parse_error.diagnostic.message
                     )
                 } else {
-                    parse_error.diagnostic.message.to_string()
+                    parse_error.diagnostic.message.clone()
                 }
             }
-            _ => error.to_string(),
+            _ => BoundedErrorString::from_display(&error),
         };
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -208,7 +213,7 @@ impl StacksTransactionReceipt {
             execution_cost: analysis_cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: Some(error_string),
+            vm_error: Some(vm_error),
             problematic_skipped: None,
         }
     }
@@ -249,7 +254,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: Some(error.to_string()),
+            vm_error: Some(BoundedErrorString::from_display(&error)),
             problematic_skipped: None,
         }
     }
@@ -269,7 +274,7 @@ impl StacksTransactionReceipt {
             execution_cost: cost,
             microblock_header: None,
             tx_index: 0,
-            vm_error: Some(error.to_string()),
+            vm_error: Some(BoundedErrorString::from_display(&error)),
             problematic_skipped: None,
         }
     }
@@ -379,7 +384,7 @@ fn log_unreachable_error(error: &ClarityError, txid: &Txid) {
                 "event_name" => "unreachable_error",
                 "error_type" => "static_check",
                 "txid" => %txid,
-                "error" => %static_err,
+                "error" => %BoundedErrorString::from_display(&static_err),
             );
             increment_unreachable_errors_counter("static_check");
         }
@@ -390,7 +395,7 @@ fn log_unreachable_error(error: &ClarityError, txid: &Txid) {
                 "event_name" => "unreachable_error",
                 "error_type" => "runtime_check",
                 "txid" => %txid,
-                "error" => %runtime_check_err,
+                "error" => %BoundedErrorString::from_display(runtime_check_err),
             );
             increment_unreachable_errors_counter("runtime_check");
         }
@@ -667,7 +672,7 @@ impl StacksChainState {
         asset_map: &AssetMap,
         epoch_id: StacksEpochId,
         txid: Txid,
-    ) -> Result<Option<String>, SerializationError> {
+    ) -> Result<Option<BoundedErrorString>, SerializationError> {
         let result = stacks_transactions::check_transaction_postconditions(
             post_conditions,
             post_condition_mode,
@@ -995,6 +1000,7 @@ impl StacksChainState {
                                 err_type,
                                 ..
                             }) => {
+                                let vm_error = BoundedErrorString::from_display(&error);
                                 info!("Contract-call processed with {}", err_type;
                                           "txid" => %tx.txid(),
                                           "origin" => %origin_account.principal,
@@ -1002,13 +1008,8 @@ impl StacksChainState {
                                           "contract_name" => %contract_id,
                                           "function_name" => %contract_call.function_name,
                                           "function_args" => %VecDisplay(&contract_call.function_args),
-                                          "error" => ?error);
-                                (
-                                    Value::err_none(),
-                                    AssetMap::new(),
-                                    vec![],
-                                    Some(error.to_string()),
-                                )
+                                          "error" => %vm_error);
+                                (Value::err_none(), AssetMap::new(), vec![], Some(vm_error))
                             }
                             ClarityRuntimeTxError::Included(
                                 IncludedRuntimeTxError::AbortedByCallback {
@@ -1061,7 +1062,7 @@ impl StacksChainState {
                                           "contract_name" => %contract_id,
                                           "function_name" => %contract_call.function_name,
                                           "function_args" => %VecDisplay(&contract_call.function_args),
-                                          "error" => %runtime_check_err);
+                                          "error" => %BoundedErrorString::from_display(&runtime_check_err));
 
                                 let receipt =
                                     StacksTransactionReceipt::from_runtime_failure_contract_call(
@@ -1272,10 +1273,11 @@ impl StacksChainState {
                                 err_type,
                                 ..
                             }) => {
+                                let vm_error = BoundedErrorString::from_display(&error);
                                 info!("Smart-contract processed with {}", err_type;
                                           "txid" => %tx.txid(),
                                           "contract" => %contract_id,
-                                          "error" => ?error);
+                                          "error" => %vm_error);
                                 // When top-level code in a contract publish causes a runtime error,
                                 // the transaction is accepted, but the contract is not created.
                                 //   Return a tx receipt with an `err_none()` result to indicate
@@ -1290,7 +1292,7 @@ impl StacksChainState {
                                     execution_cost: total_cost,
                                     microblock_header: None,
                                     tx_index: 0,
-                                    vm_error: Some(error.to_string()),
+                                    vm_error: Some(vm_error),
                                     problematic_skipped: None,
                                 };
                                 return Ok(receipt);
@@ -1338,7 +1340,7 @@ impl StacksChainState {
                                 info!("Smart-contract encountered an analysis error at runtime";
                                           "txid" => %tx.txid(),
                                           "contract" => %contract_id,
-                                          "error" => %runtime_check_err);
+                                          "error" => %BoundedErrorString::from_display(&runtime_check_err));
 
                                 let receipt =
                                     StacksTransactionReceipt::from_runtime_failure_smart_contract(
@@ -2839,7 +2841,7 @@ pub mod test {
                     } else {
                         expected_errors[i].to_string()
                     };
-                assert_eq!(receipt.vm_error.unwrap(), expected_error);
+                assert_eq!(receipt.vm_error.as_deref(), Some(expected_error.as_str()));
 
                 next_nonce += 1;
             }
