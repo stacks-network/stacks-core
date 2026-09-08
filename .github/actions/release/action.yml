@@ -125,7 +125,31 @@ runs:
               } catch (error) {
                 const apiMessage = error.response?.data?.message || error.message || '';
                 if (error.status === 422 && apiMessage.includes('Reference already exists')) {
-                  core.info('Tag ${{ inputs.tag }} already exists. Skipping creation.');
+                  // Fetch the existing reference
+                  const existingRef = await github.rest.git.getRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: 'tags/${{ inputs.tag }}'
+                  });
+
+                  let existingSha = existingRef.data.object.sha;
+
+                  // Resolves the underlying commit SHA if the tag is an annotated tag object
+                  if (existingRef.data.object.type === 'tag') {
+                    const tagData = await github.rest.git.getTag({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      tag_sha: existingSha
+                    });
+                    existingSha = tagData.data.object.sha;
+                  }
+
+                  // Throw an error if existing commit SHA doesn't match current commit
+                  if (existingSha !== context.sha) {
+                    throw new Error(`Tag '${{ inputs.tag }}' already exists at commit ${existingSha}, which does not match current commit ${context.sha}.`);
+                  }
+
+                  core.info('Tag ${{ inputs.tag }} already exists at current commit. Skipping creation.');
                 } else {
                   throw error;
                 }
