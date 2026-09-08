@@ -1339,7 +1339,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-common"
-version = "4.0.2"
+version = "4.0.3"
 dependencies = [
  "chrono",
  "curve25519-dalek",

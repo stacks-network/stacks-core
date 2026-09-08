@@ -822,7 +822,7 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "slog",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
 ]
 
 [[package]]
@@ -858,7 +858,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
 ]
 
@@ -875,7 +875,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "slog",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
  "variant_count",
 ]
 
@@ -2435,7 +2435,6 @@ version = "0.0.1"
 dependencies = [
  "clarity 0.0.1",
  "hashbrown 0.15.2",
- "libc",
  "libstackerdb 0.0.1",
  "mutants",
  "rand 0.8.5",
@@ -2444,7 +2443,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "slog",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
  "thiserror 1.0.65",
  "tiny_http",
@@ -2488,7 +2487,7 @@ dependencies = [
  "clarity 0.0.1",
  "serde",
  "sha2 0.10.8",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
 ]
 
 [[package]]
@@ -2562,7 +2561,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "sha2 0.10.8",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
  "tempfile",
  "toml 0.5.11",
@@ -3168,7 +3167,7 @@ dependencies = [
  "pinny",
  "proptest",
  "slog",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
 ]
 
 [[package]]
@@ -4408,7 +4407,7 @@ dependencies = [
  "clarity-cli",
  "serde_json",
  "stacks-codec",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
  "tempfile",
  "thiserror 1.0.65",
@@ -4420,7 +4419,7 @@ version = "0.1.0"
 dependencies = [
  "clarity-types 0.0.1",
  "serde",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
  "variant_count",
 ]
 
@@ -4455,7 +4454,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-common"
-version = "4.0.2"
+version = "4.0.3"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -4497,14 +4496,14 @@ dependencies = [
  "rusqlite",
  "serde_json",
  "slog",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
  "tikv-jemallocator",
 ]
 
 [[package]]
 name = "stacks-node"
-version = "4.0.2"
+version = "4.0.3"
 dependencies = [
  "async-h1",
  "async-std",
@@ -4535,10 +4534,10 @@ dependencies = [
  "slog",
  "stacks-codec",
  "stacks-common 0.0.1",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
  "stacks-inspect",
  "stacks-signer 0.0.1",
- "stacks-signer 4.0.2",
+ "stacks-signer 4.0.3",
  "stackslib 0.0.1",
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=ecaaf5c4d397a691e5155eef01b59ddfeaba4ddd)",
  "stdext",
@@ -4607,7 +4606,7 @@ dependencies = [
 
 [[package]]
 name = "stacks-signer"
-version = "4.0.2"
+version = "4.0.3"
 dependencies = [
  "backoff",
  "clap",
@@ -4627,7 +4626,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
  "stackslib 0.0.1",
  "stdext",
  "thiserror 1.0.65",
@@ -4646,7 +4645,7 @@ dependencies = [
  "pinny",
  "proptest",
  "stacks-codec",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
 ]
 
 [[package]]
@@ -4687,7 +4686,7 @@ dependencies = [
  "siphasher",
  "slog",
  "stacks-codec",
- "stacks-common 4.0.2",
+ "stacks-common 4.0.3",
  "stacks-transactions",
  "stdext",
  "stx-genesis",
