@@ -751,7 +751,6 @@ impl<
         bits: u8,
         miner_status: Arc<Mutex<MinerStatus>>,
     ) -> bool {
-        // timeout so that we handle Ctrl-C a little gracefully
         if (bits & (CoordinatorEvents::NEW_STACKS_BLOCK as u8)) != 0 {
             signal_mining_blocked(miner_status.clone());
             debug!("Received new Nakamoto stacks block notice");
@@ -790,18 +789,8 @@ impl<
             }
 
             // now we can process the nakamoto block
-            match self.handle_new_nakamoto_stacks_block() {
-                Ok(new_anchor_block_opt) => {
-                    if let Some(bhh) = new_anchor_block_opt {
-                        debug!(
-                            "Found next PoX anchor block, waiting for reward cycle processing";
-                            "pox_anchor_block_hash" => %bhh
-                        );
-                    }
-                }
-                Err(e) => {
-                    warn!("Error processing new stacks block: {:?}", e);
-                }
+            if let Err(e) = self.handle_new_nakamoto_stacks_block() {
+                warn!("Error processing new stacks block: {:?}", e);
             }
 
             signal_mining_ready(miner_status.clone());
@@ -846,11 +835,11 @@ impl<
     fn fault_injection_pause_nakamoto_block_processing() {}
 
     /// Handle one or more new Nakamoto Stacks blocks.
-    /// If we process a PoX anchor block, then return its block hash.  This unblocks processing the
-    /// next reward cycle's burnchain blocks.  Subsequent calls to this function will terminate
-    /// with Some(pox-anchor-block-hash) until the reward cycle info is processed in the sortition
-    /// DB.
-    pub fn handle_new_nakamoto_stacks_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
+    /// If we process a PoX anchor block, then kick off processing the next sortition to unblock
+    /// processing the next reward cycle's burnchain blocks.
+    /// Return if there are no more blocks in the staging DB, or if the coordinator has received
+    /// as signal to shut down.
+    pub fn handle_new_nakamoto_stacks_block(&mut self) -> Result<(), Error> {
         debug!("Handle new Nakamoto block");
         let canonical_sortition_tip = self.canonical_sortition_tip.clone().ok_or_else(|| {
             ChainstateError::Expects(
@@ -860,6 +849,17 @@ impl<
 
         loop {
             Self::fault_injection_pause_nakamoto_block_processing();
+
+            // This loop will (almost always) run without interruption until the node has caught
+            // up to the chain tip. When you're doing a sync on chainstate that is a little behind,
+            // this can take a long time. Without this check here, it wouldn't be possible to safely
+            // stop the node without waiting for all that time.
+            if self.comms.has_pending_stop_signal() {
+                info!(
+                    "Stopping Nakamoto block handling because coordinator is about to shut down."
+                );
+                return Ok(());
+            }
 
             // process at most one block per loop pass
             let mut processed_block_receipt = match NakamotoChainState::process_next_nakamoto_block(
@@ -1038,8 +1038,7 @@ impl<
             debug!("Processed next reward cycle's sortitions");
         }
 
-        // no PoX anchor block found
-        Ok(None)
+        Ok(())
     }
 
     /// Given a burnchain header, find the PoX reward cycle info
