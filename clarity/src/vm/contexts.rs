@@ -379,12 +379,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
 
     /// Registers an evaluation hook for this environment.
     pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
-        if let Some(mut hooks) = self.context.eval_hooks.take() {
-            hooks.push(hook);
-            self.context.eval_hooks = Some(hooks);
-        } else {
-            self.context.eval_hooks = Some(vec![hook]);
-        }
+        self.context.eval_hooks.get_or_insert_default().push(hook);
     }
 
     pub fn set_execution_resource_limiter(&mut self, resource_limiter: ResourceLimiter) {

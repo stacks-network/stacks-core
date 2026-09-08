@@ -479,15 +479,13 @@ where
     let result = match execution_result {
         Ok((value, asset_map, events)) => {
             let abort_reason = abort_callback(&asset_map, &mut db);
-            let db_result = if abort_reason.is_some() {
-                db.roll_back()
-            } else {
-                db.commit()
+            let db_result = match &abort_reason {
+                Some(_) => db.roll_back(),
+                None => db.commit(),
             };
-            match db_result {
-                Ok(()) => Ok((value, asset_map, events, abort_reason)),
-                Err(error) => Err(error.into()),
-            }
+            db_result
+                .map(|()| (value, asset_map, events, abort_reason))
+                .map_err(Into::into)
         }
         Err(error) => match db.roll_back() {
             Ok(()) => Err(error),
