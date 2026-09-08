@@ -1,4 +1,4 @@
 # Update this value when a new release is created.
 # `stacks-common/build.rs` will automatically update `versions.rs` with it.
 # The node and signer are released together and share this single version.
-stacks_node_version = "4.0.2"
+stacks_node_version = "4.0.3"
