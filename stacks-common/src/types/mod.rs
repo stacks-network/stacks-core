@@ -501,8 +501,8 @@ impl SIP031EmissionInterval {
 
 impl StacksEpochId {
     /// Highest epoch enabled in release builds.
-    /// Keep this in sync with `versions.toml` and `PEER_NETWORK_EPOCH`
-    /// (validated in tests and `validate_epochs()`)
+    /// Keep this in sync with `workspace.package.version` in `Cargo.toml` and
+    /// `PEER_NETWORK_EPOCH` (validated in tests and `validate_epochs()`).
     pub const RELEASE_LATEST_EPOCH: StacksEpochId = StacksEpochId::Epoch40;
 
     #[cfg(any(test, feature = "testing"))]
@@ -826,6 +826,11 @@ impl StacksEpochId {
     /// behavior changes atomically at the epoch boundary. See PR #6946.
     pub fn fixes_tuple_merge_size_check(&self) -> bool {
         self >= &StacksEpochId::Epoch40
+    }
+
+    /// Whether `replace-at?` handles a zero-length element at type-checking time.
+    pub fn fixes_replace_at_element_arity(&self) -> bool {
+        self >= &StacksEpochId::Epoch41
     }
 
     pub fn supports_call_with_constant(&self) -> bool {

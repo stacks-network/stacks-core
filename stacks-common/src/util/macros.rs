@@ -820,6 +820,9 @@ mod tests {
             Variant2("variant2"),
         });
 
+        assert_eq!(MyEnum::ALL, &[MyEnum::Variant1, MyEnum::Variant2]);
+        assert_eq!(MyEnum::ALL_NAMES, &["variant1", "variant2"]);
+
         assert_eq!("variant1", MyEnum::Variant1.get_name());
         assert_eq!("variant2", MyEnum::Variant2.get_name());
 
@@ -841,6 +844,9 @@ mod tests {
             /// Variant2 doc
             Variant2("variant2"),
         });
+
+        assert_eq!(MyEnum::ALL, &[MyEnum::Variant1, MyEnum::Variant2]);
+        assert_eq!(MyEnum::ALL_NAMES, &["variant1", "variant2"]);
 
         assert_eq!("variant1", MyEnum::Variant1.get_name());
         assert_eq!("variant2", MyEnum::Variant2.get_name());
