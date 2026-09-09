@@ -81,7 +81,7 @@ jobs:
     steps:
       # Download all individual digest artifacts from all matrix jobs
       - name: Download All Digest Artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/wrappers/download-artifact
         with:
           pattern: digest-*
           path: /tmp/digest-artifacts
@@ -130,7 +130,7 @@ jobs:
 
       # Upload the consolidated manifest as an artifact
       - name: Upload Consolidated Manifest
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: ./.github/wrappers/upload-artifact
         with:
           name: digest-manifest
           path: /tmp/digest-manifest.json
@@ -153,7 +153,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: ./.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -161,7 +161,7 @@ jobs:
 
       # Download consolidated digest manifest from consolidate-digests job
       - name: Download Docker Image Digest Manifest
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: ./.github/wrappers/download-artifact
         with:
           name: digest-manifest
           path: /tmp

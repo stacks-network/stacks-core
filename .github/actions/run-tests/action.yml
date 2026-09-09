@@ -41,7 +41,7 @@ runs:
     # Checkout the code
     - name: Checkout the latest code
       id: git_checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      uses: ./.github/wrappers/checkout
       with:
         ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -211,7 +211,7 @@ runs:
     # Store JUnit file in GitHub CI artifacts (with "junit-" prefix)
     - name: Store JUnit Report as Artifact
       if: always() && inputs.upload-junit-xml == 'true'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+      uses: ./.github/wrappers/upload-artifact
       with:
         name: junit-${{ steps.generate-sanitized-file-name.outputs.file-name }}
         path: junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
@@ -227,7 +227,7 @@ runs:
     # Store coverage file in GitHub CI artifacts ("lcov-" prefix)
     - name: Store Code Coverage as Artifact
       if: inputs.upload-code-coverage == 'true'
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+      uses: ./.github/wrappers/upload-artifact
       with:
         name: codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
         path: lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info
