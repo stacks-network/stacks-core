@@ -213,6 +213,7 @@ mod test {
             ClarityVersion::Clarity4 => write_next(fd, &4u8)?,
             ClarityVersion::Clarity5 => write_next(fd, &5u8)?,
             ClarityVersion::Clarity6 => write_next(fd, &6u8)?,
+            ClarityVersion::Clarity7 => write_next(fd, &7u8)?,
         }
         Ok(())
     }
@@ -229,6 +230,7 @@ mod test {
             4u8 => Ok(ClarityVersion::Clarity4),
             5u8 => Ok(ClarityVersion::Clarity5),
             6u8 => Ok(ClarityVersion::Clarity6),
+            7u8 => Ok(ClarityVersion::Clarity7),
             _ => Err(codec_error::DeserializeError(format!(
                 "Unrecognized ClarityVersion byte {}",
                 &version_byte
