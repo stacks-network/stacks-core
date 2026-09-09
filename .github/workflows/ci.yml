@@ -183,6 +183,15 @@ jobs:
       - check-test-caches
       - setup-env
     steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+            
       # Create Nextest archive artifact
       - name: Create Nextest Archive Artifact
         uses: ./.github/actions/artifacts/nextest-archive
