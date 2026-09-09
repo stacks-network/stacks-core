@@ -31,7 +31,7 @@ concurrency:
 jobs:
   # Check CI & Bootstrap the .github folder so local actions can be called 
   bootstrap:
-    uses: ./.github/workflows/_bootstrap.yml
+    uses: $/.github/workflows/_bootstrap.yml
 
   build-pkg:
     name: "Check: Nix package"
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
-      - uses: ./.github/wrappers/checkout
+      - uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 

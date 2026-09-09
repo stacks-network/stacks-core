@@ -13,7 +13,7 @@ permissions:
 jobs:
   # Check CI & Bootstrap the .github folder so local actions can be called 
   bootstrap:
-    uses: ./.github/workflows/_bootstrap.yml
+    uses: $/.github/workflows/_bootstrap.yml
 
   # Execute only on our official repo, because it manages Slack PR nags for us
   nag-slack:
@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fetch PRs and Post Nags to Slack
-        uses: ./.github/wrappers/github-script
+        uses: $/.github/wrappers/github-script
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_CORE_PR_NAG_BOT }}
           

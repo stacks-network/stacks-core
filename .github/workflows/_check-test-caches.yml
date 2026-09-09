@@ -18,7 +18,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for checking caches
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -27,12 +27,12 @@ jobs:
       # Check cache for bitcoin binary
       - name: Check Bitcoin Cache
         id: bitcoin
-        uses: ./.github/actions/cache/bitcoin
+        uses: $/.github/actions/cache/bitcoin
 
       # Check cache for cargo binaries
       - name: Check Cargo Cache
         id: cargo
-        uses: ./.github/actions/cache/cargo
+        uses: $/.github/actions/cache/cargo
 
       # Output a job summary of cache status and crash the CI run if a cache is missing
       - name: Output GitHub Job Summary

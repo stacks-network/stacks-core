@@ -116,7 +116,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -124,7 +124,7 @@ jobs:
 
       # Download binary artifacts
       - name: Download Artifacts
-        uses: ./.github/wrappers/download-artifact
+        uses: $/.github/wrappers/download-artifact
         with:
           pattern: ${{ steps.set-vars.outputs.artifact_pattern }}
           path: /tmp/release
@@ -133,7 +133,7 @@ jobs:
       # Setup Docker for the builds
       - name: Docker setup
         id: docker-setup
-        uses: ./.github/actions/docker
+        uses: $/.github/actions/docker
         with:
           registry: ${{ env.DOCKER_REGISTRY }} # set the registry to ghcr (default is docker.io)
           username: ${{ github.actor }}
@@ -203,7 +203,7 @@ jobs:
       - name: Attest Image (${{ github.event.repository.name }})
         if: |
           env.PROVENANCE != true
-        uses: ./.github/wrappers/attest-build-provenance
+        uses: $/.github/wrappers/attest-build-provenance
         with:
           subject-name: ${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/${{ inputs.release_type }}
           subject-digest: ${{ steps.docker-build.outputs.digest }}
@@ -275,7 +275,7 @@ jobs:
       # Upload individual digest file as artifact for consolidation
       - name: Upload Individual Digest
         if: always()
-        uses: ./.github/wrappers/upload-artifact
+        uses: $/.github/wrappers/upload-artifact
         with:
           name: digest-${{ inputs.release_type }}-${{ matrix.dist }}
           path: /tmp/digest-exports/

@@ -26,13 +26,13 @@ jobs:
     steps:
       # Checkout the code
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Setup the default rust toolchain
       - name: Setup Rust Toolchain
-        uses: ./.github/actions/setup-rust-toolchain
+        uses: $/.github/actions/setup-rust-toolchain
 
       # Dump constants from stacks-inspect
       - name: Dump Constants JSON

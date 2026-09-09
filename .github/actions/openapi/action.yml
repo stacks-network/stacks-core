@@ -36,7 +36,7 @@ runs:
   steps:
     # Setup nodejs (default to latest)
     - name: Setup Node.js
-      uses: ./.github/wrappers/setup-node
+      uses: $/.github/wrappers/setup-node
       with:
         node-version: "${{ inputs.node-version }}"
 
@@ -53,7 +53,7 @@ runs:
 
     # Upload the html file artifact
     - name: Upload bundled html
-      uses: ./.github/wrappers/upload-artifact
+      uses: $/.github/wrappers/upload-artifact
       with:
         name: open-api-bundle
         path: |

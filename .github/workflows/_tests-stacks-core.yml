@@ -68,7 +68,7 @@ jobs:
     # Checkout the code
     #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -77,7 +77,7 @@ jobs:
       # Setup, run tests, generate and upload code coverage artifact
       - name: Setup + Run Tests + Codecov
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        uses: ./.github/actions/run-tests
+        uses: $/.github/actions/run-tests
         with:
           partition: ${{ matrix.partition }}
           total-partitions: ${{ strategy.job-total }}
@@ -93,12 +93,12 @@ jobs:
     steps:
     # Checkout the code
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Generate OpenAPI documentation
-        uses: ./.github/actions/openapi
+        uses: $/.github/actions/openapi
         with:
           input: "./docs/rpc/openapi.yaml"
           output: "./openapi-docs.html"
@@ -113,12 +113,12 @@ jobs:
     steps:
       # Checkout the code
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Generate Node Configuration Documentation
-        uses: ./.github/actions/config-docsgen
+        uses: $/.github/actions/config-docsgen
 
   # Core contract tests
   core-contracts-clarinet-test:
@@ -130,12 +130,12 @@ jobs:
     steps:
       # Checkout the code
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       - name: Execute core contract unit tests with clarinet-sdk
-        uses: ./.github/wrappers/setup-node
+        uses: $/.github/wrappers/setup-node
         with:
           node-version: 25.x
           package-manager-cache: false # cache is not reusable, do not save anything
@@ -159,7 +159,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |

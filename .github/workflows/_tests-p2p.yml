@@ -66,7 +66,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
@@ -75,7 +75,7 @@ jobs:
       # Setup, run tests, generate and upload code coverage artifact
       - name: Setup + Run Tests + Codecov
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        uses: ./.github/actions/run-tests
+        uses: $/.github/actions/run-tests
         with:
           test-names: ${{ matrix.test-name }}
           archive-file: ${{ inputs.archive-file }}
@@ -97,7 +97,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |

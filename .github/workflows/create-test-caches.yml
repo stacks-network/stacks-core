@@ -42,7 +42,7 @@ concurrency:
 jobs:
   # Check CI & Bootstrap the .github folder so local actions can be called 
   bootstrap:
-    uses: ./.github/workflows/_bootstrap.yml
+    uses: $/.github/workflows/_bootstrap.yml
 
   #######################################################################################################################
   ### Create Reusable Caches for Tests
@@ -61,7 +61,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for checking caches
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.ref }}
           sparse-checkout: |
@@ -71,13 +71,13 @@ jobs:
       # We don't need multiple caches of the same Bitcoin binary, so skip create if one already exists
       - name: Check Bitcoin Cache
         id: bitcoin
-        uses: ./.github/actions/cache/bitcoin
+        uses: $/.github/actions/cache/bitcoin
 
       # Only create when a binary doesn't already exist
       - name: Create Bitcoin Cache
         if: >-
           !steps.bitcoin.outputs.cache-matched-key
-        uses: ./.github/actions/cache/bitcoin
+        uses: $/.github/actions/cache/bitcoin
         with:
           action: create
 
@@ -91,13 +91,13 @@ jobs:
       # Checkout the code
       #   - only .github is required for checking caches
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.ref }}
           sparse-checkout: |
             .github
 
       - name: Create Cargo Cache
-        uses: ./.github/actions/cache/cargo
+        uses: $/.github/actions/cache/cargo
         with:
           action: create

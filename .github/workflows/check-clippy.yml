@@ -33,7 +33,7 @@ concurrency:
 jobs:
   # Check CI & Bootstrap the .github folder so local actions can be called 
   bootstrap:
-    uses: ./.github/workflows/_bootstrap.yml
+    uses: $/.github/workflows/_bootstrap.yml
 
   clippy-stacks:
     name: "Check: Clippy (stacks)"
@@ -44,13 +44,13 @@ jobs:
     steps:
       # Checkout the code
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Setup the default rust toolchain with clippy
       - name: Setup Rust Toolchain
-        uses: ./.github/actions/setup-rust-toolchain
+        uses: $/.github/actions/setup-rust-toolchain
         with:
           components: clippy
 
@@ -67,13 +67,13 @@ jobs:
     steps:
       # Checkout the code
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Setup the default rust toolchain with clippy
       - name: Setup Rust Toolchain
-        uses: ./.github/actions/setup-rust-toolchain
+        uses: $/.github/actions/setup-rust-toolchain
         with:
           components: clippy
 

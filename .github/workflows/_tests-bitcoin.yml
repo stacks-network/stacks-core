@@ -56,14 +56,14 @@ jobs:
     steps:
       # Checkout the code
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
       # Restore Nextest archive artifact
       #   - also provides the nextest binary bundled in the artifact
       - name: Restore Nextest Archive Artifact
-        uses: ./.github/actions/artifacts/nextest-archive
+        uses: $/.github/actions/artifacts/nextest-archive
         with:
           action: restore
           archive-file: ${{ inputs.archive-file }}
@@ -84,14 +84,14 @@ jobs:
         batch: ${{ fromJSON(needs.generate-tests.outputs.batch-1) }}
     steps:
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
       
       # Setup, run tests, generate and upload code coverage artifact
       - name: Setup + Run Tests + Codecov
-        uses: ./.github/actions/run-tests
+        uses: $/.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
           test-names: ${{ matrix.batch.csv }}
@@ -111,14 +111,14 @@ jobs:
         batch: ${{ fromJSON(needs.generate-tests.outputs.batch-2) }}
     steps:
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
           
       # Setup, run tests, generate and upload code coverage artifact
       - name: Setup + Run Tests + Codecov
-        uses: ./.github/actions/run-tests
+        uses: $/.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
           test-names: ${{ matrix.batch.csv }}
@@ -138,14 +138,14 @@ jobs:
         batch: ${{ fromJSON(needs.generate-tests.outputs.batch-3) }}
     steps:
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
           
       # Setup, run tests, generate and upload code coverage artifact
       - name: Setup + Run Tests + Codecov
-        uses: ./.github/actions/run-tests
+        uses: $/.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
           test-names: ${{ matrix.batch.csv }}
@@ -165,14 +165,14 @@ jobs:
         batch: ${{ fromJSON(needs.generate-tests.outputs.batch-4) }}
     steps:
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github
           
       # Setup, run tests, generate and upload code coverage artifact
       - name: Setup + Run Tests + Codecov
-        uses: ./.github/actions/run-tests
+        uses: $/.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
           test-names: ${{ matrix.batch.csv }}
@@ -204,7 +204,7 @@ jobs:
       # Checkout the code
       #   - only .github is required for this job
       - name: Checkout the latest code
-        uses: ./.github/wrappers/checkout
+        uses: $/.github/wrappers/checkout
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: .github

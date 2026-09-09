@@ -16,7 +16,7 @@ runs:
     - name: Restore Nextest Archive Artifact
       if: |
         inputs.action == 'restore'
-      uses: ./.github/wrappers/download-artifact
+      uses: $/.github/wrappers/download-artifact
       with:
         name: "nextest-archive"
 
@@ -37,7 +37,7 @@ runs:
     - name: Checkout the latest code
       if: |
         inputs.action == 'create'
-      uses: ./.github/wrappers/checkout
+      uses: $/.github/wrappers/checkout
       with:
         ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
@@ -45,7 +45,7 @@ runs:
     - name: Setup Rust Toolchain
       if: |
         inputs.action == 'create'
-      uses: ./.github/actions/setup-rust-toolchain
+      uses: $/.github/actions/setup-rust-toolchain
       with:
         components: llvm-tools-preview
 
@@ -55,7 +55,7 @@ runs:
     - name: Install nextest and cargo-llvm-cov
       if: |
         inputs.action == 'create'
-      uses: ./.github/actions/install-tool
+      uses: $/.github/actions/install-tool
       with:
         tools: nextest, cargo-llvm-cov
 
@@ -83,7 +83,7 @@ runs:
     - name: Restore Cargo Cache
       if: |
         inputs.action == 'create'
-      uses: ./.github/actions/cache/cargo
+      uses: $/.github/actions/cache/cargo
       with:
         action: restore
 
@@ -111,7 +111,7 @@ runs:
     - name: Create Nextest Archive Artifact
       if: |
         inputs.action == 'create'
-      uses: ./.github/wrappers/upload-artifact
+      uses: $/.github/wrappers/upload-artifact
       with:
         name: "nextest-archive"
         path: |
