@@ -93,6 +93,14 @@ The defaults target a **fresh custom signet launched from Bitcoin genesis**:
 | 4.1 | Inactive |
 
 PoX cycles contain 20 Bitcoin blocks, including a five-block prepare phase.
+For each miner, set `burnchain.wallet_name` to a precreated Bitcoin Core
+watch-only descriptor wallet and import its mining addresses before funding.
+Use `miner.segwit = true` for P2WPKH funding; legacy and Nakamoto mining keys
+must both have spendable outputs if they differ. Stacks loads an existing wallet
+but does not create it or automatically import signet addresses.
+Set `burnchain.burn_fee_cap` high enough that each PoX output clears Core's dust
+policy; the commitment is divided between its reward outputs.
+
 Fund Bitcoin mining keys with mature outputs, produce legacy Stacks blocks,
 and register/stack the signer set before Nakamoto. Before Epoch 4.0, deploy the
 agreed sBTC token and registry contracts and configure
@@ -102,8 +110,10 @@ PoX-5 signer registration and staking must continue across reward cycles.
 For a new Stacks chain on an existing public or private signet, coordinate a
 recent Bitcoin anchor (`first_burn_block_height`, `first_burn_block_hash`,
 `first_burn_block_timestamp`) and an explicit `[[burnchain.epochs]]` schedule.
-The epoch 2.0 start must equal the anchor height. Include all preceding epochs
-when overriding later ones, preserve valid reward/prepare-phase boundaries,
+The epoch 2.0 start must equal the anchor height. Initial mining rewards
+also start at that anchor; preceding Bitcoin history earns no Stacks rewards.
+Include all preceding epochs when overriding later ones, preserve valid
+reward/prepare-phase boundaries,
 and allow time for funding, contract deployment, and signer enrollment. Do not
 reuse the genesis-height development schedule for a new public launch.
 
@@ -112,6 +122,20 @@ reuse the genesis-height development schedule for a new public launch.
 Use the repository's Rust toolchain, `cargo-nextest`, and native Bitcoin Core
 `bitcoind` on `PATH` (tested with Core 31.1). Run one signer integration test at a
 time because the harness uses a shared event observer.
+
+Routine CI checks custom-signet startup, a new signed tenure, successful STX
+transfer execution, and agreement between two miners backed by five signers.
+It uses a shorter test-only epoch schedule with mature Bitcoin funding and
+inherits the standard CI timeout and retry settings:
+
+```bash
+BITCOIND_TEST=1 cargo nextest run -p stacks-node --locked \
+  --config-file .github/nextest/ci-nextest.toml --profile ci-sequential \
+  --run-ignored only --no-capture -E 'test(signet_signed_transfer_smoke)'
+```
+
+Run the full PoX-5 qualification explicitly. Its `ci_skip` tag excludes it from
+the routine Bitcoin CI matrix; it remains available through this command:
 
 ```bash
 BITCOIND_TEST=1 cargo nextest run -p stackslib -p stacks-node --locked \

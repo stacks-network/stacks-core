@@ -1,0 +1,1 @@
+Reject underfunded Bitcoin burn transactions before submission and correct a 5,500-satoshi fee overpayment per leader-key registration.

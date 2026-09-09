@@ -25,7 +25,7 @@ use stacks::burnchains::bitcoin::signet;
 use stacks::burnchains::MagicBytes;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::config::Config;
-use stacks::core::StacksEpochId;
+use stacks::core::{StacksEpochId, STACKS_EPOCH_MAX};
 use stacks::types::chainstate::StacksPrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 
@@ -33,7 +33,9 @@ use super::MultipleMinerTest;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto::BootRunLoop;
 use crate::tests::nakamoto_integrations::wait_for;
-use crate::tests::neon_integrations::{get_chain_info, get_chain_info_opt, get_pox_info};
+use crate::tests::neon_integrations::{
+    get_account, get_chain_info, get_chain_info_opt, get_pox_info, test_observer,
+};
 use crate::tests::{gen_random_port, to_addr};
 
 /// Apply the shipped development schedule and PoX defaults to an isolated OP_TRUE signet.
@@ -80,8 +82,80 @@ fn wait_for_node_commit(config: &Config, counters: &Counters) {
     .expect("Node must commit to its latest Stacks tenure before Bitcoin mining advances");
 }
 
-/// Qualify PoX-5 over three complete reward cycles, transactions, peer agreement, and recovery.
+/// Configure a shorter signet bootstrap while preserving coinbase maturity and PoX phases.
+fn configure_signet_smoke(config: &mut Config, rpc_port: u16, peer_port: u16) {
+    configure_signet(config, rpc_port, peer_port);
+    let epochs = config.burnchain.epochs.as_mut().unwrap();
+    let epoch_25_start = epochs.get(StacksEpochId::Epoch25).unwrap().start_height;
+    // Four 20-block cycles leave 115 bootstrap blocks, enough to fund both miners.
+    for epoch in epochs.iter_mut() {
+        for height in [&mut epoch.start_height, &mut epoch.end_height] {
+            if *height >= epoch_25_start && *height < STACKS_EPOCH_MAX {
+                *height -= 80;
+            }
+        }
+    }
+}
+
+/// Check custom-signet startup, signed tenures, and successful transfer replication.
 #[tag(slow, bitcoind)]
+#[test]
+#[ignore = "requires Bitcoin Core on PATH; mines real signet PoW"]
+fn signet_signed_transfer_smoke() {
+    assert_eq!(env::var("BITCOIND_TEST").as_deref(), Ok("1"));
+    let rpc_port = gen_random_port();
+    let peer_port = gen_random_port();
+    let mut miners = MultipleMinerTest::new_with_signer_dist(
+        5,
+        2,
+        |_| {},
+        |config| configure_signet_smoke(config, rpc_port, peer_port),
+        |config| configure_signet_smoke(config, rpc_port, peer_port),
+        |_| 0,
+        None,
+    );
+    miners.boot_to_epoch_3();
+    let (first, second) = miners.get_node_configs();
+    assert_node_agreement(&first, &second);
+    let sortdb = first.get_burnchain().open_sortition_db(true).unwrap();
+    let before = get_chain_info(&first);
+    miners
+        .wait_for_both_miners_committed_to_current_tenure(&sortdb, 60)
+        .unwrap();
+    miners
+        .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
+        .unwrap();
+    let txid = format!("0x{}", miners.send_and_mine_transfer_tx(60).unwrap());
+    wait_for(60, || {
+        Ok(test_observer::get_blocks().iter().any(|block| {
+            block["signer_signature"]
+                .as_array()
+                .is_some_and(|signatures| signatures.len() >= 4)
+                && block["transactions"].as_array().unwrap().iter().any(|tx| {
+                    tx["txid"].as_str() == Some(txid.as_str())
+                        && tx["status"].as_str() == Some("success")
+                        && tx["raw_result"].as_str() == Some("0x0703")
+                })
+        }))
+    })
+    .expect("Signet transfer must have a successful execution receipt");
+    assert_node_agreement(&first, &second);
+    let sender = to_addr(&miners.sender_sk);
+    for config in [&first, &second] {
+        assert_eq!(
+            get_account(&format!("http://{}", config.node.rpc_bind), &sender).nonce,
+            1
+        );
+    }
+    let after = get_chain_info(&first);
+    assert!(after.burn_block_height > before.burn_block_height);
+    assert!(after.stacks_tip_height > before.stacks_tip_height);
+    assert_eq!(after.stacks_tip_consensus_hash, after.pox_consensus);
+    miners.shutdown();
+}
+
+/// Qualify PoX-5 over three complete reward cycles, transactions, peer agreement, and recovery.
+#[tag(slow, bitcoind, ci_skip)]
 #[test]
 #[ignore = "requires Bitcoin Core on PATH; mines real signet PoW and runs two miners/five signers"]
 fn signet_pox5_epoch40_stability_and_restart() {

@@ -100,8 +100,8 @@ pub fn default_epochs() -> EpochList {
         starts.len(),
         "Update the signet development epoch schedule"
     );
-    for (i, epoch) in epochs.iter_mut().enumerate() {
-        epoch.start_height = starts[i];
+    for (i, (epoch, start)) in epochs.iter_mut().zip(starts).enumerate() {
+        epoch.start_height = start;
         if let Some(next) = starts.get(i + 1) {
             epoch.end_height = *next;
         }
@@ -113,6 +113,7 @@ pub fn default_epochs() -> EpochList {
 mod tests {
     use std::{env, fs};
 
+    use stacks_common::deps_common::bitcoin::blockdata::block::BlockHeader;
     use stacks_common::deps_common::bitcoin::network::message::NetworkMessage;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
     use tempfile::tempdir;
@@ -324,6 +325,59 @@ mod tests {
             BitcoinNetworkType::Signet
         );
         assert_eq!(parsed.burnchain.peer_port, P2P_PORT);
+    }
+
+    /// A public-signet deployment can anchor its chain and epoch schedule after genesis.
+    #[test]
+    fn signet_public_launch_at_nonzero_height() {
+        let anchor_height = 4000u64;
+        let raw = include_bytes!("testdata/signet-headers-0-4033.bin");
+        let offset = anchor_height as usize * 80;
+        let header: BlockHeader = serialize::deserialize(&raw[offset..offset + 80]).unwrap();
+        let mut settings = format!(
+            "first_burn_block_height = {anchor_height}\nfirst_burn_block_hash = '{}'\nfirst_burn_block_timestamp = {}\n",
+            header.bitcoin_hash(), header.time
+        );
+        let epochs = [
+            ("1.0", 0),
+            ("2.0", anchor_height),
+            ("2.05", anchor_height + 1),
+            ("2.1", anchor_height + 2),
+            ("2.2", anchor_height + 3),
+            ("2.3", anchor_height + 4),
+            ("2.4", anchor_height + 5),
+            ("2.5", anchor_height + 6),
+            ("3.0", anchor_height + 42),
+            ("3.1", anchor_height + 43),
+            ("3.2", anchor_height + 44),
+            ("3.3", anchor_height + 45),
+            ("3.4", anchor_height + 46),
+            ("4.0", anchor_height + 62),
+        ];
+        for (name, height) in epochs {
+            settings.push_str(&format!(
+                "\n[[burnchain.epochs]]\nepoch_name = '{name}'\nstart_height = {height}\n"
+            ));
+        }
+        let config = config(&settings);
+        let burnchain = config.get_burnchain();
+        assert!(config.burnchain.signet_challenge.is_none());
+        assert_eq!(burnchain.first_block_height, anchor_height);
+        assert_eq!(burnchain.initial_reward_start_block, anchor_height);
+        assert_eq!(
+            burnchain.first_block_hash.to_hex(),
+            header.bitcoin_hash().to_string()
+        );
+        assert_eq!(burnchain.first_block_timestamp, header.time);
+        assert_eq!(
+            burnchain.block_height_to_reward_cycle(anchor_height + 42),
+            Some(2)
+        );
+        assert_eq!(
+            burnchain.pox_constants.pox_5_activation_height,
+            (anchor_height + 62) as u32
+        );
+        Config::assert_valid_epoch_settings(&burnchain, &config.burnchain.get_epoch_list());
     }
 
     /// A signet-only setting must not silently alter another network.

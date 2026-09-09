@@ -363,6 +363,17 @@ mod tests {
 
     #[test]
     fn test_initial_block_reward() {
+        check_initial_block_reward(90);
+    }
+
+    /// A launch anchor excludes earlier Bitcoin history from the first mining bonus.
+    #[test]
+    fn test_initial_block_reward_at_launch_anchor() {
+        check_initial_block_reward(100);
+    }
+
+    /// Process the first winning commit and check the complete initial bonus schedule.
+    fn check_initial_block_reward(initial_reward_start_block: u64) {
         let first_burn_hash = BurnchainHeaderHash([0; 32]);
 
         let leader_key = LeaderKeyRegisterOp {
@@ -414,7 +425,7 @@ mod tests {
         };
 
         let mut burnchain = Burnchain::default_unittest(100, &first_burn_hash);
-        burnchain.initial_reward_start_block = 90;
+        burnchain.initial_reward_start_block = initial_reward_start_block;
         let mut db = SortitionDB::connect_test(100, &first_burn_hash).unwrap();
 
         let snapshot = test_append_snapshot(
@@ -457,7 +468,8 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 reward_per_block,
-                1000 * (MICROSTACKS_PER_STACKS as u128) * (102 - 90)
+                1000 * (MICROSTACKS_PER_STACKS as u128)
+                    * u128::from(102 - initial_reward_start_block)
                     / (INITIAL_MINING_BONUS_WINDOW as u128)
             );
             assert_eq!(

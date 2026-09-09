@@ -505,6 +505,10 @@ impl Config {
                 burnchain.first_block_height
             );
             burnchain.first_block_height = first_burn_block_height;
+            if self.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Signet {
+                // A new signet-backed Stacks chain has no rewards before its launch anchor.
+                burnchain.initial_reward_start_block = first_burn_block_height;
+            }
         }
 
         if let Some(first_burn_block_timestamp) = self.burnchain.first_burn_block_timestamp {
