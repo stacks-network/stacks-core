@@ -13,6 +13,7 @@ inputs:
     required: false
   enableCrossOsArchive:
     description: 'An optional boolean when enabled, allows windows runners to save caches that can be restored on other platforms'
+    default: 'false'
     required: false
 
 runs:

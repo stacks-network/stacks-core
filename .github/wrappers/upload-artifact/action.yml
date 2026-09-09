@@ -11,21 +11,27 @@ inputs:
   retention-days:
     description: 'Duration in days after which the artifact expires'
     required: false
+    default: '14'
   if-no-files-found:
     description: 'Action to take if no files are found: warn, error, or ignore'
     required: false
+    default: 'error'
   compression-level:
     description: 'Zstd compression level from 0 (fastest) to 9 (best compression)'
     required: false
+    default: '9'
   overwrite:
     description: 'If true, an artifact with a matching name will be deleted before a new one is uploaded'
     required: false
+    default: 'false'
   include-hidden-files:
     description: 'Whether to include hidden files in the provided path in the artifact'
     required: false
+    default: 'false'
   archive:
     description: 'Whether to zip the artifact files before upload'
     required: false
+    default: 'true'
 
 outputs:
   artifact-id:

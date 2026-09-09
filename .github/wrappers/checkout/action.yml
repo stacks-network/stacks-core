@@ -5,66 +5,87 @@ inputs:
   repository:
     description: 'Repository name with owner. For example, actions/checkout'
     required: false
+    default: ''
   ref:
     description: 'The branch, tag or SHA to checkout'
     required: false
+    default: ''
   token:
     description: 'Personal access token (PAT) used to fetch the repository'
     required: false
+    default: ${{ github.token }}
   ssh-key:
     description: 'SSH key used to fetch the repository'
     required: false
+    default: ''
   ssh-known-hosts:
     description: 'Known hosts in addition to the user and global host key database'
     required: false
+    default: ''
   ssh-strict:
     description: 'Whether to perform strict host key checking'
     required: false
+    default: 'true'
   ssh-user:
     description: 'The user to use when connecting to the remote SSH host'
     required: false
+    default: 'git'
   persist-credentials:
     description: 'Whether to configure the token or SSH key with the local git config'
     required: false
+    default: 'true'
   path:
     description: 'Relative path under $GITHUB_WORKSPACE to place the repository'
     required: false
+    default: ''
   clean:
     description: 'Whether to execute git clean -ffdx && git reset --hard HEAD before fetching'
     required: false
+    default: 'true'
   filter:
     description: 'Partially clone against a given filter'
     required: false
+    default: ''
   sparse-checkout:
     description: 'Do a sparse checkout on given patterns'
     required: false
+    default: ''
   sparse-checkout-cone-mode:
     description: 'Specifies whether to use cone-mode when doing a sparse checkout'
     required: false
+    default: 'true'
   fetch-depth:
     description: 'Number of commits to fetch (0 for all history)'
     required: false
+    default: '1'
   fetch-tags:
     description: 'Whether to fetch tags, even if fetch-depth > 0'
     required: false
+    default: 'false'
   show-progress:
     description: 'Whether to show progress status output when fetching'
     required: false
+    default: 'true'
   lfs:
     description: 'Whether to download Git-LFS files'
     required: false
+    default: 'false'
   submodules:
     description: 'Whether to checkout submodules: true, false, or recursive'
     required: false
+    default: 'false'
   set-safe-directory:
     description: 'Add repository path as safe.directory for Git global config'
     required: false
+    default: 'true'
   github-server-url:
     description: 'The base URL for the GitHub instance'
     required: false
+    default: ''
   allow-unsafe-pr-checkout:
     description: 'Required to check out fork pull request code from a workflow'
     required: false
+    default: 'false'
     
 outputs:
   ref:

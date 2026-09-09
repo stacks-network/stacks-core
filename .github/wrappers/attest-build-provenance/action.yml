@@ -47,20 +47,24 @@ inputs:
       Whether to push the provenance statement to the image registry. Requires
       that the "subject-name" parameter specify the fully-qualified image name
       and that the "subject-digest" parameter be specified. Defaults to false.
+    default: false
     required: false
   create-storage-record:
     description: >
       Whether to create a storage record for the artifact. Requires that
       push-to-registry is set to true. Defaults to true.
+    default: true
     required: false
   show-summary:
     description: >
       Whether to attach a list of generated attestations to the workflow run
       summary page. Defaults to true.
+    default: true
     required: false
   github-token:
     description: >
       The GitHub token used to make authenticated API requests.
+    default: ${{ github.token }}
     required: false
 
 outputs:

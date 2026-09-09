@@ -24,10 +24,12 @@ inputs:
   skip-token-revoke:
     description: "If true, the token will not be revoked when the current job is complete"
     required: false
+    default: "false"
   # Make GitHub API configurable to support non-GitHub Cloud use cases
   # see https://github.com/actions/create-github-app-token/issues/77
   github-api-url:
     description: The URL of the GitHub REST API.
+    default: ${{ github.api_url }}
   # <START GENERATED PERMISSIONS INPUTS>
   permission-actions:
     description: "The level of permission to grant the access token for GitHub Actions workflows, workflow runs, and artifacts. Can be set to 'read' or 'write'."
