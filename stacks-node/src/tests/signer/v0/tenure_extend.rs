@@ -707,14 +707,6 @@ fn idle_tenure_extend_active_mining() {
 
     info!("---- Getting current idle timeout ----");
 
-    let get_last_block_hash = || {
-        let blocks = test_observer::get_blocks();
-        let last_block = blocks.last().unwrap();
-        let block_hash =
-            hex_bytes(&last_block.get("block_hash").unwrap().as_str().unwrap()[2..]).unwrap();
-        Sha512Trunc256Sum::from_vec(&block_hash).unwrap()
-    };
-
     let slot_id = 0_u32;
 
     let log_idle_diff = |timestamp: u64| {
@@ -724,9 +716,9 @@ fn idle_tenure_extend_active_mining() {
     };
 
     let initial_response = signer_test.get_latest_block_response(slot_id);
-    assert_eq!(
+    signer_test.wait_for_confirmed_block_with_hash(
         initial_response.get_signer_signature_hash(),
-        &get_last_block_hash()
+        Duration::from_secs(30),
     );
 
     info!(
@@ -824,13 +816,20 @@ fn idle_tenure_extend_active_mining() {
                 fault_injection_unstall_miner();
             });
 
-            // We must actually have a new block response to ensure its tenure extend timestamp advances
+            // A response update for the same block does not indicate block progress.
+            let mut latest_response = last_response.clone();
             wait_for(30, || {
-                Ok(signer_test.get_latest_block_response(slot_id) != last_response)
+                latest_response = signer_test.get_latest_block_response(slot_id);
+                Ok(latest_response.get_signer_signature_hash()
+                    != last_response.get_signer_signature_hash())
             })
             .expect("Failed to find a new block response");
 
-            let latest_response = signer_test.get_latest_block_response(slot_id);
+            // Observer delivery can lag the RPC tip and signer response.
+            let confirmed_block = signer_test.wait_for_confirmed_block_with_hash(
+                latest_response.get_signer_signature_hash(),
+                Duration::from_secs(30),
+            );
             let naka_blocks = test_observer::get_mined_nakamoto_blocks();
             info!(
                 "----- Latest tenure extend timestamp: {} -----",
@@ -840,11 +839,6 @@ fn idle_tenure_extend_active_mining() {
             info!(
                 "----- Latest block transaction events: {} -----",
                 naka_blocks.last().unwrap().tx_events.len()
-            );
-            assert_eq!(
-                latest_response.get_signer_signature_hash(),
-                &get_last_block_hash(),
-                "Expected the latest block response to be for the latest block"
             );
             // Tenure-change blocks (BlockFound/Extended) roll the timestamp over to
             // `now + idle_timeout`, while regular blocks derive it from tenure start plus
@@ -856,8 +850,11 @@ fn idle_tenure_extend_active_mining() {
             // timeout, so only `Extended` blocks are expected here; the `BlockFound` check is
             // defensive against unexpected tenure-change blocks (e.g. from CI timing).
             let latest_block_is_tenure_change =
-                last_block_contains_tenure_change_tx(TenureChangeCause::Extended)
-                    || last_block_contains_tenure_change_tx(TenureChangeCause::BlockFound);
+                block_contains_tenure_change_tx(&confirmed_block, TenureChangeCause::Extended)
+                    || block_contains_tenure_change_tx(
+                        &confirmed_block,
+                        TenureChangeCause::BlockFound,
+                    );
             if i != 1 && !latest_block_is_tenure_change {
                 assert_ne!(
                     last_response.get_tenure_extend_timestamp(),
