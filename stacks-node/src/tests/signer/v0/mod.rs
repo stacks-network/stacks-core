@@ -1128,6 +1128,13 @@ impl MultipleMinerTest {
         let node_1_pk = StacksPublicKey::from_private(&node_1_sk);
 
         conf_node_2.node.working_dir = format!("{}-1", conf_node_2.node.working_dir);
+        // A cloned configuration must not load the other miner's persisted VRF key.
+        if conf_node_2.miner.activated_vrf_key_path.is_some()
+            && conf_node_2.miner.activated_vrf_key_path == conf.miner.activated_vrf_key_path
+        {
+            conf_node_2.miner.activated_vrf_key_path =
+                Some(format!("{}/vrf_key", conf_node_2.node.working_dir));
+        }
 
         conf_node_2.node.set_bootstrap_nodes(
             format!("{}@{}", &node_1_pk.to_hex(), conf.node.p2p_address),

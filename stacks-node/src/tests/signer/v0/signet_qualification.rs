@@ -125,8 +125,12 @@ fn signet_signed_transfer_smoke() {
         |_| 0,
         None,
     );
-    miners.boot_to_epoch_3();
     let (first, second) = miners.get_node_configs();
+    assert_ne!(
+        first.miner.activated_vrf_key_path,
+        second.miner.activated_vrf_key_path
+    );
+    miners.boot_to_epoch_3();
     for config in [&first, &second] {
         assert_eq!(
             config.burnchain.get_bitcoin_network().1,
