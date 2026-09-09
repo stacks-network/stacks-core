@@ -1,0 +1,1 @@
+Added the miner address to each PoX transaction in the `/new_burn_block` event payload.
