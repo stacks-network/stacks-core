@@ -173,14 +173,14 @@ jobs:
       is_release: ${{ steps.check-release.outputs.is_release }}
     steps:
       # Checkout the code
-      #   - only .github and versions.toml are required for this job
+      #   - only .github and Cargo.toml are required for this job
       - name: Checkout the latest code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           sparse-checkout: |
             .github
-            versions.toml
+            Cargo.toml
 
       # Run script to check if this is a release and set outputs
       - name: Check Release
