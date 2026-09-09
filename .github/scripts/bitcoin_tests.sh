@@ -9,6 +9,10 @@
 #   MAX_PER_CHUNK    - Max tests per matrix output chunk (default: 256)
 #   NEXTEST_ARCHIVE  - Nextest archive to use (default: ./test_archive.tar.zst)
 #   TEST_TAG_CI_SKIP - Tag name used to exclude tests from CI (default: ci_skip)
+#   ONLY_TESTS       - Comma-separated fully qualified test names. When set, the
+#                      matrix is narrowed to just these tests, for cheap manual
+#                      runs. Empty (default) generates the full matrix, so PR CI
+#                      is unaffected. Names must survive the exclude list below.
 
 set -euo pipefail
 
@@ -20,6 +24,7 @@ max_per_chunk="${MAX_PER_CHUNK:-256}"
 nextest_archive="${NEXTEST_ARCHIVE:-./test_archive.tar.zst}"
 nextest_archive="${nextest_archive/#\~/$HOME}"
 ci_skip_tag="${TEST_TAG_CI_SKIP:-ci_skip}"
+only_tests="${ONLY_TESTS:-}"
 
 ## ── Require bash 5+ ─────────────────────────────────────────────────────────
 if [[ "${BASH_VERSINFO[0]}" -lt 5 ]]; then
@@ -114,6 +119,43 @@ jq -r '.[]' ignored_tests.json | sort > ignored_sorted.txt
 jq -r '.[]' exclude.json        | sort > exclude_sorted.txt
 
 comm -23 ignored_sorted.txt exclude_sorted.txt > filtered.txt
+
+## ── Optionally narrow to specific tests -------------------------------------
+# For manual runs: restrict the matrix to the named tests instead of generating
+# a job per test. Names must be present in the runnable set above; a name that
+# is misspelled, not marked #[ignore], or on the exclude list is an error rather
+# than a silently empty matrix, which would otherwise report a green run that
+# tested nothing.
+if [[ -n "${only_tests}" ]]; then
+    tr ',' '\n' <<< "${only_tests}" \
+        | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+        | grep -v '^$' \
+        | sort -u > only_tests.txt || true
+
+    if [[ ! -s only_tests.txt ]]; then
+        error "$(hl "ONLY_TESTS") is set but contains no test names"
+        exit 1
+    fi
+
+    # Sort explicitly rather than relying on how filtered.txt was produced:
+    # comm only warns on unsorted input and still exits 0, so a mismatch here
+    # would silently yield the wrong matrix.
+    sort -u filtered.txt > filtered_sorted.txt
+
+    comm -23 only_tests.txt filtered_sorted.txt > only_missing.txt
+    if [[ -s only_missing.txt ]]; then
+        error "$(hl "ONLY_TESTS") names tests that are not in the runnable set:"
+        while read -r missing_test; do
+            error "  - $(hl "${missing_test}")"
+        done < only_missing.txt
+        error "Each name must be fully qualified, marked #[ignore], and not excluded."
+        exit 1
+    fi
+
+    comm -12 only_tests.txt filtered_sorted.txt > filtered_only.txt
+    mv filtered_only.txt filtered.txt
+    info "$(hl "ONLY_TESTS") applied: matrix narrowed to $(hl "$(wc -l < filtered.txt)") test(s)"
+fi
 
 mapfile -t tests < filtered.txt
 total=${#tests[@]}
