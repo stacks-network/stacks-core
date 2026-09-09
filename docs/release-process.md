@@ -94,7 +94,7 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
 
    - This PR must be merged before continuing to the next steps
 
-6. A build may be started by manually triggering the [`CI` workflow](../.github/workflows/ci.yml) against the `release/X.Y.Z` branch.
+6. A build may be started by manually triggering the [`Release` workflow](../.github/workflows/release.yml) against the `release/X.Y.Z` branch.
 
    - **Note**: The node and signer are released together, so this workflow produces a single release containing both the `stacks-core` and `stacks-signer` binaries and Docker images.
 

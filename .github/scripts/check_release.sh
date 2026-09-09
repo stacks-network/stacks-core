@@ -16,7 +16,8 @@
 #   - Branch does not match              → exits 0 (all outputs empty/false; downstream
 #                                          jobs guard themselves with is_release checks)
 # Outputs:
-#   GITHUB_OUTPUT  - Path to the GitHub Actions output file (set by runner); prints to stderr if unset (via logging.sh)
+#   GITHUB_OUTPUT  - Path to the GitHub Actions output file
+#   GITHUB_SUMMARY - Path to the GitHub Actions step summary file (falls back to GITHUB_STEP_SUMMARY)
 #   tag         - release tag (e.g. 4.0.0)
 #   is_release  - "true" if this is a release branch
 set -euo pipefail
@@ -24,6 +25,16 @@ set -euo pipefail
 # Load logging functions from logging.sh for color and standardized output
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
+
+## ── Helper to append to GitHub Summary ──────────────────────────────────────
+summary_file="${GITHUB_SUMMARY:-${GITHUB_STEP_SUMMARY:-}}"
+
+write_summary() {
+    local text="$1"
+    if [[ -n "${summary_file}" ]]; then
+        echo -e "${text}" >> "${summary_file}"
+    fi
+}
 
 ## ── Validate required inputs ────────────────────────────────────────────────
 : "${BRANCH:?BRANCH is required}"
@@ -58,12 +69,15 @@ else
         info "tag="
         info "is_release=false"
     fi
+
+    write_summary "## Release Detection Summary\n* **Release Detected:** \`false\`\n* **Reason:** Branch \`${BRANCH}\` does not match release pattern (\`release/x.x.x\`)."
     exit 0
 fi
 
-## ── Validate Cargo.toml ──────────────────────────────────────────────────
-if ! command -v yq >/dev/null 2>&1; then
-    error "$(hl "yq") is required to read $(hl "${manifest_file}") but was not found"
+## ── Validate versions.toml ──────────────────────────────────────────────────
+if [[ ! -f "${versions_file}" ]]; then
+    error "$(hl "${versions_file}") not found"
+    write_summary "### Release Detection Summary\n* **Release Detected:** \`false\`\n* **Reason:** Config file \`${versions_file}\` was not found."
     exit 1
 fi
 
@@ -76,12 +90,14 @@ fi
 version=$(yq -r '.workspace.package.version // ""' "${manifest_file}")
 
 if [[ -z "${version}" ]]; then
-    error "$(hl "workspace.package.version") not found in $(hl "${manifest_file}")"
+    error "$(hl "${version_key}") not found in $(hl "${versions_file}")"
+    write_summary "### Release Detection Summary\n* **Release Detected:** \`false\`\n* **Reason:** Version key \`${version_key}\` not found in \`${versions_file}\`."
     exit 1
 fi
 
 if [[ "${version}" != "${tag}" ]]; then
-    error "version in $(hl "${manifest_file}") ($(hl "${version}")) does not match branch tag ($(hl "${tag}"))"
+    error "version in $(hl "${versions_file}") ($(hl "${version}")) does not match branch tag ($(hl "${tag}"))"
+    write_summary "### Release Detection Summary\n* **Release Detected:** \`false\`\n* **Reason:** Version in \`${versions_file}\` (\`${version}\`) does not match branch tag (\`${tag}\`)."
     exit 1
 fi
 
@@ -98,3 +114,5 @@ else
     info "tag=${tag}"
     info "is_release=${is_release}"
 fi
+
+write_summary "## Release Detection Summary\n* **Release Detected:** \`true\`\n* **Tag:** \`${tag}\`\n* **Reason:** Branch \`${BRANCH}\` matches release pattern and verified against \`${versions_file}\`."
