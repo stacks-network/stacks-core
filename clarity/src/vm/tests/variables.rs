@@ -1212,10 +1212,10 @@ fn test_block_time(
         assert!(analysis.is_ok());
     }
 
-    // Initialize the contract
-    // Note that we're ignoring the analysis failure here so that we can test
-    // the runtime behavior. In earlier versions, if this case somehow gets past the
-    // analysis, it should fail at runtime.
+    // Initialize the contract.
+    // Analysis now runs as part of contract initialization, so a contract that
+    // fails analysis can no longer be deployed at all. The old runtime rejection
+    // is therefore unreachable, and we assert on the rejected deployment instead.
     let result = owned_env.initialize_versioned_contract(
         contract_identifier.clone(),
         version,
@@ -1223,27 +1223,23 @@ fn test_block_time(
         None,
     );
 
+    if version < ClarityVersion::Clarity4 {
+        assert!(
+            result.is_err(),
+            "deploying a contract using `stacks-block-time` before Clarity 4 must be rejected"
+        );
+        return;
+    }
+    result.unwrap();
+
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
 
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
 
-    // In versions before Clarity 4, this should trigger a runtime error
-    if version < ClarityVersion::Clarity4 {
-        let err = eval_result.unwrap_err();
-        assert_eq!(
-            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::Unreachable(
-                    "Undefined variable: stacks-block-time".to_string()
-                )
-            )),
-            err
-        );
-    } else {
-        // Always 1 in the testing environment
-        assert_eq!(Ok(Value::UInt(1)), eval_result);
-    }
+    // Always 1 in the testing environment
+    assert_eq!(Ok(Value::UInt(1)), eval_result);
 }
 
 #[test]
@@ -1346,10 +1342,10 @@ fn test_current_contract(
         assert!(analysis.is_ok());
     }
 
-    // Initialize the contract
-    // Note that we're ignoring the analysis failure here so that we can test
-    // the runtime behavior. In Clarity 3, if this case somehow gets past the
-    // analysis, it should fail at runtime.
+    // Initialize the contract.
+    // Analysis now runs as part of contract initialization, so a contract that
+    // fails analysis can no longer be deployed at all. The old runtime rejection
+    // is therefore unreachable, and we assert on the rejected deployment instead.
     let result = owned_env.initialize_versioned_contract(
         contract_identifier.clone(),
         version,
@@ -1357,30 +1353,26 @@ fn test_current_contract(
         None,
     );
 
+    if version < ClarityVersion::Clarity4 {
+        assert!(
+            result.is_err(),
+            "deploying a contract using `current-contract` before Clarity 4 must be rejected"
+        );
+        return;
+    }
+    result.unwrap();
+
     let (mut exec_state, invoke_ctx) =
         owned_env.get_exec_environment(None, None, &placeholder_context);
 
     // Call the function
     let eval_result = exec_state.eval_read_only(&invoke_ctx, &contract_identifier, "(test-func)");
-    // In Clarity 3, this should trigger a runtime error
-    if version < ClarityVersion::Clarity4 {
-        let err = eval_result.unwrap_err();
-        assert_eq!(
-            ClarityEvalError::Vm(VmExecutionError::RuntimeCheck(
-                RuntimeCheckErrorKind::Unreachable(
-                    "Undefined variable: current-contract".to_string()
-                )
-            )),
-            err
-        );
-    } else {
-        assert_eq!(
-            Ok(Value::Principal(PrincipalData::Contract(
-                contract_identifier
-            ))),
-            eval_result
-        );
-    }
+    assert_eq!(
+        Ok(Value::Principal(PrincipalData::Contract(
+            contract_identifier
+        ))),
+        eval_result
+    );
 }
 
 /// Test the checks on reuse of the `current-contract` name

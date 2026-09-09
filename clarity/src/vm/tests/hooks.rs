@@ -69,7 +69,7 @@ fn eval_hook_captures_failed_top_level_execution_lifecycle() {
     let contract_id = QualifiedContractIdentifier::local("trace-lifecycle-failure").unwrap();
     let source = r#"
         (define-public (entry)
-          (/ u1 u0))
+          (ok (/ u1 u0)))
     "#;
 
     env.initialize_versioned_contract(contract_id.clone(), ClarityVersion::Clarity2, source, None)
@@ -383,11 +383,15 @@ fn eval_hook_captures_fold_with_user_step_function() {
 fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
     let mut marf = MemoryBackingStore::new();
     let mut env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::Epoch21);
+
+    let mut analysis_store = MemoryBackingStore::new();
+    let mut analysis_db = analysis_store.as_analysis_db();
+    analysis_db.begin();
     let trait_contract_id = QualifiedContractIdentifier::local("trace-trait").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("trace-impl").unwrap();
     let caller_contract_id = QualifiedContractIdentifier::local("trace-caller").unwrap();
 
-    env.initialize_versioned_contract(
+    env.initialize_versioned_contract_with_db(
         trait_contract_id,
         ClarityVersion::Clarity2,
         r#"
@@ -395,9 +399,10 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
               ((do-it (uint uint) (response uint uint))))
         "#,
         None,
+        &mut analysis_db,
     )
     .unwrap();
-    env.initialize_versioned_contract(
+    env.initialize_versioned_contract_with_db(
         impl_contract_id,
         ClarityVersion::Clarity2,
         r#"
@@ -407,22 +412,23 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
               (ok (+ x y)))
         "#,
         None,
+        &mut analysis_db,
     )
     .unwrap();
-    env.initialize_versioned_contract(
+    env.initialize_versioned_contract_with_db(
         caller_contract_id.clone(),
         ClarityVersion::Clarity2,
         r#"
             (use-trait runner .trace-trait.trace-runner)
-            (define-data-var runner-contract principal .trace-impl)
 
-            (define-private (call-runner (runner <runner>) (x uint) (y uint))
-              (contract-call? runner do-it x y))
+            (define-private (call-runner (target <runner>) (x uint) (y uint))
+              (contract-call? target do-it x y))
 
             (define-public (entry (seed uint))
-              (call-runner (var-get runner-contract) seed (+ seed u10)))
+              (call-runner .trace-impl seed (+ seed u10)))
         "#,
         None,
+        &mut analysis_db,
     )
     .unwrap();
 
@@ -453,7 +459,7 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
         "trace-caller",
         "call-runner",
         0,
-        "runner",
+        "target",
         Value::Principal(PrincipalData::Contract(
             QualifiedContractIdentifier::local("trace-impl").unwrap(),
         )),
@@ -505,11 +511,15 @@ fn eval_hook_captures_trait_dispatched_contract_call_arguments() {
 fn eval_hook_balances_trait_dispatched_contract_call_after_failure() {
     let mut marf = MemoryBackingStore::new();
     let mut env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::Epoch21);
+
+    let mut analysis_store = MemoryBackingStore::new();
+    let mut analysis_db = analysis_store.as_analysis_db();
+    analysis_db.begin();
     let trait_contract_id = QualifiedContractIdentifier::local("trace-failure-trait").unwrap();
     let impl_contract_id = QualifiedContractIdentifier::local("trace-failure-impl").unwrap();
     let caller_contract_id = QualifiedContractIdentifier::local("trace-failure-caller").unwrap();
 
-    env.initialize_versioned_contract(
+    env.initialize_versioned_contract_with_db(
         trait_contract_id,
         ClarityVersion::Clarity2,
         r#"
@@ -517,9 +527,10 @@ fn eval_hook_balances_trait_dispatched_contract_call_after_failure() {
               ((divide (uint) (response uint uint))))
         "#,
         None,
+        &mut analysis_db,
     )
     .unwrap();
-    env.initialize_versioned_contract(
+    env.initialize_versioned_contract_with_db(
         impl_contract_id,
         ClarityVersion::Clarity2,
         r#"
@@ -529,22 +540,24 @@ fn eval_hook_balances_trait_dispatched_contract_call_after_failure() {
               (ok (/ u12 divisor)))
         "#,
         None,
+        &mut analysis_db,
     )
     .unwrap();
-    env.initialize_versioned_contract(
+    env.initialize_versioned_contract_with_db(
         caller_contract_id.clone(),
         ClarityVersion::Clarity2,
         r#"
             (use-trait divider .trace-failure-trait.divider)
-            (define-data-var divider-contract principal .trace-failure-impl)
+            (define-data-var call-count uint u0)
 
             (define-private (call-divider (target <divider>) (divisor uint))
               (contract-call? target divide divisor))
 
             (define-public (entry (divisor uint))
-              (call-divider (var-get divider-contract) divisor))
+              (call-divider .trace-failure-impl (+ divisor (var-get call-count))))
         "#,
         None,
+        &mut analysis_db,
     )
     .unwrap();
 
@@ -642,13 +655,17 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
     let mut marf = MemoryBackingStore::new();
     let mut env = OwnedEnvironment::new(marf.as_clarity_db(), StacksEpochId::Epoch21);
 
+    let mut analysis_store = MemoryBackingStore::new();
+    let mut analysis_db = analysis_store.as_analysis_db();
+    analysis_db.begin();
+
     let math_id = QualifiedContractIdentifier::local("trace-math").unwrap();
     let agg_id = QualifiedContractIdentifier::local("trace-agg").unwrap();
     let top_id = QualifiedContractIdentifier::local("trace-top").unwrap();
 
     // Leaf contract: doubles a value, guarding against overflow with an `if` whose
     // error branch is never taken for our inputs.
-    env.initialize_versioned_contract(
+    env.initialize_versioned_contract_with_db(
         math_id,
         ClarityVersion::Clarity2,
         r#"
@@ -658,12 +675,13 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
                   (ok (* n u2))))
         "#,
         None,
+        &mut analysis_db,
     )
     .unwrap();
 
     // Middle contract: folds over a list. Each step branches on the item with `if`
     // (skipping zero), and `match`es the contract-call response from `.trace-math`.
-    env.initialize_versioned_contract(
+    env.initialize_versioned_contract_with_db(
         agg_id,
         ClarityVersion::Clarity2,
         r#"
@@ -678,12 +696,13 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
               (ok (fold add-doubled items u0)))
         "#,
         None,
+        &mut analysis_db,
     )
     .unwrap();
 
     // Top contract: builds a list (with a trailing zero to exercise the skip branch)
     // and contract-calls the middle contract.
-    env.initialize_versioned_contract(
+    env.initialize_versioned_contract_with_db(
         top_id.clone(),
         ClarityVersion::Clarity2,
         r#"
@@ -691,6 +710,7 @@ fn eval_hook_captures_nested_contract_calls_folding_over_contract_calls() {
               (contract-call? .trace-agg sum-doubled (list seed (+ seed u1) u0)))
         "#,
         None,
+        &mut analysis_db,
     )
     .unwrap();
 
