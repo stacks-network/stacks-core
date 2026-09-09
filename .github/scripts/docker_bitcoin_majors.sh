@@ -25,7 +25,7 @@ set -euo pipefail
 
 # Load logging functions
 # shellcheck disable=SC1091
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/logging.sh"
 
 ## ── Require bash 5+ ---------------------------------------------------------
 if [[ "${BASH_VERSINFO[0]}" -lt 5 ]]; then
