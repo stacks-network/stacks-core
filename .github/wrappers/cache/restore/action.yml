@@ -42,11 +42,9 @@ runs:
       id: cache-restore
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        name: ${{ inputs.name }}
         path: ${{ inputs.path }}
-        if-no-files-found: ${{ inputs.if-no-files-found }}
-        retention-days: ${{ inputs.retention-days }}
-        compression-level: ${{ inputs.compression-level }}
-        overwrite: ${{ inputs.overwrite }}
-        include-hidden-files: ${{ inputs.include-hidden-files }}
-        archive: ${{ inputs.archive }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
+        enableCrossOsArchive: ${{ inputs.enableCrossOsArchive }}
+        fail-on-cache-miss: ${{ inputs.fail-on-cache-miss }}
+        lookup-only: ${{ inputs.lookup-only }}

@@ -13,6 +13,7 @@ permissions:
 jobs:
   # Check if CI is enabled
   check-ci:
+    name: "Check: CI Enabled"
     uses: ./.github/workflows/__check-ci.yml
 
   # Execute only on our official repo, because it manages Slack PR nags for us

@@ -43,6 +43,7 @@ concurrency:
 jobs:
   # Check if CI is enabled
   check-ci:
+    name: "Check: CI Enabled"
     uses: ./.github/workflows/__check-ci.yml
 
   # Build arch dependent binaries from source
