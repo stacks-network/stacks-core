@@ -41,33 +41,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-ci-enabled:
-    name: "Check: CI Enabled"
-    runs-on: ubuntu-latest
-    outputs:
-      enabled: ${{ steps.check.outputs.enabled }}
-    steps:
-      - id: check
-        run: |
-          echo "=== CI Enablement Check ==="
-          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
-          echo "github.repository:   '${{ github.repository }}'"
-          echo "github.event_name:   '${{ github.event_name }}'"
-    
-          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Result: CI is ENABLED"
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Result: CI is DISABLED"
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
+  # Check CI & Bootstrap the .github folder so local actions can be called 
+  bootstrap:
+    uses: ./.github/workflows/_bootstrap.yml
 
   # Build arch dependent binaries from source
   build-binaries:
     name: "Build: Binaries"
     needs:
-      - check-ci-enabled
-    if: needs.check-ci-enabled.outputs.enabled == 'true'
+      - bootstrap
+    if: needs.bootstrap.outputs.enabled == 'true'
     runs-on: ${{ vars.BUILD_RUNNER_LABEL || 'ubuntu-latest' }}
     strategy:
       max-parallel: 2
@@ -152,10 +135,10 @@ jobs:
   image:
     name: "Build: Image"
     needs:
-      - check-ci-enabled
+      - bootstrap
       - build-binaries
     # Only run this for versioned builds (skip for blanked builds)
-    if: needs.check-ci-enabled.outputs.enabled == 'true' && !inputs.blank_version_build
+    if: needs.bootstrap.outputs.enabled == 'true' && !inputs.blank_version_build
     runs-on: ubuntu-latest
     permissions:
       contents: read       # required for checkout
