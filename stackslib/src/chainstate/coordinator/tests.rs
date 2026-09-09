@@ -43,7 +43,6 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
-use crate::burnchains::db::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::distribution::BurnSamplePoint;
@@ -736,38 +735,6 @@ fn make_stacks_block(
         vrf_key,
         key_index,
         None,
-    )
-}
-
-fn make_stacks_block_from_parent_sortition(
-    sort_db: &SortitionDB,
-    state: &mut StacksChainState,
-    burnchain: &Burnchain,
-    parent_block: &BlockHeaderHash,
-    parent_height: u64,
-    miner: &StacksPrivateKey,
-    my_burn: u64,
-    vrf_key: &VRFPrivateKey,
-    key_index: u32,
-    parent_sortition: BlockSnapshot,
-) -> (BlockstackOperationType, StacksBlock) {
-    // NOTE: assumes no sunset
-    make_stacks_block_with_input(
-        sort_db,
-        state,
-        burnchain,
-        parent_block,
-        parent_height,
-        miner,
-        my_burn,
-        vrf_key,
-        key_index,
-        None,
-        0,
-        false,
-        (Txid([0; 32]), 0),
-        Some(parent_sortition),
-        &[],
     )
 }
 
@@ -5247,6 +5214,8 @@ fn test_epoch_verify_active_pox_contract() {
     }
 }
 
+/// Verify reward selection and burn requirements through the epoch 2.05 PoX sunset.
+#[test]
 fn test_sortition_with_sunset() {
     let path = &test_path("sortition-with-sunset");
 

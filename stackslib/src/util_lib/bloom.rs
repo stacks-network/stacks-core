@@ -617,7 +617,6 @@ impl BloomHash for BloomNodeHasher {
 pub mod test {
     use std::fs;
 
-    use rand::prelude::*;
     use rand::thread_rng;
     use rusqlite::OpenFlags;
 

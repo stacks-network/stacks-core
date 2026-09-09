@@ -436,33 +436,10 @@ impl FromRow<VoteForAggregateKeyOp> for VoteForAggregateKeyOp {
     }
 }
 
-struct AcceptedStacksBlockHeader {
-    pub tip_consensus_hash: ConsensusHash, // PoX tip
-    pub consensus_hash: ConsensusHash,     // stacks block consensus hash
-    pub block_hash: BlockHeaderHash,       // stacks block hash
-    pub height: u64,                       // stacks block height
-}
-
 #[derive(Debug)]
 pub struct InitialMiningBonus {
     pub total_reward: u128,
     pub per_block: u128,
-}
-
-impl FromRow<AcceptedStacksBlockHeader> for AcceptedStacksBlockHeader {
-    fn from_row(row: &Row) -> Result<AcceptedStacksBlockHeader, db_error> {
-        let tip_consensus_hash = ConsensusHash::from_column(row, "tip_consensus_hash")?;
-        let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
-        let block_hash = BlockHeaderHash::from_column(row, "stacks_block_hash")?;
-        let height = u64::from_column(row, "block_height")?;
-
-        Ok(AcceptedStacksBlockHeader {
-            tip_consensus_hash,
-            consensus_hash,
-            block_hash,
-            height,
-        })
-    }
 }
 
 impl FromRow<StacksEpoch> for StacksEpoch {
@@ -934,19 +911,6 @@ impl db_keys {
         format!("sortition_db::reward_set::entry::{}", ix)
     }
 
-    pub fn pox_reward_set_payouts_key() -> String {
-        "sortition_db::reward_set::payouts".to_string()
-    }
-
-    pub fn pox_reward_set_payouts_value(addrs: Vec<PoxAddress>, payout_per_addr: u128) -> String {
-        serde_json::to_string(&(addrs, payout_per_addr)).unwrap()
-    }
-
-    pub fn pox_reward_set_payouts_decode(addr_str: &str) -> (Vec<PoxAddress>, u128) {
-        let addrs_and_payout: (Vec<PoxAddress>, u128) = serde_json::from_str(addr_str).unwrap();
-        addrs_and_payout
-    }
-
     /// store an entry for retrieving the PoX identifier (i.e., the PoX bitvector) for this PoX fork
     pub fn pox_identifier() -> &'static str {
         "sortition_db::pox_identifier"
@@ -1009,33 +973,6 @@ impl db_keys {
             .try_into()
             .expect("CORRUPTION: expected u16 reward set size");
         u16::from_le_bytes(*byte_buff)
-    }
-
-    /// reward cycle ID that was last processed
-    /// NOTE: unused now, but was used in earlier consensus rules.
-    /// Preserved for testing compatibility.
-    pub fn last_reward_cycle_key() -> &'static str {
-        "sortition_db::last_reward_cycle"
-    }
-
-    /// NOTE: unused now, but was used in earlier consensus rules.
-    /// Preserved for testing compatibility.
-    pub fn last_reward_cycle_to_string(rc: u64) -> String {
-        to_hex(&rc.to_le_bytes())
-    }
-
-    /// NOTE: unused now, but was used in earlier consensus rules.
-    /// Preserved for testing compatibility.
-    pub fn last_reward_cycle_from_string(rc_str: &str) -> u64 {
-        let bytes = hex_bytes(rc_str).expect("CORRUPTION: bad format written for reward cycle ID");
-        assert_eq!(
-            bytes.len(),
-            8,
-            "CORRUPTION: expected 8 bytes for reward cycle"
-        );
-        // expect, because we did a length check above
-        let rc_buff: [u8; 8] = bytes.try_into().expect("FATAL: non-length 8 array");
-        u64::from_le_bytes(rc_buff)
     }
 }
 
@@ -6774,7 +6711,6 @@ pub mod tests {
     use stacks_common::types::sqlite::NO_PARAMS;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::{hex_bytes, Hash160};
-    use stacks_common::util::vrf::*;
 
     use super::*;
     use crate::burnchains::db::BurnchainDB;
@@ -6944,27 +6880,6 @@ pub mod tests {
         }
 
         (new_headers, new_commits)
-    }
-
-    /// Conveninece wrapper that produces a reward cycle with one sequence of block-commits.  Returns
-    /// the sequence of block headers in this reward cycle, and the list of block-commits created.  If
-    /// parent_commit is None, then the list of block-commits will contain all None's.
-    fn make_simple_reward_cycle(
-        burnchain_db: &mut BurnchainDB,
-        burnchain: &Burnchain,
-        key: &LeaderKeyRegisterOp,
-        headers: &mut Vec<BurnchainBlockHeader>,
-        parent_commit: Option<LeaderBlockCommitOp>,
-    ) -> (Vec<BurnchainBlockHeader>, Vec<Option<LeaderBlockCommitOp>>) {
-        let (new_headers, commits) =
-            make_reward_cycle(burnchain_db, burnchain, key, headers, vec![parent_commit]);
-        (
-            new_headers,
-            commits
-                .into_iter()
-                .map(|mut cmts| cmts.pop().unwrap())
-                .collect(),
-        )
     }
 
     impl SortitionHandleTx<'_> {

@@ -24,7 +24,7 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId, VRFSeed};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -268,34 +268,6 @@ impl TestMiner {
     pub fn sign_nakamoto_block(&self, block: &mut NakamotoBlock) {
         block.header.sign_miner(&self.nakamoto_miner_key()).unwrap();
     }
-}
-
-/// Produce the other valid ECDSA encoding of a recoverable signature: the
-/// high-S/low-S complement `s' = n - s`, with the recovery id's parity bit
-/// flipped. It recovers to the same public key, so the signature remains valid,
-/// but its bytes (and any hash committing to them) change. Used to construct
-/// malleablized blocks: flipping the miner signature changes a block's id
-/// without changing its execution.
-fn malleablize_signature(sig: &MessageSignature) -> MessageSignature {
-    // secp256k1 group order `n`, big-endian.
-    const SECP256K1_ORDER_BE: [u8; 32] = [
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-        0xFE, 0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B, 0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36,
-        0x41, 0x41,
-    ];
-    // MessageSignature layout: [recovery_id (1)][r (32)][s (32)].
-    let mut bytes = sig.0;
-    // s' = n - s, as a 32-byte big-endian subtraction.
-    let mut borrow = 0i16;
-    for i in (0..32).rev() {
-        let diff = SECP256K1_ORDER_BE[i] as i16 - bytes[33 + i] as i16 - borrow;
-        let (val, next_borrow) = if diff < 0 { (diff + 256, 1) } else { (diff, 0) };
-        bytes[33 + i] = val as u8;
-        borrow = next_borrow;
-    }
-    // Negating s flips the parity of R, so flip the recovery id's low bit.
-    bytes[0] ^= 0x01;
-    MessageSignature(bytes)
 }
 
 impl NakamotoStagingBlocksConnRef<'_> {
@@ -831,10 +803,11 @@ impl TestStacksNode {
                     u64::from(DEFAULT_MAX_TENURE_BYTES),
                 )?
             } else {
-                NakamotoBlockBuilder::new_first_block(
-                    &tenure_change.clone().unwrap(),
-                    &coinbase.clone().unwrap(),
-                )
+                assert!(
+                    tenure_change.is_some(),
+                    "Genesis tenure requires a tenure-change transaction"
+                );
+                NakamotoBlockBuilder::new_first_block(&coinbase.clone().unwrap())
             };
             // Optionally overwrite the timestamp to enable predictable blocks.
             if let Some(timestamp) = timestamp {
