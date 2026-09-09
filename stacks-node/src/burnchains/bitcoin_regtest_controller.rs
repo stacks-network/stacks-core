@@ -4548,6 +4548,44 @@ mod tests {
     mod leader_key_op {
         use super::*;
 
+        /// Verify the signed registration spends the fixture UTXO and pays only its estimated fee.
+        fn assert_leader_key_transaction(
+            tx: &Transaction,
+            op: &LeaderKeyRegisterOp,
+            signer: &mut BurnchainOpSigner,
+            utxos: &[UTXO],
+            config: &Config,
+        ) {
+            assert!(signer.is_disposed());
+            assert_eq!(1, tx.version);
+            assert_eq!(0, tx.lock_time);
+            assert_eq!(1, utxos.len());
+            assert_eq!(1, tx.input.len());
+            assert_eq!(2, tx.output.len());
+            assert_eq!(utils::txin_at_index(tx, signer, utxos, 0), tx.input[0]);
+            assert_eq!(
+                utils::txout_opreturn(op, &config.burnchain.magic_bytes, 0),
+                tx.output[0]
+            );
+
+            assert!(
+                serialize(tx).unwrap().len() as u64
+                    <= config.burnchain.leader_key_tx_estimated_size
+            );
+            let expected_fee =
+                config.burnchain.leader_key_tx_estimated_size * get_satoshis_per_byte(config);
+            let expected_change = utxos[0].amount - expected_fee;
+            assert!(expected_change >= DUST_UTXO_LIMIT);
+            assert_eq!(
+                utils::txout_opdup_change_legacy(signer, expected_change),
+                tx.output[1]
+            );
+            assert_eq!(
+                expected_fee,
+                utxos[0].amount - tx.output.iter().map(|output| output.value).sum::<u64>()
+            );
+        }
+
         #[test]
         #[ignore]
         fn test_build_leader_key_tx_ok() {
@@ -4571,6 +4609,7 @@ mod tests {
             btc_controller.bootstrap_chain(101); // now, one utxo exists
 
             let leader_key_op = utils::create_templated_leader_key_op();
+            let used_utxos = btc_controller.get_all_utxos(&miner_pubkey);
 
             let tx = btc_controller
                 .build_leader_key_register_tx(
@@ -4580,22 +4619,13 @@ mod tests {
                 )
                 .expect("Build leader key should work");
 
-            assert!(op_signer.is_disposed());
-
-            assert_eq!(1, tx.version);
-            assert_eq!(0, tx.lock_time);
-            assert_eq!(1, tx.input.len());
-            assert_eq!(2, tx.output.len());
-
-            // utxos list contains the only existing utxo
-            let used_utxos = btc_controller.get_all_utxos(&miner_pubkey);
-            let input_0 = utils::txin_at_index(&tx, &op_signer, &used_utxos, 0);
-            assert_eq!(input_0, tx.input[0]);
-
-            let op_return = utils::txout_opreturn(&leader_key_op, &config.burnchain.magic_bytes, 0);
-            let op_change = utils::txout_opdup_change_legacy(&mut op_signer, 4_999_985_500);
-            assert_eq!(op_return, tx.output[0]);
-            assert_eq!(op_change, tx.output[1]);
+            assert_leader_key_transaction(
+                &tx,
+                &leader_key_op,
+                &mut op_signer,
+                &used_utxos,
+                &config,
+            );
         }
 
         #[test]
@@ -4658,20 +4688,22 @@ mod tests {
             btc_controller.bootstrap_chain(101); // now, one utxo exists
 
             let leader_key_op = utils::create_templated_leader_key_op();
+            let used_utxos = btc_controller.get_all_utxos(&miner_pubkey);
 
             let tx = btc_controller
                 .make_operation_tx(
                     StacksEpochId::Epoch31,
-                    BlockstackOperationType::LeaderKeyRegister(leader_key_op),
+                    BlockstackOperationType::LeaderKeyRegister(leader_key_op.clone()),
                     &mut op_signer,
                 )
                 .expect("Make op should work");
 
-            assert!(op_signer.is_disposed());
-
-            assert_eq!(
-                "425fce1422f64539fc34ee5892d95e7b4d789eec1f96fcd412c0d68215308264",
-                tx.txid().to_string()
+            assert_leader_key_transaction(
+                &tx,
+                &leader_key_op,
+                &mut op_signer,
+                &used_utxos,
+                &config,
             );
         }
 
@@ -4698,20 +4730,24 @@ mod tests {
             btc_controller.bootstrap_chain(101); // now, one utxo exists
 
             let leader_key_op = utils::create_templated_leader_key_op();
+            let used_utxos = btc_controller.get_all_utxos(&miner_pubkey);
 
             let tx_id = btc_controller
                 .submit_operation(
                     StacksEpochId::Epoch31,
-                    BlockstackOperationType::LeaderKeyRegister(leader_key_op),
+                    BlockstackOperationType::LeaderKeyRegister(leader_key_op.clone()),
                     &mut op_signer,
                 )
                 .expect("Submit op should work");
 
-            assert!(op_signer.is_disposed());
-
-            assert_eq!(
-                "425fce1422f64539fc34ee5892d95e7b4d789eec1f96fcd412c0d68215308264",
-                tx_id.to_hex()
+            let tx = btc_controller.get_raw_transaction(&tx_id);
+            assert_eq!(tx_id.to_hex(), tx.txid().to_string());
+            assert_leader_key_transaction(
+                &tx,
+                &leader_key_op,
+                &mut op_signer,
+                &used_utxos,
+                &config,
             );
         }
     }
