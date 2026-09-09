@@ -21,7 +21,7 @@ use std::{env, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use pinny::tag;
-use stacks::burnchains::bitcoin::signet;
+use stacks::burnchains::bitcoin::{signet, BitcoinNetworkType};
 use stacks::burnchains::MagicBytes;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::config::Config;
@@ -30,12 +30,12 @@ use stacks::types::chainstate::StacksPrivateKey;
 use stacks::util::secp256k1::Secp256k1PublicKey;
 
 use super::MultipleMinerTest;
-use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto::BootRunLoop;
 use crate::tests::nakamoto_integrations::wait_for;
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_pox_info, test_observer,
 };
+use crate::tests::signer::wait_for_node_commit;
 use crate::tests::{gen_random_port, to_addr};
 
 /// Apply the shipped development schedule and PoX defaults to an isolated OP_TRUE signet.
@@ -65,21 +65,6 @@ fn assert_node_agreement(first: &Config, second: &Config) {
             && a.stacks_tip_height == b.stacks_tip_height)
     })
     .expect("Signet nodes must agree on burn consensus and the Stacks tip");
-}
-
-/// Wait for a commit referencing the node's latest Stacks tenure at the current burn height.
-fn wait_for_node_commit(config: &Config, counters: &Counters) {
-    wait_for(90, || {
-        let Some(info) = get_chain_info_opt(config) else {
-            return Ok(false);
-        };
-        Ok(
-            counters.naka_submitted_commit_last_burn_height.get() >= info.burn_block_height
-                && counters.naka_submitted_commit_last_parent_tenure_id.get()
-                    == info.stacks_tip_consensus_hash,
-        )
-    })
-    .expect("Node must commit to its latest Stacks tenure before Bitcoin mining advances");
 }
 
 /// Configure a shorter signet bootstrap while preserving coinbase maturity and PoX phases.
@@ -116,6 +101,12 @@ fn signet_signed_transfer_smoke() {
     );
     miners.boot_to_epoch_3();
     let (first, second) = miners.get_node_configs();
+    for config in [&first, &second] {
+        assert_eq!(
+            config.burnchain.get_bitcoin_network().1,
+            BitcoinNetworkType::Signet
+        );
+    }
     assert_node_agreement(&first, &second);
     let sortdb = first.get_burnchain().open_sortition_db(true).unwrap();
     let before = get_chain_info(&first);
@@ -260,7 +251,7 @@ fn signet_pox5_epoch40_stability_and_restart() {
             drain_blocks < 12,
             "Node 1 must take over within 12 burn blocks"
         );
-        wait_for_node_commit(&first, &miners.signer_test.running_nodes.counters);
+        wait_for_node_commit(&first, &miners.signer_test.running_nodes.counters, 90);
         miners
             .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 90)
             .unwrap();
@@ -288,7 +279,7 @@ fn signet_pox5_epoch40_stability_and_restart() {
     miners.rl2_thread.join().unwrap();
     let before_outage = get_chain_info(&first);
     for _ in 0..3 {
-        wait_for_node_commit(&first, &miners.signer_test.running_nodes.counters);
+        wait_for_node_commit(&first, &miners.signer_test.running_nodes.counters, 90);
         let before = get_chain_info(&first);
         miners
             .signer_test
@@ -315,8 +306,8 @@ fn signet_pox5_epoch40_stability_and_restart() {
         .spawn(move || restarted.start(None, 0))
         .unwrap();
     assert_node_agreement(&first, &second);
-    wait_for_node_commit(&first, &miners.signer_test.running_nodes.counters);
-    wait_for_node_commit(&second, &miners.rl2_counters);
+    wait_for_node_commit(&first, &miners.signer_test.running_nodes.counters, 90);
+    wait_for_node_commit(&second, &miners.rl2_counters, 90);
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 90)
         .unwrap();
