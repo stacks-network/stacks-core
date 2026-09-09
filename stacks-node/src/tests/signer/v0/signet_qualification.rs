@@ -72,14 +72,40 @@ fn configure_signet_smoke(config: &mut Config, rpc_port: u16, peer_port: u16) {
     configure_signet(config, rpc_port, peer_port);
     let epochs = config.burnchain.epochs.as_mut().unwrap();
     let epoch_25_start = epochs.get(StacksEpochId::Epoch25).unwrap().start_height;
-    // Four 20-block cycles leave 115 bootstrap blocks, enough to fund both miners.
+    let epoch_30_start = epochs.get(StacksEpochId::Epoch30).unwrap().start_height;
+    // Bootstrap to 105 for mature miner funding; Epoch 2.5 at 111 precedes preparation at 116.
+    // Epoch 3.0 starts at 122 to avoid the excluded reward-cycle offsets 0 and 1.
     for epoch in epochs.iter_mut() {
         for height in [&mut epoch.start_height, &mut epoch.end_height] {
-            if *height >= epoch_25_start && *height < STACKS_EPOCH_MAX {
-                *height -= 80;
+            if *height >= epoch_30_start && *height < STACKS_EPOCH_MAX {
+                *height -= epoch_30_start - 122;
+            } else if *height >= epoch_25_start && *height < epoch_30_start {
+                *height -= epoch_25_start - 111;
             }
         }
     }
+}
+
+/// Mine a transfer and verify its successful receipt in a signer-approved block.
+/// Both fixtures use five equally weighted signers, so a quorum requires four signatures.
+fn send_and_confirm_transfer(miners: &mut MultipleMinerTest, timeout_secs: u64) {
+    let txid = format!(
+        "0x{}",
+        miners.send_and_mine_transfer_tx(timeout_secs).unwrap()
+    );
+    wait_for(timeout_secs, || {
+        Ok(test_observer::get_blocks().iter().any(|block| {
+            block["signer_signature"]
+                .as_array()
+                .is_some_and(|signatures| signatures.len() >= 4)
+                && block["transactions"].as_array().unwrap().iter().any(|tx| {
+                    tx["txid"].as_str() == Some(txid.as_str())
+                        && tx["status"].as_str() == Some("success")
+                        && tx["raw_result"].as_str() == Some("0x0703")
+                })
+        }))
+    })
+    .expect("Signet transfer must have a successful execution receipt");
 }
 
 /// Check custom-signet startup, signed tenures, and successful transfer replication.
@@ -116,20 +142,7 @@ fn signet_signed_transfer_smoke() {
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 60)
         .unwrap();
-    let txid = format!("0x{}", miners.send_and_mine_transfer_tx(60).unwrap());
-    wait_for(60, || {
-        Ok(test_observer::get_blocks().iter().any(|block| {
-            block["signer_signature"]
-                .as_array()
-                .is_some_and(|signatures| signatures.len() >= 4)
-                && block["transactions"].as_array().unwrap().iter().any(|tx| {
-                    tx["txid"].as_str() == Some(txid.as_str())
-                        && tx["status"].as_str() == Some("success")
-                        && tx["raw_result"].as_str() == Some("0x0703")
-                })
-        }))
-    })
-    .expect("Signet transfer must have a successful execution receipt");
+    send_and_confirm_transfer(&mut miners, 60);
     assert_node_agreement(&first, &second);
     let sender = to_addr(&miners.sender_sk);
     for config in [&first, &second] {
@@ -229,7 +242,7 @@ fn signet_pox5_epoch40_stability_and_restart() {
         let cycle = pox.current_cycle.id;
         if cycle >= first_complete_cycle && !completed_cycles.contains(&cycle) {
             assert_eq!(miners.signer_test.get_reward_set_signers(cycle).len(), 5);
-            miners.send_and_mine_transfer_tx(90).unwrap();
+            send_and_confirm_transfer(&mut miners, 90);
             assert_node_agreement(&first, &second);
             completed_cycles.push(cycle);
         }
@@ -311,7 +324,7 @@ fn signet_pox5_epoch40_stability_and_restart() {
     miners
         .mine_bitcoin_blocks_and_confirm(&sortdb, 1, 90)
         .unwrap();
-    miners.send_and_mine_transfer_tx(90).unwrap();
+    send_and_confirm_transfer(&mut miners, 90);
     assert_node_agreement(&first, &second);
     miners.shutdown();
 }
