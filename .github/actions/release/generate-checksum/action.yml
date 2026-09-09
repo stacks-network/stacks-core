@@ -28,7 +28,7 @@ runs:
       shell: bash
       run: |
         # shellcheck disable=SC1091
-        source ./.github/scripts/logging.sh
+        source ./.github/scripts/lib/logging.sh
 
         ## ── Check for required binaries ─────────────────────────────────────
         if ! command -v sha512sum > /dev/null 2>&1; then

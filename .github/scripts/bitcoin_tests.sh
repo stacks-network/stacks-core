@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/logging.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/logging.sh"
 
 ## --- Configuration ----------------------------------------------------------
 max_chunks="${MAX_CHUNKS:-4}"
