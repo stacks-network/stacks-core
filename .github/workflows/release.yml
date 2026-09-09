@@ -213,7 +213,7 @@ jobs:
     name: "Check: Test Caches"
     needs:
       - andon-cord
-    uses: $/.github/workflows/_check-test-caches.yml
+    uses: ./.github/workflows/_check-test-caches.yml
 
   ############################################################################
   ### Create Nextest Archive Artifact for Tests
@@ -236,7 +236,7 @@ jobs:
 
       # Create Nextest archive artifact
       - name: Create Nextest Archive Artifact
-        uses: $/.github/actions/artifacts/nextest-archive
+        uses: ./.github/actions/artifacts/nextest-archive
         with:
           action: create
           archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
@@ -251,7 +251,7 @@ jobs:
       - check-test-caches
       - create-nextest-archive
       - setup-env
-    uses: $/.github/workflows/_tests-epoch.yml
+    uses: ./.github/workflows/_tests-epoch.yml
     with:
       archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
       upload-junit-xml: "false"
@@ -277,7 +277,7 @@ jobs:
       id-token: write        # required for attestation
       attestations: write    # required for attestation
       packages: write        # required for image push to ghcr
-    uses: $/.github/workflows/_release-github.yml
+    uses: ./.github/workflows/_release-github.yml
     secrets: inherit         # required for secrets from "release" env to be available to this workflow
     with:
       tag: ${{ needs.check-release.outputs.tag }} # 3-part version shared by the node and signer, like 4.0.0

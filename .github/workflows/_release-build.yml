@@ -124,13 +124,13 @@ jobs:
 
       # Upload the binary archive using the commit sha as the key
       - name: Upload Artifact (stacks-core)
-        uses: $/.github/wrappers/upload-artifact
+        uses: ./.github/wrappers/upload-artifact
         with:
           name: ${{ github.sha }}-stacks-core-${{ steps.build-binaries.outputs.zipfile_name }}
           path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
 
       # Attest the binary archive
       - name: Attest Artifact (stacks-core)
-        uses: $/.github/wrappers/attest-build-provenance
+        uses: ./.github/wrappers/attest-build-provenance
         with:
           subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip

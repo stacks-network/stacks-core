@@ -73,13 +73,13 @@ jobs:
      
       # Setup rust toolchain with llvm-tools-preview
       - name: Setup Rust Toolchain
-        uses: $/.github/actions/setup-rust-toolchain
+        uses: ./.github/actions/setup-rust-toolchain
         with:
           components: llvm-tools-preview
      
       # Restore bitcoin cache data
       - name: Restore Bitcoin Binary Cache
-        uses: $/.github/actions/cache/bitcoin
+        uses: ./.github/actions/cache/bitcoin
         with:
           action: restore
      
@@ -97,7 +97,7 @@ jobs:
         
       # Restore Nextest archive artifact
       - name: Restore Nextest Archive Artifact
-        uses: $/.github/actions/artifacts/nextest-archive
+        uses: ./.github/actions/artifacts/nextest-archive
         with:
           action: restore
           archive-file: ${{ inputs.archive-file }}

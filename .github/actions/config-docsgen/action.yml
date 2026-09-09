@@ -29,7 +29,7 @@ runs:
   steps:
     # Setup rust toolchain
     - name: Setup Rust Toolchain
-      uses: $/.github/actions/setup-rust-toolchain
+      uses: ./.github/actions/setup-rust-toolchain
       with:
         toolchain: ${{ inputs.rust-nightly-version }}
         components: rust-docs-json
@@ -49,7 +49,7 @@ runs:
 
     # Upload documentation as artifact
     - name: Upload Documentation Artifact
-      uses: $/.github/wrappers/upload-artifact
+      uses: ./.github/wrappers/upload-artifact
       with:
         name: ${{ inputs.artifact-name }}
         path: ${{ inputs.output }}

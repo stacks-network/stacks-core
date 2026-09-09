@@ -42,7 +42,7 @@ jobs:
       contents: read       # required for checkout inside release-build.yml
       id-token: write      # required for attestation inside release-build.yml
       attestations: write  # required for attestation inside release-build.yml
-    uses: $/.github/workflows/_release-build.yml
+    uses: ./.github/workflows/_release-build.yml
     with:
       tag: ${{ inputs.tag }}
 
@@ -67,7 +67,7 @@ jobs:
           - stacks-core
           - stacks-signer
     # Build the docker images
-    uses: $/.github/workflows/_release-docker.yml
+    uses: ./.github/workflows/_release-docker.yml
     with:
       tag: ${{ inputs.tag }} # 3-part version shared by the node and signer, i.e. 4.0.0
       release_type: ${{ matrix.type }} # one of stacks-signer or stacks-core
@@ -81,7 +81,7 @@ jobs:
     steps:
       # Download all individual digest artifacts from all matrix jobs
       - name: Download All Digest Artifacts
-        uses: $/.github/wrappers/download-artifact
+        uses: ./.github/wrappers/download-artifact
         with:
           pattern: digest-*
           path: /tmp/digest-artifacts
@@ -130,7 +130,7 @@ jobs:
 
       # Upload the consolidated manifest as an artifact
       - name: Upload Consolidated Manifest
-        uses: $/.github/wrappers/upload-artifact
+        uses: ./.github/wrappers/upload-artifact
         with:
           name: digest-manifest
           path: /tmp/digest-manifest.json
@@ -161,14 +161,14 @@ jobs:
 
       # Download consolidated digest manifest from consolidate-digests job
       - name: Download Docker Image Digest Manifest
-        uses: $/.github/wrappers/download-artifact
+        uses: ./.github/wrappers/download-artifact
         with:
           name: digest-manifest
           path: /tmp
 
       # Creates the combined github release
       - name: Create Release
-        uses: $/.github/actions/release
+        uses: ./.github/actions/release
         with:
           tag: ${{ inputs.tag }}
           digest_manifest: /tmp/digest-manifest.json

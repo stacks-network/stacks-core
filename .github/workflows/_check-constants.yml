@@ -32,7 +32,7 @@ jobs:
 
       # Setup the default rust toolchain
       - name: Setup Rust Toolchain
-        uses: $/.github/actions/setup-rust-toolchain
+        uses: ./.github/actions/setup-rust-toolchain
 
       # Dump constants from stacks-inspect
       - name: Dump Constants JSON

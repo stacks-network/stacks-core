@@ -121,14 +121,14 @@ jobs:
 
       # Upload the binary archive using the commit sha as the key
       - name: Upload Artifact
-        uses: $/.github/wrappers/upload-artifact
+        uses: ./.github/wrappers/upload-artifact
         with:
           name: ${{ github.sha }}-${{ steps.build-binaries.outputs.zipfile_name }}
           path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
 
       # Attest the binary archive
       - name: Attest Artifact
-        uses: $/.github/wrappers/attest-build-provenance
+        uses: ./.github/wrappers/attest-build-provenance
         with:
           subject-path: ${{ steps.build-binaries.outputs.zipfile_name }}.zip
 
@@ -182,7 +182,7 @@ jobs:
 
       # Download binary artifacts
       - name: Download Artifacts
-        uses: $/.github/wrappers/download-artifact
+        uses: ./.github/wrappers/download-artifact
         with:
           # linux-glibc variants are the only artifacts produced. Download for both architectures (Dockerfile will choose specific architecture archive)
           pattern: ${{ github.sha }}-*
@@ -192,7 +192,7 @@ jobs:
       # Setup Docker for the builds
       - name: Docker setup
         id: docker-setup
-        uses: $/.github/actions/docker
+        uses: ./.github/actions/docker
         with:
           registry: ${{ env.DOCKER_REGISTRY }}
           username: ${{ github.actor }}
@@ -237,7 +237,7 @@ jobs:
       - name: Attest Image
         if: |
           env.PROVENANCE != true
-        uses: $/.github/wrappers/attest-build-provenance
+        uses: ./.github/wrappers/attest-build-provenance
         with:
           subject-name: |
             ${{ steps.set-vars.outputs.docker_images }}

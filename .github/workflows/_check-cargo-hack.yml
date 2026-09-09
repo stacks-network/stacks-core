@@ -33,7 +33,7 @@ jobs:
 
       # Setup the rust toolchain for specified target
       - name: Setup Rust Toolchain
-        uses: $/.github/actions/setup-rust-toolchain
+        uses: ./.github/actions/setup-rust-toolchain
         with:
           target: x86_64-pc-windows-gnu,x86_64-unknown-linux-gnu
 
@@ -42,7 +42,7 @@ jobs:
         # Fail fast if GitHub rate-limits the download instead of retrying
         # until the job times out
         timeout-minutes: 5
-        uses: $/.github/actions/install-tool
+        uses: ./.github/actions/install-tool
         with:
           tools: cargo-hack
 
@@ -77,7 +77,7 @@ jobs:
 
       # Setup the rust toolchain for specified target
       - name: Setup Rust Toolchain
-        uses: $/.github/actions/setup-rust-toolchain
+        uses: ./.github/actions/setup-rust-toolchain
         with:
           target: wasm32-unknown-unknown
 
@@ -86,7 +86,7 @@ jobs:
         # Fail fast if GitHub rate-limits the download instead of retrying
         # until the job times out
         timeout-minutes: 5
-        uses: $/.github/actions/install-tool
+        uses: ./.github/actions/install-tool
         with:
           tools: cargo-hack
 
@@ -132,7 +132,7 @@ jobs:
       # Pin to a specific nightly: an unpinned `nightly` tracks the latest build
       # and breaks the job whenever rustc tightens lints (e.g. unused imports).
       - name: Setup Rust Toolchain
-        uses: $/.github/actions/setup-rust-toolchain
+        uses: ./.github/actions/setup-rust-toolchain
         with:
           toolchain: nightly-2026-06-07
 

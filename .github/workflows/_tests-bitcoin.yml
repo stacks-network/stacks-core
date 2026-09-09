@@ -63,7 +63,7 @@ jobs:
       # Restore Nextest archive artifact
       #   - also provides the nextest binary bundled in the artifact
       - name: Restore Nextest Archive Artifact
-        uses: $/.github/actions/artifacts/nextest-archive
+        uses: ./.github/actions/artifacts/nextest-archive
         with:
           action: restore
           archive-file: ${{ inputs.archive-file }}
@@ -91,7 +91,7 @@ jobs:
       
       # Setup, run tests, generate and upload code coverage artifact
       - name: Setup + Run Tests + Codecov
-        uses: $/.github/actions/run-tests
+        uses: ./.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
           test-names: ${{ matrix.batch.csv }}
@@ -118,7 +118,7 @@ jobs:
           
       # Setup, run tests, generate and upload code coverage artifact
       - name: Setup + Run Tests + Codecov
-        uses: $/.github/actions/run-tests
+        uses: ./.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
           test-names: ${{ matrix.batch.csv }}
@@ -145,7 +145,7 @@ jobs:
           
       # Setup, run tests, generate and upload code coverage artifact
       - name: Setup + Run Tests + Codecov
-        uses: $/.github/actions/run-tests
+        uses: ./.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
           test-names: ${{ matrix.batch.csv }}
@@ -172,7 +172,7 @@ jobs:
           
       # Setup, run tests, generate and upload code coverage artifact
       - name: Setup + Run Tests + Codecov
-        uses: $/.github/actions/run-tests
+        uses: ./.github/actions/run-tests
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
         with:
           test-names: ${{ matrix.batch.csv }}

@@ -33,7 +33,7 @@ runs:
         # Downloads the artifacts built in `create-source-binary`
         #   - the archives contain both the stacks-node and stacks-signer binaries
         - name: Download Artifacts
-          uses: $/.github/wrappers/download-artifact
+          uses: ./.github/wrappers/download-artifact
           with:
               pattern: "${{ github.sha }}-stacks-core*"
               path: release
@@ -82,7 +82,7 @@ runs:
         # Generate release token from our GH App which has permissions to create a release tag
         - name: Generate Release Token
           id: generate-token
-          uses: $/.github/wrappers/create-github-app-token
+          uses: ./.github/wrappers/create-github-app-token
           with:
             client-id: ${{ inputs.release-app-client-id }}
             private-key: ${{ inputs.release-app-private-key }}
@@ -111,7 +111,7 @@ runs:
         # This is required because a user publishes the draft release, and they don't have permission to create the tag
         # This is also done last so that if any step fails, we don't create an immutable tag that's out of date
         - name: Create Git Tag
-          uses: $/.github/wrappers/github-script
+          uses: ./.github/wrappers/github-script
           with:
             github-token: ${{ steps.generate-token.outputs.token }}
             script: |

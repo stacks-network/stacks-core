@@ -118,7 +118,7 @@ jobs:
         # Fail fast if GitHub rate-limits the download instead of retrying
         # until the job times out
         timeout-minutes: 5
-        uses: $/.github/actions/install-tool
+        uses: ./.github/actions/install-tool
         with:
           tools: nextest
 
@@ -196,7 +196,7 @@ jobs:
       # Persist proptest regression files for the next run on this branch.
       - name: Save proptest regressions (if any)
         if: failure() && steps.run_tests.outcome == 'failure'
-        uses: $/.github/wrappers/upload-artifact
+        uses: ./.github/wrappers/upload-artifact
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: |

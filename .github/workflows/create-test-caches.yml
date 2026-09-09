@@ -63,13 +63,13 @@ jobs:
       # We don't need multiple caches of the same Bitcoin binary, so skip create if one already exists
       - name: Check Bitcoin Cache
         id: bitcoin
-        uses: $/.github/actions/cache/bitcoin
+        uses: ./.github/actions/cache/bitcoin
 
       # Only create when a binary doesn't already exist
       - name: Create Bitcoin Cache
         if: >-
           !steps.bitcoin.outputs.cache-matched-key
-        uses: $/.github/actions/cache/bitcoin
+        uses: ./.github/actions/cache/bitcoin
         with:
           action: create
 
@@ -81,6 +81,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Create Cargo Cache
-        uses: $/.github/actions/cache/cargo
+        uses: ./.github/actions/cache/cargo
         with:
           action: create

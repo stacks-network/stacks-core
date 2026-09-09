@@ -51,7 +51,7 @@ jobs:
 
       # Setup the default rust toolchain with clippy
       - name: Setup Rust Toolchain
-        uses: $/.github/actions/setup-rust-toolchain
+        uses: ./.github/actions/setup-rust-toolchain
         with:
           components: clippy
 
@@ -74,7 +74,7 @@ jobs:
 
       # Setup the default rust toolchain with clippy
       - name: Setup Rust Toolchain
-        uses: $/.github/actions/setup-rust-toolchain
+        uses: ./.github/actions/setup-rust-toolchain
         with:
           components: clippy
 

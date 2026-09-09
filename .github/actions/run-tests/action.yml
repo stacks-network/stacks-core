@@ -47,13 +47,13 @@ runs:
 
     # Setup rust toolchain with llvm-tools-preview
     - name: Setup Rust Toolchain
-      uses: $/.github/actions/setup-rust-toolchain
+      uses: ./.github/actions/setup-rust-toolchain
       with:
         components: llvm-tools-preview
 
     # Restore bitcoin cache data
     - name: Restore Bitcoin Binary Cache
-      uses: $/.github/actions/cache/bitcoin
+      uses: ./.github/actions/cache/bitcoin
       with:
         action: restore
         btc-version: ${{ inputs.btc-version }}
@@ -72,7 +72,7 @@ runs:
 
     # Restore Nextest archive artifact
     - name: Restore Nextest Archive Artifact
-      uses: $/.github/actions/artifacts/nextest-archive
+      uses: ./.github/actions/artifacts/nextest-archive
       with:
         action: restore
         archive-file: ${{ inputs.archive-file }}
@@ -211,7 +211,7 @@ runs:
     # Store JUnit file in GitHub CI artifacts (with "junit-" prefix)
     - name: Store JUnit Report as Artifact
       if: always() && inputs.upload-junit-xml == 'true'
-      uses: $/.github/wrappers/upload-artifact
+      uses: ./.github/wrappers/upload-artifact
       with:
         name: junit-${{ steps.generate-sanitized-file-name.outputs.file-name }}
         path: junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
@@ -227,7 +227,7 @@ runs:
     # Store coverage file in GitHub CI artifacts ("lcov-" prefix)
     - name: Store Code Coverage as Artifact
       if: inputs.upload-code-coverage == 'true'
-      uses: $/.github/wrappers/upload-artifact
+      uses: ./.github/wrappers/upload-artifact
       with:
         name: codecov-${{ steps.generate-sanitized-file-name.outputs.file-name }}
         path: lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info
