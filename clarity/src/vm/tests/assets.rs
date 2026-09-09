@@ -1996,69 +1996,82 @@ fn test_constant_contract_principal_index_of_and_list_ops() {
 
     let helper_id =
         QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("helper"));
-    let test_id = QualifiedContractIdentifier::new(
-        p1_std.clone(),
-        ContractName::from_literal("test-contract"),
-    );
+    let list_eq_id =
+        QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal("list-eq"));
+
+    let mut analysis_store = MemoryBackingStore::new();
+    let mut analysis_db = analysis_store.as_analysis_db();
+    analysis_db.begin();
 
     owned_env
-        .initialize_versioned_contract(
+        .initialize_versioned_contract_with_db(
             helper_id,
             ClarityVersion::Clarity5,
             "(define-public (ping) (ok true))",
             None,
+            &mut analysis_db,
         )
         .unwrap();
 
-    let test_contract = "
+    // `is-eq` unifies its arguments with `least_supertype`, which handles a pair
+    // of callable types directly, so comparing a list built from a callable
+    // constant against a list built from the equivalent principal literal type
+    // checks, and the two are equal at runtime.
+    let list_eq_contract = "
         (define-constant CALLABLE_ID .helper)
 
-        ;; Search for constant in a list of principal literals
-        (define-read-only (index-of-callable-in-principal-list)
-            (index-of? (list 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper) CALLABLE_ID))
-
-        ;; Search for principal literal in a list built with the constant
-        (define-read-only (index-of-principal-in-callable-list)
-            (index-of? (list CALLABLE_ID) 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper))
-
-        ;; Compare a list containing the constant against
-        ;; a list containing the equivalent principal literal
         (define-read-only (list-eq)
             (is-eq (list CALLABLE_ID) (list 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper)))
     ";
     owned_env
-        .initialize_versioned_contract(
-            test_id.clone(),
+        .initialize_versioned_contract_with_db(
+            list_eq_id.clone(),
             ClarityVersion::Clarity5,
-            test_contract,
+            list_eq_contract,
             None,
+            &mut analysis_db,
         )
         .unwrap();
 
-    // index-of? should find the constant in a principal list
-    let (result, _, _) = execute_transaction(
-        &mut owned_env,
-        p1_principal.clone(),
-        &test_id,
-        "index-of-callable-in-principal-list",
-        &[],
-    )
-    .unwrap();
-    assert_eq!(result, Value::some(Value::UInt(0)).unwrap());
-
-    // index-of? should find a principal in a list built from the constant
-    let (result, _, _) = execute_transaction(
-        &mut owned_env,
-        p1_principal.clone(),
-        &test_id,
-        "index-of-principal-in-callable-list",
-        &[],
-    )
-    .unwrap();
-    assert_eq!(result, Value::some(Value::UInt(0)).unwrap());
-
-    // Lists containing constant/literal principal values should be equal
     let (result, _, _) =
-        execute_transaction(&mut owned_env, p1_principal, &test_id, "list-eq", &[]).unwrap();
+        execute_transaction(&mut owned_env, p1_principal, &list_eq_id, "list-eq", &[]).unwrap();
     assert_eq!(result, Value::Bool(true));
+
+    // `index-of?`, on the other hand, type checks its item against the
+    // sequence's element type, and an expected callable principal type admits
+    // nothing: `admits_type_v2_1` concretizes the actual type to `principal`
+    // while the expected type stays a callable, so the two never compare equal.
+    // Searching a list of contract principals is therefore rejected by
+    // analysis, whichever side of the call the constant appears on.
+    for (name, body) in [
+        (
+            "index-of-callable-in-principal-list",
+            "(index-of? (list 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper) CALLABLE_ID)",
+        ),
+        (
+            "index-of-principal-in-callable-list",
+            "(index-of? (list CALLABLE_ID) 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.helper)",
+        ),
+    ] {
+        let contract = format!(
+            "(define-constant CALLABLE_ID .helper)
+             (define-read-only (search) {body})"
+        );
+        let contract_id =
+            QualifiedContractIdentifier::new(p1_std.clone(), ContractName::from_literal(name));
+        let err = owned_env
+            .initialize_versioned_contract_with_db(
+                contract_id,
+                ClarityVersion::Clarity5,
+                &contract,
+                None,
+                &mut analysis_db,
+            )
+            .unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("TypeError") && err_msg.contains("CallableType"),
+            "expected analysis to reject `{name}`, got: {err}"
+        );
+    }
 }
