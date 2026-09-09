@@ -28,8 +28,8 @@ inputs:
     description: |
       Name of the nextest profile to run with, from
       `.github/nextest/ci-nextest.toml`. Empty (the default) keeps the profile
-      each mode use: `ci-sequential` for named tests, `ci-parallel`
-      for partitioned runs.
+      each mode uses by default: `ci-sequential` for named tests,
+      `ci-parallel` for partitioned runs.
     required: false
     default: ""
   upload-junit-xml:

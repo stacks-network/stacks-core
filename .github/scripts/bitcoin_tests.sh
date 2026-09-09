@@ -121,8 +121,8 @@ jq -r '.[]' exclude.json        | sort > exclude_sorted.txt
 comm -23 ignored_sorted.txt exclude_sorted.txt > filtered.txt
 
 ## ── Optionally narrow to specific tests -------------------------------------
-# For manual runs: restrict the matrix to the named tests instead of generating
-# a job per test. Names must be present in the runnable set above; a name that
+# For manual runs: restrict the matrix to the named tests, still one job per
+# test. Names must be present in the runnable set above; a name that
 # is misspelled, not marked #[ignore], or on the exclude list is an error rather
 # than a silently empty matrix, which would otherwise report a green run that
 # tested nothing.

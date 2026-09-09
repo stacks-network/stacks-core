@@ -19,8 +19,7 @@ on:
       only-tests:
         description: |
           Comma-separated fully qualified test names. When set, the matrix is
-          narrowed to just these tests instead of one job per test. Empty (the
-          default) generates the full matrix.
+          narrowed to just these tests. Empty (the default) generates the full matrix.
         required: false
         default: ""
         type: string
