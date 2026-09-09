@@ -5,7 +5,6 @@ inputs:
   name:
     description: 'Name of the artifact to upload'
     required: false
-    default: 'build-artifact'
   path:
     description: 'A file, directory, or wildcard pattern describing what to upload'
     required: true
@@ -20,7 +19,7 @@ inputs:
   compression-level:
     description: 'Zstd compression level from 0 (fastest) to 9 (best compression)'
     required: false
-    default: '6'
+    default: '9'
   overwrite:
     description: 'If true, an artifact with a matching name will be deleted before a new one is uploaded'
     required: false
