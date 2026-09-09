@@ -1333,7 +1333,7 @@ impl BitcoinMessageHandler for SpvClient {
                 self.send_next_getheaders(indexer, block_height)
                     .map(|_| true)
             }
-            x => Err(btc_error::UnhandledMessage(x)),
+            x => Err(btc_error::UnhandledMessage(x.into())),
         }
     }
 }
