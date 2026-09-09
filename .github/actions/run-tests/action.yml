@@ -24,6 +24,14 @@ inputs:
   codecov-test-name:
     description: "Code coverage test name"
     required: true
+  nextest-profile:
+    description: |
+      Name of the nextest profile to run with, from
+      `.github/nextest/ci-nextest.toml`. Empty (the default) keeps the profile
+      each mode use: `ci-sequential` for named tests, `ci-parallel`
+      for partitioned runs.
+    required: false
+    default: ""
   upload-junit-xml:
     description: "Whether or not to upload the nextest JUnit XML artifact"
     required: true
@@ -155,6 +163,10 @@ runs:
         FILTERSET=$(echo "${{ inputs.test-names }}" | sed -E 's/[[:space:]]*,[[:space:]]*/)|test(=/g')
         FILTERSET="test(=${FILTERSET})"
 
+        # Profile override, defaulting to the profile this mode has always used
+        PROFILE="${{ inputs.nextest-profile }}"
+        PROFILE="${PROFILE:-ci-sequential}"
+
         if [ "${{ inputs.upload-code-coverage }}" = "true" ]; then
           cargo llvm-cov nextest \
             --lcov \
@@ -162,27 +174,28 @@ runs:
             --ignore-filename-regex='[/\\]test[/\\]|[/\\](test\.rs|[0-9a-zA-Z_-]+[_-]test\.rs)$' \
             --output-path lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
             --config-file ./.github/nextest/ci-nextest.toml \
-            --profile ci-sequential \
+            --profile "$PROFILE" \
             --run-ignored all \
             --archive-file ${{ inputs.archive-file }} \
             -E "$FILTERSET"
         else
           cargo nextest run \
             --config-file ./.github/nextest/ci-nextest.toml \
-            --profile ci-sequential \
+            --profile "$PROFILE" \
             --run-ignored all \
             --archive-file ${{ inputs.archive-file }} \
             -E "$FILTERSET"
         fi
-          
-        # rename the resulting junit file from the toml config
-        mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
 
     # Mode 2: Run Partitioned Tests (If partition IS specified)
     - name: Run Partitioned Tests
       if: inputs.partition != '' && inputs.total-partitions != ''
       shell: bash
       run: |
+        # Profile override, defaulting to the profile this mode has always used
+        PROFILE="${{ inputs.nextest-profile }}"
+        PROFILE="${PROFILE:-ci-parallel}"
+
         if [ "${{ inputs.upload-code-coverage }}" = "true" ]; then
           cargo llvm-cov nextest \
             --lcov \
@@ -190,20 +203,31 @@ runs:
             --ignore-filename-regex='[/\\]test[/\\]|[/\\](test\.rs|[0-9a-zA-Z_-]+[_-]test\.rs)$' \
             --output-path lcov_${{ steps.generate-sanitized-file-name.outputs.file-name }}.info \
             --config-file ./.github/nextest/ci-nextest.toml \
-            --profile ci-parallel \
+            --profile "$PROFILE" \
             --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
             --archive-file ${{ inputs.archive-file }}
         else
           cargo nextest run \
             --config-file ./.github/nextest/ci-nextest.toml \
-            --profile ci-parallel \
+            --profile "$PROFILE" \
             --partition count:${{ inputs.partition }}/${{ inputs.total-partitions }} \
             --archive-file ${{ inputs.archive-file }}
         fi
-          
-        # rename the resulting junit file from the toml config
-        mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
-          
+
+    # Rename the JUnit report away from the fixed path set in the nextest
+    # config, so each test job's report gets a distinct artifact name.
+    #
+    # Execute 'always' so that this step is applied for passed and failed tests.
+    - name: Rename JUnit Report
+      if: always()
+      shell: bash
+      run: |
+        if [ -f junit.xml ]; then
+          mv junit.xml junit_${{ steps.generate-sanitized-file-name.outputs.file-name }}.xml
+        else
+          echo "::warning title=No JUnit report::nextest wrote no junit.xml; the test binary may have failed to start"
+        fi
+
     ############################################################################
     ### Upload the nextest JUnit XML
     ############################################################################
