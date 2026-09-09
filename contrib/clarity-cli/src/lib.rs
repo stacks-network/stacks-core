@@ -20,8 +20,8 @@ use std::{fs, io};
 
 use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use clarity::vm::ast::build_ast;
 use clarity::vm::ast::errors::ParseError;
+use clarity::vm::ast::{ContractAST, build_ast};
 use clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
@@ -181,14 +181,24 @@ fn parse(
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
 ) -> Result<Vec<SymbolicExpression>, ParseError> {
-    let ast = build_ast(
+    Ok(parse_ast(contract_identifier, source_code, clarity_version, epoch)?.expressions)
+}
+
+/// Like [`parse`], but keeps the whole [`ContractAST`], which is needed to
+/// initialize a contract from an analysis that was already produced.
+fn parse_ast(
+    contract_identifier: &QualifiedContractIdentifier,
+    source_code: &str,
+    clarity_version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> Result<ContractAST, ParseError> {
+    build_ast(
         contract_identifier,
         source_code,
         &mut (),
         clarity_version,
         epoch,
-    )?;
-    Ok(ast.expressions)
+    )
 }
 
 trait ClarityStorage {
@@ -769,7 +779,7 @@ impl HeadersDB for CLIHeadersDB {
     }
 }
 
-/// This function uses Clarity1 to parse the boot code.
+/// This function uses Clarity2 to parse the 2.1 boot code.
 fn install_boot_code<C: ClarityStorage>(
     header_db: &CLIHeadersDB,
     marf: &mut C,
@@ -817,7 +827,7 @@ fn install_boot_code<C: ClarityStorage>(
             parse(
                 &contract_identifier,
                 contract_content,
-                ClarityVersion::Clarity1,
+                ClarityVersion::Clarity2,
                 epoch,
             ),
             "Failed to parse program.",
@@ -839,7 +849,7 @@ fn install_boot_code<C: ClarityStorage>(
                 vm_env
                     .initialize_versioned_contract(
                         contract_identifier,
-                        ClarityVersion::Clarity1,
+                        ClarityVersion::Clarity2,
                         contract_content,
                         None,
                     )
@@ -1412,7 +1422,7 @@ pub fn execute_launch(
 ) -> (i32, Option<serde_json::Value>) {
     // Parse the contract
     let mut ast = friendly_expect(
-        parse(
+        parse_ast(
             contract_identifier,
             contract_content,
             clarity_version,
@@ -1433,7 +1443,7 @@ pub fn execute_launch(
     let (_, _, analysis_result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
         let analysis_result = run_analysis(
             contract_identifier,
-            &mut ast,
+            &mut ast.expressions,
             &header_db,
             &mut marf,
             true,
@@ -1445,9 +1455,11 @@ pub fn execute_launch(
             Ok(analysis) => {
                 let result_and_cost =
                     with_env_costs(mainnet, epoch, &header_db, &mut marf, |vm_env| {
-                        vm_env.initialize_versioned_contract(
+                        vm_env.initialize_contract_from_ast(
                             contract_identifier.clone(),
                             clarity_version,
+                            &mut ast,
+                            &analysis,
                             contract_content,
                             None,
                         )
