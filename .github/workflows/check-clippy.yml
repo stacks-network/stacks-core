@@ -31,15 +31,15 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Check CI & Bootstrap the .github folder so local actions can be called 
-  bootstrap:
-    uses: $/.github/workflows/_bootstrap.yml
+  # Check if CI is enabled
+  check-ci:
+    uses: ./.github/workflows/__check-ci.yml
 
   clippy-stacks:
     name: "Check: Clippy (stacks)"
     needs:
-      - bootstrap
-    if: needs.bootstrap.outputs.enabled == 'true'
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code
@@ -61,8 +61,8 @@ jobs:
   clippy-stacks-lib:
     name: "Check: Clippy (stackslib)"
     needs:
-      - bootstrap
-    if: needs.bootstrap.outputs.enabled == 'true'
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       # Checkout the code

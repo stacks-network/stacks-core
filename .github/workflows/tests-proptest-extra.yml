@@ -61,9 +61,9 @@ env:
   BTC_VERSION: "25.0"
 
 jobs:
-  # Check CI & Bootstrap the .github folder so local actions can be called 
-  bootstrap:
-    uses: $/.github/workflows/_bootstrap.yml
+  # Check if CI is enabled
+  check-ci:
+    uses: ./.github/workflows/__check-ci.yml
 
   # Gate 1: on manual dispatch, always proceed.
   # On pull_request_review, proceed only when the triggering review is an
@@ -72,9 +72,9 @@ jobs:
   check-approvals:
     name: "Check: Approval Count"
     needs:
-      - bootstrap
+      - check-ci
     # Only run this if a PR review is approved targeting the main branch
-    if: needs.bootstrap.outputs.enabled == 'true' && github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'
+    if: needs.check-ci.outputs.enabled == 'true' && github.event.review.state == 'approved' && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.count.outputs.ready }}

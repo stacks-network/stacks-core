@@ -40,9 +40,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Check CI & Bootstrap the .github folder so local actions can be called 
-  bootstrap:
-    uses: $/.github/workflows/_bootstrap.yml
+  # Check if CI is enabled
+  check-ci:
+    uses: ./.github/workflows/__check-ci.yml
 
   #######################################################################################################################
   ### Create Reusable Caches for Tests
@@ -54,19 +54,10 @@ jobs:
   cache-bitcoin-binary:
     name: "Create: Bitcoin Binary Cache"
     needs:
-      - bootstrap
-    if: needs.bootstrap.outputs.enabled == 'true'
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
-      # Checkout the code
-      #   - only .github is required for checking caches
-      - name: Checkout the latest code
-        uses: $/.github/wrappers/checkout
-        with:
-          ref: ${{ github.ref }}
-          sparse-checkout: |
-            .github
-
       # Check cache for bitcoin binary
       # We don't need multiple caches of the same Bitcoin binary, so skip create if one already exists
       - name: Check Bitcoin Cache
@@ -84,19 +75,10 @@ jobs:
   cache-cargo:
     name: "Create: Cargo Cache"
     needs:
-      - bootstrap
-    if: needs.bootstrap.outputs.enabled == 'true'
+      - check-ci
+    if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
-      # Checkout the code
-      #   - only .github is required for checking caches
-      - name: Checkout the latest code
-        uses: $/.github/wrappers/checkout
-        with:
-          ref: ${{ github.ref }}
-          sparse-checkout: |
-            .github
-
       - name: Create Cargo Cache
         uses: $/.github/actions/cache/cargo
         with:

@@ -1,23 +1,23 @@
-# GitHub workflow to check if CI is enabled, and if so bootstrap the .github folder (so local actions can be used)
+# GitHub workflow to check if CI is enabled
 
-name: "Check CI & Bootstrap .github Folder"
+name: "Check CI"
 
 on:
   workflow_call:
     outputs:
       enabled:
         description: "Returns 'true' if CI is enabled, 'false' otherwise"
-        value: ${{ jobs.check-and-bootstrap.outputs.enabled }}
+        value: ${{ jobs.check-ci.outputs.enabled }}
       official-repo:
         description: "Returns 'true' if running on stacks-network/stacks-core, 'false' otherwise"
-        value: ${{ jobs.check-and-bootstrap.outputs.official-repo }}
+        value: ${{ jobs.check-ci.outputs.official-repo }}
 
 permissions:
   contents: read
 
 jobs:
-  check-and-bootstrap:
-    name: "Check CI & Bootstrap .github Folder"
+  check-ci:
+    name: "Check CI"
     runs-on: ubuntu-latest
     outputs:
       enabled: ${{ steps.check.outputs.enabled }}
@@ -58,15 +58,7 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "${IS_ENABLED}" == "true" ]]; then
-            echo "✅ **Result:** CI is **ENABLED**. Bootstrapping \`.github\` directory." >> "$GITHUB_STEP_SUMMARY"
+            echo "✅ **Result:** CI is **ENABLED**." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "⚠️ **Result:** CI is **DISABLED**. Skipping \`.github\` directory bootstrap." >> "$GITHUB_STEP_SUMMARY"
+            echo "⚠️ **Result:** CI is **DISABLED**." >> "$GITHUB_STEP_SUMMARY"
           fi
-
-      - name: Checkout .github Folder
-        if: steps.check.outputs.enabled == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-          sparse-checkout: |
-            .github
