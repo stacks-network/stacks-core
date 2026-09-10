@@ -38,7 +38,7 @@ jobs:
 
           IS_ENABLED="false"
           if [[ "${{ inputs.allow-fork-runs }}" == "false" && "${{ github.repository }}" != "stacks-network/stacks-core" ]]; then
-            echo "Result: CI is DISABLED (run disabled on repos other than stacks-network/stacks-core)"
+            echo "Result: CI is DISABLED (run disabled on repos other than \`stacks-network/stacks-core\`)"
             IS_ENABLED="false"
           elif [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "Result: CI is ENABLED"
