@@ -7,7 +7,8 @@ jobs only when that gate says so.
 The gate answers two independent questions and ANDs them:
 
 ```
-enabled = (ENABLE_CI_WORKFLOWS || <extra-enable-var> || manual dispatch)
+enabled = (repo == stacks-network/stacks-core || ENABLE_CI_WORKFLOWS
+           || <extra-enable-var> || manual dispatch)
           && (repo == stacks-network/stacks-core || allow-fork-run)
 ```
 
@@ -19,6 +20,12 @@ Pressing **Run workflow** enables that one run without enabling anything persist
 matters for scheduled workflows: setting a variable would also start the cron on that
 repository, whereas a dispatch runs once.
 
+> **Note on fork pull requests.** GitHub does not pass repository variables to
+> `pull_request` runs from a fork, so `vars.*` is always empty there — even though
+> `github.repository` is the base repo. Those runs are enabled by the
+> `repo == stacks-network/stacks-core` arm instead, which is why it must stay first in the
+> expression above.
+
 ## Documentation
 
 ### Repository variables
@@ -28,7 +35,7 @@ off.
 
 | Variable | Description | Default |
 | -------- | ----------- | ------- |
-| `ENABLE_CI_WORKFLOWS` | Master switch for every gated workflow. Authoritative in the official repository too, so setting it to anything but `true` pauses all CI without a code change. Must be `true` on `stacks-network/stacks-core`. | unset |
+| `ENABLE_CI_WORKFLOWS` | Opts a fork or clone in to every gated workflow. Not needed on `stacks-network/stacks-core`, which is always enabled. | unset |
 | `ENABLE_CI_DOCKER_IMAGE` | Enables `docker-image.yml` on its own | unset |
 | `ENABLE_CI_PROPTEST_EXTRA` | Enables `tests-proptest-extra.yml` on its own | unset |
 | `ENABLE_CI_PROPTEST_NIGHTLY` | Enables `tests-proptest-nightly.yml` on its own | unset |

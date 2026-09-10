@@ -3,17 +3,22 @@
 ###
 ### Two independent questions, ANDed together:
 ###
-###   1. Is CI switched on?    ENABLE_CI_WORKFLOWS, or this workflow's own
+###   1. Is CI switched on?    Always in the official repo; elsewhere via
+###                            ENABLE_CI_WORKFLOWS, this workflow's own
 ###                            variable, or a manual dispatch.
 ###   2. May it run here?      Always in the official repo; elsewhere only
 ###                            when the caller passes allow-fork-run.
 ###
-###   enabled = (ENABLE_CI_WORKFLOWS || <extra-enable-var> || dispatch)
+###   enabled = (repo == stacks-network/stacks-core || ENABLE_CI_WORKFLOWS
+###              || <extra-enable-var> || dispatch)
 ###             && (repo == stacks-network/stacks-core || allow-fork-run)
 ###
-### The variable is authoritative in the official repo too, so clearing it
-### (or setting it to anything but "true") pauses CI everywhere without a
-### code change. See __README.md for the variable reference.
+### IMPORTANT: the official-repo check in (1) is load-bearing and must not be
+### removed. GitHub does not pass repository variables to `pull_request` runs
+### from a fork, so `vars.ENABLE_CI_WORKFLOWS` is ALWAYS empty there - even
+### though `github.repository` is the base repo and the variable is set on it.
+###
+### See __README.md for the variable reference.
 ###
 ### A manual dispatch enables a single run without enabling anything
 ### persistently - the distinction matters for scheduled workflows, where
@@ -94,8 +99,13 @@ jobs:
           echo
 
           # 1. Is CI switched on for this repository?
+          #    The official-repo arm must come first: repository variables are
+          #    not passed to pull_request runs from a fork, so the variables
+          #    below are always empty there. See the header comment.
           switched_on=true
-          if [[ "$ENABLE_CI_WORKFLOWS" == "true" ]]; then
+          if [[ "$REPOSITORY" == "stacks-network/stacks-core" ]]; then
+            switch="official repository"
+          elif [[ "$ENABLE_CI_WORKFLOWS" == "true" ]]; then
             switch="ENABLE_CI_WORKFLOWS is set"
           elif [[ -n "$EXTRA_VAR_NAME" && "$EXTRA_VAR_VALUE" == "true" ]]; then
             switch="$EXTRA_VAR_NAME is set"
@@ -105,7 +115,7 @@ jobs:
             switch="manual dispatch"
           else
             switched_on=false
-            switch="no enabling variable is set and this is not a manual dispatch"
+            switch="not the official repo, no enabling variable set, not a manual dispatch"
           fi
 
           # 2. May this workflow run in this repository at all?
@@ -122,7 +132,11 @@ jobs:
 
           if [[ "$switched_on" == "true" && "$allowed_here" == "true" ]]; then
             enabled=true
-            echo "Result: CI is ENABLED ($switch; $where)"
+            if [[ "$switch" == "$where" ]]; then
+              echo "Result: CI is ENABLED ($switch)"
+            else
+              echo "Result: CI is ENABLED ($switch; $where)"
+            fi
           else
             enabled=false
             if [[ "$allowed_here" != "true" ]]; then
