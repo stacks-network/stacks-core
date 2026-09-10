@@ -149,47 +149,6 @@ jobs:
         run: bash ./.github/scripts/rustfmt.sh
 
   ############################################################################
-  ### Release Check
-  ###
-  ### Checks if this is a release build
-  ### If true, will execute release jobs
-  ###
-  ### Release detection only matters on the public repo. This job is depended
-  ### on only by the release-specific jobs (tests-epoch, create-release); the
-  ### regular CI/test jobs are intentionally decoupled from it, so it is safe
-  ### for this job to be skipped (and cascade-skip those release jobs) on
-  ### private forks.
-  ############################################################################
-  check-release:
-    name: "Check: Release"
-    needs:
-      - check-changelog
-      - check-rustfmt
-    # Execute if ENABLE_CI_WORKFLOWS GitHub Actions variable is 'true' or we're on the official repository
-    if: vars.ENABLE_CI_WORKFLOWS == 'true' || github.repository == 'stacks-network/stacks-core'
-    runs-on: *shared_config
-    outputs:
-      tag: ${{ steps.check-release.outputs.tag }}
-      is_release: ${{ steps.check-release.outputs.is_release }}
-    steps:
-      # Checkout the code
-      #   - only .github and versions.toml are required for this job
-      - name: Checkout the latest code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-          sparse-checkout: |
-            .github
-            versions.toml
-
-      # Run script to check if this is a release and set outputs
-      - name: Check Release
-        id: check-release
-        env:
-          BRANCH: ${{ github.ref_name }}
-        run: bash ./.github/scripts/check_release.sh
-
-  ############################################################################
   ### Check Reusable Test Caches
   ###
   ### Caches can only be created from `main`. The workflow will fail
@@ -236,8 +195,8 @@ jobs:
     needs:
       - check-changelog
       - check-rustfmt
-      - setup-env
       - check-test-caches
+      - setup-env
     steps:
       # Checkout the code
       #   - only .github is required for this job
@@ -322,70 +281,22 @@ jobs:
       upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
 
   ############################################################################
-  ### Run Epoch Tests (Release Only)
-  ############################################################################
-  tests-epoch:
-    name: "Tests: Epoch (Release Only)"
-    needs:
-      - check-changelog
-      - check-rustfmt
-      - check-release
-      - check-test-caches
-      - create-nextest-archive
-      - setup-env
-    if: >-
-      needs.check-release.outputs.is_release == 'true' &&
-      github.event_name != 'merge_group'
-    uses: ./.github/workflows/_tests-epoch.yml
-    with:
-      archive-file: ${{ needs.setup-env.outputs.test-archive-file }}
-      upload-junit-xml: ${{ needs.setup-env.outputs.create-slow-failed-tests-summary }}
-      upload-code-coverage: ${{ needs.setup-env.outputs.create-code-coverage-report }}
-
-  ############################################################################
-  ### Create Release
-  ###
-  ### Creates binary archives for several architectures
-  ### Creates Docker images and pushes to ghcr registry
-  ### Creates a draft GitHub release
-  ############################################################################
-  create-release:
-    name: "Create: Release"
-    needs:
-      - check-changelog
-      - check-release
-      - check-rustfmt
-    if: >-
-      needs.check-release.outputs.is_release == 'true' &&
-      github.event_name != 'merge_group'
-    permissions:
-      contents: write        # required for github release
-      id-token: write        # required for attestation
-      attestations: write    # required for attestation
-      packages: write        # required for image push to ghcr
-      issues: read           # required for release blocker check
-      pull-requests: read    # required for release blocker check
-    uses: ./.github/workflows/_release-github.yml
-    with:
-      tag: ${{ needs.check-release.outputs.tag }} # 3-part version shared by the node and signer, like 4.0.0
-
-  ############################################################################
   ### Create Job Summary: Slow & Failed Tests
   ############################################################################
   create-slow-failed-tests-summary:
-    if: always() && needs.setup-env.outputs.create-slow-failed-tests-summary == 'true'
     name: "Create: Slow & Failed Tests Report"
     runs-on: *shared_config
     needs:
       - check-changelog
       - check-rustfmt
-      - check-release
       - check-test-caches
       - setup-env
       - tests-bitcoin
-      - tests-epoch
       - tests-p2p
       - tests-stacks-core
+    if: >-
+      always() && 
+      needs.setup-env.outputs.create-slow-failed-tests-summary == 'true'
     env:
       NEXTEST_FILES_DIR: "nextest_files"
       NEXTEST_FILES_EXT: "xml"
@@ -527,19 +438,19 @@ jobs:
   ### Create Code Coverage Report
   ############################################################################
   create-code-coverage-report:
-    if: always() && needs.setup-env.outputs.create-code-coverage-report == 'true'
     name: "Create: Code Coverage Report"
     runs-on: *shared_config
     needs:
       - check-changelog
       - check-rustfmt
-      - check-release
       - check-test-caches
       - setup-env
       - tests-bitcoin
-      - tests-epoch
       - tests-p2p
       - tests-stacks-core
+    if: >-
+      always() && 
+      needs.setup-env.outputs.create-code-coverage-report == 'true'
     env:
       REPORT_FILES_DIR: "code_coverage_files"
       REPORT_FILES_EXT: "info"

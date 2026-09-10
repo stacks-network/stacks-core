@@ -744,13 +744,11 @@ mod test {
             CHAIN_ID_TESTNET,
             marf.as_clarity_db(),
             LimitedCostTracker::new_free(),
-            StacksEpochId::latest(),
+            epoch,
         );
 
-        let contract_context = ContractContext::new(
-            QualifiedContractIdentifier::transient(),
-            ClarityVersion::Clarity3,
-        );
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
         let context = LocalContext::new();
         let mut call_stack = CallStack::new();
