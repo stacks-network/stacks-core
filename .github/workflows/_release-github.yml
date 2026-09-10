@@ -81,7 +81,7 @@ jobs:
     steps:
       # Download all individual digest artifacts from all matrix jobs
       - name: Download All Digest Artifacts
-        uses: ./.github/wrappers/download-artifact
+        uses: $/.github/wrappers/download-artifact
         with:
           pattern: digest-*
           path: /tmp/digest-artifacts
@@ -130,7 +130,7 @@ jobs:
 
       # Upload the consolidated manifest as an artifact
       - name: Upload Consolidated Manifest
-        uses: ./.github/wrappers/upload-artifact
+        uses: $/.github/wrappers/upload-artifact
         with:
           name: digest-manifest
           path: /tmp/digest-manifest.json

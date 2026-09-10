@@ -30,7 +30,7 @@ jobs:
       - check-ci
     if: >-
       needs.check-ci.outputs.enabled == 'true' && 
-      needs.check-ci.official-repo == 'true'
+      needs.check-ci.outputs.official-repo == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Lock Threads
