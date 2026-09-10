@@ -879,7 +879,7 @@ pub struct PoxTransactionRewardRecipient {
 pub struct PoxTransactionReward {
     #[serde(with = "prefix_hex")]
     pub txid: Txid,
-    pub miner_address: String,
+    pub miner_address: Option<String>,
     pub reward_recipients: Vec<PoxTransactionRewardRecipient>,
 }
 
@@ -922,7 +922,10 @@ pub fn calculate_paid_rewards(ops: &[BlockstackOperationType]) -> PaidRewards {
             if !tx_reward_recipients.is_empty() {
                 pox_transactions.push(PoxTransactionReward {
                     txid: commit.txid.clone(),
-                    miner_address: commit.apparent_sender.0.clone(),
+                    miner_address: match commit.apparent_sender.0.as_str() {
+                        "<no-change-output>" | "<undecodable-output>" => None,
+                        address => Some(address.to_string()),
+                    },
                     reward_recipients: tx_reward_recipients,
                 });
             }

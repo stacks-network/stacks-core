@@ -9233,7 +9233,7 @@ fn burn_block_payload_includes_pox_transactions() {
         expected_miner_addresses,
         pox_transactions
             .iter()
-            .map(|t| t.miner_address.clone())
+            .map(|t| t.miner_address.clone().unwrap())
             .collect()
     );
 }

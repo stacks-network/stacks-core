@@ -368,7 +368,7 @@ More details on burnchain operations can be found in [SIP-007](https://github.co
 
 Delivers information about burnchain blocks as their sortitions are processed.
 *   **Triggered by keys**: `*`, `"burn_blocks"`.
-*   **Payload Summary**: Contains burn block hash, height, consensus hash, parent hash, reward recipients, slot holders, and total burn amount.
+*   **Payload Summary**: Contains burn block hash, height, consensus hash, parent hash, reward recipients, individual PoX transactions, slot holders, and total burn amount.
 *   **Note**: In the event of PoX forks, a `new_burn_block` event may be triggered for a burn block previously processed.
 
 *Example Payload:*
@@ -385,6 +385,19 @@ Delivers information about burnchain blocks as their sortitions are processed.
       "amt": 5000
     }
   ],
+  "pox_transactions": [
+    {
+      "txid": "0x738e4d44636023efa08374033428e44eca490582bd39a6e61f3b6cf749b4214c",
+      "miner_address": "1Nf8i9YJZmeomYqKkV7UEhDPr6S7pABG4B",
+      "reward_recipients": [
+        {
+          "recipient": "1C56LYirKa3PFXFsvhSESgDy2acEHVAEt6",
+          "amt": 5000,
+          "utxo_idx": 0
+        }
+      ]
+    }
+  ],
   "reward_slot_holders": [
     "1C56LYirKa3PFXFsvhSESgDy2acEHVAEt6",
     "1C56LYirKa3PFXFsvhSESgDy2acEHVAEt6"
@@ -397,6 +410,9 @@ Delivers information about burnchain blocks as their sortitions are processed.
   include recipients who did _not_ have reward slots during the block. This could happen if
   a miner's commitment was included a block or two later than intended. Such commitments would
   not be valid, but the reward recipient would still receive the burn `amt`.
+* `pox_transactions` attributes each PoX reward to its burnchain transaction and apparent miner
+  address. The address is derived from the transaction's change output and is not authenticated.
+  It is `null` when the transaction has no change output or the output cannot be decoded.
 * `reward_slot_holders` is an array of the Bitcoin addresses that would validly receive
   PoX commitments during this block. These addresses may not actually receive rewards during
   this block if the block is faster than miners have an opportunity to commit.
