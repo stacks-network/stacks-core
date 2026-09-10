@@ -102,7 +102,7 @@ All length and offset arithmetic MUST be checked for overflow.
 ### Consensus serialization reference
 
 The logical length and reconstruction rules in this document refer to Clarity's canonical consensus
-serialization. Its one-byte type prefixes are included here to make reconstruction examples
+serialization ([SIP-005](https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md#clarity-value-representation)). Its one-byte type prefixes are included here to make reconstruction examples
 self-contained. Each is the first byte of its consensus value:
 
 | Prefix byte | Consensus value |
