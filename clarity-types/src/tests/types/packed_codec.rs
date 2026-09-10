@@ -24,8 +24,9 @@ use stacks_common::types::StacksEpochId;
 use crate::errors::ClarityTypeError;
 use crate::representations::{ClarityName, ContractName};
 use crate::types::codec::packed::{
-    PackedRecordError, PackedSchemaError, PackedValue, PackedValueError, PackedValueRef,
-    PackedValueVersion, ReconstructionError, ValueShape, ValueShapeError, ValueShapeVersion,
+    ExpectedTypeError, PackedRecordError, PackedValue, PackedValueError, PackedValueRef,
+    PackedValueVersion, ReconstructionError, ValueDescriptor, ValueDescriptorError,
+    ValueDescriptorVersion,
 };
 use crate::types::signatures::CallableSubtype;
 use crate::types::{
@@ -36,12 +37,12 @@ use crate::types::{
 
 const EPOCH: StacksEpochId = StacksEpochId::Epoch40;
 const PACKED_VERSION: PackedValueVersion = PackedValueVersion::V1;
-const SHAPE_VERSION: ValueShapeVersion = ValueShapeVersion::V1;
+const DESCRIPTOR_VERSION: ValueDescriptorVersion = ValueDescriptorVersion::V1;
 const PACKED_VALUE_HEADER_LEN: usize = PACKED_VERSION.header_len();
 const PACKED_VALUE_VERSION: u8 = PACKED_VERSION.as_u8();
-const VALUE_SHAPE_VERSION: u8 = SHAPE_VERSION.as_u8();
+const VALUE_DESCRIPTOR_VERSION: u8 = DESCRIPTOR_VERSION.as_u8();
 const BOUND_PACKED_VALUE_BODY_BYTES: usize = PACKED_VERSION.maximum_body_len();
-const BOUND_VALUE_SHAPE_BYTES: usize = SHAPE_VERSION.maximum_descriptor_len();
+const BOUND_VALUE_DESCRIPTOR_BYTES: usize = DESCRIPTOR_VERSION.maximum_descriptor_len();
 
 fn packed_header(consensus_byte_len: u32) -> [u8; PACKED_VALUE_HEADER_LEN] {
     let length = consensus_byte_len.to_be_bytes();
@@ -71,31 +72,36 @@ fn assert_canonical_round_trip(value: Value, expected: TypeSignature) -> Vec<u8>
     assert_eq!(decoded.consensus_byte_len, consensus.len() as u32);
     let transcoded = PackedValue::transcode_consensus(PACKED_VERSION, &consensus).unwrap();
     assert_eq!(transcoded.as_bytes(), packed.as_bytes());
-    let shape = ValueShape::from_value(SHAPE_VERSION, &value).unwrap();
-    assert_eq!(shape.version(), SHAPE_VERSION);
-    assert_eq!(shape.as_shape_ref().version(), SHAPE_VERSION);
+    let descriptor = ValueDescriptor::from_value(DESCRIPTOR_VERSION, &value).unwrap();
+    assert_eq!(descriptor.version(), DESCRIPTOR_VERSION);
+    assert_eq!(descriptor.as_descriptor_ref().version(), DESCRIPTOR_VERSION);
     assert_eq!(
-        ValueShape::from_bytes(shape.as_bytes()).unwrap().as_bytes(),
-        shape.as_bytes()
+        ValueDescriptor::from_bytes(descriptor.as_bytes())
+            .unwrap()
+            .as_bytes(),
+        descriptor.as_bytes()
     );
     assert_eq!(
         packed
             .as_packed_ref()
-            .audit_reconstruction_with_shape(shape.as_shape_ref())
+            .audit_reconstruction_with_descriptor(descriptor.as_descriptor_ref())
             .unwrap(),
         consensus
     );
-    let (transcoded, transcoded_shape) =
-        PackedValue::transcode_consensus_with_shape(PACKED_VERSION, SHAPE_VERSION, &consensus)
-            .unwrap();
+    let (transcoded, transcoded_descriptor) = PackedValue::transcode_consensus_with_descriptor(
+        PACKED_VERSION,
+        DESCRIPTOR_VERSION,
+        &consensus,
+    )
+    .unwrap();
     assert_eq!(transcoded.as_bytes(), packed.as_bytes());
-    assert_eq!(transcoded_shape, shape);
-    assert!(shape.as_bytes().len() <= consensus.len() + 1);
+    assert_eq!(transcoded_descriptor, descriptor);
+    assert!(descriptor.as_bytes().len() <= consensus.len() + 1);
     packed.into_bytes()
 }
 
 #[test]
-fn encoding_is_schema_free_and_supports_opaque_prefixes() {
+fn encoding_is_expected_type_independent_and_supports_opaque_prefixes() {
     let value = Value::UInt(42);
     let consensus_len = u32::try_from(value.serialize_to_vec().unwrap().len()).unwrap();
     let packed = PackedValue::encode(PACKED_VERSION, &value).unwrap();
@@ -159,10 +165,10 @@ fn canonical_wire_format_has_stable_golden_vectors() {
         [PACKED_VALUE_VERSION, 0, 0, 27, 0, 0, 1, 2, 1, 1]
     );
     assert_eq!(
-        ValueShape::from_value(SHAPE_VERSION, &tuple)
+        ValueDescriptor::from_value(DESCRIPTOR_VERSION, &tuple)
             .unwrap()
             .as_bytes(),
-        [VALUE_SHAPE_VERSION, 0x0c, 2, 1, b'a', 1, 1, b'b', 2]
+        [VALUE_DESCRIPTOR_VERSION, 0x0c, 2, 1, b'a', 1, 1, b'b', 2]
     );
 }
 
@@ -200,7 +206,7 @@ fn big_endian_framing_has_independent_multibyte_vectors() {
 }
 
 #[test]
-fn value_shape_merges_active_list_branches() {
+fn value_descriptor_merges_active_list_branches() {
     let response_type = TypeSignature::new_response(
         TypeSignature::new_option(TypeSignature::UIntType).unwrap(),
         TypeSignature::BoolType,
@@ -232,60 +238,63 @@ fn homogeneous_list_reuses_one_active_shape() {
     };
     let value = Value::cons_list_unsanitized(vec![element(), element(), element()]).unwrap();
     assert_eq!(
-        ValueShape::from_value(SHAPE_VERSION, &value)
+        ValueDescriptor::from_value(DESCRIPTOR_VERSION, &value)
             .unwrap()
             .as_bytes(),
-        [VALUE_SHAPE_VERSION, 0x0e, 0x0c, 1, 1, b'a', 1]
+        [VALUE_DESCRIPTOR_VERSION, 0x0e, 0x0c, 1, 1, b'a', 1]
     );
 }
 
 #[test]
-fn value_shape_rejects_noncanonical_and_mismatched_descriptors() {
+fn value_descriptor_rejects_noncanonical_and_mismatched_descriptors() {
     assert_matches!(
-        ValueShape::from_bytes(&[VALUE_SHAPE_VERSION]),
-        Err(PackedValueError::Shape(ValueShapeError::Truncated {
-            offset: 1
-        }))
+        ValueDescriptor::from_bytes(&[VALUE_DESCRIPTOR_VERSION]),
+        Err(PackedValueError::Descriptor(
+            ValueDescriptorError::Truncated { offset: 1 }
+        ))
     );
 
-    let empty_tuple_shape = [1, 0x0c, 0];
-    assert!(ValueShape::from_bytes(&empty_tuple_shape).is_err());
+    let empty_tuple_descriptor = [1, 0x0c, 0];
+    assert!(ValueDescriptor::from_bytes(&empty_tuple_descriptor).is_err());
     assert_matches!(
-        ValueShape::from_bytes(&[VALUE_SHAPE_VERSION, 0x0c, 1, 1, b'1', 0x01]),
-        Err(PackedValueError::Shape(ValueShapeError::InvalidTupleName {
-            length: 1
-        }))
+        ValueDescriptor::from_bytes(&[VALUE_DESCRIPTOR_VERSION, 0x0c, 1, 1, b'1', 0x01]),
+        Err(PackedValueError::Descriptor(
+            ValueDescriptorError::InvalidTupleName { length: 1 }
+        ))
     );
     assert!(
         PackedValueRef::parse(&packed_header(5))
-            .and_then(|packed| packed.reconstruct_consensus(&empty_tuple_shape))
+            .and_then(|packed| packed.reconstruct_consensus(&empty_tuple_descriptor))
             .is_err()
     );
 
     // A merged response descriptor is valid within a heterogeneous list, but is not canonical for
     // one response value with only one active branch.
-    let overgeneralized_response_shape = [VALUE_SHAPE_VERSION, 0x0b, 0x00, 0x04];
+    let overgeneralized_response_descriptor = [VALUE_DESCRIPTOR_VERSION, 0x0b, 0x00, 0x04];
     let overgeneralized_response = [PACKED_VALUE_VERSION, 0, 0, 10, 0, 64, 123, 123, 123];
     assert!(
         PackedValueRef::parse(&overgeneralized_response)
-            .and_then(|packed| packed.reconstruct_consensus(&overgeneralized_response_shape))
+            .and_then(|packed| packed.reconstruct_consensus(&overgeneralized_response_descriptor))
             .is_ok()
     );
     assert!(
         PackedValueRef::parse(&overgeneralized_response)
-            .and_then(|packed| packed.audit_reconstruction(&overgeneralized_response_shape))
+            .and_then(|packed| packed.audit_reconstruction(&overgeneralized_response_descriptor))
             .is_err()
     );
 
     let value = Value::UInt(7);
     let consensus = value.serialize_to_vec().unwrap();
-    let (packed, shape) =
-        PackedValue::transcode_consensus_with_shape(PACKED_VERSION, SHAPE_VERSION, &consensus)
-            .unwrap();
+    let (packed, descriptor) = PackedValue::transcode_consensus_with_descriptor(
+        PACKED_VERSION,
+        DESCRIPTOR_VERSION,
+        &consensus,
+    )
+    .unwrap();
 
-    let mut trailing = shape.as_bytes().to_vec();
+    let mut trailing = descriptor.as_bytes().to_vec();
     trailing.push(0);
-    assert!(ValueShape::from_bytes(&trailing).is_err());
+    assert!(ValueDescriptor::from_bytes(&trailing).is_err());
     assert!(
         packed
             .as_packed_ref()
@@ -300,18 +309,18 @@ fn value_shape_rejects_noncanonical_and_mismatched_descriptors() {
     );
 
     let nonminimal_tuple_count = [1, 0x0c, 0x80, 0x00];
-    assert!(ValueShape::from_bytes(&nonminimal_tuple_count).is_err());
+    assert!(ValueDescriptor::from_bytes(&nonminimal_tuple_count).is_err());
 }
 
 #[test]
 fn reconstruction_never_exceeds_the_declared_consensus_length() {
     let mut packed = packed_header(5).to_vec();
     packed.extend_from_slice(&[0x5a; 32]);
-    let buffer_shape = [VALUE_SHAPE_VERSION, 0x03];
+    let buffer_descriptor = [VALUE_DESCRIPTOR_VERSION, 0x03];
 
     assert_matches!(
         PackedValueRef::parse(&packed)
-            .and_then(|packed| packed.reconstruct_consensus(&buffer_shape)),
+            .and_then(|packed| packed.reconstruct_consensus(&buffer_descriptor)),
         Err(PackedValueError::Reconstruction(
             ReconstructionError::ConsensusExceedsDeclaredLength {
                 declared: 5,
@@ -324,7 +333,7 @@ fn reconstruction_never_exceeds_the_declared_consensus_length() {
     let oversized_record = packed_header(oversized_declared_len);
     assert_matches!(
         PackedValueRef::parse(&oversized_record)
-            .and_then(|packed| packed.reconstruct_consensus(&[VALUE_SHAPE_VERSION, 0x02])),
+            .and_then(|packed| packed.reconstruct_consensus(&[VALUE_DESCRIPTOR_VERSION, 0x02])),
         Err(PackedValueError::Record(
             PackedRecordError::DeclaredConsensusLengthTooLarge {
                 declared,
@@ -390,8 +399,8 @@ fn packed_errors_preserve_typed_identity_and_sources() {
         PackedValueRef::parse(&oversized_ascii)
             .unwrap()
             .decode(&ascii_bound),
-        Err(PackedValueError::Schema(
-            PackedSchemaError::AsciiStringExceedsBound {
+        Err(PackedValueError::ExpectedType(
+            ExpectedTypeError::AsciiStringExceedsBound {
                 actual: 3,
                 maximum: 2
             }
@@ -421,12 +430,15 @@ fn untyped_transcoding_supports_the_current_maximum_value_depth() {
     assert_eq!(value.depth().unwrap(), MAX_TYPE_DEPTH);
 
     let consensus = value.serialize_to_vec().unwrap();
-    let (packed, shape) =
-        PackedValue::transcode_consensus_with_shape(PACKED_VERSION, SHAPE_VERSION, &consensus)
-            .unwrap();
+    let (packed, descriptor) = PackedValue::transcode_consensus_with_descriptor(
+        PACKED_VERSION,
+        DESCRIPTOR_VERSION,
+        &consensus,
+    )
+    .unwrap();
     let reconstructed = PackedValueRef::parse(packed.as_bytes())
         .unwrap()
-        .audit_reconstruction(shape.as_bytes())
+        .audit_reconstruction(descriptor.as_bytes())
         .unwrap();
 
     assert_eq!(reconstructed, consensus);
@@ -462,57 +474,61 @@ fn consensus_transcoder_rejects_noncanonical_tuple_order() {
         Err(PackedValueError::NonCanonicalConsensusValue)
     );
     assert_matches!(
-        PackedValue::transcode_consensus_with_shape(PACKED_VERSION, SHAPE_VERSION, &noncanonical),
+        PackedValue::transcode_consensus_with_descriptor(
+            PACKED_VERSION,
+            DESCRIPTOR_VERSION,
+            &noncanonical
+        ),
         Err(PackedValueError::NonCanonicalConsensusValue)
     );
 }
 
 #[test]
-fn value_shape_enforces_depth_and_size_bounds() {
+fn value_descriptor_enforces_depth_and_size_bounds() {
     const OPTIONAL_SOME_SHAPE: u8 = 0x08;
     const BOOL_SHAPE: u8 = 0x02;
 
-    let nested_optional_shape = |wrapper_count| {
-        let mut descriptor = vec![VALUE_SHAPE_VERSION];
+    let nested_optional_descriptor = |wrapper_count| {
+        let mut descriptor = vec![VALUE_DESCRIPTOR_VERSION];
         descriptor.extend(std::iter::repeat_n(OPTIONAL_SOME_SHAPE, wrapper_count));
         descriptor.push(BOOL_SHAPE);
         descriptor
     };
 
-    let maximum_depth = nested_optional_shape(usize::from(MAX_TYPE_DEPTH) - 1);
-    assert!(ValueShape::from_bytes(&maximum_depth).is_ok());
+    let maximum_depth = nested_optional_descriptor(usize::from(MAX_TYPE_DEPTH) - 1);
+    assert!(ValueDescriptor::from_bytes(&maximum_depth).is_ok());
 
-    let too_deep = nested_optional_shape(usize::from(MAX_TYPE_DEPTH));
+    let too_deep = nested_optional_descriptor(usize::from(MAX_TYPE_DEPTH));
     assert_matches!(
-        ValueShape::from_bytes(&too_deep),
-        Err(PackedValueError::Shape(
-            ValueShapeError::MaximumDepthExceeded {
+        ValueDescriptor::from_bytes(&too_deep),
+        Err(PackedValueError::Descriptor(
+            ValueDescriptorError::MaximumDepthExceeded {
                 actual: MAX_TYPE_DEPTH,
                 maximum: MAX_TYPE_DEPTH
             }
         ))
     );
 
-    let mut oversized = vec![0; BOUND_VALUE_SHAPE_BYTES + 1];
-    oversized[0] = VALUE_SHAPE_VERSION;
+    let mut oversized = vec![0; BOUND_VALUE_DESCRIPTOR_BYTES + 1];
+    oversized[0] = VALUE_DESCRIPTOR_VERSION;
     assert_matches!(
-        ValueShape::from_bytes(&oversized),
-        Err(PackedValueError::Shape(ValueShapeError::TooLarge {
+        ValueDescriptor::from_bytes(&oversized),
+        Err(PackedValueError::Descriptor(ValueDescriptorError::TooLarge {
             actual,
-            maximum: BOUND_VALUE_SHAPE_BYTES
-        })) if actual == BOUND_VALUE_SHAPE_BYTES + 1
+            maximum: BOUND_VALUE_DESCRIPTOR_BYTES
+        })) if actual == BOUND_VALUE_DESCRIPTOR_BYTES + 1
     );
 }
 
 #[test]
-fn value_shape_rejects_varuint_groups_that_exceed_usize() {
+fn value_descriptor_rejects_varuint_groups_that_exceed_usize() {
     const TUPLE_SHAPE: u8 = 0x0c;
     const BOOL_SHAPE: u8 = 0x02;
 
     let continuation_groups = (usize::BITS - 1) / 7;
     let final_shift = continuation_groups * 7;
     let overflowing_group = 1u8 << (usize::BITS - final_shift);
-    let mut overflowing_count = vec![VALUE_SHAPE_VERSION, TUPLE_SHAPE, 0x81];
+    let mut overflowing_count = vec![VALUE_DESCRIPTOR_VERSION, TUPLE_SHAPE, 0x81];
     overflowing_count.extend(std::iter::repeat_n(
         0x80,
         usize::try_from(continuation_groups - 1).unwrap(),
@@ -520,9 +536,9 @@ fn value_shape_rejects_varuint_groups_that_exceed_usize() {
     overflowing_count.extend([overflowing_group, 1, b'a', BOOL_SHAPE]);
 
     assert_matches!(
-        ValueShape::from_bytes(&overflowing_count),
-        Err(PackedValueError::Shape(
-            ValueShapeError::VarUintOverflow {
+        ValueDescriptor::from_bytes(&overflowing_count),
+        Err(PackedValueError::Descriptor(
+            ValueDescriptorError::VarUintOverflow {
                 offset: 2,
                 encoded_groups
             }
@@ -561,7 +577,7 @@ fn canonical_storage_preserves_historically_sanitized_tuples() {
 }
 
 #[test]
-fn schema_free_reconstruction_preserves_unsanitized_list_elements() {
+fn descriptor_guided_reconstruction_preserves_unsanitized_list_elements() {
     let narrow = Value::Tuple(
         TupleData::from_data(vec![(ClarityName::from_literal("a"), Value::UInt(1))]).unwrap(),
     );
@@ -575,20 +591,23 @@ fn schema_free_reconstruction_preserves_unsanitized_list_elements() {
     let historical = Value::cons_list_unsanitized(vec![narrow, wide]).unwrap();
     let consensus = historical.serialize_to_vec().unwrap();
 
-    let (packed, shape) =
-        PackedValue::transcode_consensus_with_shape(PACKED_VERSION, SHAPE_VERSION, &consensus)
-            .unwrap();
-    assert_eq!(shape.as_bytes()[..2], [VALUE_SHAPE_VERSION, 0x0f]);
+    let (packed, descriptor) = PackedValue::transcode_consensus_with_descriptor(
+        PACKED_VERSION,
+        DESCRIPTOR_VERSION,
+        &consensus,
+    )
+    .unwrap();
+    assert_eq!(descriptor.as_bytes()[..2], [VALUE_DESCRIPTOR_VERSION, 0x0f]);
     assert_eq!(
         packed
             .as_packed_ref()
-            .audit_reconstruction(shape.as_bytes())
+            .audit_reconstruction(descriptor.as_bytes())
             .unwrap(),
         consensus
     );
 
-    // Per-element framing is non-canonical when every element admits one shared shape.
-    assert!(ValueShape::from_bytes(&[VALUE_SHAPE_VERSION, 0x0f, 2, 1, 1]).is_err());
+    // Per-element framing is non-canonical when every element admits one shared descriptor.
+    assert!(ValueDescriptor::from_bytes(&[VALUE_DESCRIPTOR_VERSION, 0x0f, 2, 1, 1]).is_err());
 }
 
 #[test]
@@ -731,8 +750,8 @@ fn canonical_bytes_ignore_bounds_inactive_branches_and_callable_view() {
         callable.serialize_to_vec().unwrap()
     );
     assert_eq!(
-        ValueShape::from_value(SHAPE_VERSION, &principal).unwrap(),
-        ValueShape::from_value(SHAPE_VERSION, &callable).unwrap()
+        ValueDescriptor::from_value(DESCRIPTOR_VERSION, &principal).unwrap(),
+        ValueDescriptor::from_value(DESCRIPTOR_VERSION, &callable).unwrap()
     );
     let principal_bytes = assert_canonical_round_trip(principal, TypeSignature::PrincipalType);
     let callable_bytes = PackedValue::encode(PACKED_VERSION, &callable).unwrap();
@@ -750,7 +769,7 @@ fn canonical_bytes_ignore_bounds_inactive_branches_and_callable_view() {
 }
 
 #[test]
-fn callable_schema_views_restore_omitted_identity_without_epoch_policy() {
+fn callable_expected_types_restore_omitted_trait_metadata_without_epoch_policy() {
     let contract_id = contract(9, "callable-views");
     let other_contract = contract(8, "other-callable");
     let trait_id = TraitIdentifier::new(
@@ -794,8 +813,8 @@ fn callable_schema_views_restore_omitted_identity_without_epoch_policy() {
             .decode(&TypeSignature::CallableType(CallableSubtype::Principal(
                 other_contract.clone()
             ))),
-        Err(PackedValueError::Schema(
-            PackedSchemaError::CallableContractMismatch { expected, actual }
+        Err(PackedValueError::ExpectedType(
+            ExpectedTypeError::CallableContractMismatch { expected, actual }
         )) if *expected == other_contract && *actual == contract_id
     );
 
@@ -808,8 +827,8 @@ fn callable_schema_views_restore_omitted_identity_without_epoch_policy() {
         PackedValueRef::parse(&standard_packed)
             .unwrap()
             .decode(&principal_callable_type),
-        Err(PackedValueError::Schema(
-            PackedSchemaError::CallableRequiresContractPrincipal { actual }
+        Err(PackedValueError::ExpectedType(
+            ExpectedTypeError::CallableRequiresContractPrincipal { actual }
         )) if actual == standard_id
     );
 
@@ -834,7 +853,7 @@ fn callable_schema_views_restore_omitted_identity_without_epoch_policy() {
 }
 
 #[test]
-fn nested_callable_schema_views_are_decoded_recursively() {
+fn nested_callable_expected_types_are_decoded_recursively() {
     let contract = contract(9, "nested-callable");
     let trait_id = TraitIdentifier::new(
         standard_principal(4),
@@ -892,7 +911,7 @@ fn nested_callable_schema_views_are_decoded_recursively() {
 }
 
 #[test]
-fn canonical_empty_lists_and_parent_framing_are_schema_independent() {
+fn canonical_empty_lists_and_parent_framing_are_expected_type_independent() {
     let bool_list = ListTypeData::new_list(TypeSignature::BoolType, 8).unwrap();
     let uint_list = ListTypeData::new_list(TypeSignature::UIntType, 1024).unwrap();
     let bool_value = Value::list_with_type(&EPOCH, vec![], bool_list.clone()).unwrap();
@@ -1070,11 +1089,11 @@ fn canonical_decoder_rejects_header_and_body_corruption() {
             if version == PACKED_VALUE_VERSION + 1
     );
 
-    let unsupported_shape = [VALUE_SHAPE_VERSION + 1, 0];
+    let unsupported_descriptor = [VALUE_DESCRIPTOR_VERSION + 1, 0];
     assert_matches!(
-        ValueShape::from_bytes(&unsupported_shape),
-        Err(PackedValueError::UnsupportedValueShapeVersion { version })
-            if version == VALUE_SHAPE_VERSION + 1
+        ValueDescriptor::from_bytes(&unsupported_descriptor),
+        Err(PackedValueError::UnsupportedValueDescriptorVersion { version })
+            if version == VALUE_DESCRIPTOR_VERSION + 1
     );
 
     let versionless_v0_uint = [17, 0, 0, 0, 1, 0];
@@ -1129,7 +1148,7 @@ proptest! {
 
 
     #[test]
-    fn arbitrary_packed_and_shape_bytes_fail_closed(
+    fn arbitrary_packed_and_descriptor_bytes_fail_closed(
         packed in prop::collection::vec(any::<u8>(), 0..512),
         descriptor in prop::collection::vec(any::<u8>(), 0..256),
     ) {

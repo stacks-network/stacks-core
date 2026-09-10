@@ -13,18 +13,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Version-neutral semantic node model for value-shape descriptors.
+//! Version-neutral semantic node model for value descriptors.
 
 use crate::representations::ClarityName;
 use crate::types::{CharType, SequenceData, Value};
 
 /// Semantic reconstruction metadata derived from one or more active Clarity values.
 ///
-/// A versioned [`ValueShape`](super::ValueShape) descriptor encodes this node tree on the wire;
+/// A versioned [`ValueDescriptor`](super::ValueDescriptor) descriptor encodes this node tree on the wire;
 /// `ActiveShape` itself owns neither encoded bytes nor a wire version.
 ///
 /// Wire-version modules own the byte representation of this model. Keeping the model independent
-/// lets record and shape grammars evolve separately without duplicating value traversal or merging.
+/// lets record and descriptor grammars evolve separately without duplicating value traversal or merging.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ActiveShape {
     /// Signed integer scalar.

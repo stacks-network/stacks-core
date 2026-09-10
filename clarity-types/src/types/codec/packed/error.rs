@@ -17,7 +17,7 @@
 
 use thiserror::Error;
 
-use super::{PackedValueVersion, ValueShapeVersion};
+use super::{PackedValueVersion, ValueDescriptorVersion};
 use crate::errors::ClarityTypeError;
 use crate::types::serialization::SerializationError;
 use crate::types::{QualifiedContractIdentifier, StandardPrincipalData};
@@ -25,9 +25,9 @@ use crate::types::{QualifiedContractIdentifier, StandardPrincipalData};
 /// Errors produced by the packed value codec.
 ///
 /// Categories identify where a failure was detected, not whether another
-/// decoding strategy can recover it. In particular, schema-directed decoding
+/// decoding strategy can recover it. In particular, typed decoding
 /// can report [`Self::Record`] when valid packed bytes were encoded from a
-/// value whose active shape is incompatible with the caller's narrower schema.
+/// value whose active shape is incompatible with the caller's narrower expected type.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum PackedValueError {
@@ -37,39 +37,39 @@ pub enum PackedValueError {
         /// Unsupported record version byte.
         version: u8,
     },
-    /// The descriptor declares an unsupported value-shape wire version.
-    #[error("unsupported value-shape version: {version}")]
-    UnsupportedValueShapeVersion {
+    /// The descriptor declares an unsupported value descriptor wire version.
+    #[error("unsupported value descriptor version: {version}")]
+    UnsupportedValueDescriptorVersion {
         /// Unsupported descriptor version byte.
         version: u8,
     },
-    /// The known record and shape versions cannot be used together.
+    /// The known record and descriptor versions cannot be used together.
     ///
     /// This is reserved for incompatible pairs introduced by future versions.
     #[error(
-        "unsupported packed/shape version combination: {}/{}",
+        "unsupported packed/descriptor version combination: {}/{}",
         packed.as_u8(),
-        shape.as_u8()
+        descriptor.as_u8()
     )]
     UnsupportedVersionCombination {
         /// Parsed packed-record version.
         packed: PackedValueVersion,
-        /// Parsed value-shape version.
-        shape: ValueShapeVersion,
+        /// Parsed value descriptor version.
+        descriptor: ValueDescriptorVersion,
     },
-    /// A schema is unsupported or disagrees with the packed body.
+    /// An expected type is unsupported or disagrees with the packed body.
     #[error(transparent)]
-    Schema(#[from] PackedSchemaError),
+    ExpectedType(#[from] ExpectedTypeError),
     /// Consensus input contains trailing or noncanonical bytes.
     #[error("consensus value is not canonically serialized")]
     NonCanonicalConsensusValue,
     /// A packed value record violates its byte grammar or canonical encoding.
     #[error(transparent)]
     Record(#[from] PackedRecordError),
-    /// A value-shape descriptor violates its byte grammar or canonical encoding.
+    /// A value descriptor violates its byte grammar or canonical encoding.
     #[error(transparent)]
-    Shape(#[from] ValueShapeError),
-    /// A packed record and value-shape descriptor cannot reconstruct one value.
+    Descriptor(#[from] ValueDescriptorError),
+    /// A packed record and value descriptor cannot reconstruct one value.
     #[error(transparent)]
     Reconstruction(#[from] ReconstructionError),
     /// An internal encoder or decoder invariant failed.
@@ -86,22 +86,22 @@ pub enum PackedValueError {
     ConsensusSerialization(#[from] SerializationError),
 }
 
-/// Unsupported or mismatched caller-supplied schema states.
+/// Unsupported or mismatched caller-supplied expected type states.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 #[non_exhaustive]
-pub enum PackedSchemaError {
+pub enum ExpectedTypeError {
     /// `NoType` cannot describe an active value.
     #[error("NoType cannot describe an active packed value")]
     NoType,
     /// `ListUnionType` is analysis-only and cannot describe a runtime value.
     #[error("ListUnionType is analysis-only")]
     ListUnionType,
-    /// A buffer exceeds its declared schema bound.
+    /// A buffer exceeds its expected type bound.
     #[error("buffer length {actual} exceeds declared bound {maximum}")]
     BufferExceedsBound {
         /// Packed buffer length.
         actual: usize,
-        /// Maximum length admitted by the schema.
+        /// Maximum length admitted by the expected type.
         maximum: usize,
     },
     /// An ASCII string exceeds its declared byte bound.
@@ -109,7 +109,7 @@ pub enum PackedSchemaError {
     AsciiStringExceedsBound {
         /// Packed ASCII byte length.
         actual: usize,
-        /// Maximum byte length admitted by the schema.
+        /// Maximum byte length admitted by the expected type.
         maximum: usize,
     },
     /// A UTF-8 string exceeds its declared character bound.
@@ -117,7 +117,7 @@ pub enum PackedSchemaError {
     Utf8StringExceedsBound {
         /// Decoded Unicode scalar count.
         actual: usize,
-        /// Maximum character count admitted by the schema.
+        /// Maximum character count admitted by the expected type.
         maximum: usize,
     },
     /// A list exceeds its declared element-count bound.
@@ -125,19 +125,19 @@ pub enum PackedSchemaError {
     ListExceedsBound {
         /// Packed list element count.
         actual: usize,
-        /// Maximum element count admitted by the schema.
+        /// Maximum element count admitted by the expected type.
         maximum: usize,
     },
-    /// A callable schema decoded a non-contract principal.
+    /// A callable expected type decoded a non-contract principal.
     #[error("callable requires a contract principal, found {actual}")]
     CallableRequiresContractPrincipal {
         /// Standard principal found in the packed body.
         actual: StandardPrincipalData,
     },
-    /// A callable principal disagrees with its schema's contract identifier.
+    /// A callable principal disagrees with its expected type's contract identifier.
     #[error("callable contract {actual} does not match declared contract {expected}")]
     CallableContractMismatch {
-        /// Contract identifier required by the schema.
+        /// Contract identifier required by the expected type.
         expected: Box<QualifiedContractIdentifier>,
         /// Contract identifier decoded from the packed body.
         actual: Box<QualifiedContractIdentifier>,
@@ -389,7 +389,7 @@ pub enum PackedRecordError {
         /// Encoded response discriminant.
         discriminant: u8,
     },
-    /// A fixed-width tuple omits bytes required by its schema.
+    /// A fixed-width tuple omits bytes required by its expected type.
     #[error("fixed tuple requires byte offset {required_end}, but body length is {actual}")]
     TruncatedFixedTuple {
         /// End offset required by the current field.
@@ -486,15 +486,15 @@ pub enum PackedRecordError {
     },
 }
 
-/// Malformed or noncanonical value-shape descriptor errors.
+/// Malformed or noncanonical value descriptor errors.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 #[non_exhaustive]
-pub enum ValueShapeError {
+pub enum ValueDescriptorError {
     /// The descriptor has no version byte.
-    #[error("empty value shape")]
+    #[error("empty value descriptor")]
     Empty,
     /// The descriptor exceeds its maximum encoded size.
-    #[error("value-shape length {actual} exceeds maximum {maximum}")]
+    #[error("value descriptor length {actual} exceeds maximum {maximum}")]
     TooLarge {
         /// Actual descriptor byte length.
         actual: usize,
@@ -502,19 +502,19 @@ pub enum ValueShapeError {
         maximum: usize,
     },
     /// A shape opcode is unknown.
-    #[error("unknown value-shape opcode {opcode:#04x}")]
+    #[error("unknown descriptor opcode {opcode:#04x}")]
     UnknownOpcode {
         /// Unsupported opcode byte.
         opcode: u8,
     },
     /// The root shape does not consume the complete descriptor.
-    #[error("value shape has {trailing} trailing bytes")]
+    #[error("value descriptor has {trailing} trailing bytes")]
     TrailingBytes {
         /// Bytes remaining after the root shape node.
         trailing: usize,
     },
     /// Shape nesting exceeds the codec recursion bound.
-    #[error("value-shape depth {actual} reaches maximum {maximum}")]
+    #[error("descriptor depth {actual} reaches maximum {maximum}")]
     MaximumDepthExceeded {
         /// Attempted zero-based node depth.
         actual: u8,
@@ -522,11 +522,11 @@ pub enum ValueShapeError {
         maximum: u8,
     },
     /// A tuple shape has no fields.
-    #[error("value-shape tuple has no fields")]
+    #[error("descriptor tuple has no fields")]
     EmptyTuple,
     /// A tuple field count exceeds the remaining descriptor bytes.
     #[error(
-        "value-shape tuple declares {declared} fields with only {remaining_bytes} bytes remaining"
+        "descriptor tuple declares {declared} fields with only {remaining_bytes} bytes remaining"
     )]
     TupleFieldCountExceedsDescriptor {
         /// Declared tuple field count.
@@ -582,17 +582,17 @@ pub enum ValueShapeError {
         /// Number of redundant per-element shapes.
         element_count: usize,
     },
-    /// A shape varuint contains redundant groups.
-    #[error("value-shape varuint uses {encoded_groups} groups for value {value}")]
+    /// A descriptor varuint contains redundant groups.
+    #[error("descriptor varuint uses {encoded_groups} groups for value {value}")]
     NonCanonicalVarUint {
         /// Encoded seven-bit groups.
         encoded_groups: usize,
         /// Decoded integer value.
         value: usize,
     },
-    /// A shape varuint cannot be represented as a `usize`.
+    /// A descriptor varuint cannot be represented as a `usize`.
     #[error(
-        "value-shape varuint at byte offset {offset} exceeds usize after {encoded_groups} groups"
+        "descriptor varuint at byte offset {offset} exceeds usize after {encoded_groups} groups"
     )]
     VarUintOverflow {
         /// Complete-descriptor offset of the first varuint byte.
@@ -601,14 +601,14 @@ pub enum ValueShapeError {
         encoded_groups: usize,
     },
     /// A shape node is incomplete.
-    #[error("truncated value shape at byte offset {offset}")]
+    #[error("truncated value descriptor at byte offset {offset}")]
     Truncated {
         /// Descriptor offset where another byte was required.
         offset: usize,
     },
 }
 
-/// Errors caused by disagreement between packed records and value-shape descriptors.
+/// Errors caused by disagreement between packed records and value descriptors.
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 #[non_exhaustive]
 pub enum ReconstructionError {
@@ -624,11 +624,11 @@ pub enum ReconstructionError {
         /// Canonical re-encoded byte length.
         canonical_length: usize,
     },
-    /// The descriptor is not the canonical shape for the reconstructed value.
+    /// The descriptor is not the canonical descriptor for the reconstructed value.
     #[error(
-        "value shape first differs at byte {first_mismatch} (stored length {stored_length}, canonical length {canonical_length})"
+        "value descriptor first differs at byte {first_mismatch} (stored length {stored_length}, canonical length {canonical_length})"
     )]
-    NonCanonicalValueShape {
+    NonCanonicalValueDescriptor {
         /// First differing byte offset, or the shorter descriptor length.
         first_mismatch: usize,
         /// Stored descriptor byte length.
@@ -777,12 +777,12 @@ pub enum PackedCodecInvariant {
         /// Offsets written by the builder.
         actual: usize,
     },
-    /// Schema and value fixed-tuple classifiers disagreed.
+    /// Expected-type and value fixed-tuple classifiers disagreed.
     #[error("canonical fixed tuple classification changed")]
     FixedTupleClassificationChanged,
     /// Shape and value fixed-tuple classifiers disagreed.
-    #[error("fixed value-shape classification changed")]
-    FixedValueShapeClassificationChanged,
+    #[error("fixed shape classification changed")]
+    FixedShapeClassificationChanged,
     /// Shape and value fixed-list classifiers disagreed.
     #[error("fixed list-shape classification changed")]
     FixedListShapeClassificationChanged,
@@ -823,9 +823,9 @@ pub enum PackedCodecInvariant {
         /// Bits physically available in the lane.
         bit_count: usize,
     },
-    /// A V1 shape parser received a descriptor dispatched to another version.
-    #[error("V1 shape parser expected version {expected}, found {actual}")]
-    IncorrectV1ShapeVersion {
+    /// A V1 descriptor parser received a descriptor dispatched to another version.
+    #[error("V1 descriptor parser expected version {expected}, found {actual}")]
+    IncorrectV1DescriptorVersion {
         /// Version required by the V1 parser.
         expected: u8,
         /// Version byte supplied to the parser.

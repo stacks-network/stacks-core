@@ -19,22 +19,22 @@ remains unchanged.
 The codec defines two independently versioned encodings:
 
 - a packed value record, decoded with a caller-supplied `TypeSignature`; and
-- an optional value-shape descriptor, used to reconstruct exact consensus bytes without a
+- an optional value descriptor, used to reconstruct exact consensus bytes without a
   `TypeSignature`.
 
 Ordinary typed reads require only the packed value record. Generic reads, integrity audits, and
-compatibility reads for historical unsanitized values whose cached schema omits active data require
-both the record and its descriptor.
+compatibility reads for historical unsanitized values whose cached type metadata omits active data
+require both the record and its descriptor.
 
 Neither the record nor its descriptor is self-describing with respect to the complete Clarity type.
 A typed decoder MUST receive the expected `TypeSignature`. A descriptor-guided reconstructor MUST
-receive the value-shape descriptor. For example, the packed body `00` can represent integer zero,
+receive the value descriptor. For example, the packed body `00` can represent integer zero,
 unsigned integer zero, Boolean false, or optional `none`; its enclosing `TypeSignature` or descriptor
 distinguishes them.
 
 ## Versioned record and descriptor
 
-The packed record and value-shape descriptor have independent version bytes. Offsets in each table
+The packed record and value descriptor have independent version bytes. Offsets in each table
 are relative to the start of the complete record or descriptor.
 
 ### Packed record envelope
@@ -50,16 +50,16 @@ For a complete packed record of `R` bytes:
 The four-byte envelope is followed immediately by the value body. There is intentionally no
 packed-body-length field.
 
-### Value-shape descriptor envelope
+### Value descriptor envelope
 
-For a complete value-shape descriptor of `S` bytes:
+For a complete value descriptor of `S` bytes:
 
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
 | `0` | 1 byte | Shape version | `u8` | MUST be `01` for the V1 descriptor format |
 | `1` | `S - 1` bytes | Root shape | Shape-specific | Exactly one root shape node with no trailing bytes |
 
-The packed version selects the record-envelope and value-body grammar. The shape version selects the
+The packed version selects the record-envelope and value-body grammar. The descriptor version selects the
 descriptor grammar. Changing the record grammar does not require changing the descriptor version,
 or vice versa.
 
@@ -69,11 +69,18 @@ opaque codec value and MUST NOT infer its version from external state.
 
 ## Terminology and notation
 
-A value-shape descriptor (`ValueShape`) is a value-derived structural schema. It records only the
-active structure needed to interpret packed bytes; unlike a `TypeSignature`, it does not represent
-declared bounds, inactive optional or response branches, or callable trait metadata.
-"Descriptor-guided" therefore means that reconstruction uses this descriptor instead of a
-caller-supplied `TypeSignature`.
+| Term | Meaning |
+| ---- | ---- |
+| Expected type | The caller-supplied `TypeSignature` used for typed decoding. It supplies omitted type information and declared bounds to check. It is not an input to the packed encoder. |
+| Value descriptor | The separately encoded, value-derived structural information used to reconstruct consensus bytes without an expected type. It has its own framing and can merge observed child shapes across list elements. It does not encode declared bounds, unobserved alternatives, or callable trait metadata. |
+| Layout | The physical arrangement of packed bytes, such as concatenated fields, offset directories, or integer lanes. Encoding selects it from the value; decoding interprets it using the expected type or value descriptor. |
+
+`ValueDescriptor` is the owned Rust representation of a value descriptor. “Descriptor-guided”
+reconstruction uses that descriptor instead of an expected type. A **shape** is a structural node
+within a descriptor, such as an integer, tuple, or optional with a child shape.
+
+**Active** means present in the runtime value, rather than merely declared by its type. Active tuple
+fields are its `data_map` entries; active list elements are its `data` entries.
 
 The following notation is used:
 
@@ -139,9 +146,13 @@ MUST NOT depend on:
 - callable subtype metadata; or
 - any other part of the declared `TypeSignature` not present in the active value.
 
-The expected schema is a decoding input, not a physical-layout input. Execution-epoch admission and
-sanitization are caller policies outside this format. Two values with identical canonical consensus
-bytes MUST produce identical packed records and identical value-shape descriptors.
+The encoder receives a `Value` and selects its layout from that value alone. The typed decoder
+receives packed bytes and an expected type, which supplies omitted type information and bounds to
+check. For example, two variables declared as `(buff 10)` and `(buff 100)` containing `0x0102` MUST
+produce identical packed records.
+
+Execution-epoch admission and sanitization are caller policies outside this format. Two values with
+identical canonical consensus bytes MUST produce identical packed records and value descriptors.
 
 Encoders MUST emit the one canonical representation described below. Packed-record decoders MUST
 reject non-minimal scalar and directory widths, trailing bytes, invalid padding, and disagreement
@@ -152,28 +163,28 @@ descriptor is canonical for its packed value.
 ## Trust and integrity boundary
 
 A packed record is intentionally not self-describing. Typed decoding proves that the record is a
-canonical value under the caller-supplied schema; it does not authenticate that the schema belongs
-to that record. Some bodies are valid under more than one same-width schema. For example, four raw
-bytes can decode as either `(buff 4)` or `(string-ascii 4)` when paired with the corresponding
-schema.
+canonical value under the expected type; it does not authenticate that the type belongs to that
+record. Some bodies are valid under multiple expected types with the same physical width. For
+example, four raw bytes can decode as either `(buff 4)` or `(string-ascii 4)` when paired with the
+corresponding expected type.
 
 A storage system using typed decoding MUST therefore preserve the association between a record and
 its type metadata. The format does not require a content-hash check on a trusted hot path when that
 association is already protected by the storage write path and authenticated index. A generic read,
 integrity audit, migration, or any path handling untrusted or possibly mismatched metadata MUST
-instead use the value-shape descriptor and full canonical audit below, then verify any
+instead use the value descriptor and full canonical audit below, then verify any
 content-addressed key against the reconstructed consensus bytes.
 
-The logical-length header detects truncation and many schema mismatches, but it is not a checksum or
-authentication tag. Packed Grammar V1 does not attempt to detect a same-length substitution that is
-otherwise canonical under the supplied schema.
+The logical-length header detects truncation and many expected type mismatches, but it is not a
+checksum or authentication tag. Packed Grammar V1 does not attempt to detect a same-length
+substitution that is otherwise canonical under the expected type.
 
 ## Runtime value coverage
 
 Every supported runtime `Value` variant is represented as follows. `Sequence` and `Principal`
 rows show all of their runtime subtypes.
 
-| Runtime value | Packed body | Value-shape opcode | Required decoding context |
+| Runtime value | Packed body | Shape opcode | Required decoding context |
 | ---- | ---- | ---- | ---- |
 | `Int` | Minimal signed scalar | `00` | `IntType` or shape |
 | `UInt` | Minimal unsigned scalar | `01` | `UIntType` or shape |
@@ -184,14 +195,14 @@ rows show all of their runtime subtypes.
 | `Sequence::List` | Count plus one canonical element layout | `0d`, `0e`, or `0f` | List type/bound or shape |
 | `Principal::Standard` | Principal kind `00`, version, hash | `06` | `PrincipalType` or shape |
 | `Principal::Contract` | Principal kind `01`, issuer, name | `06` | `PrincipalType` or shape |
-| `CallableContract` | Same body as contract principal | `06` | Callable schema restores trait identity |
+| `CallableContract` | Same body as contract principal | `06` | Callable expected type restores trait identity |
 | `Optional::None` | Tag `00` | `07` | Optional type or shape |
 | `Optional::Some` | Tag `01` plus active child | `08` | Optional child type or shape |
 | `Response::Err` | Tag `00` plus active child | `0a` | Error type or shape |
 | `Response::Ok` | Tag `01` plus active child | `09` | Success type or shape |
 | `Tuple` | Fixed concatenation or offset directory | `0c` | Field names/types or tuple shape |
 
-`NoType` is not an active runtime value. `ListUnionType` is an analysis-only schema and cannot
+`NoType` is not an active runtime value. `ListUnionType` is an analysis-only type and cannot
 describe an active runtime value.
 
 ## Packed value record
@@ -222,8 +233,8 @@ The logical length is retained because physical packing MUST NOT change:
 
 - the actual consensus-serialized byte length used by existing Clarity runtime-cost accounting;
 - the exact allocation bound for descriptor-guided consensus reconstruction; or
-- the ability to detect a packed body, schema, or descriptor that reconstructs a different logical
-  value length.
+- the ability to detect a packed body, expected type, or descriptor that reconstructs a different
+  logical value length.
 
 The current 2,097,152-byte consensus serialization bound fits in 24 bits. Version 1 therefore uses
 the remaining three header bytes for the logical length while keeping the body at offset four.
@@ -342,10 +353,10 @@ trait metadata:
 - `TraitReferenceType(expected_trait)` restores the historical trait view; and
 - `PrincipalType` decodes the same bytes as an ordinary contract principal.
 
-The codec does not decide whether a callable schema is legal in an execution epoch. Callers MUST
-apply the appropriate epoch-aware admission policy at their typed-value boundary. This separation
-lets the same bytes represent historical and current schema views without making physical decoding
-depend on execution history.
+The codec does not decide whether an expected callable type is legal in an execution epoch. Callers
+MUST apply the appropriate epoch-aware admission policy at their typed-value boundary. This lets
+the same bytes represent historical and current type views without making physical decoding depend
+on execution history.
 
 Descriptor-guided reconstruction always emits the canonical contract-principal consensus bytes.
 Those bytes intentionally contain no trait identity.
@@ -434,7 +445,7 @@ Offsets are relative to the start of `child_data`. The following conditions MUST
 Child `i` occupies `child_data[offsets[i]..offsets[i + 1]]`. Repeated offsets are valid when a child
 has an empty body.
 
-The child count is supplied by the tuple schema, value-shape descriptor, or the list's encoded
+The child count is supplied by the expected tuple type, value descriptor, or the list's encoded
 count; it is not repeated in the directory.
 
 ## Tuple body
@@ -451,8 +462,8 @@ If every active field is fixed-width:
 Otherwise, the complete tuple body uses the [offset-directory layout](#offset-directories) with
 `N` children.
 
-Typed decoding obtains names, child types, and count from the expected tuple schema.
-Descriptor-guided reconstruction obtains them from the value-shape descriptor. Field names MUST be
+Typed decoding obtains names, child types, and count from the expected tuple type.
+Descriptor-guided reconstruction obtains them from the value descriptor. Field names MUST be
 strictly increasing and the complete tuple body MUST be consumed.
 
 ## List body
@@ -515,7 +526,7 @@ bits in the final byte MUST be zero.
 
 Fixed-width element bodies are concatenated with no directory. For historical heterogeneous lists,
 each active element's own fixed width is used during descriptor-guided reconstruction. Ordinary
-typed lists use the one width implied by their element schema.
+typed lists use the one width implied by their expected element type.
 
 ### Variable-width elements
 
@@ -528,22 +539,22 @@ Given a runtime value, a canonical encoder MUST:
 1. compute its exact canonical consensus byte length;
 2. encode its active body recursively, selecting tuple and list layouts only from active values;
 3. prefix the body with the four-byte packed record envelope; and
-4. when descriptor-guided reconstruction is required, derive the canonical value-shape descriptor
+4. when descriptor-guided reconstruction is required, derive the canonical value descriptor
    from the same active value.
 
 The encoder MUST NOT serialize declared bounds, tuple field names, inactive optional or response
 branches, or callable trait metadata into the packed body. Tuple names are present only in the
-value-shape descriptor. A typed writer that already obtained the consensus length while hashing or
+value descriptor. A typed writer that already obtained the consensus length while hashing or
 serializing can reuse that checked length rather than serialize the value again.
 
-## Value-shape descriptor
+## Value descriptor
 
-The value-shape descriptor supplies only information omitted from packed bytes that is necessary for
+The value descriptor supplies only information omitted from packed bytes that is necessary for
 descriptor-guided reconstruction. It uses the
-[value-shape descriptor envelope](#value-shape-descriptor-envelope) defined above.
+[value descriptor envelope](#value-descriptor-envelope) defined above.
 
 The descriptor MUST contain exactly one shape with no trailing bytes. Its total length MUST NOT
-exceed `BOUND_VALUE_SHAPE_BYTES` (currently 2,097,153 bytes), and its recursive depth MUST NOT
+exceed `BOUND_VALUE_DESCRIPTOR_BYTES` (currently 2,097,153 bytes), and its recursive depth MUST NOT
 exceed `MAX_TYPE_DEPTH` (currently 32 nodes including the root).
 
 ### Shape opcodes
@@ -641,26 +652,27 @@ The complete `varuint` additionally obeys these canonicality rules:
 A typed decoder receives a complete packed record and expected `TypeSignature`. It MUST:
 
 1. parse and validate the packed version, then read the three-byte logical length;
-2. decode the complete body under the expected schema;
-3. enforce sequence and list bounds, tuple fields, and callable schema identity;
+2. decode the complete body under the expected type;
+3. enforce the expected type's sequence and list bounds, tuple fields, and callable contract identity;
 4. enforce every canonical scalar, lane, and framing rule;
 5. reject unsupported active `NoType` and analysis-only `ListUnionType` states;
 6. reject missing or trailing bytes; and
 7. compare its accumulated consensus length with the record header.
 
-The expected schema provides omitted tuple names, declared bounds, inactive wrapper branches, list
-element types, and callable trait identity. It MUST NOT change the physical interpretation selected
-by the canonical active value. Callers are responsible for applying epoch-aware admission and
-sanitization before encoding or after decoding, as appropriate for their execution context.
+The expected type provides omitted tuple names, declared bounds, inactive wrapper branches, list
+element types, and callable trait identity. The decoder MUST interpret the body using the
+value-derived layout rules above. Declared bounds and inactive branches MUST NOT select different
+framing. Callers are responsible for applying epoch-aware admission and sanitization before encoding
+or after decoding, as appropriate for their execution context.
 
 Consensus transcoding preserves the complete active value. Historical unsanitized values can
-contain data omitted by their cached read schema, so direct typed decoding is not guaranteed for
-those records. Such compatibility reads require the value-shape descriptor and descriptor-guided
+contain data omitted by their cached type metadata, so direct typed decoding is not guaranteed for
+those records. Such compatibility reads require the value descriptor and descriptor-guided
 reconstruction before applying the legacy sanitizing typed deserializer.
 
 ## Descriptor-guided reconstruction and audit
 
-Descriptor-guided reconstruction receives a complete packed record and value-shape descriptor. It
+Descriptor-guided reconstruction receives a complete packed record and value descriptor. It
 MUST validate both grammars and reconstruct exactly the canonical Clarity consensus bytes described
 by the pair.
 
@@ -674,7 +686,7 @@ A full canonical audit MUST additionally:
 
 1. deserialize the reconstructed consensus bytes as one exact untyped Clarity value;
 2. reserialize it and require byte-for-byte equality;
-3. re-encode its packed record and value-shape descriptor; and
+3. re-encode its packed record and value descriptor; and
 4. require both outputs to equal the stored inputs byte for byte.
 
 This catches structurally valid but over-general descriptors, non-canonical consensus encodings, and
@@ -687,8 +699,8 @@ Version 1 enforces the following current Clarity limits:
 | Item | Limit |
 | ---- | ---- |
 | Canonical consensus value | `BOUND_VALUE_SERIALIZATION_BYTES` = 2,097,152 bytes |
-| Value-shape descriptor | `BOUND_VALUE_SHAPE_BYTES` = 2,097,153 bytes |
-| Value-shape depth | `MAX_TYPE_DEPTH` = 32 |
+| Value descriptor | `BOUND_VALUE_DESCRIPTOR_BYTES` = 2,097,153 bytes |
+| Shape depth | `MAX_TYPE_DEPTH` = 32 |
 | Integer body or lane width | 16 bytes |
 | Packed directory offset | `u32::MAX` |
 
@@ -704,7 +716,7 @@ BOUND_PACKED_VALUE_BODY_BYTES =
 With the current constants, this is 11,534,341 bytes. The four-byte packed record header is not
 included in that bound.
 
-The value-shape bound is one byte larger than the maximum consensus serialization. For a canonical
+The descriptor bound is one byte larger than the maximum consensus serialization. For a canonical
 descriptor derived from a legal value, every shape node and tuple name is covered by at least as
 many bytes in the corresponding consensus value. Merged optional, response, and list shapes
 describe multiple active values whose combined consensus bytes cover every merged child. The
@@ -713,15 +725,15 @@ bound as a conservative resource ceiling before a full canonicality audit.
 
 ## Golden examples
 
-`packed` below means the complete, independently versioned `packed_record`. `shape` means the
-complete, independently versioned value-shape descriptor. Spaces only group fields; they are not
+`packed` below means the complete, independently versioned `packed_record`. `descriptor` means the
+complete, independently versioned value descriptor. Spaces only group fields; they are not
 encoded.
 
 ### Scalars and byte sequences
 
 These vectors cover every scalar and byte-sequence shape:
 
-| Value | Consensus-length calculation | `packed` | `shape` |
+| Value | Consensus-length calculation | `packed` | `descriptor` |
 | ---- | ---- | ---- | ---- |
 | `-129` | `1 + 16 = 17` | `01 00 00 11  ff 7f` | `01 00` |
 | `u256` | `1 + 16 = 17` | `01 00 00 11  01 00` | `01 01` |
@@ -736,9 +748,9 @@ minimal. Sequence headers count the consensus type prefix and omitted `u32be` pa
 bounds count one Unicode scalar in the example, while its consensus and packed payload contain two
 bytes.
 
-The buffer, ASCII, and UTF-8 bodies are all untagged byte strings. Their schema or shape opcode is
-therefore essential. For example, packed bytes alone cannot distinguish `0x4869` from ASCII
-`"Hi"`.
+The buffer, ASCII, and UTF-8 bodies are all untagged byte strings. Their expected type or shape
+opcode is therefore essential. For example, packed bytes alone cannot distinguish `0x4869` from
+ASCII `"Hi"`.
 
 ### Principals and callable contracts
 
@@ -753,7 +765,7 @@ packed =
 ^^ ^^^^^^^^  ^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 V1 length    kind       version + hash160
 
-shape = 01 06
+descriptor = 01 06
 ```
 
 The contract principal with name `pool` has consensus length
@@ -768,19 +780,19 @@ packed =
 ^^ ^^^^^^^^  ^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ^^^^^^^^^^^
 V1 length    kind       version + hash160                         "pool"
 
-shape = 01 06
+descriptor = 01 06
 ```
 
-A callable contract with this identity has exactly the same packed record and shape. Under
+A callable contract with this identity has exactly the same packed record and descriptor. Under
 `PrincipalType`, typed decoding produces a contract principal. Under `CallableType::Trait`, it
-produces a callable and restores the trait identifier from the schema.
+produces a callable and restores the trait identifier from the expected type.
 
 ### Optional and response values
 
 Wrapper tags select only the active packed child. Inactive branches do not contribute bytes or
 affect framing.
 
-| Value and expected type | Consensus-length calculation | `packed` | `shape` |
+| Value and expected type | Consensus-length calculation | `packed` | `descriptor` |
 | ---- | ---- | ---- | ---- |
 | `none` as `(optional uint)` | `1` | `01 00 00 01  00` | `01 07` |
 | `(some u7)` | `1 + 17 = 18` | `01 00 00 12  01 07` | `01 08 01` |
@@ -802,9 +814,9 @@ packed = 01 00 00 0b  01 00
          ^^ ^^^^^^^^  ^^^^^
          V1 length    true, false
 
-shape  = 01  0c 02  01 61 02  01 62 02
-         ^^  ^^^^^  ^^^^^^^^  ^^^^^^^^
-         V1  tuple   a: bool   b: bool
+descriptor = 01  0c 02  01 61 02  01 62 02
+             ^^  ^^^^^  ^^^^^^^^  ^^^^^^^^
+             V1  tuple   a: bool   b: bool
 ```
 
 ### Variable-width tuple
@@ -818,9 +830,9 @@ packed = 01 00 00 1b  00  00 01 02  01 01
          ^^ ^^^^^^^^  ^^  ^^^^^^^^  ^^^^^
          V1 length    W=1 offsets   u1, true
 
-shape  = 01  0c 02  01 61 01  01 62 02
-         ^^  ^^^^^  ^^^^^^^^  ^^^^^^^^
-         V1  tuple   a: uint   b: bool
+descriptor = 01  0c 02  01 61 01  01 62 02
+             ^^  ^^^^^  ^^^^^^^^  ^^^^^^^^
+             V1  tuple   a: uint   b: bool
 ```
 
 Directory width is selected from the total child-data length, not the largest individual child.
@@ -837,7 +849,7 @@ packed = 01 00 00 05  00 00 00 00
          ^^ ^^^^^^^^  ^^^^^^^^^^^
          V1 length    count = 0
 
-shape  = 01 0d
+descriptor = 01 0d
 ```
 
 ### Unsigned-integer lane
@@ -850,7 +862,7 @@ packed = 01 00 00 38  00 00 00 03  00 00  00 ff  01 00
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^^^^  ^^^^^  ^^^^^
          V1 length    count = 3     u0     u255   u256
 
-shape  = 01 0e 01
+descriptor = 01 0e 01
 ```
 
 ### Signed-integer lane
@@ -863,7 +875,7 @@ packed = 01 00 00 38  00 00 00 03  ff 7f  00 00  00 7f
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^^^^  ^^^^^  ^^^^^
          V1 length    count = 3    -129    0      127
 
-shape  = 01 0e 00
+descriptor = 01 0e 00
 ```
 
 ### Boolean lane
@@ -876,7 +888,7 @@ packed = 01 00 00 0e  00 00 00 09  55 01
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^^^^
          V1 length    count = 9     bits
 
-shape  = 01 0e 02
+descriptor = 01 0e 02
 ```
 
 ### Fixed-width element list
@@ -890,7 +902,7 @@ packed = 01 00 00 1b  00 00 00 02  01 00  00 01
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^^^^  ^^^^^
          V1 length    count = 2    tuple0 tuple1
 
-shape  = 01 0e  0c 02 01 61 02 01 62 02
+descriptor = 01 0e  0c 02 01 61 02 01 62 02
 ```
 
 ### Variable-width element list
@@ -904,7 +916,7 @@ packed = 01 00 00 12  00 00 00 02  00  00 01 03  01 02 03
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^  ^^^^^^^^  ^^^^^^^^
          V1 length    count = 2    W=1 offsets   child data
 
-shape  = 01 0e 03
+descriptor = 01 0e 03
 ```
 
 ### Merged response shape in a list
@@ -918,9 +930,9 @@ packed = 01 00 00 19  00 00 00 02  00  00 02 04  01 01  00 01
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^  ^^^^^^^^  ^^^^^  ^^^^^
          V1 length    count = 2    W=1 offsets   ok u1   err true
 
-shape  = 01 0e 0b 01 02
-         ^^ ^^ ^^ ^^ ^^
-         V1 list both uint bool
+descriptor = 01 0e 0b 01 02
+             ^^ ^^ ^^ ^^ ^^
+             V1 list both uint bool
 ```
 
 ### Historical per-element list shape
@@ -933,7 +945,7 @@ packed =
 01 00 00 38  00 00 00 02  00  00 04 0a
 00 00 01 01  00 00 01 02 01 01
 
-shape =
+descriptor =
 01 0f 02
 0c 01 01 61 01
 0c 02 01 61 01 01 62 02
@@ -946,7 +958,7 @@ shapes. Ordinary sanitized lists MUST use a shared shape instead.
 ## Versioning rule
 
 Any change that alters packed bytes emitted for an already-supported value requires a new packed
-version. An incompatible change to the value-shape grammar requires a new descriptor version.
+version. An incompatible change to the descriptor grammar requires a new descriptor version.
 
 A reader MUST validate the explicit version of each record or descriptor before parsing its
 remaining bytes and MUST NOT probe alternative grammars.

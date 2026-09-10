@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Version 1 value-shape descriptor encoding and decoding.
+//! Version 1 value descriptor encoding and decoding.
 //!
 //! A descriptor records only information omitted from packed bytes, such as tuple field names and
 //! active optional/response/list shapes. It is derived from the value itself; declared bounds and
@@ -22,16 +22,16 @@
 pub use super::super::shape::ActiveShape;
 use super::super::shape::merge_list_elements;
 use super::{
-    BOUND_VALUE_SHAPE_BYTES, PackedCodecInvariant, PackedValueError, VALUE_SHAPE_VERSION,
-    ValueShape, ValueShapeError, ValueShapeVersion,
+    BOUND_VALUE_DESCRIPTOR_BYTES, PackedCodecInvariant, PackedValueError, VALUE_DESCRIPTOR_VERSION,
+    ValueDescriptor, ValueDescriptorError, ValueDescriptorVersion,
 };
 use crate::representations::ClarityName;
 use crate::types::Value;
 
-/// Width of the value-shape version prefix omitted from [`ShapeParser::bytes`].
-const VALUE_SHAPE_VERSION_LEN: usize = 1;
+/// Width of the descriptor version prefix omitted from [`DescriptorParser::bytes`].
+const VALUE_DESCRIPTOR_VERSION_LEN: usize = 1;
 
-/// Opcode identifying one node in a Version 1 value-shape descriptor.
+/// Opcode identifying one node in a Version 1 value descriptor.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 enum ShapeOpcode {
@@ -73,7 +73,7 @@ impl ShapeOpcode {
             0x0d => Ok(Self::EmptyList),
             0x0e => Ok(Self::List),
             0x0f => Ok(Self::ListElements),
-            _ => Err(ValueShapeError::UnknownOpcode { opcode: byte }.into()),
+            _ => Err(ValueDescriptorError::UnknownOpcode { opcode: byte }.into()),
         }
     }
 
@@ -83,50 +83,50 @@ impl ShapeOpcode {
     }
 }
 
-/// Encode the canonical value-shape descriptor for a runtime value.
-pub fn encode_value_shape(value: &Value) -> Result<ValueShape, PackedValueError> {
+/// Encode the canonical value descriptor for a runtime value.
+pub fn encode_value_descriptor(value: &Value) -> Result<ValueDescriptor, PackedValueError> {
     let shape = ActiveShape::from_value(value);
     let mut bytes = Vec::new();
-    bytes.push(VALUE_SHAPE_VERSION);
+    bytes.push(VALUE_DESCRIPTOR_VERSION);
     encode_shape_node(&shape, &mut bytes)?;
-    if bytes.len() > BOUND_VALUE_SHAPE_BYTES {
+    if bytes.len() > BOUND_VALUE_DESCRIPTOR_BYTES {
         return Err(PackedValueError::SizeOverflow);
     }
-    Ok(ValueShape {
+    Ok(ValueDescriptor {
         bytes,
-        version: ValueShapeVersion::V1,
+        version: ValueDescriptorVersion::V1,
     })
 }
 
-/// Parse and validate one complete Version 1 value-shape descriptor.
-pub fn parse_value_shape(bytes: &[u8]) -> Result<ActiveShape, PackedValueError> {
-    if bytes.len() > BOUND_VALUE_SHAPE_BYTES {
-        return Err(ValueShapeError::TooLarge {
+/// Parse and validate one complete Version 1 value descriptor.
+pub fn parse_value_descriptor(bytes: &[u8]) -> Result<ActiveShape, PackedValueError> {
+    if bytes.len() > BOUND_VALUE_DESCRIPTOR_BYTES {
+        return Err(ValueDescriptorError::TooLarge {
             actual: bytes.len(),
-            maximum: BOUND_VALUE_SHAPE_BYTES,
+            maximum: BOUND_VALUE_DESCRIPTOR_BYTES,
         }
         .into());
     }
-    let (&version, body) = bytes.split_first().ok_or(ValueShapeError::Empty)?;
-    if version != VALUE_SHAPE_VERSION {
-        return Err(PackedCodecInvariant::IncorrectV1ShapeVersion {
-            expected: VALUE_SHAPE_VERSION,
+    let (&version, body) = bytes.split_first().ok_or(ValueDescriptorError::Empty)?;
+    if version != VALUE_DESCRIPTOR_VERSION {
+        return Err(PackedCodecInvariant::IncorrectV1DescriptorVersion {
+            expected: VALUE_DESCRIPTOR_VERSION,
             actual: version,
         }
         .into());
     }
-    ShapeParser::new(body).parse()
+    DescriptorParser::new(body).parse()
 }
 
-/// Stateful reader for one recursive value-shape descriptor body.
-struct ShapeParser<'a> {
+/// Stateful reader for one recursive value descriptor body.
+struct DescriptorParser<'a> {
     /// Descriptor body, excluding its version byte.
     bytes: &'a [u8],
     /// Next unread byte within `bytes`.
     cursor: usize,
 }
 
-impl<'a> ShapeParser<'a> {
+impl<'a> DescriptorParser<'a> {
     /// Begin parsing one descriptor body.
     fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, cursor: 0 }
@@ -136,7 +136,7 @@ impl<'a> ShapeParser<'a> {
     fn parse(mut self) -> Result<ActiveShape, PackedValueError> {
         let shape = self.parse_shape(0)?;
         if self.cursor != self.bytes.len() {
-            return Err(ValueShapeError::TrailingBytes {
+            return Err(ValueDescriptorError::TrailingBytes {
                 trailing: self.bytes.len() - self.cursor,
             }
             .into());
@@ -147,7 +147,7 @@ impl<'a> ShapeParser<'a> {
     /// Parse one recursive shape node while enforcing depth and canonicality limits.
     fn parse_shape(&mut self, depth: u8) -> Result<ActiveShape, PackedValueError> {
         if depth >= crate::types::MAX_TYPE_DEPTH {
-            return Err(ValueShapeError::MaximumDepthExceeded {
+            return Err(ValueDescriptorError::MaximumDepthExceeded {
                 actual: depth,
                 maximum: crate::types::MAX_TYPE_DEPTH,
             }
@@ -192,11 +192,11 @@ impl<'a> ShapeParser<'a> {
     fn parse_tuple(&mut self, child_depth: u8) -> Result<ActiveShape, PackedValueError> {
         let count = self.take_varuint()?;
         if count == 0 {
-            return Err(ValueShapeError::EmptyTuple.into());
+            return Err(ValueDescriptorError::EmptyTuple.into());
         }
         let remaining_bytes = self.bytes.len().saturating_sub(self.cursor);
         if count > remaining_bytes / 2 {
-            return Err(ValueShapeError::TupleFieldCountExceedsDescriptor {
+            return Err(ValueDescriptorError::TupleFieldCountExceedsDescriptor {
                 declared: count,
                 remaining_bytes,
             }
@@ -209,25 +209,24 @@ impl<'a> ShapeParser<'a> {
                 .cursor
                 .checked_add(name_len)
                 .ok_or(PackedValueError::SizeOverflow)?;
-            let name_bytes =
-                self.bytes
-                    .get(self.cursor..end)
-                    .ok_or(ValueShapeError::TruncatedTupleName {
-                        declared: name_len,
-                        remaining: self.bytes.len().saturating_sub(self.cursor),
-                    })?;
+            let name_bytes = self.bytes.get(self.cursor..end).ok_or(
+                ValueDescriptorError::TruncatedTupleName {
+                    declared: name_len,
+                    remaining: self.bytes.len().saturating_sub(self.cursor),
+                },
+            )?;
             let name = str::from_utf8(name_bytes).map_err(|error| {
-                ValueShapeError::InvalidTupleNameUtf8 {
+                ValueDescriptorError::InvalidTupleNameUtf8 {
                     valid_up_to: error.valid_up_to(),
                     error_len: error.error_len(),
                 }
             })?;
             let name = ClarityName::try_from(name.to_owned())
-                .map_err(|_| ValueShapeError::InvalidTupleName { length: name_len })?;
+                .map_err(|_| ValueDescriptorError::InvalidTupleName { length: name_len })?;
             if let Some((previous, _)) = fields.last()
                 && previous >= &name
             {
-                return Err(ValueShapeError::NonCanonicalTupleFields {
+                return Err(ValueDescriptorError::NonCanonicalTupleFields {
                     previous: previous.as_str().into(),
                     current: name.as_str().into(),
                 }
@@ -244,7 +243,7 @@ impl<'a> ShapeParser<'a> {
         let count = self.take_varuint()?;
         let remaining_bytes = self.bytes.len().saturating_sub(self.cursor);
         if count == 0 || count > remaining_bytes {
-            return Err(ValueShapeError::InvalidPerElementListCount {
+            return Err(ValueDescriptorError::InvalidPerElementListCount {
                 declared: count,
                 remaining_bytes,
             }
@@ -255,7 +254,7 @@ impl<'a> ShapeParser<'a> {
             elements.push(self.parse_shape(child_depth)?);
         }
         if merge_list_elements(&elements).is_some() {
-            return Err(ValueShapeError::MergeableListUsesPerElementShapes {
+            return Err(ValueDescriptorError::MergeableListUsesPerElementShapes {
                 element_count: elements.len(),
             }
             .into());
@@ -280,7 +279,7 @@ impl<'a> ShapeParser<'a> {
                 .ok_or_else(|| self.varuint_overflow(start))?;
             if byte & 0x80 == 0 {
                 if self.cursor - start > 1 && byte & 0x7f == 0 {
-                    return Err(ValueShapeError::NonCanonicalVarUint {
+                    return Err(ValueDescriptorError::NonCanonicalVarUint {
                         encoded_groups: self.cursor - start,
                         value,
                     }
@@ -297,10 +296,10 @@ impl<'a> ShapeParser<'a> {
         }
     }
 
-    /// Describe an overflowing shape varuint using complete-descriptor coordinates.
-    fn varuint_overflow(&self, start: usize) -> ValueShapeError {
-        ValueShapeError::VarUintOverflow {
-            offset: start.saturating_add(VALUE_SHAPE_VERSION_LEN),
+    /// Describe an overflowing descriptor varuint using complete-descriptor coordinates.
+    fn varuint_overflow(&self, start: usize) -> ValueDescriptorError {
+        ValueDescriptorError::VarUintOverflow {
+            offset: start.saturating_add(VALUE_DESCRIPTOR_VERSION_LEN),
             encoded_groups: self.cursor.saturating_sub(start),
         }
     }
@@ -311,8 +310,8 @@ impl<'a> ShapeParser<'a> {
             .bytes
             .get(self.cursor)
             .copied()
-            .ok_or(ValueShapeError::Truncated {
-                offset: self.cursor.saturating_add(VALUE_SHAPE_VERSION_LEN),
+            .ok_or(ValueDescriptorError::Truncated {
+                offset: self.cursor.saturating_add(VALUE_DESCRIPTOR_VERSION_LEN),
             })?;
         self.cursor = self
             .cursor
@@ -322,7 +321,7 @@ impl<'a> ShapeParser<'a> {
     }
 }
 
-/// Append one value-shape node using the canonical Version 1 descriptor grammar.
+/// Append one shape node using the canonical Version 1 descriptor grammar.
 fn encode_shape_node(shape: &ActiveShape, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
     match shape {
         ActiveShape::Int => output.push(ShapeOpcode::Int.to_byte()),
@@ -449,36 +448,36 @@ mod tests {
                 + NARROW_SHAPE.len()
                 + (ELEMENT_COUNT - 1) * WIDE_SHAPE.len(),
         );
-        descriptor.extend([VALUE_SHAPE_VERSION, LIST_ELEMENTS]);
+        descriptor.extend([VALUE_DESCRIPTOR_VERSION, LIST_ELEMENTS]);
         descriptor.extend(ELEMENT_COUNT_VARUINT);
         descriptor.extend(NARROW_SHAPE);
         for _ in 1..ELEMENT_COUNT {
             descriptor.extend(WIDE_SHAPE);
         }
         assert!(descriptor.len() > crate::types::MAX_VALUE_SIZE as usize);
-        assert!(descriptor.len() <= BOUND_VALUE_SHAPE_BYTES);
+        assert!(descriptor.len() <= BOUND_VALUE_DESCRIPTOR_BYTES);
 
-        let shape = parse_value_shape(&descriptor).unwrap();
-        let mut reencoded = vec![VALUE_SHAPE_VERSION];
+        let shape = parse_value_descriptor(&descriptor).unwrap();
+        let mut reencoded = vec![VALUE_DESCRIPTOR_VERSION];
         encode_shape_node(&shape, &mut reencoded).unwrap();
         assert_eq!(reencoded, descriptor);
         assert_eq!(
-            ValueShape::from_bytes(&descriptor).unwrap().as_bytes(),
+            ValueDescriptor::from_bytes(&descriptor).unwrap().as_bytes(),
             descriptor
         );
 
-        let (packed, transcoded_shape) = PackedValue::transcode_consensus_with_shape(
+        let (packed, transcoded_descriptor) = PackedValue::transcode_consensus_with_descriptor(
             PackedValueVersion::V1,
-            ValueShapeVersion::V1,
+            ValueDescriptorVersion::V1,
             &consensus,
         )
         .unwrap();
         assert_eq!(packed.consensus_byte_len() as usize, consensus_len);
-        assert_eq!(transcoded_shape.as_bytes(), descriptor);
+        assert_eq!(transcoded_descriptor.as_bytes(), descriptor);
         assert_eq!(
             packed
                 .as_packed_ref()
-                .audit_reconstruction(transcoded_shape.as_bytes())
+                .audit_reconstruction(transcoded_descriptor.as_bytes())
                 .unwrap(),
             consensus
         );

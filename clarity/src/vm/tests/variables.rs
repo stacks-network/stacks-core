@@ -29,7 +29,7 @@ use crate::vm::{
     database::{ClarityDatabase, MemoryBackingStore, StoreType},
     errors::{ClarityEvalError, RuntimeCheckErrorKind, StaticCheckErrorKind, VmExecutionError},
     tests::{TopLevelMemoryEnvironmentGenerator, tl_env_factory},
-    types::codec::packed::{PackedValue, PackedValueVersion, ValueShapeVersion},
+    types::codec::packed::{PackedValue, PackedValueVersion, ValueDescriptorVersion},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
 };
 
@@ -87,17 +87,17 @@ fn packed_codec_preserves_epoch_205_unsanitized_variable(
     assert_eq!(stored, "0b000000020c000000010161030c00000002016103016204");
     let consensus = hex_bytes(&stored).unwrap();
 
-    let (packed, shape) = PackedValue::transcode_consensus_with_shape(
+    let (packed, descriptor) = PackedValue::transcode_consensus_with_descriptor(
         PackedValueVersion::V1,
-        ValueShapeVersion::V1,
+        ValueDescriptorVersion::V1,
         &consensus,
     )
     .unwrap();
-    assert_eq!(&shape.as_bytes()[..2], &[1, 0x0f]);
+    assert_eq!(&descriptor.as_bytes()[..2], &[1, 0x0f]);
     assert_eq!(
         packed
             .as_packed_ref()
-            .audit_reconstruction(shape.as_bytes())
+            .audit_reconstruction(descriptor.as_bytes())
             .unwrap(),
         consensus
     );

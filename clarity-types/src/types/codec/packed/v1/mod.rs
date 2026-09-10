@@ -23,19 +23,19 @@
 use std::mem;
 
 use super::{
-    DecodedPackedValue, PackedCodecInvariant, PackedRecordError, PackedSchemaError, PackedValue,
-    PackedValueError, PackedValueRef, PackedValueVersion, ReconstructionError, ValueShape,
-    ValueShapeError, ValueShapeRef, ValueShapeVersion,
+    DecodedPackedValue, ExpectedTypeError, PackedCodecInvariant, PackedRecordError, PackedValue,
+    PackedValueError, PackedValueRef, PackedValueVersion, ReconstructionError, ValueDescriptor,
+    ValueDescriptorError, ValueDescriptorRef, ValueDescriptorVersion,
 };
 use crate::types::{BOUND_VALUE_SERIALIZATION_BYTES, MAX_VALUE_SIZE, TypeSignature, Value};
 
 mod decode;
+mod descriptor;
 mod directory;
 mod encode;
 mod layout;
 mod primitive;
 mod reconstruct;
-mod shape;
 
 /// Number of bytes in a V1 packed record's consensus-length field.
 const PACKED_VALUE_LENGTH_LEN: usize = 3;
@@ -43,8 +43,8 @@ const PACKED_VALUE_LENGTH_LEN: usize = 3;
 /// V1 packed record discriminator.
 const PACKED_VALUE_VERSION: u8 = PackedValueVersion::V1.as_u8();
 
-/// V1 value-shape descriptor discriminator.
-const VALUE_SHAPE_VERSION: u8 = ValueShapeVersion::V1.as_u8();
+/// V1 value descriptor discriminator.
+const VALUE_DESCRIPTOR_VERSION: u8 = ValueDescriptorVersion::V1.as_u8();
 
 /// Number of bytes before a packed V1 value body.
 pub const PACKED_VALUE_HEADER_LEN: usize = 4;
@@ -72,7 +72,7 @@ const MAX_PACKED_DIRECTORY_OVERHEAD: usize = MAX_VALUE_SIZE as usize
 pub const BOUND_PACKED_VALUE_BODY_BYTES: usize =
     BOUND_VALUE_SERIALIZATION_BYTES as usize + MAX_PACKED_DIRECTORY_OVERHEAD;
 
-/// Maximum length of one versioned V1 value-shape descriptor.
+/// Maximum length of one versioned V1 value descriptor.
 ///
 /// For a canonical descriptor derived from a legal value, every descriptor node is covered by at
 /// least as many bytes in the corresponding consensus value. Tuple names occur in the descriptor
@@ -80,7 +80,7 @@ pub const BOUND_PACKED_VALUE_BODY_BYTES: usize =
 /// values whose consensus bytes cover their children. The descriptor version is the only byte
 /// without a consensus counterpart. Parsers use the same limit as a conservative pre-audit resource
 /// ceiling.
-pub const BOUND_VALUE_SHAPE_BYTES: usize = BOUND_VALUE_SERIALIZATION_BYTES as usize + 1;
+pub const BOUND_VALUE_DESCRIPTOR_BYTES: usize = BOUND_VALUE_SERIALIZATION_BYTES as usize + 1;
 
 /// Encode one value as a complete V1 packed record.
 pub fn encode(value: &Value) -> Result<PackedValue, PackedValueError> {
@@ -101,11 +101,11 @@ pub fn transcode_consensus(consensus: &[u8]) -> Result<PackedValue, PackedValueE
     encode::transcode(consensus)
 }
 
-/// Transcode one exact consensus value to a V1 packed record and value-shape descriptor.
-pub fn transcode_consensus_with_shape(
+/// Transcode one exact consensus value to a V1 packed record and value descriptor.
+pub fn transcode_consensus_with_descriptor(
     consensus: &[u8],
-) -> Result<(PackedValue, ValueShape), PackedValueError> {
-    encode::transcode_with_shape(consensus)
+) -> Result<(PackedValue, ValueDescriptor), PackedValueError> {
+    encode::transcode_with_descriptor(consensus)
 }
 
 /// Parse the V1 record envelope and return its normalized metadata.
@@ -141,7 +141,7 @@ pub fn parse_record(bytes: &[u8]) -> Result<u32, PackedValueError> {
     primitive::read_u24_be(length)
 }
 
-/// Decode one parsed V1 record under a caller-supplied schema.
+/// Decode one parsed V1 record under a caller-supplied expected type.
 pub fn decode(
     packed: PackedValueRef<'_>,
     expected: &TypeSignature,
@@ -149,30 +149,30 @@ pub fn decode(
     decode::value(packed, expected)
 }
 
-/// Reconstruct exact consensus bytes from a V1 packed record and value-shape descriptor.
+/// Reconstruct exact consensus bytes from a V1 packed record and value descriptor.
 pub fn reconstruct_consensus(
     packed: PackedValueRef<'_>,
-    shape: ValueShapeRef<'_>,
+    descriptor: ValueDescriptorRef<'_>,
 ) -> Result<Vec<u8>, PackedValueError> {
-    reconstruct::reconstruct_consensus(packed, shape.as_bytes())
+    reconstruct::reconstruct_consensus(packed, descriptor.as_bytes())
 }
 
-/// Reconstruct and prove that a V1 packed record and value-shape descriptor are canonical.
+/// Reconstruct and prove that a V1 packed record and value descriptor are canonical.
 pub fn audit_reconstruction(
     packed: PackedValueRef<'_>,
-    shape: ValueShapeRef<'_>,
+    descriptor: ValueDescriptorRef<'_>,
 ) -> Result<Vec<u8>, PackedValueError> {
-    reconstruct::audit_reconstruction(packed, shape.as_bytes())
+    reconstruct::audit_reconstruction(packed, descriptor.as_bytes())
 }
 
-/// Encode one active value as a complete V1 shape descriptor.
-pub fn encode_shape(value: &Value) -> Result<ValueShape, PackedValueError> {
-    shape::encode_value_shape(value)
+/// Encode one active value as a complete V1 value descriptor.
+pub fn encode_descriptor(value: &Value) -> Result<ValueDescriptor, PackedValueError> {
+    descriptor::encode_value_descriptor(value)
 }
 
-/// Validate one complete V1 shape descriptor.
-pub fn validate_shape(shape: ValueShapeRef<'_>) -> Result<(), PackedValueError> {
-    shape::parse_value_shape(shape.as_bytes()).map(|_| ())
+/// Validate one complete V1 value descriptor.
+pub fn validate_descriptor(descriptor: ValueDescriptorRef<'_>) -> Result<(), PackedValueError> {
+    descriptor::parse_value_descriptor(descriptor.as_bytes()).map(|_| ())
 }
 
 /// Reject a V1 packed body that exceeds its worst-case expansion bound.

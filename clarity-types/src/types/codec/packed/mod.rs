@@ -16,7 +16,7 @@
 //! Canonical packed representation for Clarity values.
 //!
 //! This is not Clarity's consensus serialization. Packed value records and their optional
-//! value-shape descriptors are independently versioned. Encoding selects each version explicitly;
+//! value descriptors are independently versioned. Encoding selects each version explicitly;
 //! decoding dispatches from the leading version byte and rejects unknown versions without probing
 //! another grammar.
 //!
@@ -25,10 +25,14 @@
 //!
 //! [format-spec]: https://github.com/stacks-network/stacks-core/blob/main/clarity-types/src/types/codec/packed/README.md
 //!
+//! An **expected type** is the caller-supplied [`TypeSignature`] used for typed decoding. A
+//! **value descriptor** provides value-derived structure for consensus reconstruction. **Layout**
+//! means the physical arrangement of packed bytes; the encoder selects it from the value alone.
+//!
 //! Two invariants establish canonical byte identity:
 //!
 //! - Packed bytes depend only on the active [`Value`], never declared bounds or epoch;
-//! - [`ValueShape`] records only information omitted from packed bytes that is needed to reconstruct
+//! - [`ValueDescriptor`] records only information omitted from packed bytes that is needed to reconstruct
 //!   the exact consensus serialization without a declared [`crate::types::TypeSignature`].
 
 use crate::types::{TypeSignature, Value};
@@ -38,8 +42,8 @@ mod shape;
 mod v1;
 
 pub use error::{
-    PackedCodecInvariant, PackedRecordError, PackedSchemaError, PackedValueError,
-    ReconstructionError, ValueShapeError,
+    ExpectedTypeError, PackedCodecInvariant, PackedRecordError, PackedValueError,
+    ReconstructionError, ValueDescriptorError,
 };
 
 /// Supported packed value-record wire versions.
@@ -80,16 +84,16 @@ impl PackedValueVersion {
     }
 }
 
-/// Supported value-shape descriptor wire versions.
+/// Supported value descriptor wire versions.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[non_exhaustive]
 #[repr(u8)]
-pub enum ValueShapeVersion {
-    /// Value-shape descriptor V1.
+pub enum ValueDescriptorVersion {
+    /// Value descriptor V1.
     V1 = 1,
 }
 
-impl ValueShapeVersion {
+impl ValueDescriptorVersion {
     /// Return this version's wire discriminator.
     pub const fn as_u8(self) -> u8 {
         self as u8
@@ -98,15 +102,15 @@ impl ValueShapeVersion {
     /// Return this version's maximum complete descriptor length.
     pub const fn maximum_descriptor_len(self) -> usize {
         match self {
-            Self::V1 => v1::BOUND_VALUE_SHAPE_BYTES,
+            Self::V1 => v1::BOUND_VALUE_DESCRIPTOR_BYTES,
         }
     }
 
-    /// Parse a value-shape descriptor version byte.
+    /// Parse a value descriptor version byte.
     fn from_u8(byte: u8) -> Result<Self, PackedValueError> {
         match byte {
             value if value == Self::V1.as_u8() => Ok(Self::V1),
-            version => Err(PackedValueError::UnsupportedValueShapeVersion { version }),
+            version => Err(PackedValueError::UnsupportedValueDescriptorVersion { version }),
         }
     }
 }
@@ -153,9 +157,9 @@ impl PackedValue {
 
     /// Transcode one exact self-describing consensus value into canonical packed bytes.
     ///
-    /// Historical unsanitized values can contain active data omitted by a cached read schema. The
-    /// resulting record preserves that data, but typed decoding under the narrower schema is not
-    /// guaranteed. Call [`Self::transcode_consensus_with_shape`] when the caller needs the
+    /// Historical unsanitized values can contain active data omitted by cached type metadata.
+    /// The resulting record preserves that data, but typed decoding under the narrower expected
+    /// type is not guaranteed. Call [`Self::transcode_consensus_with_descriptor`] for the
     /// descriptor required for compatibility reconstruction without a caller-supplied type.
     pub fn transcode_consensus(
         version: PackedValueVersion,
@@ -169,15 +173,15 @@ impl PackedValue {
     /// Transcode consensus bytes and derive their descriptor-guided reconstruction metadata.
     ///
     /// The returned descriptor allows exact reconstruction when a historical unsanitized value
-    /// cannot be decoded directly under its cached read schema.
-    pub fn transcode_consensus_with_shape(
+    /// cannot be decoded directly under its cached type metadata.
+    pub fn transcode_consensus_with_descriptor(
         packed_version: PackedValueVersion,
-        shape_version: ValueShapeVersion,
+        descriptor_version: ValueDescriptorVersion,
         consensus: &[u8],
-    ) -> Result<(Self, ValueShape), PackedValueError> {
-        match (packed_version, shape_version) {
-            (PackedValueVersion::V1, ValueShapeVersion::V1) => {
-                v1::transcode_consensus_with_shape(consensus)
+    ) -> Result<(Self, ValueDescriptor), PackedValueError> {
+        match (packed_version, descriptor_version) {
+            (PackedValueVersion::V1, ValueDescriptorVersion::V1) => {
+                v1::transcode_consensus_with_descriptor(consensus)
             }
         }
     }
@@ -256,46 +260,46 @@ impl<'a> PackedValueRef<'a> {
         self.version
     }
 
-    /// Decode and validate this record under a declared read schema.
+    /// Decode and validate this record under an expected type.
     pub fn decode(self, expected: &TypeSignature) -> Result<DecodedPackedValue, PackedValueError> {
         match self.version {
             PackedValueVersion::V1 => v1::decode(self, expected),
         }
     }
 
-    /// Reconstruct exact consensus bytes using a value-shape descriptor.
+    /// Reconstruct exact consensus bytes using a value descriptor.
     ///
     /// This checks framing and the declared logical length, but does not prove that the output is a
     /// valid bounded Clarity value. Use [`Self::audit_reconstruction`] for untrusted records.
     pub fn reconstruct_consensus(self, descriptor: &[u8]) -> Result<Vec<u8>, PackedValueError> {
-        self.reconstruct_consensus_with_shape(ValueShapeRef::parse(descriptor)?)
+        self.reconstruct_consensus_with_descriptor(ValueDescriptorRef::parse(descriptor)?)
     }
 
-    /// Reconstruct exact consensus bytes using an already parsed value-shape descriptor.
-    pub fn reconstruct_consensus_with_shape(
+    /// Reconstruct exact consensus bytes using an already parsed value descriptor.
+    pub fn reconstruct_consensus_with_descriptor(
         self,
-        shape: ValueShapeRef<'_>,
+        descriptor: ValueDescriptorRef<'_>,
     ) -> Result<Vec<u8>, PackedValueError> {
-        match (self.version, shape.version) {
-            (PackedValueVersion::V1, ValueShapeVersion::V1) => {
-                v1::reconstruct_consensus(self, shape)
+        match (self.version, descriptor.version) {
+            (PackedValueVersion::V1, ValueDescriptorVersion::V1) => {
+                v1::reconstruct_consensus(self, descriptor)
             }
         }
     }
 
-    /// Reconstruct consensus bytes and prove this record and shape are canonical.
+    /// Reconstruct consensus bytes and prove this record and descriptor are canonical.
     pub fn audit_reconstruction(self, descriptor: &[u8]) -> Result<Vec<u8>, PackedValueError> {
-        self.audit_reconstruction_with_shape(ValueShapeRef::parse(descriptor)?)
+        self.audit_reconstruction_with_descriptor(ValueDescriptorRef::parse(descriptor)?)
     }
 
-    /// Audit reconstruction using an already parsed value-shape descriptor.
-    pub fn audit_reconstruction_with_shape(
+    /// Audit reconstruction using an already parsed value descriptor.
+    pub fn audit_reconstruction_with_descriptor(
         self,
-        shape: ValueShapeRef<'_>,
+        descriptor: ValueDescriptorRef<'_>,
     ) -> Result<Vec<u8>, PackedValueError> {
-        match (self.version, shape.version) {
-            (PackedValueVersion::V1, ValueShapeVersion::V1) => {
-                v1::audit_reconstruction(self, shape)
+        match (self.version, descriptor.version) {
+            (PackedValueVersion::V1, ValueDescriptorVersion::V1) => {
+                v1::audit_reconstruction(self, descriptor)
             }
         }
     }
@@ -306,23 +310,26 @@ impl<'a> PackedValueRef<'a> {
     }
 }
 
-/// An owned, versioned value-shape descriptor.
+/// An owned, versioned value descriptor.
 ///
 /// The descriptor contains only information omitted from [`PackedValue`] that is required to
 /// reconstruct consensus bytes without a caller-supplied [`TypeSignature`].
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct ValueShape {
+pub struct ValueDescriptor {
     /// Complete versioned descriptor bytes.
     bytes: Vec<u8>,
     /// Parsed descriptor version.
-    version: ValueShapeVersion,
+    version: ValueDescriptorVersion,
 }
 
-impl ValueShape {
+impl ValueDescriptor {
     /// Derive canonical reconstruction metadata solely from an active value.
-    pub fn from_value(version: ValueShapeVersion, value: &Value) -> Result<Self, PackedValueError> {
+    pub fn from_value(
+        version: ValueDescriptorVersion,
+        value: &Value,
+    ) -> Result<Self, PackedValueError> {
         match version {
-            ValueShapeVersion::V1 => v1::encode_shape(value),
+            ValueDescriptorVersion::V1 => v1::encode_descriptor(value),
         }
     }
 
@@ -337,13 +344,13 @@ impl ValueShape {
     }
 
     /// Return this descriptor's wire version.
-    pub const fn version(&self) -> ValueShapeVersion {
+    pub const fn version(&self) -> ValueDescriptorVersion {
         self.version
     }
 
-    /// Borrow this owned descriptor through the shape read API.
-    pub fn as_shape_ref(&self) -> ValueShapeRef<'_> {
-        ValueShapeRef {
+    /// Borrow this owned descriptor through the descriptor read API.
+    pub fn as_descriptor_ref(&self) -> ValueDescriptorRef<'_> {
+        ValueDescriptorRef {
             bytes: &self.bytes,
             version: self.version,
         }
@@ -351,31 +358,32 @@ impl ValueShape {
 
     /// Parse and validate one complete versioned descriptor.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, PackedValueError> {
-        let shape = ValueShapeRef::parse(bytes)?;
-        shape.validate()?;
+        let descriptor = ValueDescriptorRef::parse(bytes)?;
+        descriptor.validate()?;
         Ok(Self {
             bytes: bytes.to_vec(),
-            version: shape.version,
+            version: descriptor.version,
         })
     }
 }
 
-/// A borrowed view over one versioned value-shape descriptor.
+/// A borrowed view over one versioned value descriptor.
 #[derive(Clone, Copy, Debug)]
-pub struct ValueShapeRef<'a> {
+pub struct ValueDescriptorRef<'a> {
     /// Complete descriptor bytes.
     bytes: &'a [u8],
     /// Parsed descriptor version.
-    version: ValueShapeVersion,
+    version: ValueDescriptorVersion,
 }
 
-impl<'a> ValueShapeRef<'a> {
+impl<'a> ValueDescriptorRef<'a> {
     /// Parse the versioned descriptor envelope without materializing its recursive shape.
     pub fn parse(bytes: &'a [u8]) -> Result<Self, PackedValueError> {
-        let version =
-            ValueShapeVersion::from_u8(bytes.first().copied().ok_or(ValueShapeError::Empty)?)?;
+        let version = ValueDescriptorVersion::from_u8(
+            bytes.first().copied().ok_or(ValueDescriptorError::Empty)?,
+        )?;
         if bytes.len() > version.maximum_descriptor_len() {
-            return Err(ValueShapeError::TooLarge {
+            return Err(ValueDescriptorError::TooLarge {
                 actual: bytes.len(),
                 maximum: version.maximum_descriptor_len(),
             }
@@ -390,14 +398,14 @@ impl<'a> ValueShapeRef<'a> {
     }
 
     /// Return this descriptor's wire version.
-    pub const fn version(self) -> ValueShapeVersion {
+    pub const fn version(self) -> ValueDescriptorVersion {
         self.version
     }
 
     /// Fully validate the recursive descriptor grammar.
     pub fn validate(self) -> Result<(), PackedValueError> {
         match self.version {
-            ValueShapeVersion::V1 => v1::validate_shape(self),
+            ValueDescriptorVersion::V1 => v1::validate_descriptor(self),
         }
     }
 }

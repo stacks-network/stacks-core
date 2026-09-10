@@ -17,8 +17,8 @@
 
 use super::{
     PACKED_VALUE_HEADER_LEN, PACKED_VALUE_VERSION, PackedCodecInvariant, PackedValue,
-    PackedValueError, PackedValueVersion, ValueShape, directory, layout, primitive, shape,
-    validate_packed_body_len,
+    PackedValueError, PackedValueVersion, ValueDescriptor, descriptor, directory, layout,
+    primitive, validate_packed_body_len,
 };
 use crate::types::serialization::SerializationError;
 use crate::types::{
@@ -121,7 +121,7 @@ pub fn prefixed_value(
 /// Transcode one exact self-describing consensus value into canonical packed.
 ///
 /// Materializes one bounded Clarity value. Historical unsanitized values may require
-/// descriptor-based reconstruction instead of direct typed decoding under their cached schema.
+/// descriptor-based reconstruction instead of direct typed decoding under their cached type metadata.
 pub fn transcode(consensus: &[u8]) -> Result<PackedValue, PackedValueError> {
     let value = deserialize_canonical_consensus(consensus)?;
     let consensus_byte_len =
@@ -243,7 +243,7 @@ fn list_body_size(list: &ListData) -> Result<BodySize, PackedValueError> {
     .with_prefix(4)
 }
 
-/// Append the schema-independent packed body for one active value.
+/// Append the value-derived packed body for one active value.
 fn body(value: &Value, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
     match value {
         Value::Int(value) => {
@@ -287,7 +287,7 @@ fn body(value: &Value, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
 
 /// Append tuple children in consensus field order, framing variable-width children by offset.
 fn tuple(tuple: &TupleData, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
-    // Fixed tuples are self-framing under either the active value or a matching schema. Any
+    // Fixed tuples are self-framing under either the active value or a matching expected type. Any
     // variable child requires a directory so readers can find child boundaries without scanning.
     if tuple
         .data_map
@@ -384,17 +384,17 @@ fn list(list: &ListData, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
 
 /// Transcode one exact consensus value into canonical packed bytes and its descriptor.
 ///
-/// The descriptor preserves active data omitted by historical cached schemas and enables exact
+/// The descriptor preserves active data omitted by historical cached type metadata and enables exact
 /// compatibility reconstruction without a caller-supplied type.
-pub fn transcode_with_shape(
+pub fn transcode_with_descriptor(
     consensus: &[u8],
-) -> Result<(PackedValue, ValueShape), PackedValueError> {
+) -> Result<(PackedValue, ValueDescriptor), PackedValueError> {
     let value = deserialize_canonical_consensus(consensus)?;
     let consensus_byte_len =
         u32::try_from(consensus.len()).map_err(|_| PackedValueError::SizeOverflow)?;
     let packed = value_with_consensus_len(&value, consensus_byte_len)?;
-    let shape = shape::encode_value_shape(&value)?;
-    Ok((packed, shape))
+    let descriptor = descriptor::encode_value_descriptor(&value)?;
+    Ok((packed, descriptor))
 }
 
 /// Deserialize one exact consensus value and reject accepted-but-non-canonical encodings.

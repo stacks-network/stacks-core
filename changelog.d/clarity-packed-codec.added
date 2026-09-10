@@ -1,1 +1,1 @@
-Adds a versioned packed Clarity `Value` codec and value-shape descriptors for compact local storage.
+Adds a versioned packed Clarity `Value` codec and value descriptors for compact local storage.

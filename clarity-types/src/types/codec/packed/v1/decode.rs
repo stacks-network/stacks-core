@@ -13,12 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Version 1 schema-aware decoding and logical-length validation.
+//! Version 1 typed decoding and logical-length validation.
 
 use std::str;
 
 use super::{
-    DecodedPackedValue, PackedCodecInvariant, PackedRecordError, PackedSchemaError,
+    DecodedPackedValue, ExpectedTypeError, PackedCodecInvariant, PackedRecordError,
     PackedValueError, PackedValueRef, directory, layout, primitive,
 };
 use crate::types::signatures::{CallableSubtype, SequenceSubtype, StringSubtype};
@@ -28,7 +28,7 @@ use crate::types::{
     Value,
 };
 
-/// Decode and validate one canonical packed record under a declared read schema.
+/// Decode and validate one canonical packed record under an expected type.
 pub fn value(
     packed: PackedValueRef<'_>,
     expected: &TypeSignature,
@@ -47,7 +47,7 @@ pub fn value(
     })
 }
 
-/// Decode one complete packed body under its caller-supplied schema.
+/// Decode one complete packed body under its caller-supplied expected type.
 ///
 /// The returned length is the value's consensus-serialized length, used to validate the record
 /// header and preserve consensus cost accounting.
@@ -69,7 +69,7 @@ fn body(bytes: &[u8], expected: &TypeSignature) -> Result<(Value, u32), PackedVa
         SequenceType(SequenceSubtype::BufferType(max_len)) => {
             let maximum = u32::from(max_len) as usize;
             if bytes.len() > maximum {
-                return Err(PackedSchemaError::BufferExceedsBound {
+                return Err(ExpectedTypeError::BufferExceedsBound {
                     actual: bytes.len(),
                     maximum,
                 }
@@ -92,7 +92,7 @@ fn body(bytes: &[u8], expected: &TypeSignature) -> Result<(Value, u32), PackedVa
             }
             let maximum = u32::from(max_len) as usize;
             if bytes.len() > maximum {
-                return Err(PackedSchemaError::AsciiStringExceedsBound {
+                return Err(ExpectedTypeError::AsciiStringExceedsBound {
                     actual: bytes.len(),
                     maximum,
                 }
@@ -114,7 +114,7 @@ fn body(bytes: &[u8], expected: &TypeSignature) -> Result<(Value, u32), PackedVa
             let actual = string.chars().count();
             let maximum = u32::from(max_len) as usize;
             if actual > maximum {
-                return Err(PackedSchemaError::Utf8StringExceedsBound { actual, maximum }.into());
+                return Err(ExpectedTypeError::Utf8StringExceedsBound { actual, maximum }.into());
             }
             let data = string
                 .chars()
@@ -179,8 +179,8 @@ fn body(bytes: &[u8], expected: &TypeSignature) -> Result<(Value, u32), PackedVa
         }
         TupleType(tuple_type) => tuple(bytes, tuple_type),
         SequenceType(SequenceSubtype::ListType(list_type)) => list(bytes, list_type),
-        NoType => Err(PackedSchemaError::NoType.into()),
-        ListUnionType(_) => Err(PackedSchemaError::ListUnionType.into()),
+        NoType => Err(ExpectedTypeError::NoType.into()),
+        ListUnionType(_) => Err(ExpectedTypeError::ListUnionType.into()),
     }
 }
 
@@ -190,7 +190,7 @@ fn callable(bytes: &[u8], expected: &CallableSubtype) -> Result<(Value, u32), Pa
     let trait_identifier = match expected {
         CallableSubtype::Principal(expected_contract) => {
             if contract_identifier != *expected_contract {
-                return Err(PackedSchemaError::CallableContractMismatch {
+                return Err(ExpectedTypeError::CallableContractMismatch {
                     expected: Box::new(expected_contract.clone()),
                     actual: Box::new(contract_identifier),
                 }
@@ -209,19 +209,19 @@ fn callable(bytes: &[u8], expected: &CallableSubtype) -> Result<(Value, u32), Pa
     ))
 }
 
-/// Decode the canonical contract-principal body shared by callable schema variants.
+/// Decode the canonical contract-principal body shared by callable expected type variants.
 fn contract(bytes: &[u8]) -> Result<(QualifiedContractIdentifier, u32), PackedValueError> {
     let principal = primitive::PackedPrincipal::parse(bytes)?;
     let logical_len = principal.consensus_byte_len()?;
     match principal.to_principal_data()? {
         PrincipalData::Contract(contract) => Ok((contract, logical_len)),
         PrincipalData::Standard(actual) => {
-            Err(PackedSchemaError::CallableRequiresContractPrincipal { actual }.into())
+            Err(ExpectedTypeError::CallableRequiresContractPrincipal { actual }.into())
         }
     }
 }
 
-/// Decode a trait callable while restoring its schema-provided trait identifier.
+/// Decode a trait callable while restoring its trait identifier from the expected type.
 fn trait_callable(
     bytes: &[u8],
     trait_identifier: TraitIdentifier,
@@ -236,7 +236,7 @@ fn trait_callable(
     ))
 }
 
-/// Decode a tuple using fixed concatenation or an offset directory selected by its schema.
+/// Decode a tuple using its expected type to interpret fixed concatenation or an offset directory.
 fn tuple(
     bytes: &[u8],
     expected: &crate::types::TupleTypeSignature,
@@ -296,7 +296,7 @@ fn list(bytes: &[u8], expected: &ListTypeData) -> Result<(Value, u32), PackedVal
     let (count, elements) = primitive::split_list(bytes)?;
     let maximum = expected.get_max_len() as usize;
     if count > maximum {
-        return Err(PackedSchemaError::ListExceedsBound {
+        return Err(ExpectedTypeError::ListExceedsBound {
             actual: count,
             maximum,
         }

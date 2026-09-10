@@ -17,7 +17,7 @@
 
 use std::str;
 
-use super::shape::{self, ActiveShape};
+use super::descriptor::{self, ActiveShape};
 use super::{
     PackedCodecInvariant, PackedRecordError, PackedValueError, PackedValueRef, ReconstructionError,
     directory, encode, layout, primitive,
@@ -25,12 +25,12 @@ use super::{
 use crate::representations::ClarityName;
 use crate::types::serialization::TypePrefix;
 
-/// Structurally reconstruct exact consensus bytes without a declared schema.
+/// Structurally reconstruct exact consensus bytes without an expected type.
 ///
-/// This bounded pass validates record framing, shape grammar, scalar encodings, and the declared
+/// This bounded pass validates record framing, descriptor grammar, scalar encodings, and the declared
 /// logical length. It does not prove that the output deserializes as a valid bounded Clarity value.
 /// Call [`PackedValueRef::audit_reconstruction`] to establish that property and additionally prove
-/// that the payload and shape are their canonical representations of the reconstructed value.
+/// that the payload and descriptor are their canonical representations of the reconstructed value.
 pub fn reconstruct_consensus(
     packed: PackedValueRef<'_>,
     descriptor: &[u8],
@@ -43,7 +43,7 @@ pub fn reconstruct_consensus(
         }
         .into());
     }
-    let shape = shape::parse_value_shape(descriptor)?;
+    let shape = descriptor::parse_value_descriptor(descriptor)?;
     let expected_capacity =
         usize::try_from(expected_len).map_err(|_| PackedValueError::SizeOverflow)?;
     let mut reconstructor = ConsensusReconstructor::with_capacity(expected_capacity);
@@ -51,13 +51,13 @@ pub fn reconstruct_consensus(
     reconstructor.finish()
 }
 
-/// Reconstruct consensus bytes and prove the packed payload and shape are canonical.
+/// Reconstruct consensus bytes and prove the packed payload and descriptor are canonical.
 pub fn audit_reconstruction(
     packed: PackedValueRef<'_>,
     descriptor: &[u8],
 ) -> Result<Vec<u8>, PackedValueError> {
     let consensus = reconstruct_consensus(packed, descriptor)?;
-    let (canonical_packed, canonical_shape) = encode::transcode_with_shape(&consensus)?;
+    let (canonical_packed, canonical_descriptor) = encode::transcode_with_descriptor(&consensus)?;
     if canonical_packed.as_bytes() != packed.as_bytes() {
         return Err(ReconstructionError::NonCanonicalPackedValue {
             first_mismatch: first_mismatch(canonical_packed.as_bytes(), packed.as_bytes()),
@@ -66,11 +66,11 @@ pub fn audit_reconstruction(
         }
         .into());
     }
-    if canonical_shape.as_bytes() != descriptor {
-        return Err(ReconstructionError::NonCanonicalValueShape {
-            first_mismatch: first_mismatch(canonical_shape.as_bytes(), descriptor),
+    if canonical_descriptor.as_bytes() != descriptor {
+        return Err(ReconstructionError::NonCanonicalValueDescriptor {
+            first_mismatch: first_mismatch(canonical_descriptor.as_bytes(), descriptor),
             stored_length: descriptor.len(),
-            canonical_length: canonical_shape.as_bytes().len(),
+            canonical_length: canonical_descriptor.as_bytes().len(),
         }
         .into());
     }
@@ -302,7 +302,7 @@ impl ConsensusReconstructor {
             let mut cursor = 0usize;
             for (name, shape) in fields {
                 let width = layout::fixed_shape_width(shape)
-                    .ok_or(PackedCodecInvariant::FixedValueShapeClassificationChanged)?;
+                    .ok_or(PackedCodecInvariant::FixedShapeClassificationChanged)?;
                 let end = cursor
                     .checked_add(width)
                     .ok_or(PackedValueError::SizeOverflow)?;

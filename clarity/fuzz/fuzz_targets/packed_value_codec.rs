@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Fuzz coverage for packed values, shape descriptors, and reconstruction.
+//! Fuzz coverage for packed values, value descriptors, and reconstruction.
 
 #![no_main]
 
@@ -22,7 +22,7 @@ compile_error!("packed_value_codec requires debug assertions to validate trusted
 
 use clarity::vm::representations::ClarityName;
 use clarity::vm::types::codec::packed::{
-    PackedValue, PackedValueRef, PackedValueVersion, ValueShape, ValueShapeVersion,
+    PackedValue, PackedValueRef, PackedValueVersion, ValueDescriptor, ValueDescriptorVersion,
 };
 use clarity::vm::types::{
     ListTypeData, SequenceSubtype, TupleData, TupleTypeSignature, TypeSignature, Value,
@@ -32,7 +32,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
 const PACKED_VERSION: PackedValueVersion = PackedValueVersion::V1;
-const SHAPE_VERSION: ValueShapeVersion = ValueShapeVersion::V1;
+const DESCRIPTOR_VERSION: ValueDescriptorVersion = ValueDescriptorVersion::V1;
 
 /// Decode reviewable text fixtures while leaving ordinary generated input raw.
 fn decode_seed(input: &[u8]) -> Option<Vec<u8>> {
@@ -42,8 +42,8 @@ fn decode_seed(input: &[u8]) -> Option<Vec<u8>> {
     hex_bytes(encoded).ok()
 }
 
-/// Deterministically select a bounded declared schema from fuzz input.
-fn schema(selector: u8) -> TypeSignature {
+/// Deterministically select a bounded expected type from fuzz input.
+fn expected_type(selector: u8) -> TypeSignature {
     match selector % 8 {
         0 => TypeSignature::IntType,
         1 => TypeSignature::UIntType,
@@ -51,28 +51,30 @@ fn schema(selector: u8) -> TypeSignature {
         3 => TypeSignature::SequenceType(SequenceSubtype::BufferType(
             4_096u32.try_into().expect("constant buffer bound"),
         )),
-        4 => TypeSignature::new_option(TypeSignature::UIntType).expect("constant optional schema"),
+        4 => TypeSignature::new_option(TypeSignature::UIntType)
+            .expect("constant optional expected type"),
         5 => TypeSignature::new_response(
             TypeSignature::BoolType,
             TypeSignature::SequenceType(SequenceSubtype::BufferType(
                 256u32.try_into().expect("constant buffer bound"),
             )),
         )
-        .expect("constant response schema"),
+        .expect("constant response expected type"),
         6 => TypeSignature::SequenceType(SequenceSubtype::ListType(
-            ListTypeData::new_list(TypeSignature::UIntType, 256).expect("constant list schema"),
+            ListTypeData::new_list(TypeSignature::UIntType, 256)
+                .expect("constant list expected type"),
         )),
         _ => TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![
                 (ClarityName::from_literal("active"), TypeSignature::BoolType),
                 (ClarityName::from_literal("amount"), TypeSignature::UIntType),
             ])
-            .expect("constant tuple schema"),
+            .expect("constant tuple expected type"),
         ),
     }
 }
 
-/// Check transcode, shape, and reconstruction invariants for candidate consensus bytes.
+/// Check transcode, descriptor, and reconstruction invariants for candidate consensus bytes.
 fn check_consensus(consensus: &[u8]) {
     let Ok(value) = Value::try_deserialize_slice_exact_untyped(consensus) else {
         return;
@@ -81,29 +83,32 @@ fn check_consensus(consensus: &[u8]) {
         .serialize_to_vec()
         .expect("a decoded Clarity value must serialize");
     if canonical != consensus {
-        assert!(PackedValue::transcode_consensus_with_shape(
+        assert!(PackedValue::transcode_consensus_with_descriptor(
             PACKED_VERSION,
-            SHAPE_VERSION,
+            DESCRIPTOR_VERSION,
             consensus
         )
         .is_err());
         return;
     }
-    let (packed, shape) =
-        PackedValue::transcode_consensus_with_shape(PACKED_VERSION, SHAPE_VERSION, consensus)
-            .expect("every exactly decoded consensus value must transcode");
-    assert!(shape.as_bytes().len() <= consensus.len() + 1);
+    let (packed, descriptor) = PackedValue::transcode_consensus_with_descriptor(
+        PACKED_VERSION,
+        DESCRIPTOR_VERSION,
+        consensus,
+    )
+    .expect("every exactly decoded consensus value must transcode");
+    assert!(descriptor.as_bytes().len() <= consensus.len() + 1);
     assert_eq!(
         packed
             .as_packed_ref()
-            .audit_reconstruction(shape.as_bytes())
+            .audit_reconstruction(descriptor.as_bytes())
             .expect("a canonical packed record must reconstruct"),
         consensus
     );
     assert_eq!(canonical, consensus);
 
-    let value_shape = ValueShape::from_value(SHAPE_VERSION, &value)
-        .expect("an encodable value must have a shape");
+    let value_descriptor = ValueDescriptor::from_value(DESCRIPTOR_VERSION, &value)
+        .expect("an encodable value must have a descriptor");
     let typed = PackedValue::encode_with_prefix(
         PACKED_VERSION,
         &value,
@@ -112,10 +117,10 @@ fn check_consensus(consensus: &[u8]) {
     )
     .expect("an exactly decoded value must pack");
     assert_eq!(typed, packed.as_bytes());
-    // Arbitrary consensus input includes historical unsanitized lists whose cached list schema
+    // Arbitrary consensus input includes historical unsanitized lists whose cached list type metadata
     // omits active tuple fields. Those values deliberately require descriptor-based compatibility
-    // reconstruction. `check_generated` exercises typed decode for self-consistent schema pairs.
-    assert_eq!(value_shape.as_bytes(), shape.as_bytes());
+    // reconstruction. `check_generated` exercises typed decode for matching values and expected types.
+    assert_eq!(value_descriptor.as_bytes(), descriptor.as_bytes());
 }
 
 /// Fold at most sixteen fuzz bytes into a deterministic unsigned integer.
@@ -126,7 +131,7 @@ fn unsigned(bytes: &[u8]) -> u128 {
         .fold(0, |value, byte| (value << 8) | u128::from(*byte))
 }
 
-/// Build a valid bounded value/schema pair so every fuzz input exercises successful paths.
+/// Build a valid bounded value and expected-type pair so every fuzz input exercises successful paths.
 fn generated_value(selector: u8, bytes: &[u8], epoch: &StacksEpochId) -> (Value, TypeSignature) {
     let tail = bytes.get(1..).unwrap_or_default();
     match selector % 8 {
@@ -144,7 +149,7 @@ fn generated_value(selector: u8, bytes: &[u8], epoch: &StacksEpochId) -> (Value,
         ),
         4 => {
             let expected = TypeSignature::new_option(TypeSignature::UIntType)
-                .expect("constant optional schema");
+                .expect("constant optional expected type");
             let value = if bytes.first().is_some_and(|byte| byte & 1 == 1) {
                 Value::some(Value::UInt(unsigned(tail))).expect("constant optional value")
             } else {
@@ -157,7 +162,7 @@ fn generated_value(selector: u8, bytes: &[u8], epoch: &StacksEpochId) -> (Value,
                 4_096u32.try_into().expect("constant buffer bound"),
             ));
             let expected = TypeSignature::new_response(buffer_type, TypeSignature::IntType)
-                .expect("constant response schema");
+                .expect("constant response expected type");
             let value = if bytes.first().is_some_and(|byte| byte & 1 == 1) {
                 Value::okay(
                     Value::buff_from(tail.to_vec())
@@ -192,15 +197,15 @@ fn generated_value(selector: u8, bytes: &[u8], epoch: &StacksEpochId) -> (Value,
             (value, expected)
         }
         _ => {
-            let list_type =
-                ListTypeData::new_list(TypeSignature::UIntType, 256).expect("constant list schema");
+            let list_type = ListTypeData::new_list(TypeSignature::UIntType, 256)
+                .expect("constant list expected type");
             let values = bytes
                 .chunks(16)
                 .take(256)
                 .map(|chunk| Value::UInt(unsigned(chunk)))
                 .collect();
             let value = Value::list_with_type(epoch, values, list_type.clone())
-                .expect("generated list matches its schema");
+                .expect("generated list matches its expected type");
             (
                 value,
                 TypeSignature::SequenceType(SequenceSubtype::ListType(list_type)),
@@ -215,17 +220,20 @@ fn check_generated(selector: u8, bytes: &[u8], epoch: &StacksEpochId) {
     let consensus = value
         .serialize_to_vec()
         .expect("a generated value must serialize");
-    let shape =
-        ValueShape::from_value(SHAPE_VERSION, &value).expect("a generated value must have a shape");
-    let (packed, transcoded_shape) =
-        PackedValue::transcode_consensus_with_shape(PACKED_VERSION, SHAPE_VERSION, &consensus)
-            .expect("a generated value must transcode");
-    assert!(transcoded_shape.as_bytes().len() <= consensus.len() + 1);
-    assert_eq!(transcoded_shape.as_bytes(), shape.as_bytes());
+    let descriptor = ValueDescriptor::from_value(DESCRIPTOR_VERSION, &value)
+        .expect("a generated value must have a descriptor");
+    let (packed, transcoded_descriptor) = PackedValue::transcode_consensus_with_descriptor(
+        PACKED_VERSION,
+        DESCRIPTOR_VERSION,
+        &consensus,
+    )
+    .expect("a generated value must transcode");
+    assert!(transcoded_descriptor.as_bytes().len() <= consensus.len() + 1);
+    assert_eq!(transcoded_descriptor.as_bytes(), descriptor.as_bytes());
     assert_eq!(
         packed
             .as_packed_ref()
-            .audit_reconstruction(shape.as_bytes())
+            .audit_reconstruction(descriptor.as_bytes())
             .expect("a generated value must reconstruct"),
         consensus
     );
@@ -246,7 +254,7 @@ fuzz_target!(|input: &[u8]| {
         return;
     }
 
-    let expected = schema(data[0]);
+    let expected = expected_type(data[0]);
     let epochs = StacksEpochId::ALL;
     let epoch = &epochs[usize::from(data[1]) % epochs.len()];
     let body = &data[4..];
@@ -257,7 +265,7 @@ fuzz_target!(|input: &[u8]| {
     let generated_body = &body[..body.len().min(4_096)];
     check_generated(data[0], generated_body, epoch);
 
-    let _ = ValueShape::from_bytes(descriptor);
+    let _ = ValueDescriptor::from_bytes(descriptor);
 
     if let Ok(decoded) =
         PackedValueRef::parse(packed_bytes).and_then(|packed| packed.decode(&expected))
@@ -288,11 +296,14 @@ fuzz_target!(|input: &[u8]| {
                 .expect("a reconstructed value must serialize"),
             consensus
         );
-        let (repacked, reshaped) =
-            PackedValue::transcode_consensus_with_shape(PACKED_VERSION, SHAPE_VERSION, &consensus)
-                .expect("a reconstructed value must transcode");
+        let (repacked, rederived_descriptor) = PackedValue::transcode_consensus_with_descriptor(
+            PACKED_VERSION,
+            DESCRIPTOR_VERSION,
+            &consensus,
+        )
+        .expect("a reconstructed value must transcode");
         assert_eq!(repacked.as_bytes(), packed_bytes);
-        assert_eq!(reshaped.as_bytes(), descriptor);
+        assert_eq!(rederived_descriptor.as_bytes(), descriptor);
     }
 
     check_consensus(body);

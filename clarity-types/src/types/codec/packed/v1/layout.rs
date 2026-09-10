@@ -19,7 +19,7 @@
 //! bounds and inactive response/optional branches never select physical framing.
 
 use super::super::shape::ActiveShape;
-use super::{PackedSchemaError, PackedValueError};
+use super::{ExpectedTypeError, PackedValueError};
 use crate::types::{ListData, TypeSignature, Value};
 
 /// Physical framing selected for a list's element region.
@@ -94,7 +94,7 @@ pub fn fixed_shape_width(shape: &ActiveShape) -> Option<usize> {
     }
 }
 
-/// Return the directory-free width implied by a read schema, if any.
+/// Return the directory-free width implied by an expected type, if any.
 pub fn fixed_type_width(expected: &TypeSignature) -> Result<Option<usize>, PackedValueError> {
     match expected {
         TypeSignature::BoolType => Ok(Some(1)),
@@ -110,7 +110,7 @@ pub fn fixed_type_width(expected: &TypeSignature) -> Result<Option<usize>, Packe
             }
             Ok(Some(total))
         }
-        TypeSignature::ListUnionType(_) => Err(PackedSchemaError::ListUnionType.into()),
+        TypeSignature::ListUnionType(_) => Err(ExpectedTypeError::ListUnionType.into()),
         _ => Ok(None),
     }
 }
