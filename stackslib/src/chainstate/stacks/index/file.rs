@@ -168,7 +168,6 @@ pub struct TrieFileDisk {
 /// Handle to a flat in-memory buffer containing Trie blobs (used for testing)
 pub struct TrieFileRAM {
     fd: Cursor<Vec<u8>>,
-    readonly: bool,
     trie_offsets: TrieIdOffsets,
 }
 
@@ -199,10 +198,9 @@ impl TrieFile {
     }
 
     /// Make a new RAM-backed TrieFile
-    fn new_ram(readonly: bool) -> TrieFile {
+    fn new_ram() -> TrieFile {
         TrieFile::RAM(TrieFileRAM {
             fd: Cursor::new(vec![]),
-            readonly,
             trie_offsets: TrieIdOffsets::new(),
         })
     }
@@ -278,7 +276,7 @@ impl TrieFile {
     /// Otherwise, it'll be stored as `$db_path.blobs`.
     pub fn from_db_path(path: &str, readonly: bool) -> Result<TrieFile, Error> {
         if path == ":memory:" {
-            Ok(TrieFile::new_ram(readonly))
+            Ok(TrieFile::new_ram())
         } else {
             let blob_path = format!("{}.blobs", path);
             TrieFile::new_disk(&blob_path, readonly)
