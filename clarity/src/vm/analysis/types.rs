@@ -30,11 +30,6 @@ use crate::vm::types::FunctionType;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::{ClarityVersion, SymbolicExpression};
 
-const DESERIALIZE_FAIL_MESSAGE: &str =
-    "PANIC: Failed to deserialize bad database data in contract analysis.";
-const SERIALIZE_FAIL_MESSAGE: &str =
-    "PANIC: Failed to deserialize bad database data in contract analysis.";
-
 pub trait AnalysisPass {
     fn run_pass(
         epoch: &StacksEpochId,

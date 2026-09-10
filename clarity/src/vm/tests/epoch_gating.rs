@@ -42,7 +42,8 @@ fn test_default_for_epoch_is_monotonic() {
 /// predicates.
 #[test]
 fn test_epoch34_feature_gates_are_consistent() {
-    for &epoch in StacksEpochId::ALL {
+    // No Clarity in Epoch10.
+    for &epoch in (StacksEpochId::Epoch20..).as_slice() {
         let is_34_plus = epoch >= StacksEpochId::Epoch34;
         let version = ClarityVersion::default_for_epoch(epoch);
 
