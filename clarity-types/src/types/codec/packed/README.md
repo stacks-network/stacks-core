@@ -3,8 +3,8 @@
 ## Scope
 
 This module provides the stable API and version dispatch for non-consensus packed Clarity values.
-Each stored stream starts with its own one-byte version discriminator. The remaining envelope and
-body are interpreted only by the selected version implementation.
+Each packed record and value-shape descriptor starts with its own one-byte version discriminator.
+The remaining envelope and body are interpreted only by the selected version implementation.
 
 Packed records and value-shape descriptors are independently versioned:
 
@@ -13,7 +13,7 @@ Packed records and value-shape descriptors are independently versioned:
   metadata needed to reconstruct consensus bytes without a caller-supplied `TypeSignature`.
 
 Typed decoding needs only a packed record and caller-supplied `TypeSignature`. Descriptor-guided
-reconstruction needs both streams.
+reconstruction needs both the record and its descriptor.
 
 ## Trust and integrity boundary
 
@@ -29,7 +29,7 @@ schema mismatches, but it is not an authentication tag.
 
 ## Version registry
 
-| Stream | Version byte | Specification | Implementation |
+| Encoding | Version byte | Specification | Implementation |
 | ---- | ---- | ---- | ---- |
 | Packed value record | `01` | [Packed Grammar V1](v1/README.md) | `packed::v1` |
 | Value-shape descriptor | `01` | [Packed Grammar V1](v1/README.md) | `packed::v1` |

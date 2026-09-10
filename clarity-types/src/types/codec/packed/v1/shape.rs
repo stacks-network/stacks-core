@@ -417,7 +417,7 @@ mod tests {
 
     /// Preserve the complete historical payload when its descriptor exceeds the runtime size bound.
     #[test]
-    fn structurally_valid_shape_uses_its_own_stream_bound() {
+    fn structurally_valid_shape_uses_its_own_descriptor_bound() {
         const LIST_ELEMENTS: u8 = 0x0f;
         const TUPLE: u8 = 0x0c;
         const BOOL: u8 = 0x02;

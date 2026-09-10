@@ -16,7 +16,7 @@ change value hashes, state roots, protocol costs, or values visible to contracts
 retains the byte length of its equivalent consensus serialization so existing cost accounting
 remains unchanged.
 
-The codec defines two independent byte streams:
+The codec defines two independently versioned encodings:
 
 - a packed value record, decoded with a caller-supplied `TypeSignature`; and
 - an optional value-shape descriptor, used to reconstruct exact consensus bytes without a
@@ -24,18 +24,18 @@ The codec defines two independent byte streams:
 
 Ordinary typed reads require only the packed value record. Generic reads, integrity audits, and
 compatibility reads for historical unsanitized values whose cached schema omits active data require
-both streams.
+both the record and its descriptor.
 
-Both streams are independently versioned, but neither is self-describing with respect to the
-complete Clarity type. A typed decoder MUST receive the expected `TypeSignature`. A
-descriptor-guided reconstructor MUST receive the value-shape descriptor. For example, the packed
-body `00` can represent integer zero, unsigned integer zero, Boolean false, or optional `none`; its
-enclosing `TypeSignature` or descriptor distinguishes them.
+Neither the record nor its descriptor is self-describing with respect to the complete Clarity type.
+A typed decoder MUST receive the expected `TypeSignature`. A descriptor-guided reconstructor MUST
+receive the value-shape descriptor. For example, the packed body `00` can represent integer zero,
+unsigned integer zero, Boolean false, or optional `none`; its enclosing `TypeSignature` or descriptor
+distinguishes them.
 
-## Versioned streams
+## Versioned record and descriptor
 
 The packed record and value-shape descriptor have independent version bytes. Offsets in each table
-are relative to the start of that complete stream.
+are relative to the start of the complete record or descriptor.
 
 ### Packed record envelope
 
@@ -60,12 +60,12 @@ For a complete value-shape descriptor of `S` bytes:
 | `1` | `S - 1` bytes | Root shape | Shape-specific | Exactly one root shape node with no trailing bytes |
 
 The packed version selects the record-envelope and value-body grammar. The shape version selects the
-descriptor grammar. A change to one stream does not require changing the other when its grammar is
-otherwise unchanged.
+descriptor grammar. Changing the record grammar does not require changing the descriptor version,
+or vice versa.
 
-This specification makes no assumptions about how either byte stream is transported, framed,
-indexed, or persisted. A containing system MUST treat the complete versioned streams as opaque
-codec values and MUST NOT infer their versions from external state.
+This specification does not define transport, framing, indexing, or persistence for records and
+descriptors. A containing system MUST treat each complete, versioned record or descriptor as an
+opaque codec value and MUST NOT infer its version from external state.
 
 ## Terminology and notation
 
@@ -205,6 +205,9 @@ container-count bytes omitted from the packed body.
 The packed header is exactly four bytes: one format-version byte and three logical-length bytes.
 It is not a physical payload length. The complete record's enclosing frame supplies the packed body
 length.
+
+Within that frame, offset directories and fixed-width lanes support direct element location
+without scanning preceding element payloads.
 
 For example, unsigned integer `u42` has a 17-byte consensus serialization but a five-byte packed
 record:
@@ -944,8 +947,8 @@ shapes. Ordinary sanitized lists MUST use a shared shape instead.
 Any change that alters packed bytes emitted for an already-supported value requires a new packed
 version. An incompatible change to the value-shape grammar requires a new descriptor version.
 
-A reader MUST validate each stream's explicit version before parsing the remainder of that stream
-and MUST NOT probe alternative grammars.
+A reader MUST validate the explicit version of each record or descriptor before parsing its
+remaining bytes and MUST NOT probe alternative grammars.
 
 Readers MUST fail closed on unsupported versions. Within one version, writers MUST NOT emit two
 different physical representations for the same canonical value.

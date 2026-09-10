@@ -77,7 +77,7 @@ pub fn audit_reconstruction(
     Ok(consensus)
 }
 
-/// Return the first differing byte offset, or the shorter length when one stream is a prefix.
+/// Return the first differing byte offset, or the shorter length when one slice is a prefix.
 fn first_mismatch(left: &[u8], right: &[u8]) -> usize {
     left.iter()
         .zip(right)

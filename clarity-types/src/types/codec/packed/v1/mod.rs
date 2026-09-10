@@ -75,10 +75,11 @@ pub const BOUND_PACKED_VALUE_BODY_BYTES: usize =
 /// Maximum length of one versioned V1 value-shape descriptor.
 ///
 /// For a canonical descriptor derived from a legal value, every descriptor node is covered by at
-/// least as many bytes in the corresponding consensus value. Tuple names occur in both streams,
-/// while merged optional, response, and list shapes are shared by the multiple active values whose
-/// consensus bytes cover their children. The descriptor version is the only byte without a
-/// consensus counterpart. Parsers use the same limit as a conservative pre-audit resource ceiling.
+/// least as many bytes in the corresponding consensus value. Tuple names occur in the descriptor
+/// and consensus bytes. Merged optional, response, and list shapes are shared by multiple active
+/// values whose consensus bytes cover their children. The descriptor version is the only byte
+/// without a consensus counterpart. Parsers use the same limit as a conservative pre-audit resource
+/// ceiling.
 pub const BOUND_VALUE_SHAPE_BYTES: usize = BOUND_VALUE_SERIALIZATION_BYTES as usize + 1;
 
 /// Encode one value as a complete V1 packed record.
@@ -100,7 +101,7 @@ pub fn transcode_consensus(consensus: &[u8]) -> Result<PackedValue, PackedValueE
     encode::transcode(consensus)
 }
 
-/// Transcode one exact consensus value to V1 packed and shape streams.
+/// Transcode one exact consensus value to a V1 packed record and value-shape descriptor.
 pub fn transcode_consensus_with_shape(
     consensus: &[u8],
 ) -> Result<(PackedValue, ValueShape), PackedValueError> {
@@ -148,7 +149,7 @@ pub fn decode(
     decode::value(packed, expected)
 }
 
-/// Reconstruct exact consensus bytes from V1 record and shape streams.
+/// Reconstruct exact consensus bytes from a V1 packed record and value-shape descriptor.
 pub fn reconstruct_consensus(
     packed: PackedValueRef<'_>,
     shape: ValueShapeRef<'_>,
@@ -156,7 +157,7 @@ pub fn reconstruct_consensus(
     reconstruct::reconstruct_consensus(packed, shape.as_bytes())
 }
 
-/// Reconstruct and prove that V1 record and shape streams are canonical.
+/// Reconstruct and prove that a V1 packed record and value-shape descriptor are canonical.
 pub fn audit_reconstruction(
     packed: PackedValueRef<'_>,
     shape: ValueShapeRef<'_>,

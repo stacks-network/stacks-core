@@ -16,9 +16,9 @@
 //! Canonical packed representation for Clarity values.
 //!
 //! This is not Clarity's consensus serialization. Packed value records and their optional
-//! reconstruction metadata are separate, independently versioned streams. Encoding selects each
-//! version explicitly; decoding dispatches from the leading version byte and rejects unknown
-//! versions without probing another grammar.
+//! value-shape descriptors are independently versioned. Encoding selects each version explicitly;
+//! decoding dispatches from the leading version byte and rejects unknown versions without probing
+//! another grammar.
 //!
 //! The version registry and byte-level specifications are linked from the
 //! [packed-codec overview][format-spec].

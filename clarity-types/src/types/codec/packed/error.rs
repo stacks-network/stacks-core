@@ -608,7 +608,7 @@ pub enum ValueShapeError {
     },
 }
 
-/// Errors caused by disagreement between packed and value-shape streams.
+/// Errors caused by disagreement between packed records and value-shape descriptors.
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 #[non_exhaustive]
 pub enum ReconstructionError {
@@ -617,7 +617,7 @@ pub enum ReconstructionError {
         "reconstructed packed value first differs at byte {first_mismatch} (stored length {stored_length}, canonical length {canonical_length})"
     )]
     NonCanonicalPackedValue {
-        /// First differing byte offset, or the shorter stream length.
+        /// First differing byte offset, or the shorter record length.
         first_mismatch: usize,
         /// Stored packed-record byte length.
         stored_length: usize,
@@ -629,7 +629,7 @@ pub enum ReconstructionError {
         "value shape first differs at byte {first_mismatch} (stored length {stored_length}, canonical length {canonical_length})"
     )]
     NonCanonicalValueShape {
-        /// First differing byte offset, or the shorter stream length.
+        /// First differing byte offset, or the shorter descriptor length.
         first_mismatch: usize,
         /// Stored descriptor byte length.
         stored_length: usize,
