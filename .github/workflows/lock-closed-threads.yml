@@ -22,6 +22,8 @@ jobs:
   check-ci:
     name: "Check: CI Enabled"
     uses: ./.github/workflows/__check-ci.yml
+    with:
+      allow-fork-runs: false
 
   # Execute only on our official repo, because it manages Issues, PRs, and Discussions for us
   lock-closed-threads:
@@ -29,8 +31,7 @@ jobs:
     needs:
       - check-ci
     if: >-
-      needs.check-ci.outputs.enabled == 'true' && 
-      needs.check-ci.outputs.official-repo == 'true'
+      needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Lock Threads

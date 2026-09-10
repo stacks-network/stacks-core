@@ -4,13 +4,17 @@ name: "Check CI"
 
 on:
   workflow_call:
+    inputs:
+      allow-fork-runs:
+        description: >-
+          Whether this workflow may run outside of the official repository at all.
+        required: false
+        default: true
+        type: boolean
     outputs:
       enabled:
         description: "Returns 'true' if CI is enabled, 'false' otherwise"
         value: ${{ jobs.check-ci.outputs.enabled }}
-      official-repo:
-        description: "Returns 'true' if running on stacks-network/stacks-core, 'false' otherwise"
-        value: ${{ jobs.check-ci.outputs.official-repo }}
 
 permissions:
   contents: read
@@ -21,7 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       enabled: ${{ steps.check.outputs.enabled }}
-      official-repo: ${{ steps.check.outputs.official-repo }}
     steps:
       - name: "Check CI Enabled"
         id: check
@@ -31,22 +34,21 @@ jobs:
           echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
           echo "github.repository:   '${{ github.repository }}'"
           echo "github.event_name:   '${{ github.event_name }}'"
+          echo "allow-fork-runs: '${{ inputs.allow-fork-runs }}'"
 
           IS_ENABLED="false"
-          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${{ inputs.allow-fork-runs }}" == "false" && "${{ github.repository }}" != "stacks-network/stacks-core" ]]; then
+            echo "Result: CI is DISABLED (run disabled on repos other than `stacks-network/stacks-core`)"
+            IS_ENABLED="false"
+          elif [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "Result: CI is ENABLED"
             IS_ENABLED="true"
           else
             echo "Result: CI is DISABLED"
-          fi
-          
-          IS_OFFICIAL_REPO="false"
-          if [[ "${{ github.repository }}" == "stacks-network/stacks-core" ]]; then
-            IS_OFFICIAL_REPO="true"
+            IS_ENABLED="false"
           fi
 
           echo "enabled=${IS_ENABLED}" >> "$GITHUB_OUTPUT"
-          echo "official-repo=${IS_OFFICIAL_REPO}" >> "$GITHUB_OUTPUT"
 
           # Write results to GITHUB_STEP_SUMMARY
           echo "## ⚙️ CI Enablement Check" >> "$GITHUB_STEP_SUMMARY"
@@ -55,6 +57,7 @@ jobs:
           echo "| \`ENABLE_CI_WORKFLOWS\` | \`${{ vars.ENABLE_CI_WORKFLOWS }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`github.repository\` | \`${{ github.repository }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "| \`github.event_name\` | \`${{ github.event_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`allow-fork-runs\` | \`${{ inputs.allow-fork-runs }}\` |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "${IS_ENABLED}" == "true" ]]; then
