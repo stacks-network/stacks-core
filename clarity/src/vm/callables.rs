@@ -713,18 +713,13 @@ mod test {
         let tuple_ty = TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![(a_name.clone(), trait_ty)]).unwrap(),
         );
-        let contract_tuple_ty = TypeSignature::TupleType(
+        let contract_tuple_ty =
             TupleTypeSignature::try_from(vec![(a_name.clone(), TypeSignature::PrincipalType)])
-                .unwrap(),
-        );
+                .unwrap();
         let mut data_map = BTreeMap::new();
         data_map.insert(a_name.clone(), contract.clone());
         let tuple_contract = Value::Tuple(TupleData {
-            type_signature: TupleTypeSignature::try_from(vec![(
-                a_name.clone(),
-                TypeSignature::PrincipalType,
-            )])
-            .unwrap(),
+            type_signature: contract_tuple_ty,
             data_map,
         });
         let cast_tuple = clarity2_implicit_cast(&tuple_ty, &tuple_contract).unwrap();

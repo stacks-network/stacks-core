@@ -522,7 +522,7 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
         format!(
             "(define-trait trait-1 ((method ({}) (response uint uint))))",
             (0..(MAX_FUNCTION_PARAMETERS + 1))
-                .map(|i| "uint".to_string())
+                .map(|_| "uint".to_string())
                 .collect::<Vec<String>>()
                 .join(" ")
         ),
@@ -2339,6 +2339,7 @@ fn test_variadic_concat_pre_clarity_6_rejected() {
             ClarityVersion::Clarity4 => StacksEpochId::Epoch33,
             ClarityVersion::Clarity5 => StacksEpochId::Epoch34,
             ClarityVersion::Clarity6 => unreachable!(),
+            ClarityVersion::Clarity7 => unreachable!(),
         };
         for (snippet, expected) in &snippets_and_expected {
             let err = type_check_helper_version(snippet, version, epoch).unwrap_err();
