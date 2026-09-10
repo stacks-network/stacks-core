@@ -59,6 +59,15 @@ jobs:
     if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+    
       # Check cache for bitcoin binary
       # We don't need multiple caches of the same Bitcoin binary, so skip create if one already exists
       - name: Check Bitcoin Cache
@@ -80,6 +89,15 @@ jobs:
     if: needs.check-ci.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
+      # Checkout the code
+      #   - only .github is required for this job
+      - name: Checkout the latest code
+        uses: $/.github/wrappers/checkout
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          sparse-checkout: |
+            .github
+    
       - name: Create Cargo Cache
         uses: ./.github/actions/cache/cargo
         with:
