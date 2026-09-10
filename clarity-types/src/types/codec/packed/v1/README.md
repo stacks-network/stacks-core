@@ -113,7 +113,7 @@ self-contained. Each is the first byte of its consensus value:
 | `03` | Boolean true |
 | `04` | Boolean false |
 | `05` | Standard principal followed by version and 20-byte hash |
-| `06` | Contract principal or callable identity |
+| `06` | Contract principal |
 | `07` | Response `ok`, followed by its child value |
 | `08` | Response `err`, followed by its child value |
 | `09` | Optional `none` |
@@ -331,9 +331,10 @@ longer than Clarity's 128-byte name bound, and accepted by the Clarity contract-
 The contract-name length is omitted because the enclosing frame supplies it. A contract-principal
 body is `22 + contract_name.len()` bytes.
 
-A callable contract MUST use the contract-principal body above. Trait identity is not stored because
-it is absent from the callable's consensus bytes. Typed decoding restores callable identity from the
-declared schema:
+A callable contract MUST use the contract-principal body above. Runtime callable values may carry
+optional trait metadata, but neither consensus serialization nor the packed body stores it.
+Typed decoding uses the expected type to select the runtime representation and restore omitted
+trait metadata:
 
 - `CallableType::Principal(expected_contract)` verifies the encoded contract identity and restores
   a callable without trait metadata;
@@ -558,7 +559,7 @@ at offset one:
 | `0` | 1 byte | `03` | Buffer | None |
 | `0` | 1 byte | `04` | ASCII string | None |
 | `0` | 1 byte | `05` | UTF-8 string | None |
-| `0` | 1 byte | `06` | Principal or callable identity | None |
+| `0` | 1 byte | `06` | Principal | None |
 | `0` | 1 byte | `07` | Optional `none` | None |
 | `0` | 1 byte | `08` | Optional `some` | One child shape |
 | `0` | 1 byte | `09` | Response `ok` only | One `ok` child shape |

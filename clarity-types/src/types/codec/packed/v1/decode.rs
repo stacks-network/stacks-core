@@ -184,7 +184,7 @@ fn body(bytes: &[u8], expected: &TypeSignature) -> Result<(Value, u32), PackedVa
     }
 }
 
-/// Decode a callable contract and restore the schema-provided callable identity.
+/// Decode a callable contract and restore optional trait metadata from the expected type.
 fn callable(bytes: &[u8], expected: &CallableSubtype) -> Result<(Value, u32), PackedValueError> {
     let (contract_identifier, logical_len) = contract(bytes)?;
     let trait_identifier = match expected {
