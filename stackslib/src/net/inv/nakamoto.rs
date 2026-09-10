@@ -538,15 +538,6 @@ impl NakamotoTenureInv {
             .unwrap_or(0)
     }
 
-    /// How many blocks are represented in this inv?
-    fn num_blocks_represented(&self) -> u64 {
-        let mut total = 0;
-        for (_, inv) in self.tenures_inv.iter() {
-            total += u64::from(inv.len());
-        }
-        total
-    }
-
     /// Add in a newly-discovered inventory.
     /// NOTE: inventories are supposed to be aligned to the reward cycle
     /// Returns true if the tenure bitvec has changed -- we either learned about a new tenure-start

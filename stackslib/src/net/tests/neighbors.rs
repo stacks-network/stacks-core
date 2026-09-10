@@ -32,8 +32,6 @@ use crate::net::test::*;
 use crate::net::*;
 use crate::util_lib::test::*;
 
-const TEST_IN_OUT_DEGREES: u64 = 0x1;
-
 #[test]
 fn test_step_walk_1_neighbor_plain() {
     with_timeout(600, || {
