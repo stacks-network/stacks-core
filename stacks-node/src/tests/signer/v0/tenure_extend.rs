@@ -4939,3 +4939,229 @@ fn read_count_extend_after_burn_view_change() {
 
     miners.shutdown();
 }
+
+#[tag(bitcoind, slow)]
+#[test]
+#[ignore]
+/// Test that a miner can extend its tenure across a reward cycle boundary.
+///
+/// Test Setup:
+/// A single miner and five signers boot to Nakamoto. The signers are stacked
+/// for many cycles, so the same signer set is active in cycles N and N+1.
+///
+/// Test Execution:
+/// - Mine tenures until the second-to-last burn block of reward cycle N.
+/// - Pause block commits, then mine the last burn block of cycle N. The
+///   pending commit wins that sortition, giving the miner a tenure elected in
+///   cycle N. No commit is submitted for the following block.
+/// - Mine the first burn block of cycle N+1 (the mod-0 block). It has no
+///   sortition, so the miner must extend its cycle-N tenure into the new burn
+///   view.
+/// - Submit a transfer to confirm the miner keeps mining in the extended tenure.
+/// - Resume block commits and mine the next burn block, which should produce a
+///   normal tenure in cycle N+1.
+///
+/// Test Assertion:
+/// - After the empty mod-0 sortition, a block containing a
+///   `TenureChangeCause::Extended` whose burn view is the mod-0 sortition is
+///   signed and becomes the stacks tip.
+/// - The miner mines another block on the extended tenure.
+/// - A normal `BlockFound` tenure follows in cycle N+1.
+fn tenure_extend_across_reward_cycle_boundary() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
+    let conf = signer_test.running_nodes.conf.clone();
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let miner_sk = conf.miner.mining_key.clone().unwrap();
+    let miner_pk = StacksPublicKey::from_private(&miner_sk);
+    let skip_commit_op = signer_test.running_nodes.counters.skip_commit_op.clone();
+    let commits_submitted = signer_test
+        .running_nodes
+        .counters
+        .naka_submitted_commits
+        .clone();
+    let long_timeout = Duration::from_secs(200);
+
+    signer_test.boot_to_epoch_3();
+
+    let burnchain = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_burnchain();
+    let curr_reward_cycle = signer_test.get_current_reward_cycle();
+    let next_reward_cycle = curr_reward_cycle + 1;
+    // The mod-0 block is the first burn block of the next cycle that the next
+    // cycle's signer set is responsible for signing.
+    let mod_0_height = burnchain.nakamoto_first_block_of_cycle(next_reward_cycle);
+    let last_cycle_n_height = mod_0_height - 1;
+
+    info!(
+        "------------------------- Advancing to Burn Block {} (Two Before Cycle {next_reward_cycle}) -------------------------",
+        last_cycle_n_height - 1
+    );
+    while get_chain_info(&conf).burn_block_height < last_cycle_n_height - 1 {
+        signer_test.mine_and_verify_confirmed_naka_block(long_timeout, num_signers, false);
+    }
+    assert_eq!(
+        get_chain_info(&conf).burn_block_height,
+        last_cycle_n_height - 1
+    );
+    assert_eq!(signer_test.get_current_reward_cycle(), curr_reward_cycle);
+
+    // We are in the prepare phase, so the signers should be registered for both cycles.
+    signer_test.wait_for_registered_both_reward_cycles();
+
+    info!("------------------------- Pause Block Commits -------------------------");
+    // The commit for the last block of cycle N has already been submitted
+    // (mine_nakamoto_block waits for it). Pausing now ensures no commit is
+    // submitted for the mod-0 block of cycle N+1.
+    skip_commit_op.set(true);
+
+    info!("------------------------- Mine Last Tenure of Cycle {curr_reward_cycle} at Burn Block {last_cycle_n_height} -------------------------");
+    let stacks_height_before = get_chain_info(&conf).stacks_tip_height;
+    next_block_and_process_new_stacks_block(
+        &signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+    )
+    .expect("Failed to mine the last tenure of cycle N");
+
+    let info = get_chain_info(&conf);
+    assert_eq!(info.burn_block_height, last_cycle_n_height);
+    assert_eq!(signer_test.get_current_reward_cycle(), curr_reward_cycle);
+    let tenure_start_block =
+        wait_for_block_pushed_and_tip(30, stacks_height_before + 1, &miner_pk, || {
+            get_chain_info(&conf).stacks_tip
+        })
+        .expect("Timed out waiting for the tenure-start block of the last cycle N tenure");
+    assert!(tenure_start_block
+        .get_tenure_change_tx_payload()
+        .expect("Expected a tenure change in the tenure-start block")
+        .cause
+        .is_eq(&TenureChangeCause::BlockFound));
+    let election_sortition = get_sortition_info(&conf);
+    assert!(election_sortition.was_sortition);
+    assert_eq!(election_sortition.burn_block_height, last_cycle_n_height);
+    assert_eq!(
+        election_sortition.consensus_hash,
+        tenure_start_block.header.consensus_hash
+    );
+    signer_test.check_signer_states_normal();
+
+    info!("------------------------- Mine Empty Mod-0 Sortition of Cycle {next_reward_cycle} at Burn Block {mod_0_height} -------------------------");
+    let stacks_height_before = get_chain_info(&conf).stacks_tip_height;
+    let commits_before = commits_submitted.get();
+    signer_test.mine_bitcoin_block();
+
+    let info = get_chain_info(&conf);
+    assert_eq!(info.burn_block_height, mod_0_height);
+    assert_eq!(signer_test.get_current_reward_cycle(), next_reward_cycle);
+    let empty_sortition = get_sortition_info(&conf);
+    assert!(
+        !empty_sortition.was_sortition,
+        "The mod-0 block of the new reward cycle should have no sortition"
+    );
+    assert_eq!(
+        empty_sortition.last_sortition_ch.as_ref(),
+        Some(&election_sortition.consensus_hash)
+    );
+    assert_eq!(
+        commits_submitted.get(),
+        commits_before,
+        "No block commits should have been submitted while paused"
+    );
+    signer_test.check_signer_states_normal_missed_sortition();
+
+    info!("------------------------- Wait for Tenure Extend Across the Cycle Boundary -------------------------");
+    let extend_block =
+        wait_for_block_pushed_and_tip(60, stacks_height_before + 1, &miner_pk, || {
+            get_chain_info(&conf).stacks_tip
+        })
+        .expect("Timed out waiting for the tenure extend block after the cycle boundary");
+    let extend_payload = extend_block
+        .get_tenure_extend_tx_payload()
+        .expect("Expected a tenure extend in the first block after the empty sortition");
+    assert!(extend_payload.cause.is_eq(&TenureChangeCause::Extended));
+    assert_eq!(
+        extend_payload.tenure_consensus_hash,
+        election_sortition.consensus_hash
+    );
+    assert_eq!(
+        extend_payload.burn_view_consensus_hash,
+        empty_sortition.consensus_hash
+    );
+    assert_eq!(
+        extend_block.header.consensus_hash,
+        election_sortition.consensus_hash
+    );
+
+    info!("------------------------- Mine a Transfer in the Extended Tenure -------------------------");
+    let stacks_height_before = get_chain_info(&conf).stacks_tip_height;
+    let transfer_tx = make_stacks_transfer_serialized(
+        &sender_sk,
+        0,
+        send_fee,
+        conf.burnchain.chain_id,
+        &recipient,
+        send_amt,
+    );
+    submit_tx(&http_origin, &transfer_tx);
+    let transfer_block =
+        wait_for_block_pushed_and_tip(60, stacks_height_before + 1, &miner_pk, || {
+            get_chain_info(&conf).stacks_tip
+        })
+        .expect("Timed out waiting for a block with the transfer in the extended tenure");
+    assert_eq!(
+        transfer_block.header.consensus_hash,
+        election_sortition.consensus_hash
+    );
+    assert!(transfer_block.get_tenure_tx_payload().is_none());
+
+    info!("------------------------- Resume Block Commits and Mine a Normal Tenure in Cycle {next_reward_cycle} -------------------------");
+    skip_commit_op.set(false);
+    wait_for(60, || Ok(commits_submitted.get() > commits_before))
+        .expect("Timed out waiting for a block commit after resuming");
+
+    let stacks_height_before = get_chain_info(&conf).stacks_tip_height;
+    next_block_and_process_new_stacks_block(
+        &signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+    )
+    .expect("Failed to mine a normal tenure after the tenure extend");
+    let new_tenure_block =
+        wait_for_block_pushed_and_tip(30, stacks_height_before + 1, &miner_pk, || {
+            get_chain_info(&conf).stacks_tip
+        })
+        .expect("Timed out waiting for the first tenure-start block of the new cycle");
+    assert!(new_tenure_block
+        .get_tenure_change_tx_payload()
+        .expect("Expected a tenure change in the new tenure-start block")
+        .cause
+        .is_eq(&TenureChangeCause::BlockFound));
+    assert_ne!(
+        new_tenure_block.header.consensus_hash,
+        election_sortition.consensus_hash
+    );
+    assert_eq!(get_chain_info(&conf).burn_block_height, mod_0_height + 1);
+    signer_test.check_signer_states_normal();
+
+    info!("------------------------- Shutdown -------------------------");
+    signer_test.shutdown();
+}
