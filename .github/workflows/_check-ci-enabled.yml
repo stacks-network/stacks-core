@@ -1,0 +1,134 @@
+############################################################################
+### Reusable gate deciding whether a workflow's real jobs should run here.
+###
+### Two independent questions, ANDed together:
+###
+###   1. Is CI switched on?    ENABLE_CI_WORKFLOWS, or this workflow's own
+###                            variable, or a manual dispatch.
+###   2. May it run here?      Always in the official repo; elsewhere only
+###                            when the caller passes allow-fork-run.
+###
+###   enabled = (ENABLE_CI_WORKFLOWS || <extra-enable-var> || dispatch)
+###             && (repo == stacks-network/stacks-core || allow-fork-run)
+###
+### The variable is authoritative in the official repo too, so clearing it
+### (or setting it to anything but "true") pauses CI everywhere without a
+### code change. See __README.md for the variable reference.
+###
+### A manual dispatch enables a single run without enabling anything
+### persistently - the distinction matters for scheduled workflows, where
+### setting a variable would also start the cron on that repository.
+###
+### Callers gate their jobs on the output:
+###   needs:
+###     - check-ci-enabled
+###   if: needs.check-ci-enabled.outputs.enabled == 'true'
+############################################################################
+
+name: "Check: CI Enabled"
+
+on:
+  workflow_call:
+    inputs:
+      allow-fork-run:
+        description: >-
+          Whether this workflow may run outside the official repository at all.
+        required: false
+        default: true
+        type: boolean
+      extra-enable-var:
+        description: >-
+          Name of a repository variable that enables this one workflow on its
+          own. Empty means no workflow-specific variable.
+        required: false
+        default: ""
+        type: string
+    outputs:
+      enabled:
+        description: "'true' when this workflow's jobs should run in this repository."
+        value: ${{ jobs.check.outputs.enabled }}
+
+  # Just for play-testing
+  workflow_dispatch:
+    inputs:
+      allow-fork-run:
+        description: >-
+          Whether this workflow may run outside the official repository at all.
+        required: false
+        default: true
+        type: boolean
+
+      extra-enable-var:
+        description: >-
+          Name of a repository variable that enables this one workflow on its
+          own. Empty means no workflow-specific variable.
+        required: false
+        default: ""
+        type: string
+
+# This job only reads contexts; it needs no access to the repository.
+permissions: {}
+
+jobs:
+  check:
+    name: "Gate"
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          ENABLE_CI_WORKFLOWS: ${{ vars.ENABLE_CI_WORKFLOWS }}
+          ALLOW_FORK_RUN: ${{ inputs.allow-fork-run }}
+          EXTRA_VAR_NAME: ${{ inputs.extra-enable-var }}
+          EXTRA_VAR_VALUE: ${{ inputs.extra-enable-var != '' && vars[inputs.extra-enable-var] || '' }}
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "github.repository:   '$REPOSITORY'"
+          echo "github.event_name:   '$EVENT_NAME'"
+          echo "ENABLE_CI_WORKFLOWS: '$ENABLE_CI_WORKFLOWS'"
+          echo "${EXTRA_VAR_NAME:-<no workflow-specific variable>}: '$EXTRA_VAR_VALUE'"
+          echo "allow-fork-run:      '$ALLOW_FORK_RUN'"
+          echo
+
+          # 1. Is CI switched on for this repository?
+          switched_on=true
+          if [[ "$ENABLE_CI_WORKFLOWS" == "true" ]]; then
+            switch="ENABLE_CI_WORKFLOWS is set"
+          elif [[ -n "$EXTRA_VAR_NAME" && "$EXTRA_VAR_VALUE" == "true" ]]; then
+            switch="$EXTRA_VAR_NAME is set"
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            # One run only. Deliberately not persistent, so a fork can exercise
+            # a scheduled workflow by hand without starting its cron.
+            switch="manual dispatch"
+          else
+            switched_on=false
+            switch="no enabling variable is set and this is not a manual dispatch"
+          fi
+
+          # 2. May this workflow run in this repository at all?
+          #    Tested positively, so a malformed allow-fork-run fails closed.
+          allowed_here=true
+          if [[ "$REPOSITORY" == "stacks-network/stacks-core" ]]; then
+            where="official repository"
+          elif [[ "$ALLOW_FORK_RUN" == "true" ]]; then
+            where="fork runs are allowed"
+          else
+            allowed_here=false
+            where="this workflow is restricted to the official repository"
+          fi
+
+          if [[ "$switched_on" == "true" && "$allowed_here" == "true" ]]; then
+            enabled=true
+            echo "Result: CI is ENABLED ($switch; $where)"
+          else
+            enabled=false
+            if [[ "$allowed_here" != "true" ]]; then
+              echo "Result: CI is DISABLED ($where)"
+            else
+              echo "Result: CI is DISABLED ($switch)"
+            fi
+          fi
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
