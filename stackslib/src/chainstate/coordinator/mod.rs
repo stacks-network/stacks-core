@@ -228,6 +228,7 @@ pub struct ChainsCoordinator<
     pub refresh_stacker_db: Arc<AtomicBool>,
     /// whether or not the canonical tip is now a Nakamoto header
     pub in_nakamoto_epoch: bool,
+    pub comms: CoordinatorReceivers,
 }
 
 #[derive(Debug)]
@@ -507,26 +508,33 @@ impl<'a, T: BlockEventDispatcher, CE: CostEstimator + ?Sized, FE: FeeEstimator +
             config,
             refresh_stacker_db: comms.refresh_stacker_db.clone(),
             in_nakamoto_epoch: false,
+            comms,
         };
 
+        inst.comms_loop(miner_status)
+    }
+
+    /// Continuously polls the [`CoordinatorReceivers`] and handles any incoming signals.
+    /// Returns when any of the handlers has indicated that the coordinator should stop.
+    fn comms_loop(&mut self, miner_status: Arc<Mutex<MinerStatus>>) {
         loop {
-            let bits = comms.wait_on();
-            if inst.in_subsequent_nakamoto_reward_cycle() {
+            let bits = self.comms.wait_on();
+            if self.in_subsequent_nakamoto_reward_cycle() {
                 debug!("Coordinator: in subsequent Nakamoto reward cycle");
-                if !inst.handle_comms_nakamoto(bits, miner_status.clone()) {
+                if !self.handle_comms_nakamoto(bits, miner_status.clone()) {
                     return;
                 }
-            } else if inst.in_first_nakamoto_reward_cycle() {
+            } else if self.in_first_nakamoto_reward_cycle() {
                 debug!("Coordinator: in first Nakamoto reward cycle");
-                if !inst.handle_comms_nakamoto(bits, miner_status.clone()) {
+                if !self.handle_comms_nakamoto(bits, miner_status.clone()) {
                     return;
                 }
-                if !inst.handle_comms_epoch2(bits, miner_status.clone()) {
+                if !self.handle_comms_epoch2(bits, miner_status.clone()) {
                     return;
                 }
             } else {
                 debug!("Coordinator: in epoch2 reward cycle");
-                if !inst.handle_comms_epoch2(bits, miner_status.clone()) {
+                if !self.handle_comms_epoch2(bits, miner_status.clone()) {
                     return;
                 }
             }
@@ -650,6 +658,8 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'_, T, (),
         )
         .unwrap();
 
+        let (comms, _channels) = CoordinatorCommunication::instantiate();
+
         ChainsCoordinator {
             canonical_sortition_tip: Some(canonical_sortition_tip),
             burnchain_blocks_db,
@@ -666,6 +676,7 @@ impl<T: BlockEventDispatcher, U: RewardSetProvider> ChainsCoordinator<'_, T, (),
             config: ChainsCoordinatorConfig::test_new(txindex),
             refresh_stacker_db: Arc::new(AtomicBool::new(false)),
             in_nakamoto_epoch: false,
+            comms,
         }
     }
 }

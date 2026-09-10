@@ -1,0 +1,1 @@
+From Epoch 4.1, versioned smart-contract deploys (the `VersionedSmartContract` payload, which pins a Clarity version) are rejected as statically invalid: deploy new contracts with the unversioned `SmartContract` payload, which uses the epoch's default Clarity version (Clarity 7 in Epoch 4.1).
