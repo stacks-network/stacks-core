@@ -143,14 +143,14 @@ inputs:
 
 outputs:
   token:
-     description: "GitHub installation access token"
-     value: ${{ steps.create-token.outputs.token }}
-   installation-id:
-     description: "GitHub App installation ID"
-     value: ${{ steps.create-token.outputs.installation-id }}
-   app-slug:
-     description: "GitHub App slug"
-     value: ${{ steps.create-token.outputs.app-slug }}
+    description: "GitHub installation access token"
+    value: ${{ steps.create-token.outputs.token }}
+  installation-id:
+    description: "GitHub App installation ID"
+    value: ${{ steps.create-token.outputs.installation-id }}
+  app-slug:
+    description: "GitHub App slug"
+    value: ${{ steps.create-token.outputs.app-slug }}
 
 runs:
   using: 'composite'
