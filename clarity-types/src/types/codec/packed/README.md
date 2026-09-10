@@ -34,9 +34,8 @@ schema mismatches, but it is not an authentication tag.
 | Packed value record | `01` | [Packed Grammar V1](v1/README.md) | `packed::v1` |
 | Value-shape descriptor | `01` | [Packed Grammar V1](v1/README.md) | `packed::v1` |
 
-The matching version bytes do not couple the streams. A future record or descriptor grammar can
-advance independently. Compatibility between known record and shape versions is selected explicitly
-by the common reconstruction dispatcher.
+Record and descriptor versions advance independently. Compatibility between known record and shape
+versions is selected explicitly by the common reconstruction dispatcher.
 
 ## Compatibility rules
 
@@ -70,5 +69,5 @@ To add a packed grammar version:
 6. review each consumer's write and read acceptance policy, explicitly rejecting versions that its
    storage or transport format does not admit.
 
-Existing version modules and golden vectors must remain unchanged unless that version's decoder is
-being corrected to reject invalid input. A new writer format always receives a new version byte.
+Version modules and golden vectors must remain unchanged unless that version's decoder is being
+corrected to reject invalid input. Changing a writer format requires a new version byte.

@@ -254,9 +254,9 @@ pub fn tuple_logical_add(
         .ok_or(PackedValueError::SizeOverflow)
 }
 
-/// Split a packed list into its little-endian element count and element region.
+/// Split a packed list into its big-endian element count and element region.
 pub fn split_list(bytes: &[u8]) -> Result<(usize, &[u8]), PackedValueError> {
-    let count = read_u32_le(bytes)? as usize;
+    let count = read_u32_be(bytes)? as usize;
     Ok((count, &bytes[4..]))
 }
 
@@ -498,32 +498,32 @@ pub fn split_tag(bytes: &[u8]) -> Result<(u8, &[u8]), PackedValueError> {
     Ok((tag, child))
 }
 
-/// Append a three-byte little-endian unsigned integer.
-pub fn write_u24_le(value: u32, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
-    let bytes = value.to_le_bytes();
-    if bytes[3] != 0 {
+/// Append a three-byte big-endian unsigned integer.
+pub fn write_u24_be(value: u32, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
+    let bytes = value.to_be_bytes();
+    if bytes[0] != 0 {
         return Err(PackedValueError::SizeOverflow);
     }
-    output.extend_from_slice(&bytes[..3]);
+    output.extend_from_slice(&bytes[1..]);
     Ok(())
 }
 
-/// Read a three-byte little-endian unsigned integer.
-pub fn read_u24_le(bytes: &[u8]) -> Result<u32, PackedValueError> {
+/// Read a three-byte big-endian unsigned integer.
+pub fn read_u24_be(bytes: &[u8]) -> Result<u32, PackedValueError> {
     let bytes = bytes.get(..3).ok_or(PackedRecordError::TruncatedU24 {
         actual: bytes.len(),
         required: 3,
     })?;
-    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], 0]))
+    Ok(u32::from_be_bytes([0, bytes[0], bytes[1], bytes[2]]))
 }
 
-/// Read a little-endian `u32` prefix.
-pub fn read_u32_le(bytes: &[u8]) -> Result<u32, PackedValueError> {
+/// Read a big-endian `u32` prefix.
+pub fn read_u32_be(bytes: &[u8]) -> Result<u32, PackedValueError> {
     let bytes = bytes.get(..4).ok_or(PackedRecordError::TruncatedU32 {
         actual: bytes.len(),
         required: 4,
     })?;
-    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    Ok(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
 }
 
 /// Add two logical consensus lengths without overflow.
@@ -534,11 +534,50 @@ pub fn checked_logical_add(left: u32, right: u32) -> Result<u32, PackedValueErro
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use super::{
-        minimal_signed_slice_width, packed_int_width, packed_uint_width, signed_lane_width,
-        unsigned_lane_width,
+        PackedRecordError, PackedValueError, minimal_signed_slice_width, packed_int_width,
+        packed_uint_width, read_u24_be, read_u32_be, signed_lane_width, unsigned_lane_width,
+        write_u24_be,
     };
     use crate::types::Value;
+
+    #[test]
+    /// Check framing byte order, truncation, and overflow without losing an existing prefix.
+    fn big_endian_framing_preserves_bounds_and_prefixes() {
+        for (value, bytes) in [
+            (0, [0, 0, 0]),
+            (0x01_0203, [1, 2, 3]),
+            (0xff_ffff, [0xff, 0xff, 0xff]),
+        ] {
+            let mut output = vec![0xa5];
+            write_u24_be(value, &mut output).unwrap();
+            assert_eq!(&output[1..], bytes);
+            assert_eq!(output[0], 0xa5);
+            output.push(0x5a);
+            assert_eq!(read_u24_be(&output[1..]).unwrap(), value);
+        }
+        let mut output = vec![0xa5];
+        assert_matches!(
+            write_u24_be(0x0100_0000, &mut output),
+            Err(PackedValueError::SizeOverflow)
+        );
+        assert_eq!(output, [0xa5]);
+        assert_matches!(
+            read_u24_be(&[1, 2]),
+            Err(PackedValueError::Record(
+                PackedRecordError::TruncatedU24 { .. }
+            ))
+        );
+        assert_eq!(read_u32_be(&[1, 2, 3, 4, 5]).unwrap(), 0x0102_0304);
+        assert_matches!(
+            read_u32_be(&[1, 2, 3]),
+            Err(PackedValueError::Record(
+                PackedRecordError::TruncatedU32 { .. }
+            ))
+        );
+    }
 
     #[test]
     fn canonical_integer_widths_are_non_zero_and_minimal() {

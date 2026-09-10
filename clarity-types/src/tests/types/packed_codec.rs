@@ -44,9 +44,9 @@ const BOUND_PACKED_VALUE_BODY_BYTES: usize = PACKED_VERSION.maximum_body_len();
 const BOUND_VALUE_SHAPE_BYTES: usize = SHAPE_VERSION.maximum_descriptor_len();
 
 fn packed_header(consensus_byte_len: u32) -> [u8; PACKED_VALUE_HEADER_LEN] {
-    let length = consensus_byte_len.to_le_bytes();
-    assert_eq!(length[3], 0, "test length must fit packed V1");
-    [PACKED_VALUE_VERSION, length[0], length[1], length[2]]
+    let length = consensus_byte_len.to_be_bytes();
+    assert_eq!(length[0], 0, "test length must fit packed V1");
+    [PACKED_VALUE_VERSION, length[1], length[2], length[3]]
 }
 
 fn standard_principal(seed: u8) -> StandardPrincipalData {
@@ -110,7 +110,7 @@ fn encoding_is_schema_free_and_supports_opaque_prefixes() {
 fn canonical_wire_format_has_stable_golden_vectors() {
     assert_eq!(
         assert_canonical_round_trip(Value::UInt(256), TypeSignature::UIntType),
-        [PACKED_VALUE_VERSION, 17, 0, 0, 1, 0]
+        [PACKED_VALUE_VERSION, 0, 0, 17, 1, 0]
     );
 
     let list_type = ListTypeData::new_list(TypeSignature::UIntType, 3).unwrap();
@@ -127,13 +127,13 @@ fn canonical_wire_format_has_stable_golden_vectors() {
         ),
         [
             PACKED_VALUE_VERSION,
+            0,
+            0,
             56,
             0,
             0,
+            0,
             3,
-            0,
-            0,
-            0,
             0,
             0,
             0,
@@ -156,7 +156,7 @@ fn canonical_wire_format_has_stable_golden_vectors() {
     let tuple = Value::Tuple(tuple);
     assert_eq!(
         assert_canonical_round_trip(tuple.clone(), TypeSignature::TupleType(tuple_type)),
-        [PACKED_VALUE_VERSION, 27, 0, 0, 0, 0, 1, 2, 1, 1]
+        [PACKED_VALUE_VERSION, 0, 0, 27, 0, 0, 1, 2, 1, 1]
     );
     assert_eq!(
         ValueShape::from_value(SHAPE_VERSION, &tuple)
@@ -164,6 +164,39 @@ fn canonical_wire_format_has_stable_golden_vectors() {
             .as_bytes(),
         [VALUE_SHAPE_VERSION, 0x0c, 2, 1, b'a', 1, 1, b'b', 2]
     );
+}
+
+#[test]
+/// Pin byte order across public encoding, typed reads, and descriptor reconstruction.
+fn big_endian_framing_has_independent_multibyte_vectors() {
+    let buffer = Value::buff_from(vec![0x42; 0x01_0203 - 5]).unwrap();
+    let expected = TypeSignature::type_of(&buffer).unwrap();
+    let packed = assert_canonical_round_trip(buffer, expected);
+    assert_eq!(&packed[..4], &[PACKED_VALUE_VERSION, 1, 2, 3]);
+
+    let list =
+        Value::cons_list_unsanitized((0..258).map(|index| Value::Bool(index % 2 == 0)).collect())
+            .unwrap();
+    let expected = TypeSignature::type_of(&list).unwrap();
+    let packed = assert_canonical_round_trip(list, expected);
+    assert_eq!(&packed[..8], &[PACKED_VALUE_VERSION, 0, 1, 7, 0, 0, 1, 2]);
+    assert_eq!(&packed[8..40], &[0x55; 32]);
+    assert_eq!(packed[40], 1);
+
+    for (first_len, directory) in [
+        (0x0102, &[1, 0, 0, 1, 2, 1, 3][..]),
+        (0x01_0203, &[2, 0, 0, 0, 0, 0, 1, 2, 3, 0, 1, 2, 4][..]),
+    ] {
+        let list = Value::cons_list_unsanitized(vec![
+            Value::buff_from(vec![0x42; first_len]).unwrap(),
+            Value::buff_from(vec![0x43]).unwrap(),
+        ])
+        .unwrap();
+        let expected = TypeSignature::type_of(&list).unwrap();
+        let packed = assert_canonical_round_trip(list, expected);
+        assert_eq!(&packed[4..8], &[0, 0, 0, 2]);
+        assert_eq!(&packed[8..8 + directory.len()], directory);
+    }
 }
 
 #[test]
@@ -229,10 +262,10 @@ fn value_shape_rejects_noncanonical_and_mismatched_descriptors() {
             .is_err()
     );
 
-    // A merged response descriptor is valid within a heterogeneous list, but
-    // is not canonical for one response value with only one active branch.
+    // A merged response descriptor is valid within a heterogeneous list, but is not canonical for
+    // one response value with only one active branch.
     let overgeneralized_response_shape = [VALUE_SHAPE_VERSION, 0x0b, 0x00, 0x04];
-    let overgeneralized_response = [PACKED_VALUE_VERSION, 10, 0, 0, 0, 64, 123, 123, 123];
+    let overgeneralized_response = [PACKED_VALUE_VERSION, 0, 0, 10, 0, 64, 123, 123, 123];
     assert!(
         PackedValueRef::parse(&overgeneralized_response)
             .and_then(|packed| packed.reconstruct_consensus(&overgeneralized_response_shape))
@@ -352,7 +385,7 @@ fn packed_errors_preserve_typed_identity_and_sources() {
     let ascii_bound = TypeSignature::SequenceType(SequenceSubtype::StringType(
         StringSubtype::ASCII(2u32.try_into().unwrap()),
     ));
-    let oversized_ascii = [PACKED_VALUE_VERSION, 8, 0, 0, b'a', b'b', b'c'];
+    let oversized_ascii = [PACKED_VALUE_VERSION, 0, 0, 8, b'a', b'b', b'c'];
     assert_matches!(
         PackedValueRef::parse(&oversized_ascii)
             .unwrap()
@@ -365,7 +398,7 @@ fn packed_errors_preserve_typed_identity_and_sources() {
         ))
     );
 
-    let invalid_ascii = [PACKED_VALUE_VERSION, 6, 0, 0, 0xff];
+    let invalid_ascii = [PACKED_VALUE_VERSION, 0, 0, 6, 0xff];
     assert_matches!(
         PackedValueRef::parse(&invalid_ascii)
             .unwrap()
@@ -920,10 +953,10 @@ fn canonical_empty_lists_and_parent_framing_are_schema_independent() {
 #[test]
 fn canonical_zero_integers_use_one_byte_scalars_and_lanes() {
     let uint_zero = assert_canonical_round_trip(Value::UInt(0), TypeSignature::UIntType);
-    assert_eq!(uint_zero, [PACKED_VALUE_VERSION, 17, 0, 0, 0]);
+    assert_eq!(uint_zero, [PACKED_VALUE_VERSION, 0, 0, 17, 0]);
 
     let int_zero = assert_canonical_round_trip(Value::Int(0), TypeSignature::IntType);
-    assert_eq!(int_zero, [PACKED_VALUE_VERSION, 17, 0, 0, 0]);
+    assert_eq!(int_zero, [PACKED_VALUE_VERSION, 0, 0, 17, 0]);
 
     for (element_type, values) in [
         (TypeSignature::UIntType, vec![Value::UInt(0); 2]),
@@ -933,7 +966,7 @@ fn canonical_zero_integers_use_one_byte_scalars_and_lanes() {
         let value = Value::list_with_type(&EPOCH, values, list_type.clone()).unwrap();
         let expected = TypeSignature::SequenceType(SequenceSubtype::ListType(list_type));
         let packed = assert_canonical_round_trip(value, expected);
-        assert_eq!(packed, [PACKED_VALUE_VERSION, 39, 0, 0, 2, 0, 0, 0, 0, 0]);
+        assert_eq!(packed, [PACKED_VALUE_VERSION, 0, 0, 39, 0, 0, 0, 2, 0, 0]);
     }
 }
 
@@ -958,7 +991,7 @@ fn canonical_decoder_rejects_empty_and_non_minimal_zero_integers() {
         let list_type = ListTypeData::new_list(expected, 2).unwrap();
         let expected = TypeSignature::SequenceType(SequenceSubtype::ListType(list_type));
         let mut wide_lane = packed_header(39).to_vec();
-        wide_lane.extend_from_slice(&2u32.to_le_bytes());
+        wide_lane.extend_from_slice(&2u32.to_be_bytes());
         wide_lane.extend_from_slice(&[0, 0, 0, 0]);
         assert!(
             PackedValueRef::parse(&wide_lane)

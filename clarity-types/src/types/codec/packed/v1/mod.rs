@@ -137,7 +137,7 @@ pub fn parse_record(bytes: &[u8]) -> Result<u32, PackedValueError> {
         }
         .into());
     }
-    primitive::read_u24_le(length)
+    primitive::read_u24_be(length)
 }
 
 /// Decode one parsed V1 record under a caller-supplied schema.

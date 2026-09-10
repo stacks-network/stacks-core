@@ -15,8 +15,8 @@
 
 //! Version 1 offset-directory framing for variable-width children.
 //!
-//! A directory stores an offset-width code, followed by `child_count + 1` little-endian offsets
-//! and a contiguous child-data region. The first and final offsets delimit the entire data region;
+//! A directory stores an offset-width code, followed by `child_count + 1` big-endian offsets and a
+//! contiguous child-data region. The first and final offsets delimit the entire data region;
 //! adjacent offsets delimit one child. Canonical records always use the narrowest width capable of
 //! addressing the data region.
 
@@ -69,9 +69,9 @@ impl OffsetWidth {
     fn read(self, bytes: &[u8]) -> Result<usize, PackedValueError> {
         match (self, bytes) {
             (Self::U8, [value]) => Ok(usize::from(*value)),
-            (Self::U16, [first, second]) => Ok(usize::from(u16::from_le_bytes([*first, *second]))),
+            (Self::U16, [first, second]) => Ok(usize::from(u16::from_be_bytes([*first, *second]))),
             (Self::U32, [first, second, third, fourth]) => {
-                usize::try_from(u32::from_le_bytes([*first, *second, *third, *fourth]))
+                usize::try_from(u32::from_be_bytes([*first, *second, *third, *fourth]))
                     .map_err(|_| PackedValueError::SizeOverflow)
             }
             _ => Err(PackedCodecInvariant::InvalidEncodedOffsetWidth {
@@ -91,12 +91,12 @@ impl OffsetWidth {
             (Self::U16, bytes @ [_, _]) => bytes.copy_from_slice(
                 &u16::try_from(value)
                     .map_err(|_| PackedValueError::SizeOverflow)?
-                    .to_le_bytes(),
+                    .to_be_bytes(),
             ),
             (Self::U32, bytes @ [_, _, _, _]) => bytes.copy_from_slice(
                 &u32::try_from(value)
                     .map_err(|_| PackedValueError::SizeOverflow)?
-                    .to_le_bytes(),
+                    .to_be_bytes(),
             ),
             _ => {
                 return Err(
@@ -137,8 +137,9 @@ fn directory_header_len(count: usize, width: OffsetWidth) -> Result<usize, Packe
 
 /// A temporary 32-bit directory that permits one-pass child encoding.
 ///
-/// The encoder does not know the final child-data length up front. It reserves the widest directory,
-/// writes offsets as children are appended, then compacts to the canonical minimal width.
+/// The encoder does not know the final child-data length up front. It reserves the widest
+/// directory, writes offsets as children are appended, then compacts to the canonical minimal
+/// width.
 pub struct WideDirectory {
     /// Byte position of the temporary directory's width tag.
     start: usize,

@@ -89,7 +89,7 @@ pub fn prefixed_value(
     let initial_capacity = output.capacity();
     output.extend_from_slice(prefix);
     output.push(PACKED_VALUE_VERSION);
-    primitive::write_u24_le(consensus_byte_len, &mut output)?;
+    primitive::write_u24_be(consensus_byte_len, &mut output)?;
     // This trusted path avoids a release-build traversal when the exact length is already known.
     debug_assert_eq!(
         value
@@ -120,10 +120,8 @@ pub fn prefixed_value(
 
 /// Transcode one exact self-describing consensus value into canonical packed.
 ///
-/// This correctness-first implementation materializes one bounded Clarity value. The migration API
-/// remains streaming at row granularity; a direct cursor implementation can replace this without
-/// changing the format. Historical unsanitized values may require descriptor-based reconstruction
-/// instead of direct typed decoding under their cached schema.
+/// Materializes one bounded Clarity value. Historical unsanitized values may require
+/// descriptor-based reconstruction instead of direct typed decoding under their cached schema.
 pub fn transcode(consensus: &[u8]) -> Result<PackedValue, PackedValueError> {
     let value = deserialize_canonical_consensus(consensus)?;
     let consensus_byte_len =
@@ -312,11 +310,12 @@ fn tuple(tuple: &TupleData, output: &mut Vec<u8>) -> Result<(), PackedValueError
 /// Append a list count and its canonically selected lane or child framing.
 fn list(list: &ListData, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
     let count = u32::try_from(list.data.len()).map_err(|_| PackedValueError::SizeOverflow)?;
-    output.extend_from_slice(&count.to_le_bytes());
+    output.extend_from_slice(&count.to_be_bytes());
+
     match layout::list_layout(list) {
         layout::ListLayout::Empty => {}
-        // Homogeneous scalar lanes amortize width metadata across the entire list. The active values
-        // select the lane width; declared integer bounds never affect physical bytes.
+        // Homogeneous scalar lanes amortize width metadata across the entire list. The active
+        // values select the lane width; declared integer bounds never affect physical bytes.
         layout::ListLayout::UnsignedLane => {
             let width = primitive::unsigned_lane_width(&list.data)?;
             for value in &list.data {
@@ -347,10 +346,12 @@ fn list(list: &ListData, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
                 .checked_add(byte_count)
                 .ok_or(PackedValueError::SizeOverflow)?;
             output.resize(end, 0);
+
             for (index, value) in list.data.iter().enumerate() {
                 let Value::Bool(value) = value else {
                     return Err(PackedCodecInvariant::ListLaneClassificationChanged.into());
                 };
+
                 if *value {
                     let byte_index = start
                         .checked_add(index / 8)
@@ -369,10 +370,12 @@ fn list(list: &ListData, output: &mut Vec<u8>) -> Result<(), PackedValueError> {
         }
         layout::ListLayout::Variable => {
             let mut directory = directory::reserve_wide_directory(list.data.len(), output)?;
+
             for value in &list.data {
                 body(value, output)?;
                 directory.write_next_offset(output)?;
             }
+
             directory.compact(output)?;
         }
     }
@@ -403,9 +406,11 @@ fn deserialize_canonical_consensus(consensus: &[u8]) -> Result<Value, PackedValu
             }
             error => PackedValueError::from(error),
         })?;
+
     if value.serialize_to_vec()? != consensus {
         return Err(PackedValueError::NonCanonicalConsensusValue);
     }
+
     Ok(value)
 }
 
@@ -440,10 +445,12 @@ mod tests {
                 peak_len,
             }
         );
+
         let consensus = value.serialize_to_vec().unwrap();
         let expected_type = TypeSignature::type_of(value).unwrap();
         let packed = PackedValue::encode(PackedValueVersion::V1, value).unwrap();
         let header_len = PackedValueVersion::V1.header_len();
+
         for prefix in [&[][..], &[0xa5, 0x5a][..]] {
             let output = PackedValue::encode_with_prefix(
                 PackedValueVersion::V1,
@@ -452,15 +459,19 @@ mod tests {
                 u32::try_from(consensus.len()).unwrap(),
             )
             .unwrap();
+
             assert_eq!(output.len(), prefix.len() + header_len + compact_len);
             assert_eq!(&output[..prefix.len()], prefix);
             assert_eq!(&output[prefix.len()..], packed.as_bytes());
+
             let decoded = PackedValueRef::parse(&output[prefix.len()..])
                 .unwrap()
                 .decode(&expected_type)
                 .unwrap();
+
             assert_eq!(decoded.value.serialize_to_vec().unwrap(), consensus);
         }
+
         packed.into_bytes()[header_len..].to_vec()
     }
 
@@ -468,9 +479,9 @@ mod tests {
     #[case(0, &[0, 0, 0], 3, 9)]
     #[case(1, &[0, 0, 1], 4, 10)]
     #[case(255, &[0, 0, 255], 258, 264)]
-    #[case(256, &[1, 0, 0, 0, 1], 261, 265)]
+    #[case(256, &[1, 0, 0, 1, 0], 261, 265)]
     #[case(65_535, &[1, 0, 0, 255, 255], 65_540, 65_544)]
-    #[case(65_536, &[2, 0, 0, 0, 0, 0, 0, 1, 0], 65_545, 65_545)]
+    #[case(65_536, &[2, 0, 0, 0, 0, 0, 1, 0, 0], 65_545, 65_545)]
     /// Pin compact bytes and wide-header peaks on both sides of each offset-width boundary.
     fn tuple_directory_sizes_at_offset_boundaries(
         #[case] payload_len: usize,
@@ -484,9 +495,8 @@ mod tests {
             Value::buff_from(payload.clone()).unwrap(),
         )]);
         let body = assert_sizes(&value, compact_len, peak_len);
-        let mut expected_body = expected_directory.to_vec();
-        expected_body.extend_from_slice(&payload);
-        assert_eq!(body, expected_body);
+        assert_eq!(&body[..expected_directory.len()], expected_directory);
+        assert_eq!(&body[expected_directory.len()..], payload);
     }
 
     #[test]
@@ -495,14 +505,14 @@ mod tests {
         let first = tuple(vec![("a", Value::UInt(1))]);
         let second = tuple(vec![("a", Value::UInt(2))]);
         let value = tuple(vec![("a", first.clone()), ("b", second.clone())]);
-        // Each child is four compact bytes and peaks at ten. The parent retains its
-        // 13-byte wide directory: 13 + max(10, 4 + 10) = 27, rather than 33.
+        // Each child is four compact bytes and peaks at ten. The parent retains its 13-byte wide
+        // directory: 13 + max(10, 4 + 10) = 27, rather than 33.
         let body = assert_sizes(&value, 12, 27);
         assert_eq!(body, [0, 0, 4, 8, 0, 0, 1, 1, 0, 0, 1, 2]);
 
         let list = Value::cons_list_unsanitized(vec![first, second]).unwrap();
         let body = assert_sizes(&list, 16, 31);
-        assert_eq!(body, [2, 0, 0, 0, 0, 0, 4, 8, 0, 0, 1, 1, 0, 0, 1, 2]);
+        assert_eq!(body, [0, 0, 0, 2, 0, 0, 4, 8, 0, 0, 1, 1, 0, 0, 1, 2]);
         let wrapped = Value::some(Value::okay(list).unwrap()).unwrap();
         let wrapped_body = assert_sizes(&wrapped, 18, 33);
         assert_eq!(&wrapped_body[..2], &[1, 1]);
@@ -515,7 +525,7 @@ mod tests {
         let value =
             Value::cons_list_unsanitized(vec![Value::buff_from(vec![]).unwrap(); 4_096]).unwrap();
         let body = assert_sizes(&value, 4_102, 16_393);
-        assert_eq!(&body[..5], &[0, 16, 0, 0, 0]);
+        assert_eq!(&body[..5], &[0, 0, 16, 0, 0]);
         assert!(body[5..].iter().all(|byte| *byte == 0));
     }
 
@@ -525,8 +535,8 @@ mod tests {
         let list =
             Value::cons_list_unsanitized(vec![Value::buff_from(vec![]).unwrap(); 4_096]).unwrap();
         let buffer = Value::buff_from(vec![0x42; 20_000]).unwrap();
-        // The two-byte compact parent directory is seven bytes; its wide form is 13.
-        // List first: 13 + max(16_393, 4_102 + 20_000) = 24_115.
+        // The two-byte compact parent directory is seven bytes; its wide form is 13. List first: 13
+        // + max(16_393, 4_102 + 20_000) = 24_115.
         let list_first = tuple(vec![("a", list.clone()), ("b", buffer.clone())]);
         assert_sizes(&list_first, 24_109, 24_115);
         // List last: 13 + max(20_000, 20_000 + 16_393) = 36_406.

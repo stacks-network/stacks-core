@@ -44,7 +44,7 @@ For a complete packed record of `R` bytes:
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
 | `0` | 1 byte | Packed version | `u8` | MUST be `01` for Packed Grammar V1 |
-| `1` | 3 bytes | Consensus byte length | `u24le` | Length of the equivalent canonical consensus serialization; this is not the packed-body length |
+| `1` | 3 bytes | Consensus byte length | `u24be` | Length of the equivalent canonical consensus serialization; this is not the packed-body length |
 | `4` | `R - 4` bytes | Value body | Variant-specific | Packed payload; the complete record supplies its physical length |
 
 The four-byte envelope is followed immediately by the value body. There is intentionally no
@@ -80,9 +80,8 @@ The following notation is used:
 | Notation | Meaning |
 | ---- | ---- |
 | `u8` | One unsigned byte |
-| `u16le` | Two-byte unsigned little-endian integer |
-| `u24le` | Three-byte unsigned little-endian integer |
-| `u32le` | Four-byte unsigned little-endian integer |
+| `u16be` | Two-byte unsigned big-endian integer |
+| `u24be` | Three-byte unsigned big-endian integer |
 | `u32be` | Four-byte unsigned big-endian integer |
 | `varuint` | Minimal unsigned LEB128 integer |
 
@@ -94,12 +93,9 @@ described. `B` denotes that enclosing body's physical byte length, `N` a child o
 `W` a selected physical width, and `cursor` the offset immediately following the preceding
 variable-length field.
 
-Unless stated otherwise:
-
-- physical lengths, list counts, and directory offsets are little-endian;
-- integer value bytes are big-endian; and
-- lengths reconstructed for Clarity consensus serialization are big-endian, as required by that
-  existing format.
+Fixed-width multi-byte integers use big-endian byte order throughout: record lengths, list counts,
+directory offsets, and integer value bytes. Descriptor `varuint` counts use minimal unsigned LEB128
+encoding; Boolean lanes use least-significant-bit-first ordering within each byte.
 
 All length and offset arithmetic MUST be checked for overflow.
 
@@ -216,7 +212,7 @@ record:
 | Offset | Length | Bytes | Meaning |
 | ---- | ---- | ---- | ---- |
 | `0` | 1 byte | `01` | Packed Grammar V1 |
-| `1` | 3 bytes | `11 00 00` | Consensus byte length 17, encoded as `u24le` |
+| `1` | 3 bytes | `00 00 11` | Consensus byte length 17, encoded as `u24be` |
 | `4` | 1 byte | `2a` | Minimal unsigned-integer body for 42 |
 
 The logical length is retained because physical packing MUST NOT change:
@@ -228,7 +224,7 @@ The logical length is retained because physical packing MUST NOT change:
 
 The current 2,097,152-byte consensus serialization bound fits in 24 bits. Version 1 therefore uses
 the remaining three header bytes for the logical length while keeping the body at offset four.
-Decoders widen `u24le` to the codec's checked `u32` length type. Increasing the consensus bound
+Decoders widen `u24be` to the codec's checked `u32` length type. Increasing the consensus bound
 beyond `0xff_ffff` requires a new packed version.
 
 A typed decoder MUST compute the logical consensus length while decoding and MUST reject the record
@@ -411,7 +407,7 @@ Let `W` be the offset width selected by `width_code`, and let `P` be the total b
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
 | `0` | 1 byte | Width code | `u8` | Selects `W` from the table below |
-| `1` | `(N + 1) * W` bytes | Offsets | `N + 1` little-endian unsigned integers of width `W` | Child boundaries relative to the start of `child_data` |
+| `1` | `(N + 1) * W` bytes | Offsets | `N + 1` big-endian unsigned integers of width `W` | Child boundaries relative to the start of `child_data` |
 | `1 + (N + 1) * W` | `P` bytes | Child data | Concatenated packed child bodies | Complete remainder of the directory frame |
 
 The width code and encoded offset type are:
@@ -419,8 +415,8 @@ The width code and encoded offset type are:
 | `width_code` | Offset encoding | Allowed child-data length |
 | ---- | ---- | ---- |
 | `00` | `u8` | `0..=255` |
-| `01` | `u16le` | `256..=65,535` |
-| `02` | `u32le` | `65,536..=u32::MAX` |
+| `01` | `u16be` | `256..=65,535` |
+| `02` | `u32be` | `65,536..=u32::MAX` |
 
 The width MUST be the narrowest width capable of representing the complete `child_data` length.
 
@@ -461,7 +457,7 @@ Every list begins with its active element count:
 
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
-| `0` | 4 bytes | Element count | `u32le` | Number of active list elements |
+| `0` | 4 bytes | Element count | `u32be` | Number of active list elements |
 | `4` | `B - 4` bytes | Element region | Layout selected below | Packed bodies for all active elements |
 
 An empty list has `count == 0` and an empty `element_region`.
@@ -723,13 +719,13 @@ These vectors cover every scalar and byte-sequence shape:
 
 | Value | Consensus-length calculation | `packed` | `shape` |
 | ---- | ---- | ---- | ---- |
-| `-129` | `1 + 16 = 17` | `01 11 00 00  ff 7f` | `01 00` |
-| `u256` | `1 + 16 = 17` | `01 11 00 00  01 00` | `01 01` |
-| `false` | `1` | `01 01 00 00  00` | `01 02` |
-| `true` | `1` | `01 01 00 00  01` | `01 02` |
-| `0x00ff` | `1 + 4 + 2 = 7` | `01 07 00 00  00 ff` | `01 03` |
-| `"Hi"` as ASCII | `1 + 4 + 2 = 7` | `01 07 00 00  48 69` | `01 04` |
-| `u"é"` as UTF-8 | `1 + 4 + 2 = 7` | `01 07 00 00  c3 a9` | `01 05` |
+| `-129` | `1 + 16 = 17` | `01 00 00 11  ff 7f` | `01 00` |
+| `u256` | `1 + 16 = 17` | `01 00 00 11  01 00` | `01 01` |
+| `false` | `1` | `01 00 00 01  00` | `01 02` |
+| `true` | `1` | `01 00 00 01  01` | `01 02` |
+| `0x00ff` | `1 + 4 + 2 = 7` | `01 00 00 07  00 ff` | `01 03` |
+| `"Hi"` as ASCII | `1 + 4 + 2 = 7` | `01 00 00 07  48 69` | `01 04` |
+| `u"é"` as UTF-8 | `1 + 4 + 2 = 7` | `01 00 00 07  c3 a9` | `01 05` |
 
 The integer header counts the fixed 16-byte consensus integer even though its packed body is
 minimal. Sequence headers count the consensus type prefix and omitted `u32be` payload length. UTF-8
@@ -748,7 +744,7 @@ A standard principal has consensus length `1 + 1 + 20 = 22`:
 
 ```text
 packed =
-01 16 00 00  00 16
+01 00 00 16  00 16
 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11
 ^^ ^^^^^^^^  ^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 V1 length    kind       version + hash160
@@ -762,7 +758,7 @@ enclosing frame replaces the omitted one-byte contract-name length:
 
 ```text
 packed =
-01 1b 00 00  01 16
+01 00 00 1b  01 16
 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11 11
 70 6f 6f 6c
 ^^ ^^^^^^^^  ^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ^^^^^^^^^^^
@@ -782,10 +778,10 @@ affect framing.
 
 | Value and expected type | Consensus-length calculation | `packed` | `shape` |
 | ---- | ---- | ---- | ---- |
-| `none` as `(optional uint)` | `1` | `01 01 00 00  00` | `01 07` |
-| `(some u7)` | `1 + 17 = 18` | `01 12 00 00  01 07` | `01 08 01` |
-| `(ok true)` | `1 + 1 = 2` | `01 02 00 00  01 01` | `01 09 02` |
-| `(err u9)` | `1 + 17 = 18` | `01 12 00 00  00 09` | `01 0a 01` |
+| `none` as `(optional uint)` | `1` | `01 00 00 01  00` | `01 07` |
+| `(some u7)` | `1 + 17 = 18` | `01 00 00 12  01 07` | `01 08 01` |
+| `(ok true)` | `1 + 1 = 2` | `01 00 00 02  01 01` | `01 09 02` |
+| `(err u9)` | `1 + 17 = 18` | `01 00 00 12  00 09` | `01 0a 01` |
 
 The packed response tags are `00 = err` and `01 = ok`. They are not the Clarity consensus response
 prefixes `08` and `07`.
@@ -798,7 +794,7 @@ concatenates their bodies without a directory. Its consensus length is
 one-byte name length, one-byte name, and one-byte Boolean for each field.
 
 ```text
-packed = 01 0b 00 00  01 00
+packed = 01 00 00 0b  01 00
          ^^ ^^^^^^^^  ^^^^^
          V1 length    true, false
 
@@ -814,7 +810,7 @@ lengths one and one, so the directory uses one-byte offsets `[0, 1, 2]`. The log
 length is `5 + (1 + 1 + 17) + (1 + 1 + 1) = 27`:
 
 ```text
-packed = 01 1b 00 00  00  00 01 02  01 01
+packed = 01 00 00 1b  00  00 01 02  01 01
          ^^ ^^^^^^^^  ^^  ^^^^^^^^  ^^^^^
          V1 length    W=1 offsets   u1, true
 
@@ -824,7 +820,7 @@ shape  = 01  0c 02  01 61 01  01 62 02
 ```
 
 Directory width is selected from the total child-data length, not the largest individual child.
-The width changes from `u8` to `u16le` at 256 child-data bytes and from `u16le` to `u32le` at
+The width changes from `u8` to `u16be` at 256 child-data bytes and from `u16be` to `u32be` at
 65,536 bytes.
 
 ### Empty list
@@ -833,7 +829,7 @@ An empty list has no active element shape or element bytes. Its declared element
 bound do not affect its physical representation:
 
 ```text
-packed = 01 05 00 00  00 00 00 00
+packed = 01 00 00 05  00 00 00 00
          ^^ ^^^^^^^^  ^^^^^^^^^^^
          V1 length    count = 0
 
@@ -846,7 +842,7 @@ For `(list u0 u255 u256)`, the logical consensus length is `5 + 3 * 17 = 56`. Al
 the maximum minimal width of two bytes:
 
 ```text
-packed = 01 38 00 00  03 00 00 00  00 00  00 ff  01 00
+packed = 01 00 00 38  00 00 00 03  00 00  00 ff  01 00
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^^^^  ^^^^^  ^^^^^
          V1 length    count = 3     u0     u255   u256
 
@@ -859,7 +855,7 @@ For `(list -129 0 127)`, the two-byte signed lane sign-extends every element to 
 by `-129`:
 
 ```text
-packed = 01 38 00 00  03 00 00 00  ff 7f  00 00  00 7f
+packed = 01 00 00 38  00 00 00 03  ff 7f  00 00  00 7f
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^^^^  ^^^^^  ^^^^^
          V1 length    count = 3    -129    0      127
 
@@ -872,7 +868,7 @@ For `(list true false true false true false true false true)`, elements `0`, `2`
 `8` set bits in least-significant-bit-first order. The logical length is `5 + 9 = 14`:
 
 ```text
-packed = 01 0e 00 00  09 00 00 00  55 01
+packed = 01 00 00 0e  00 00 00 09  55 01
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^^^^
          V1 length    count = 9     bits
 
@@ -886,7 +882,7 @@ bytes. The element bodies are concatenated without a directory. Each tuple has c
 so the list's logical length is `5 + 2 * 11 = 27`:
 
 ```text
-packed = 01 1b 00 00  02 00 00 00  01 00  00 01
+packed = 01 00 00 1b  00 00 00 02  01 00  00 01
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^^^^  ^^^^^
          V1 length    count = 2    tuple0 tuple1
 
@@ -900,7 +896,7 @@ directory with offsets `[0, 1, 3]`. Its consensus length is
 `5 + (1 + 4 + 1) + (1 + 4 + 2) = 18`:
 
 ```text
-packed = 01 12 00 00  02 00 00 00  00  00 01 03  01 02 03
+packed = 01 00 00 12  00 00 00 02  00  00 01 03  01 02 03
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^  ^^^^^^^^  ^^^^^^^^
          V1 length    count = 2    W=1 offsets   child data
 
@@ -914,7 +910,7 @@ For `(list (ok u1) (err true))`, the response elements are variable-width and us
 only one:
 
 ```text
-packed = 01 19 00 00  02 00 00 00  00  00 02 04  01 01  00 01
+packed = 01 00 00 19  00 00 00 02  00  00 02 04  01 01  00 01
          ^^ ^^^^^^^^  ^^^^^^^^^^^  ^^  ^^^^^^^^  ^^^^^  ^^^^^
          V1 length    count = 2    W=1 offsets   ok u1   err true
 
@@ -930,7 +926,7 @@ containing `{ a: u1 }` and `{ a: u1, b: true }`, consensus transcoding emits:
 
 ```text
 packed =
-01 38 00 00  02 00 00 00  00  00 04 0a
+01 00 00 38  00 00 00 02  00  00 04 0a
 00 00 01 01  00 00 01 02 01 01
 
 shape =
@@ -948,10 +944,8 @@ shapes. Ordinary sanitized lists MUST use a shared shape instead.
 Any change that alters packed bytes emitted for an already-supported value requires a new packed
 version. An incompatible change to the value-shape grammar requires a new descriptor version.
 
-A reader MUST validate each stream's version before parsing the remainder of that stream. Readers
-MUST NOT attempt to distinguish the former versionless prototype from Version 1 by inspecting the
-first byte: a prototype logical-length byte can equal a valid version. Prototype data must be
-re-encoded under this specification.
+A reader MUST validate each stream's explicit version before parsing the remainder of that stream
+and MUST NOT probe alternative grammars.
 
 Readers MUST fail closed on unsupported versions. Within one version, writers MUST NOT emit two
 different physical representations for the same canonical value.
