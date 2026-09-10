@@ -124,6 +124,7 @@ pre_input_config() {
     CORES=""                                   # cores to use for validation; resolved in post_input_config
     NETWORK="mainnet"                          # network to validate
     RANGE="full"                               # block range to validate: scenario or numeric range
+    IGNORE_COSTS_ARG=""                  # holds "--ignore-costs" when cost-only mismatches must not fail blocks
     LAST_ERROR=""                              # last error_and_exit message; surfaced by on_exit in status.json
 
     if [[ -t 1 ]]; then
@@ -305,6 +306,9 @@ Options:
           $(cyan "<start>:<end>")   - inclusive range; auto-splits at the epoch2/3 boundary
           $(cyan "<start>+<count>") - <count> blocks starting at <start>
         Default: $(cyan "full")
+    $(yellow "--ignore-costs")
+        Don't fail blocks whose only mismatch is their execution cost.
+        Default: $(cyan "disabled")
 
 Example: full block validation, auto-downloading the chainstate using stacks-core public repo at develop
     $(bold "${0} --workdir /data/workdir")
@@ -932,7 +936,7 @@ validate_block_range() {
         slice_progress_files+=("${progress_file}")
         # tmux send-keys re-parses this string as shell source in the target window,
         # so quote the paths so spaces / shell metacharacters survive re-parsing.
-        local inspect_cmd="\"${inspect_bin}\" --config \"${inspect_config}\" validate-block \"${slice_path}\" ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
+        local inspect_cmd="\"${inspect_bin}\" --config \"${inspect_config}\" validate-block ${IGNORE_COSTS_ARG} \"${slice_path}\" ${range_command} ${start_block_count} ${end_block_count} 2>/dev/null"
         local cmd="${inspect_cmd} | ${tee_stage}stdbuf -oL tr '\\r' '\\n' | while IFS= read -r line; do if [[ \"\$line\" =~ ^Validating:[[:space:]]+[0-9]+% ]]; then printf '%s\\n' \"\$line\" > '${progress_file}'; elif [[ -n \"\$line\" ]]; then printf '%s\\n' \"\$line\" >> '${log_file}'; fi; done"
         info "  $(highlight "${TMUX_SESSION}:slice${slice_counter}") :: Blocks: $(highlight "${global_slice_start}-${global_slice_end}") :: Logs: ${log_file}"
         echo "Command: ${inspect_cmd}" > "${log_file}"
@@ -1308,6 +1312,10 @@ parse_input() {
                 require_value "${1}" "${2:-}"
                 NETWORK=${2}
                 shift
+                ;;
+            --ignore-costs)
+                # Don't treat a cost-only mismatch as a block validation failure
+                IGNORE_COSTS_ARG="--ignore-costs"
                 ;;
             --rev)
                 # Build from a specific git revision (branch, tag, or commit SHA)
