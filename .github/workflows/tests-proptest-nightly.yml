@@ -62,24 +62,9 @@ env:
 jobs:
   check-ci-enabled:
     name: "Check: CI Enabled"
-    runs-on: ubuntu-latest
-    outputs:
-      enabled: ${{ steps.check.outputs.enabled }}
-    steps:
-      - id: check
-        run: |
-          echo "=== CI Enablement Check ==="
-          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
-          echo "github.repository:   '${{ github.repository }}'"
-          echo "github.event_name:   '${{ github.event_name }}'"
-    
-          if [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Result: CI is ENABLED"
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Result: CI is DISABLED"
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
+    uses: ./.github/workflows/_check-ci-enabled.yml
+    with:
+      extra-enable-var: ENABLE_CI_PROPTEST_NIGHTLY
 
   proptests-nightly:
     name: "Tests: All Proptest Tests"
