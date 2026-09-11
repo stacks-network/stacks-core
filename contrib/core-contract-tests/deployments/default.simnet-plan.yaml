@@ -158,8 +158,23 @@ plan:
       path: contracts/signer-manager.clar
       clarity-version: 6
     - transaction-type: emulated-contract-publish
+      contract-name: signer-manager-core
+      emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+      path: contracts/signer-manager-core.clar
+      clarity-version: 6
+    - transaction-type: emulated-contract-publish
+      contract-name: signer-manager-v1
+      emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+      path: contracts/signer-manager-v1.clar
+      clarity-version: 6
+    - transaction-type: emulated-contract-publish
       contract-name: test-pox-5-signer
       emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
       path: contracts/test-pox-5-signer.clar
+      clarity-version: 6
+    - transaction-type: emulated-contract-publish
+      contract-name: test-signer-manager-v2
+      emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+      path: contracts/test-signer-manager-v2.clar
       clarity-version: 6
     epoch: '4.0'
