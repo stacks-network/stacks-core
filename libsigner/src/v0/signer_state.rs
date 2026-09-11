@@ -13,11 +13,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 
-use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::core::NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD;
 use clarity::types::chainstate::StacksAddress;
 use serde::{Deserialize, Serialize};
@@ -103,58 +100,29 @@ impl GlobalStateEvaluator {
         let active_signer_protocol_version =
             self.determine_latest_supported_signer_protocol_version()?;
         let mut state_views = HashMap::new();
-        let mut tx_replay_sets = HashMap::new();
-        let mut found_state_view = None;
-        let mut found_replay_set = None;
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
                 continue;
             };
             let (burn_block, burn_block_height) = update.content.burn_block_view();
             let current_miner = update.content.current_miner();
-            let tx_replay_set = update.content.tx_replay_set();
 
             let state_machine = SignerStateMachine {
                 burn_block: burn_block.clone(),
                 burn_block_height,
                 current_miner: current_miner.clone().into(),
                 active_signer_protocol_version,
-                // We need to calculate the threshold for the tx_replay_set separately
-                tx_replay_set: ReplayTransactionSet::none(),
             };
-            let key = SignerStateMachineKey(state_machine.clone());
-            let entry = state_views.entry(key).or_insert_with(|| 0);
+            let entry = state_views
+                .entry(state_machine.clone())
+                .or_insert_with(|| 0);
             *entry += weight;
 
             if self.reached_agreement(*entry) {
-                found_state_view = Some(state_machine);
-            }
-
-            let replay_entry = tx_replay_sets
-                .entry(tx_replay_set.clone())
-                .or_insert_with(|| 0);
-            *replay_entry += weight;
-
-            if self.reached_agreement(*replay_entry) {
-                found_replay_set = Some(tx_replay_set);
-            }
-            if found_replay_set.is_some() && found_state_view.is_some() {
-                break;
+                return Some(state_machine);
             }
         }
-        // Try to find agreed replay set, or find longest common prefix if no exact agreement
-        let final_replay_set = if let Some(tx_replay_set) = found_replay_set {
-            tx_replay_set
-        } else {
-            // No exact agreement found, try finding longest common prefix with majority support
-            self.find_majority_prefix_replay_set(&tx_replay_sets)
-                .unwrap_or_else(ReplayTransactionSet::none)
-        };
-
-        if let Some(state_view) = found_state_view.as_mut() {
-            state_view.tx_replay_set = final_replay_set;
-        }
-        found_state_view
+        None
     }
 
     /// Will insert the update for the given address and weight only if the GlobalStateMachineEvaluator already is aware of this address
@@ -181,168 +149,12 @@ impl GlobalStateEvaluator {
             > u64::from(self.total_weight).strict_mul(10 - NAKAMOTO_SIGNER_BLOCK_APPROVAL_THRESHOLD)
                 / 10
     }
-
-    /// Get the global transaction replay set. Returns `None` if there
-    /// is no global state.
-    pub fn get_global_tx_replay_set(&mut self) -> Option<ReplayTransactionSet> {
-        let global_state = self.determine_global_state()?;
-        Some(global_state.tx_replay_set)
-    }
-
-    /// Find the longest common prefix of replay sets that has majority support.
-    /// This implements the longest common prefix (LCP) strategy where if one signer's replay set
-    /// is [A,B,C] and another is [A,B], we should use [A,B] as the replay set.
-    /// Order matters for transaction replay - [A,B] and [B,A] have no common prefix.
-    fn find_majority_prefix_replay_set(
-        &self,
-        tx_replay_sets: &HashMap<ReplayTransactionSet, u32>,
-    ) -> Option<ReplayTransactionSet> {
-        if tx_replay_sets.is_empty() {
-            return None;
-        }
-
-        // First, try to find an exact match that reaches agreement
-        for (replay_set, weight) in tx_replay_sets {
-            if self.reached_agreement(*weight) {
-                return Some(replay_set.clone());
-            }
-        }
-
-        // No exact agreement found, find longest common prefix with majority support
-
-        // Sort replay sets by weight (descending), then deterministically by length and content
-        let mut sorted_sets: Vec<_> = tx_replay_sets.iter().collect();
-        sorted_sets.sort_by(|(set_a, weight_a), (set_b, weight_b)| {
-            // Primary: weight descending
-            let weight_cmp = weight_b.cmp(weight_a);
-            if weight_cmp != Ordering::Equal {
-                return weight_cmp;
-            }
-            // Secondary: length descending (longer sequences first)
-            let len_cmp = set_b.0.len().cmp(&set_a.0.len());
-            if len_cmp != Ordering::Equal {
-                return len_cmp;
-            }
-            // Tertiary: compare transaction IDs for determinism
-            for (lhs, rhs) in set_a.0.iter().zip(&set_b.0) {
-                let ord = lhs.txid().cmp(&rhs.txid());
-                if ord != Ordering::Equal {
-                    return ord;
-                }
-            }
-            Ordering::Equal
-        });
-
-        // Start with the most supported replay set as initial candidate
-        if let Some((initial_set, _)) = sorted_sets.first() {
-            let mut candidate_prefix = initial_set.0.clone();
-            let mut total_supporting_weight = 0u32;
-
-            // Find all sets that support the current candidate prefix
-            for (replay_set, weight) in tx_replay_sets {
-                if replay_set.0.starts_with(&candidate_prefix) {
-                    total_supporting_weight = total_supporting_weight.saturating_add(*weight);
-                }
-            }
-
-            // If the initial candidate already has majority support, return it
-            if self.reached_agreement(total_supporting_weight) {
-                return Some(ReplayTransactionSet::new(candidate_prefix));
-            }
-
-            // Otherwise, iteratively truncate the prefix until we find majority support
-            while !candidate_prefix.is_empty() {
-                // Remove the last transaction from the prefix
-                candidate_prefix.pop();
-
-                // Recalculate supporting weight for the shorter prefix
-                total_supporting_weight = 0u32;
-                for (replay_set, weight) in tx_replay_sets {
-                    if replay_set.0.starts_with(&candidate_prefix) {
-                        total_supporting_weight = total_supporting_weight.saturating_add(*weight);
-                    }
-                }
-
-                // If this prefix has majority support, return it
-                if self.reached_agreement(total_supporting_weight) {
-                    return Some(ReplayTransactionSet::new(candidate_prefix));
-                }
-            }
-        }
-
-        // If no common prefix with majority support is found, return None
-        None
-    }
-}
-
-/// A "wrapper" struct around Vec<StacksTransaction> that behaves like
-/// `None` when the vector is empty.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
-pub struct ReplayTransactionSet(Vec<StacksTransaction>);
-
-impl ReplayTransactionSet {
-    /// Create a new `ReplayTransactionSet`
-    pub fn new(tx_replay_set: Vec<StacksTransaction>) -> Self {
-        Self(tx_replay_set)
-    }
-
-    /// Check if the `ReplayTransactionSet` is empty
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// Map into an optional, returning `None` if the set is empty
-    pub fn clone_as_optional(&self) -> Option<Vec<StacksTransaction>> {
-        if self.is_empty() {
-            None
-        } else {
-            Some(self.0.clone())
-        }
-    }
-
-    /// Unwrap the `ReplayTransactionSet` or return a default vector if it is empty
-    pub fn unwrap_or_default(self) -> Vec<StacksTransaction> {
-        if self.is_empty() {
-            vec![]
-        } else {
-            self.0
-        }
-    }
-
-    /// Map the transactions in the set to a new type, only
-    /// if the set is not empty
-    pub fn map<U, F>(self, f: F) -> Option<U>
-    where
-        F: Fn(Vec<StacksTransaction>) -> U,
-    {
-        if self.is_empty() {
-            None
-        } else {
-            Some(f(self.0))
-        }
-    }
-
-    /// Create a new `ReplayTransactionSet` with no transactions
-    pub fn none() -> Self {
-        Self(vec![])
-    }
-
-    /// Check if the `ReplayTransactionSet` isn't empty
-    pub fn is_some(&self) -> bool {
-        !self.is_empty()
-    }
-}
-
-impl Default for ReplayTransactionSet {
-    fn default() -> Self {
-        Self::none()
-    }
 }
 
 /// A signer state machine view. This struct can
 ///  be used to encode the local signer's view or
 ///  the global view.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct SignerStateMachine {
     /// The tip burn block (i.e., the latest bitcoin block) seen by this signer
     pub burn_block: ConsensusHash,
@@ -352,35 +164,6 @@ pub struct SignerStateMachine {
     pub current_miner: MinerState,
     /// The active signing protocol version
     pub active_signer_protocol_version: u64,
-    /// Transaction replay set
-    pub tx_replay_set: ReplayTransactionSet,
-}
-
-#[derive(Debug)]
-/// A wrapped SignerStateMachine that implements a very specific hash that enables properly ignoring the
-/// tx_replay_set when evaluating the global signer state machine
-pub struct SignerStateMachineKey(SignerStateMachine);
-
-impl PartialEq for SignerStateMachineKey {
-    fn eq(&self, other: &Self) -> bool {
-        // NOTE: tx_replay_set is intentionally ignored
-        self.0.burn_block == other.0.burn_block
-            && self.0.burn_block_height == other.0.burn_block_height
-            && self.0.current_miner == other.0.current_miner
-            && self.0.active_signer_protocol_version == other.0.active_signer_protocol_version
-    }
-}
-
-impl Eq for SignerStateMachineKey {}
-
-impl Hash for SignerStateMachineKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        // tx_replay_set is intentionally ignored
-        self.0.burn_block.hash(state);
-        self.0.burn_block_height.hash(state);
-        self.0.current_miner.hash(state);
-        self.0.active_signer_protocol_version.hash(state);
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]

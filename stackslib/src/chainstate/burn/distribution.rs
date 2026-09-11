@@ -165,20 +165,20 @@ impl BurnSamplePoint {
     /// Returns the distribution, which consumes the given lists of operations.
     ///
     /// * `block_commits`: this is a mapping from relative block_height to the block
-    ///     commits that occurred at that height. These relative block heights start
-    ///     at 0 and increment towards the present. When the mining window is 6, the
-    ///     "current" sortition's block commits would be in index 5.
+    ///   commits that occurred at that height. These relative block heights start
+    ///   at 0 and increment towards the present. When the mining window is 6, the
+    ///   "current" sortition's block commits would be in index 5.
     /// * `missed_commits`: this is a mapping from relative block_height to the
-    ///     block commits that were intended to be included at that height. These
-    ///     relative block heights start at 0 and increment towards the present. There
-    ///     will be no such commits for the current sortition, so this vec will have
-    ///     `missed_commits.len() = block_commits.len() - 1`
+    ///   block commits that were intended to be included at that height. These
+    ///   relative block heights start at 0 and increment towards the present. There
+    ///   will be no such commits for the current sortition, so this vec will have
+    ///   `missed_commits.len() = block_commits.len() - 1`
     /// * `burn_blocks`: this is a vector of booleans that indicate whether or not a block-commit
-    ///     occurred during a PoB-only sortition or a possibly-PoX sortition.  The former occurs
-    ///     during either a prepare phase or after PoX sunset, and must have only one (burn) output.
-    ///     The latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT` outputs after the
-    ///     `OP_RETURN` payload.  The length of this vector must be equal to the length of the
-    ///     `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
+    ///   occurred during a PoB-only sortition or a possibly-PoX sortition.  The former occurs
+    ///   during either a prepare phase or after PoX sunset, and must have only one (burn) output.
+    ///   The latter occurs everywhere else, and must have `OUTPUTS_PER_COMMIT` outputs after the
+    ///   `OP_RETURN` payload.  The length of this vector must be equal to the length of the
+    ///   `block_commits` vector.  `burn_blocks[i]` is `true` if the `ith` block-commit must be PoB.
     #[allow(clippy::indexing_slicing)] // this method panics on bad inputs, it should panic on bad indexes as well
     pub fn make_min_median_distribution(
         mining_commitment_window: u8,

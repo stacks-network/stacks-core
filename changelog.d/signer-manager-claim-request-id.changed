@@ -1,1 +1,0 @@
-In the reference `signer-manager.clar` contract, `claim-staker-rewards` now returns `{ earned, withdrawal-request }` instead of a bare `uint`; where `withdrawal-request` is `(some uint)` with the withdrawal request ID when the payout was routed to an L1 sBTC withdrawal and `none` for an sBTC payout.

@@ -12,7 +12,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::LazyLock;
 
 use clarity::boot_util::boot_code_addr;
@@ -20,30 +20,33 @@ use clarity::codec::StacksMessageCodec;
 use clarity::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey, TrieHash};
 use clarity::types::{EpochList, StacksEpoch, StacksEpochId, StacksEpochRangeTestExt as _};
-use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
-use clarity::util::secp256k1::MessageSignature;
+use clarity::util::hash::Hash160;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, ResponseData};
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
-use stacks_common::bitvec::BitVec;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::vrf::VRFProof;
 
+use super::compute_tx_merkle_root;
 use crate::burnchains::tests::TestBurnchainBlock;
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, TxToProcess,
-};
-use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksEpochReceipt};
-use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::coordinator::OnChainRewardSetProvider;
+use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
+use crate::chainstate::nakamoto::test_signers::TestSigners;
+use crate::chainstate::nakamoto::tests::node::TestStacker;
+use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt};
+use crate::chainstate::stacks::events::{BoundedErrorString, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, TransactionResourceBudgets};
 use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksTransaction,
     StacksTransactionSigner, TransactionAnchorMode, TransactionContractCall, TransactionPayload,
     TransactionPostCondition, TransactionPostConditionMode, TransactionSmartContract,
-    TransactionVersion, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+    TransactionVersion,
 };
 use crate::chainstate::tests::TestChainstate;
 use crate::core::test_util::{
@@ -102,6 +105,12 @@ pub static FAUCET_ADDRESS: LazyLock<StacksAddress> = LazyLock::new(|| to_addr(&F
 const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
 
+/// Whether a deploy in `epoch` may pin a Clarity version: the payload exists
+/// from Epoch 2.1 and is rejected from Epoch 4.1.
+pub fn deploys_can_pin_version(epoch: StacksEpochId) -> bool {
+    epoch >= StacksEpochId::Epoch21 && !epoch.rejects_versioned_smart_contracts()
+}
+
 /// Returns the list of Clarity versions that can be used to deploy contracts in the given epoch.
 pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVersion] {
     match epoch {
@@ -130,7 +139,7 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity4,
             ClarityVersion::Clarity5,
         ],
-        StacksEpochId::Epoch40 | StacksEpochId::Epoch41 => &[
+        StacksEpochId::Epoch40 => &[
             ClarityVersion::Clarity1,
             ClarityVersion::Clarity2,
             ClarityVersion::Clarity3,
@@ -138,6 +147,8 @@ pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [Clari
             ClarityVersion::Clarity5,
             ClarityVersion::Clarity6,
         ],
+        // From Epoch 4.1 deploys cannot pin a version; they run as the epoch default.
+        StacksEpochId::Epoch41 => &[ClarityVersion::Clarity7],
     }
 }
 
@@ -187,7 +198,10 @@ where
 }
 
 /// Serialize an optional string field appending a non-consensus breaking info message.
-fn serialize_opt_string_ncb<S>(value: &Option<String>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_opt_string_ncb<S>(
+    value: &Option<BoundedErrorString>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -208,7 +222,7 @@ pub struct ExpectedTransactionOutput {
     pub tx: Option<TransactionPayload>,
     /// The possible Clarity VM error message associated to the transaction (non-consensus breaking)
     #[serde(serialize_with = "serialize_opt_string_ncb")]
-    pub vm_error: Option<String>,
+    pub vm_error: Option<BoundedErrorString>,
     /// The expected return value of the transaction.
     pub return_type: ClarityValue,
     /// The expected execution cost of the transaction.
@@ -335,6 +349,37 @@ impl ConsensusChain<'_> {
         initial_balances: Vec<(PrincipalData, u64)>,
         num_blocks_per_epoch: HashMap<StacksEpochId, u64>,
     ) -> Self {
+        let boot_plan = Self::new_boot_plan(test_name, initial_balances);
+        Self::from_boot_plan(boot_plan, num_blocks_per_epoch)
+    }
+
+    fn new_with_signing_set(
+        test_name: &str,
+        initial_balances: Vec<(PrincipalData, u64)>,
+        num_blocks_per_epoch: HashMap<StacksEpochId, u64>,
+        test_signers: TestSigners,
+        test_stackers: Vec<TestStacker>,
+    ) -> Self {
+        let boot_plan = Self::new_boot_plan(test_name, initial_balances)
+            .with_test_signers(test_signers)
+            .with_test_stackers(test_stackers);
+        Self::from_boot_plan(boot_plan, num_blocks_per_epoch)
+    }
+
+    fn new_boot_plan(
+        test_name: &str,
+        initial_balances: Vec<(PrincipalData, u64)>,
+    ) -> NakamotoBootPlan {
+        NakamotoBootPlan::new(test_name)
+            .with_pox_constants(7, 3)
+            .with_initial_balances(initial_balances)
+            .with_private_key(FAUCET_PRIV_KEY.clone())
+    }
+
+    fn from_boot_plan(
+        mut boot_plan: NakamotoBootPlan,
+        num_blocks_per_epoch: HashMap<StacksEpochId, u64>,
+    ) -> Self {
         // Validate blocks
         for (epoch_id, num_blocks) in &num_blocks_per_epoch {
             assert_ne!(
@@ -347,11 +392,7 @@ impl ConsensusChain<'_> {
                 "Each epoch must have at least one block. {epoch_id} is empty"
             );
         }
-        // Set up chainstate to support Naka.
-        let mut boot_plan = NakamotoBootPlan::new(test_name)
-            .with_pox_constants(7, 3)
-            .with_initial_balances(initial_balances)
-            .with_private_key(FAUCET_PRIV_KEY.clone());
+
         let (epochs, first_burnchain_height) =
             Self::calculate_epochs(&boot_plan.pox_constants, num_blocks_per_epoch);
         boot_plan = boot_plan.with_epochs(epochs);
@@ -432,7 +473,7 @@ impl ConsensusChain<'_> {
             .copied()
             .max()
             .unwrap_or(StacksEpochId::Epoch40);
-        let mut epochs = vec![];
+        let mut epochs: Vec<StacksEpoch<ExecutionCost>> = vec![];
         let mut current_height = 0;
         for epoch_id in StacksEpochId::ALL.iter() {
             let start_height = current_height;
@@ -468,7 +509,6 @@ impl ConsensusChain<'_> {
                     | StacksEpochId::Epoch32
                     | StacksEpochId::Epoch33
                     | StacksEpochId::Epoch34
-                    | StacksEpochId::Epoch40
                     | StacksEpochId::Epoch41 => {
                         if num_blocks_per_epoch.contains_key(epoch_id) {
                             start_height + 1
@@ -476,6 +516,15 @@ impl ConsensusChain<'_> {
                             start_height
                         }
                     }
+                    // Only reached when a later epoch is exercised (the max
+                    // exercised epoch is handled above as open-ended), so
+                    // Epoch 4.0 must activate even with no blocks of its own:
+                    // Epoch 4.1 without it is an invalid schedule (PoX-5 would
+                    // never activate). Leave room for
+                    // `configure_pox_5_transition` to shift the activation to
+                    // a PoX-5-safe height - up to two reward cycles - and
+                    // still mine a block before Epoch 4.1.
+                    StacksEpochId::Epoch40 => start_height + 2 * reward_cycle_length + 1,
                 }
             };
 
@@ -568,34 +617,9 @@ impl ConsensusChain<'_> {
     /// A [`ExpectedResult`] with the outcome of the block processing.
     fn append_nakamoto_block(&mut self, test_block: TestBlock) -> ExpectedResult {
         debug!("--------- Running block {test_block:?} ---------");
-        let (nakamoto_block, _block_size) = self.construct_nakamoto_block(&test_block);
-        let mut sortdb = self.test_chainstate.sortdb.take().unwrap();
-        let mut stacks_node = self.test_chainstate.stacks_node.take().unwrap();
-        let chain_tip =
-            NakamotoChainState::get_canonical_block_header(stacks_node.chainstate.db(), &sortdb)
-                .unwrap()
-                .unwrap();
-        let sig_hash = nakamoto_block.header.signer_signature_hash();
-        debug!(
-            "--------- Processing block {sig_hash} ---------";
-            "block" => ?nakamoto_block
-        );
-        let expected_marf = nakamoto_block.header.state_index_root;
-        let res = TestStacksNode::process_pushed_next_ready_block(
-            &mut stacks_node,
-            &mut sortdb,
-            &mut self.test_chainstate.miner,
-            &chain_tip.consensus_hash,
-            &mut self.test_chainstate.coord,
-            nakamoto_block.clone(),
-        );
-        debug!(
-            "--------- Processed block: {sig_hash} ---------";
-            "block" => ?nakamoto_block
-        );
-        // Restore chainstate for the next block
-        self.test_chainstate.sortdb = Some(sortdb);
-        self.test_chainstate.stacks_node = Some(stacks_node);
+        let outcome = self
+            .test_chainstate
+            .append_nakamoto_block_with_txs(&test_block.transactions);
 
         let burn_block_height = self.test_chainstate.get_burn_block_height();
         let current_epoch =
@@ -604,8 +628,12 @@ impl ConsensusChain<'_> {
                 .unwrap()
                 .epoch_id;
 
-        let remapped_result = res.map(|receipt| receipt.unwrap());
-        ExpectedResult::create_from(remapped_result, expected_marf, current_epoch, &test_block)
+        ExpectedResult::create_from(
+            outcome.execution,
+            outcome.block.header.state_index_root,
+            current_epoch,
+            &test_block,
+        )
     }
 
     /// Appends a single block to the chain as a Pre-Nakamoto block and returns the result.
@@ -706,11 +734,6 @@ impl ConsensusChain<'_> {
         &mut self,
         test_block: &TestBlock,
     ) -> (StacksBlock, Vec<BlockstackOperationType>) {
-        let microblock_privkey = self.test_chainstate.miner.next_microblock_privkey();
-        let microblock_pubkeyhash =
-            Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-        let burnchain = self.test_chainstate.config.burnchain.clone();
-
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(self.test_chainstate.sortdb_ref().conn())
                 .unwrap();
@@ -739,84 +762,15 @@ impl ConsensusChain<'_> {
             &mut self.test_chainstate.miner,
             tip.block_height.try_into().unwrap(),
         );
-        let mut stacks_block = {
-            let genesis_header_info = StacksChainState::get_genesis_header_info(
-                self.test_chainstate.stacks_node_ref().chainstate.db(),
-            )
-            .unwrap();
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(self.test_chainstate.sortdb_ref().conn())
-                    .unwrap();
-            let parent_tip = StacksChainState::get_anchored_block_header_info(
-                self.test_chainstate.stacks_node_ref().chainstate.db(),
-                &tip.canonical_stacks_tip_consensus_hash,
-                &tip.canonical_stacks_tip_hash,
-            )
-            .unwrap()
-            .unwrap_or(genesis_header_info);
-            // Just use the block builder to calculate the header easily. Note that the merkle root and state index hash will be wrong though!
-            let mut builder = StacksBlockBuilder::make_regtest_block_builder(
-                &burnchain,
-                &parent_tip,
-                &vrf_proof,
-                tip.total_burn,
-                &microblock_pubkeyhash,
-            )
-            .unwrap();
-            let burndb = self
-                .test_chainstate
-                .sortdb_ref()
-                .index_handle(&tip.sortition_id);
-            let (mut chainstate, _) = self
-                .test_chainstate
-                .stacks_node_ref()
-                .chainstate
-                .reopen()
-                .unwrap();
-            let mut miner_epoch_info = builder
-                .pre_epoch_begin(&mut chainstate, &burndb, true)
-                .unwrap();
-            let (mut epoch_tx, _) = builder.epoch_begin(&burndb, &mut miner_epoch_info).unwrap();
-            let mut total_receipt_size = 0;
 
-            // First mine the coinbase transaction
-            builder
-                .try_mine_tx(
-                    &mut epoch_tx,
-                    &coinbase_tx,
-                    &TransactionResourceBudgets::unlimited(),
-                    &mut total_receipt_size,
-                )
-                .unwrap();
+        let mut stacks_block =
+            self.mine_pre_nakamoto_anchored_block(&vrf_proof, &coinbase_tx, test_block);
 
-            // We attempt to mine each transaction to build the hash
-            for tx in &test_block.transactions {
-                // NOTE: It is expected to fail when trying computing the marf for invalid block/transactions.
-                let _ = builder.try_mine_tx(
-                    &mut epoch_tx,
-                    tx,
-                    &TransactionResourceBudgets::unlimited(),
-                    &mut total_receipt_size,
-                );
-            }
-
-            let stacks_block = builder.mine_anchored_block(&mut epoch_tx);
-            epoch_tx.rollback_block();
-            stacks_block
-        };
         // Just in case any of the transactions failed during above marf computation, just overwrite the merkle root again
         let mut txs = vec![coinbase_tx];
         txs.extend_from_slice(&test_block.transactions);
         stacks_block.txs = txs;
-        let tx_merkle_root = {
-            let txid_vecs: Vec<_> = stacks_block
-                .txs
-                .iter()
-                .map(|tx| tx.txid().as_bytes().to_vec())
-                .collect();
-            MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
-        };
-        stacks_block.header.tx_merkle_root = tx_merkle_root;
+        stacks_block.header.tx_merkle_root = compute_tx_merkle_root(&stacks_block.txs);
 
         let block_ops = self.test_chainstate.calculate_block_ops(
             &tip,
@@ -830,161 +784,84 @@ impl ConsensusChain<'_> {
         (stacks_block, block_ops)
     }
 
-    /// Constructs a Nakamoto block with the given [`TestBlock`] configuration.
-    fn construct_nakamoto_block(&mut self, test_block: &TestBlock) -> (NakamotoBlock, usize) {
-        let chain_tip = NakamotoChainState::get_canonical_block_header(
-            self.test_chainstate
-                .stacks_node
-                .as_ref()
-                .unwrap()
-                .chainstate
-                .db(),
-            self.test_chainstate.sortdb.as_ref().unwrap(),
-        )
-        .unwrap()
-        .unwrap();
-        let cycle = self.test_chainstate.get_reward_cycle();
-        let tip_sortition = SortitionDB::get_block_snapshot_consensus(
-            self.test_chainstate.sortdb_ref().conn(),
-            &chain_tip.consensus_hash,
-        )
-        .unwrap()
-        .unwrap();
-        let burn_spent = tip_sortition.total_burn;
-        // The header version is fixed per epoch and enforced as a consensus rule
-        // on append, so use the version for the epoch this block is built in
-        // rather than hard-coding it.
-        let epoch_id = SortitionDB::get_stacks_epoch(
-            self.test_chainstate.sortdb_ref().conn(),
-            tip_sortition.block_height,
-        )
-        .unwrap()
-        .expect("FATAL: no epoch defined for the chain tip's burn height")
-        .epoch_id;
-        let mut block = NakamotoBlock {
-            header: NakamotoBlockHeader {
-                version: NakamotoBlockHeader::expected_version_for_epoch(epoch_id),
-                chain_length: chain_tip.stacks_block_height + 1,
-                burn_spent,
-                consensus_hash: chain_tip.consensus_hash.clone(),
-                parent_block_id: chain_tip.index_block_hash(),
-                tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
-                state_index_root: TrieHash::EMPTY,
-                timestamp: 1,
-                miner_signature: MessageSignature::empty(),
-                signer_signature: vec![],
-                pox_treatment: BitVec::ones(1).unwrap(),
-                problematic_txs: vec![],
-            },
-            txs: test_block.transactions.clone(),
-        };
-
-        let tx_merkle_root = {
-            let txid_vecs: Vec<_> = block
-                .txs
-                .iter()
-                .map(|tx| tx.txid().as_bytes().to_vec())
-                .collect();
-            MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
-        };
-        block.header.tx_merkle_root = tx_merkle_root;
-
-        // Set the MARF root hash or use an all-zero hash in case of failure.
-        // NOTE: It is expected to fail when trying computing the marf for invalid block/transactions.
-        let marf_result =
-            self.compute_naka_block_marf_root_hash(block.header.timestamp, &block.txs);
-        block.header.state_index_root = match marf_result {
-            Ok(marf) => marf,
-            Err(_) => TrieHash::from_bytes(&[0; 32]).unwrap(),
-        };
-
-        self.test_chainstate.miner.sign_nakamoto_block(&mut block);
-        let mut signers = self
-            .test_chainstate
-            .config
-            .test_signers
-            .clone()
-            .unwrap_or_default();
-        signers.sign_nakamoto_block(&mut block, cycle);
-        let block_len = block.serialize_to_vec().len();
-        (block, block_len)
-    }
-
-    /// Computes the MARF root hash for a Nakamoto block.
-    ///
-    /// This function is intended for use in success test cases only, where all
-    /// transactions are valid. In other scenarios, the computation may fail.
-    ///
-    /// The implementation is deliberately minimal: it does not cover every
-    /// possible situation (such as new tenure handling), but it should be
-    /// sufficient for the scope of our test cases.
-    fn compute_naka_block_marf_root_hash(
+    /// Mines an anchored pre-Nakamoto block with the block builder purely to
+    /// derive a valid header. Its transaction Merkle root can omit invalid
+    /// transactions that fail to mine, so the caller replaces the transaction
+    /// list and recomputes that root. The builder-computed state index root is
+    /// retained.
+    fn mine_pre_nakamoto_anchored_block(
         &mut self,
-        block_time: u64,
-        block_txs: &[StacksTransaction],
-    ) -> Result<TrieHash, String> {
-        let node = self.test_chainstate.stacks_node.as_mut().unwrap();
-        let sortdb = self.test_chainstate.sortdb.as_ref().unwrap();
-        let burndb_conn = sortdb.index_handle_at_tip();
-        let chainstate = &mut node.chainstate;
+        vrf_proof: &VRFProof,
+        coinbase_tx: &StacksTransaction,
+        test_block: &TestBlock,
+    ) -> StacksBlock {
+        let burnchain = self.test_chainstate.config.burnchain.clone();
+        let microblock_privkey = self.test_chainstate.miner.next_microblock_privkey();
+        let microblock_pubkeyhash =
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
-        let chain_tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
-            .unwrap()
+        let genesis_header_info = StacksChainState::get_genesis_header_info(
+            self.test_chainstate.stacks_node_ref().chainstate.db(),
+        )
+        .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(self.test_chainstate.sortdb_ref().conn())
+                .unwrap();
+        let parent_tip = StacksChainState::get_anchored_block_header_info(
+            self.test_chainstate.stacks_node_ref().chainstate.db(),
+            &tip.canonical_stacks_tip_consensus_hash,
+            &tip.canonical_stacks_tip_hash,
+        )
+        .unwrap()
+        .unwrap_or(genesis_header_info);
+        let mut builder = StacksBlockBuilder::make_regtest_block_builder(
+            &burnchain,
+            &parent_tip,
+            vrf_proof,
+            tip.total_burn,
+            &microblock_pubkeyhash,
+        )
+        .unwrap();
+        let burndb = self
+            .test_chainstate
+            .sortdb_ref()
+            .index_handle(&tip.sortition_id);
+        let (mut chainstate, _) = self
+            .test_chainstate
+            .stacks_node_ref()
+            .chainstate
+            .reopen()
+            .unwrap();
+        let mut miner_epoch_info = builder
+            .pre_epoch_begin(&mut chainstate, &burndb, true)
+            .unwrap();
+        let (mut epoch_tx, _) = builder.epoch_begin(&burndb, &mut miner_epoch_info).unwrap();
+        let mut total_receipt_size = 0;
+
+        // First mine the coinbase transaction
+        builder
+            .try_mine_tx(
+                &mut epoch_tx,
+                coinbase_tx,
+                &TransactionResourceBudgets::unlimited(),
+                &mut total_receipt_size,
+            )
             .unwrap();
 
-        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin();
-        let burndb_conn = sortdb.index_handle_at_tip();
+        // We attempt to mine each transaction to build the hash
+        for tx in &test_block.transactions {
+            // NOTE: It is expected to fail when trying computing the marf for invalid block/transactions.
+            let _ = builder.try_mine_tx(
+                &mut epoch_tx,
+                tx,
+                &TransactionResourceBudgets::unlimited(),
+                &mut total_receipt_size,
+            );
+        }
 
-        let mut clarity_tx = StacksChainState::chainstate_block_begin(
-            &chainstate_tx,
-            clarity_instance,
-            &burndb_conn,
-            &chain_tip.consensus_hash,
-            &chain_tip.anchored_header.block_hash(),
-            &MINER_BLOCK_CONSENSUS_HASH,
-            &MINER_BLOCK_HEADER_HASH,
-        );
-        let result = Self::inner_compute_naka_block_marf_root_hash(
-            &mut clarity_tx,
-            block_time,
-            block_txs,
-            chain_tip.burn_header_height,
-        );
-        clarity_tx.rollback_block();
-        result
-    }
-
-    /// This is where the real MARF computation happens for Nakamoto blocks.
-    /// It is extrapolated into an _inner_ method to simplify rollback handling,
-    /// ensuring that rollback can be applied consistently on both success and failure
-    /// in the _outer_ method.
-    fn inner_compute_naka_block_marf_root_hash(
-        clarity_tx: &mut ClarityTx,
-        block_time: u64,
-        block_txs: &[StacksTransaction],
-        burn_header_height: u32,
-    ) -> Result<TrieHash, String> {
-        clarity_tx
-            .connection()
-            .as_free_transaction(|clarity_tx_conn| {
-                clarity_tx_conn.with_clarity_db(|db| {
-                    db.setup_block_metadata(Some(block_time))?;
-                    Ok(())
-                })
-            })
-            .map_err(|e| e.to_string())?;
-
-        StacksChainState::process_block_transactions(
-            clarity_tx,
-            TxToProcess::all_execute(block_txs),
-            0,
-        )
-        .map_err(|e| e.to_string())?;
-
-        NakamotoChainState::finish_block(clarity_tx, None, false, burn_header_height)
-            .map_err(|e| e.to_string())?;
-
-        Ok(clarity_tx.seal())
+        let stacks_block = builder.mine_anchored_block(&mut epoch_tx);
+        epoch_tx.rollback_block();
+        stacks_block
     }
 
     /// Advance out of a pre-nakamoto prepare phase to prevent potentially messing with the PoX anchor block selection
@@ -1216,11 +1093,8 @@ impl ContractConsensusTest<'_> {
             let deploy_epoch = contract.deploy_epoch.unwrap_or(default_setup_epoch);
             // Get the default Clarity version for the epoch of the contract if not specified.
             let clarity_version = contract.clarity_version.or_else(|| {
-                if deploy_epoch < StacksEpochId::Epoch21 {
-                    None
-                } else {
-                    Some(ClarityVersion::default_for_epoch(deploy_epoch))
-                }
+                deploys_can_pin_version(deploy_epoch)
+                    .then(|| ClarityVersion::default_for_epoch(deploy_epoch))
             });
             let mut contract = contract.clone();
             contract.deploy_epoch = Some(deploy_epoch);
@@ -1399,13 +1273,9 @@ impl ContractConsensusTest<'_> {
             .clone()
             .iter()
             .map(|(name, version)| {
-                let clarity_version = if epoch < StacksEpochId::Epoch21 {
-                    // Old epochs have no concept of clarity version. It defaults to
-                    // clarity version 1 behaviour.
-                    None
-                } else {
-                    Some(*version)
-                };
+                // Epochs that reject versioned deploys (before 2.1, from 4.1)
+                // deploy unversioned and run as the epoch default.
+                let clarity_version = deploys_can_pin_version(epoch).then_some(*version);
                 self.chain.consume_pre_naka_prepare_phase();
                 self.append_tx_block(
                     &TestTxSpec::ContractDeploy {
@@ -2275,6 +2145,148 @@ fn test_append_empty_blocks() {
 
     let result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
     insta::assert_ron_snapshot!(result);
+}
+
+#[test]
+fn test_mine_into_first_pox_5_reward_cycle() {
+    let mut num_blocks_per_epoch = HashMap::new();
+    num_blocks_per_epoch.insert(StacksEpochId::Epoch40, 1);
+    let mut chain = ConsensusChain::new(function_name!(), vec![], num_blocks_per_epoch);
+    let miner_key = chain.test_chainstate.miner.nakamoto_miner_key();
+    chain
+        .test_chainstate
+        .advance_into_epoch(&miner_key, StacksEpochId::Epoch40);
+
+    let first_waterfall_height = chain.test_chainstate.advance_to_first_pox_5_waterfall();
+
+    assert_first_pox_5_waterfall_signer_set(&mut chain, first_waterfall_height);
+}
+
+#[test]
+fn test_mine_into_first_pox_5_reward_cycle_with_multiple_signer_keys() {
+    let (test_signers, test_stackers) = TestStacker::multi_signing_set(&[0, 0, 1, 2, 2, 2]);
+    let configured_signer_keys = test_stackers
+        .iter()
+        .map(|stacker| stacker.signer_public_key().to_bytes_compressed())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        configured_signer_keys.len(),
+        3,
+        "This fixture must exercise three independent PoX-5 signer-key groups"
+    );
+    let mut num_blocks_per_epoch = HashMap::new();
+    num_blocks_per_epoch.insert(StacksEpochId::Epoch40, 1);
+    let mut chain = ConsensusChain::new_with_signing_set(
+        function_name!(),
+        vec![],
+        num_blocks_per_epoch,
+        test_signers,
+        test_stackers,
+    );
+    let miner_key = chain.test_chainstate.miner.nakamoto_miner_key();
+    chain
+        .test_chainstate
+        .advance_into_epoch(&miner_key, StacksEpochId::Epoch40);
+
+    let first_waterfall_height = chain.test_chainstate.advance_to_first_pox_5_waterfall();
+
+    assert_first_pox_5_waterfall_signer_set(&mut chain, first_waterfall_height);
+}
+
+/// Reaching the Waterfall cycle only proves mining did not error. Also assert
+/// that PoX-5 signer-set calculation produced a genuine Waterfall reward set
+/// with each configured signing key and its aggregate stake, rather than a
+/// silently-empty or classic-PoX set.
+fn assert_first_pox_5_waterfall_signer_set(
+    chain: &mut ConsensusChain,
+    first_waterfall_height: u64,
+) {
+    let burnchain = chain.test_chainstate.config.burnchain.clone();
+    let waterfall_reward_cycle = burnchain
+        .block_height_to_reward_cycle(first_waterfall_height)
+        .expect("waterfall height must map to a reward cycle");
+    let sortdb = chain.test_chainstate.sortdb.as_ref().unwrap();
+    let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let (stacks_tip_ch, stacks_tip_bh) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
+    let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+    let stacks_node = chain.test_chainstate.stacks_node.as_mut().unwrap();
+    let reward_cycle_info = load_nakamoto_reward_set(
+        waterfall_reward_cycle,
+        &sort_tip.sortition_id,
+        &burnchain,
+        &mut stacks_node.chainstate,
+        &stacks_tip,
+        sortdb,
+        &OnChainRewardSetProvider::new(),
+    )
+    .expect("Failed to load PoX-5 reward set")
+    .expect("First PoX-5 reward cycle must have a reward set")
+    .0;
+    let reward_set = reward_cycle_info
+        .known_selected_anchor_block()
+        .expect("First PoX-5 reward cycle must have a known reward set");
+    let waterfall = reward_set
+        .as_waterfall()
+        .expect("First PoX-5 reward cycle must use a Waterfall reward set");
+    let canonical_header =
+        NakamotoChainState::get_canonical_block_header(stacks_node.chainstate.db(), sortdb)
+            .unwrap()
+            .unwrap();
+    let canonical_nakamoto_header = canonical_header
+        .anchored_header
+        .as_stacks_nakamoto()
+        .expect("The Waterfall chain tip must be a Nakamoto block");
+    assert_eq!(
+        canonical_nakamoto_header.pox_treatment.len(),
+        1,
+        "Waterfall blocks must retain the length-1 compatibility `pox_treatment`"
+    );
+    assert!(
+        canonical_nakamoto_header
+            .pox_treatment
+            .iter()
+            .all(|treated| treated),
+        "Waterfall's compatibility treatment bit must default to rewarded"
+    );
+
+    let test_stackers = chain
+        .test_chainstate
+        .config
+        .test_stackers
+        .as_ref()
+        .expect("PoX-5 consensus tests configure test stackers");
+    let mut expected_signers = BTreeMap::<Vec<u8>, u128>::new();
+    for stacker in test_stackers {
+        *expected_signers
+            .entry(stacker.signer_public_key().to_bytes_compressed())
+            .or_default() += stacker.amount;
+    }
+    let actual_signers = waterfall
+        .signers
+        .iter()
+        .map(|signer| (signer.signing_key.to_vec(), signer.stacked_amt))
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(
+        waterfall.signers.len(),
+        expected_signers.len(),
+        "PoX-5 signer set must contain exactly one entry per configured signing key"
+    );
+    assert_eq!(
+        actual_signers, expected_signers,
+        "PoX-5 signer set must aggregate stake independently for each configured signing key"
+    );
+
+    let actual_weight = waterfall
+        .signers
+        .iter()
+        .map(|signer| signer.weight)
+        .sum::<u32>();
+    assert_eq!(
+        actual_weight,
+        burnchain.pox_constants.reward_slots(),
+        "PoX-5 signer weights must allocate every reward slot"
+    );
 }
 
 #[test]

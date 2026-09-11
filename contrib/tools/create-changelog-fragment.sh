@@ -6,27 +6,22 @@ set -euo pipefail
 # Detect the current branch
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
-# --- Location ---
+FRAG_DIR="changelog.d"
+
 echo ""
-echo "📝 Create a changelog fragment."
+echo "📝 Create a changelog fragment in ${FRAG_DIR}/."
 echo ""
-echo "Where should the fragment go?"
-echo "  1) changelog.d/          (node / stackslib changes)"
-echo "  2) stacks-signer/changelog.d/  (signer changes)"
-echo "  s) skip (no fragment needed)"
-echo ""
-read -rp "Location [1/2/s]: " loc_choice
+read -rp "Continue? [Y/n/s(kip)]: " loc_choice
 
 case "$loc_choice" in
-  1) FRAG_DIR="changelog.d" ;;
-  2) FRAG_DIR="stacks-signer/changelog.d" ;;
+  ""|y|Y) ;;
   s|S)
     echo "Skipping changelog fragment."
     echo "  Remember to add the \"no changelog\" label to your PR."
     exit 0
     ;;
   *)
-    echo "Invalid choice. Aborting."
+    echo "Aborting."
     exit 1
     ;;
 esac

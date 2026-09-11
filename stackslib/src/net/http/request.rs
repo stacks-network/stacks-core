@@ -514,6 +514,12 @@ pub struct HttpRequestContents {
     parsed_data: HashMap<String, serde_json::Value>,
 }
 
+impl Default for HttpRequestContents {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HttpRequestContents {
     pub fn new() -> Self {
         Self {

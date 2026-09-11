@@ -693,13 +693,13 @@ mod tests {
                     test_debug!("Failed to verify signature: {}", e1);
                     panic!(
                         "failed fixture (verification: {:?}): {:#?}",
-                        &ver_res, &fixture
+                        ver_res, fixture
                     );
                 }
                 (_, _) => {
                     panic!(
                         "failed fixture (verification: {:?}): {:#?}",
-                        &ver_res, &fixture
+                        ver_res, fixture
                     );
                 }
             }

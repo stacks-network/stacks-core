@@ -118,6 +118,12 @@ pub struct InvGenerator {
     no_cache: bool,
 }
 
+impl Default for InvGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InvGenerator {
     pub fn new() -> Self {
         Self {
@@ -327,7 +333,7 @@ impl InvGenerator {
     /// the newest sortition.  It is structured as follows:
     /// * Bit 0 is the sortition at the start of the given reward cycle
     /// * Bit i is 1 if there was a tenure-start for the ith sortition in the reward cycle, and 0
-    /// if not.
+    ///   if not.
     ///
     /// Populate the cached data lazily.
     ///
@@ -530,15 +536,6 @@ impl NakamotoTenureInv {
             .last_key_value()
             .map(|(highest_rc, _)| *highest_rc)
             .unwrap_or(0)
-    }
-
-    /// How many blocks are represented in this inv?
-    fn num_blocks_represented(&self) -> u64 {
-        let mut total = 0;
-        for (_, inv) in self.tenures_inv.iter() {
-            total += u64::from(inv.len());
-        }
-        total
     }
 
     /// Add in a newly-discovered inventory.

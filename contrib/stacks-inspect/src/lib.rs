@@ -63,6 +63,13 @@ pub struct CommonOpts {
     pub config: Option<Config>,
 }
 
+/// Options controlling how strict block replay is
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ReplayOpts {
+    /// Treat a block whose only failure is a cost mismatch as valid
+    pub ignore_costs: bool,
+}
+
 #[derive(Clone)]
 enum BlockSource {
     Nakamoto,
@@ -306,6 +313,9 @@ pub fn command_validate_block(args: &ValidateBlockArgs, conf: Option<&Config>) {
     let start = Instant::now();
     let db_path = &args.database_path;
     let early_exit = args.early_exit;
+    let opts = ReplayOpts {
+        ignore_costs: args.ignore_costs,
+    };
 
     let selection = convert_args_to_selection(&args.mode).unwrap_or_else(|err| {
         eprintln!("{err}");
@@ -353,8 +363,13 @@ pub fn command_validate_block(args: &ValidateBlockArgs, conf: Option<&Config>) {
     let mut reward_set_cache: HashMap<u64, CachedRewardSet> = HashMap::new();
 
     for entry in work_items {
-        if let Err(e) = validate_entry(&mut chainstate, &mut sortdb, &mut reward_set_cache, &entry)
-        {
+        if let Err(e) = validate_entry(
+            &mut chainstate,
+            &mut sortdb,
+            &mut reward_set_cache,
+            &entry,
+            opts,
+        ) {
             if early_exit {
                 print!("\r");
                 io::stdout().flush().ok();
@@ -442,6 +457,7 @@ fn validate_entry(
     sortdb: &mut SortitionDB,
     reward_set_cache: &mut HashMap<u64, CachedRewardSet>,
     entry: &BlockScanEntry,
+    opts: ReplayOpts,
 ) -> Result<(), String> {
     match entry.source {
         BlockSource::Nakamoto => replay_naka_staging_block(
@@ -449,8 +465,11 @@ fn validate_entry(
             sortdb,
             reward_set_cache,
             &entry.index_block_hash,
+            opts,
         ),
-        BlockSource::Epoch2 => replay_staging_block(chainstate, sortdb, &entry.index_block_hash),
+        BlockSource::Epoch2 => {
+            replay_staging_block(chainstate, sortdb, &entry.index_block_hash, opts)
+        }
     }
 }
 
@@ -648,7 +667,6 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
                 settings,
                 None,
                 0,
-                &[],
             )
             .map(
                 |BlockMetadata {
@@ -678,9 +696,9 @@ pub fn command_try_mine(args: &TryMineArgs, conf: Option<&Config>) {
     let summary = format!(
         "block @ height = {h} off of {pid} ({pch}/{pbh}) in {t}ms. Min-fee: {min_fee}, Max-time: {max_time}",
         h = parent_stacks_header.stacks_block_height + 1,
-        pid = &parent_stacks_header.index_block_hash(),
-        pch = &parent_stacks_header.consensus_hash,
-        pbh = &parent_stacks_header.anchored_header.block_hash(),
+        pid = parent_stacks_header.index_block_hash(),
+        pch = parent_stacks_header.consensus_hash,
+        pbh = parent_stacks_header.anchored_header.block_hash(),
         t = elapsed.as_millis(),
     );
 
@@ -725,6 +743,7 @@ fn replay_staging_block(
     chainstate: &mut StacksChainState,
     sortdb: &mut SortitionDB,
     block_id: &StacksBlockId,
+    opts: ReplayOpts,
 ) -> Result<(), String> {
     let sort_tx = sortdb.tx_begin_at_tip();
 
@@ -766,6 +785,7 @@ fn replay_staging_block(
         &next_staging_block.anchored_block_hash,
         next_staging_block.commit_burn,
         next_staging_block.sortition_burn,
+        opts,
     )
 }
 
@@ -837,6 +857,7 @@ fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Opt
         // I think the burn is used for miner rewards but not necessary for validation
         0,
         0,
+        ReplayOpts::default(),
     )
     .expect("Failed to replay mock mined block");
 }
@@ -857,6 +878,7 @@ fn replay_block(
     block_hash: &BlockHeaderHash,
     block_commit_burn: u64,
     block_sortition_burn: u64,
+    opts: ReplayOpts,
 ) -> Result<(), String> {
     let parent_block_header = match &parent_header_info.anchored_header {
         StacksBlockHeaderTypes::Epoch2(bh) => bh,
@@ -908,7 +930,7 @@ fn replay_block(
             block_consensus_hash,
             block.block_hash(),
             parent_block_header.block_hash(),
-            &parent_header_info.consensus_hash
+            parent_header_info.consensus_hash
         ));
     }
 
@@ -960,10 +982,16 @@ fn replay_block(
             clarity_commit.rollback();
             if let Some(cost) = cost_opt {
                 if receipt.anchored_block_cost != cost {
-                    return Err(format!(
-                        "Failed processing block! block = {block_id}. Unexpected cost. expected = {cost}, evaluated = {}",
+                    if !opts.ignore_costs {
+                        return Err(format!(
+                            "Failed processing block! block = {block_id}. Unexpected cost. expected = {cost}, evaluated = {}",
+                            receipt.anchored_block_cost
+                        ));
+                    }
+                    warn!(
+                        "Cost mismatch ignored! block = {block_id}. expected = {cost}, evaluated = {}",
                         receipt.anchored_block_cost
-                    ));
+                    );
                 }
             } else {
                 info!("No stored cost for {block_id}; skipping cost check");
@@ -983,6 +1011,7 @@ fn replay_naka_staging_block(
     sortdb: &mut SortitionDB,
     reward_set_cache: &mut HashMap<u64, CachedRewardSet>,
     block_id: &StacksBlockId,
+    opts: ReplayOpts,
 ) -> Result<(), String> {
     let (block, block_size) = chainstate
         .nakamoto_blocks_db()
@@ -990,8 +1019,15 @@ fn replay_naka_staging_block(
         .map_err(|e| format!("Failed to load Nakamoto block: {e:?}"))?
         .ok_or_else(|| "No block data found".to_string())?;
 
-    replay_block_nakamoto(sortdb, chainstate, reward_set_cache, &block, block_size)
-        .map_err(|e| format!("Failed to validate Nakamoto block: {e:?}"))
+    replay_block_nakamoto(
+        sortdb,
+        chainstate,
+        reward_set_cache,
+        &block,
+        block_size,
+        opts,
+    )
+    .map_err(|e| format!("Failed to validate Nakamoto block: {e:?}"))
 }
 
 /// Reward set cached per cycle, tagged with the block that calculated it so
@@ -1081,6 +1117,7 @@ fn replay_block_nakamoto(
     reward_set_cache: &mut HashMap<u64, CachedRewardSet>,
     block: &NakamotoBlock,
     block_size: u64,
+    opts: ReplayOpts,
 ) -> Result<(), ChainstateError> {
     // find corresponding snapshot
     let next_ready_block_snapshot =
@@ -1088,8 +1125,8 @@ fn replay_block_nakamoto(
             .unwrap_or_else(|| {
                 panic!(
                     "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
-                    &block.header.consensus_hash,
-                    &block.header.block_hash()
+                    block.header.consensus_hash,
+                    block.header.block_hash()
                 )
             });
 
@@ -1367,9 +1404,17 @@ fn replay_block_nakamoto(
         // check the cost
         let evaluated_cost = receipt.anchored_block_cost.clone();
         if evaluated_cost != expected_cost {
-            return Err(ChainstateError::InvalidStacksBlock(format!(
-                "Failed processing block! block = {block_id}. Unexpected cost. expected = {expected_cost}, evaluated = {evaluated_cost}"
-            )));
+            if !opts.ignore_costs {
+                return Err(ChainstateError::InvalidStacksBlock(format!(
+                    "Failed processing block! block = {block_id}. Unexpected cost. expected = {expected_cost}, evaluated = {evaluated_cost}"
+                )));
+            }
+            warn!(
+                "Cost mismatch ignored!";
+                "stacks_block_id" => %block_id,
+                "expected" => %expected_cost,
+                "evaluated" => %evaluated_cost
+            );
         }
     }
 

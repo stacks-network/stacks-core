@@ -16,7 +16,6 @@
 
 use std::collections::HashSet;
 use std::io;
-use std::io::prelude::*;
 use std::io::Read;
 
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -714,6 +713,8 @@ impl StacksMessageCodec for NackData {
     }
 }
 
+// A default would misleadingly consume randomness to generate a fresh nonce.
+#[allow(clippy::new_without_default)]
 impl PingData {
     pub fn new() -> PingData {
         let mut rng = rand::thread_rng();
@@ -1606,38 +1607,6 @@ pub mod test {
 
     use super::*;
     use crate::net::{GetNakamotoInvData, NakamotoInvData};
-
-    fn check_overflow<T>(r: Result<T, net_error>) -> bool {
-        match r {
-            Ok(_) => {
-                test_debug!("did not get an overflow error, or any error");
-                false
-            }
-            Err(e) => match e {
-                net_error::OverflowError(_) => true,
-                _ => {
-                    test_debug!("did not get an overflow error, but got {:?}", &e);
-                    false
-                }
-            },
-        }
-    }
-
-    fn check_underflow<T>(r: Result<T, net_error>) -> bool {
-        match r {
-            Ok(_) => {
-                test_debug!("did not get an underflow error, or any error");
-                false
-            }
-            Err(e) => match e {
-                net_error::UnderflowError(_) => true,
-                _ => {
-                    test_debug!("did not get an underflow error, but got {:?}", &e);
-                    false
-                }
-            },
-        }
-    }
 
     fn check_deserialize<T: std::fmt::Debug>(r: Result<T, codec_error>) -> bool {
         match r {

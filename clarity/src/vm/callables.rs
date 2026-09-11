@@ -111,6 +111,10 @@ pub struct DefinedFunction {
     return_type: Option<TypeSignature>,
 }
 
+/// Native callable that also receives execution state and invocation context.
+pub type EnvNativeFn =
+    dyn Fn(Vec<Value>, &mut ExecutionState, &InvocationContext) -> Result<Value, VmExecutionError>;
+
 /// This enum handles the actual invocation of the method
 /// implementing a native function. Each variant handles
 /// different expected number of arguments.
@@ -118,14 +122,7 @@ pub enum NativeHandle {
     SingleArg(&'static dyn Fn(Value) -> Result<Value, VmExecutionError>),
     DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value, VmExecutionError>),
     MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value, VmExecutionError>),
-    #[allow(clippy::type_complexity)]
-    MoreArgEnv(
-        &'static dyn Fn(
-            Vec<Value>,
-            &mut ExecutionState,
-            &InvocationContext,
-        ) -> Result<Value, VmExecutionError>,
-    ),
+    MoreArgEnv(&'static EnvNativeFn),
 }
 
 impl NativeHandle {
@@ -731,18 +728,13 @@ mod test {
         let tuple_ty = TypeSignature::TupleType(
             TupleTypeSignature::try_from(vec![(a_name.clone(), trait_ty)]).unwrap(),
         );
-        let contract_tuple_ty = TypeSignature::TupleType(
+        let contract_tuple_ty =
             TupleTypeSignature::try_from(vec![(a_name.clone(), TypeSignature::PrincipalType)])
-                .unwrap(),
-        );
+                .unwrap();
         let mut data_map = BTreeMap::new();
         data_map.insert(a_name.clone(), contract.clone());
         let tuple_contract = Value::Tuple(TupleData {
-            type_signature: TupleTypeSignature::try_from(vec![(
-                a_name.clone(),
-                TypeSignature::PrincipalType,
-            )])
-            .unwrap(),
+            type_signature: contract_tuple_ty,
             data_map,
         });
         let cast_tuple = clarity2_implicit_cast(&tuple_ty, &tuple_contract).unwrap();

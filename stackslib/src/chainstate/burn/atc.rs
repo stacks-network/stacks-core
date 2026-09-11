@@ -29,7 +29,7 @@ use crate::stacks_common::util::uint::BitArray;
 /// * This avoids unrepresentable states, like NaN or +/- INF
 /// * This avoids ambiguous states, like +0.0 and -0.0.
 /// * This integrates better into the sortition-sampling system, which uses a u256 to represent a
-/// probability range (which is what this is going to be used for)
+///   probability range (which is what this is going to be used for)
 #[derive(Debug, Clone, PartialEq, Copy, Eq, Hash)]
 pub(crate) struct AtcRational(pub(crate) Uint256);
 impl AtcRational {
@@ -1438,13 +1438,13 @@ mod test {
     /// Calculate the logic advantage curve for the null miner.
     /// This function's parameters are chosen such that:
     /// * if the ATC carryover has diminished by less than 20%, the null miner has negligible
-    /// chances of winning.  This is to avoid punishing honest miners when there are flash blocks.
+    ///   chances of winning.  This is to avoid punishing honest miners when there are flash blocks.
     /// * If the ATC carryover has diminished by between 20% and 80%, the null miner has a
-    /// better-than-linear probability of winning.  That is, if the burnchain MEV miner pays less
-    /// than X% of the expected carryover (20% <= X < 80%), then their probability of winning is
-    /// (1) strictly less than X%, and (2) strictly less than any Pr[X% - c] for 0 < c < X.
+    ///   better-than-linear probability of winning.  That is, if the burnchain MEV miner pays less
+    ///   than X% of the expected carryover (20% <= X < 80%), then their probability of winning is
+    ///   (1) strictly less than X%, and (2) strictly less than any Pr[X% - c] for 0 < c < X.
     /// * If the ATC carryover is less than 20%, the null miner has an overwhelmingly likely chance
-    /// of winning (>95%).
+    ///   of winning (>95%).
     ///
     /// The logistic curve fits the points (atc=0.2, null_prob=0.75) and (atc=0.8, null_prob=0.01).
     fn null_miner_logistic(atc: f64) -> f64 {

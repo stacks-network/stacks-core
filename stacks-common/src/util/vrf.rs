@@ -54,7 +54,7 @@ impl<'de> serde::Deserialize<'de> for VRFPublicKey {
 
 impl Debug for VRFPublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", &self.to_hex())
+        write!(f, "{}", self.to_hex())
     }
 }
 
@@ -86,7 +86,7 @@ impl Hash for VRFPublicKey {
 
 impl Debug for VRFPrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", &self.to_hex())
+        write!(f, "{}", self.to_hex())
     }
 }
 
@@ -222,7 +222,7 @@ pub struct VRFProof {
 
 impl Debug for VRFProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", &self.to_hex())
+        write!(f, "{}", self.to_hex())
     }
 }
 
@@ -551,14 +551,6 @@ mod tests {
         privkey: Vec<u8>,
         message: &'static str,
         proof: Vec<u8>,
-    }
-
-    #[derive(Debug)]
-    struct VRF_Verify_Fixture {
-        pubkey: Vec<u8>,
-        proof: Vec<u8>,
-        message: &'static str,
-        result: bool,
     }
 
     #[derive(Debug)]

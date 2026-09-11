@@ -122,6 +122,7 @@ fn test_post_condition_aborted_transaction_does_not_emit_events() {
         events_keys: vec![EventKeyType::AnyEvent],
         timeout_ms: 1000,
         disable_retries: true,
+        disable_contract_interface: false,
     });
 
     // Call create_dispatch_matrix_and_event_vector with the aborted receipt
@@ -198,6 +199,7 @@ fn build_block_processed_event() {
         &Some(signer_bitvec.clone()),
         block_timestamp,
         coinbase_height,
+        true,
     );
     assert_eq!(
         payload
@@ -287,6 +289,7 @@ fn test_block_processed_event_nakamoto() {
         &Some(signer_bitvec),
         block_timestamp,
         coinbase_height,
+        true,
     );
 
     let event_signer_signature = payload
@@ -377,6 +380,7 @@ fn test_process_pending_payloads() {
         events_keys: vec![EventKeyType::AnyEvent],
         timeout_ms: timeout.as_millis() as u64,
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     let conn =
@@ -435,6 +439,7 @@ fn pending_payloads_are_skipped_if_url_does_not_match() {
         events_keys: vec![EventKeyType::AnyEvent],
         timeout_ms: timeout.as_millis() as u64,
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     let conn =
@@ -504,12 +509,13 @@ fn test_new_event_observer() {
     let endpoint = "http://example.com".to_string();
     let timeout = Duration::from_secs(5);
 
-    let observer = EventObserver::new(endpoint.clone(), timeout, false);
+    let observer = EventObserver::new(endpoint.clone(), timeout, false, false);
 
     // Verify fields
     assert_eq!(observer.endpoint, endpoint);
     assert_eq!(observer.timeout, timeout);
     assert_eq!(observer.disable_retries, false);
+    assert_eq!(observer.disable_contract_interface, false);
 }
 
 #[test]
@@ -535,7 +541,7 @@ fn test_send_payload_with_db() {
     let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
     let timeout = Duration::from_secs(5);
 
-    let observer = EventObserver::new(endpoint, timeout, false);
+    let observer = EventObserver::new(endpoint, timeout, false, false);
 
     TEST_EVENT_OBSERVER_SKIP_RETRY.set(false);
 
@@ -580,7 +586,12 @@ fn test_send_payload_success() {
         tx.send(()).unwrap();
     });
 
-    let observer = EventObserver::new(format!("127.0.0.1:{port}"), Duration::from_secs(3), false);
+    let observer = EventObserver::new(
+        format!("127.0.0.1:{port}"),
+        Duration::from_secs(3),
+        false,
+        false,
+    );
 
     let payload = json!({"key": "value"});
 
@@ -632,7 +643,12 @@ fn test_send_payload_retry() {
         }
     });
 
-    let observer = EventObserver::new(format!("127.0.0.1:{port}"), Duration::from_secs(3), false);
+    let observer = EventObserver::new(
+        format!("127.0.0.1:{port}"),
+        Duration::from_secs(3),
+        false,
+        false,
+    );
 
     let payload = json!({"key": "value"});
 
@@ -685,7 +701,7 @@ fn test_send_payload_timeout() {
         }
     });
 
-    let observer = EventObserver::new(format!("127.0.0.1:{port}"), timeout, false);
+    let observer = EventObserver::new(format!("127.0.0.1:{port}"), timeout, false, false);
 
     let payload = json!({"key": "value"});
 
@@ -794,6 +810,7 @@ fn test_send_payload_with_db_force_restart() {
         timeout_ms: timeout.as_millis() as u64,
         events_keys: vec![EventKeyType::AnyEvent],
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     EventDispatcherDbConnection::new(&dispatcher.clone().db_path).unwrap();
@@ -841,7 +858,7 @@ fn test_event_dispatcher_disable_retries() {
 
     let endpoint = server.url().strip_prefix("http://").unwrap().to_string();
 
-    let observer = EventObserver::new(endpoint, timeout, true);
+    let observer = EventObserver::new(endpoint, timeout, true, false);
 
     let dir = tempdir().unwrap();
     let working_dir = dir.path().to_path_buf();
@@ -864,7 +881,7 @@ fn test_event_dispatcher_disable_retries_invalid_url() {
 
     let endpoint = String::from("255.255.255.255");
 
-    let observer = EventObserver::new(endpoint, timeout, true);
+    let observer = EventObserver::new(endpoint, timeout, true, false);
 
     let dir = tempdir().unwrap();
     let working_dir = dir.path().to_path_buf();
@@ -890,6 +907,7 @@ fn block_event_with_disable_retries_observer() {
         events_keys: vec![EventKeyType::MinedBlocks],
         timeout_ms: 1000,
         disable_retries: true,
+        disable_contract_interface: false,
     };
     event_dispatcher.register_observer(&config);
 
@@ -960,13 +978,63 @@ fn make_new_block_txs_payload_vm_error() {
         tx_index: 0,
     };
 
-    let payload_no_error = make_new_block_txs_payload(&receipt, 0);
+    let payload_no_error = make_new_block_txs_payload(&receipt, 0, true);
     assert_eq!(payload_no_error.vm_error, receipt.vm_error);
 
     receipt.vm_error = Some("Inconceivable!".into());
 
-    let payload_with_error = make_new_block_txs_payload(&receipt, 0);
+    let payload_with_error = make_new_block_txs_payload(&receipt, 0, true);
     assert_eq!(payload_with_error.vm_error, receipt.vm_error);
+}
+
+#[test]
+/// The `contract_interface` field is populated when inclusion is enabled, and is
+/// always `None` when disabled -- even when the receipt carries a contract analysis.
+fn make_new_block_txs_payload_contract_interface_toggle() {
+    let privkey = StacksPrivateKey::random();
+    let tx = StacksTransaction {
+        version: TransactionVersion::Testnet,
+        chain_id: 0x80000000,
+        auth: TransactionAuth::from_p2pkh(&privkey).unwrap(),
+        anchor_mode: TransactionAnchorMode::Any,
+        post_condition_mode: TransactionPostConditionMode::Allow,
+        post_conditions: vec![],
+        payload: TransactionPayload::TokenTransfer(
+            to_addr(&privkey).to_account_principal(),
+            123,
+            TokenTransferMemo([0u8; 34]),
+        ),
+    };
+
+    let analysis = clarity::vm::analysis::ContractAnalysis::new(
+        clarity::vm::types::QualifiedContractIdentifier::transient(),
+        vec![],
+        clarity::vm::costs::LimitedCostTracker::new_free(),
+        stacks_common::types::StacksEpochId::Epoch21,
+        clarity::vm::ClarityVersion::Clarity1,
+    );
+
+    let receipt = StacksTransactionReceipt {
+        transaction: TransactionOrigin::Stacks(tx),
+        events: vec![],
+        post_condition_aborted: false,
+        result: Value::okay_true(),
+        contract_analysis: Some(analysis),
+        execution_cost: ExecutionCost::ZERO,
+        microblock_header: None,
+        vm_error: None,
+        problematic_skipped: None,
+        stx_burned: 0u128,
+        tx_index: 0,
+    };
+
+    // Enabled: the ABI is present because the receipt has a contract analysis.
+    let included = make_new_block_txs_payload(&receipt, 0, true);
+    assert!(included.contract_interface.is_some());
+
+    // Disabled: the ABI is omitted regardless of the receipt's contract analysis.
+    let omitted = make_new_block_txs_payload(&receipt, 0, false);
+    assert!(omitted.contract_interface.is_none());
 }
 
 fn make_tenure_change_payload() -> TenureChangePayload {
@@ -1035,7 +1103,7 @@ fn backwards_compatibility_transaction_event_payload() {
         vm_error: None,
         problematic_skipped: None,
     };
-    let payload = make_new_block_txs_payload(&receipt, 0);
+    let payload = make_new_block_txs_payload(&receipt, 0, true);
     let new_serialized_data = serde_json::to_string_pretty(&payload).expect("Failed");
     let old_serialized_data = r#"
         {
@@ -1091,6 +1159,7 @@ fn test_block_proposal_validation_event() {
         events_keys: vec![EventKeyType::BlockProposal],
         timeout_ms: 3_000,
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     // The below matches what the `RPCBlockProposalRequestHandler` does via
@@ -1152,6 +1221,7 @@ fn test_http_delivery_non_blocking() {
         events_keys: vec![EventKeyType::MinedBlocks],
         timeout_ms: 3_000,
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -1223,6 +1293,7 @@ fn test_http_delivery_blocks_once_queue_is_full() {
         events_keys: vec![EventKeyType::MinedBlocks],
         timeout_ms: 3_000,
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);
@@ -1332,6 +1403,7 @@ fn test_http_delivery_always_blocks_if_queue_size_is_zero() {
         events_keys: vec![EventKeyType::MinedBlocks],
         timeout_ms: 3_000,
         disable_retries: false,
+        disable_contract_interface: false,
     });
 
     let nakamoto_block = NakamotoBlock::new(NakamotoBlockHeader::empty(), vec![]);

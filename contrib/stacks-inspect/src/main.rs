@@ -180,7 +180,7 @@ impl P2PSession {
         .decode_sortition_info()
         .map_err(|e| format!("Failed to decode response from /v3/sortitions: {e:?}"))?
         .pop()
-        .ok_or_else(|| format!("No sortition returned for {}", &peer_info.pox_consensus))?;
+        .ok_or_else(|| format!("No sortition returned for {}", peer_info.pox_consensus))?;
 
         let stable_sort_info = send_http_request(
             &format!("{}", data_addr.ip()),
@@ -199,7 +199,7 @@ impl P2PSession {
         .ok_or_else(|| {
             format!(
                 "No sortition returned for {}",
-                &peer_info.stable_pox_consensus
+                peer_info.stable_pox_consensus
             )
         })?;
 
@@ -320,6 +320,10 @@ fn build_common_opts(cli: &Cli) -> CommonOpts {
         });
         let config = Config::from_config_file(config_file, false)
             .unwrap_or_else(|e| panic!("Failed to convert config file into node config: {e}"));
+        // Install the config-driven process-wide state (the pox-5 sBTC contract and admin
+        // overrides) exactly as the node's run loop does, so that a replay which crosses the
+        // Epoch 4.0 boundary instantiates the same pox-5 body as the chain being replayed.
+        config.apply_runtime_state();
         opts.config.replace(config);
     }
 
@@ -337,6 +341,10 @@ fn build_common_opts(cli: &Cli) -> CommonOpts {
         };
         let config = Config::from_config_file(config_file, false)
             .unwrap_or_else(|e| panic!("Failed to convert config file into node config: {e}"));
+        // Install the config-driven process-wide state (the pox-5 sBTC contract and admin
+        // overrides) exactly as the node's run loop does, so that a replay which crosses the
+        // Epoch 4.0 boundary instantiates the same pox-5 body as the chain being replayed.
+        config.apply_runtime_state();
         opts.config.replace(config);
     }
 
@@ -813,7 +821,7 @@ fn main() {
             let header = NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
                 .unwrap()
                 .unwrap();
-            println!("{}", &header.index_block_hash());
+            println!("{}", header.index_block_hash());
             process::exit(0);
         }
 
@@ -885,7 +893,7 @@ fn main() {
             block_hash,
         } => {
             let index_block_hash = StacksBlockId::from_hex(&block_hash).unwrap();
-            let chain_state_path = format!("{}/mainnet/chainstate/", &chain_state_dir);
+            let chain_state_path = format!("{}/mainnet/chainstate/", chain_state_dir);
 
             let (chainstate, _) =
                 StacksChainState::open(true, CHAIN_ID_MAINNET, &chain_state_path, None).unwrap();
@@ -926,7 +934,7 @@ fn main() {
                     tx_report.push(json!({
                         "txid": format!("{}", tx.txid()),
                         "fee": format!("{}", tx.get_tx_fee()),
-                        "tx": format!("{}", to_hex(&tx.serialize_to_vec())),
+                        "tx": to_hex(&tx.serialize_to_vec()).to_string(),
                     }));
                 }
                 mblock_report.push(json!({
@@ -940,7 +948,7 @@ fn main() {
                 block_tx_report.push(json!({
                     "txid": format!("{}", tx.txid()),
                     "fee": format!("{}", tx.get_tx_fee()),
-                    "tx": format!("{}", to_hex(&tx.serialize_to_vec()))
+                    "tx": to_hex(&tx.serialize_to_vec()).to_string()
                 }));
             }
 
@@ -959,8 +967,8 @@ fn main() {
         }
 
         Command::GetBlockInventory { working_dir } => {
-            let sort_db_path = format!("{}/mainnet/burnchain/sortition", &working_dir);
-            let chain_state_path = format!("{}/mainnet/chainstate/", &working_dir);
+            let sort_db_path = format!("{}/mainnet/burnchain/sortition", working_dir);
+            let chain_state_path = format!("{}/mainnet/chainstate/", working_dir);
 
             let sort_db =
                 SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default(), None)
@@ -991,8 +999,8 @@ fn main() {
         }
 
         Command::CanDownloadMicroblock { working_dir } => {
-            let sort_db_path = format!("{}/mainnet/burnchain/sortition", &working_dir);
-            let chain_state_path = format!("{}/mainnet/chainstate/", &working_dir);
+            let sort_db_path = format!("{}/mainnet/burnchain/sortition", working_dir);
+            let chain_state_path = format!("{}/mainnet/chainstate/", working_dir);
 
             let sort_db =
                 SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default(), None)
@@ -1237,7 +1245,7 @@ fn main() {
 
             println!("Block height, Would select anchor, Anchor agreement");
             for r in results.iter() {
-                println!("{}, {}, {}", &r.0, &r.1, &r.2);
+                println!("{}, {}, {}", r.0, r.1, r.2);
             }
 
             process::exit(0);
@@ -1474,8 +1482,8 @@ pub fn tip_mine(working_dir: &str, event_log: &str, mine_tip_height: u64, max_tx
             &parent_header.consensus_hash,
             &parent_header.anchored_header.block_hash()
         ),
-        &parent_header.consensus_hash,
-        &parent_header.anchored_header.block_hash(),
+        parent_header.consensus_hash,
+        parent_header.anchored_header.block_hash(),
         stop.saturating_sub(start),
     );
 
@@ -1617,7 +1625,7 @@ fn analyze_sortition_mev(
             &next_sn.winning_block_txid,
         )
         .unwrap()
-        .map(|cmt| format!("{:?}", &cmt.apparent_sender.to_string()))
+        .map(|cmt| format!("{:?}", cmt.apparent_sender.to_string()))
         .unwrap_or("(null)".to_string());
 
         let winner_epoch3 = get_block_commit_by_txid(
@@ -1626,7 +1634,7 @@ fn analyze_sortition_mev(
             &next_sn_nakamoto.winning_block_txid,
         )
         .unwrap()
-        .map(|cmt| format!("{:?}", &cmt.apparent_sender.to_string()))
+        .map(|cmt| format!("{:?}", cmt.apparent_sender.to_string()))
         .unwrap_or("(null)".to_string());
 
         wins_epoch2.insert(

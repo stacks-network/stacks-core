@@ -22,13 +22,26 @@ use clarity::vm::{ClarityName, Value};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::Address;
 
-use super::test_rpc;
+use super::{bool_list_hex, test_rpc};
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
+use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{
     HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
 use crate::net::{ProtocolFamily, TipRequest};
+
+fn new_getmapentry_request_with_hex_key(addr: SocketAddr, key: String) -> StacksHttpRequest {
+    let contract_addr =
+        StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap();
+    StacksHttpRequest::new_for_peer(
+        addr.into(),
+        "POST".into(),
+        format!("/v2/map_entry/{contract_addr}/flood/m"),
+        HttpRequestContents::new().payload_json(serde_json::Value::String(key)),
+    )
+    .unwrap()
+}
 
 #[test]
 fn test_try_parse_request() {
@@ -55,7 +68,9 @@ fn test_try_parse_request() {
     debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
-    let mut handler = getmapentry::RPCGetMapEntryRequestHandler::new();
+    let mut handler = getmapentry::RPCGetMapEntryRequestHandler::new(
+        ConnectionOptions::default().read_only_call_max_mem_bytes,
+    );
     let mut parsed_request = http
         .handle_try_parse_request(
             &mut handler,
@@ -89,6 +104,34 @@ fn test_try_parse_request() {
     handler.restart();
     assert!(handler.contract_identifier.is_none());
     assert!(handler.map_name.is_none());
+    assert!(handler.key.is_none());
+}
+
+/// Rejected by the body wire-size preflight, before JSON parsing.
+#[test]
+fn test_try_parse_request_rejects_oversized_key() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
+    // ~4 KiB hex body against a 1 KiB limit.
+    let request = new_getmapentry_request_with_hex_key(addr, bool_list_hex(2048));
+    let bytes = request.try_serialize().unwrap();
+
+    let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
+    let mut handler = getmapentry::RPCGetMapEntryRequestHandler::new(1024);
+
+    let error = format!(
+        "{:?}",
+        http.handle_try_parse_request(
+            &mut handler,
+            &parsed_preamble.expect_request(),
+            &bytes[offset..],
+        )
+        .unwrap_err()
+    );
+    assert!(
+        error.contains("exceeds parse memory limit"),
+        "unexpected error: {error}"
+    );
     assert!(handler.key.is_none());
 }
 
