@@ -604,14 +604,19 @@ impl PoxConstants {
 
     /// Is this the first block to be signed by the signer set in cycle N?
     /// This is the mod 0 block.
-    #[expect(
-        clippy::manual_is_multiple_of,
-        reason = "Remainder must still panic for a zero reward-cycle length."
-    )]
+    ///
+    /// # Panics
+    /// Panics if the reward-cycle length is zero.
     pub fn is_naka_signing_cycle_start(&self, first_block_height: u64, burn_height: u64) -> bool {
         let effective_height = burn_height - first_block_height;
+        let reward_cycle_length = u64::from(self.reward_cycle_length);
+
+        assert_ne!(
+            reward_cycle_length, 0,
+            "Reward-cycle length must be nonzero"
+        );
         // first block of the new reward cycle
-        (effective_height % u64::from(self.reward_cycle_length)) == 0
+        effective_height.is_multiple_of(reward_cycle_length)
     }
 
     /// return the first burn block which receives reward in `reward_cycle`.
