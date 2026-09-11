@@ -34,7 +34,8 @@ To use stacks-signer, you need to build and install the Rust program. You can do
    ```
 
 You must specify the "metrics_endpoint" option in the config file to serve these metrics.
-See [metrics documentation](TODO) for a complete breakdown of the available metrics.
+See the [`stacks-signer` metrics documentation](../docs/metrics/stacks-signer.md)
+for the proposal and validation outcome metrics.
 
 ## Usage
 
