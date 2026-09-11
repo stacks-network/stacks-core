@@ -601,7 +601,6 @@ impl StacksChainState {
         config: &DBConfig,
         tx: &StacksTransaction,
         epoch_id: StacksEpochId,
-        auth_verification_mode_override: Option<TransactionAuthVerificationMode>,
     ) -> Result<(), Error> {
         // valid auth?
         if !tx.auth.is_supported_in_epoch(epoch_id) {
@@ -676,36 +675,6 @@ impl StacksChainState {
                 info!("{msg}");
                 Error::InvalidStacksTransaction(msg, false)
             })?;
-        }
-        // check if Staking/Pox post-conditions are supported in this epoch
-        if !epoch_id.supports_staking_post_conditions() {
-            for post_condition in tx.post_conditions.iter() {
-                if matches!(
-                    post_condition,
-                    TransactionPostCondition::Staking(..) | TransactionPostCondition::Pox(..)
-                ) {
-                    let msg = "Invalid Stacks transaction: Staking/Pox post-condition is not supported before Stacks 4.0".to_string();
-                    info!("{}", &msg; "txid" => %tx.txid());
-                    return Err(Error::InvalidStacksTransaction(msg, false));
-                }
-            }
-        }
-
-        // check that the requested Clarity version is supported in this epoch.
-        // Only a versioned smart-contract deploy can pin a specific version;
-        // every other transaction implicitly uses the epoch default. A version
-        // newer than the epoch allows is statically invalid, so reject it
-        // here.
-        if let TransactionPayload::SmartContract(_, Some(clarity_version)) = &tx.payload {
-            let max_version = ClarityVersion::default_for_epoch(epoch_id);
-            if *clarity_version > max_version {
-                let msg = format!(
-                    "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch_id} only supports up to {max_version}",
-                    tx.txid()
-                );
-                info!("{msg}");
-                return Err(Error::InvalidStacksTransaction(msg, false));
-            }
         }
 
         Ok(())
@@ -1287,7 +1256,7 @@ impl StacksChainState {
                 debug!("Compiling the contract to wasm binary");
                 let mut module = compile_contract(contract_analysis.clone()).map_err(|e| {
                     Error::ClarityError(ClarityError::Wasm(WasmError::WasmGeneratorError(
-                        e.message(),
+                        e.message().to_string(),
                     )))
                 })?;
                 contract_ast.wasm_module = Some(module.emit_wasm());
@@ -8412,7 +8381,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (_fee, receipt) = validate_transactions_static_epoch_and_process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,
@@ -8481,7 +8450,7 @@ pub mod test {
         .unwrap();
         assert_eq!(fee, 1);
 
-        let (_fee, receipt) = validate_transactions_static_epoch_and_process_transaction(
+        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
             &signed_test_call_foo_tx,
             false,

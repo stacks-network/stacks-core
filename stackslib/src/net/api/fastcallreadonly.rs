@@ -214,9 +214,6 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                                 // cost tracking in read only calls is meamingful mainly from a security point of view
                                 // for this reason we enforce max_execution_time when cost tracking is disabled/free
 
-                                let budget = ResourceBudget::new()
-                                    .with_max_duration(Some(self.read_only_max_execution_time))
-                                    .with_max_memory_use(Some(self.read_only_call_max_mem_bytes));
                                 exec_state
                                     .global_context
                                     .set_execution_resource_limiter(resource_limiter);

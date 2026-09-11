@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{
@@ -21,13 +22,11 @@ use clarity::vm::costs::{
     DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME, COSTS_3_NAME,
     COSTS_4_NAME,
 };
-use clarity::vm::database::clarity_db::ClarityDatabase;
 use clarity::vm::database::MemoryBackingStore;
 use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
-use clarity::vm::resource_limiter::ResourceBudget;
 use clarity::vm::test_util::{
     execute, generate_test_burn_state_db, symbols_from_values, TEST_HEADER_DB,
 };
@@ -225,234 +224,6 @@ where
         epoch,
         use_mainnet,
     ))
-}
-
-fn cost_voting_contract(use_mainnet: bool) -> &'static QualifiedContractIdentifier {
-    if use_mainnet {
-        &COST_VOTING_MAINNET_CONTRACT
-    } else {
-        &COST_VOTING_TESTNET_CONTRACT
-    }
-}
-
-struct CostProposal {
-    function_contract: PrincipalData,
-    function_name: &'static str,
-    cost_function_contract: PrincipalData,
-    cost_function_name: &'static str,
-}
-
-fn cost_proposal(
-    function_contract: impl Into<PrincipalData>,
-    function_name: &'static str,
-    cost_function_contract: impl Into<PrincipalData>,
-    cost_function_name: &'static str,
-) -> CostProposal {
-    CostProposal {
-        function_contract: function_contract.into(),
-        function_name,
-        cost_function_contract: cost_function_contract.into(),
-        cost_function_name,
-    }
-}
-
-fn write_confirmed_cost_proposals(
-    db: &mut ClarityDatabase,
-    use_mainnet: bool,
-    proposal_start_id: usize,
-    confirmed_proposal_count: usize,
-    proposals: impl IntoIterator<Item = CostProposal>,
-) {
-    let voting_contract_to_use = cost_voting_contract(use_mainnet);
-    db.set_variable_unknown_descriptor(
-        voting_contract_to_use,
-        "confirmed-proposal-count",
-        Value::UInt(confirmed_proposal_count as u128),
-    )
-    .unwrap();
-
-    let epoch = db.get_clarity_epoch_version().unwrap();
-    for (ix, proposal) in proposals.into_iter().enumerate() {
-        let value = format!(
-            "{{  function-contract: '{},
-                 function-name: \"{}\",
-                 cost-function-contract: '{},
-                 cost-function-name: \"{}\",
-                 confirmed-height: u1 }}",
-            proposal.function_contract,
-            proposal.function_name,
-            proposal.cost_function_contract,
-            proposal.cost_function_name
-        );
-        db.set_entry_unknown_descriptor(
-            voting_contract_to_use,
-            "confirmed-proposals",
-            execute_on_network(
-                &format!("{{ confirmed-id: u{} }}", ix + proposal_start_id),
-                use_mainnet,
-            ),
-            execute_on_network(&value, use_mainnet),
-            &epoch,
-        )
-        .unwrap();
-    }
-}
-
-fn cost_voting_test_cost_definer(use_mainnet: bool) -> QualifiedContractIdentifier {
-    let p1 = execute_on_network("'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR", use_mainnet);
-    let Value::Principal(PrincipalData::Standard(p1_principal)) = p1 else {
-        panic!("Expected a standard principal data");
-    };
-    QualifiedContractIdentifier::new(p1_principal, ContractName::from_literal("cost-definer"))
-}
-
-fn deploy_cost_voting_test_cost_definer(
-    clarity_instance: &mut ClarityInstance,
-    tip: &mut StacksBlockId,
-    block_id_byte: &mut u8,
-    use_mainnet: bool,
-) -> QualifiedContractIdentifier {
-    let cost_definer = cost_voting_test_cost_definer(use_mainnet);
-    let cost_definer_src = "
-        (define-read-only (cost-definition-le (size uint))
-           {
-             runtime: u0, write_length: u0, write_count: u0, read_count: u0, read_length: u0
-           })
-    ";
-    let burn_state_db = generate_test_burn_state_db(StacksEpochId::Epoch20);
-    let next_block = next_test_block_id(block_id_byte);
-    let mut block_conn =
-        clarity_instance.begin_block(tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
-    block_conn.as_transaction(|tx| {
-        let (mut ast, analysis) = tx
-            .analyze_smart_contract(
-                &cost_definer,
-                ClarityVersion::Clarity1,
-                cost_definer_src,
-                &ResourceBudget::unlimited(),
-            )
-            .unwrap();
-        tx.initialize_smart_contract(
-            &cost_definer,
-            ClarityVersion::Clarity1,
-            &mut ast,
-            &analysis,
-            cost_definer_src,
-            None,
-            |_, _| None,
-            &ResourceBudget::unlimited(),
-        )
-        .unwrap();
-        tx.save_analysis(&cost_definer, &analysis).unwrap();
-    });
-    block_conn.commit_block();
-    *tip = next_block;
-
-    cost_definer
-}
-
-fn write_voted_le_cost_state(
-    clarity_instance: &mut ClarityInstance,
-    tip: &mut StacksBlockId,
-    block_id_byte: &mut u8,
-    vote_state_epoch: StacksEpochId,
-    use_mainnet: bool,
-    cost_definer: &QualifiedContractIdentifier,
-) {
-    let burn_state_db = generate_test_burn_state_db(vote_state_epoch);
-    let next_block = next_test_block_id(block_id_byte);
-
-    let mut clarity_conn =
-        clarity_instance.begin_block(tip, &next_block, &TEST_HEADER_DB, &burn_state_db);
-    clarity_conn.as_transaction(|tx| {
-        tx.with_clarity_db(|db| {
-            db.set_clarity_epoch_version(vote_state_epoch)?;
-            write_confirmed_cost_proposals(
-                db,
-                use_mainnet,
-                0,
-                1,
-                [cost_proposal(
-                    boot_code_id("costs", use_mainnet),
-                    "cost_le",
-                    cost_definer.clone(),
-                    "cost-definition-le",
-                )],
-            );
-            Ok(())
-        })
-        .unwrap();
-    });
-    clarity_conn.commit_block();
-    *tip = next_block;
-}
-
-fn tracker_with_voted_le_cost_state(
-    load_epoch: StacksEpochId,
-    vote_state_epoch: StacksEpochId,
-    use_mainnet: bool,
-) -> (LimitedCostTracker, QualifiedContractIdentifier) {
-    let (mut clarity_instance, mut tip, mut block_id_byte) =
-        new_cost_test_clarity_instance(use_mainnet);
-    let cost_definer = deploy_cost_voting_test_cost_definer(
-        &mut clarity_instance,
-        &mut tip,
-        &mut block_id_byte,
-        use_mainnet,
-    );
-
-    let max_setup_epoch = std::cmp::max(load_epoch, vote_state_epoch);
-    let mut vote_state_written = false;
-
-    for setup_epoch in TEST_TEST_COST_BOOT_EPOCHS {
-        if !vote_state_written && vote_state_epoch < setup_epoch {
-            write_voted_le_cost_state(
-                &mut clarity_instance,
-                &mut tip,
-                &mut block_id_byte,
-                vote_state_epoch,
-                use_mainnet,
-                &cost_definer,
-            );
-            vote_state_written = true;
-        }
-
-        if max_setup_epoch < setup_epoch {
-            break;
-        }
-
-        setup_cost_test_epoch(
-            &mut clarity_instance,
-            &mut tip,
-            &mut block_id_byte,
-            setup_epoch,
-        );
-    }
-
-    if !vote_state_written {
-        write_voted_le_cost_state(
-            &mut clarity_instance,
-            &mut tip,
-            &mut block_id_byte,
-            vote_state_epoch,
-            use_mainnet,
-            &cost_definer,
-        );
-    }
-
-    let mut marf_kv = clarity_instance.destroy();
-
-    let burn_state_db = generate_test_burn_state_db(load_epoch);
-    let final_block = next_test_block_id(&mut block_id_byte);
-    let mut store = marf_kv.begin(&tip, &final_block);
-    let owned_env = OwnedEnvironment::new_max_limit(
-        store.as_clarity_db(&TEST_HEADER_DB, &burn_state_db),
-        load_epoch,
-        use_mainnet,
-    );
-    let (_db, tracker) = owned_env.destruct().unwrap();
-
-    (tracker, cost_definer)
 }
 
 fn exec_cost(contract: &str, use_mainnet: bool, epoch: StacksEpochId) -> ExecutionCost {
@@ -1202,6 +973,11 @@ fn proptest_replacements_costs_3() {
     proptest_cost_contract(COSTS_3_NAME);
 }
 
+#[test]
+fn proptest_replacements_costs_4() {
+    proptest_cost_contract(COSTS_4_NAME);
+}
+
 /// Tests and measures the execution cost of a Clarity program with a custom analysis database.
 ///
 /// This function executes a Clarity program in a controlled test environment and returns
@@ -1525,74 +1301,6 @@ fn epoch_40_uses_native_costs(#[case] use_mainnet: bool) {
             ClarityCostFunctionEvaluator::Default(_, _, DefaultVersion::Costs5)
         )));
     });
-}
-
-/// Before epoch 4.0, confirmed `.cost-voting` state can replace boot cost functions.
-#[rstest::rstest]
-#[case::mainnet(true)]
-#[case::testnet(false)]
-fn cost_voting_state_applies_before_epoch_40(#[case] use_mainnet: bool) {
-    let (tracker, cost_definer) = tracker_with_voted_le_cost_state(
-        StacksEpochId::Epoch34,
-        StacksEpochId::Epoch34,
-        use_mainnet,
-    );
-
-    let cost_function_references = tracker.cost_function_references();
-    assert_eq!(
-        cost_function_references.len(),
-        ClarityCostFunction::ALL.len(),
-        "all cost functions must have a reference before cost-voting retires (mainnet={use_mainnet})"
-    );
-
-    let le_reference = cost_function_references
-        .get(&ClarityCostFunction::Le)
-        .expect("cost_le must have a reference");
-    let ClarityCostFunctionEvaluator::Clarity(le_reference) = le_reference else {
-        panic!("voted cost_le should be evaluated in Clarity before Epoch 4.0");
-    };
-    assert_eq!(&le_reference.contract_id, &cost_definer);
-    assert_eq!(&le_reference.function_name, "cost-definition-le");
-}
-
-/// With `.cost-voting` disabled >= epoch 4.0, both existing and newly written voting state is
-/// ignored and every cost function resolves to the boot cost contract.
-#[rstest::rstest]
-#[case::mainnet_pre_40_voting_state(true, StacksEpochId::Epoch34)]
-#[case::testnet_pre_40_voting_state(false, StacksEpochId::Epoch34)]
-#[case::mainnet_post_40_voting_state(true, StacksEpochId::Epoch40)]
-#[case::testnet_post_40_voting_state(false, StacksEpochId::Epoch40)]
-fn cost_voting_state_is_ignored_at_epoch_40(
-    #[case] use_mainnet: bool,
-    #[case] vote_state_epoch: StacksEpochId,
-) {
-    let (tracker, _cost_definer) =
-        tracker_with_voted_le_cost_state(StacksEpochId::Epoch40, vote_state_epoch, use_mainnet);
-
-    let cost_function_references = tracker.cost_function_references();
-    assert_eq!(
-        cost_function_references.len(),
-        ClarityCostFunction::ALL.len(),
-        "all cost functions must have a reference after cost-voting retires (mainnet={use_mainnet}, vote_state_epoch={vote_state_epoch})"
-    );
-    assert!(
-        cost_function_references.values().all(|evaluator| matches!(
-            evaluator,
-            ClarityCostFunctionEvaluator::Default(_, _, DefaultVersion::Costs5)
-        )),
-        "all cost functions must use the epoch 4.0 boot cost contract after cost-voting retires (mainnet={use_mainnet}, vote_state_epoch={vote_state_epoch})"
-    );
-
-    let le_reference = cost_function_references
-        .get(&ClarityCostFunction::Le)
-        .expect("cost_le must have a reference");
-    assert!(
-        matches!(
-            le_reference,
-            ClarityCostFunctionEvaluator::Default(_, _, DefaultVersion::Costs5)
-        ),
-        "voted cost_le replacement must be ignored after cost-voting retires (mainnet={use_mainnet}, vote_state_epoch={vote_state_epoch})"
-    );
 }
 
 #[test]
