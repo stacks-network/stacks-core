@@ -370,13 +370,13 @@ An optional `none` body is:
 
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
-| `0` | 1 byte | Optional tag | `u8` | MUST be `00`; no bytes may follow |
+| `0` | 1 byte | Variant tag | `u8` | MUST be `00`; no bytes may follow |
 
 An optional `some` body is:
 
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
-| `0` | 1 byte | Optional tag | `u8` | MUST be `01` |
+| `0` | 1 byte | Variant tag | `u8` | MUST be `01` |
 | `1` | `B - 1` bytes | Active child | Packed body for the child type | Consumes the remainder of the enclosing frame |
 
 `none` MUST contain no bytes after its tag. `some` consumes the remainder of its frame as its active
@@ -388,14 +388,14 @@ A response `err` body is:
 
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
-| `0` | 1 byte | Response tag | `u8` | MUST be `00` |
+| `0` | 1 byte | Variant tag | `u8` | MUST be `00` |
 | `1` | `B - 1` bytes | Active error child | Packed body for the error type | Consumes the remainder of the enclosing frame |
 
 A response `ok` body is:
 
 | Offset | Length | Field | Encoding | Meaning |
 | ---- | ---- | ---- | ---- | ---- |
-| `0` | 1 byte | Response tag | `u8` | MUST be `01` |
+| `0` | 1 byte | Variant tag | `u8` | MUST be `01` |
 | `1` | `B - 1` bytes | Active success child | Packed body for the success type | Consumes the remainder of the enclosing frame |
 
 The inactive response branch contributes no physical bytes and MUST NOT affect parent framing.
@@ -804,8 +804,8 @@ affect framing.
 | `(ok true)` | `1 + 1 = 2` | `01 00 00 02  01 01` | `01 09 02` |
 | `(err u9)` | `1 + 17 = 18` | `01 00 00 12  00 09` | `01 0a 01` |
 
-The packed response tags are `00 = err` and `01 = ok`. They are not the Clarity consensus response
-prefixes `08` and `07`.
+The packed variant tags for responses are `00 = err` and `01 = ok`; they are not the Clarity
+consensus response prefixes `08` and `07`.
 
 ### Fixed-width tuple
 
