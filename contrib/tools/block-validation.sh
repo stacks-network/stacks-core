@@ -120,11 +120,11 @@ pre_input_config() {
     REPO="stacks-core"                         # --repo value: known label, git URL, or path to an existing checkout.
     REPO_REV="develop"                         # default git revision (branch, tag, or commit) to build stacks-inspect from
     PR=""                                      # optional pull request to validate: number (repo-relative) or full PR URL
-    GH_TOKEN="${GH_TOKEN:-}"                    # optional token for authenticated PR fetches (env-provided value is preserved)
+    GH_TOKEN="${GH_TOKEN:-}"                   # optional token for authenticated PR fetches (env-provided value is preserved)
     CORES=""                                   # cores to use for validation; resolved in post_input_config
     NETWORK="mainnet"                          # network to validate
     RANGE="full"                               # block range to validate: scenario or numeric range
-    IGNORE_COSTS_ARG=""                  # holds "--ignore-costs" when cost-only mismatches must not fail blocks
+    IGNORE_COSTS_ARG=""                        # holds "--ignore-costs" when cost-only mismatches must not fail blocks
     LAST_ERROR=""                              # last error_and_exit message; surfaced by on_exit in status.json
 
     if [[ -t 1 ]]; then
