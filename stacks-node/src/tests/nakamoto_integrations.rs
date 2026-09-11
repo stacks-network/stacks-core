@@ -3259,8 +3259,8 @@ fn correct_burn_outs() {
     let new_blocks_with_reward_set: Vec<serde_json::Value> = test_observer::get_blocks()
         .into_iter()
         .filter(|block| {
-            block.get("reward_set").map_or(false, |v| !v.is_null())
-                && block.get("cycle_number").map_or(false, |v| !v.is_null())
+            block.get("reward_set").is_some_and(|v| !v.is_null())
+                && block.get("cycle_number").is_some_and(|v| !v.is_null())
         })
         .collect();
     info!(
@@ -8903,7 +8903,7 @@ fn check_block_info() {
             }
         }
         // if `signer_bitvec` is set on a block, then it's a nakamoto block
-        let is_nakamoto_block = block.get("signer_bitvec").map_or(false, |v| !v.is_null());
+        let is_nakamoto_block = block.get("signer_bitvec").is_some_and(|v| !v.is_null());
         let tenure_height = block.get("tenure_height").unwrap().as_u64().unwrap();
         let block_height = block.get("block_height").unwrap().as_u64().unwrap();
 

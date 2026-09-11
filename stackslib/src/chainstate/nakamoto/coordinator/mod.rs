@@ -220,7 +220,7 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
         //  Non participation is fatal.
         if reward_set
             .rewarded_addresses()
-            .map_or(false, |addrs| addrs.is_empty())
+            .is_some_and(|addrs| addrs.is_empty())
         {
             // no one is stacking (V0 with empty rewarded_addresses)
             err_or_debug!(debug_log, "No PoX participation");

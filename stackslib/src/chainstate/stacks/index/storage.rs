@@ -18,7 +18,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
-use std::{fmt, fs, io};
+use std::{fmt, fs, io, mem};
 
 use rusqlite::{Connection, OpenFlags, Transaction};
 use sha2::Digest;
@@ -488,7 +488,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
     ///
     /// Do not call directly; instead, use `with_reinstated_data()`.
     fn move_to(&mut self) -> TrieRAM<T> {
-        let moved_data = std::mem::replace(&mut self.data, vec![]);
+        let moved_data = mem::take(&mut self.data);
         TrieRAM {
             data: moved_data,
             block_header: self.block_header.clone(),

@@ -353,7 +353,7 @@ impl<T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'_,
             cur_epoch,
         )?;
 
-        if is_nakamoto_reward_set && reward_set.signers().map_or(true, |s| s.is_empty()) {
+        if is_nakamoto_reward_set && reward_set.signers().is_none_or(|s| s.is_empty()) {
             error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
             return Err(Error::PoXAnchorBlockRequired);
         }
