@@ -46,7 +46,7 @@ use stacks_common::{function_name, info};
 
 use crate::chainstate::tests::make_parent_header_meta;
 use crate::chainstate::v2::{GlobalStateView, SortitionState};
-use crate::chainstate::{ProposalEvalConfig, SignerChainstateError, SortitionData};
+use crate::chainstate::{ProposalEvalConfig, SelfAsTip, SignerChainstateError, SortitionData};
 use crate::client::tests::MockServerClient;
 use crate::client::StacksClient;
 use crate::signerdb::tests::tmp_db_path;
@@ -925,6 +925,7 @@ fn pre_committed_block_does_not_veto_replacement() {
         &tenure_id,
         &signer_db,
         Duration::from_secs(30),
+        None,
     )
     .unwrap()
     .is_none());
@@ -952,6 +953,7 @@ fn pre_committed_block_does_not_veto_replacement() {
         &stacks_client,
         Duration::from_secs(30),
         Duration::from_secs(3),
+        SelfAsTip::Counts,
     )
     .unwrap());
 
@@ -970,6 +972,7 @@ fn pre_committed_block_does_not_veto_replacement() {
         &tenure_id,
         &signer_db,
         Duration::from_secs(30),
+        None,
     )
     .unwrap()
     .is_some());
@@ -981,6 +984,7 @@ fn pre_committed_block_does_not_veto_replacement() {
         &stacks_client,
         Duration::from_secs(30),
         Duration::from_secs(3),
+        SelfAsTip::Counts,
     )
     .unwrap());
 }

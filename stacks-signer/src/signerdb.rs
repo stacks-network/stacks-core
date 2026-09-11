@@ -1568,20 +1568,35 @@ impl SignerDb {
     /// have only been pre-committed are excluded, because a pre-commit does not put a
     /// signature over the block and may be safely superseded by a competing proposal.
     ///
+    /// `excluded_signer_signature_hash` leaves one block out of the query, so that another
+    /// accepted sibling at the same height can be the block returned. The exclusion is part of
+    /// the query rather than a filter on its result: a filter after `LIMIT 1` could drop the
+    /// only row returned and hide the sibling.
+    ///
     /// This answers "what is the tenure's signed tip?", a different question from
     /// [`SignerDb::has_signed_block_in_tenure`]'s "does a signature bind us to this tenure?",
     /// which is why the predicates deliberately differ on rejected blocks (see there).
     pub fn get_last_signed_block(
         &self,
         tenure: &ConsensusHash,
+        excluded_signer_signature_hash: Option<&Sha512Trunc256Sum>,
     ) -> Result<Option<BlockInfo>, DBError> {
-        let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3) ORDER BY stacks_height DESC LIMIT 1";
-        let args = params![
-            tenure,
-            &BlockState::GloballyAccepted.to_string(),
-            &BlockState::LocallyAccepted.to_string(),
+        let accepted = [
+            BlockState::GloballyAccepted.to_string(),
+            BlockState::LocallyAccepted.to_string(),
         ];
-        let result: Option<String> = query_row(&self.db, query, args)?;
+        let result: Option<String> = match excluded_signer_signature_hash {
+            None => query_row(
+                &self.db,
+                "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3) ORDER BY stacks_height DESC LIMIT 1",
+                params![tenure, &accepted[0], &accepted[1]],
+            )?,
+            Some(excluded) => query_row(
+                &self.db,
+                "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3) AND signer_signature_hash != ?4 ORDER BY stacks_height DESC LIMIT 1",
+                params![tenure, &accepted[0], &accepted[1], excluded.to_string()],
+            )?,
+        };
 
         try_deserialize(result)
     }
@@ -3366,6 +3381,53 @@ pub mod tests {
     }
 
     #[test]
+    fn last_signed_block_excluding_returns_the_same_height_sibling() {
+        // Two accepted siblings at one height: excluding either must return the other, which a
+        // filter applied after `LIMIT 1` cannot guarantee.
+        let db_path = tmp_db_path();
+        let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let tenure = ConsensusHash([7; 20]);
+        let (mut a, _) = create_block_override(|b| {
+            b.block.header.consensus_hash = tenure.clone();
+            b.block.header.chain_length = 10;
+            b.block.header.timestamp = 1;
+        });
+        let (mut b, _) = create_block_override(|b| {
+            b.block.header.consensus_hash = tenure.clone();
+            b.block.header.chain_length = 10;
+            b.block.header.timestamp = 2;
+        });
+        a.mark_locally_accepted(false).unwrap();
+        b.mark_locally_accepted(true).unwrap();
+        db.insert_block(&a).unwrap();
+        db.insert_block(&b).unwrap();
+        let (hash_a, hash_b) = (a.signer_signature_hash(), b.signer_signature_hash());
+        assert_ne!(hash_a, hash_b);
+        let excluding = |h: &Sha512Trunc256Sum| {
+            db.get_last_signed_block(&tenure, Some(h))
+                .unwrap()
+                .expect("the other sibling must be returned")
+                .signer_signature_hash()
+        };
+        assert_eq!(excluding(&hash_a), hash_b);
+        assert_eq!(excluding(&hash_b), hash_a);
+        assert!(db.get_last_signed_block(&tenure, None).unwrap().is_some());
+    }
+
+    #[test]
+    fn pre_committed_then_globally_rejected_keeps_valid_without_signature() {
+        // The row shape the re-proposal guard must not trust: validated, never signed, and
+        // terminal. `valid` is a local verdict and survives the global rejection.
+        let (mut block, _) = create_block();
+        block.mark_pre_committed().unwrap();
+        block.mark_globally_rejected().unwrap();
+        assert_eq!(block.state, BlockState::GloballyRejected);
+        assert_eq!(block.valid, Some(true));
+        assert!(block.signed_self.is_none());
+        assert!(block.signed_group.is_none());
+    }
+
+    #[test]
     fn state_machine() {
         let (mut block, _) = create_block();
         assert_eq!(block.state, BlockState::Unprocessed);
@@ -3509,7 +3571,7 @@ pub mod tests {
             .unwrap();
         assert_eq!(block_info, block_info_5);
         let block_info = db
-            .get_last_signed_block(&consensus_hash_1)
+            .get_last_signed_block(&consensus_hash_1, None)
             .unwrap()
             .unwrap();
         assert_eq!(block_info, block_info_3);
@@ -3526,7 +3588,7 @@ pub mod tests {
             .unwrap();
         assert_eq!(block_info, block_info_4);
         let block_info = db
-            .get_last_signed_block(&consensus_hash_2)
+            .get_last_signed_block(&consensus_hash_2, None)
             .unwrap()
             .unwrap();
         assert_eq!(block_info, block_info_4);
@@ -3542,7 +3604,7 @@ pub mod tests {
             .unwrap()
             .is_none());
         assert!(db
-            .get_last_signed_block(&consensus_hash_3)
+            .get_last_signed_block(&consensus_hash_3, None)
             .unwrap()
             .is_none());
         assert!(db
@@ -3672,7 +3734,7 @@ pub mod tests {
                 && !c.globally_accepted
         }));
         let tip = db
-            .get_last_signed_block(&consensus_hash_1)
+            .get_last_signed_block(&consensus_hash_1, None)
             .unwrap()
             .unwrap();
         assert_eq!(tip, block_info_2);

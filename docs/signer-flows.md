@@ -81,9 +81,10 @@ Every pass through `process_event`, whether an event arrived or the loop just
 ticked, runs the same housekeeping before dispatch: retire a timed-out
 validation submission, submit the next queued proposal, settle any pending
 state-machine update (or, if none is pending, check the current miner for
-inactivity), and consider capitulating the miner view. If the local state
-machine changed, a `StateMachineUpdate` is broadcast over StackerDB both before
-and after the event is handled.
+inactivity; both only once this signer's reward cycle has started), and consider
+capitulating the miner view. If the local state machine changed, a
+`StateMachineUpdate` is broadcast over StackerDB both before and after the event
+is handled.
 
 ```mermaid
 flowchart LR
@@ -141,6 +142,8 @@ stateDiagram-v2
     PreCommitted --> LocallyAccepted : mark_locally_accepted = WE SIGN
     Unprocessed --> LocallyRejected : mark_locally_rejected
     PreCommitted --> LocallyRejected : mark_locally_rejected
+    PreCommitted --> GloballyRejected : mark_globally_rejected (peers' rejections)
+    PreCommitted --> GloballyAccepted : mark_globally_accepted
     LocallyRejected --> LocallyAccepted : re-evaluated
     LocallyAccepted --> LocallyRejected : re-evaluated
     LocallyAccepted --> GloballyAccepted : mark_globally_accepted
@@ -153,9 +156,13 @@ Canonical paths shown; the exact rule in `BlockInfo::check_state` is: either
 local state is reachable from anything not yet global, `PreCommitted` only from
 `Unprocessed`, and each global state is unreachable from the other.
 
-Timestamps: `approved_time` is stamped at pre-commit _or_ local acceptance
-(first wins), `signed_self` only when we sign, `signed_group` when the group
-threshold is observed.
+Timestamps: `approved_time` is stamped at pre-commit _or_ at our own local
+acceptance (first wins), `signed_self` only when we sign, `signed_group` when the
+group threshold is observed or the node announces the block. `valid` and
+`reject_reason` hold this signer's own verdict and the global marks never touch
+them, so a block can sit in `GloballyRejected` with `valid = true` and no
+signature: validated by us, then rejected by enough peers. Section 3 keys on
+these fields, not on the state.
 
 > Anchors: `BlockInfo::check_state`, `move_to`, `mark_pre_committed`,
 > `mark_locally_accepted`, `mark_globally_accepted`, `mark_locally_rejected`,
@@ -164,10 +171,16 @@ threshold is observed.
 ## 3. A block proposal arrives
 
 The miner broadcasts a proposal. If we've seen this exact block before,
-`should_reevaluate_block` decides whether the old verdict stands; a block we
-only pre-committed to is deliberately routed back through the pre-commit
-evaluation so a re-proposal cannot shortcut to a signature. A fresh proposal is
-checked against our view of the world _before_ spending a node validation on it.
+`should_reevaluate_block` decides whether the old verdict stands. The rule is
+keyed on the signature fields, not on the state. An acceptance is recreated only
+for a block we already signed. A block we validated but never signed goes back
+through the pre-commit evaluation whatever its state (`PreCommitted`, or
+`GloballyRejected` on peers' rejections), so a re-proposal cannot shortcut to a
+first signature; a block the group signed without us takes the same path, and
+one already globally accepted is ignored. `determine_response` refuses to build
+an acceptance for an unsigned block as a backstop. A fresh proposal is checked
+against our view of the world _before_ spending a node validation on it, and a
+proposal older than `block_proposal_max_age_secs` is rejected as `ProposalTooOld`.
 
 ```mermaid
 flowchart TB
@@ -178,11 +191,21 @@ flowchart TB
     REEV --> DONE1{"globally accepted and<br/>already responded?"}
     DONE1 -- yes --> IGN2(["ignore"])
     DONE1 -- no --> REASON{"prior reject reason<br/>re-evaluable?<br/>should_reevaluate_reject_reason"}
-    REASON -- no --> PC{"state = PreCommitted?"}
-    PC -- yes --> RESEND["re-send pre-commit, re-run<br/>handle_block_pre_commit → section 5"]
-    PC -- no --> PREV["re-send previous response<br/>determine_response, or wait if<br/>validation still pending"]
-    REASON -- yes --> FRESH
-    KNOWN -- no --> DRAIN["collect early votes<br/>drain_pending_block_responses"] --> FRESH["fresh evaluation:<br/>new BlockInfo, fetch<br/>SortitionsView if needed"]
+    REASON -- no --> VERDICT{"valid?"}
+    VERDICT -- true --> SIGNED{"signed_self set?"}
+    SIGNED -- yes --> PREV["recreate our acceptance<br/>determine_response"]:::good
+    SIGNED -- "no, no group signature" --> RESEND["re-send pre-commit, re-run<br/>handle_block_pre_commit → section 5"]
+    SIGNED -- "no, group signed" --> GA{"globally accepted?"}
+    GA -- yes --> IGN3(["ignore"])
+    GA -- no --> RESEND
+    VERDICT -- false --> REJPREV["re-send rejection<br/>RejectedInPriorRound"]:::bad
+    VERDICT -- "not yet validated" --> PEND{"validation pending?"}
+    PEND -- yes --> WAITV(["wait"]):::hold
+    PEND -- no --> AGE
+    REASON -- yes --> AGE
+    KNOWN -- no --> AGE{"older than<br/>block_proposal_max_age_secs?"}
+    AGE -- yes --> OLD["reject ProposalTooOld<br/>(not stored)"]:::bad
+    AGE -- no --> FRESH["fresh evaluation:<br/>new BlockInfo (overwrites a stored row),<br/>replay early votes, fetch<br/>SortitionsView if needed"]
     FRESH --> CHECK["check_block_against_state:<br/>protocol version consensus (NoSignerConsensus),<br/>static validity, no problematic_txs<br/>(ProblematicTransactions), then<br/>v1 SortitionsView::check_proposal or<br/>v2 GlobalStateView::check_proposal → section 7"]
     CHECK -- invalid --> REJ["send rejection<br/>(not stored)"]:::bad
     CHECK -- "not provably invalid" --> BUSY{"validation slot free?<br/>submitted_block_proposal"}
@@ -190,12 +213,15 @@ flowchart TB
     BUSY -- no --> QUEUE["queue it<br/>insert_pending_block_validation"]
     SUBMIT --> STORE["insert_block +<br/>process_pending_responses_for_block<br/>(replay early votes)"]
     QUEUE --> STORE
+    classDef good fill:#17a45c22,stroke:#1d9d5f,stroke-width:1.5px;
     classDef bad fill:#d84a3f22,stroke:#c9473d,stroke-width:1.5px;
+    classDef hold fill:#8a95a51f,stroke:#8a95a5,stroke-dasharray:4 3;
 ```
 
 Early votes: acceptances, rejections, and pre-commits that arrived before the
 proposal itself are parked in pending tables and replayed once the proposal is
-known.
+known. A re-evaluated block gets no replay; its fresh `BlockInfo` overwrites the
+stored row.
 
 > Anchors: `handle_block_proposal`, `should_reevaluate_block`,
 > `should_reevaluate_reject_reason`, `check_block_against_state`,
@@ -206,19 +232,21 @@ known.
 
 The stacks-node answers the `/v3/block_proposal` submission. On OK, the signer
 re-checks its own DB state and only then advertises willingness to sign by
-broadcasting a **pre-commit**. A signature is _not_ produced here.
+broadcasting a **pre-commit**. A signature is _not_ produced here. Every
+rejection records its `reject_reason`, which decides whether a re-proposal is
+reconsidered (section 3).
 
 ```mermaid
 flowchart TB
     IN["BlockValidationResponse<br/>handle_block_validate_response"] --> OK{"verdict?"}
     OK -- "Ok" --> HVO["handle_block_validate_ok:<br/>record validation_time_ms,<br/>skip if already decided"]
-    OK -- "Reject" --> HVR["handle_block_validate_reject:<br/>mark_locally_rejected,<br/>broadcast rejection"]:::bad
+    OK -- "Reject" --> HVR["handle_block_validate_reject:<br/>record reject_reason,<br/>mark_locally_rejected,<br/>broadcast rejection"]:::bad
     HVO --> RECHECK{"still consistent with our DB?<br/>check_block_against_signer_db_state<br/>→ section 7"}
-    RECHECK -- no --> REJ["mark_locally_rejected,<br/>handle_block_rejection,<br/>broadcast rejection"]:::bad
-    RECHECK -- yes --> PC["mark_pre_committed<br/>(stamps approved_time)"]
+    RECHECK -- no --> REJ["record reject_reason,<br/>mark_locally_rejected,<br/>handle_block_rejection,<br/>broadcast rejection"]:::bad
+    RECHECK -- yes --> PC["mark_pre_committed<br/>(stamps valid and approved_time)"]
     PC --> SEND["send_block_pre_commit<br/>(broadcast over StackerDB)"]
     SEND --> SELF["count our own pre-commit:<br/>handle_block_pre_commit → section 5"]
-    TIMEOUT["no answer in time:<br/>check_submitted_block_proposal<br/>frees the slot; next queued proposal<br/>submitted by check_pending_block_validations"]
+    TIMEOUT["no answer in time:<br/>check_submitted_block_proposal rejects<br/>(ConnectivityIssues, reconsiderable)<br/>and frees the slot; next queued proposal<br/>submitted by check_pending_block_validations"]
     classDef bad fill:#d84a3f22,stroke:#c9473d,stroke-width:1.5px;
 ```
 
@@ -248,19 +276,20 @@ flowchart TB
     TH -- yes --> RECHECK{"chainstate checks still pass?<br/>check_block_against_signer_db_state<br/>→ section 7"}
     RECHECK -- no --> REJ["mark_locally_rejected,<br/>handle_block_rejection,<br/>broadcast rejection"]:::bad
     RECHECK -- yes --> CONF["signed conflicts at height ≥ h,<br/>in ANY tenure<br/>get_signed_conflicts"]
-    CONF --> PERM{"covered by a reorg permit whose<br/>permitting sortition is still canonical?<br/>reorg_permit_stands"}
+    CONF --> FRESH{"for each conflict:<br/>still fresh?<br/>last_endorsed > cutoff"}
+    FRESH -- yes --> PERM{"covered by a reorg permit whose<br/>permitting sortition is still canonical?<br/>reorg_permit_stands"}
     PERM -- yes --> EXCL(["excluded — our signature must not<br/>block a replacement we sanctioned"]):::good
-    PERM -- no --> FRESH{"any of them still fresh?<br/>last_endorsed > cutoff"}
-    FRESH -- yes --> SORT{"conflict_still_blocks, question 1:<br/>is its tenure's sortition still on the<br/>canonical burn chain?<br/>get_sortition_by_burn_hash"}
+    EXCL --> OWN
+    PERM -- no --> SORT{"conflict_still_blocks, question 1:<br/>is its tenure's sortition still on the<br/>canonical burn chain?<br/>get_sortition_by_burn_hash"}
     SORT -- "404, with the node's burnchain tip<br/>at or past the burn block — a fork<br/>orphaned the tenure" --> OWN
-    SORT -- "canonical, or we never<br/>saved its burn block" --> LIVE{"question 2: does the node's chain<br/>still reach the block itself?<br/>get_tenure_tip(its tenure)"}
+    SORT -- "canonical, or we never<br/>saved its burn block" --> LIVE{"question 2: does the node's chain<br/>reach that height in its tenure?<br/>get_tenure_tip(its tenure)"}
     SORT -- "could not ask, or 404 with the<br/>node's tip still below the burn block" --> HOLD1
     LIVE -- "yes — real chain state" --> HOLD1["refuse to sign for now<br/>(may sign once conflict is stale)"]:::hold
     LIVE -- "no, and it was<br/>globally accepted" --> OWN
     LIVE -- "no, only locally accepted<br/>— but above this height" --> OWN
     LIVE -- "no, only locally accepted<br/>and a sibling at this height" --> HOLD1
     LIVE -- "could not ask" --> HOLD1
-    FRESH -- "no — all stale" --> OWN{"a conflict in this block's<br/>OWN tenure?"}
+    FRESH -- "no — stale" --> OWN{"any OWN-tenure conflict<br/>without a standing reorg permit?"}
     OWN -- yes --> TIP{"own tenure confirmed<br/>at ≥ this height?<br/>get_tenure_tip(own tenure)"}
     TIP -- yes --> HOLD2["refuse to sign"]:::hold
     TIP -- "no — never confirmed" --> SIGN
@@ -272,7 +301,7 @@ flowchart TB
 ```
 
 Order matters here: the chainstate re-check runs first and produces an explicit
-(sticky) rejection when the block now conflicts with a signed one. The conflict
+rejection when the block now conflicts with a signed one. The conflict
 guard behind it is the silent backstop for what that re-check cannot see, and
 silence keeps the door open to sign later once the conflict goes stale. Two
 blind spots make the guard necessary:
@@ -340,6 +369,13 @@ sanctioned can no longer happen and the conflict gets its voice back. A false
 worst delays the replacement. For the own-tenure question below, an unreachable
 node is instead treated as unconfirmed and the signature goes out.
 
+This is the only path that mints a signature: a re-proposal (section 3) either
+recreates an acceptance we already gave or comes back here. A row in a terminal
+state can still be signed here, e.g. `GloballyRejected` on peers' rejections and
+then cleared on re-proposal: `mark_locally_accepted` records `signed_self` even
+though the state move fails, which is why the conflict queries key on the
+signature columns rather than on state.
+
 > Anchors: `handle_block_pre_commit`, `conflict_still_blocks`,
 > `reorg_permit_stands`, `check_block_against_signer_db_state` (signer.rs);
 > `get_signed_conflicts`, `SignedConflictInfo`, `get_burn_block_by_ch`
@@ -366,9 +402,11 @@ flowchart TB
     TALLY -- no --> N2(["wait for more"])
     TALLY -- yes --> BCAST["mark_locally_accepted(group),<br/>broadcast_signed_block →<br/>handle_post_block (push to node)"]:::good
     KIND -- "Rejected" --> HBR["handle_block_rejection:<br/>verify, store via<br/>add_block_rejection_signer_addr"]
-    HBR --> RT{"rejection weight makes<br/>70% approval impossible?"}
+    HBR --> DONE{"already reached a<br/>global state?"}
+    DONE -- yes --> N4(["done"])
+    DONE -- no --> RT{"rejection weight makes<br/>70% approval impossible?"}
     RT -- no --> N3(["wait"])
-    RT -- yes --> GREJ["mark_globally_rejected;<br/>pre-global-state versions also<br/>update miner status"]:::bad
+    RT -- yes --> GREJ["mark_globally_rejected<br/>(valid and reject_reason untouched);<br/>pre-global-state versions also<br/>update miner status"]:::bad
     BCAST --> NB["node processes block →<br/>NewBlock event →<br/>mark_globally_accepted"]:::good
     classDef good fill:#17a45c22,stroke:#1d9d5f,stroke-width:1.5px;
     classDef bad fill:#d84a3f22,stroke:#c9473d,stroke-width:1.5px;
@@ -379,8 +417,10 @@ peer that never sent a pre-commit is routed into the pre-commit path instead, so
 that peer's weight still counts toward the threshold that produces _our_
 signature. Note that reaching 70% signatures still only marks the block
 _locally_ accepted with the group timestamp; global acceptance waits for the node
-to adopt it. Marking the miner invalid on a 30% `ReorgNotAllowed` rejection is
-skipped once the active protocol version uses global signer state.
+to adopt it. Marking the miner invalid on `ReorgNotAllowed` rejections is
+skipped once the active protocol version uses global signer state. Global
+rejection changes only the state: `valid` and `reject_reason` keep this signer's
+own verdict (section 3).
 
 > Anchors: `handle_block_response`, `handle_block_signature`,
 > `store_and_process_block_signature`, `broadcast_signed_block`,
@@ -393,15 +433,21 @@ expect?" and it runs in three places: at proposal arrival (inside
 `check_proposal`), at validate-ok, and at the moment of signing. _Which_ tenure
 it is asked about depends on the block: a tenure-change block is checked against
 its **parent** tenure, every other block against its **own**. Never both. The
-pivotal helper is `get_tenure_last_block_info`, which considers only blocks that
-carry a signature (`get_last_signed_block`): a pre-commit never vetoes anything,
-it only counts as miner activity.
+pivotal helper is `get_tenure_last_block_info`, which considers only locally or
+globally _accepted_ blocks (`get_last_signed_block`): a pre-commit never vetoes
+anything, it only counts as miner activity. The validate-ok and signing-time
+re-checks leave the block under check out of that query (`SelfAsTip::Ignored`):
+the group may already have signed it, and leaving it out lets another accepted
+sibling at the same height be the block compared against. The proposal-time
+check keeps the plain comparison (`SelfAsTip::Counts`), so a duplicate proposal
+of the tenure's fresh accepted tip is rejected rather than freshly evaluated, which
+would overwrite that row.
 
 ```mermaid
 flowchart TB
     IN["check_block_against_signer_db_state<br/>(validate-ok and signing paths)"] --> TC{"tenure-change block?"}
-    TC -- yes --> PARENT["check_tenure_change_confirms_parent =<br/>check_latest_block_in_tenure(PARENT tenure)"]
-    TC -- no --> SAME["confirms_latest_block_in_same_tenure =<br/>check_latest_block_in_tenure(OWN tenure)"]
+    TC -- yes --> PARENT["check_tenure_change_confirms_parent =<br/>check_latest_block_in_tenure(PARENT tenure, SelfAsTip::Counts)"]
+    TC -- no --> SAME["check_latest_block_in_tenure(OWN tenure,<br/>SelfAsTip::Ignored)"]
     PARENT --> CLB
     SAME --> CLB["check_latest_block_in_tenure(tenure_id)"]
     CLB --> LSB{"fresh SIGNED tip in that tenure?<br/>get_tenure_last_block_info =<br/>get_last_signed_block + freshness from<br/>the last signature time<br/>(tenure_last_block_proposal_timeout)"}
@@ -421,6 +467,11 @@ A failed check becomes a different rejection depending on who asked.
 `check_block_against_signer_db_state` returns `SortitionViewMismatch`, or
 `ConnectivityIssues` when the lookup itself errored rather than answering; the v2
 `check_proposal` path returns `InvalidParentBlock`.
+
+The check also writes: a node tenure tip that the signer DB holds but not yet as
+`GloballyAccepted` is marked so where the transition is allowed, and its
+`signed_group` is filled if empty, which pins the tenure for the state machine
+(section 8).
 
 Two things belong to the proposal path only and are **not** re-run at validate-ok
 or at signing:
@@ -459,14 +510,14 @@ this flow computes is consensus-visible.
 flowchart TB
     BB["NewBurnBlock event"] --> SAVE["insert_burn_block: save the burn<br/>block — section 5's sortition<br/>question depends on these records"]
     SAVE --> PRUNE["prune_superseded_tenures<br/>(records MAX_FORK_DEPTH<br/>below the tip)"]
-    PRUNE --> ARR["bitcoin_block_arrival:<br/>settle only once the node reports<br/>this block as its canonical tip,<br/>else park it as Pending"]
+    PRUNE --> ARR["bitcoin_block_arrival:<br/>park as Pending while the node is<br/>behind this block, or at its height<br/>on a different fork; settle otherwise"]
     ARR --> GPT["get_parent_tenure_last_block =<br/>max(node get_tenure_tip,<br/>signerdb get_tenure_last_block_info)<br/>— signed blocks only"]
     HPU["housekeeping:<br/>handle_pending_update"] --> PEND{"a pending BurnBlock<br/>update to settle?"}
     PEND -- yes --> ARR
     PEND -- no --> TO{"current tenure timed out?<br/>check_miner_inactivity →<br/>v1/v2 SortitionState::is_timed_out"}
     TO -- "signed a block in tenure?<br/>has_signed_block_in_tenure" --> NEVER(["never times out —<br/>we committed a signature"])
-    TO -- "no signed block, and inactive<br/>past block_proposal_timeout" --> FALL["fall back to prior tenure:<br/>make_miner_state(prior sortition)"]
-    TICK["housekeeping:<br/>capitulate_viewpoint<br/>(rate-limited by<br/>capitulate_miner_view_timeout)"] --> UPD["update_parent_tenure_last_block:<br/>adopt newer node tip or drop a<br/>signed view that went stale"]
+    TO -- "no signed block, and inactive<br/>past block_proposal_timeout" --> FALL["fall back to the prior sortition's miner<br/>if it exists, is not this tenure,<br/>and is still valid and canonical"]
+    TICK["housekeeping:<br/>capitulate_viewpoint<br/>(rate-limited, see below)"] --> UPD["update_parent_tenure_last_block:<br/>adopt newer node tip or drop a<br/>signed view that went stale"]
     TICK --> CAP["capitulate_miner_view:<br/>bucket peers' miner states by weight;<br/>adopt a threshold view unless it is<br/>ahead of what we have processed<br/>(get_parent_tenure_last_block guard)"]
     GPT --> SEND["state changed →<br/>send_signer_update_message<br/>(StateMachineUpdate over StackerDB)"]
     FALL --> SEND
@@ -482,7 +533,8 @@ thing, time since the last activity (or since the burn block was received) again
 `block_proposal_timeout`. `capitulate_viewpoint` is the other, and it does not
 run on every pass: `is_capitulation_check_ready` gates it behind
 `capitulate_miner_view_timeout`, because refreshing the parent-tenure view costs
-a node round trip.
+a node round trip, and it is skipped as well while the current miner's tenure
+has a globally accepted block that we approved less than that timeout ago.
 
 Burnchain forks need no bookkeeping here. Whether a fork orphaned a tenure whose
 block we signed is derived at signing time from the burn block records this flow
