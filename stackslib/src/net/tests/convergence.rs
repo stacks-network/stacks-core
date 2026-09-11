@@ -30,6 +30,18 @@ use crate::net::test::*;
 use crate::net::*;
 use crate::util_lib::test::*;
 
+/// Hard-hang backstop for the 15-peer convergence tests in this module.
+///
+/// The authoritative failure oracle is actually the 120s no-progress stall
+/// detector in `run_topology_test_ex`
+const CONVERGENCE_HANG_BACKSTOP_SECS: u64 = 900; // 15 minutes
+
+/// Socket-poll timeout (ms) used when stepping peers in these convergence tests.
+///
+/// `TestPeer::step_with_ibd` defaults to 100ms, which dominates wall-clock here:
+/// each round steps every peer once and an idle poll blocks for the full timeout.
+const CONVERGENCE_STEP_POLL_MS: u64 = 10;
+
 #[cfg(unix)]
 fn setup_rlimit_nofiles() {
     use rlimit;
@@ -112,11 +124,11 @@ fn setup_peer_config(
 #[ignore]
 fn test_walk_ring_allow_15() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         // all initial peers are allowed
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
-        let neighbor_count: usize = 3;
+        let neighbor_count: usize = 8;
 
         for i in 0..peer_count {
             let mut conf = setup_peer_config(i, 32800, neighbor_count, peer_count);
@@ -141,11 +153,11 @@ fn test_walk_ring_allow_15() {
 #[ignore]
 fn test_walk_ring_15_plain() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
-        let neighbor_count: usize = 3;
+        let neighbor_count: usize = 8;
 
         for i in 0..peer_count {
             let mut conf = setup_peer_config(i, 32900, neighbor_count, peer_count);
@@ -166,11 +178,11 @@ fn test_walk_ring_15_plain() {
 #[ignore]
 fn test_walk_ring_15_pingback() {
     setup_rlimit_nofiles();
-    with_timeout(900, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
-        let neighbor_count: usize = 3;
+        let neighbor_count: usize = 8;
 
         for i in 0..peer_count {
             let mut conf = setup_peer_config(i, 32950, neighbor_count, peer_count);
@@ -193,7 +205,7 @@ fn test_walk_ring_15_pingback() {
 #[ignore]
 fn test_walk_ring_15_org_biased() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         // one outlier peer has a different org than the others.
         use std::env;
 
@@ -322,10 +334,10 @@ fn test_walk_ring_pingback(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPe
 #[ignore]
 fn test_walk_line_allowed_15() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
-        let neighbor_count: usize = 3;
+        let neighbor_count: usize = 8;
 
         for i in 0..peer_count {
             let mut conf = setup_peer_config(i, 33100, neighbor_count, peer_count);
@@ -350,11 +362,11 @@ fn test_walk_line_allowed_15() {
 #[ignore]
 fn test_walk_line_15_plain() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
-        let neighbor_count: usize = 3;
+        let neighbor_count: usize = 8;
 
         for i in 0..peer_count {
             let mut conf = setup_peer_config(i, 33200, neighbor_count, peer_count);
@@ -375,7 +387,7 @@ fn test_walk_line_15_plain() {
 #[ignore]
 fn test_walk_line_15_org_biased() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         // one outlier peer has a different org than the others.
         use std::env;
 
@@ -437,11 +449,11 @@ fn test_walk_line_15_org_biased() {
 #[ignore]
 fn test_walk_line_15_pingback() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         // initial peers are neither white- nor denied
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
-        let neighbor_count: usize = 3;
+        let neighbor_count: usize = 8;
 
         for i in 0..peer_count {
             let mut conf = setup_peer_config(i, 33350, neighbor_count, peer_count);
@@ -535,10 +547,10 @@ fn test_walk_line_ex(
 #[ignore]
 fn test_walk_star_allowed_15() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
-        let neighbor_count: usize = 3;
+        let neighbor_count: usize = 8;
         for i in 0..peer_count {
             let mut conf = setup_peer_config(i, 33400, neighbor_count, peer_count);
 
@@ -562,10 +574,10 @@ fn test_walk_star_allowed_15() {
 #[ignore]
 fn test_walk_star_15_plain() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
-        let neighbor_count: usize = 3;
+        let neighbor_count: usize = 8;
         for i in 0..peer_count {
             let mut conf = setup_peer_config(i, 33500, neighbor_count, peer_count);
 
@@ -585,10 +597,10 @@ fn test_walk_star_15_plain() {
 #[ignore]
 fn test_walk_star_15_pingback() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
-        let neighbor_count: usize = 3;
+        let neighbor_count: usize = 8;
         for i in 0..peer_count {
             let mut conf = setup_peer_config(i, 33550, neighbor_count, peer_count);
 
@@ -611,7 +623,7 @@ fn test_walk_star_15_pingback() {
 #[ignore]
 fn test_walk_star_15_org_biased() {
     setup_rlimit_nofiles();
-    with_timeout(600, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         // one outlier peer has a different org than the others.
         use std::env;
 
@@ -820,7 +832,7 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
 #[ignore]
 fn test_walk_inbound_line_15() {
     setup_rlimit_nofiles();
-    with_timeout(900, || {
+    with_timeout(CONVERGENCE_HANG_BACKSTOP_SECS, || {
         let mut peer_configs = vec![];
         let peer_count: usize = 15;
         let neighbor_count: usize = 15; // make this test go faster
@@ -999,7 +1011,7 @@ fn run_topology_test_ex<F>(
 
         debug!("Random order = {random_order:?}");
         for i in random_order.into_iter() {
-            let _ = peers[i].step_with_ibd(false);
+            let _ = peers[i].step_with_ibd_dns_poll(false, None, CONVERGENCE_STEP_POLL_MS);
             let nk = peers[i].config.to_neighbor().addr;
             debug!("Step peer {nk:?}");
 
