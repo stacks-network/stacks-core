@@ -1,0 +1,66 @@
+# GitHub workflow to check if CI is enabled
+
+name: "Check CI"
+
+on:
+  workflow_call:
+    inputs:
+      allow-fork-runs:
+        description: >-
+          Whether this workflow may run outside of the official repository at all.
+        required: false
+        default: true
+        type: boolean
+    outputs:
+      enabled:
+        description: "Returns 'true' if CI is enabled, 'false' otherwise"
+        value: ${{ jobs.check-ci.outputs.enabled }}
+
+permissions: {}
+
+jobs:
+  check-ci:
+    name: "Check CI"
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - name: "Check CI Enabled"
+        id: check
+        shell: bash
+        run: |
+          echo "=== CI Enablement Check ==="
+          echo "ENABLE_CI_WORKFLOWS: '${{ vars.ENABLE_CI_WORKFLOWS }}'"
+          echo "github.repository:   '${{ github.repository }}'"
+          echo "github.event_name:   '${{ github.event_name }}'"
+          echo "allow-fork-runs: '${{ inputs.allow-fork-runs }}'"
+
+          IS_ENABLED="false"
+          if [[ "${{ inputs.allow-fork-runs }}" == "false" && "${{ github.repository }}" != "stacks-network/stacks-core" ]]; then
+            echo "Result: CI is DISABLED (run disabled on repos other than \`stacks-network/stacks-core\`)"
+            IS_ENABLED="false"
+          elif [[ "${{ vars.ENABLE_CI_WORKFLOWS }}" == "true" || "${{ github.repository }}" == "stacks-network/stacks-core" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "Result: CI is ENABLED"
+            IS_ENABLED="true"
+          else
+            echo "Result: CI is DISABLED"
+            IS_ENABLED="false"
+          fi
+
+          echo "enabled=${IS_ENABLED}" >> "$GITHUB_OUTPUT"
+
+          # Write results to GITHUB_STEP_SUMMARY
+          echo "## ⚙️ CI Enablement Check" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Parameter | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`ENABLE_CI_WORKFLOWS\` | \`${{ vars.ENABLE_CI_WORKFLOWS }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`github.repository\` | \`${{ github.repository }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`github.event_name\` | \`${{ github.event_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`allow-fork-runs\` | \`${{ inputs.allow-fork-runs }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "${IS_ENABLED}" == "true" ]]; then
+            echo "✅ **Result:** CI is **ENABLED**." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "⚠️ **Result:** CI is **DISABLED**." >> "$GITHUB_STEP_SUMMARY"
+          fi

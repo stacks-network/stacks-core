@@ -1364,16 +1364,6 @@ impl PeerDB {
         Ok(db_set.into_iter().collect())
     }
 
-    /// Get the slots for all peers that replicate a particular stacker DB
-    fn get_stacker_db_slots(
-        conn: &Connection,
-        smart_contract: &QualifiedContractIdentifier,
-    ) -> Result<Vec<u32>, db_error> {
-        let qry = "SELECT peer_slot FROM stackerdb_peers WHERE smart_contract_id = ?1";
-        let args = params![smart_contract.to_string()];
-        query_rows(conn, qry, args)
-    }
-
     /// Get a peer's advertized stacker DBs
     pub fn static_get_peer_stacker_dbs(
         conn: &Connection,
@@ -1500,22 +1490,6 @@ impl PeerDB {
                 "INSERT OR REPLACE INTO {} (prefix, mask) VALUES (?1, ?2)",
                 table
             ),
-            args,
-        )
-        .map_err(db_error::SqliteError)?;
-        Ok(())
-    }
-
-    /// Remove a cidr prefix
-    fn remove_cidr_prefix(
-        tx: &Transaction,
-        table: &str,
-        prefix: &PeerAddress,
-        mask: u32,
-    ) -> Result<(), db_error> {
-        let args = params![prefix.to_bin(), mask];
-        tx.execute(
-            &format!("DELETE FROM {} WHERE prefix = ?1 AND mask = ?2", table),
             args,
         )
         .map_err(db_error::SqliteError)?;
