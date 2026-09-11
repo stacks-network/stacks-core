@@ -2638,7 +2638,9 @@ mod tests {
 
     use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
     use clarity::vm::analysis::errors::RuntimeCheckErrorKind;
-    use clarity::vm::database::{ClarityBackingStore, STXBalance, SqliteConnection};
+    use clarity::vm::database::{
+        ClarityBackingStore, STXBalance, SqliteBackingStore, SqliteConnection,
+    };
     use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
     use clarity::vm::types::{StandardPrincipalData, TupleData, Value};
     use clarity::vm::ClarityName;
@@ -2649,6 +2651,7 @@ mod tests {
     use super::*;
     use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection as _};
     use crate::chainstate::stacks::index::ClarityMarfTrieId;
+    use crate::clarity_vm::database::hashmap::HashMapWritableStore;
     use crate::clarity_vm::database::marf::MarfedKV;
     use crate::core::PEER_VERSION_EPOCH_2_0;
 
@@ -3860,6 +3863,63 @@ mod tests {
             assert_eq!(conn.chain_id(), CHAIN_ID_TESTNET);
             assert_eq!(conn.get_epoch(), StacksEpochId::Epoch20);
             assert!(conn.block_limit().is_some());
+            conn.commit_block();
+        }
+
+        // Non-MARF injection: `HashMapWritableStore` has no trie and no sqlite underneath, yet
+        // it drives the exact same block-processing path -- deploy a contract, call it, and
+        // commit the block -- proving `WritableMarfStore` doesn't actually require MARF.
+        {
+            let mut store = HashMapWritableStore::new();
+            store.begin(&StacksBlockId::sentinel(), StacksBlockId([0; 32]));
+            let mut conn = ClarityBlockConnection::from_writable_store_genesis(
+                Box::new(store),
+                &TEST_HEADER_DB,
+                &TEST_BURN_STATE_DB,
+                false,
+                CHAIN_ID_TESTNET,
+            );
+
+            let contract_identifier = QualifiedContractIdentifier::local("noop-contract").unwrap();
+            let sender = StandardPrincipalData::transient().into();
+            let contract_src = "(define-public (noop) (ok true))";
+
+            conn.as_transaction(|tx| {
+                let (ct_ast, ct_analysis) = tx
+                    .analyze_smart_contract(
+                        &contract_identifier,
+                        ClarityVersion::Clarity1,
+                        contract_src,
+                        &ResourceBudget::unlimited(),
+                    )
+                    .unwrap();
+                tx.initialize_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity1,
+                    &ct_ast,
+                    contract_src,
+                    None,
+                    |_, _| None,
+                    &ResourceBudget::unlimited(),
+                )
+                .unwrap();
+                tx.save_analysis(&contract_identifier, &ct_analysis)
+                    .unwrap();
+
+                let result = tx
+                    .run_contract_call(
+                        &sender,
+                        None,
+                        &contract_identifier,
+                        "noop",
+                        &[],
+                        |_, _| None,
+                        &ResourceBudget::unlimited(),
+                    )
+                    .unwrap();
+                assert_eq!(result.0, Value::okay_true());
+            });
+
             conn.commit_block();
         }
     }

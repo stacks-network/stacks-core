@@ -145,19 +145,18 @@ impl RPCRequestHandler for RPCGetDataVarRequestHandler {
                 &tip,
                 |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                        let (value_hex, marf_proof): (String, _) = if with_proof {
-                            clarity_db
-                                .get_data_with_proof(&key)
-                                .ok()
-                                .flatten()
-                                .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
-                        } else {
-                            clarity_db
-                                .get_data(&key)
-                                .ok()
-                                .flatten()
-                                .map(|a| (a, None))?
-                        };
+                        let (value_hex, marf_proof): (String, _) =
+                            if with_proof {
+                                clarity_db.get_data_with_proof(&key).ok().flatten().map(
+                                    |(a, b)| (a, b.map(|bytes| format!("0x{}", to_hex(&bytes)))),
+                                )?
+                            } else {
+                                clarity_db
+                                    .get_data(&key)
+                                    .ok()
+                                    .flatten()
+                                    .map(|a| (a, None))?
+                            };
 
                         let data = format!("0x{}", value_hex);
                         Some(DataVarResponse { data, marf_proof })

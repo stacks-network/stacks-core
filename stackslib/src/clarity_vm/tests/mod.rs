@@ -24,4 +24,5 @@ pub mod events;
 pub mod forking;
 pub mod large_contract;
 pub mod smoke;
+pub mod storage_conformance;
 pub mod utils;

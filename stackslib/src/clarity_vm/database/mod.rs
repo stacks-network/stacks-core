@@ -9,7 +9,7 @@ use clarity::vm::database::sqlite::{
 };
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
-    SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    SqliteBackingStore, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::{RuntimeError, VmExecutionError};
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
@@ -36,6 +36,7 @@ use crate::core::{StacksEpoch, StacksEpochId};
 use crate::util_lib::db::{DBConn, Error as DBError, FromColumn, FromRow};
 
 pub mod ephemeral;
+pub mod hashmap;
 pub mod marf;
 
 pub trait GetTenureStartId {
@@ -1254,22 +1255,20 @@ impl ClarityBackingStore for MemoryBackingStore {
     fn get_data_with_proof(
         &mut self,
         key: &str,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
-        Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
+        // This backend has no MARF trie, so it can't produce a real Merkle proof -- report that
+        // honestly instead of fabricating one.
+        Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, None)))
     }
 
     fn get_data_with_proof_from_path(
         &mut self,
         key: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
+    ) -> Result<Option<(String, Option<Vec<u8>>)>, VmExecutionError> {
         Ok(
             SqliteConnection::get(self.get_side_store(), key.to_string().as_str())?
-                .map(|x| (x, vec![])),
+                .map(|x| (x, None)),
         )
-    }
-
-    fn get_side_store(&mut self) -> &Connection {
-        &self.side_store
     }
 
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
@@ -1334,5 +1333,11 @@ impl ClarityBackingStore for MemoryBackingStore {
         key: &str,
     ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
+    }
+}
+
+impl SqliteBackingStore for MemoryBackingStore {
+    fn get_side_store(&mut self) -> &Connection {
+        &self.side_store
     }
 }

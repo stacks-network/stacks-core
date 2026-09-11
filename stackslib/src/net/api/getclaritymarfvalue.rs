@@ -131,7 +131,7 @@ impl RPCRequestHandler for RPCGetClarityMarfRequestHandler {
                                 .get_data_with_proof_by_hash(&marf_key_hash)
                                 .ok()
                                 .flatten()
-                                .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
+                                .map(|(a, b)| (a, b.map(|bytes| format!("0x{}", to_hex(&bytes)))))?
                         } else {
                             clarity_db
                                 .get_data_by_hash(&marf_key_hash)

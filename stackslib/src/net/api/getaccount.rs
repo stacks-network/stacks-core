@@ -148,7 +148,9 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                                     .get_data_with_proof::<STXBalance>(&key)
                                     .ok()
                                     .flatten()
-                                    .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
+                                    .map(|(a, b)| {
+                                        (a, b.map(|bytes| format!("0x{}", to_hex(&bytes))))
+                                    })
                                     .unwrap_or_else(|| (STXBalance::zero(), Some("".into())))
                             } else {
                                 clarity_db
@@ -165,7 +167,9 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                                     .get_data_with_proof(&key)
                                     .ok()
                                     .flatten()
-                                    .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
+                                    .map(|(a, b)| {
+                                        (a, b.map(|bytes| format!("0x{}", to_hex(&bytes))))
+                                    })
                                     .unwrap_or_else(|| (0, Some("".into())))
                             } else {
                                 clarity_db
