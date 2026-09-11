@@ -19,6 +19,7 @@ use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::stacks::Error as ChainError;
+use crate::monitoring;
 use crate::net::api::getblock_v3::NakamotoBlockStream;
 use crate::net::http::{
     parse_bytes, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
@@ -175,6 +176,8 @@ impl RPCRequestHandler for RPCNakamotoBlockByHeightRequestHandler {
                     .map_err(NetError::from);
             }
         };
+
+        monitoring::increment_stx_blocks_served_counter();
 
         let resp_preamble = HttpResponsePreamble::from_http_request_preamble(
             &preamble,

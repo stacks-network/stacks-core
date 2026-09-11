@@ -1,0 +1,1 @@
+Restored Prometheus counters for successful Stacks block and Stacks 2.x microblock RPC responses, including Nakamoto block-by-ID and block-by-height endpoints.

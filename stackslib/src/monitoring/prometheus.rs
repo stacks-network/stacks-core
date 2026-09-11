@@ -46,17 +46,17 @@ lazy_static! {
 
     pub static ref STX_BLOCKS_SERVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_blocks_served_total",
-        "Total number of Stacks blocks served"
+        "Total number of successful single-block RPC responses served (/v2/blocks, /v3/blocks, /v3/blocks/height)"
     )).unwrap();
 
     pub static ref STX_MICRO_BLOCKS_SERVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_micro_blocks_served_total",
-        "Total number of Stacks micro blocks served"
+        "Total number of successful Stacks 2.x indexed microblock stream requests served"
     )).unwrap();
 
     pub static ref STX_CONFIRMED_MICRO_BLOCKS_SERVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_confirmed_micro_blocks_served_total",
-        "Total number of Stacks blocks served"
+        "Total number of successful Stacks 2.x confirmed microblock stream requests served"
     )).unwrap();
 
     pub static ref TXS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
@@ -82,16 +82,6 @@ lazy_static! {
     pub static ref STX_BLOCKS_MINED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_blocks_mined_total",
         "Total number of stacks blocks mined by node"
-    )).unwrap();
-
-    pub static ref WARNING_EMITTED_COUNTER: IntCounter = register_int_counter!(opts!(
-        "stacks_node_warning_emitted_total",
-        "Total number of warning logs emitted by node"
-    )).unwrap();
-
-    pub static ref ERRORS_EMITTED_COUNTER: IntCounter = register_int_counter!(opts!(
-        "stacks_node_errors_emitted_total",
-        "Total number of error logs emitted by node"
     )).unwrap();
 
     pub static ref LAST_BLOCK_READ_COUNT: Gauge = register_gauge!(opts!(

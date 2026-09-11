@@ -175,16 +175,6 @@ pub fn increment_stx_blocks_mined_counter() {
     prometheus::STX_BLOCKS_MINED_COUNTER.inc();
 }
 
-pub fn increment_warning_emitted_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::WARNING_EMITTED_COUNTER.inc();
-}
-
-pub fn increment_errors_emitted_counter() {
-    #[cfg(feature = "monitoring_prom")]
-    prometheus::ERRORS_EMITTED_COUNTER.inc();
-}
-
 pub fn increment_unreachable_errors_counter(_error_type: &str) {
     #[cfg(feature = "monitoring_prom")]
     prometheus::UNREACHABLE_ERRORS_COUNTER

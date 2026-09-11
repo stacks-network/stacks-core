@@ -24,6 +24,7 @@ use stacks_common::types::net::PeerHost;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoStagingBlocksConn};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
+use crate::monitoring;
 use crate::net::http::{
     parse_bytes, Error, HttpChunkGenerator, HttpContentType, HttpNotFound, HttpRequest,
     HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
@@ -201,6 +202,8 @@ impl RPCRequestHandler for RPCNakamotoBlockRequestHandler {
                     .map_err(NetError::from);
             }
         };
+
+        monitoring::increment_stx_blocks_served_counter();
 
         let resp_preamble = HttpResponsePreamble::from_http_request_preamble(
             &preamble,
