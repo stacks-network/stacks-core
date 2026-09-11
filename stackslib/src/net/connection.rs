@@ -1786,9 +1786,9 @@ mod test {
         let expected_messages = messages.clone();
 
         let mut handles = vec![]; // keep pipes in-scope
-        for i in 0..conn.options.outbox_maxlen {
+        for message in &messages[..conn.options.outbox_maxlen] {
             let handle = conn
-                .make_request_handle(messages[i].request_id(), 60, 0)
+                .make_request_handle(message.request_id(), 60, 0)
                 .unwrap();
             handles.push(handle);
         }

@@ -192,8 +192,8 @@ fn test_relayer_stats_add_relyed_messages() {
         MAX_RECENT_MESSAGES
     );
 
-    for i in (all_transactions.len() - MAX_RECENT_MESSAGES)..MAX_RECENT_MESSAGES {
-        let digest = all_transactions[i].get_digest();
+    for transaction in all_transactions.iter().rev().take(MAX_RECENT_MESSAGES) {
+        let digest = transaction.get_digest();
         let mut found = false;
         for (_, hash) in relay_stats.recent_messages.get(&nk).unwrap().iter() {
             found = found || (*hash == digest);
@@ -2019,8 +2019,8 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
         let blocks_and_microblocks = blocks_and_microblocks.into_inner();
         let expected_txs = sent_txs.into_inner();
 
-        for i in 1..peers.len() {
-            let txs = MemPoolDB::get_all_txs(peers[i].mempool.as_ref().unwrap().conn()).unwrap();
+        for peer in peers.iter().skip(1) {
+            let txs = MemPoolDB::get_all_txs(peer.mempool.as_ref().unwrap().conn()).unwrap();
             for tx in txs.iter() {
                 let mut found = false;
                 for expected_tx in expected_txs.iter() {
@@ -2040,7 +2040,7 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
             {
                 let block_hash = block.block_hash();
                 let tx_infos = MemPoolDB::get_txs_after(
-                    peers[i].mempool.as_ref().unwrap().conn(),
+                    peer.mempool.as_ref().unwrap().conn(),
                     consensus_hash,
                     &block_hash,
                     0,

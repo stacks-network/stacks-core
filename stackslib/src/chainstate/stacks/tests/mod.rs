@@ -1200,12 +1200,12 @@ pub fn sign_tx_order_independent_p2sh(
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
 
-    for signer in 0..num_sigs {
-        tx_signer.sign_origin(&privks[signer]).unwrap();
+    for privk in &privks[..num_sigs] {
+        tx_signer.sign_origin(privk).unwrap();
     }
 
-    for signer in num_sigs..pubks.len() {
-        tx_signer.append_origin(&pubks[signer]).unwrap();
+    for pubk in pubks.iter().skip(num_sigs) {
+        tx_signer.append_origin(pubk).unwrap();
     }
 
     tx_signer.get_tx().unwrap()
@@ -1238,12 +1238,12 @@ pub fn sign_tx_order_independent_p2wsh(
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
 
-    for signer in 0..num_sigs {
-        tx_signer.sign_origin(&privks[signer]).unwrap();
+    for privk in &privks[..num_sigs] {
+        tx_signer.sign_origin(privk).unwrap();
     }
 
-    for signer in num_sigs..pubks.len() {
-        tx_signer.append_origin(&pubks[signer]).unwrap();
+    for pubk in pubks.iter().skip(num_sigs) {
+        tx_signer.append_origin(pubk).unwrap();
     }
 
     tx_signer.get_tx().unwrap()

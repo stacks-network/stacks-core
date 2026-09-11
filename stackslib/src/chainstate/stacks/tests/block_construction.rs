@@ -493,9 +493,9 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                 let coinbase_tx = make_coinbase(miner, tenure_id);
 
                 if tenure_id > 0 {
-                    for i in 0..5 {
+                    for privk in &privks[..5] {
                         let stx_transfer = make_user_stacks_transfer(
-                            &privks[i],
+                            privk,
                             sender_nonce,
                             200,
                             &recipient.to_account_principal(),
@@ -519,9 +519,9 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                     test_debug!("Delay for 1.5s");
                     sleep_ms(1500);
 
-                    for i in 5..10 {
+                    for privk in privks[..10].iter().skip(5) {
                         let stx_transfer = make_user_stacks_transfer(
-                            &privks[i],
+                            privk,
                             sender_nonce,
                             200,
                             &recipient.to_account_principal(),
@@ -1208,7 +1208,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
     let mut sender_nonce = 0;
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, expensive_privk) in privks_expensive[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1286,7 +1286,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
 
                     // will never get mined
                     let contract_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         (2 * contract.len()) as u64,
                         &format!("hello-world-{tenure_id}"),
@@ -1625,7 +1625,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
         sn.block_height
     };
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, privk) in privks[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1674,7 +1674,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                   (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         0,
                         (2 * contract.len()) as u64,
                         &format!("hello-world-{tenure_id}"),
@@ -1766,7 +1766,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
         sn.block_height
     };
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, privk) in privks[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1831,7 +1831,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
                   (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         0,
                         2000,
                         &format!("hello-world-{tenure_id}"),
@@ -1908,7 +1908,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
         sn.block_height
     };
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, privk) in privks[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1958,7 +1958,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
 
                     // should be mined once
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         0,
                         100000000 / 2 + 1,
                         &format!("hello-world-{tenure_id}"),
@@ -1986,7 +1986,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
 
                     // should never be mined
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         1,
                         100000000 / 2,
                         &format!("hello-world-{tenure_id}-2"),
@@ -2192,16 +2192,16 @@ fn test_build_anchored_blocks_invalid() {
 
         if tenure_id == bad_block_tenure + 1 {
             // adjust
-            for i in 0..burn_ops.len() {
-                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+            for burn_op in &mut burn_ops {
+                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_op {
                     opdata.parent_block_ptr =
                         (resume_tenure_parent_commit.as_ref().unwrap().block_height as u32) - 1;
                 }
             }
         } else if tenure_id == bad_block_tenure {
             // adjust
-            for i in 0..burn_ops.len() {
-                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+            for burn_op in &mut burn_ops {
+                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_op {
                     opdata.parent_block_ptr =
                         (bad_block_parent_commit.as_ref().unwrap().block_height as u32) - 1;
                     eprintln!("\n\ncorrupt block commit is now {:?}\n", opdata);
@@ -2209,15 +2209,15 @@ fn test_build_anchored_blocks_invalid() {
             }
         } else if tenure_id == bad_block_ancestor_tenure {
             // find
-            for i in 0..burn_ops.len() {
-                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+            for burn_op in &burn_ops {
+                if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = burn_op {
                     bad_block_parent_commit = Some(opdata.clone());
                 }
             }
         } else if tenure_id == resume_parent_tenure {
             // find
-            for i in 0..burn_ops.len() {
-                if let BlockstackOperationType::LeaderBlockCommit(ref mut opdata) = burn_ops[i] {
+            for burn_op in &burn_ops {
+                if let BlockstackOperationType::LeaderBlockCommit(ref opdata) = burn_op {
                     resume_tenure_parent_commit = Some(opdata.clone());
                 }
             }
@@ -2270,7 +2270,7 @@ fn test_build_anchored_blocks_bad_nonces() {
         sn.block_height
     };
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, privk) in privks[..num_blocks].iter().enumerate() {
         eprintln!("Start tenure {tenure_id:?}");
         // send transactions to the mempool
         let tip =
@@ -2321,7 +2321,7 @@ fn test_build_anchored_blocks_bad_nonces() {
 
                     // should be mined once
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         0,
                         10000,
                         &format!("hello-world-{tenure_id}"),
@@ -2350,7 +2350,7 @@ fn test_build_anchored_blocks_bad_nonces() {
 
                     // should never be mined
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         1,
                         10000,
                         &format!("hello-world-{tenure_id}-2"),
@@ -2387,7 +2387,7 @@ fn test_build_anchored_blocks_bad_nonces() {
 
                     // should be mined once
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         0,
                         10000,
                         &format!("hello-world-{tenure_id}"),
@@ -2416,7 +2416,7 @@ fn test_build_anchored_blocks_bad_nonces() {
 
                     // should never be mined
                     let contract_tx = make_user_contract_publish(
-                        &privks[tenure_id],
+                        privk,
                         1,
                         10000,
                         &format!("hello-world-{tenure_id}-2"),
@@ -3893,7 +3893,7 @@ fn test_is_tx_problematic() {
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
     let mut last_block = None;
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, expensive_privk) in privks_expensive[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -3950,7 +3950,7 @@ fn test_is_tx_problematic() {
                         )".to_string();
 
                     let contract_spends_too_much_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         (2 * contract_spends_too_much.len()) as u64,
                         &format!("hello-world-{tenure_id}"),
@@ -3993,7 +3993,7 @@ fn test_is_tx_problematic() {
                         )".to_string();
 
                     let contract_call_spends_too_much_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         (2 * contract_call_spends_too_much.len()) as u64,
                         "spend-too-much",
@@ -4054,7 +4054,7 @@ fn test_is_tx_problematic() {
                     );
 
                     let runtime_check_error_trait_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         1,
                         (2 * runtime_check_error_trait.len()) as u64,
                         "foo",
@@ -4062,7 +4062,7 @@ fn test_is_tx_problematic() {
                     );
 
                     let runtime_check_error_impl_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         2,
                         (2 * runtime_check_error_impl.len()) as u64,
                         "foo-impl",
@@ -4070,7 +4070,7 @@ fn test_is_tx_problematic() {
                     );
 
                     let runtime_check_error_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         3,
                         (2 * runtime_check_error.len()) as u64,
                         "trait-runtime-analysis-error",
@@ -4099,7 +4099,7 @@ fn test_is_tx_problematic() {
                     // the same tx, but with nonce 4 (since we expect the `spends-too-much` contract to get
                     // mined, as well as the other problem setup txs)
                     let contract_spends_too_much_tx = make_user_contract_publish(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         4,
                         (2 * contract_spends_too_much.len()) as u64,
                         &format!("hello-world-{tenure_id}"),
@@ -4126,7 +4126,7 @@ fn test_is_tx_problematic() {
                 if tenure_id == 3 {
                     // call spend-too-much and verify that it's flagged as problematic
                     let spend_too_much = make_user_contract_call(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         2000,
                         &addrs_expensive[2],
@@ -4176,7 +4176,7 @@ fn test_is_tx_problematic() {
                 if tenure_id == 4 {
                     // call trait-runtime-analysis-error.test and verify that it's flagged as problematic
                     let runtime_check_error_problematic = make_user_contract_call(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         2000,
                         &addrs_expensive[2],
@@ -4228,7 +4228,7 @@ fn test_is_tx_problematic() {
                 if tenure_id == 5 {
                     // call trait-runtime-analysis-error.test-past and verify that it's flagged as problematic
                     let runtime_check_error_problematic = make_user_contract_call(
-                        &privks_expensive[tenure_id],
+                        expensive_privk,
                         0,
                         2000,
                         &addrs_expensive[2],
@@ -4805,10 +4805,10 @@ fn paramaterized_mempool_walk_test(
 
     let mut transaction_counter = 0;
     for round_index in 0..num_rounds {
-        for user_index in 0..num_users {
+        for key_address_pair in &key_address_pairs[..num_users] {
             transaction_counter += 1;
             let mut tx = make_user_stacks_transfer(
-                &key_address_pairs[user_index].0,
+                &key_address_pair.0,
                 round_index as u64,
                 200,
                 &recipient.to_account_principal(),

@@ -853,8 +853,8 @@ fn test_marf_data_entries_share_blob_offset() {
     let (tip_offset, tip_length) = trie_sql::get_external_trie_offset_length(conn, tip_id).unwrap();
     assert!(tip_length > 0, "blob length should be non-zero");
 
-    for i in 0..8 {
-        let blk_id = trie_sql::get_block_identifier(conn, &blocks[i]).unwrap();
+    for (i, block) in blocks[..8].iter().enumerate() {
+        let blk_id = trie_sql::get_block_identifier(conn, block).unwrap();
         let (offset, length) = trie_sql::get_external_trie_offset_length(conn, blk_id).unwrap();
         assert_eq!(offset, tip_offset, "block {i} offset mismatch");
         assert_eq!(length, tip_length, "block {i} length mismatch");

@@ -18786,12 +18786,12 @@ fn smaller_tenure_size_for_miner() {
 
     test_observer::clear();
 
-    for deploy in 0..num_deploys {
+    for (deploy, sender) in senders[..num_deploys].iter().enumerate() {
         info!("Submitting deploy {deploy}");
         let contract_name = format!("test-{deploy}");
 
         let contract_tx = make_contract_publish(
-            &senders[deploy].0,
+            &sender.0,
             0,
             deploy_fee,
             naka_conf.burnchain.chain_id,
@@ -18841,8 +18841,8 @@ fn smaller_tenure_size_for_miner() {
     );
 
     let mut deployed_contracts = 0;
-    for deploy in 0..num_deploys {
-        if get_account(&http_origin, &senders[deploy].1).nonce == 1 {
+    for sender in &senders[..num_deploys] {
+        if get_account(&http_origin, &sender.1).nonce == 1 {
             deployed_contracts += 1;
         }
     }
@@ -18981,12 +18981,12 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
 
     test_observer::clear();
 
-    for deploy in 0..num_deploys {
+    for (deploy, sender) in senders[..num_deploys].iter().enumerate() {
         info!("Submitting deploy {deploy}");
         let contract_name = format!("test-{deploy}");
 
         let contract_tx = make_contract_publish(
-            &senders[deploy].0,
+            &sender.0,
             0,
             deploy_fee,
             naka_conf.burnchain.chain_id,
@@ -19064,8 +19064,8 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
     );
 
     let mut deployed_contracts = 0;
-    for deploy in 0..num_deploys {
-        if get_account(&http_origin, &senders[deploy].1).nonce == 1 {
+    for sender in &senders[..num_deploys] {
+        if get_account(&http_origin, &sender.1).nonce == 1 {
             deployed_contracts += 1;
         }
     }
@@ -19202,12 +19202,12 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
 
     test_observer::clear();
 
-    for deploy in 0..num_deploys {
+    for (deploy, sender) in senders[..num_deploys].iter().enumerate() {
         info!("Submitting deploy {deploy}");
         let contract_name = format!("test-{deploy}");
 
         let contract_tx = make_contract_publish(
-            &senders[deploy].0,
+            &sender.0,
             0,
             deploy_fee,
             naka_conf.burnchain.chain_id,
@@ -19220,8 +19220,8 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
 
     next_block_and(&mut btc_regtest_controller, 60, || {
         let mut deployed_contracts = 0;
-        for deploy in 0..num_deploys {
-            if get_account(&http_origin, &senders[deploy].1).nonce == 1 {
+        for sender in &senders[..num_deploys] {
+            if get_account(&http_origin, &sender.1).nonce == 1 {
                 deployed_contracts += 1;
             }
         }

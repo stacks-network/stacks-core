@@ -1826,8 +1826,7 @@ fn test_add_txs_bloom_filter() {
         if block_height > 10 + BLOOM_COUNTER_DEPTH {
             let expired_block_height = block_height - BLOOM_COUNTER_DEPTH;
             let bf = mempool.get_txid_bloom_filter().unwrap();
-            for i in 0..(block_height - 10 - BLOOM_COUNTER_DEPTH) {
-                let txids = &all_txids[i];
+            for txids in &all_txids[..block_height - 10 - BLOOM_COUNTER_DEPTH] {
                 let mut fp_count = 0;
                 for txid in txids {
                     if bf.contains_raw(&txid.0) {

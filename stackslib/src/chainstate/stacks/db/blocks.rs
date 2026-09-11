@@ -8631,8 +8631,8 @@ pub mod test {
         // non-empty stream, but missing first microblock
         {
             let mut broken_microblocks = vec![];
-            for i in 1..num_mblocks {
-                broken_microblocks.push(microblocks[i].clone());
+            for microblock in microblocks[..num_mblocks].iter().skip(1) {
+                broken_microblocks.push(microblock.clone());
             }
 
             let mut new_child_block_header = child_block_header.clone();
@@ -8652,9 +8652,9 @@ pub mod test {
         {
             let mut broken_microblocks = vec![];
             let missing = num_mblocks / 2;
-            for i in 0..num_mblocks {
+            for (i, microblock) in microblocks[..num_mblocks].iter().enumerate() {
                 if i != missing {
-                    broken_microblocks.push(microblocks[i].clone());
+                    broken_microblocks.push(microblock.clone());
                 }
             }
 
@@ -10037,12 +10037,12 @@ pub mod test {
             assert!(!block_inv_all.has_ith_microblock_stream((i + 1) as u16));
 
             if i < blocks.len() - 1 {
-                for k in 0..3 {
+                for (k, microblock) in microblocks[i][..3].iter().enumerate() {
                     set_microblocks_processed(
                         &mut chainstate,
                         &consensus_hashes[i + 1],
                         &block_hashes[i + 1],
-                        &microblocks[i][k].block_hash(),
+                        &microblock.block_hash(),
                     );
 
                     let block_inv_all =
@@ -10736,11 +10736,11 @@ pub mod test {
         let mut mblocks_branches = vec![];
         let mut consensus_hashes = vec![ConsensusHash([2u8; 20])];
 
-        for i in 1..4 {
+        for (i, mblock) in mblocks[..4].iter().enumerate().skip(1) {
             let mut mblocks_branch = make_sample_microblock_stream_fork(
                 &privk,
-                &mblocks[i].block_hash(),
-                mblocks[i].header.sequence + 1,
+                &mblock.block_hash(),
+                mblock.header.sequence + 1,
             );
             mblocks_branch.truncate(3);
 
@@ -10837,8 +10837,8 @@ pub mod test {
 
         for (i, mblock_branch) in mblocks_branches.iter().enumerate() {
             let mut expected_mblocks = vec![];
-            for j in 0..((mblock_branch[0].header.sequence) as usize) {
-                expected_mblocks.push(mblocks[j].clone());
+            for mblock in mblocks[..(mblock_branch[0].header.sequence) as usize].iter() {
+                expected_mblocks.push(mblock.clone());
             }
             expected_mblocks.append(&mut mblock_branch.clone());
 
@@ -11228,8 +11228,7 @@ pub mod test {
             1000000000 - (1000 + 2000 + 3000 + 4000 + 5000 + 6000 + 7000 + 8000 + 9000)
         );
 
-        for i in 0..(num_blocks - 1) {
-            let del_addr = &del_addrs[i];
+        for (i, del_addr) in del_addrs[..num_blocks - 1].iter().enumerate() {
             let result = eval_at_tip(
                 &mut peer,
                 "pox-2",
@@ -11936,12 +11935,11 @@ pub mod test {
                     + 19000)
         );
 
-        for i in 0..(num_blocks - 1) {
+        for (i, del_addr) in del_addrs[..num_blocks - 1].iter().enumerate() {
             // skipped tenure 6's DelegateSTX
             if i == 5 {
                 continue;
             }
-            let del_addr = &del_addrs[i];
             let result = eval_at_tip(
                 &mut peer,
                 "pox-2",
