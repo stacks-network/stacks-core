@@ -514,8 +514,8 @@ fn test_new_event_observer() {
     // Verify fields
     assert_eq!(observer.endpoint, endpoint);
     assert_eq!(observer.timeout, timeout);
-    assert_eq!(observer.disable_retries, false);
-    assert_eq!(observer.disable_contract_interface, false);
+    assert!(!observer.disable_retries);
+    assert!(!observer.disable_contract_interface);
 }
 
 #[test]

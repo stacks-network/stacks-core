@@ -2329,8 +2329,7 @@ fn check_pox_5_register_for_bond_l1_lockup_lifecycle() {
     let interloper_result =
         bondholder_rpc.send_raw_transaction(&interloper_sweep_tx, Some(0.0), Some(1_000_000));
     let interloper_err = interloper_result
-        .err()
-        .expect("interloper sweep must be rejected: the script's OP_CHECKSIG should fail");
+        .expect_err("interloper sweep must be rejected: the script's OP_CHECKSIG should fail");
     info!(
         "Interloper sweep rejected as expected (no valid signature for staker_unlock_pk): \
          {interloper_err:?}"
@@ -3196,8 +3195,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     let res_both_wrong =
         bondholder_rpc.send_raw_transaction(&tx_both_wrong, Some(0.0), Some(1_000_000));
     let err_both_wrong = res_both_wrong
-        .err()
-        .expect("both-wrong-sigs early-exit sweep must be rejected by the script's CHECKSIGs");
+        .expect_err("both-wrong-sigs early-exit sweep must be rejected by the script's CHECKSIGs");
     info!("Both-wrong-sigs early-exit sweep rejected as expected: {err_both_wrong:?}");
 
     // (b) Owner sig correct, early sig from a random key (correct preimage).
@@ -3208,9 +3206,9 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     );
     let res_no_early =
         bondholder_rpc.send_raw_transaction(&tx_no_early, Some(0.0), Some(1_000_000));
-    let err_no_early = res_no_early
-        .err()
-        .expect("missing-early-sig sweep must be rejected: early-unlock CHECKSIG fails OP_VERIFY");
+    let err_no_early = res_no_early.expect_err(
+        "missing-early-sig sweep must be rejected: early-unlock CHECKSIG fails OP_VERIFY",
+    );
     info!(
         "Owner-only early-exit sweep rejected (early-unlock CHECKSIG fails the shared OP_VERIFY): \
          {err_no_early:?}"
@@ -3225,8 +3223,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     let res_no_owner =
         bondholder_rpc.send_raw_transaction(&tx_no_owner, Some(0.0), Some(1_000_000));
     let err_no_owner = res_no_owner
-        .err()
-        .expect("missing-owner-sig sweep must be rejected by the closing OP_CHECKSIG");
+        .expect_err("missing-owner-sig sweep must be rejected by the closing OP_CHECKSIG");
     info!(
         "Early-only early-exit sweep rejected (closing CHECKSIG on the owner sig fails): \
          {err_no_owner:?}"
@@ -3242,8 +3239,7 @@ fn check_pox_5_register_for_bond_l1_early_unlock_lifecycle() {
     let res_wrong_preimage =
         bondholder_rpc.send_raw_transaction(&tx_wrong_preimage, Some(0.0), Some(1_000_000));
     let err_wrong_preimage = res_wrong_preimage
-        .err()
-        .expect("wrong-preimage sweep must be rejected by OP_SHA256 <H> OP_EQUALVERIFY");
+        .expect_err("wrong-preimage sweep must be rejected by OP_SHA256 <H> OP_EQUALVERIFY");
     info!(
         "Wrong-preimage early-exit sweep rejected (sha256(preimage) != H fails OP_EQUALVERIFY): \
          {err_wrong_preimage:?}"

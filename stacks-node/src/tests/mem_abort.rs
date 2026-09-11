@@ -237,8 +237,10 @@ fn test_analysis_limit_fine_but_execution_limit_too_low() {
 #[test]
 fn test_read_only_call_max_mem_bytes_threaded_into_http() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
-    let mut conn_opts = ConnectionOptions::default();
-    conn_opts.read_only_call_max_mem_bytes = 12345;
+    let conn_opts = ConnectionOptions {
+        read_only_call_max_mem_bytes: 12345,
+        ..Default::default()
+    };
 
     let http = StacksHttp::new(addr, &conn_opts);
     assert_eq!(http.read_only_call_max_mem_bytes, 12345);
@@ -269,8 +271,10 @@ fn try_parse_call_read(
     read_only_call_max_mem_bytes: u64,
 ) -> Result<(), String> {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut conn_opts = ConnectionOptions::default();
-    conn_opts.read_only_call_max_mem_bytes = read_only_call_max_mem_bytes;
+    let conn_opts = ConnectionOptions {
+        read_only_call_max_mem_bytes,
+        ..Default::default()
+    };
     let mut http = StacksHttp::new(addr, &conn_opts);
     let request = new_call_read_request(addr, arguments);
     let mut bytes = vec![];
