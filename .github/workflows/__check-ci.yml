@@ -16,8 +16,7 @@ on:
         description: "Returns 'true' if CI is enabled, 'false' otherwise"
         value: ${{ jobs.check-ci.outputs.enabled }}
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   check-ci:
