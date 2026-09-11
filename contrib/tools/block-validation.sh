@@ -179,6 +179,7 @@ post_input_config() {
     #   - commit: the resolved HEAD (set after checkout in build_stacks_inspect)
     #   - range : left empty until the numeric block bounds are resolved
     #             (set per phase in validate_block_range)
+    #   - ignore_costs: whether --ignore-costs was requested ("true"/"false")
     STATUS_REPO="${REPO_URL:-LOCAL}"
     if [ -n "${PR_NUMBER}" ]; then
         STATUS_REF="PR #${PR_NUMBER}"
@@ -187,6 +188,7 @@ post_input_config() {
     fi
     STATUS_COMMIT=""
     STATUS_RANGE=""
+    STATUS_IGNORE_COSTS=$([ -n "${IGNORE_COSTS_ARG}" ] && echo "true" || echo "false")
 }
 
 # Resolve the --repo argument into REPO_URL, REPO_DIR, and TRACK_REV.
@@ -695,12 +697,15 @@ declare -r STATUS_STATE_ERROR="ERROR"       # unexpected abort (see LAST_ERROR /
 #
 #   { "state": <s>, "message": <str>,
 #     "repo": <url|LOCAL>, "commit": <sha>, "ref": <str>, "range": <str>,
+#     "ignore_costs": <"true"|"false">,
 #     "started_at": <iso8601 UTC>, "updated_at": <iso8601 UTC> }
 #
 #   state    ONGOING (preparing/validating) | SUCCESS | FAILURE (validation
 #            failed; per-block detail in results.log) | ERROR (unexpected abort)
 #   message  human-readable current activity
 #   range    empty until the numeric block bounds are resolved
+#   ignore_costs  "true" when --ignore-costs was passed: blocks failing only
+#            their cost check were not counted as failures
 #
 # status_write <state> <message>
 # Builds the JSON with jq (guaranteed valid + correctly escaped) and swaps it in
@@ -713,15 +718,16 @@ status_write() {
     : "${STATUS_STARTED_AT:=$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
     local tmp="${STATUS_FILE}.tmp"
     jq -n \
-        --arg     state      "${state}" \
-        --arg     message    "${message}" \
-        --arg     repo       "${STATUS_REPO:-}" \
-        --arg     commit     "${STATUS_COMMIT:-}" \
-        --arg     ref        "${STATUS_REF:-}" \
-        --arg     range      "${STATUS_RANGE:-}" \
-        --arg     started_at "${STATUS_STARTED_AT}" \
-        --arg     updated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '{state: $state, message: $message, repo: $repo, commit: $commit, ref: $ref, range: $range, started_at: $started_at, updated_at: $updated_at}' \
+        --arg     state        "${state}" \
+        --arg     message      "${message}" \
+        --arg     repo         "${STATUS_REPO:-}" \
+        --arg     commit       "${STATUS_COMMIT:-}" \
+        --arg     ref          "${STATUS_REF:-}" \
+        --arg     range        "${STATUS_RANGE:-}" \
+        --arg     ignore_costs "${STATUS_IGNORE_COSTS:-}" \
+        --arg     started_at   "${STATUS_STARTED_AT}" \
+        --arg     updated_at   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{state: $state, message: $message, repo: $repo, commit: $commit, ref: $ref, range: $range, ignore_costs: $ignore_costs, started_at: $started_at, updated_at: $updated_at}' \
         > "${tmp}" || {
         error_and_exit "writing status file ${tmp}"
     }
