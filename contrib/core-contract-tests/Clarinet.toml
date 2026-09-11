@@ -75,6 +75,21 @@ path = "./contracts/signer-manager.clar"
 clarity_version = 6
 epoch = 4.0
 
+[contracts.signer-manager-core]
+path = "./contracts/signer-manager-core.clar"
+clarity_version = 6
+epoch = 4.0
+
+[contracts.signer-manager-v1]
+path = "./contracts/signer-manager-v1.clar"
+clarity_version = 6
+epoch = 4.0
+
+[contracts.test-signer-manager-v2]
+path = "./contracts/test-signer-manager-v2.clar"
+clarity_version = 6
+epoch = 4.0
+
 [contracts.pox-5-auth-proxy]
 path = "./contracts/pox-5-auth-proxy.clar"
 clarity_version = 6
