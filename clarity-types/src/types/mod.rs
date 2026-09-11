@@ -1191,6 +1191,10 @@ impl Value {
     pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value, ClarityTypeError> {
         let validated_utf8_str =
             str::from_utf8(&bytes).map_err(|_| ClarityTypeError::InvalidUtf8Encoding)?;
+
+        // check the string size before allocating a Vec<u8> per codepoint below
+        StringUTF8Length::try_from(validated_utf8_str.chars().count())?;
+
         let data = validated_utf8_str
             .chars()
             .map(|char| {
@@ -1199,8 +1203,6 @@ impl Value {
                 encoded_char
             })
             .collect::<Vec<_>>();
-        // check the string size
-        StringUTF8Length::try_from(data.len())?;
 
         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
             UTF8Data { data },

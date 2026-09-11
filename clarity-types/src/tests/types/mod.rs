@@ -21,8 +21,8 @@ use stacks_common::types::StacksEpochId;
 use crate::ClarityName;
 use crate::errors::ClarityTypeError;
 use crate::types::{
-    ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
-    QualifiedContractIdentifier, RetainValuesError, SequenceData, SequenceSubtype,
+    ASCIIData, BuffData, CharType, ListTypeData, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE,
+    PrincipalData, QualifiedContractIdentifier, RetainValuesError, SequenceData, SequenceSubtype,
     SequencedValue as _, StandardPrincipalData, TraitIdentifier, TupleData, TupleFieldsBehavior,
     TupleTypeSignature, TypeSignature, UTF8Data, Value,
 };
@@ -740,6 +740,34 @@ fn invalid_utf8_string_from_bytes() {
     let err = Value::string_utf8_from_bytes(bad_bytes).unwrap_err();
 
     assert!(matches!(err, ClarityTypeError::InvalidUtf8Encoding));
+}
+
+#[test]
+fn string_utf8_from_bytes_at_max_size_is_ok() {
+    // an all-ASCII input has one codepoint per byte, so MAX_UTF8_VALUE_SIZE
+    // bytes is exactly at the codepoint-count limit and must be accepted.
+    let bytes = vec![b'a'; MAX_UTF8_VALUE_SIZE as usize];
+
+    let value = Value::string_utf8_from_bytes(bytes).unwrap();
+
+    assert_eq!(
+        Value::Sequence(SequenceData::String(CharType::UTF8(UTF8Data {
+            data: vec![vec![b'a']; MAX_UTF8_VALUE_SIZE as usize],
+        }))),
+        value
+    );
+}
+
+#[test]
+fn string_utf8_from_bytes_too_large() {
+    // one codepoint over MAX_UTF8_VALUE_SIZE must be rejected. This also
+    // guards against the size check regressing to run only after the
+    // per-codepoint Vec<u8> allocations below it.
+    let bytes = vec![b'a'; MAX_UTF8_VALUE_SIZE as usize + 1];
+
+    let err = Value::string_utf8_from_bytes(bytes).unwrap_err();
+
+    assert_eq!(ClarityTypeError::ValueTooLarge, err);
 }
 
 #[test]
