@@ -1178,7 +1178,7 @@ fn test_get_block_info_v210_no_microblocks() {
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-    for tenure_id in 0..num_blocks {
+    for (tenure_id, mblock_privk) in mblock_privks[..num_blocks].iter().enumerate() {
         // send transactions to the mempool
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
@@ -1262,7 +1262,7 @@ fn test_get_block_info_v210_no_microblocks() {
                 }
 
                 let mblock_pubkey_hash = {
-                    let parent_microblock_privkey = mblock_privks[tenure_id].clone();
+                    let parent_microblock_privkey = mblock_privk.clone();
                     let mblock_pubkey_hash = Hash160::from_node_public_key(
                         &StacksPublicKey::from_private(&parent_microblock_privkey),
                     );

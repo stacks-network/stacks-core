@@ -861,8 +861,8 @@ fn process_next_sortition(
     }
 
     // have each leader register a VRF key
-    for j in 0..miners.len() {
-        let key_register_op = block.add_leader_key_register(&mut miners[j]);
+    for miner in miners.iter_mut() {
+        let key_register_op = block.add_leader_key_register(miner);
         next_prev_keys.push(key_register_op);
     }
 

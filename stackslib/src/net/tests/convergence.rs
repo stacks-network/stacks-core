@@ -225,9 +225,9 @@ fn test_walk_ring_15_org_biased() {
 
         let peers = test_walk_ring(&mut peer_configs);
 
-        for i in 1..peer_count {
+        for peer in peers[..peer_count].iter().skip(1) {
             if let Some(p) = PeerDB::get_peer(
-                peers[i].network.peerdb.conn(),
+                peer.network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
                 peer_0.addr.port,
@@ -240,8 +240,8 @@ fn test_walk_ring_15_org_biased() {
         }
 
         // no peer pruned peer ::33000
-        for i in 1..peer_count {
-            match peers[i].network.prune_inbound_counts.get(&peer_0.addr) {
+        for peer in peers[..peer_count].iter().skip(1) {
+            match peer.network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {}
                 Some(count) => {
                     assert_eq!(*count, 0);
@@ -276,16 +276,16 @@ fn test_walk_ring_ex(
         }
     }
 
-    for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+    for peer_config in &peer_configs[..peer_count] {
+        let p = TestPeer::new(peer_config.clone());
         peers.push(p);
     }
 
     run_topology_test(&mut peers);
 
     // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
+    for peer in &peers[..peer_count] {
+        for (_, convo) in peer.network.peers.iter() {
             assert!(
                 *convo
                     .stats
@@ -405,9 +405,9 @@ fn test_walk_line_15_org_biased() {
 
         let peers = test_walk_line(&mut peer_configs);
 
-        for i in 1..peer_count {
+        for peer in peers[..peer_count].iter().skip(1) {
             if let Some(p) = PeerDB::get_peer(
-                peers[i].network.peerdb.conn(),
+                peer.network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
                 peer_0.addr.port,
@@ -420,8 +420,8 @@ fn test_walk_line_15_org_biased() {
         }
 
         // no peer pruned peer ::33300
-        for i in 1..peer_count {
-            match peers[i].network.prune_inbound_counts.get(&peer_0.addr) {
+        for peer in peers[..peer_count].iter().skip(1) {
+            match peer.network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {}
                 Some(count) => {
                     assert_eq!(*count, 0);
@@ -497,16 +497,16 @@ fn test_walk_line_ex(
         }
     }
 
-    for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+    for peer_config in &peer_configs[..peer_count] {
+        let p = TestPeer::new(peer_config.clone());
         peers.push(p);
     }
 
     run_topology_test(&mut peers);
 
     // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
+    for peer in &peers[..peer_count] {
+        for (_, convo) in peer.network.peers.iter() {
             assert!(
                 *convo
                     .stats
@@ -641,9 +641,9 @@ fn test_walk_star_15_org_biased() {
 
         let peers = test_walk_star(&mut peer_configs);
 
-        for i in 1..peer_count {
+        for peer in peers[..peer_count].iter().skip(1) {
             if let Some(p) = PeerDB::get_peer(
-                peers[i].network.peerdb.conn(),
+                peer.network.peerdb.conn(),
                 peer_0.addr.network_id,
                 &peer_0.addr.addrbytes,
                 peer_0.addr.port,
@@ -656,8 +656,8 @@ fn test_walk_star_15_org_biased() {
         }
 
         // no peer pruned peer ::33600
-        for i in 1..peer_count {
-            match peers[i].network.prune_inbound_counts.get(&peer_0.addr) {
+        for peer in peers[..peer_count].iter().skip(1) {
+            match peer.network.prune_inbound_counts.get(&peer_0.addr) {
                 None => {}
                 Some(count) => {
                     assert_eq!(*count, 0);
@@ -697,16 +697,16 @@ fn test_walk_star_ex(
         peer_configs[i].add_neighbor(&hub);
     }
 
-    for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+    for peer_config in &peer_configs[..peer_count] {
+        let p = TestPeer::new(peer_config.clone());
         peers.push(p);
     }
 
     run_topology_test(&mut peers);
 
     // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
+    for peer in &peers[..peer_count] {
+        for (_, convo) in peer.network.peers.iter() {
             assert!(
                 *convo
                     .stats
@@ -758,8 +758,8 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
         }
     }
 
-    for i in 0..peer_count {
-        let p = TestPeer::new(peer_configs[i].clone());
+    for peer_config in &peer_configs[..peer_count] {
+        let p = TestPeer::new(peer_config.clone());
         peers.push(p);
     }
 
@@ -767,13 +767,12 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
         &mut peers,
         |peers: &[TestPeer]| {
             let mut done = true;
-            for i in 0..peer_count {
+            for (i, peer) in peers[..peer_count].iter().enumerate() {
                 // only check "public" peers
                 if i % 2 != 0 {
-                    let all_neighbors =
-                        PeerDB::get_all_peers(peers[i].network.peerdb.conn()).unwrap();
+                    let all_neighbors = PeerDB::get_all_peers(peer.network.peerdb.conn()).unwrap();
                     if (all_neighbors.len() as u64) < ((peer_count / 2 - 1) as u64) {
-                        let nk = peers[i].config.to_neighbor().addr;
+                        let nk = peer.config.to_neighbor().addr;
                         test_debug!(
                             "waiting for public peer {:?} to fill up its frontier: {}",
                             &nk,
@@ -789,8 +788,8 @@ fn test_walk_inbound_line(peer_configs: &mut Vec<TestPeerConfig>) -> Vec<TestPee
     );
 
     // no nacks or handshake-rejects
-    for i in 0..peer_count {
-        for (_, convo) in peers[i].network.peers.iter() {
+    for peer in &peers[..peer_count] {
+        for (_, convo) in peer.network.peers.iter() {
             assert!(
                 *convo
                     .stats
@@ -948,13 +947,13 @@ fn run_topology_test_ex<F>(
     let mut initial_allowed: HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
     let mut initial_denied: HashMap<NeighborKey, Vec<NeighborKey>> = HashMap::new();
 
-    for i in 0..peer_count {
+    for peer in &mut peers[..peer_count] {
         // turn off components we don't need
-        peers[i].config.connection_opts.disable_inv_sync = true;
-        peers[i].config.connection_opts.disable_block_download = true;
-        let nk = peers[i].config.to_neighbor().addr.clone();
-        for j in 0..peers[i].config.initial_neighbors.len() {
-            let initial = &peers[i].config.initial_neighbors[j];
+        peer.config.connection_opts.disable_inv_sync = true;
+        peer.config.connection_opts.disable_block_download = true;
+        let nk = peer.config.to_neighbor().addr.clone();
+        for j in 0..peer.config.initial_neighbors.len() {
+            let initial = &peer.config.initial_neighbors[j];
             if initial.allowed < 0 {
                 if !initial_allowed.contains_key(&nk) {
                     initial_allowed.insert(nk.clone(), vec![]);
@@ -976,8 +975,8 @@ fn run_topology_test_ex<F>(
         }
     }
 
-    for i in 0..peer_count {
-        peers[i].connect_initial().unwrap();
+    for peer in &mut peers[..peer_count] {
+        peer.connect_initial().unwrap();
     }
 
     // go until each neighbor knows about each other neighbor
@@ -990,10 +989,7 @@ fn run_topology_test_ex<F>(
     while !finished {
         finished = true;
         let mut peer_counts = 0;
-        let mut random_order = vec![0usize; peer_count];
-        for i in 0..peer_count {
-            random_order[i] = i;
-        }
+        let mut random_order: Vec<usize> = (0..peer_count).collect();
         let mut rng = thread_rng();
         random_order.shuffle(&mut rng);
 

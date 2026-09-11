@@ -1410,6 +1410,9 @@ mod test {
     #[ignore]
     fn print_functions() {
         let mut grid: Vec<Vec<char>> = vec![vec![' '; 100]; 102];
+        // `i` is the column index into each row of `grid`, not an index into
+        // `grid` itself, so there is no iterator to replace it with.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..100 {
             let f_atc = (i as f64) / 100.0;
             let atc = AtcRational::frac(i as u64, 100);
@@ -1424,8 +1427,8 @@ mod test {
             grid[l_atc_100][i] = '#';
             grid[p_atc_100][i] = '^';
         }
-        for j in 0..100 {
-            grid[101][j] = '_';
+        for cell in grid[101][..100].iter_mut() {
+            *cell = '_';
         }
 
         println!("");
@@ -1510,12 +1513,12 @@ mod test {
     fn make_null_miner_lookup_table() {
         use crate::chainstate::burn::atc::ATC_LOOKUP;
         let mut lookup_table = Vec::with_capacity(1024);
-        for atc in 0..1024 {
+        for (atc, entry) in ATC_LOOKUP.iter().enumerate() {
             let fatc = (atc as f64) / 1024.0;
             let lgst_fatc = null_miner_logistic(fatc);
             let lgst_rational = AtcRational::from_f64_unit(lgst_fatc);
-            assert_eq!(ATC_LOOKUP[atc], lgst_rational);
-            assert_eq!(ATC_LOOKUP[atc].to_f64(), lgst_fatc);
+            assert_eq!(*entry, lgst_rational);
+            assert_eq!(entry.to_f64(), lgst_fatc);
             lookup_table.push(lgst_rational);
         }
         println!("[");

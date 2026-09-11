@@ -3162,8 +3162,8 @@ mod test {
 
         loop {
             let mut res = true;
-            for i in 0..sender_handles.len() {
-                let r = sender_handles[i].try_flush().unwrap();
+            for sender_handle in &mut sender_handles {
+                let r = sender_handle.try_flush().unwrap();
                 res = r && res;
             }
 

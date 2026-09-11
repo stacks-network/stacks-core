@@ -6883,10 +6883,10 @@ pub mod tests {
                 )]
             } else {
                 let mut commits = vec![];
-                for i in 0..parent_commits.len() {
+                for (i, parent_commit_slot) in parent_commits.iter_mut().enumerate() {
                     let mut block_commit = make_simple_block_commit(
                         burnchain,
-                        parent_commits[i].as_ref(),
+                        parent_commit_slot.as_ref(),
                         &block_header,
                         next_block_hash(),
                     );
@@ -6912,7 +6912,7 @@ pub mod tests {
                         block_commit.parent_vtxindex
                     );
 
-                    if let Some(parent_commit) = parent_commits[i].as_ref() {
+                    if let Some(parent_commit) = parent_commit_slot.as_ref() {
                         assert!(parent_commit.block_height != block_commit.block_height);
                         assert!(
                             parent_commit.block_height == u64::from(block_commit.parent_block_ptr)
@@ -6920,7 +6920,7 @@ pub mod tests {
                         assert!(parent_commit.vtxindex == u32::from(block_commit.parent_vtxindex));
                     }
 
-                    parent_commits[i] = Some(block_commit.clone());
+                    *parent_commit_slot = Some(block_commit.clone());
                     commits.push(Some(block_commit.clone()));
                 }
                 new_commits.push(commits.clone());
@@ -9452,8 +9452,7 @@ pub mod tests {
             SortitionDB::merge_block_header_cache(&mut cache, &hashes);
 
             assert_eq!(hashes.len(), 256);
-            for i in 0..256 {
-                let (ref consensus_hash, ref block_hash_opt) = &hashes[i];
+            for (i, (consensus_hash, block_hash_opt)) in hashes[..256].iter().enumerate() {
                 if i % 3 == 0 {
                     assert!(block_hash_opt.is_none());
                 } else {

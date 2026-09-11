@@ -1321,15 +1321,14 @@ mod tests {
             },
         ];
 
-        for i in 0..fixtures.len() {
-            let f = &fixtures[i];
+        for (i, fixture) in fixtures.iter().enumerate() {
             eprintln!("Fixture #{}", i);
             let dist = BurnSamplePoint::make_distribution(
                 MINING_COMMITMENT_WINDOW,
-                f.block_commits.iter().cloned().collect(),
-                f.consumed_leader_keys.iter().cloned().collect(),
+                fixture.block_commits.iter().cloned().collect(),
+                fixture.consumed_leader_keys.iter().cloned().collect(),
             );
-            assert_eq!(dist, f.res);
+            assert_eq!(dist, fixture.res);
         }
     }
 }
