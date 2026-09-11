@@ -8102,7 +8102,7 @@ fn verify_mempool_caches() {
         let is_next_block = test_observer::get_blocks()
             .last()
             .and_then(|block| block["block_height"].as_u64())
-            .map_or(false, |h| h == block_height_before + 1);
+            .is_some_and(|h| h == block_height_before + 1);
 
         Ok(is_next_block)
     })

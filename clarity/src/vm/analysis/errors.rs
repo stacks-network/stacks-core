@@ -1153,7 +1153,10 @@ pub fn get_arguments_at_least<T, const N: usize>(
     args: &[T],
 ) -> Result<(&[T; N], &[T]), CommonCheckErrorKind> {
     args.split_first_chunk::<N>()
-        .ok_or_else(|| CommonCheckErrorKind::RequiresAtLeastArguments(N, args.len()))
+        .ok_or(CommonCheckErrorKind::RequiresAtLeastArguments(
+            N,
+            args.len(),
+        ))
 }
 
 /// Renders a type union as `'a', 'b' or 'c'`. A `Display` adapter rather than

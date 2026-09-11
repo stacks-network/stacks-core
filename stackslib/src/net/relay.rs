@@ -2022,8 +2022,7 @@ impl Relayer {
     ) -> Result<(Vec<AcceptedNakamotoBlocks>, Vec<NeighborKey>), net_error> {
         // process downloaded Nakamoto blocks.
         // We treat them as singleton blocks fetched via zero relayers
-        let nakamoto_blocks =
-            std::mem::replace(&mut network_result.nakamoto_blocks, HashMap::new());
+        let nakamoto_blocks = mem::take(&mut network_result.nakamoto_blocks);
         let mut accepted_nakamoto_blocks_and_relayers =
             match Self::process_downloaded_nakamoto_blocks(
                 burnchain,
@@ -2912,7 +2911,7 @@ impl Relayer {
         // push events for HTTP-uploaded stacker DB chunks
         self.process_uploaded_stackerdb_chunks(
             &network_result.rc_consensus_hash,
-            mem::replace(&mut network_result.uploaded_stackerdb_chunks, vec![]),
+            mem::take(&mut network_result.uploaded_stackerdb_chunks),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         );
 
@@ -2920,7 +2919,7 @@ impl Relayer {
         self.process_stacker_db_chunks(
             &network_result.rc_consensus_hash,
             &network_result.stacker_db_configs,
-            mem::replace(&mut network_result.stacker_db_sync_results, vec![]),
+            mem::take(&mut network_result.stacker_db_sync_results),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         )?;
 
@@ -2928,7 +2927,7 @@ impl Relayer {
         self.process_pushed_stacker_db_chunks(
             &network_result.rc_consensus_hash,
             &network_result.stacker_db_configs,
-            mem::replace(&mut network_result.pushed_stackerdb_chunks, vec![]),
+            mem::take(&mut network_result.pushed_stackerdb_chunks),
             event_observer.map(|obs| obs.as_stackerdb_event_dispatcher()),
         )?;
 

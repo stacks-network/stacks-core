@@ -214,7 +214,7 @@ fn lookup_variable<'a>(
         let value = value.clone_with_cost(exec_state)?;
         let (value, _) =
             Value::sanitize_value(exec_state.epoch(), &TypeSignature::type_of(&value)?, value)
-                .ok_or_else(|| RuntimeCheckErrorKind::CouldNotDetermineType)?;
+                .ok_or(RuntimeCheckErrorKind::CouldNotDetermineType)?;
         return Ok(ValueRef::Owned(value));
     }
     if let Some(callable_data) = context.lookup_callable_contract(name) {

@@ -19,7 +19,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
-use std::{cmp, fmt};
+use std::{cmp, fmt, mem};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use rand::{thread_rng, Rng};
@@ -320,7 +320,7 @@ impl AttachmentsDownloader {
 
         // we're draining the initial batch, so to avoid angering The Borrow Checker
         //  use mem replace to just take the whole vec.
-        let initial_batch = std::mem::replace(&mut self.initial_batch, vec![]);
+        let initial_batch = mem::take(&mut self.initial_batch);
 
         self.check_attachment_instances(
             atlas_db,
