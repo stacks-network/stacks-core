@@ -9153,7 +9153,7 @@ fn burn_block_payload_includes_pox_transactions() {
     let mut miners = MultipleMinerTest::new(5, 0);
 
     let (conf_1, conf_2) = miners.get_node_configs();
-    let expected_miner_addresses = HashSet::from([
+    let expected_apparent_senders = HashSet::from([
         miners
             .btc_regtest_controller_mut()
             .get_miner_address(
@@ -9230,10 +9230,10 @@ fn burn_block_payload_includes_pox_transactions() {
     assert_eq!(total_per_recipient, total_per_recipient_from_transactions);
 
     assert_eq!(
-        expected_miner_addresses,
+        expected_apparent_senders,
         pox_transactions
             .iter()
-            .map(|t| t.miner_address.clone().unwrap())
+            .map(|t| t.apparent_sender.clone().unwrap())
             .collect()
     );
 }

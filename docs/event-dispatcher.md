@@ -388,7 +388,7 @@ Delivers information about burnchain blocks as their sortitions are processed.
   "pox_transactions": [
     {
       "txid": "0x738e4d44636023efa08374033428e44eca490582bd39a6e61f3b6cf749b4214c",
-      "miner_address": "1Nf8i9YJZmeomYqKkV7UEhDPr6S7pABG4B",
+      "apparent_sender": "1Nf8i9YJZmeomYqKkV7UEhDPr6S7pABG4B",
       "reward_recipients": [
         {
           "recipient": "1C56LYirKa3PFXFsvhSESgDy2acEHVAEt6",
@@ -410,9 +410,9 @@ Delivers information about burnchain blocks as their sortitions are processed.
   include recipients who did _not_ have reward slots during the block. This could happen if
   a miner's commitment was included a block or two later than intended. Such commitments would
   not be valid, but the reward recipient would still receive the burn `amt`.
-* `pox_transactions` attributes each PoX reward to its burnchain transaction and apparent miner
-  address. The address is derived from the transaction's change output and is not authenticated.
-  It is `null` when the transaction has no change output or the output cannot be decoded.
+* `pox_transactions` attributes each PoX reward to its burnchain transaction and apparent sender.
+  The apparent sender is derived from the transaction's change output and is not authenticated. It
+  is `null` when the transaction has no change output or the output cannot be decoded.
 * `reward_slot_holders` is an array of the Bitcoin addresses that would validly receive
   PoX commitments during this block. These addresses may not actually receive rewards during
   this block if the block is faster than miners have an opportunity to commit.
