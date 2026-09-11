@@ -6925,8 +6925,10 @@ mod test {
 
     #[test]
     fn test_validate_block_push() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.max_block_push_bandwidth = 100;
+        let conn_opts = ConnectionOptions {
+            max_block_push_bandwidth: 100,
+            ..Default::default()
+        };
 
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
 
@@ -7052,8 +7054,10 @@ mod test {
 
     #[test]
     fn test_validate_transaction_push() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.max_transaction_push_bandwidth = 100;
+        let conn_opts = ConnectionOptions {
+            max_transaction_push_bandwidth: 100,
+            ..Default::default()
+        };
 
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
 
@@ -7179,8 +7183,10 @@ mod test {
 
     #[test]
     fn test_validate_microblocks_push() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.max_microblocks_push_bandwidth = 100;
+        let conn_opts = ConnectionOptions {
+            max_microblocks_push_bandwidth: 100,
+            ..Default::default()
+        };
 
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
 
@@ -7306,8 +7312,10 @@ mod test {
 
     #[test]
     fn test_validate_stackerdb_push() {
-        let mut conn_opts = ConnectionOptions::default();
-        conn_opts.max_stackerdb_push_bandwidth = 100;
+        let conn_opts = ConnectionOptions {
+            max_stackerdb_push_bandwidth: 100,
+            ..Default::default()
+        };
 
         let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
 

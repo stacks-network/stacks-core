@@ -5084,8 +5084,10 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
 
     // Visit transactions using the `NextNonceWithHighestFeeRate` strategy. Keep a record of the order of visits so we can compare
     // at the end.
-    let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.strategy = MemPoolWalkStrategy::NextNonceWithHighestFeeRate;
+    let mempool_settings = MemPoolWalkSettings {
+        strategy: MemPoolWalkStrategy::NextNonceWithHighestFeeRate,
+        ..Default::default()
+    };
     let mut considered_txs = vec![];
     let deadline = get_epoch_time_ms() + 30000;
     chainstate.with_read_only_clarity_tx(

@@ -1120,8 +1120,8 @@ mod tests {
         assert_eq!(addr_str, addr.to_bech32(), "to bench32 check");
         assert_eq!(addr_str, addr.to_string(), "to string check");
         assert_eq!(Variant::Bech32, addr.bech32_variant(), "variant check");
-        assert_eq!(true, addr.is_p2wpkh(), "type check");
-        assert_eq!(false, addr.is_mainnet(), "mainnet check");
+        assert!(addr.is_p2wpkh(), "type check");
+        assert!(!addr.is_mainnet(), "mainnet check");
         assert_eq!(SEGWIT_REGTEST_HRP, addr.hrp(), "hrp check");
         assert_eq!(BitcoinNetworkType::Regtest, addr.network(), "network check");
     }
@@ -1134,8 +1134,8 @@ mod tests {
         assert_eq!(addr_str, addr.to_bech32(), "to bench32 check");
         assert_eq!(addr_str, addr.to_string(), "to string check");
         assert_eq!(Variant::Bech32, addr.bech32_variant(), "variant check");
-        assert_eq!(true, addr.is_p2wsh(), "type check");
-        assert_eq!(false, addr.is_mainnet(), "mainnet check");
+        assert!(addr.is_p2wsh(), "type check");
+        assert!(!addr.is_mainnet(), "mainnet check");
         assert_eq!(SEGWIT_REGTEST_HRP, addr.hrp(), "hrp check");
         assert_eq!(BitcoinNetworkType::Regtest, addr.network(), "network check");
     }
@@ -1148,8 +1148,8 @@ mod tests {
         assert_eq!(addr_str, addr.to_bech32(), "to bench32 check");
         assert_eq!(addr_str, addr.to_string(), "to string check");
         assert_eq!(Variant::Bech32m, addr.bech32_variant(), "variant check");
-        assert_eq!(false, addr.is_mainnet(), "mainnet check");
-        assert_eq!(true, addr.is_p2tr(), "type check");
+        assert!(!addr.is_mainnet(), "mainnet check");
+        assert!(addr.is_p2tr(), "type check");
         assert_eq!(SEGWIT_REGTEST_HRP, addr.hrp(), "hrp check");
         assert_eq!(BitcoinNetworkType::Regtest, addr.network(), "network check");
     }

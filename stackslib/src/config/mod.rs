@@ -5558,11 +5558,8 @@ mod tests {
                 "#,
         );
 
-        assert_eq!(
-            true, config.node.marf_defer_hashing,
-            "default defer hashing"
-        );
-        assert_eq!(true, config.node.marf_compress, "default compress");
+        assert!(config.node.marf_defer_hashing, "default defer hashing");
+        assert!(config.node.marf_compress, "default compress");
 
         let cfg_opts = config.node.get_marf_opts();
         assert_eq!(
@@ -5570,13 +5567,10 @@ mod tests {
             cfg_opts.hash_calculation_mode,
             "default defer hashing opt"
         );
-        assert_eq!(true, cfg_opts.compress, "default compress opt");
-        assert_eq!(
-            false, cfg_opts.external_blobs,
-            "internal default blob setting"
-        );
-        assert_eq!(
-            false, cfg_opts.force_db_migrate,
+        assert!(cfg_opts.compress, "default compress opt");
+        assert!(!cfg_opts.external_blobs, "internal default blob setting");
+        assert!(
+            !cfg_opts.force_db_migrate,
             "internal default migrate setting"
         );
 
@@ -5590,11 +5584,8 @@ mod tests {
                 "#,
         );
 
-        assert_eq!(
-            false, config.node.marf_defer_hashing,
-            "configured defer hashing"
-        );
-        assert_eq!(false, config.node.marf_compress, "configured compress");
+        assert!(!config.node.marf_defer_hashing, "configured defer hashing");
+        assert!(!config.node.marf_compress, "configured compress");
 
         let cfg_opts = config.node.get_marf_opts();
         assert_eq!(
@@ -5602,13 +5593,10 @@ mod tests {
             cfg_opts.hash_calculation_mode,
             "configured hash opt"
         );
-        assert_eq!(false, cfg_opts.compress, "configured compress opt");
-        assert_eq!(
-            false, cfg_opts.external_blobs,
-            "internal default blob setting"
-        );
-        assert_eq!(
-            false, cfg_opts.force_db_migrate,
+        assert!(!cfg_opts.compress, "configured compress opt");
+        assert!(!cfg_opts.external_blobs, "internal default blob setting");
+        assert!(
+            !cfg_opts.force_db_migrate,
             "internal default migrate setting"
         );
     }
