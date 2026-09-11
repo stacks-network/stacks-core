@@ -256,7 +256,8 @@ unless it equals `consensus_byte_len`. A descriptor-guided reconstructor MUST pr
 The body is the shortest non-empty two's-complement big-endian representation of the `i128`.
 Redundant leading `00` or `ff` sign-extension bytes are forbidden. Zero is encoded as one `00` byte.
 
-Consensus reconstruction prepends the Clarity integer prefix and sign-extends the body to 16 bytes.
+Consensus reconstruction emits the Clarity integer prefix, then `16 - W` padding bytes, then the
+body. Padding is `ff` when the body's most significant bit is set and `00` otherwise.
 
 ### Unsigned integer
 
@@ -267,8 +268,8 @@ Consensus reconstruction prepends the Clarity integer prefix and sign-extends th
 The body is the shortest non-empty unsigned big-endian representation of the `u128`. A multi-byte
 value MUST NOT begin with `00`. Zero is encoded as one `00` byte.
 
-Consensus reconstruction prepends the Clarity unsigned-integer prefix and zero-extends the body to
-16 bytes.
+Consensus reconstruction emits the Clarity unsigned-integer prefix, then `16 - W` zero (`00`) bytes,
+then the body.
 
 ### Boolean
 
